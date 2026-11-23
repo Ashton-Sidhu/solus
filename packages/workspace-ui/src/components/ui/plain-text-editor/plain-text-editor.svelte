@@ -97,6 +97,7 @@
     onWorkRefClick,
     onPrRefClick,
     onFileRefClick,
+    onLinkRefClick,
     placeholder = "",
     ariaLabel,
     hidePlaceholderOnFocus = false,
@@ -148,6 +149,7 @@
     onWorkRefClick,
     onPrRefClick,
     onFileRefClick,
+    onLinkRefClick,
   });
   const references = createReferenceDecorations(() => referenceConfig);
 
@@ -169,6 +171,12 @@
       fontSize:
         "var(--plain-editor-font-size, var(--text-body))",
       fontWeight: "var(--solus-font-weight-body, 400)",
+      // The selection colour, solid. The selection layer is measured from text
+      // and covers a chip only in part, so a selected chip paints this colour
+      // too. A translucent `Highlight` would paint twice where both meet; this
+      // is the same colour mixed solid on the page background.
+      "--plain-editor-selection":
+        "color-mix(in srgb, rgb(from Highlight r g b / 1) 60%, var(--background))",
     },
     "&.cm-focused": { outline: "none" },
     // Composer lines can start at the scroll area's left edge. CodeMirror's
@@ -178,7 +186,7 @@
       marginLeft: "0",
     },
     ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
-      backgroundColor: "Highlight",
+      backgroundColor: "var(--plain-editor-selection)",
     },
     ".cm-scroller": {
       maxHeight: "var(--plain-editor-max-height, 8.75rem)",

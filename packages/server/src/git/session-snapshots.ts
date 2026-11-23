@@ -6,6 +6,7 @@ import { createLogger } from '../logger'
 import { isInsideRoot } from '../paths'
 import { runAsync } from './exec'
 import { turnActivity } from './turn-activity'
+import { getCheckoutComparisonBase } from './worktree-manager'
 import type {
   ChangedFileStat,
   DiffFileContent,
@@ -826,11 +827,13 @@ export async function getEpisodeNumstats(
 ): Promise<ChangedFileStat[][]> {
   const outputs = await withWorkingTreeIndex(workTree, repoRoot, async (env, head) => {
     const bases = await Promise.all(baseShas)
-    return Promise.all(bases.map((base) => runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', base === 'HEAD' ? head : base, '--numstat', '--summary'],
+    const refs = bases.map((base) => base === 'HEAD' ? head : base)
+    const outputs = new Map(Array.from(new Set(refs), (ref) => [ref, runAsync('git',
+      ['-c', 'core.quotepath=false', 'diff', ref, '--numstat', '--summary'],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
-    )))
+    )]))
+    return Promise.all(refs.map((ref) => outputs.get(ref)!))
   })
   return outputs.map(parseChangedFileStats)
 }
@@ -883,6 +886,7 @@ function resolveNumstatPath(raw: string): string {
 /**
  * The single diff entry point for every scope. Resolves the scope to one
  * combined raw `git diff` patch:
+ *  - branch: checkout merge base vs the live filesystem
  *  - working-tree: HEAD vs the live filesystem (untracked included via add -N)
  *  - session owned: base vs the whole worktree the session works alone in
  *  - session shared: base vs the live checkout, limited to the session's paths
@@ -894,16 +898,10 @@ export async function getDiff(
   scope: DiffScope,
   sessionId: string | null,
 ): Promise<DiffResult | null> {
-  if (scope.kind === 'working-tree') {
+  if (scope.kind === 'branch' || scope.kind === 'working-tree') {
     if (!workTree) return null
-    const combined = await withWorkingTreeIndex(workTree, repoRoot, (env, head) =>
-      runAsync('git',
-        ['-c', 'core.quotepath=false', 'diff', head, ...diffFormatArgs()],
-        workTree,
-        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
-      ),
-    )
-    return { patch: combined }
+    const base = scope.kind === 'branch' ? await getCheckoutComparisonBase(workTree) : 'HEAD'
+    return getEpisodeDiff(workTree, repoRoot, base)
   }
 
   // PR review: the worktree IS the PR head; diff it against the merge-base so the
@@ -1009,15 +1007,11 @@ export async function getDiffFileContents(
   let oldFile: DiffFileContent | null
   let newFile: DiffFileContent | null
 
-  if (request.scope.kind === 'working-tree') {
+  if (request.scope.kind === 'branch' || request.scope.kind === 'working-tree' || request.scope.kind === 'pr') {
     if (!workTree) return null
-    ;[oldFile, newFile] = await Promise.all([
-      readBlobAt(repoRoot, 'HEAD', oldPath),
-      readWorktreeFile(workTree, request.path),
-    ])
-  } else if (request.scope.kind === 'pr') {
-    if (!workTree) return null
-    const base = request.scope.baseSha
+    const base = request.scope.kind === 'pr'
+      ? request.scope.baseSha
+      : request.scope.kind === 'branch' ? await getCheckoutComparisonBase(workTree) : 'HEAD'
     ;[oldFile, newFile] = await Promise.all([
       readBlobAt(repoRoot, base, oldPath),
       readWorktreeFile(workTree, request.path),
@@ -1058,15 +1052,10 @@ export async function getDiffStats(
   scope: DiffScope,
   sessionId: string | null,
 ): Promise<ChangedFileStat[]> {
-  if (scope.kind === 'working-tree') {
+  if (scope.kind === 'branch' || scope.kind === 'working-tree') {
     if (!workTree) return []
-    const out = await withWorkingTreeIndex(workTree, repoRoot, (env, head) =>
-      runAsync('git', ['-c', 'core.quotepath=false', 'diff', head, '--numstat', '--summary'], workTree, {
-        env,
-        maxBuffer: COMBINED_DIFF_MAX_BUFFER,
-      }),
-    )
-    return parseChangedFileStats(out)
+    const base = scope.kind === 'branch' ? getCheckoutComparisonBase(workTree) : 'HEAD'
+    return getEpisodeNumstat(workTree, repoRoot, base)
   }
 
   if (scope.kind === 'pr') {

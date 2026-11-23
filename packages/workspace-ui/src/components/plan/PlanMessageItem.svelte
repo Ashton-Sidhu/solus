@@ -39,13 +39,6 @@
   const planType = $derived(planTypeLabel(planStatus));
 
   const isStreaming = $derived(ref.streaming ?? false);
-  const workType = $derived(
-    ref.workType === "slides"
-      ? "slides"
-      : ref.workType === "artifact"
-        ? "artifact"
-        : "doc",
-  );
   const documentMeta = $derived(
     compactMeta(ref.contentVersion ? `v${ref.contentVersion}` : "", ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
   );
@@ -94,7 +87,7 @@
 {:else if ref.kind === "document"}
   <TranscriptCard
     title={ref.title ?? "Untitled document"}
-    type={workType}
+    type={ref.workType === "doc" ? undefined : ref.workType}
     actionLabel="Open"
     ariaLabel={`Open document: ${ref.title ?? "Untitled document"}`}
     onOpen={openWork}

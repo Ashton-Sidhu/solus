@@ -3,7 +3,7 @@ import type { DigestTurnChanges, SessionChangeSummary, SessionDigest, SessionTre
 import type { AgentId, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { OverviewChange, OwnedArtifact } from './session-overview'
 import { overviewChanges } from './session-overview'
-import { timelineWorkMs, type TimelineTurn } from './turn-timeline'
+import { timelineWorkMs, type TimelineTurn, type TurnCost } from './turn-timeline'
 
 /**
  * What the Threads surface shows of a session tree
@@ -36,6 +36,13 @@ export function treeTimeline(digest: SessionDigest | null, now: number): TreeTim
     return { id: turn.id, startedAt: turn.startedAt, endedAt: turn.settled ? turn.endedAt : Math.max(turn.endedAt, now), prompt: turn.prompt }
   })
   return { turns, toolCallTimes }
+}
+
+/** What each priced turn of one node cost. A turn its host could not price is left out: an unknown cost is not zero. */
+export function digestTurnCosts(digest: SessionDigest | null): TurnCost[] {
+  return (digest?.turns ?? []).flatMap((turn) =>
+    turn.costUsd === undefined ? [] : [{ startedAt: turn.startedAt, endedAt: turn.endedAt, costUsd: turn.costUsd }],
+  )
 }
 
 /** The totals of one turn's checkpoint, by the turn's id. Null for a turn with no checkpoint. */

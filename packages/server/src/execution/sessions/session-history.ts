@@ -84,7 +84,18 @@ export class SessionHistory {
     const page = await loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
-      (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before, request.knownHistoryBlocks !== undefined),
+      async (segment, turnLimit, before) => {
+        const page = await this.readProviderPage(segment, turnLimit, before, request.knownHistoryBlocks !== undefined)
+        if (!lineage || !segment.sessionId) return page
+        // Fork controls address the provider that answered this response,
+        // including the earlier member of a session that changed providers.
+        return {
+          ...page,
+          messages: page.messages.map((message) => message.forkPointId
+            ? { ...message, sourceSessionId: segment.sessionId ?? undefined }
+            : message),
+        }
+      },
     )
     const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
     if (starting) page.messages.push(starting)

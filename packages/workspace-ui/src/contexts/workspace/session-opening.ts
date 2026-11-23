@@ -541,6 +541,7 @@ export class SessionOpening {
     if (!background && !intoTabId) this.workspace.revealConversation()
     // A host that is behind gets ready before the person sends (portable-sessions §10).
     sessionListStore.noteSessionMeta(selectedServerId, meta)
+    if (meta.execution) this.workspace.sessions.adoptExecution(selectedServerId, resumedSessionId, meta.execution)
     this.workspace.runHosts.opened(tabId)
 
     // The watch also attaches to the live runtime, which is what a separate
@@ -559,6 +560,7 @@ export class SessionOpening {
     })
       .then(
         (watched) => {
+          if (watched.execution) this.workspace.sessions.adoptExecution(selectedServerId, resumedSessionId, watched.execution)
           this.workspace.applyRuntimeAttach(tabId, watched.runtime)
           this.workspace.applyPendingQuestions(tabId, watched.pendingQuestions)
           return null

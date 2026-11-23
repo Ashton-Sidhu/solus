@@ -343,7 +343,7 @@ export function threadListV2RowAccessibilityLabel(
     input.hasQueuedMessages ? resolve(msg("messages queued to send")) : null,
     input.regeneratingTitle ? resolve(msg("regenerating title")) : null,
   ]
-    .filter((part) => part !== null)
+    .filter(Boolean)
     .join(", ");
 }
 
@@ -414,6 +414,7 @@ export function getThreadListV2OrderedSection(input: {
   const threads = input.threads.filter((thread) => {
     if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) return false;
     if (
+      thread.pinnedAt == null &&
       (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
       thread.settledOverride === "settled" &&
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
@@ -592,7 +593,7 @@ function resolveThreadListV2ItemTimeLabel(
   resolve: MessageResolver,
 ): string {
   const { thread, variant, snoozed } = item;
-  if (showSnoozeWakeLabel) return "";
+  if (showSnoozeWakeLabel || (item.pinned && variant === "slim" && !snoozed)) return "";
   if (
     variant === "card" &&
     (resolveThreadListV2RowStatus(thread) !== "ready" ||
@@ -793,6 +794,7 @@ export function buildThreadListV2Items(input: {
   const working: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const snoozed: EnvironmentThreadShell[] = [];
+  const pinnedCompleted = new Set<EnvironmentThreadShell>();
   let nextSnoozeWakeAt: string | null = null;
   const queuedThreadKeys = input.queuedThreadKeys?.size ? input.queuedThreadKeys : undefined;
   const listedThreads = input.threads.filter(
@@ -844,10 +846,12 @@ export function buildThreadListV2Items(input: {
     }
     const hasQueuedMessages =
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) === true;
-    if (supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages) {
-      settled.push(thread);
-    } else if (thread.pinnedAt != null) {
+    const isCompleted = supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages;
+    if (thread.pinnedAt != null) {
+      if (isCompleted) pinnedCompleted.add(thread);
       pinned.push(thread);
+    } else if (isCompleted) {
+      settled.push(thread);
     } else if (workingShelfEnabled && (input.isWorking ?? isThreadWorking)(thread)) {
       working.push(thread);
     } else {
@@ -859,7 +863,7 @@ export function buildThreadListV2Items(input: {
     // Searching lists every match by rank across shelves, as the palette and
     // the web sidebar do, then threads listed for their messages in the
     // server's order. Each row keeps its shelf's look.
-    const slim = new Set([...snoozed, ...settled]);
+    const slim = new Set([...snoozed, ...settled, ...pinnedCompleted]);
     const snoozedThreads = new Set(snoozed);
     const pinnedThreads = new Set(pinned);
     const threadByKey = new Map(
@@ -947,12 +951,13 @@ export function buildThreadListV2Items(input: {
     "pinned",
     pending,
   )) {
+    const isCompleted = pinnedCompleted.has(thread);
     items.push({
       thread,
-      variant: "card",
+      variant: isCompleted ? "slim" : "card",
       snoozed: false,
       pinned: true,
-      wokeAt: resolveThreadListV2WokeAt(thread, { now }),
+      wokeAt: isCompleted ? null : resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
     });
   }

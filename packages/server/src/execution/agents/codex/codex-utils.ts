@@ -650,6 +650,10 @@ export function completeCodexTurnMessages(turn: CodexTurnHistory, messages: Sess
       ...(isAuthFailureMessage(error) && { loginRefused: true as const }),
     })
   }
+  if (turn.id && turn.status === 'completed') {
+    const response = messages.findLast((message) => message.role === 'assistant' && !message.parentToolUseId)
+    if (response) response.forkPointId = turn.id
+  }
   const lastMessage = messages.at(-1)
   if (lastMessage && completedAt !== null && completedAt > startedAt) {
     lastMessage.timestamp = completedAt

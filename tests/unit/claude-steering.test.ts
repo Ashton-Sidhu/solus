@@ -74,6 +74,19 @@ describe('ClaudeBackend steering', () => {
     expect(capturedOptions?.forkSession).toBe(true)
   })
 
+  test('a response fork passes the selected Claude checkpoint to the SDK', async () => {
+    scriptedMessages = []
+    const backend = new ClaudeBackend()
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'claude-code', prompt: 'fork', cwd: '/tmp', tools: [],
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
+      conversation: { kind: 'fork', sourceThreadId: 'source-thread', pointId: 'reply-uuid' },
+    })
+    await handle.runPromise
+    expect(capturedOptions).toMatchObject({ resume: 'source-thread', forkSession: true, resumeSessionAt: 'reply-uuid' })
+  })
+
   test('delivers into the turn that is already running, not the next one', async () => {
     const backend = new ClaudeBackend()
     const input = activeRun(backend, 'session-1')
@@ -303,7 +316,7 @@ describe('ClaudeAgent turn input lifetime', () => {
     expect(input.closed).toBe(true)
   })
 
-  test('does not settle the user turn again for a task-notification continuation', async () => {
+  test('a task-notification continuation ends as a turn of its own', async () => {
     scriptedMessages = [
       { type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-test', skills: [] },
       { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
@@ -332,8 +345,9 @@ describe('ClaudeAgent turn input lifetime', () => {
     for await (const event of events) normalized.push(event)
 
     expect(normalized.filter((event) => event.type === 'session_init')).toHaveLength(2)
-    expect(normalized.filter((event) => event.type === 'task_complete')).toHaveLength(1)
-    expect(completedTurns).toBe(1)
+    // The wake is a turn: it ends on its own result and records what it changed.
+    expect(normalized.filter((event) => event.type === 'task_complete')).toHaveLength(2)
+    expect(completedTurns).toBe(2)
   })
 
   // An abort that lands during tool execution reports `aborted_tools` rather than

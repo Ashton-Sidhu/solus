@@ -10,6 +10,7 @@ import {
   type IssueListEntry,
   type IssueRef,
   type IssueDetail,
+  type IssueComment,
   type IssueEvent,
   type IssueLinkedPullRequest,
   type PullRequestListInput,
@@ -29,8 +30,8 @@ import {
 } from "@t3tools/contracts";
 import { summarizeChangedFiles } from "@t3tools/shared/changedFileKind";
 import type { CheckItem } from "@solus/contracts/checks-types";
-import type { TaskSummary } from "@solus/contracts/task-types";
-import type { TaskProviderData, TaskProviderEvent } from "@solus/contracts/task-data";
+import type { TaskComment, TaskSummary } from "@solus/contracts/task-types";
+import type { TaskProviderData, TaskProviderEvent, TaskProviderPullRequest } from "@solus/contracts/task-data";
 import type { ProjectEntry } from "@solus/contracts/types";
 import { githubIssueRow, githubPullRequestRow } from "./issue-pr-rows";
 import { solus } from "./runtime";
@@ -260,7 +261,9 @@ export const solusIssueDetail = hostQuery(
     writableFields: TaskSummary["writableFields"];
     events: ReadonlyArray<ProviderIssueEvent>;
     providerPullRequests?: ReadonlyArray<IssueProviderPullRequest>;
+    providerComments?: ReadonlyArray<IssueComment>;
     providerTaskId?: string;
+    timelineOnly?: true;
   }> => {
     const external = input.issueUrl
       ? await sourceControlApi(id).tasksResolve(input.issueUrl, { detailsOnly: true })
@@ -289,17 +292,18 @@ export const solusIssueDetail = hostQuery(
       },
       states: [],
       viewer: null,
-      comments: detail.comments.map((c) => ({
-        id: c.id,
-        author: c.externalAuthor ? { login: c.externalAuthor, name: null, avatarUrl: null } : null,
-        body: c.body,
-        createdAt: new Date(c.createdAt).toISOString(),
-        url: null,
-      })),
+      comments: detail.comments.map(issueComment),
       commentsCursor: null,
       ...(external?.inspection
         ? issueProviderActivity(external.inspection)
-        : { events: [], providerTaskId: detail.task.id }),
+        : {
+          events: [],
+          providerTaskId: detail.task.id,
+          ...(detail.providerMetadata && {
+            timelineOnly: true as const,
+            providerPullRequests: issueProviderPullRequests(detail.providerMetadata.pullRequests),
+          }),
+        }),
       linkedPullRequests: [],
     };
   },
@@ -310,6 +314,24 @@ export type IssueProviderPullRequest = Omit<IssueLinkedPullRequest, "state"> & {
 };
 
 export type ProviderIssueEvent = IssueEvent & { providerText?: string; providerLink?: TaskProviderEvent["link"] };
+
+function issueComment(comment: TaskComment): IssueComment {
+  return {
+    id: comment.providerCommentId ?? comment.id,
+    author: comment.externalAuthor ? { login: comment.externalAuthor, name: null, avatarUrl: null } : null,
+    body: comment.body,
+    createdAt: new Date(comment.createdAt).toISOString(),
+    url: null,
+  };
+}
+
+function issueProviderPullRequests(pullRequests: TaskProviderPullRequest[]) {
+  return pullRequests.map((pullRequest) => ({
+    ...pullRequest,
+    repository: new URL(pullRequest.url).pathname.split("/").slice(1, 3).join("/"),
+    isDraft: false,
+  }));
+}
 
 function issueProviderActivity(inspection: TaskProviderData) {
   return {
@@ -323,16 +345,17 @@ function issueProviderActivity(inspection: TaskProviderData) {
       providerLink: event.link,
     })),
     historyCursor: inspection.historyCursor,
-    providerPullRequests: inspection.pullRequests.map((pullRequest) => ({
-      ...pullRequest,
-      repository: new URL(pullRequest.url).pathname.split("/").slice(1, 3).join("/"),
-      isDraft: false,
-    })),
+    providerComments: inspection.comments?.map(issueComment) ?? [],
+    providerPullRequests: issueProviderPullRequests(inspection.pullRequests),
   };
 }
 
-export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; cursor?: string }) => {
-  const inspection = await sourceControlApi(id).tasksGet(input.taskId, { section: "provider", ...(input.cursor && { cursor: input.cursor }) });
+export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; cursor?: string; timelineOnly?: true }) => {
+  const inspection = await sourceControlApi(id).tasksGet(input.taskId, {
+    section: "provider",
+    ...(input.cursor && { cursor: input.cursor }),
+    ...(input.timelineOnly && { timelineOnly: true }),
+  });
   if ("task" in inspection) throw new Error("Update the task host to read provider activity.");
   return issueProviderActivity(inspection);
 });
@@ -342,7 +365,7 @@ export const solusPrDetail = hostQuery(
     const api = sourceControlApi(id);
     const context = solus.pullRequests.context(input.projectId);
     const [{ pullRequest: pr, reviewers }, checksSnapshot] = await Promise.all([
-      api.prGetOverview(context, input.number),
+      api.prGetOverview(context, input.number, { includeCommits: false }),
       api.prChecks(context, [input.number]).catch(() => null),
     ]);
     const summary = checksSnapshot?.checks.find((check) => check.number === input.number)?.summary;

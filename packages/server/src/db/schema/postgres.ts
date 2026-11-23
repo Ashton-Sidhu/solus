@@ -38,6 +38,7 @@ export const acl_entry = sharingSchema.aclEntry.pg
 export const session = sessionsSchema.session.pg
 export const session_repositories = sessionsSchema.sessionRepositories.pg
 export const session_digests = sessionsSchema.sessionDigests.pg
+export const session_executions = sessionsSchema.sessionExecutions.pg
 export const session_artifact_copies = sessionsSchema.sessionArtifactCopies.pg
 export const resource_links = linksSchema.resourceLinks.pg
 export const pull_request_observations = linksSchema.pullRequestObservations.pg

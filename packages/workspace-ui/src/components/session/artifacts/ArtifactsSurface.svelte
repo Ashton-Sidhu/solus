@@ -18,17 +18,19 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import { changeTotals, isInScope, type OwnedArtifact } from "@solus/client-core/session-overview";
-  import { getClientShellContext, getSessionEnvironmentStore, getSessionSidebarStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
+  import { getClientShellContext, getSessionEnvironmentStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
   import { sessionArtifactsStore } from "../../../contexts/sessions/session-artifacts.store.svelte";
   import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
   import { artifactKey } from "../../../contexts/sessions/session-artifacts";
   import { PAGE_SECONDARY_BTN } from "../../../lib/page-chrome";
-  import { getStatusLabel, sessionTitle } from "../../../lib/sessionUtils";
+  import { sessionTitle } from "../../../lib/sessionUtils";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { agentConversationMeta } from "../../conversation/agent-conversation/agent-conversation-meta.store.svelte";
+  import AgentStateMark from "../../conversation/AgentStateMark.svelte";
+  import { agentExecutionLink, agentMarkShowsElapsed } from "../../conversation/lib/agent-link";
   import { openAgentSession } from "../../conversation/agent-conversation/lib/agent-conversation";
   import { diffSummaryStore } from "../../conversation/diff-summary.store.svelte";
-  import { treeAgentRows, type RailAgentRow } from "../../project-panel/lib/rail-agents";
+  import { relatedSessionTitle, treeAgentRows, type RailAgentRow } from "../../project-panel/lib/rail-agents";
   import AgentsSection from "../../project-panel/AgentsSection.svelte";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
@@ -65,7 +67,6 @@
   const session = getWorkspaceContext();
   const environment = getSessionEnvironmentStore();
   const settings = getSettingsContext();
-  const sidebarStore = getSessionSidebarStore();
   const pane = paneActions(() => paneId);
 
   const serverId = $derived(params.serverId ?? session.serverIdForSession(params.sessionId));
@@ -73,7 +74,6 @@
     session,
     () => params.sessionId,
     () => serverId,
-    (agentSessionId, agentServerId) => sidebarStore.activityOf({ sessionId: agentSessionId, serverId: agentServerId }),
   );
   const sess = $derived(overview.session);
   // The conversation's tab, which the diff pane and the history read go through.
@@ -87,7 +87,12 @@
 
   // A running turn and a running agent count up; nothing ticks when the session is at rest.
   const desktopLineage = getClientShellContext().supportsNativeSettings;
-  const ticks = $derived(overview.live || (!desktopLineage && overview.hasLiveAgent));
+  const execution = $derived(session.sessions.executionFor(serverId, params.sessionId));
+  const statusLink = $derived(agentExecutionLink(execution, {
+    activity: execution?.current?.phase === "running" ? session.sessions.activityFor(serverId, params.sessionId) : null,
+  }));
+  const ticks = $derived(overview.live || (!!execution?.current && agentMarkShowsElapsed(statusLink.mark))
+    || (!desktopLineage && overview.hasLiveAgent));
   $effect(() => {
     if (!ticks) return;
     return liveActivityClock.subscribe((value) => {
@@ -122,9 +127,9 @@
   });
 
   const title = $derived(sess ? sessionTitle(sess) : "Threads");
-  const statusLabel = $derived(sess ? getStatusLabel(sess.status) : null);
-  const turnElapsed = $derived(
-    overview.live && sess?.currentTurnStartedAt ? formatElapsed(overview.now - sess.currentTurnStartedAt) : null,
+  const statusLabel = $derived(sess || overview.tree?.nodes.length ? statusLink.label : null);
+  const turnElapsed = $derived(execution?.current && agentMarkShowsElapsed(statusLink.mark)
+    ? formatElapsed(Math.max(0, overview.now - execution.current.startedAt)) : null,
   );
   const branch = $derived(sess ? environment.environmentFor(sess.run).branch : null);
 
@@ -166,7 +171,7 @@
     const { tree, stale } = sessionTreeStore.viewFor(params.sessionId, serverId);
     const query = overview.query.trim().toLowerCase();
     return stale
-      || !!tree?.relations?.some((row) => row.title.toLowerCase().includes(query))
+      || !!tree?.relations?.some((row) => relatedSessionTitle(row, serverId, session).toLowerCase().includes(query))
       || treeAgentRows(tree, params.sessionId, serverId).some((row) =>
         row.title.toLowerCase().includes(query) && isInScope(overview.scope, row.startedAt),
       );
@@ -267,11 +272,12 @@
           </button>
         {/if}
       </div>
-      {#if statusLabel || branch}
+      {#if statusLabel && !statusLink.mark}<span class="sr-only">{statusLabel}</span>{/if}
+      {#if statusLink.mark || branch}
         <div class="mt-1 flex min-w-0 items-center gap-3.5 text-xs text-muted-foreground">
-          {#if statusLabel}
+          {#if statusLink.mark}
             <span class="flex shrink-0 items-center gap-1.5">
-              <span class="font-medium text-(--solus-text-secondary)">{statusLabel}</span>
+              <AgentStateMark mark={statusLink.mark} label={statusLink.label} />
               {#if turnElapsed}<span class="tabular-nums">{turnElapsed}</span>{/if}
             </span>
           {/if}
@@ -326,6 +332,7 @@
               turns={overview.turns}
               toolCallTimes={overview.toolCallTimes}
               agentCallTimes={overview.agentCallTimes}
+              turnCosts={overview.turnCosts}
               live={overview.timelineLive}
               scopeTurnId={overview.scopeTurnId}
               onScope={(turnId) => (overview.scopeTurnId = turnId)}

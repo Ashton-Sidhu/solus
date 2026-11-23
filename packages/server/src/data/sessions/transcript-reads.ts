@@ -24,6 +24,7 @@ const conversationResultSchema = z.object({ sessionId: z.string().optional(), me
 /** A mirrored row as the runner projected it; every field the wire contract names, nothing else. */
 export const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   messageId: z.string().optional(),
+  forkPointId: z.string().optional(),
   sourceSessionId: z.string().optional(),
   sourceProvider: agentIdSchema.optional(),
   role: z.string(),

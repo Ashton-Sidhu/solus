@@ -24,6 +24,13 @@ export interface TimelineTurn {
   prompt: string
 }
 
+/** What a turn cost, as the host that ran it recorded when it settled. A turn with no known cost has no entry. */
+export interface TurnCost {
+  startedAt: number
+  endedAt: number
+  costUsd: number
+}
+
 /** What one bar stands for. Always a round span, so the legend can say it in words. */
 export interface BarSpan {
   seconds: number
@@ -62,6 +69,8 @@ export interface TimelineBar {
   agentCalls: number
   /** How long the wait was, on a wait bar. */
   waitMs: number
+  /** This bar's share of what its turn cost: a turn's cost is spread evenly over its bars, as it accrued while the turn worked. Zero on a wait. */
+  costUsd: number
 }
 
 /** The bars of one turn: the first, and the one after the last. */
@@ -93,6 +102,12 @@ export interface TimelineLayout {
    * calls would otherwise all stand at full height.
    */
   fullHeightCalls: number
+  /** What each turn cost, one per turn. Null for a turn whose cost is not known: Codex with a model that has no price, or a turn the host has no record of. */
+  turnCostUsd: (number | null)[]
+  /** What the turns on the line cost by the end of each bar, one per bar. */
+  runningCostUsd: number[]
+  /** What the turns on the line cost. Zero when no turn has a known cost. */
+  totalCostUsd: number
 }
 
 function turnBarCount(turn: TimelineTurn, span: BarSpan): number {
@@ -138,7 +153,13 @@ export function turnIndexAt(turns: readonly TimelineTurn[], time: number): numbe
  * when even the coarsest does not fit (very many turns), the layout keeps the
  * coarsest and the caller scrolls.
  */
-export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: readonly number[], maxBars: number, agentCallTimes: readonly number[] = []): TimelineLayout {
+export function timelineLayout(
+  turns: readonly TimelineTurn[],
+  toolCallTimes: readonly number[],
+  maxBars: number,
+  agentCallTimes: readonly number[] = [],
+  costs: readonly TurnCost[] = [],
+): TimelineLayout {
   const span = BAR_SPANS.find((candidate) => barTotal(turns, candidate) <= maxBars) ?? BAR_SPANS[BAR_SPANS.length - 1]!
   const spanMs = span.seconds * 1000
   const bars: TimelineBar[] = []
@@ -148,13 +169,13 @@ export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: re
     const from = bars.length
     const count = turnBarCount(turn, span)
     for (let offset = 0; offset < count; offset++) {
-      bars.push({ turn: index, startedAt: turn.startedAt + offset * spanMs, calls: 0, agentCalls: 0, waitMs: 0 })
+      bars.push({ turn: index, startedAt: turn.startedAt + offset * spanMs, calls: 0, agentCalls: 0, waitMs: 0, costUsd: 0 })
     }
     ranges.push({ from, to: bars.length })
     if (index === turns.length - 1) return
     const waitMs = waitMsAfter(turns, index)
     const gapFrom = bars.length
-    for (let offset = 0; offset < gapBarCount(waitMs); offset++) bars.push({ turn: null, startedAt: turn.endedAt, calls: 0, agentCalls: 0, waitMs })
+    for (let offset = 0; offset < gapBarCount(waitMs); offset++) bars.push({ turn: null, startedAt: turn.endedAt, calls: 0, agentCalls: 0, waitMs, costUsd: 0 })
     gaps.push({ from: gapFrom, to: bars.length, waitMs, isBreak: waitMs >= BREAK_MS })
   })
   /** The bar a call landed in. A call that lands past the turn's last bar (a clock a little ahead) counts in the last one. */
@@ -173,27 +194,65 @@ export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: re
     const bar = barAt(time)
     if (bar) bar.agentCalls += 1
   }
+  // A cost is matched to its turn by its middle, so a few milliseconds between
+  // the host's clock for the turn and the prompt's time never moves it to the turn before.
+  const turnCostUsd: (number | null)[] = turns.map(() => null)
+  for (const cost of costs) {
+    const index = turnIndexAt(turns, (cost.startedAt + cost.endedAt) / 2)
+    if (index === -1) continue
+    turnCostUsd[index] = (turnCostUsd[index] ?? 0) + cost.costUsd
+    const range = ranges[index]!
+    for (let bar = range.from; bar < range.to; bar++) bars[bar]!.costUsd += cost.costUsd / (range.to - range.from)
+  }
+  let spent = 0
+  const runningCostUsd = bars.map((bar) => (spent += bar.costUsd))
   const counts = bars.flatMap((bar) => (bar.calls + bar.agentCalls > 0 ? [bar.calls + bar.agentCalls] : [])).sort((a, b) => a - b)
   const fullHeightCalls = Math.max(MIN_FULL_HEIGHT_CALLS, counts[Math.floor(counts.length * 0.95)] ?? 0)
-  return { span, bars, ranges, gaps, fullHeightCalls }
+  return { span, bars, ranges, gaps, fullHeightCalls, turnCostUsd, runningCostUsd, totalCostUsd: spent }
 }
 
-/** A bar's two parts, in px. */
-export interface StackedBarHeights {
-  own: number
-  agents: number
+/** The top of the cost axis: the total rounded up to a step a person can read, so its half is round too. */
+export function costAxisTop(totalCostUsd: number): number {
+  if (totalCostUsd <= 0) return 0
+  const magnitude = 10 ** Math.floor(Math.log10(totalCostUsd))
+  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * magnitude).find((candidate) => candidate * 2 >= totalCostUsd)!
+  return step * 2
 }
+
+/** One bar of the chart, on a plot that is 1 tall: activity and cost share it, each on its own scale. */
+export interface TimelineChartRow {
+  index: number
+  /** The session's own calls, as [bottom, top]. Null for a bar with no calls: an empty span draws nothing. */
+  own: [number, number] | null
+  /** Its agents' calls, stacked on its own. Null when they made none. */
+  agents: [number, number] | null
+  /** What was spent by the end of the bar, as a share of the cost axis. */
+  cost: number
+}
+
+/** The tallest a bar stands, so the cost axis's top rung stays clear of it. */
+const BAR_ROOM = 0.88
 
 /**
- * A bar's two parts, in px of a plot `plotHeight` tall: the session's own
- * calls at the foot, its agents' calls on top. A bar with no calls is a dot.
+ * The bars as the chart draws them. A bar's height follows its calls up to
+ * the layout's full-height count; a bar with any call is at least
+ * `minBarShare` tall, so one call still shows. The cost rides the same plot on
+ * its own scale, from nothing at the floor to `costTop` at the top.
  */
-export function stackedBarHeights(bar: TimelineBar, fullHeightCalls: number, plotHeight: number): StackedBarHeights {
-  const total = bar.calls + bar.agentCalls
-  if (total === 0) return { own: 2, agents: 0 }
-  const height = Math.max(4, barHeightShare(total, fullHeightCalls) * plotHeight)
-  const agents = bar.agentCalls === 0 ? 0 : Math.max(2, height * bar.agentCalls / total)
-  return { own: height - agents, agents }
+export function timelineChartRows(layout: TimelineLayout, costTop: number, minBarShare: number): TimelineChartRow[] {
+  return layout.bars.map((bar, index) => {
+    const total = bar.calls + bar.agentCalls
+    const cost = costTop > 0 ? layout.runningCostUsd[index]! / costTop : 0
+    if (total === 0) return { index, own: null, agents: null, cost }
+    const height = Math.max(minBarShare, barHeightShare(total, layout.fullHeightCalls) * BAR_ROOM)
+    const ownTop = height * (bar.calls / total)
+    return {
+      index,
+      own: bar.calls > 0 ? [0, ownTop] : null,
+      agents: bar.agentCalls > 0 ? [ownTop, height] : null,
+      cost,
+    }
+  })
 }
 
 /** How tall a bar is, 0..1 of the plot. */

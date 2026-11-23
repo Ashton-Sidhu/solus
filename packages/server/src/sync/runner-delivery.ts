@@ -12,6 +12,7 @@ import {
   queueSessionFacts,
   type DeliveryDestination,
 } from './delivery-queue'
+import { readSessionExecution } from '../data/sessions/session-executions'
 import { getSessionRecord, isOrganizationWork, onSessionRecordChanged } from '../data/sessions/session-records'
 import { isChat } from '@solus/contracts/chat'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
@@ -173,7 +174,10 @@ export class RunnerDelivery {
   async reportStoredSessions(sessionIds: readonly string[]): Promise<void> {
     for (const sessionId of sessionIds) {
       const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
-      if (record && record.runnerHostId === null) this.reportSession(record)
+      if (record && record.runnerHostId === null) {
+        const execution = await readSessionExecution(record.organizationId, sessionId, '')
+        this.reportSession(execution ? { ...record, execution } : record)
+      }
     }
   }
 

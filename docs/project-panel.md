@@ -17,6 +17,8 @@ Goal shows only while a goal is set, and Webhooks only when the project has webh
 
 The desktop Agents section and the Agents card on Threads read the same session tree. They show the parent, fork source, recent forks, provider sub-agents, and direct child sessions. While agents run, earlier agents are under Previous agents.
 
+A child row shows its latest turn outcome when the host has one. It can also show the saved delegation outcome when the turn digest has no newer result.
+
 - Select a sub-agent to open its transcript. Expand Workflow progress to see the Claude workflow's phases, members, and member states.
 - Use Stop on a running child session or a supported provider sub-agent. Claude supplies task controls for its sub-agents and workflows. Codex supplies a turn control for a native child.
 - Select a remote child to open it on its runner when the client has a connection. Otherwise, the parent's host can relay a paged, read-only text transcript when the reader has access to the child on both hosts.
@@ -30,7 +32,9 @@ Chats hide the project row and the Open in row, both before and after the first 
 
 The Terminal option keeps the shared terminal session behavior and its keyboard shortcut. The shortcut always opens Terminal, even when an editor is selected. The row keeps the storage id `environment.terminal`, so existing visibility choices still apply. External apps remain restricted to local desktop sessions; web and remote sessions show the row disabled.
 
-The Git Changes row uses one comparison for the current checkout. On a feature branch, it shows "Changes vs <target>" and counts all changes since the branch left its target, including committed and uncommitted work. A commit does not reset this count. On the target branch (or with detached HEAD), it shows "Changes" and counts uncommitted work against HEAD; a commit clears that count. The tooltip names the comparison. Selecting another linked pull request does not change the counts. Branch counts stay absent until the host loads them; the target branch can show a file count while its line counts load. The Changes row includes untracked files before the first commit. Its count and diff use an empty tree as the base until the repository has a commit. Reading changes does not change the staged files.
+The Git **Changes** row shows line counts for the current checkout. Select it to open the same comparison on desktop or web. The mobile review sheet uses it for its **Changes** option. The host compares the checkout with the merge base of its target branch. It uses the available remote-tracking ref first, so Changes can include local commits on the default branch. If there is no comparison ref, the host uses HEAD. Before the first commit, it uses an empty tree.
+
+Select **Uncommitted** to see staged, unstaged, and untracked changes against HEAD. Select **Session** or a turn to see changes from the session snapshots. The line counts in the project panel stay on the checkout comparison. Reading either checkout comparison preserves the staging area.
 
 The linked pull request group starts with an Open row. Its menu has "In Solus", which opens the pull request pane, and "In browser", which opens the pull request on the code host. While the session watches the pull request, the group shows "Stop watching". The row stops the watch on the host that runs the session; a viewer who may not change the session's watches sees it disabled. When a row is narrow, the repository name of a pull request in another repository is cut first, then the title. The number always shows. The group heading and the other linked pull request rows use the same order.
 

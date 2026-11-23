@@ -1,7 +1,11 @@
 <script lang="ts" module>
   import { tokenClassName } from "../editor/tokenStyle";
+  import { fileReferenceText } from "../editor/reference-tokens";
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { fileChipParts, fileMentionTarget, tokenizeMarkdownText } from "./lib/markdown-text";
+  import { installChipSelection } from "../../lib/chip-selection";
+
+  installChipSelection();
 </script>
 
 <script lang="ts">
@@ -29,9 +33,10 @@
   {#if seg.type === "text"}{seg.value}{:else if seg.type === "file"}{@const parts = fileChipParts(seg.path)}<button
       type="button"
       class={tokenClassName("file")}
+      data-solus-reference={fileReferenceText(seg.path)}
       title={seg.path}
       onclick={() => handleFileClick(seg.path)}
     ><span class="solus-token__icon"><FileIcon path={seg.path} size={12} /></span><span
         class="solus-token__copy-only">{parts.prefix}</span>{parts.label}<span
-        class="solus-token__copy-only">{parts.suffix}</span></button>{:else}<span class={tokenClassName("slash", true)}>{seg.command}</span>{/if}
+        class="solus-token__copy-only">{parts.suffix}</span></button>{:else}<span class={tokenClassName("slash", true)} data-solus-reference={seg.command}>{seg.command}</span>{/if}
 {/each}

@@ -107,7 +107,7 @@ export class PromptDispatch {
   async submitPrompt(
     ctx: IpcContext,
     options: PromptOptions,
-    origin?: { clientId?: string; deviceId?: string; actor?: Actor },
+    origin?: { clientId?: string; deviceId?: string; actor?: Actor; forkPointId?: string },
   ): Promise<PromptDispatchResult> {
     this.rt.assertNewWorkAllowed()
     // A member whose Linux user the host object has not made yet starts nothing (docs/plans/member-isolation.md §8.1).
@@ -139,6 +139,7 @@ export class PromptDispatch {
       }
     }
     const input = runInputFromContext(ctx)
+    if (origin?.forkPointId) input.forkPointId = origin.forkPointId
     const currentLineage = resolveSessionLineageById(proposedSessionId)?.active
     if (!input.forked && !input.agentSessionId && currentLineage?.providerSessionId) {
       input.agentSessionId = currentLineage.providerSessionId
@@ -505,7 +506,7 @@ export class PromptDispatch {
 
   /** Re-submit the same prompt. If the session is dead, drop its provider
    *  thread so a fresh one starts. */
-  async retry(ctx: IpcContext, options: PromptOptions, clientId: string | undefined, actor: Actor, deviceId?: string): Promise<void> {
+  async retry(ctx: IpcContext, options: PromptOptions, clientId: string | undefined, actor: Actor, deviceId?: string, forkPointId?: string): Promise<void> {
     const sessionId = this.rt.sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('No session to retry')
     options = this.rt.launcher.failedSetupPrompts.get(sessionId) ?? options
@@ -518,6 +519,7 @@ export class PromptDispatch {
 
     let request: SessionRunRequest
     const input = runInputFromContext(ctx)
+    if (forkPointId) input.forkPointId = forkPointId
     const tools = selectAgentTools(
       solusToolbox.works,
       solusToolbox.artifact,
@@ -533,7 +535,7 @@ export class PromptDispatch {
       solusToolbox.tasks,
       solusToolbox.config,
     )
-    if (session?.status === 'dead') {
+    if (session?.status === 'dead' && !forkPointId) {
       session.agentSessionId = null
       this.rt.statuses.setStatus(sessionId, 'idle')
       request = {

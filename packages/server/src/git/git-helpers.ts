@@ -5,7 +5,7 @@ import { createLogger } from '../logger'
 import { gitOutputPath, runAsync } from './exec'
 import { GitUnavailableError } from './git-availability'
 import { getEpisodeNumstats } from './session-snapshots'
-import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
+import { getCheckoutComparisonBase, getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
 import { PullRequestHead, USERLESS_SCP_REMOTE, isForkCheckoutRemotes, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
@@ -198,24 +198,13 @@ async function readCheckoutUncached(cwd: string): Promise<CheckoutRead | null> {
   } }
 }
 
-/** Count the branch review's change without building its patch: the same base
- *  `resolveReviewContext` gives the review pane, minus the session base it
- *  falls back to on the target branch, because this status is per checkout.
- *  The uncommitted part is counted against HEAD in the same pass; on the
- *  target branch the two are the same count. */
+/** Count Changes and Uncommitted over the same temporary index. */
 async function getChangeTotals(cwd: string, status: GitState): Promise<{ branch: BranchChanges; uncommitted: BranchChanges }> {
-  // Not awaited here: merge-base reads only refs and objects, so it runs while
-  // the numstat prepares its throwaway index.
-  const onTarget = !status.branch || status.branch === status.targetBranch
-  const base = onTarget
-    ? 'HEAD'
-    : runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
-      .then((sha) => sha.trim() || 'HEAD')
-      .catch(() => 'HEAD')
-  const [branchFiles, uncommittedFiles = branchFiles] = await getEpisodeNumstats(
+  const base = status.headSha ? getCheckoutComparisonBase(cwd, status) : 'HEAD'
+  const [branchFiles, uncommittedFiles] = await getEpisodeNumstats(
     cwd,
     status.repoRoot,
-    onTarget ? [base] : [base, 'HEAD'],
+    [base, 'HEAD'],
   )
   return { branch: totalOf(branchFiles), uncommitted: totalOf(uncommittedFiles) }
 }

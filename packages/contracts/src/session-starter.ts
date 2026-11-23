@@ -7,7 +7,10 @@ export const sessionPlaceSchema: z.ZodType<SessionPlace> = z.enum(['chat', 'proj
 const id = z.string().min(1).max(256)
 
 export const sessionStarterSchema: z.ZodType<SessionStarter> = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('person'), personKey: id }),
+  z.strictObject({
+    kind: z.literal('person'), personKey: id,
+    fork: z.strictObject({ sourceSessionId: id, sourceThreadId: id, pointId: id, historySessionId: id.optional() }).optional(),
+  }),
   z.strictObject({ kind: z.literal('automation'), automationId: id, runId: id }),
   z.strictObject({ kind: z.literal('webhook'), webhookId: id, deliveryId: id }),
   z.strictObject({ kind: z.literal('session'), sessionId: id, hostLabel: z.string().min(1).max(256).optional() }),

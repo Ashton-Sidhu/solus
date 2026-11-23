@@ -1,4 +1,5 @@
 import type { AgentActivity } from "@solus/contracts/agent-activity";
+import type { SessionExecutionPhase } from "@solus/contracts/session-execution";
 import type { SessionStatus } from "@solus/contracts/types";
 import { DOT_MARK_FOR_ACTIVITY } from "@solus/client-core/dot-marks";
 import { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
@@ -47,12 +48,18 @@ function threadListHost() {
   const state = new ThreadListState(() => connection, memoryKeyValueStore());
   state.follow("mac");
   let at = 3000;
-  const status = (value: SessionStatus, extra: { awaitingApproval?: true; agentSessionId?: string } = {}) =>
+  const status = (value: SessionExecutionPhase | "completed", awaitingApproval?: true) => {
+    at++;
     events.receive({
-      type: "session.statusChanged",
-      occurredAt: ++at,
-      payload: { sessionId: "s1", agentSessionId: extra.agentSessionId ?? null, status: value, at, ...(extra.awaitingApproval && { awaitingApproval: true as const }) },
+      type: "session.executionChanged",
+      occurredAt: at,
+      payload: { sessionId: "s1", execution: {
+        revision: at, awaitingApproval,
+        current: value === "completed" ? null : { runId: "run", phase: value, startedAt: at },
+        lastTurn: value === "completed" ? { runId: "run", outcome: "completed", startedAt: 3000, endedAt: at } : null,
+      } },
     });
+  };
   const activity = (value: AgentActivity | null) =>
     events.receive({ type: "session.activityChanged", occurredAt: ++at, payload: { sessionId: "s1", activity: value, at } });
   return { state, status, activity };
@@ -61,12 +68,11 @@ function threadListHost() {
 describe("thread list agent activity", () => {
   const key = threadKey("mac", "s1");
 
-  it("keeps the activity of a running turn for both ids of the session, and clears it with null", () => {
+  it("keeps the activity of a running turn on its Solus session and clears it with null", () => {
     const { state, status, activity } = threadListHost();
-    status("running", { agentSessionId: "a1" });
+    status("running");
     activity("read");
     expect(state.facts().agentActivity?.get(key)).toBe("read");
-    expect(state.facts().agentActivity?.get(threadKey("mac", "a1"))).toBe("read");
     activity(null);
     expect(state.facts().agentActivity?.has(key)).toBe(false);
   });
@@ -89,7 +95,7 @@ describe("thread list agent activity", () => {
 
   it("tells a waiting permission from a question, also when only that fact changes", () => {
     const { state, status } = threadListHost();
-    status("awaiting_input", { awaitingApproval: true });
+    status("awaiting_input", true);
     expect(state.facts().awaitingApprovals?.has(key)).toBe(true);
     status("awaiting_input");
     expect(state.facts().awaitingApprovals?.has(key)).toBe(false);

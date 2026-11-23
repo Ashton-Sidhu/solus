@@ -23,10 +23,9 @@ test('a dirty feature branch counts committed and uncommitted work against its t
     uncommittedTotals: { fileCount: 2, insertions: 3, deletions: 1 },
     branchChanges: { fileCount: 5, insertions: 40, deletions: 9 },
   }))
-  expect(row.label).toBe('Changes vs main')
   expect(row.lines).toEqual({ fileCount: 5, insertions: 40, deletions: 9 })
   expect(row.fileCount).toBe(5)
-  expect(row.tooltip).toContain('including uncommitted work')
+  expect(row.tooltip).toBe('5 files')
 })
 
 test('a commit does not change the feature branch comparison', () => {
@@ -48,7 +47,6 @@ test('a branch waits for its totals instead of showing a different comparison', 
     uncommittedFileCount: 2,
     uncommittedTotals: { fileCount: 2, insertions: 3, deletions: 1 },
   }))
-  expect(row.label).toBe('Changes vs main')
   expect(row.lines).toBeUndefined()
   expect(row.fileCount).toBe(0)
 })
@@ -63,41 +61,22 @@ test('uncommitted work that undoes the branch change keeps the zero branch total
   expect(row.fileCount).toBe(0)
 })
 
-test('a clean target branch hides stale details after a commit', () => {
+test('a clean default branch still reports commits ahead of its remote base', () => {
   const row = changesRow(status({
     branch: 'main',
     branchChanges: { fileCount: 2, insertions: 7, deletions: 1 },
-    uncommittedTotals: { fileCount: 2, insertions: 7, deletions: 1 },
-  }))
-  expect(row).toEqual({ label: 'Changes', fileCount: 0, tooltip: 'No changes' })
-})
-
-test('the target branch counts uncommitted work', () => {
-  const row = changesRow(status({
-    branch: 'main',
-    uncommittedFileCount: 2,
-    uncommittedTotals: { fileCount: 2, insertions: 7, deletions: 1 },
-  }))
-  expect(row.lines).toEqual({ fileCount: 2, insertions: 7, deletions: 1 })
-  expect(row.fileCount).toBe(2)
-})
-
-test('on the target branch, an older host still gives line counts', () => {
-  const row = changesRow(status({
-    branch: 'main',
-    uncommittedFileCount: 2,
-    branchChanges: { fileCount: 2, insertions: 7, deletions: 1 },
+    uncommittedTotals: { fileCount: 0, insertions: 0, deletions: 0 },
   }))
   expect(row.lines).toEqual({ fileCount: 2, insertions: 7, deletions: 1 })
 })
 
-test('the target branch shows a file count while line totals load', () => {
-  const row = changesRow(status({ branch: 'main', uncommittedFileCount: 2 }))
+test('an unborn checkout shows a file count while line totals load', () => {
+  const row = changesRow(status({ headSha: null, uncommittedFileCount: 2 }))
   expect(row.lines).toBeUndefined()
   expect(row.fileCount).toBe(2)
 })
 
 test('unavailable status does not invent counts', () => {
-  expect(changesRow(null)).toEqual({ label: 'Changes', fileCount: 0 })
+  expect(changesRow(null)).toEqual({ fileCount: 0 })
   expect(changesRow(undefined)).toEqual(changesRow(null))
 })

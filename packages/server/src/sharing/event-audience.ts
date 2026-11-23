@@ -103,6 +103,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
   switch (event.type) {
     case 'session.eventReceived':
     case 'session.errorReceived':
+    case 'session.forkCreated':
     case 'session.titleChanged':
     case 'session.pullRequestsChanged':
     case 'session.artifactsChanged':
@@ -112,6 +113,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.readStateChanged':
     case 'session.suggestionsChanged':
     case 'session.transcriptChanged':
+    case 'session.executionChanged':
     case 'session.statusChanged':
     case 'session.activityChanged':
     case 'session.presenceChanged':

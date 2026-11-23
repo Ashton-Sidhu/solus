@@ -1,3 +1,4 @@
+import { readSessionExecution } from '../../data/sessions/session-executions'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import { privateProviderInstances } from '../../execution/seats/provider-instances'
 import { captureActingScope } from '../../vault/acting-scope'
@@ -13,9 +14,18 @@ import type { SessionRuntime } from '../../execution/session-runtime'
 import { compactSession } from '../../execution/sessions/session-compaction'
 import type { SessionOrchestrator } from '../../execution/orchestration/session-orchestrator'
 import { activityLeases } from '../../execution/activity-leases'
+import { permissionsAllow } from '@solus/contracts/permissions'
+import { permissionsFor } from '../../admission/access-policy'
 import { PERMISSION_MODES, type AgentId, type AgentMetadata, type IpcContext } from '@solus/contracts/types'
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
-import { organizationOfSession } from '../../data/sessions/session-records'
+import { createResponseForkRecord, getSessionRecord, organizationOfSession } from '../../data/sessions/session-records'
+import { sessionIdentityOf } from '../../data/sessions/session-identity'
+import { resolveSessionLineageById, sessionIdOfThread } from '../../data/sessions/session-lineage'
+import { emitSessionDigestChanged } from '../../data/sessions/session-digests'
+import { newActivity } from '../../data/activity/activity'
+import { attributionOf, ownerKeyOf } from '../../admission/actor'
+import { hostUserKey } from '../../host/host-user'
+import { needsResponseFork, readResponseForkPage, savedResponseFork } from '../../execution/sessions/response-fork'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { findOnPath, launchProcess, warmCliPath } from '../../cli-env'
@@ -26,7 +36,7 @@ import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
 import { mayAnswerFor } from '../../execution/sessions/turn-organization'
-import { isOrganizationSpace, type Principal } from '../../admission/principal'
+import { isOrganizationSpace, recordScopeOf, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
 import { chatFolderFor, projectsRootFor } from '../../workspace'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
@@ -63,6 +73,7 @@ export interface SessionDeps {
   agentIdFromContext(ctx?: IpcContext): AgentId
   /** Records who started a session; the first caller to name a new session owns it. */
   shares?: ShareManager
+  onResponseForkCreated?(sessionId: string): void
 }
 
 const _agentBinaryCache = new Map<AgentId, string | null>()
@@ -319,11 +330,12 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
    * organization only after the watch's claim has named the owner.
    */
   const claimsInFlight = new Map<string, Promise<void>>()
-  function claimInTurn(sessionId: string, claim: () => Promise<void>): Promise<void> {
+  function claimInTurn<T>(sessionId: string, claim: () => Promise<T>): Promise<T> {
     const claimed = (claimsInFlight.get(sessionId) ?? Promise.resolve()).catch(() => {}).then(claim)
-    claimsInFlight.set(sessionId, claimed)
-    void claimed.catch(() => {}).finally(() => {
-      if (claimsInFlight.get(sessionId) === claimed) claimsInFlight.delete(sessionId)
+    const finished = claimed.then(() => {}, () => {})
+    claimsInFlight.set(sessionId, finished)
+    void finished.then(() => {
+      if (claimsInFlight.get(sessionId) === finished) claimsInFlight.delete(sessionId)
     })
     return claimed
   }
@@ -347,7 +359,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     } else if (shares) {
       await claimInTurn(sessionId, () => shares.claimSession(sessionId, handlerCtx.principal))
     }
-    return watched
+    const execution = await readSessionExecution(await organizationOfSession(sessionId), sessionId, '')
+    return execution ? { ...watched, execution } : watched
   })
 
   server.register('unwatchSession', (args, handlerCtx) => {
@@ -439,12 +452,91 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return sessionRuntime.acceptPlan(ctx, request, handlerCtx.actor)
   })
 
+  server.register('forkSessionFromResponse', async ([input], handlerCtx) => {
+    if (!permissionsAllow(permissionsFor(handlerCtx.principal), 'host.sessions.start')) {
+      throw new Error('You do not have permission to start a session on this host.')
+    }
+    const request = z.strictObject({
+      sessionId: z.string().min(1).max(256),
+      sourceThreadId: z.string().min(1).max(256),
+      targetSessionId: z.uuid(),
+      pointId: z.string().min(1).max(256),
+    }).parse(input)
+    const sourceId = sessionIdOfThread(request.sessionId)
+    const scope = recordScopeOf(handlerCtx.principal)
+    const ownerKey = ownerKeyOf(handlerCtx.actor) ?? hostUserKey()
+    return claimInTurn(request.targetSessionId, async () => {
+      const identity = await sessionIdentityOf(request.targetSessionId)
+      if (identity) {
+        const existing = await getSessionRecord(scope, request.targetSessionId)
+        const fork = savedResponseFork(existing)
+        if (existing && identity.ownerKey === ownerKey && fork?.sourceSessionId === sourceId && fork.pointId === request.pointId) return existing
+        throw new Error('The fork session already exists.')
+      }
+      const source = await getSessionRecord(scope, sourceId)
+      const lineage = resolveSessionLineageById(sourceId)
+      const member = lineage?.members.find((item) => item.providerSessionId === request.sourceThreadId) ?? lineage?.active
+      const inherited = lineage?.active.providerSessionId ? undefined : savedResponseFork(source)
+      if (inherited && !await server.handle('getSessionInfo', [inherited.historySessionId ?? inherited.sourceSessionId], handlerCtx)) {
+        throw new Error('The fork source is no longer available.')
+      }
+      const sourceThreadId = member?.providerSessionId ?? inherited?.sourceThreadId ?? sourceId
+      const cwd = member?.cwd || source?.cwd
+      if (!source || !cwd) throw new Error('The source session is unavailable on this host.')
+      const provider = member?.provider ?? source.provider
+      await readResponseForkPage(sessionRuntime, {
+        sessionId: request.targetSessionId, sourceThreadId, provider, cwd, pointId: request.pointId,
+        throughPointId: inherited?.pointId, turnLimit: 20,
+      })
+      const now = Date.now()
+      const title = source.customTitle?.trim() || source.title?.trim() || 'Session'
+      const activity = newActivity({ kind: 'session', id: request.targetSessionId }, attributionOf(handlerCtx.actor), {
+        kind: 'forked', sourceSessionId: sourceId, sourceTitle: title,
+      }, now)
+      const fork = await createResponseForkRecord({
+        sessionId: request.targetSessionId, provider, projectPath: source.projectPath,
+        title: `${title} fork`, customTitle: `${title} fork`, cwd, projectRoot: source.projectRoot,
+        projectRemote: source.projectRemote, isWorktree: source.isWorktree, branch: source.branch,
+        model: provider === source.provider ? source.model : null, reasoningEffort: source.reasoningEffort, lastActivityAt: now, place: source.place,
+        startedBy: { kind: 'person', personKey: ownerKey, fork: {
+          sourceSessionId: sourceId, sourceThreadId, pointId: request.pointId,
+          ...(inherited && { historySessionId: inherited.historySessionId ?? inherited.sourceSessionId }),
+        } },
+      }, { organizationId: source.organizationId, ownerKey }, activity)
+      deps.onResponseForkCreated?.(fork.sessionId)
+      await emitSessionDigestChanged(sourceId)
+      return fork
+    })
+  })
+
+  /** Keep the selected checkpoint in host state until the fork gets its own provider thread. */
+  async function prepareResponseFork(ctx: IpcContext, handlerCtx: HandlerCtx): Promise<string | undefined> {
+    const sessionId = ctx.session.sessionId
+    if (!needsResponseFork(sessionId)) return undefined
+    const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
+    const fork = savedResponseFork(record)
+    if (!fork || !record) return undefined
+    if (!await server.handle('getSessionInfo', [fork.historySessionId ?? fork.sourceSessionId], handlerCtx)) {
+      throw new Error('The fork source is no longer available.')
+    }
+    if (ctx.session.provider && ctx.session.provider !== record.provider) {
+      throw new Error('Use the source provider for the first prompt in this fork.')
+    }
+    await readResponseForkPage(sessionRuntime, { sessionId, provider: record.provider, cwd: record.cwd, turnLimit: 20, ...fork })
+    ctx.session.provider = record.provider
+    ctx.session.agentSessionId = fork.sourceThreadId
+    ctx.session.forked = true
+    ctx.session.forkExcludeLatestTurn = false
+    return fork.pointId
+  }
+
   server.register('prompt', async (args, handlerCtx) => {
     const [ctx, options] = args
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
-    if (queuePromptAfterSessionSync(server, sessionRuntime, ctx, options, handlerCtx)) {
+    const forkPointId = await prepareResponseFork(ctx, handlerCtx)
+    if (!forkPointId && queuePromptAfterSessionSync(server, sessionRuntime, ctx, options, handlerCtx)) {
       return { disposition: 'queued' as const }
     }
     // The sender watches the session before its run can publish. The client
@@ -472,6 +564,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         clientId: handlerCtx.clientId,
         deviceId: handlerCtx.deviceId,
         actor: handlerCtx.actor,
+        forkPointId,
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -495,12 +588,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
+    const forkPointId = await prepareResponseFork(ctx, handlerCtx)
     placeDispatchCheckout(ctx, handlerCtx)
     resolveChat(ctx, handlerCtx.principal)
     if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
     await checkTurnPolicy(ctx)
-    return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor, handlerCtx.deviceId)
+    return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor, handlerCtx.deviceId, forkPointId)
   })
 
   // A conversation answers its own requests, and the requests of a session it

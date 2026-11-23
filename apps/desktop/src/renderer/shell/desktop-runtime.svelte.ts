@@ -276,8 +276,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // for their first report, but session changes must not reinstall every listener.
   onMount(() =>
     untrack(() => {
-      const unsubSessionStatuses =
-        sessionSidebarStore.subscribeSessionStatuses();
+      const unsubSessions = session.sessions.subscribe();
+      const unsubSessionViews =
+        sessionSidebarStore.subscribeSessionViews();
       const unsubProjectDirectory = listenForProjectDirectory();
       // Live automation state: scheduler fires, run transitions, and agent-tool
       // saves all land here. Failures get a toast — an unattended run breaking
@@ -369,7 +370,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
           });
       });
       return () => {
-        unsubSessionStatuses();
+        unsubSessions();
+        unsubSessionViews();
         unsubAutomations();
         unsubWorkReviews();
         unsubAnnotations();

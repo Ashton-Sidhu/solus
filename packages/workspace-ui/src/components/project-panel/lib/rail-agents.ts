@@ -3,23 +3,40 @@
 // session and the Solus sessions it started. While any run, settled ones fold
 // under "Previous agents"; once none run, the settled ones are the list. Per the renderer rules the .svelte holds markup and
 // thin handlers; the reading of each row lives here.
-import type { AgentConversationRef, AgentId, Message, SessionMeta, SessionRecordStatus } from '@solus/contracts/types'
-import type { DigestSubagent, DigestTurn, DigestWorkflow, SessionDelegationResult, SessionTree } from '@solus/contracts/session-digest'
+import type { AgentConversationRef, AgentId, Message, SessionMeta } from '@solus/contracts/types'
+import type { SessionExecution } from '@solus/contracts/session-execution'
+import type { DigestWorkflow, SessionTree, SessionTreeNode, SessionTreeRelation } from '@solus/contracts/session-digest'
 import { nodeTitle } from '@solus/client-core/session-tree'
+import { serverConnections } from '@solus/client-core/server-connections'
+import { knownRunnerFor } from '@solus/client-core/session-runner'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
+import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
+import { sessionTitle } from '../../../lib/sessionUtils'
 import {
   subagentRow,
   type SubagentModelFallback,
 } from '../../conversation/lib/subagent-group'
-import { subagentLinkStatus, type AgentStanding, type AgentStateMark } from '../../conversation/lib/agent-link'
+import { agentExecutionElapsedMs, agentExecutionLink, type AgentStanding, type AgentStateMark } from '../../conversation/lib/agent-link'
 import {
-  agentConversationCardState,
-  agentConversationElapsedMs,
   agentConversationLink,
   agentConversationTitle,
   isPendingAgent,
   provenanceLine,
 } from '../../conversation/agent-conversation/lib/agent-conversation'
+
+/** Use the same title as an open session's sidebar row. */
+export function relatedSessionTitle(
+  relation: SessionTreeRelation,
+  serverId: string,
+  workspace: Pick<WorkspaceContext, 'tabIdForHostSession' | 'sessionFor'>,
+): string {
+  if (relation.hostLabel) return relation.title
+  const runner = relation.runnerHostId
+  const host = serverConnections.resolveId(runner ? knownRunnerFor(runner) ?? runner : serverId)
+  const tabId = workspace.tabIdForHostSession(relation.sessionId, host)
+  const opened = tabId ? workspace.sessionFor(tabId) : undefined
+  return opened ? sessionTitle(opened) : relation.title
+}
 
 /** The messages that carry an agent: a tool call with a nested transcript (a
  *  sub-agent — the same rule the conversation uses to draw one), or a card for
@@ -74,6 +91,8 @@ export interface RailAgentContext {
   hostLabel: string | null
   /** The agent activity of a started session's running turn, from its host. */
   activityOf: (ref: AgentConversationRef) => AgentActivity | null
+  executionOf: (ref: AgentConversationRef) => SessionExecution | undefined
+  subagentExecutionOf: (toolId: string) => SessionExecution | undefined
 }
 
 export function railAgentTooltip(title: string, status: string, detail: string): string {
@@ -91,39 +110,54 @@ export type TreeAgentRow = {
   status: string
   detail: string
   startedAt: number
+  runStartedAt: number
   endedAt: number | null
 } & (
   | { kind: 'subagent'; canStop: boolean; workflow?: DigestWorkflow }
   | { kind: 'session'; serverId: string; cwd: string; isRemote: boolean }
 )
 
-type TreeAgentState = Pick<TreeAgentRow, 'standing' | 'mark' | 'status'>
+type ReadExecution = (serverId: string, sessionId: string, toolId?: string) => SessionExecution | undefined
+type ReadActivity = (serverId: string, sessionId: string) => AgentActivity | null
 
-const SUBAGENT_STATUS = {
-  running: { standing: 'live', mark: { kind: 'dot', mark: 'working' }, status: 'Running' },
-  completed: { standing: 'done', mark: { kind: 'glyph', status: 'finished' }, status: 'Completed' },
-  failed: { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, status: 'Failed' },
-  stopped: { standing: 'stopped', mark: null, status: 'Stopped' },
-} as const satisfies Record<DigestSubagent['status'], TreeAgentState>
+function newestExecution(saved: SessionExecution | undefined, live: SessionExecution | undefined): SessionExecution | undefined {
+  return live && (!saved || live.revision >= saved.revision) ? live : saved
+}
 
-function childSessionStatus(status: SessionRecordStatus, lastTurn: DigestTurn | undefined, delegation: SessionDelegationResult | undefined): TreeAgentState {
-  if (status === 'interrupted') return { standing: 'stopped', mark: null, status: 'Interrupted' }
-  if (status === 'running' || lastTurn?.settled === false) return SUBAGENT_STATUS.running
-  switch (lastTurn?.outcome ?? delegation?.outcome) {
-    case 'completed': return SUBAGENT_STATUS.completed
-    case 'failed':
-    case 'dead': return SUBAGENT_STATUS.failed
-    case 'interrupted': return { standing: 'stopped', mark: null, status: 'Interrupted' }
-    default: return { standing: 'stopped', mark: null, status: lastTurn?.settled ? 'Ended' : 'Idle' }
+function childAgentRow({ record, digest }: SessionTreeNode, serverId: string, readExecution?: ReadExecution, readActivity?: ReadActivity): TreeAgentRow {
+  const runner = record.runnerHostId ?? serverId
+  const execution = newestExecution(record.execution, readExecution?.(runner, record.sessionId))
+  const { label: status, ...state } = agentExecutionLink(execution, {
+    activity: execution?.current?.phase === 'running' ? readActivity?.(runner, record.sessionId) : null,
+  })
+  return {
+    key: `session:${record.sessionId}`,
+    kind: 'session',
+    id: record.sessionId,
+    title: nodeTitle(record),
+    provider: record.provider,
+    serverId: record.runnerHostId ?? serverId,
+    isRemote: record.runnerHostId !== null,
+    cwd: record.cwd ?? '',
+    detail: digest?.lastReply ?? '',
+    startedAt: record.createdAt,
+    runStartedAt: execution?.current?.startedAt ?? execution?.lastTurn?.startedAt ?? record.createdAt,
+    endedAt: state.standing === 'live' ? null : execution?.lastTurn?.endedAt ?? record.lastActivityAt,
+    status,
+    ...state,
   }
 }
 
 /** Direct delegates and the session's own provider sub-agents. A child lists its own agents when opened. */
-export function treeAgentRows(tree: SessionTree | null, sessionId: string, serverId: string): TreeAgentRow[] {
+export function treeAgentRows(tree: SessionTree | null, sessionId: string, serverId: string, readExecution?: ReadExecution, readActivity?: ReadActivity): TreeAgentRow[] {
   const rows: TreeAgentRow[] = []
-  for (const { record, digest, delegationResult } of tree?.nodes ?? []) {
+  for (const node of tree?.nodes ?? []) {
+    const { record, digest, subagentExecutions } = node
     if (record.sessionId === sessionId) {
+      const executions = new Map(subagentExecutions?.map(({ toolId, execution }) => [toolId, execution]))
       for (const subagent of digest?.subagents ?? []) {
+        const execution = newestExecution(executions.get(subagent.id), readExecution?.(record.runnerHostId ?? serverId, record.sessionId, subagent.id))
+        const { label: status, ...state } = agentExecutionLink(execution, { providerSubagent: true })
         rows.push({
           key: `subagent:${subagent.id}`,
           kind: 'subagent',
@@ -132,30 +166,16 @@ export function treeAgentRows(tree: SessionTree | null, sessionId: string, serve
           provider: record.provider,
           detail: subagent.detail,
           startedAt: subagent.startedAt,
-          endedAt: subagent.endedAt,
+          runStartedAt: execution?.current?.startedAt ?? execution?.lastTurn?.startedAt ?? subagent.startedAt,
+          endedAt: execution?.lastTurn?.endedAt ?? null,
           canStop: subagent.canStop === true,
           workflow: subagent.workflow,
-          ...SUBAGENT_STATUS[subagent.status],
+          status,
+          ...state,
         })
       }
     } else if (record.parentSessionId === sessionId) {
-      const lastTurn = digest?.turns.at(-1)
-      const delegation = delegationResult && (!lastTurn || delegationResult.settledAt >= lastTurn.startedAt) ? delegationResult : undefined
-      const state = childSessionStatus(record.status, lastTurn, delegation)
-      rows.push({
-        key: `session:${record.sessionId}`,
-        kind: 'session',
-        id: record.sessionId,
-        title: nodeTitle(record),
-        provider: record.provider,
-        serverId: record.runnerHostId ?? serverId,
-        isRemote: record.runnerHostId !== null,
-        cwd: record.cwd ?? '',
-        detail: digest?.lastReply ?? '',
-        startedAt: record.createdAt,
-        endedAt: state.standing === 'live' ? null : (lastTurn?.endedAt ?? delegation?.settledAt ?? record.lastActivityAt),
-        ...state,
-      })
+      rows.push(childAgentRow(node, serverId, readExecution, readActivity))
     }
   }
   return rows.sort((a, b) => b.startedAt - a.startedAt)
@@ -184,7 +204,8 @@ export function workflowPhases(workflow: DigestWorkflow) {
 
 function subagentAgentRow(message: Message, now: number, context: RailAgentContext): RailAgentRow {
   const row = subagentRow(message, now, context.fallback)
-  const link = subagentLinkStatus(row)
+  const execution = context.subagentExecutionOf(message.toolId ?? message.id)
+  const link = agentExecutionLink(execution, { providerSubagent: true })
   const detail = [row.activity, row.target].filter(Boolean).join(' ')
   return {
     key: `subagent:${row.id}`,
@@ -195,7 +216,7 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
     standing: link.standing,
     mark: link.mark,
     status: link.label,
-    elapsedMs: row.elapsedMs,
+    elapsedMs: agentExecutionElapsedMs(execution, now) ?? 0,
     detail,
     tooltip: railAgentTooltip(row.name, link.label, detail),
     ref: null,
@@ -207,8 +228,8 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
 function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: number, context: RailAgentContext): RailAgentRow {
   const meta = context.metaFor(ref.sessionId)
   const pending = isPendingAgent(ref)
-  const state = agentConversationCardState(ref)
-  const link = agentConversationLink(ref, state, pending, state === 'replying' ? context.activityOf(ref) : null)
+  const execution = context.executionOf(ref)
+  const link = agentConversationLink(ref, execution, execution?.current?.phase === 'running' ? context.activityOf(ref) : null)
   const title = agentConversationTitle(ref, meta)
   const provenance = provenanceLine(ref, meta, context.hostLabel)
   return {
@@ -220,7 +241,7 @@ function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: numb
     standing: link.standing,
     mark: link.mark,
     status: link.label,
-    elapsedMs: agentConversationElapsedMs(ref, now),
+    elapsedMs: agentExecutionElapsedMs(execution, now) ?? 0,
     detail: link.detail,
     tooltip: railAgentTooltip(title, link.label, [link.detail, provenance].filter(Boolean).join(' · ')),
     ref,

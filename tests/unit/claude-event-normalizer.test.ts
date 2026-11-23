@@ -75,8 +75,13 @@ describe('ClaudeTurnNormalizer', () => {
     })
   })
 
-  test('does not complete the user turn for a task-notification continuation result', () => {
+  // WHY: Claude wakes the agent in the open query when a background task
+  // settles, and a prompt steered in is answered there too. Dropping that
+  // result left the turn open: the session showed "running" until the query
+  // exited, and Stop then had no turn of its own to settle.
+  test('a task-notification continuation completes its own turn, with its own cost', () => {
     const normalizer = new ClaudeTurnNormalizer()
+    normalizer.push({ type: 'result', subtype: 'success', is_error: false, result: 'Started.', total_cost_usd: 1, session_id: 'claude-session-1' } as ClaudeEvent)
 
     expect(normalizer.push({
       type: 'result',
@@ -85,8 +90,9 @@ describe('ClaudeTurnNormalizer', () => {
       result: 'One explorer finished; two are still running.',
       origin: { kind: 'task-notification' },
       terminal_reason: 'completed',
+      total_cost_usd: 1.5,
       session_id: 'claude-session-1',
-    } as ClaudeEvent)).toEqual([])
+    } as ClaudeEvent)).toMatchObject([{ type: 'task_complete', result: 'One explorer finished; two are still running.', costUsd: 0.5 }])
   })
 
   test('records Claude compaction only when the provider reports its duration', () => {
@@ -439,6 +445,21 @@ describe('ClaudeTurnNormalizer', () => {
     // Parsing "resets 4pm" here is exactly what produced wrong countdowns.
     expect(events[0]).toMatchObject({ type: 'rate_limit', status: 'limited', resetsAt: null })
     expect(normalizer.summary.sawRateLimit).toBe(true)
+  })
+
+  test("a turn's cost is what the query's running total grew by since the last turn", () => {
+    // WHY: Claude reports total_cost_usd for the whole query, which stays open
+    // across turns. Recorded as each turn's cost, a 27-turn session that cost
+    // $33 summed to $290 in Insights and on the Threads cost line.
+    const normalizer = new ClaudeTurnNormalizer()
+    const result = (total: number) => normalizer.push({
+      type: 'result', subtype: 'success', is_error: false, duration_ms: 1, num_turns: 1,
+      result: 'Done', total_cost_usd: total, session_id: 'claude-session-1', usage: { output_tokens: 10 },
+    })
+    const costOf = (events: NormalizedEvent[]) => events.flatMap((event) => (event.type === 'task_complete' ? [event.costUsd] : []))
+    expect(costOf(result(0.78))).toEqual([0.78])
+    expect(costOf(result(1.02))[0]).toBeCloseTo(0.24)
+    expect(costOf(result(1.82))[0]).toBeCloseTo(0.8)
   })
 
   test('emits nothing after interrupt', async () => {

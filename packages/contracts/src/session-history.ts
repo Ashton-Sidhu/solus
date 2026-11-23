@@ -97,6 +97,8 @@ export interface SessionLoadMessage {
   questionAnswer?: QuestionAnswer
   /** Stable provider identity or identity for a Solus-owned synthetic row. */
   messageId?: string
+  /** A provider checkpoint for a saved assistant response. */
+  forkPointId?: string
   role: string
   content: string
   /** The provider refused this turn's login. When it ends the transcript, the client offers sign-in again. */

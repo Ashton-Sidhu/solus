@@ -9,7 +9,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
-  import { TaskDataStore, type TaskProviderState } from "@solus/client-core/task-data";
+  import { mergeTaskComments, TaskDataStore, type TaskProviderState } from "@solus/client-core/task-data";
   import type { TaskExternalIssue } from "@solus/contracts/task-data";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
@@ -115,10 +115,10 @@
     providerState = data?.current.provider ?? null;
     return data?.subscribe(() => { providerState = data.current.provider; });
   });
-  $effect(() => {
-    if (surfaceVisible && task?.kind === "issue" && !bundledInspection) void taskData?.loadProvider();
-  });
   const details = $derived(externalIssue?.details ?? store.get(taskId).details);
+  const comments = $derived(providerInspection?.comments?.length
+    ? mergeTaskComments(details?.comments ?? [], providerInspection.comments)
+    : details?.comments ?? []);
   const links = $derived(externalIssue ? [] : (details?.links ?? []));
   const linkedWorkIds = $derived(
     links.filter((link) => link.kind === "work").map((link) => link.targetKey),
@@ -244,6 +244,12 @@
     return stopWatching;
   });
   const detailsSettled = $derived(loadedId === taskId && loadingTaskId !== taskId);
+  $effect(() => {
+    if (surfaceVisible && task?.kind === "issue" && !bundledInspection &&
+        (task.providerId !== "github" || externalIssue || detailsSettled)) {
+      void taskData?.loadProvider(untrack(() => details?.providerMetadata));
+    }
+  });
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
@@ -263,10 +269,11 @@
     refreshing = true;
     try {
       if (externalIssue) {
-        if (!externalIssue.inspection) void externalTaskData?.loadProvider();
         await onRefreshExternalIssue?.();
+      } else {
+        await commands.refresh();
+        if (task?.kind === "issue") void taskData?.loadProvider(details?.providerMetadata);
       }
-      else await commands.refresh();
     } finally {
       refreshing = false;
     }
@@ -319,7 +326,7 @@
   const tabCounts = $derived({
     linked: links.length + prRows.length,
     sessions: sessions.length,
-    activity: (details?.comments?.length ?? 0) + (details?.activity?.length ?? 0) + (providerInspection?.events.length ?? 0),
+    activity: comments.length + (details?.activity?.length ?? 0) + (providerInspection?.events.length ?? 0),
   });
 
   /** Sections are hidden, never unmounted: a tab that unmounts loses its
@@ -525,8 +532,9 @@
               {task}
               {taskData}
               readOnly={!!externalIssue}
-              comments={details?.comments ?? []}
+              {comments}
               value={providerInspection}
+              metadata={details?.providerMetadata}
               onOpenExternal={(url) => void localApi.openExternal(url)}
             />
 
@@ -596,14 +604,14 @@
               {#key taskId}
               <TaskActivityFeed
                 {stacked}
-                comments={details?.comments ?? []}
+                {comments}
                 activity={details?.activity ?? []}
                 providerEvents={providerInspection?.events}
                 {providerPending}
                 providerError={providerState?.error}
                 providerLoadingMore={providerState?.loadingMore}
                 onOpenExternal={(url) => void localApi.openExternal(url)}
-                onRetryProvider={taskData ? () => void taskData?.loadProvider() : undefined}
+                onRetryProvider={taskData ? () => void taskData?.loadProvider(details?.providerMetadata) : undefined}
                 onLoadOlderProvider={!bundledInspection && providerInspection?.historyCursor
                   ? () => void taskData?.loadOlderHistory()
                   : undefined}

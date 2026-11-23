@@ -5,7 +5,9 @@ import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { issueIdentity, issueTarget } from "../features/issues/issueParams";
-import { prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrList } from "./source-control";
+import {
+  prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList,
+} from "./source-control";
 
 const host = vi.hoisted(() => ({
   listProjects: vi.fn(async () => [
@@ -14,6 +16,8 @@ const host = vi.hoisted(() => ({
   ]),
   prListProjects: vi.fn(),
   prGetDetail: vi.fn(),
+  prGetOverview: vi.fn(),
+  prChecks: vi.fn(),
   prSetLabels: vi.fn(),
   prSubmitReview: vi.fn(),
   prOpenReview: vi.fn(),
@@ -256,6 +260,29 @@ const pr = {
 };
 const quiet = { reportFailure: false };
 
+it("loads the PR summary with reviewers and leaves commits to Activity", async () => {
+  const registry = AtomRegistry.make();
+  host.prGetOverview.mockResolvedValueOnce({
+    pullRequest: {
+      ...pr, number: 7, title: "Keep summary fast", url: "https://github.com/team/app/pull/7",
+      state: "open", capabilities: {}, viewerPermissions: {},
+    },
+    reviewers: [{ login: "reviewer" }],
+    commits: [],
+  });
+  host.prChecks.mockResolvedValueOnce({ checks: [] });
+  try {
+    const result = await executeAtomQuery(registry, solusPrDetail({ environmentId, input: pullRequest }));
+    expect(result).toMatchObject({
+      _tag: "Success",
+      value: { title: "Keep summary fast", reviewers: [{ login: "reviewer" }] },
+    });
+    expect(host.prGetOverview).toHaveBeenCalledWith({ projectRoot: "/repo" }, 7, { includeCommits: false });
+  } finally {
+    registry.dispose();
+  }
+});
+
 it("applies a label change to the current host labels", async () => {
   const registry = AtomRegistry.make();
   try {
@@ -406,6 +433,7 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
     readOnly: true,
   });
   host.tasksGet.mockResolvedValueOnce({
+    comments: [{ id: "old", providerCommentId: "GH_old", taskId, body: "An earlier comment", createdAt: 1690000000000 }],
     events: [{
       id: "2", actor: "reader", text: "added a commit that references this issue", at: 1700000000000,
       link: { label: "Fix issue (8a81adf)", url: "https://github.com/team/other/commit/8a81adf" },
@@ -456,6 +484,7 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
       _tag: "Success",
       value: {
         events: [{ providerLink: { label: "Fix issue (8a81adf)", url: "https://github.com/team/other/commit/8a81adf" } }],
+        providerComments: [{ id: "GH_old", body: "An earlier comment" }],
         historyCursor: "older-activity",
         providerPullRequests: [{ repository: "team/other", number: 12, closesIssue: true }],
       },

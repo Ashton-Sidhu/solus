@@ -60,6 +60,7 @@ export interface ChangedFileStat {
 export type DiffScope =
   | { kind: 'session' }
   | { kind: 'turn'; index: number }
+  | { kind: 'branch' }
   | { kind: 'working-tree' }
   // PR review: merge-base(base, head)…live worktree. `baseSha` is the target
   // merge-base captured at checkout.
@@ -269,9 +270,7 @@ export interface UncommittedChanges {
   mergeInProgress: boolean
 }
 
-/** What the branch review shows: the working tree, untracked files included,
- *  against where the branch left its target — or against HEAD on the target
- *  itself. Counted, never listed, so it has no cap. */
+/** Checkout line totals, including untracked files. */
 export interface BranchChanges {
   fileCount: number
   insertions: number
@@ -297,9 +296,7 @@ export interface GitState extends GitIdentity {
   targetAheadCount?: number
   /** Loaded with details. */
   branchChanges?: BranchChanges
-  /** The uncommitted part of `branchChanges`, against HEAD: what a commit
-   *  takes. A commit empties it; it leaves `branchChanges` as it was. Loaded
-   *  with details. */
+  /** Working tree totals against HEAD. Loaded with details. */
   uncommittedTotals?: BranchChanges
   prUrl?: string
   /** Present only when the request asked for refs. */

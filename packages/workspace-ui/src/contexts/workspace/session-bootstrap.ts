@@ -262,6 +262,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
         sessionId,
         attachRuntime: !!session.agentSessionId,
       }).catch(() => null)
+      if (watched?.execution) ctx.sessions.adoptExecution(runHost(session.run), sessionId, watched.execution)
 
       void ctx.queue.refresh(tabId).catch(() => null)
 
@@ -595,6 +596,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     // The same round trip attaches to the live runtime, which a separate bind
     // used to do after the watch.
     const watched = await api.watchSession({ sessionId: session.id, attachRuntime: true })
+    if (watched.execution) ctx.sessions.adoptExecution(runHost(session.run), session.id, watched.execution)
     ctx.applyPendingQuestions(snapTab.tabId, watched.pendingQuestions)
     const info = watched.runtime ?? null
     if (info && session) {

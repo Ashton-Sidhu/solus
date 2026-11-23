@@ -245,7 +245,7 @@
       });
     defs.push({
       key: "changes",
-      label: changes.label,
+      label: "Changes",
       icon: FileDiffIcon,
       diffStat: changes.lines,
       // Line counts, as a git client shows them; the file count stands in
@@ -253,7 +253,7 @@
       badge: changes.fileCount && !changes.lines ? filesText(changes.fileCount) : undefined,
       phase: "idle",
       tooltip: changes.tooltip,
-      disabled: !canGit,
+      disabled: !env.repoRoot,
       run: () => openReviewView("diff"),
     });
     // An open PR is reported by the pull request section below the rows, so

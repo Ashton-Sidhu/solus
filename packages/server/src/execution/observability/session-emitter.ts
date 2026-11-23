@@ -1,4 +1,5 @@
 import { hostname } from 'node:os'
+import { z } from 'zod'
 import { basename } from 'node:path'
 import { ROOT_CONTEXT, context, createContextKey, trace, type Context, type Span } from '@opentelemetry/api'
 import { runtimeModelVariant, type NormalizedEvent, type PromptSource, type UsageData } from '@solus/contracts/types'
@@ -233,8 +234,20 @@ function attributionDimensions(actor: { userId: string; email?: string } | undef
   return dimensions
 }
 
+const TURN_COST_SCHEMA = z.number().finite().nonnegative()
+const TURN_CONTEXT_SCHEMA = z.number().int().nonnegative()
+
+/** What one turn cost, as its root records it when the turn settles. */
+export interface TurnCostRecorded {
+  sessionId: string
+  startedAt: number
+  endedAt: number
+  costUsd: number
+}
+
 export class SessionEmitter {
   private turns = new Map<string, TurnState>()
+  private readonly costListeners = new Set<(cost: TurnCostRecorded) => void>()
   private settlingTurns = new Map<string, TurnState>()
   private lastSettledAt = new Map<string, number>()
   private codexUsageBaselines = new Map<string, UsageData>()
@@ -877,7 +890,8 @@ export class SessionEmitter {
       if (state.codexUsageBaseline) {
         const usage = usageDelta(state.latestCodexUsage, state.codexUsageBaseline)
         setUsageAttrs(state.rootAttrs, usage)
-        const costUsd = codexTokenCostUsd(state.dimensions.model, usage)
+        const context = TURN_CONTEXT_SCHEMA.safeParse(state.rootAttrs.contextUsedTokens)
+        const costUsd = codexTokenCostUsd(state.dimensions.model, usage, context.success ? context.data : undefined)
         if (costUsd !== undefined) state.rootAttrs.costUsd = costUsd
       }
       this.codexUsageBaselines.set(state.sessionId, copyUsage(state.latestCodexUsage))
@@ -895,6 +909,21 @@ export class SessionEmitter {
     if (this.turns.get(state.sessionId) === state) this.turns.delete(state.sessionId)
     this.settlingTurns.delete(state.traceId)
     this.lastSettledAt.set(state.sessionId, endedAt)
+    this.announceCost(state, endedAt)
+  }
+
+  /** Tell the listeners what the settled turn cost. A turn its provider did not price says nothing. */
+  private announceCost(state: TurnState, endedAt: number): void {
+    const costUsd = TURN_COST_SCHEMA.safeParse(state.rootAttrs.costUsd)
+    if (!costUsd.success) return
+    const cost = { sessionId: state.sessionId, startedAt: state.startedAt, endedAt: Math.max(state.startedAt, endedAt), costUsd: costUsd.data }
+    for (const listener of this.costListeners) listener(cost)
+  }
+
+  /** Hear what each turn cost once it settles: the one place that has the cost of every provider's turn. */
+  onTurnCost(listener: (cost: TurnCostRecorded) => void): () => void {
+    this.costListeners.add(listener)
+    return () => this.costListeners.delete(listener)
   }
 
   /** Records what the provider reported running. The `model` dimension is the

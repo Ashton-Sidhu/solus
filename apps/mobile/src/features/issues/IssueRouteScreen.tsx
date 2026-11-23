@@ -496,7 +496,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
   const detail = detailQuery.data;
   const providerTaskId = detail?.providerTaskId;
   const activityQuery = useEnvironmentQuery(providerTaskId
-    ? solusIssueActivity({ environmentId: target.environmentId, input: { taskId: providerTaskId } })
+    ? solusIssueActivity({ environmentId: target.environmentId, input: { taskId: providerTaskId, timelineOnly: detail?.timelineOnly } })
     : null);
   const firstActivityPage = activityQuery.data;
   const [history, setHistory] = useState<{
@@ -511,6 +511,10 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
   const activityPage = history?.first === firstActivityPage && history?.scope === scopeOfHost
     ? history.later : firstActivityPage;
   const historyCursor = activityPage?.historyCursor;
+  const providerComments = activityPage?.providerComments ?? detail?.providerComments;
+  const activityComments = providerComments?.length
+    ? [...new Map([...providerComments, ...comments].map((comment) => [comment.id, comment])).values()]
+    : comments;
   const loadOlderActivity = async () => {
     if (!providerTaskId || !firstActivityPage || !activityPage || !historyCursor || loadingActivity) return;
     const request = ++historyRequest.current;
@@ -519,7 +523,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
     try {
       const result = await executeAtomQuery(registry, solusIssueActivity({
         environmentId: target.environmentId,
-        input: { taskId: providerTaskId, cursor: historyCursor },
+        input: { taskId: providerTaskId, cursor: historyCursor, timelineOnly: detail?.timelineOnly },
         scope: scopeOfHost,
       }), { reportFailure: false, reportDefect: false });
       if (historyRequest.current !== request || hostQueryScope(target.environmentId) !== scopeOfHost) return;
@@ -533,6 +537,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
         later: {
           historyCursor: result.value.historyCursor,
           events: [...new Map([...result.value.events, ...activityPage.events].map((event) => [event.id, event])).values()],
+          providerComments: [...new Map([...result.value.providerComments, ...activityPage.providerComments].map((comment) => [comment.id, comment])).values()],
           providerPullRequests: [...new Map([...result.value.providerPullRequests, ...activityPage.providerPullRequests].map((pr) => [pr.url, pr])).values()],
         },
       });
@@ -553,7 +558,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
 
   const timeline = detail
     ? [
-        ...comments.map((comment) => ({
+        ...activityComments.map((comment) => ({
           key: `c:${comment.id}`,
           at: comment.createdAt,
           content: (
@@ -608,8 +613,9 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
         : undefined;
   const url = issue?.url;
   const scope = detail?.scope ?? params.scope;
-  const linkedPullRequests = activityPage?.providerPullRequests ??
-    detail?.providerPullRequests ?? detail?.linkedPullRequests ?? [];
+  const linkedPullRequests = activityPage
+    ? [...new Map([...activityPage.providerPullRequests, ...(detail?.providerPullRequests ?? [])].map((pr) => [pr.url, pr])).values()]
+    : detail?.providerPullRequests ?? detail?.linkedPullRequests ?? [];
   return (
     <PullRequestMarkdownRepository
       params={{
@@ -773,10 +779,10 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                     {!params.issueUrl ? <LinkedThreads params={params} host={detail.host} /> : null}
                     <View className="gap-3">
                       <PullRequestSectionHeading>
-                        {detail.commentCount > 0
+                        {activityComments.length > 0
                           ? gt(
                               "{count, plural, one {Activity · {count} comment} other {Activity · {count} comments}}",
-                              { count: detail.commentCount },
+                              { count: activityComments.length },
                             )
                           : gt("Activity")}
                       </PullRequestSectionHeading>
@@ -791,7 +797,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                         <View className="items-start gap-2">
                           {olderActivityError ? <Text className="text-sm text-danger-foreground">{olderActivityError}</Text> : null}
                           <Button
-                            label={loadingActivity ? gt("Loading…") : olderActivityError ? gt("Try again") : gt("Load older activity")}
+                            label={loadingActivity ? gt("Loading…") : olderActivityError ? gt("Try again") : gt("Load more activity")}
                             disabled={loadingActivity || activityQuery.isPending}
                             onPress={() => void loadOlderActivity()}
                           />

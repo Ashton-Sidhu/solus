@@ -69,6 +69,7 @@ function remoteNodes(tree: SessionTree, hostId: string, rootSessionId: string, p
       parentSessionId: node.record.sessionId === rootSessionId ? parentSessionId : node.record.parentSessionId,
     }),
     digest: node.digest,
+    subagentExecutions: node.subagentExecutions,
     artifacts: node.artifacts,
   }))
 }
@@ -84,6 +85,7 @@ function recordFacts(record: SessionRecord): SessionRecordUpsert {
     title: record.title,
     customTitle: record.customTitle,
     status: record.status,
+    execution: record.execution,
     model: record.model,
     reasoningEffort: record.reasoningEffort,
     createdAt: record.createdAt,

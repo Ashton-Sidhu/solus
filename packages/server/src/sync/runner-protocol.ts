@@ -1,3 +1,4 @@
+import { sessionExecutionSchema } from '@solus/contracts/session-execution'
 import { z } from 'zod'
 import { shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
@@ -39,6 +40,7 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
   title: z.string().nullable().optional(),
   customTitle: z.string().nullable().optional(),
   status: z.enum(['idle', 'running', 'interrupted']).optional(),
+  execution: sessionExecutionSchema.optional(),
   model: z.string().nullable().optional(),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable().optional(),
   parentSessionId: z.string().nullable().optional(),

@@ -418,3 +418,59 @@ it("keeps a sent document in the T3 message and opens the upload from its origin
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ type: "message", message: { attachments: [{type:"file", id:"upload:source//uploads/notes.md", name:"notes.md"}] } });
 });
+
+it("shows the upstream fork marker between inherited history and the new conversation", () => {
+  const model = TranscriptModel.fromHistory("fork", {
+    before: null,
+    messages: [
+      { messageId: "old", role: "assistant", content: "Source reply", timestamp: 1, forkPointId: "source-turn", sourceSessionId: "source" },
+      {
+        role: "system", content: "", timestamp: 2,
+        activity: { kind: "forked", id: "marker", subject: { kind: "session", id: "fork" }, sourceSessionId: "source", at: 2, by: { kind: "system" } },
+      },
+      { messageId: "new", role: "user", content: "Try another path", timestamp: 3 },
+    ],
+  });
+  const feed = conversationFeed(
+    { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+    model.order,
+    "fork",
+    () => null,
+  ).get();
+
+  expect(feed[0]).toMatchObject({ type: "message", message: { hostForkPointId: "source-turn" } });
+  expect(feed[1]).toMatchObject({
+    type: "activity-group",
+    activities: [{ projectedItem: { visibility: "synthetic", item: { type: "fork", title: "Forked from conversation" } } }],
+  });
+  expect(feed[2]).toMatchObject({ type: "message", message: { text: "Try another path" } });
+});
+
+it("enables a response checkpoint as soon as its live turn finishes", () => {
+  const model = new TranscriptModel("session");
+  model.apply({ type: "text_chunk", text: "Here is the answer." });
+  const reply = model.order[0]!;
+  expect(model.items.get(reply)).not.toHaveProperty("forkPointId");
+  model.apply({
+    type: "task_complete",
+    sessionId: "provider-thread",
+    forkPointId: "completed-turn",
+    result: "Here is the answer.",
+    costUsd: 0,
+    durationMs: 1,
+    numTurns: 1,
+    usage: {},
+  });
+
+  const feed = conversationFeed(
+    { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+    model.order,
+    "session",
+    () => null,
+  ).get();
+  expect(feed).toHaveLength(1);
+  expect(feed[0]).toMatchObject({
+    type: "message",
+    message: { streaming: false, sourceThreadId: "provider-thread", hostForkPointId: "completed-turn" },
+  });
+});

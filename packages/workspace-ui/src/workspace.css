@@ -240,6 +240,9 @@
   /* A running session is motion, not an alert. Keep its spinner neutral so
      terracotta remains reserved for attention states. */
   --solus-status-running-icon: var(--solus-text-tertiary);
+  /* The dots of a working agent: a quiet blue-grey (Tailwind slate-600), calm
+     beside the terracotta of the states that want the person. */
+  --solus-status-working: #475569;
   --solus-status-running-bg: rgba(217, 119, 87, 0.1);
   /* Live service (a running process/server) — reads as healthy, so green, not
      the brand orange that signals "agent working" elsewhere. */
@@ -344,6 +347,9 @@
      current row washes over its state instead of erasing it. */
   --solus-menu-hover-ink: rgba(42, 38, 24, 0.04);
   --solus-menu-footer-bg: color-mix(in srgb, var(--solus-text-primary) 2.5%, transparent);
+  /* The agent rail of the model picker. A cool slate, so it sits apart from
+     the warm menu and gives the terracotta agent mark a calm ground. */
+  --solus-menu-rail-bg: #f6f7f9;
   /* Code */
   --solus-code-bg: #f4f2ec;
   --solus-code-shadow: 0 0.0625rem 0.125rem rgba(0,0,0,0.04);
@@ -584,6 +590,7 @@
   --solus-status-live: #6fc884;
   --solus-status-live-bg: rgba(111, 200, 132, 0.10);
   --solus-status-live-glow: rgba(111, 200, 132, 0.4);
+  --solus-status-working: #94a3b8;
   --solus-status-complete: #6fc884;
   --solus-status-complete-bg: rgba(111, 200, 132, 0.10);
   --solus-status-error: #e3645e;
@@ -641,6 +648,7 @@
     0 0.875rem 1.875rem -0.75rem rgba(0, 0, 0, 0.45),
     0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.55);
   --solus-menu-hover-ink: rgba(255, 255, 255, 0.055);
+  --solus-menu-rail-bg: #37393e;
   /* Code */
   --solus-code-bg: #393834;
   --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
@@ -1532,9 +1540,26 @@ input::placeholder {
 /* A chip is a reference inside a sentence, so it has to highlight and copy with
    the prose around it. `user-select: none` lived here to make the button read
    as a control; it also made a selection dragged across a chip skip it, so the
-   file never reached the clipboard. */
+   file never reached the clipboard. A button also cannot start a selection,
+   so a drag or a double-click that began on a chip selected nothing; `text`
+   lets it. `lib/chip-selection.ts` then takes the chip whole. */
 button.solus-token {
   touch-action: manipulation;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* A chip inside a selection. The selection paints only text: in a message it
+   skipped the chip's glyph, and the composer's selection layer, measured from
+   text, skipped the whole chip. So the chip paints the selection colour
+   itself, to join the highlight on either side. `Highlight` is
+   translucent, so the label's own selection is cleared, or it would paint
+   twice. The composer sets a solid colour instead (`--plain-editor-selection`). */
+.solus-token.solus-token--selected {
+  background-color: var(--plain-editor-selection, Highlight);
+}
+.solus-token--selected::selection,
+.solus-token--selected ::selection {
+  background-color: transparent;
 }
 /* Inline and zero-size: it must stay an inline box, because a block one would
    put the rest of the chip on its own line in a copy. `display: none` and
@@ -1545,6 +1570,13 @@ button.solus-token {
 .solus-token__copy-only {
   font-size: 0;
   font-size-adjust: none;
+}
+/* The reverse: a label the copy replaces (a file link named `the config`
+   copies as its `@path`). The chip still highlights as one, since a selected
+   chip paints its own background (`.solus-token--selected`). */
+.solus-token__shown-only {
+  -webkit-user-select: none;
+  user-select: none;
 }
 /* The top match completed ahead of the caret in grey, with the key that takes
    it. Not selectable and not part of the value — purely a preview. */

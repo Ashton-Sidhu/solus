@@ -155,7 +155,7 @@ export class SessionListStore {
   /** Per home, the latest grant this client told the reader about. */
   private grantsSeenUntil = new Map<string, number>()
   private shareListeners = new Set<(granted: ListedSession[]) => void>()
-  private recordListeners = new Set<(serverId: string, records: readonly SessionRecord[], readStartedAt: number) => void>()
+  private recordListeners = new Set<(serverId: string, records: readonly SessionRecord[]) => void>()
   /** Shared sessions this client knows that are not in the list: archived, or
    *  opened from a link or a notice. An open tab of one is still in Shared with
    *  you (docs/plans/shared-with-you.md §2, rule 1). */
@@ -194,7 +194,6 @@ export class SessionListStore {
   private async loadHost(serverId: string): Promise<void> {
     this.watchHost(serverId)
     const api = serverConnections.apiFor(serverId)
-    const readStartedAt = performance.now()
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
     if (isSolusApiId(serverId)) {
@@ -212,7 +211,7 @@ export class SessionListStore {
       this.dropListedRecord(serverId, sessionId)
     }
     for (const record of records) this.writeListed(serverId, record)
-    this.announceRecords(serverId, records, readStartedAt)
+    this.announceRecords(serverId, records)
     sessionPullRequestsStore.adopt(serverId, records)
     this.announceNewGrants(serverId, records)
   }
@@ -231,14 +230,13 @@ export class SessionListStore {
    *  list, and nothing else in this home's list. */
   private async loadSession(serverId: string, sessionId: string): Promise<void> {
     const api = serverConnections.apiFor(serverId)
-    const readStartedAt = performance.now()
     const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
     if (record === undefined || serverConnections.apiFor(serverId) !== api) return
     if (record && isSolusApiId(serverId)) this.cloud.writeRecord(serverId, record)
     // The rows the list answers: root sessions in the reader's list that this home keeps.
     const isListed = !!record && record.listed !== false && !record.parentSessionId
       && (isSolusApiId(serverId) || this.homeOf(serverId, record) === serverId)
-    if (record) this.announceRecords(serverId, [record], readStartedAt)
+    if (record) this.announceRecords(serverId, [record])
     if (isListed) {
       this.writeListed(serverId, record)
       this.announceNewGrants(serverId, [record])
@@ -352,18 +350,15 @@ export class SessionListStore {
     if (listed.share) this.formerShares.set(listed.sessionId, { title: listed.title, share: listed.share })
   }
 
-  /** Hear of each record a machine answered, as read, with when the read
-   *  began (`performance.now()`): a live event heard after it is newer. A
-   *  Solus API's records are its mirror; the machine that runs a session
-   *  answers for its live facts. */
-  onRecordsRead(listener: (serverId: string, records: readonly SessionRecord[], readStartedAt: number) => void): () => void {
+  /** Hear records a host or workspace service answered. Consumers can use the
+   *  record's execution revision to order it with live events. */
+  onRecordsRead(listener: (serverId: string, records: readonly SessionRecord[]) => void): () => void {
     this.recordListeners.add(listener)
     return () => this.recordListeners.delete(listener)
   }
 
-  private announceRecords(serverId: string, records: readonly SessionRecord[], readStartedAt: number): void {
-    if (isSolusApiId(serverId)) return
-    for (const listener of this.recordListeners) listener(serverId, records, readStartedAt)
+  private announceRecords(serverId: string, records: readonly SessionRecord[]): void {
+    for (const listener of this.recordListeners) listener(serverId, records)
   }
 
   /** Hear of each direct share a list read shows for the first time. */
@@ -416,6 +411,7 @@ export class SessionListStore {
     if (this.watchedServerIds.has(serverId)) return
     this.watchedServerIds.add(serverId)
     const events = serverConnections.eventsFor(serverId)
+    events.subscribe('session.forkCreated', ({ sessionId }) => void this.loadSession(serverId, sessionId))
     events.subscribe('session.stateChanged', ({ sessionId, state }) => this.applyState(serverId, sessionId, state))
     events.subscribe('session.viewChanged', ({ sessionId, view }) => this.applyView(serverId, sessionId, view))
     events.subscribe('session.titleChanged', ({ sessionId, title }) => {

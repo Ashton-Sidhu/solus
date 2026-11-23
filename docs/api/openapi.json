@@ -6375,6 +6375,109 @@
                               "interrupted"
                             ]
                           },
+                          "execution": {
+                            "type": "object",
+                            "properties": {
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "current": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "runId": {
+                                        "type": "string"
+                                      },
+                                      "phase": {
+                                        "type": "string",
+                                        "enum": [
+                                          "connecting",
+                                          "running",
+                                          "background",
+                                          "awaiting_input",
+                                          "awaiting_plan",
+                                          "rate_limited"
+                                        ]
+                                      },
+                                      "startedAt": {
+                                        "type": "number"
+                                      },
+                                      "waitingForAgents": {
+                                        "type": "boolean",
+                                        "const": true
+                                      },
+                                      "rateLimitResetsAt": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "runId",
+                                      "phase",
+                                      "startedAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "lastTurn": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "runId": {
+                                        "type": "string"
+                                      },
+                                      "outcome": {
+                                        "type": "string",
+                                        "enum": [
+                                          "completed",
+                                          "failed",
+                                          "interrupted",
+                                          "dead"
+                                        ]
+                                      },
+                                      "startedAt": {
+                                        "type": "number"
+                                      },
+                                      "endedAt": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "runId",
+                                      "outcome",
+                                      "startedAt",
+                                      "endedAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "hasPendingQuestion": {
+                                "type": "boolean",
+                                "const": true
+                              },
+                              "awaitingApproval": {
+                                "type": "boolean",
+                                "const": true
+                              }
+                            },
+                            "required": [
+                              "revision",
+                              "current",
+                              "lastTurn"
+                            ],
+                            "additionalProperties": false
+                          },
                           "model": {
                             "anyOf": [
                               {
@@ -7925,6 +8028,109 @@
                                   "interrupted"
                                 ]
                               },
+                              "execution": {
+                                "type": "object",
+                                "properties": {
+                                  "revision": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "current": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "runId": {
+                                            "type": "string"
+                                          },
+                                          "phase": {
+                                            "type": "string",
+                                            "enum": [
+                                              "connecting",
+                                              "running",
+                                              "background",
+                                              "awaiting_input",
+                                              "awaiting_plan",
+                                              "rate_limited"
+                                            ]
+                                          },
+                                          "startedAt": {
+                                            "type": "number"
+                                          },
+                                          "waitingForAgents": {
+                                            "type": "boolean",
+                                            "const": true
+                                          },
+                                          "rateLimitResetsAt": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "runId",
+                                          "phase",
+                                          "startedAt"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "lastTurn": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "runId": {
+                                            "type": "string"
+                                          },
+                                          "outcome": {
+                                            "type": "string",
+                                            "enum": [
+                                              "completed",
+                                              "failed",
+                                              "interrupted",
+                                              "dead"
+                                            ]
+                                          },
+                                          "startedAt": {
+                                            "type": "number"
+                                          },
+                                          "endedAt": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "runId",
+                                          "outcome",
+                                          "startedAt",
+                                          "endedAt"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "hasPendingQuestion": {
+                                    "type": "boolean",
+                                    "const": true
+                                  },
+                                  "awaitingApproval": {
+                                    "type": "boolean",
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "revision",
+                                  "current",
+                                  "lastTurn"
+                                ],
+                                "additionalProperties": false
+                              },
                               "model": {
                                 "anyOf": [
                                   {
@@ -9397,6 +9603,109 @@
                         "running",
                         "interrupted"
                       ]
+                    },
+                    "execution": {
+                      "type": "object",
+                      "properties": {
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "current": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "runId": {
+                                  "type": "string"
+                                },
+                                "phase": {
+                                  "type": "string",
+                                  "enum": [
+                                    "connecting",
+                                    "running",
+                                    "background",
+                                    "awaiting_input",
+                                    "awaiting_plan",
+                                    "rate_limited"
+                                  ]
+                                },
+                                "startedAt": {
+                                  "type": "number"
+                                },
+                                "waitingForAgents": {
+                                  "type": "boolean",
+                                  "const": true
+                                },
+                                "rateLimitResetsAt": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "runId",
+                                "phase",
+                                "startedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastTurn": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "runId": {
+                                  "type": "string"
+                                },
+                                "outcome": {
+                                  "type": "string",
+                                  "enum": [
+                                    "completed",
+                                    "failed",
+                                    "interrupted",
+                                    "dead"
+                                  ]
+                                },
+                                "startedAt": {
+                                  "type": "number"
+                                },
+                                "endedAt": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "runId",
+                                "outcome",
+                                "startedAt",
+                                "endedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hasPendingQuestion": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "awaitingApproval": {
+                          "type": "boolean",
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "revision",
+                        "current",
+                        "lastTurn"
+                      ],
+                      "additionalProperties": false
                     },
                     "model": {
                       "anyOf": [

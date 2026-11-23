@@ -155,6 +155,24 @@ describe('runner intake', () => {
     expect(await taskStore.listTasks({ personKey: 'alice', scope: principalModule.ANY_ORGANIZATION })).toEqual([])
   })
 
+  test('the service announces the saved execution revision after it commits the runner batch', async () => {
+    const from = principalModule.runnerPrincipalFor({ hostId: 'status-runner', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
+    const record = { sessionId: 'with-status', provider: 'codex', projectPath: '-repo', lastActivityAt: 10 }
+    const execution = {
+      revision: 3, current: null,
+      lastTurn: { runId: 'first', outcome: 'completed', startedAt: 2, endedAt: 10 },
+    } as const
+    const seen: Array<[string, string, number]> = []
+    const answer = await intake.applyRunnerDelivery(from, { hostId: from.hostId, items: [
+      { seq: 1, kind: 'session', payload: { ...record, execution } },
+      { seq: 2, kind: 'session', payload: { ...record, execution: { ...execution, revision: 2 } } },
+    ] }, { shares, onExecutionChanged: (sessionId, hostId, state) => seen.push([sessionId, hostId, state.revision]) })
+    const { readSessionExecution } = await import('@solus/server/data/sessions/session-executions')
+    expect(answer).toEqual({ lastSeq: 2, failed: [] })
+    expect(seen).toEqual([['with-status', from.hostId, 3]])
+    expect(await readSessionExecution('org1', 'with-status', '')).toEqual(execution)
+  })
+
   test('an uploaded work is linked to its session task, and the same upload again does not duplicate the link', async () => {
     // The upload replaced the runner's work delivery (docs/plans/cloud-sharing.md); it keeps its task link.
     const { SolusServer } = await import('@solus/server/transport/server')

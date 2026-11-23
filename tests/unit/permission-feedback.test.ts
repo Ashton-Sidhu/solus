@@ -101,7 +101,7 @@ describe('composer text as permission feedback', () => {
 })
 
 describe('promptSendPath', () => {
-  const held = { background: false, hasPendingPlan: false, hasPendingQuestion: false, hasFeedbackTarget: true, hasText: true, hasTargetTab: true }
+  const held = { background: false, hasPendingPlan: false, hasPendingQuestion: false, hasFeedbackTarget: true, hasTargetTab: true }
 
   test('an explicit queue leaves the open permission alone; a steer denies it with the text', () => {
     expect(promptSendPath({ ...held, delivery: 'queue' })).toBe('dispatch')

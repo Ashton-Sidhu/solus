@@ -7,6 +7,7 @@ import type { AgentId, WorkType } from './types'
 import type { Attribution } from './user'
 import type { Activity } from './activity'
 import type { TaskSource, TaskStatusCategory } from './task-sources'
+import type { TaskProviderMetadata } from './task-data'
 
 export type TaskProviderId = 'github' | 'jira' | 'linear'
 
@@ -331,6 +332,8 @@ export type TaskEventKind =
  * surfaces that would render it are the ones that overwrite it. */
 export interface TaskDetails {
   task: Task
+  /** Provider fields already included in the detail read. */
+  providerMetadata?: TaskProviderMetadata
   comments: TaskComment[]
   links: TaskLink[]
   /** The task's `task_changed` activity, newest last, capped at

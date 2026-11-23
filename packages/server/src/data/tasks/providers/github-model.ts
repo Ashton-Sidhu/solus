@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { TaskEpic, TaskField, TaskPriority, TaskState } from '@solus/contracts/task-types'
 import { githubIssueCategory, githubProjectOptionCategory } from '../status-category'
 import { MAX_SOURCE_TASKS, type ProviderComment, type ProviderTask, type SourceItem } from './types'
+import { ISSUE_PROVIDER_FIELDS, ISSUE_REACTION_FIELDS, type GitHubIssueMetadataSelection } from './github-issue-metadata'
 
 /**
  * The GitHub words of a task: the GraphQL documents, the node shapes they
@@ -82,14 +83,16 @@ export interface IssueQueries {
   issueByNumber: string
   issueDetailsByNumber: string
   taskNode: string
+  taskNodeWithMetadata: string
 }
 
 function issueQueries(issueFields: string, draftFields: string): IssueQueries {
   return {
     listIssues: listIssuesQuery(issueFields),
     issueByNumber: issueByNumberQuery(issueFields),
-    issueDetailsByNumber: issueByNumberQuery(issueFields, ISSUE_COMMENTS),
+    issueDetailsByNumber: issueByNumberQuery(issueFields, ISSUE_DETAIL_METADATA),
     taskNode: taskNodeQuery(issueFields, draftFields),
+    taskNodeWithMetadata: taskNodeQuery(issueFields, draftFields, ISSUE_DETAIL_METADATA),
   }
 }
 
@@ -109,11 +112,15 @@ const listIssuesQuery = (issueFields: string) => `
   }
 `
 
-const ISSUE_COMMENTS = `
-  comments(first: 100) {
+const issueComments = (reactions = '') => `
+  comments(last: 100) {
     totalCount
-    nodes { id author { login } body createdAt }
+    nodes { id author { login } body createdAt ${reactions} }
   }
+`
+const ISSUE_DETAIL_METADATA = `
+  ${issueComments(ISSUE_REACTION_FIELDS)}
+  ${ISSUE_PROVIDER_FIELDS}
 `
 
 /** One issue by its number, for URL reads and reads after a write. */
@@ -130,14 +137,14 @@ const issueByNumberQuery = (issueFields: string, comments = '') => `
 `
 
 /** One task by its stable id: an issue with its comments, or a draft with its board item. */
-const taskNodeQuery = (issueFields: string, draftFields: string) => `
+const taskNodeQuery = (issueFields: string, draftFields: string, details = issueComments()) => `
   query($id: ID!) {
     node(id: $id) {
       __typename
       ... on Issue {
         ${issueFields}
         parent { body }
-        ${ISSUE_COMMENTS}
+        ${details}
       }
 ${draftFields}
     }
@@ -319,7 +326,7 @@ export interface CommentNode {
   createdAt: string
 }
 
-export interface IssueNode {
+export interface IssueNode extends GitHubIssueMetadataSelection {
   id: string
   number: number
   title: string
@@ -336,7 +343,7 @@ export interface IssueNode {
   parent: { number: number; title: string; url: string; body?: string | null } | null
   /** Absent when the connection lacks `read:project`: the issue reads as off every board. */
   projectItems?: { nodes: Array<IssueProjectItemNode | null> }
-  /** Only in the read of one task by its id. */
+  /** The newest comments, only in the detail queries. */
   comments?: { totalCount: number; nodes: CommentNode[] }
 }
 

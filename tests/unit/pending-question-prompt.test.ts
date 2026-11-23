@@ -3,7 +3,9 @@ import type { QuestionRequest, Session } from '@solus/contracts/types'
 import {
   answersForQuestionNote,
   pendingQuestionForPrompt,
+  promptHasMoreThanText,
 } from '@solus/workspace-ui/components/input/lib/pending-question'
+import { promptSendPath } from '@solus/workspace-ui/components/input/lib/pending-permission'
 import { toQuestionRequest } from '@solus/workspace-ui/contexts/workspace/session.utils'
 
 function request(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
@@ -58,5 +60,26 @@ describe('pending question prompt routing', () => {
       strategy: 'Snapshot, then release the lock.',
       'How far?': '',
     })
+  })
+
+  test('a draft with only files still answers the open question', () => {
+    // WHY: a screenshot sent with no words must not queue behind the turn that
+    // waits on this question. Nothing would run that queue until someone
+    // answered on the card.
+    expect(promptSendPath({
+      background: false,
+      delivery: undefined,
+      hasPendingPlan: false,
+      hasPendingQuestion: true,
+      hasFeedbackTarget: false,
+      hasTargetTab: true,
+    })).toBe('question-answer')
+  })
+
+  test('files and references go after the answer, because an answer is text only', () => {
+    const empty = { text: 'Snapshot', attachments: [], planRefs: [], workRefs: [], sessionRefs: [] }
+    expect(promptHasMoreThanText(empty)).toBe(false)
+    expect(promptHasMoreThanText({ ...empty, attachments: [{ id: 'a', type: 'image', name: 'shot.png' }] } as never)).toBe(true)
+    expect(promptHasMoreThanText({ ...empty, planRefs: [{ id: 'p' }] } as never)).toBe(true)
   })
 })

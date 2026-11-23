@@ -5,7 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { Options, query, type CanUseTool, type ModelInfo, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAppCapture, type ClaudeMcpApp } from './claude-mcp-apps'
-import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
+import { ClaudeTurnNormalizer, isAbortSeamResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
 import { resolveClaudeToolSearchOverride } from './claude-tool-search'
@@ -491,7 +491,7 @@ export class ClaudeAgent {
           // "AbortError: Stream closed".
           // SAFETY: The SDK message type discriminant identifies its result contract.
           const resultMessage = msg.type === 'result' ? msg as ResultEvent : null
-          if (resultMessage && !isAbortSeamResult(resultMessage) && !isTaskNotificationResult(resultMessage)) {
+          if (resultMessage && !isAbortSeamResult(resultMessage)) {
             sawResult = true
             // A background task keeps the SDK query and its input loop alive, so
             // Enter must still be able to steer the main agent while that task is

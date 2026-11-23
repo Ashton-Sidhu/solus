@@ -56,10 +56,12 @@ describe('the person token', () => {
     const extension = createPersonRefExtension((userId) => personStanding(userId, DIRECTORY))
     const attrs = { userId: 'u_ann', name: 'Ann Old-Name' }
     // SAFETY: the renderers read only the node's attributes.
-    expect(extension.config.renderText?.({ node: { attrs } } as never)).toBe(serializeReferenceToken({ kind: 'person', ...attrs }))
+    // A copy reads as the name the chip shows; the HTML carries the mention.
+    expect(extension.config.renderText?.({ node: { attrs } } as never)).toBe('@Ann Lee')
     const chip = JSON.stringify(extension.config.renderHTML?.({ node: { attrs }, HTMLAttributes: {} } as never))
     expect(chip).toContain('solus-token--person')
     expect(chip).toContain('@Ann Lee')
+    expect(chip).toContain(JSON.stringify(serializeReferenceToken({ kind: 'person', ...attrs })).slice(1, -1))
     // A person who left: the saved name, and no chip.
     const left = JSON.stringify(extension.config.renderHTML?.({ node: { attrs: { userId: 'u_gone', name: 'Gus' } }, HTMLAttributes: {} } as never))
     expect(left).toContain('@Gus')

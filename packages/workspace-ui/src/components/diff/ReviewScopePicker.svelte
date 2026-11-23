@@ -40,8 +40,8 @@
 
   const scopeOptions = [
     { value: "branch" as const, icon: GitBranchIcon },
-    { value: "session" as const, icon: SessionIcon },
     { value: "working-tree" as const, icon: WorkingTreeIcon },
+    { value: "session" as const, icon: SessionIcon },
   ];
   const label = $derived(reviewScopeLabel(scope, turns, selectedTurnIndex));
   const TriggerIcon = $derived(

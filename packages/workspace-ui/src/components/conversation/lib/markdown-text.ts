@@ -1,5 +1,4 @@
 import { decodeHtmlEntities } from "./html-entities";
-import { fileReferenceText } from "../../editor/reference-tokens";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 
 export type MarkdownTextSegment =
@@ -19,24 +18,24 @@ const SLASH_RE =
   /(?:^|(?<=\s))\/[a-zA-Z][a-zA-Z0-9_-]*(?::[a-zA-Z][a-zA-Z0-9_-]*)*(?![\w./:])/g;
 
 export interface FileChipParts {
-  /** The part of `@path` before the visible label, rendered copy-only. */
+  /** The part of the path before the visible label, rendered copy-only. */
   prefix: string;
   /** The basename the chip shows. */
   label: string;
-  /** The part of `@path` after the visible label — a folder's trailing slash. */
+  /** The part of the path after the visible label — a folder's trailing slash. */
   suffix: string;
 }
 
 /*
- * A file chip shows only the basename, but a copy of the surrounding prose has
- * to carry the whole `@path` the user wrote: otherwise pasting the selection
- * into another prompt loses the file the sentence was about. Splitting the
- * canonical token around the visible label lets the browser's own clipboard
+ * A file chip shows only the basename, but a copy of the surrounding prose
+ * carries the whole path: a copied file is its path, wherever it is pasted.
+ * Splitting the path around the visible label lets the browser's own clipboard
  * serializer reassemble it from copy-only text, with no copy handler and no
- * second selection model.
+ * second selection model. A paste into a composer restores the `@` mention from
+ * the chip's `data-solus-reference`.
  */
 export function fileChipParts(path: string): FileChipParts {
-  const token = fileReferenceText(path);
+  const token = path;
   const label = hostPathBaseName(path);
   const start = label ? token.lastIndexOf(label) : token.length;
   return {
@@ -54,14 +53,37 @@ export interface LinkChipCopyParts {
 }
 
 /*
- * A chip drawn from a Markdown link (a plan, a work, a pull request, a session,
- * a host, a file) shows only its label. A copy of the prose around it has to
- * carry the whole link, or the paste is a bare name: a host chip pasted into
- * another prompt would name no host. The link syntax goes around the label as
- * copy-only text, the same way `fileChipParts` keeps a path.
+ * An image embed drawn as a chip copies as the image it is: the Markdown image
+ * goes around its label as copy-only text. A reference chip copies as its label
+ * instead, and keeps its link in `linkReference`.
  */
 export function linkChipCopyParts(href: string, isImageEmbed = false): LinkChipCopyParts {
   return { open: isImageEmbed ? "![" : "[", close: `](${href})` };
+}
+
+/** The reference a link chip stands for, as a composer writes it — what a paste
+ *  of the chip into a composer restores (`data-solus-reference`). */
+export function linkReference(label: string, href: string): string {
+  return `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${href})`;
+}
+
+export interface FileLinkCopyParts extends LinkChipCopyParts {
+  /** The shown label is part of the copy. When it is not, the label is drawn
+   *  shown-only and `open` carries the whole mention. */
+  isLabelCopied: boolean;
+}
+
+/*
+ * A file in a reply is a Markdown link, and it copies as its path, line kept,
+ * as every file chip does. `shown` is the label with the line the chip shows
+ * after it (`foo.ts:12`); when the path ends with it, the rest of the path goes
+ * before it as copy-only text. A label that is not part of the path (`the
+ * config`) cannot be, so the path is copied whole in its place.
+ */
+export function fileLinkCopyParts(path: string, line: number | undefined, shown: string): FileLinkCopyParts {
+  const copied = line ? `${path}:${line}` : path;
+  if (!shown || !copied.endsWith(shown)) return { open: copied, close: "", isLabelCopied: false };
+  return { open: copied.slice(0, -shown.length), close: "", isLabelCopied: true };
 }
 
 export interface FileMentionTarget {

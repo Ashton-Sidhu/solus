@@ -43,6 +43,7 @@ export const RPC_PLANES = {
   switchSessionAgent: 'execution',
   acceptPlan: 'execution',
   createHeadlessSession: 'execution',
+  forkSessionFromResponse: 'execution',
   promptHeadlessSession: 'execution',
   decideSessionPlan: 'execution',
 

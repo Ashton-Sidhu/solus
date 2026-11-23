@@ -251,6 +251,41 @@ export function fileReferenceText(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
 }
 
+/**
+ * What a reference reads as in text: what a person copying it expects to get.
+ * A file is its path; anything with a name is its name. The canonical token
+ * (`serializeReferenceToken`) is what a prompt sends and what a paste back into
+ * a composer restores (`data-solus-reference`).
+ */
+export function referenceCopyText(token: ReferenceToken): string {
+  switch (token.kind) {
+    case "file":
+      return token.path;
+    case "slash":
+      return token.command;
+    case "plan":
+    case "work":
+    case "session":
+    case "task":
+    case "automation":
+      return token.title;
+    case "pr":
+      return `#${token.number} ${token.title}`;
+    case "person":
+      return `@${token.name}`;
+    case "host":
+      return token.label;
+    case "login":
+      return `@${token.login}`;
+  }
+}
+
+/** The link a linked reference opens (`task://…`), or null for a file, a
+ *  command, or a login, which are not links. */
+export function referenceHref(token: ReferenceToken): string | null {
+  return serializeReferenceToken(token).match(/\]\(([^()\s]+)\)$/)?.[1] ?? null;
+}
+
 export function serializeReferenceToken(token: ReferenceToken): string {
   switch (token.kind) {
     case "file":

@@ -1,3 +1,5 @@
+import type { SessionExecution } from '@solus/contracts/session-execution'
+import { readSessionExecutions } from '../data/sessions/session-executions'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDatabase, type Db } from '../db/database'
@@ -49,6 +51,7 @@ export interface RunnerIntakeDeps {
   shares?: ShareManager
   /** A mirrored session's transcript or activity changed, in the mirror scope the runner delivered to: its readers hear it once per batch. */
   onTranscriptChanged?: (sessionId: string, mirrorScope: string) => void
+  onExecutionChanged?: (sessionId: string, runnerHostId: string, execution: SessionExecution) => void
   /** Solus Cloud's admin view of webhooks; without it a `webhooks` item applies as nothing. */
   webhookAdmin?: WebhookAdminPort
 }
@@ -142,6 +145,7 @@ function changedSessionOf(item: RunnerDeliverItem): string | null {
 
 export async function applyRunnerDelivery(runner: RunnerPrincipal, request: RunnerDeliverRequest, deps: RunnerIntakeDeps = {}): Promise<RunnerDeliverResponse> {
   const changedSessions = new Set<string>()
+  const executions = new Set<string>()
   const failed: RunnerDeliverResponse['failed'] = []
   // A runner that sends items out of order gets them applied in order anyway.
   const items = [...request.items].sort((a, b) => a.seq - b.seq)
@@ -162,6 +166,10 @@ export async function applyRunnerDelivery(runner: RunnerPrincipal, request: Runn
       try {
         await applyItem(runner, item, deps)
         await db.run(sql`RELEASE SAVEPOINT runner_item`)
+        if (deps.onExecutionChanged && item.kind === 'session') {
+          const facts = sessionRecordUpsertWireSchema.parse(item.payload)
+          if (facts.execution) executions.add(facts.sessionId)
+        }
         const sessionId = changedSessionOf(item)
         if (sessionId) changedSessions.add(sessionId)
       } catch (error) {
@@ -179,5 +187,11 @@ export async function applyRunnerDelivery(runner: RunnerPrincipal, request: Runn
     return lastSeq
   })
   for (const sessionId of changedSessions) deps.onTranscriptChanged?.(sessionId, runner.organizationId)
+  if (deps.onExecutionChanged && executions.size > 0) {
+    const saved = await readSessionExecutions(runner.organizationId, [...executions])
+    for (const [sessionId, { execution }] of saved) {
+      if (execution) deps.onExecutionChanged(sessionId, runner.hostId, execution)
+    }
+  }
   return { lastSeq, failed }
 }

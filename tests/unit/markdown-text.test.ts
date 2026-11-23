@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   fileChipParts,
+  fileLinkCopyParts,
   fileMentionTarget,
   linkChipCopyParts,
+  linkReference,
   tokenizeMarkdownText,
 } from "@solus/workspace-ui/components/conversation/lib/markdown-text";
 import { parseReferenceTokens } from "@solus/workspace-ui/components/editor/reference-tokens";
@@ -24,10 +26,11 @@ describe("user message inline tokens", () => {
     ]);
   });
 
-  test("a copied file chip carries the whole path, not the basename", () => {
+  test("a copied file chip is the whole path, not the basename", () => {
     // WHY: the chip shows only the basename, so copying a sentence around it
-    // used to paste a bare filename that no longer names a file. The parts a
-    // browser concatenates must re-read as the same chip.
+    // used to paste a bare filename that no longer names a file. A copied file
+    // is its path, wherever it is pasted; a composer restores the mention from
+    // the chip's `data-solus-reference`.
     for (const path of [
       "src/renderer/App.svelte",
       "App.svelte",
@@ -35,10 +38,7 @@ describe("user message inline tokens", () => {
       "~/notes.md",
     ]) {
       const parts = fileChipParts(path);
-      const copied = `${parts.prefix}${parts.label}${parts.suffix}`;
-
-      expect(copied).toBe(`@${path}`);
-      expect(tokenizeMarkdownText(copied)).toEqual([{ type: "file", path }]);
+      expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(path);
     }
   });
 
@@ -54,7 +54,7 @@ describe("user message inline tokens", () => {
 
     const parts = fileChipParts(path);
     expect(parts.label).toBe("plan v2.md");
-    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(`@"${path}"`);
+    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(path);
   });
 
   test("a file chip with a line suffix opens that line", () => {
@@ -77,12 +77,12 @@ describe("user message inline tokens", () => {
 
     const parts = fileChipParts(path);
     expect(parts.label).toBe("plan.md");
-    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(`@${path}`);
+    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(path);
   });
 
   test("shows the folder name on a folder chip, not the trailing slash", () => {
     expect(fileChipParts("src/renderer/")).toEqual({
-      prefix: "@src/",
+      prefix: "src/",
       label: "renderer",
       suffix: "/",
     });
@@ -90,27 +90,49 @@ describe("user message inline tokens", () => {
 });
 
 describe("a chip drawn from a link", () => {
-  test("copies as the whole link, so a paste into the composer is the same chip", () => {
-    // WHY: a chip shows only its label. A copy that carried only the label
-    // would paste a bare name: a host chip would name no host, and a session
-    // chip no session.
+  test("carries the reference a paste into the composer restores", () => {
+    // WHY: a chip copies as its label, the name a person expects. A paste into
+    // a composer must still be the same chip, so the chip carries its
+    // reference (`data-solus-reference`): a host chip names its host, and a
+    // session chip its session.
     for (const [label, href, kind] of [
       ["studio-mini", "host://ref?serverId=install-1&state=online", "host"],
       ["Editor research", "session://ref?provider=codex&sessionId=s2&cwd=%2Frepo", "session"],
       ["Architecture", "work://ref?workId=w1&type=doc", "work"],
       ["#42 Make typing fast", "pr://ref?number=42", "pr"],
       ["Ship plan", "plan://ref?planId=p1&sessionId=s1&planToolUseId=t1&status=pending", "plan"],
+      ["Fix the [beta] build", "task://ref?taskId=t9", "task"],
+      ["Daily digest", "automation://ref?automationId=a1", "automation"],
     ] as const) {
-      const parts = linkChipCopyParts(href);
-      const copied = `${parts.open}${label}${parts.close}`;
-
-      expect(copied).toBe(`[${label}](${href})`);
-      expect(parseReferenceTokens(copied).map((range) => range.token.kind)).toEqual([kind]);
+      const reference = linkReference(label, href);
+      expect(parseReferenceTokens(reference).map((range) => range.token.kind)).toEqual([kind]);
     }
   });
 
   test("an image embed copies as an image, not as a link", () => {
     const parts = linkChipCopyParts("asset://a1", true);
     expect(`${parts.open}diagram${parts.close}`).toBe("![diagram](asset://a1)");
+  });
+});
+
+describe("file link copy", () => {
+  // WHY: a file named in a reply copied as a Markdown link, and one in a user's
+  // message as an `@` mention. Every file chip copies as its path, the line it
+  // points at kept.
+  test("a copied file link is its path, line kept", () => {
+    for (const [path, line, shown, copied] of [
+      ["src/foo.ts", undefined, "foo.ts", "src/foo.ts"],
+      ["src/foo.ts", 12, "foo.ts:12", "src/foo.ts:12"],
+      ["docs/a b.md", undefined, "a b.md", "docs/a b.md"],
+    ] as const) {
+      const parts = fileLinkCopyParts(path, line, shown);
+      expect(parts.isLabelCopied).toBe(true);
+      expect(`${parts.open}${shown}${parts.close}`).toBe(copied);
+    }
+  });
+
+  test("a label that is not in the path is replaced by the path in the copy", () => {
+    const parts = fileLinkCopyParts("config/app.json", undefined, "the config");
+    expect(parts).toEqual({ open: "config/app.json", close: "", isLabelCopied: false });
   });
 });

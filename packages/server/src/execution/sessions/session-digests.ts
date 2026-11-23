@@ -12,6 +12,7 @@ import {
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { isSubagentTool } from '../../data/sessions/result-projection'
 import type { TurnCheckpointed } from '../../git/turn-checkpoints'
+import type { TurnCostRecorded } from '../observability/session-emitter'
 import { createLogger } from '../../logger'
 
 const log = createLogger('SessionDigests', 'session-digests.ts')
@@ -24,6 +25,7 @@ export interface SessionDigestsDeps {
   write(digest: SessionDigest): Promise<void>
   /** Tell the readers of the session, and of each session above it, to read its tree again. */
   announce(sessionId: string): void
+  subagentChanged?(sessionId: string, agent: DigestSubagent): void
   now?: () => number
 }
 
@@ -73,7 +75,22 @@ export class SessionDigests {
     if (event.type === 'background_task_started' && !event.toolUseId && !event.lineageTask) return
     if (event.type === 'background_task_settled' && !event.toolUseId && !this.live.has(sessionId) && !this.queues.has(sessionId)) return
     const at = this.now()
-    this.enqueue(sessionId, (live) => apply(live, event, at))
+    this.enqueue(sessionId, (live) => {
+      const tracksAgents = this.deps.subagentChanged && (
+        event.type === 'background_task_started' || event.type === 'background_task_progress' || event.type === 'background_task_settled'
+        || event.type === 'subagent_report' || event.type === 'turn_settled'
+        || (event.type === 'tool_result' && subagentOf(live.digest, event.toolUseId) !== undefined)
+        || (event.type === 'tool_call' && isSubagentTool(event))
+      )
+      const before = tracksAgents ? new Map(live.digest.subagents.map((agent) => [agent.id, agent.status])) : null
+      const when = apply(live, event, at)
+      if (before) {
+        for (const agent of live.digest.subagents) {
+          if (before.get(agent.id) !== agent.status) this.deps.subagentChanged?.(sessionId, { ...agent })
+        }
+      }
+      return when
+    })
   }
 
   /** A turn's checkpoint: what the session changed so far, and what this turn changed. */
@@ -87,7 +104,18 @@ export class SessionDigests {
     })
   }
 
-  /** Wait for every queued change: for tests and a clean shutdown. */
+  /** What a turn cost, once its host priced it. It is the turn's that started last before the middle of the priced span. */
+  costed({ sessionId, startedAt, endedAt, costUsd }: TurnCostRecorded): void {
+    this.enqueue(sessionId, (live) => {
+      const middle = (startedAt + endedAt) / 2
+      const owner = live.digest.turns.findLast((candidate) => candidate.startedAt <= middle)
+      if (!owner) return 'none'
+      owner.costUsd = costUsd
+      return 'now'
+    })
+  }
+
+    /** Wait for every queued change: for tests and a clean shutdown. */
   async settled(): Promise<void> {
     await Promise.all(this.queues.values())
   }

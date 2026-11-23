@@ -50,6 +50,13 @@
       "when": 1795402060294,
       "tag": "0006_session_list_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795415973929,
+      "tag": "0007_session_executions",
+      "breakpoints": true
     }
   ]
 }

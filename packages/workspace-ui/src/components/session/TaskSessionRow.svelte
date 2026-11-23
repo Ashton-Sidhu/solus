@@ -134,7 +134,7 @@
        column left of the same mark on the row above. -->
   <span
     class="relative ml-auto flex h-4 shrink-0 items-center justify-end {mark
-      ? 'min-w-[0.875rem]'
+      ? 'min-w-4'
       : ''}"
   >
     <span
@@ -143,25 +143,26 @@
       {#if mark?.kind === "glyph"}
         <TaskStatusGlyph
           status={mark.status}
-          size={13}
           label={label || "unread"}
           limitResetsAt={session.limitResetsAt}
         />
       {:else if mark?.kind === "dot"}
-        <!-- The dots move in the running tone; offline is muted, as its
-             state can be old. The clock beside them states its time in full
-             ink, not hue. Terracotta stays on the elbow, so the clock never
-             competes with the green of a pull request chip beside it. -->
-        <span class="flex shrink-0 items-center gap-1.5">
-          <span class="flex shrink-0 items-center {mark.mark === 'offline' ? 'text-muted-foreground' : 'text-chart-5'}">
+        <!-- The time and the dots are one unit in one tone, as T3 Code pairs
+             its duration and symbol; a row you are not reading takes both
+             down together. Offline is muted, as its state can be old. -->
+        <span
+          class="flex shrink-0 items-center gap-2 {mark.mark === 'offline'
+            ? 'text-muted-foreground'
+            : isCurrent
+              ? 'text-(--solus-status-working)'
+              : 'text-[color-mix(in_oklch,var(--solus-status-working)_70%,transparent)]'}"
+        >
+          {#if mark.elapsed}
+            <span class="shrink-0 text-sidebar-time font-medium tabular-nums">{mark.elapsed}</span>
+          {/if}
+          <span class="flex shrink-0 items-center">
             <DotMatrix mark={mark.mark} {label} />
           </span>
-          {#if mark.elapsed}
-            <span
-              class="shrink-0 text-sidebar-time font-medium tabular-nums text-foreground"
-              >{mark.elapsed}</span
-            >
-          {/if}
         </span>
       {/if}
     </span>
@@ -212,7 +213,7 @@
     {#snippet child({ props: tooltipProps })}
 <div
   {...tooltipProps}
-  class="group/session relative flex h-8 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 @max-[15rem]:gap-1.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
+  class="group/session relative flex h-9 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 @max-[15rem]:gap-1.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
     ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
     : 'text-foreground'} {isCurrent
     ? inRaisedCard

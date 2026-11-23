@@ -39,6 +39,25 @@ function setup(options: { reducedMotion?: boolean } = {}) {
 }
 
 describe('sidebar list motion', () => {
+  test('opening a section at the end fades in its rows while the rows above stay in place', () => {
+    const { list, played, layOut, row } = setup()
+    list.append(row('active session'), row('Completed'))
+    layOut()
+    const motion = createSidebarListMotion(list, () => 150)
+    motion.update(false)
+
+    const completedRow = row('completed session')
+    list.append(completedRow)
+    layOut()
+    motion.update(true)
+
+    expect(played).toHaveLength(1)
+    expect(played[0]?.node).toBe(completedRow)
+    expect(played[0]?.keyframes).toEqual([
+      { opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 },
+    ])
+  })
+
   test('a new row at the top fades in and pushes the rows below down smoothly', () => {
     const { list, played, layOut, row, rowHeight } = setup()
     const older = row('older')

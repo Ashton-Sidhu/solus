@@ -166,10 +166,6 @@ export interface ResultEvent {
     cache_creation_input_tokens?: number
   }
   permission_denials: string[]
-  /** Present when Claude internally resumes the parent after a background task
-   *  reports back. This result ends that internal continuation, not the user's
-   *  overall session run. */
-  origin?: { kind: string }
   uuid: string
 }
 

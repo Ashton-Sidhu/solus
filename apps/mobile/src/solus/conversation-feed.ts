@@ -3,6 +3,7 @@ import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
 import {
   MessageId,
+  ProviderThreadId,
   RunId,
   ThreadId,
   TurnItemId,
@@ -52,6 +53,35 @@ export function conversationFeed(
     const timestamp = "timestamp" in item ? item.timestamp : undefined;
     const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
     const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
+    if (item.kind === "fork") {
+      const sourceThreadId = ThreadId.make(item.activity.sourceSessionId);
+      const time = DateTime.makeUnsafe(item.activity.at);
+      const itemId = TurnItemId.make(key);
+      return [{
+        sourceItemId: itemId,
+        sourceThreadId,
+        position: 0,
+        visibility: "synthetic",
+        item: {
+          id: itemId,
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 0,
+          status: "completed",
+          title: "Forked from conversation",
+          startedAt: null,
+          completedAt: time,
+          updatedAt: time,
+          type: "fork",
+          source: { type: "provider_thread", providerThreadId: ProviderThreadId.make(sourceThreadId) },
+          targetThreadId: threadId,
+        },
+      }];
+    }
     const viewedImage =
       item.kind === "tool" ? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
@@ -186,6 +216,7 @@ export function conversationFeed(
     };
     const row: ThreadFeedSourceRow = {
       hostTime: createdAt,
+      ...(item.kind === "assistant" && item.forkPointId && { hostForkPointId: item.forkPointId }),
       sourceItemId: base.id,
       sourceThreadId: ThreadId.make(item.sourceSessionId ?? id),
       position: 0,

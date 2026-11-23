@@ -1,8 +1,10 @@
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { TaskDetails } from '@solus/contracts/task-types'
+import type { TaskComment, TaskDetails } from '@solus/contracts/task-types'
 import type { TaskSource } from '@solus/contracts/task-sources'
+import { withTaskProviderMetadata } from '@solus/contracts/task-data'
 import type {
   TaskProviderData,
+  TaskProviderMetadata,
   TaskReactionContent,
   TaskTemplate
 } from '@solus/contracts/task-data'
@@ -20,6 +22,13 @@ export interface TaskDataState {
   provider: TaskProviderState
 }
 type TaskDataApi = Pick<SolusAPI, 'tasksGet' | 'tasksReact'>
+
+/** A copy from the task detail includes local attribution and delivery state. */
+export function mergeTaskComments(details: readonly TaskComment[], timeline: readonly TaskComment[]): TaskComment[] {
+  const comments = new Map(timeline.map((comment) => [comment.providerCommentId ?? comment.id, comment]))
+  for (const comment of details) comments.set(comment.providerCommentId ?? comment.id, comment)
+  return [...comments.values()]
+}
 
 /** One task's reads. Each section has its own loading, failure and stale-response guard. */
 export class TaskDataStore {
@@ -110,18 +119,20 @@ export class TaskDataStore {
     this.#detailsRead = read
     return read
   }
-  async #readProvider(cursor?: string): Promise<TaskProviderData> {
-    const value = await this.api().tasksGet(this.taskId, { section: 'provider', cursor })
+  async #readProvider(cursor?: string, metadata?: TaskProviderMetadata): Promise<TaskProviderData> {
+    const value = await this.api().tasksGet(this.taskId, {
+      section: 'provider', cursor, ...(metadata && { timelineOnly: true as const })
+    })
     if ('task' in value)
       throw new Error('Update the task host to read provider history and reactions.')
-    return value
+    return metadata ? withTaskProviderMetadata(value, metadata) : value
   }
-  loadProvider(): Promise<void> {
+  loadProvider(metadata?: TaskProviderMetadata): Promise<void> {
     if (this.#providerRead) return this.#providerRead
     const generation = ++this.#providerGeneration
     this.#provider({ pending: true, loadingMore: false, error: null })
     this.#providerRead = Promise.resolve()
-      .then(() => this.#readProvider())
+      .then(() => this.#readProvider(undefined, metadata))
       .then(
         (value) => {
           if (generation === this.#providerGeneration) this.#provider({ value })
@@ -151,12 +162,16 @@ export class TaskDataStore {
         [...page.events, ...before.value.events].map((event) => [event.id, event])
       )
       const pullRequests = new Map(
-        [...before.value.pullRequests, ...page.pullRequests].map((pr) => [pr.url, pr])
+        [...page.pullRequests, ...before.value.pullRequests].map((pr) => [pr.url, pr])
       )
+      const comments = before.value.comments || page.comments
+        ? mergeTaskComments(before.value.comments ?? [], page.comments ?? [])
+        : undefined
       this.#provider({
         value: {
           ...before.value,
           events: [...events.values()].sort((a, b) => a.at - b.at),
+          ...(comments && { comments }),
           historyCursor: page.historyCursor,
           pullRequests: [...pullRequests.values()]
         }

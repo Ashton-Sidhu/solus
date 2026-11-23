@@ -25,6 +25,7 @@ mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte
 const sessionListStore = {
   onRecordsRead: () => () => {},
   homeFor: (target: { serverId: string; sessionId: string }) => target.serverId,
+  stateFor: () => ({ settledAt: 10, archivedAt: null }),
   setSettled: async () => {},
   setArchived: async () => {},
 }
@@ -146,16 +147,16 @@ test('pins from a healthy host appear while another host is still loading', asyn
   expect(store.pinnedSessions.map((row) => row.sessionId)).toEqual(['healthy-session'])
 })
 
-test('completion and archive announcements remove host-scoped pins and invalidate stale reads', async () => {
+test('completion keeps host pins and archive removes them without accepting a stale read', async () => {
   const pending = Promise.withResolvers<PinnedSession[]>()
   const pin: PinnedSession = { sessionId: 'session', serverId: 'local', provider: 'codex', title: 'Pinned', cwd: '/repo', pinnedAt: 1 }
-  connections.registerPrimary('local', { pinnedSessionsList: () => pending.promise })
-  connections.registerHost('other', { pinnedSessionsList: async () => [{ ...pin, serverId: 'other' }] })
+  connections.registerPrimary('local', { pinnedSessionsList: async () => [pin] })
+  connections.registerHost('other', { pinnedSessionsList: () => pending.promise })
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
   Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
   Object.defineProperty(store, 'pinsReadOn', { value: new WeakSet() })
   store.pinnedSessions = [pin, { ...pin, serverId: 'other' }]
-  const stop = store.subscribeSessionStatuses()
+  const stop = store.subscribeSessionViews()
   try {
     const read = store.loadPinnedSessions()
     connections.eventsFor('local').receive({
@@ -163,15 +164,15 @@ test('completion and archive announcements remove host-scoped pins and invalidat
       payload: { sessionId: 'session', view: { settledAt: 10, archivedAt: null, snoozedUntil: null, snoozeNote: null } },
       occurredAt: 10,
     })
-    pending.resolve([pin])
-    await read
-    expect(store.pinnedSessions.map((held) => held.serverId)).toEqual(['other'])
+    expect(store.isPinned('session', 'local')).toBe(true)
     connections.eventsFor('other').receive({
       type: 'session.viewChanged',
       payload: { sessionId: 'session', view: { settledAt: null, archivedAt: 20, snoozedUntil: null, snoozeNote: null } },
       occurredAt: 20,
     })
-    expect(store.pinnedSessions).toEqual([])
+    pending.resolve([{ ...pin, serverId: 'other' }])
+    await read
+    expect(store.pinnedSessions.map((held) => held.serverId)).toEqual(['local'])
   } finally {
     stop()
   }
@@ -192,13 +193,33 @@ test('archiving a pinned session ends its pin, on its own host when the Solus AP
   const homeFor = sessionListStore.homeFor
   sessionListStore.homeFor = (target) => target.sessionId === 'org-session' ? 'solus-api:org' : target.serverId
   try {
-    const archive = (store as unknown as { archiveOnHost(targets: { serverId: string; sessionId: string }[]): Promise<void> }).archiveOnHost
-    await archive.call(store, [{ serverId: 'local', sessionId: 'org-session' }, { serverId: 'local', sessionId: 'local-session' }])
+    await store.archiveSessions([{ serverId: 'solus-api:org', sessionId: 'org-session' }, { serverId: 'local', sessionId: 'local-session' }])
     await Promise.resolve()
     expect(store.pinnedSessions).toEqual([])
     // The local home removes its own pin; a toggle there would put it back.
     expect(toggled.map((session) => session.sessionId)).toEqual(['org-session'])
   } finally {
     sessionListStore.homeFor = homeFor
+  }
+})
+
+test('the Sessions store uses one revision per host, session and provider subagent', async () => {
+  const { SessionRecords } = await import('@solus/workspace-ui/contexts/workspace/session-records.svelte')
+  const previousState = globalThis.$state
+  globalThis.$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value }) as typeof $state
+  try {
+    const sessions = new SessionRecords()
+    const running = { revision: 1, current: { runId: 'run', phase: 'running', startedAt: 1 }, lastTurn: null } as const
+    const completed = { revision: 2, current: null, lastTurn: { runId: 'run', startedAt: 1, endedAt: 2, outcome: 'completed' } } as const
+    sessions.adoptExecution('one', 'session', completed)
+    sessions.adoptExecution('one', 'session', running)
+    sessions.adoptExecution('one', 'session', running, 'tool')
+    sessions.adoptExecution('two', 'session', running)
+    expect(sessions.executionFor('one', 'session')).toBe(completed)
+    expect(sessions.executionFor('one', 'session', 'tool')).toBe(running)
+    expect(sessions.executionFor('two', 'session')).toBe(running)
+    expect(sessions.byId).toEqual({})
+  } finally {
+    globalThis.$state = previousState
   }
 })

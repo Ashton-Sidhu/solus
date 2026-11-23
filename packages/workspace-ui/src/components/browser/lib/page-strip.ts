@@ -60,15 +60,38 @@ export function groupPagesByBranch(entries: BrowserPageEntry[]): BrowserPageGrou
  * though nothing happened.
  *
  * `no-surface` is deliberately not a failure. It says nothing about the page —
- * only that nothing is currently rendering it — and a dot on every quietly
+ * only that nothing is currently rendering it — and a mark on every quietly
  * opened page would make the one that matters unreadable.
+ *
+ * A failure keeps its cause: "the server is down" and "the page crashed" send
+ * the user to different places, so the pill shows a different icon for each.
  */
-export type BrowserPageStatus = 'failed' | 'loading' | null
+export type BrowserPageStatus = 'unreachable' | 'failed' | 'crashed' | 'loading' | null
 
 export function pageStatus(page: BrowserPage): BrowserPageStatus {
-  if (page.problem && page.problem.kind !== 'no-surface') return 'failed'
+  switch (page.problem?.kind) {
+    case 'target-unreachable':
+      return 'unreachable'
+    case 'load-failed':
+      return 'failed'
+    case 'surface-crashed':
+      return 'crashed'
+  }
   if (page.loadState === 'loading') return 'loading'
   return null
+}
+
+/** What the pill's failure icon says, with the host's own words when it gave any. */
+export function failureLabel(
+  status: 'unreachable' | 'failed' | 'crashed',
+  problemMessage: string | undefined,
+): string {
+  const label = {
+    unreachable: 'Server not reachable',
+    failed: 'Page failed to load',
+    crashed: 'Page crashed',
+  }[status]
+  return problemMessage ? `${label} — ${problemMessage}` : label
 }
 
 /** A short route for disambiguation and the page pill's tooltip. */

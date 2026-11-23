@@ -31,9 +31,11 @@
     >
       {text}
       <span class="h-px min-w-4 flex-1 bg-sidebar-border/50" aria-hidden="true"></span>
-      <span class="tabular-nums opacity-60">{count}</span>
-      <span class="flex size-4 shrink-0 items-center justify-center">
-        <CaretRightIcon size={14} class="transition-transform duration-150 {isOpen ? 'rotate-90' : ''}" />
+      <span class="flex shrink-0 items-center gap-1.5">
+        <span class="tabular-nums opacity-60">{count}</span>
+        <span class="flex size-4 shrink-0 items-center justify-center">
+          <CaretRightIcon size={14} class="transition-transform duration-150 {isOpen ? 'rotate-90' : ''}" />
+        </span>
       </span>
     </button>
   {:else}

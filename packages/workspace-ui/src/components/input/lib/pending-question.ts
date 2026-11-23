@@ -1,5 +1,5 @@
 import { formatAnswer, questionKey } from '@solus/contracts/question-answer'
-import type { QuestionRequest, Session } from '@solus/contracts/types'
+import type { Prompt, QuestionRequest, Session } from '@solus/contracts/types'
 
 export interface QuestionNoteAnswers {
   [questionKey: string]: string
@@ -30,4 +30,15 @@ export function answersForQuestionNote(
     answers[questionKey(question)] = index === 0 ? formatAnswer('', note) : ''
   })
   return answers
+}
+
+/**
+ * An answer is text only. Files and references in the draft go to the agent
+ * after the answer, in their own message, so they are not lost.
+ */
+export function promptHasMoreThanText(prompt: Prompt): boolean {
+  return prompt.attachments.length > 0
+    || prompt.planRefs.length > 0
+    || prompt.workRefs.length > 0
+    || prompt.sessionRefs.length > 0
 }

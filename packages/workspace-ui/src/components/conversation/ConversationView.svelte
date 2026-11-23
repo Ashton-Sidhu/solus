@@ -8,6 +8,7 @@
   import ConversationTurn from "./ConversationTurn.svelte";
   import VirtualTranscript from "./VirtualTranscript.svelte";
   import SessionOriginDivider from "./SessionOriginDivider.svelte";
+  import { sessionExecutionStatus } from "@solus/contracts/session-execution";
   import { hostStarterOf } from "@solus/contracts/session-starter";
   import PendingHandoffDivider from "./PendingHandoffDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
@@ -129,6 +130,8 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  const execution = $derived(sess ? session.sessions.executionFor(runHost(sess.run), sess.id) : undefined);
+  const displayedStatus = $derived(execution ? sessionExecutionStatus(execution) : sess?.status);
   const hostStarter = $derived(hostStarterOf(sess?.startedBy));
   // §16 — a turn collapses to one row when it ends. Until then it renders the
   // transcript it always did, in the order it happened.
@@ -473,13 +476,13 @@
   const turnAnnouncer = new TurnAnnouncer();
   let turnAnnouncement = $state("");
   $effect(() => {
-    const phase = sess ? turnPhaseFor(sess.status, sess.permissionQueue.length > 0) : null;
+    const phase = sess && displayedStatus ? turnPhaseFor(displayedStatus, execution?.awaitingApproval ?? (sess.permissionQueue.length > 0)) : null;
     turnAnnouncer.observe(tabId, phase);
     turnAnnouncement = turnAnnouncer.text;
   });
 
-  const isAwaitingPlan = $derived(sess?.status === "awaiting_plan");
-  const isAwaitingInput = $derived(sess?.status === "awaiting_input");
+  const isAwaitingPlan = $derived(displayedStatus === "awaiting_plan");
+  const isAwaitingInput = $derived(displayedStatus === "awaiting_input");
   const currentActivity = $derived(sess ? computeCurrentActivity(sess) : "");
   const activityLabel = $derived(
     isAwaitingPlan ? "Awaiting plan approval" : currentActivity || undefined,

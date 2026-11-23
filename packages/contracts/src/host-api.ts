@@ -828,6 +828,7 @@ export interface SolusAPI {
   notificationsSetArchived(request: NotificationSetArchived): Promise<NotificationStateResult>
 
   /** Create a durable provider session with no client watching it. */
+  forkSessionFromResponse(request: { sessionId: string; sourceThreadId: string; targetSessionId: string; pointId: string }): Promise<SessionRecord>
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ sessionId: string; agentSessionId: string }>
   /** Prompt an existing session for an agent on another host. */
   promptHeadlessSession(request: HeadlessPromptRequest): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
@@ -892,7 +893,8 @@ export interface SolusAPI {
   prInspectUrl(url: string): Promise<PrUrlInspection>
   /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
   /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
-  prGetOverview(ctx: IpcContext, number: number): Promise<PullRequestOverview>
+  /** Set includeCommits to false when the summary does not use the commit list. */
+  prGetOverview(ctx: IpcContext, number: number, options?: { includeCommits?: boolean }): Promise<PullRequestOverview>
   /** Per-file +/- counts from the code host for the PR's changed files. */
   prChangedFiles(ctx: IpcContext, number: number): Promise<ChangedFileStat[]>
   prListThreads(ctx: IpcContext, number: number): Promise<ReviewThread[]>

@@ -789,6 +789,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const timeLabel = props.timeLabel && m(props.timeLabel);
   const snoozeWakeLabelText =
     props.snoozeWakeLabelText === undefined ? undefined : m(props.snoozeWakeLabelText);
+  const slimTimeLabel = snoozedRow ? (snoozeWakeLabelText ?? timeLabel) : timeLabel;
   const rowAccessibilityLabel = threadListV2RowAccessibilityLabel(
     {
       title: automationMark ? gt("{title}, automation", { title }) : title,
@@ -1247,6 +1248,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rowProject = props.project ?? thread.fallbackProject;
   const titleTextInset = rowProject ? projectIconSize + 8 : 0;
+  const pinMark = pinnedRow ? (
+    <SymbolView
+      name="pin"
+      size={11}
+      tintColorClassName={rowAppearance.mutedIconTintClassName}
+      type="monochrome"
+    />
+  ) : null;
   const branchLabel = thread.branch ? (
     <View className="min-w-0 flex-row items-center gap-1">
       <SymbolView
@@ -1305,14 +1314,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         <View className="flex-row items-center gap-1.5" style={{ minHeight: titleLineHeight }}>
           {automationMark}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-          {pinnedRow ? (
-            <SymbolView
-              name="pin"
-              size={11}
-              tintColorClassName={rowAppearance.mutedIconTintClassName}
-              type="monochrome"
-            />
-          ) : null}
+          {pinMark}
           {showsWoke ? (
             <Pressable
               className="-m-2.5 flex-row items-center gap-1 p-2.5"
@@ -1343,24 +1345,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               </Text>
             </Pressable>
           ) : dotMark ? (
-            <View className="flex-row items-center gap-1">
-              <DotMatrix
-                mark={dotMark}
-                dotClassName={
-                  selected
-                    ? "bg-thread-selected-foreground"
-                    : dotMark === "offline"
-                      ? "bg-foreground-muted"
-                      : "bg-adaptive-sky-600-400"
-                }
-              />
+            <View className="flex-row items-center gap-2">
               {goalLabel !== null || dotMarkShowsElapsedTime(dotMark) ? (
                 <Text
                   className={cn(
                     "text-xs font-t3-bold",
                     selected
                       ? selectedThreadRowColors.foregroundClassName
-                      : "text-adaptive-sky-600-400",
+                      : "text-adaptive-slate-600-400",
                   )}
                 >
                   {goalLabel}
@@ -1373,6 +1365,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   ) : null}
                 </Text>
               ) : null}
+              {/* The time, then the mark at the edge, so marks line up in one column. */}
+              <DotMatrix
+                mark={dotMark}
+                dotClassName={
+                  selected
+                    ? "bg-thread-selected-foreground"
+                    : dotMark === "offline"
+                      ? "bg-foreground-muted"
+                      : "bg-adaptive-slate-600-400"
+                }
+              />
             </View>
           ) : statusLabel ? (
             <View className="flex-row items-center gap-1">
@@ -1385,7 +1388,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                     : statusLabel.iconTintClassName
                 }
                 type="monochrome"
-                weight="semibold"
+                weight="bold"
               />
               {statusLabel.glyphOnly ? null : (
                 <Text
@@ -1660,20 +1663,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             ) : null}
           </View>
           {automationMark}
+          {pinMark}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-          <Text
-            className={cn(
-              "text-sm tabular-nums",
-              selected
-                ? selectedThreadRowColors.mutedForegroundClassName
-                : snoozedRow
-                  ? rowAppearance.mutedForegroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
-            )}
-            style={{ fontFamily: MONO_FONT }}
-          >
-            {snoozedRow && snoozeWakeLabelText !== undefined ? snoozeWakeLabelText : timeLabel}
-          </Text>
+          {slimTimeLabel ? (
+            <Text
+              className={cn(
+                "text-sm tabular-nums",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : snoozedRow
+                    ? rowAppearance.mutedForegroundClassName
+                    : rowAppearance.tertiaryForegroundClassName,
+              )}
+              style={{ fontFamily: MONO_FONT }}
+            >
+              {slimTimeLabel}
+            </Text>
+          ) : null}
         </View>
       </RowPressable>
     );

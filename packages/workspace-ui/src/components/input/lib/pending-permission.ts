@@ -37,13 +37,12 @@ export function promptSendPath(state: {
   hasPendingPlan: boolean
   hasPendingQuestion: boolean
   hasFeedbackTarget: boolean
-  hasText: boolean
   hasTargetTab: boolean
 }): PromptSendPath {
   if (state.background) return 'background'
   if (state.delivery === 'queue') return 'dispatch'
   if (state.hasPendingPlan) return 'plan-feedback'
-  if (state.hasPendingQuestion && state.hasText && state.hasTargetTab) return 'question-answer'
+  if (state.hasPendingQuestion && state.hasTargetTab) return 'question-answer'
   if (state.hasFeedbackTarget && state.hasTargetTab) return 'permission-feedback'
   return 'dispatch'
 }

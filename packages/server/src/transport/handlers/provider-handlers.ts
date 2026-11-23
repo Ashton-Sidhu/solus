@@ -768,9 +768,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
   server.register('prInspectUrl', ([address]) => inspectPullRequestUrl(address, (repo) => providerForRepo(repo)?.review ?? null))
   server.register('prGetOverview', async (args) => {
-    const [ctx, number] = args
+    const [ctx, number, options] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    return prIndex.pullRequest(repo, provider, number).overview()
+    return prIndex.pullRequest(repo, provider, number).overview(options)
   })
 
   server.register('prListThreads', async (args) => {

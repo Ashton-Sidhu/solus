@@ -57,14 +57,10 @@ export function StateMarkView(props: {
       <View
         accessible={false}
         importantForAccessibility="no-hide-descendants"
-        className="flex-row items-center gap-1"
+        className="flex-row items-center gap-2"
       >
-        <DotMatrix
-          mark={mark.mark}
-          dotClassName={mark.mark === "offline" ? "bg-foreground-muted" : "bg-adaptive-sky-600-400"}
-        />
         {showsTime ? (
-          <Text className="text-xs font-t3-bold text-adaptive-sky-600-400">
+          <Text className="text-xs font-t3-bold text-adaptive-slate-600-400">
             <StateMarkDuration
               environmentId={props.environmentId}
               startedAt={new Date(mark.startedAt!).toISOString()}
@@ -72,6 +68,10 @@ export function StateMarkView(props: {
             />
           </Text>
         ) : null}
+        <DotMatrix
+          mark={mark.mark}
+          dotClassName={mark.mark === "offline" ? "bg-foreground-muted" : "bg-adaptive-slate-600-400"}
+        />
       </View>
     );
   }
@@ -87,7 +87,7 @@ export function StateMarkView(props: {
         size={13}
         tintColorClassName={glyph.iconTintClassName}
         type="monochrome"
-        weight="semibold"
+        weight="bold"
       />
       {"glyphOnly" in glyph ? null : (
         <Text className={`text-xs font-t3-bold ${glyph.className}`}>{messages(glyph.label)}</Text>

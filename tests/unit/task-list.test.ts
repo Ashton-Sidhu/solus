@@ -1003,6 +1003,13 @@ describe('resolveSidebarRowMark', () => {
     // something so the column looks uniform.
     expect(resolveSidebarRowMark(base)).toBeNull()
   })
+
+  it('keeps a resting pinned session quiet after completion', () => {
+    const pinned = { ...base, isPinned: true, lifecycle: 'completed' as const, completedAt: base.now - 60_000 }
+    expect(resolveSidebarRowMark(pinned)).toBeNull()
+    expect(resolveSidebarRowMark({ ...pinned, status: 'running', runStartedAt: base.now - 2_000 }))
+      .toEqual({ kind: 'dot', mark: 'working', elapsed: '2s' })
+  })
 })
 
 describe('shouldRecedeRow', () => {

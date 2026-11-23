@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { TaskDataStore } from '@solus/client-core/task-data'
+import { mergeTaskComments, TaskDataStore } from '@solus/client-core/task-data'
 import { serializeTaskWrite } from '@solus/server/data/tasks/task-writes'
 import type { TaskProviderData } from '@solus/contracts/task-data'
 
@@ -21,6 +21,22 @@ function deferred<T>() {
 }
 
 describe('provider task data', () => {
+  test('loads older GitHub comments and keeps local attribution on duplicate comments', async () => {
+    const comment = (id: string) => ({ id, providerCommentId: id, taskId: 'github:I1', body: id, createdAt: 1 })
+    const store = new TaskDataStore('github:I1', () => ({
+      tasksGet: async (_id, read) => read?.cursor
+        ? { ...inspection(null, []), comments: [comment('old'), comment('new')] }
+        : { ...inspection('older:1', []), comments: [comment('new')] },
+      tasksReact: async () => {}
+    }))
+    await store.loadProvider()
+    await store.loadOlderHistory()
+    const local = { ...comment('new'), id: 'local-comment', originSessionId: 'session' }
+    expect(mergeTaskComments([local], store.current.provider.value?.comments ?? [])).toEqual([
+      comment('old'), local,
+    ])
+  })
+
   test('a failed continuation retains rows and cursor, so retry can finish the same page', async () => {
     let fail = true
     const store = new TaskDataStore('github:I1', () => ({

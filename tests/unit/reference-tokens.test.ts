@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   extractTrackedReferences,
   parseReferenceTokens,
+  referenceCopyText,
   serializeReferenceToken,
   type ReferenceToken,
 } from "@solus/workspace-ui/components/editor/reference-tokens";
@@ -83,10 +84,11 @@ describe("reference token markdown", () => {
     }
   });
 
-  test("copies a highlighted chip as its canonical token", () => {
+  test("copies a highlighted chip as what it reads as", () => {
     // WHY: an inline atom contributes nothing to ProseMirror's plain-text
     // clipboard unless its node declares renderText. Without it, highlighting
-    // across a file chip and copying dropped the path from the pasted text.
+    // across a file chip and copying dropped the path from the pasted text. A
+    // copy is what a person expects to read: a file's path, a plan's title.
     const chipNodes: { name: string; token: ReferenceToken }[] = [
       { name: "fileReference", token: tokens[0] },
       { name: "planReference", token: tokens[1] },
@@ -104,7 +106,7 @@ describe("reference token markdown", () => {
       // SAFETY: these renderers read only the node's attributes.
       const text = extension?.config.renderText?.({ node: { attrs } } as never);
 
-      expect(text).toBe(serializeReferenceToken(token));
+      expect(text).toBe(referenceCopyText(token));
     }
   });
 

@@ -35,7 +35,7 @@ describe('review scope picker', () => {
     expect(reviewScopeKind({ kind: 'pr', baseSha: 'abc123' })).toBeNull()
   })
 
-  test('choosing Branch clears the scope so the surface resolves the live base', () => {
+  test('choosing Changes restores the default checkout comparison', () => {
     expect(diffScopeForReviewScope('branch')).toBeUndefined()
   })
 
@@ -44,7 +44,8 @@ describe('review scope picker', () => {
     const turns = [turn(0), turn(2), turn(5)]
     expect(reviewScopeLabel('session', turns, 2)).toBe('Turn 2/3')
     expect(reviewScopeLabel('session', turns, null)).toBe('Session')
-    expect(reviewScopeLabel('branch', turns, null)).toBe('Branch')
+    expect(reviewScopeLabel('branch', turns, null)).toBe('Changes')
+    expect(reviewScopeLabel('working-tree', turns, null)).toBe('Uncommitted')
   })
 
   test('each choice reads back as the same choice', () => {

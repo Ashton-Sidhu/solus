@@ -1,3 +1,4 @@
+import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
 import { clearActiveHistoryLoading, isActiveHistoryRequestCursor } from "@t3tools/client-runtime/state/thread-history-merge"
 import type { MobileSessionCache } from "../threads/session-cache"
 import type { TaskSnapshot } from '@solus/contracts/task-types'
@@ -84,7 +85,7 @@ export interface ConversationTarget {
   hostId: string
   /** A saved session to open, or a new one to start in `workingDirectory`.
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
-  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'> & Partial<Pick<SessionRecord, 'organizationId'>>
+  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role' | 'execution'> & Partial<Pick<SessionRecord, 'organizationId'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string; attachments?: readonly UploadedAttachment[] }
   /** The host this saved session was open on before the person chose this
    *  one to run its next turn (docs/plans/portable-sessions.md §10). */
@@ -296,6 +297,7 @@ export class ConversationController {
     this.threadProvider = target.record?.provider ?? null
     this.carried = target.record ? target.carriedTranscript ?? null : null
     this.model = this.carried ?? new TranscriptModel(this.run.sessionId)
+    if (target.record?.execution) this.applyExecution(target.record.execution)
     // A copy from the cloud that the person carried to this host by a pick.
     if (this.carried && deps.cloudHistory?.isCopy(this.carried)) this.cloudRead = { kind: 'ready' }
     const { connection } = deps
@@ -332,9 +334,8 @@ export class ConversationController {
       this.model.addNotice(`Error: ${payload.error.message}`, 'error')
       this.flush()
     }))
-    this.cleanups.push(connection.events.subscribe('session.statusChanged', (payload) => {
-      if (payload.sessionId !== this.run.sessionId) return
-      this.model.setStatus(payload.status)
+    this.cleanups.push(connection.events.subscribe('session.executionChanged', (payload) => {
+      if (payload.sessionId !== this.run.sessionId || payload.toolId || !this.applyExecution(payload.execution)) return
       this.flush()
     }))
     // A session name set anywhere (generated here or on desktop, or typed) is
@@ -1528,13 +1529,23 @@ export class ConversationController {
     }, () => undefined).finally(() => { this.watchBesidePrompt = null })
   }
 
+  private executionRevision = 0
+
+  private applyExecution(execution: SessionExecution): boolean {
+    if (execution.revision <= this.executionRevision) return false
+    this.executionRevision = execution.revision
+    this.model.setStatus(sessionExecutionStatus(execution))
+    return true
+  }
+
   private applyWatch(watched: WatchSessionResult): void {
+    if (watched.execution) this.applyExecution(watched.execution)
     for (const question of watched.pendingQuestions ?? []) {
       this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode, kind: question.kind })
     }
     const runtime = watched.runtime
     if (runtime) {
-      this.model.setStatus(runtime.status)
+      if (!this.executionRevision) this.model.setStatus(runtime.status)
       this.model.setRateLimit(runtime.rateLimitInfo)
       this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning, runtime.backgroundTaskIds)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
@@ -1547,7 +1558,7 @@ export class ConversationController {
         this.run.fastMode = runtime.modelConfig.fastMode
       }
       if (runtime.permissionMode) this.run.permissionMode = runtime.permissionMode
-    } else if (this.run.agentSessionId) {
+    } else if (this.run.agentSessionId && !this.executionRevision) {
       // Nothing runs for the session any more.
       this.model.setStatus('idle')
       this.model.setRateLimit(null)

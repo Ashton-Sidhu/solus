@@ -59,6 +59,13 @@ Use these names in code, docs, and conversation.
 | Failed | line glyph | crossed circle | failed or dead, and not read |
 | Done | line glyph | circle with check | finished and not read; replaces the dashed `UnreadDot` ring |
 
+The conversation’s agent cards and the Agents views in Threads and the
+Project panel share the same state-mark rules. They read execution status and
+live activity from the Sessions store. Agent status marks show only the icon
+and keep the status name available to assistive technology. The runner saves delegation waits and
+known rate-limit reset times with the execution. An exchange supplies the
+reply and the controls for an agent’s request.
+
 The marks of a running turn (Thinking, Reading, Editing, Running, Searching,
 Writing, Working) keep the elapsed time beside them. Starting, Background, and
 Offline show no time.

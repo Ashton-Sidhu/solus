@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bot as BotIcon, ChevronRight as ChevronRightIcon, CornerLeftUp as ParentIcon, GitFork as ForkIcon, Plus as PlusIcon, Square as SquareIcon } from "@lucide/svelte";
+  import { Bot as BotIcon, ChevronRight as ChevronRightIcon, CornerLeftUp as ParentIcon, GitFork as ForkIcon, GitMerge as MergeIcon, LoaderCircle as SpinnerIcon, Plus as PlusIcon, Square as SquareIcon } from "@lucide/svelte";
   import type { SessionTreeRelation } from "@solus/contracts/session-digest";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { knownRunnerFor } from "@solus/client-core/session-runner";
@@ -13,17 +13,19 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { toasts } from "../../lib/toasts";
   import * as TooltipUI from "../ui/tooltip";
-  import ProviderMark from "../ui/ProviderMark.svelte";
+  import AgentAvatar from "../conversation/AgentAvatar.svelte";
   import AgentStateMark from "../conversation/AgentStateMark.svelte";
   import { agentMarkShowsElapsed } from "../conversation/lib/agent-link";
   import { openAgentSession } from "../conversation/agent-conversation/lib/agent-conversation";
   import PanelSection from "./PanelSection.svelte";
+  import MenuRow, { PANEL_ROW_ICON_SIZE } from "./MenuRow.svelte";
   import LineageWorkflow from "./LineageWorkflow.svelte";
   import ArtifactCard from "../session/artifacts/ArtifactCard.svelte";
   import {
     formatCompactElapsed,
     treeAgentRows,
     railAgentTooltip,
+    relatedSessionTitle,
     RAIL_AGENTS_INITIAL_COUNT,
     RAIL_AGENTS_PAGE_COUNT,
     type TreeAgentRow,
@@ -55,10 +57,15 @@
   });
   const view = $derived(active ? sessionTreeStore.viewFor(sessionId, serverId) : null);
   const search = $derived(query.trim().toLowerCase());
-  const rows = $derived(treeAgentRows(view?.tree ?? null, sessionId, serverId).filter((row) =>
+  const rows = $derived(treeAgentRows(view?.tree ?? null, sessionId, serverId,
+    (runnerId, id, toolId) => session.sessions.executionFor(runnerServerId(runnerId), id, toolId),
+    (runnerId, id) => session.sessions.activityFor(runnerServerId(runnerId), id),
+  ).filter((row) =>
     row.title.toLowerCase().includes(search) && isInScope(turnWindow, row.startedAt),
   ));
-  const relations = $derived((view?.tree?.relations ?? []).filter((row) => row.title.toLowerCase().includes(search)));
+  const relations = $derived((view?.tree?.relations ?? [])
+    .map((relation) => ({ ...relation, title: relatedSessionTitle(relation, serverId, session) }))
+    .filter((row) => row.title.toLowerCase().includes(search)));
   const canMerge = $derived(!view?.stale && view?.tree?.nodes[0]?.digest?.turns.some((turn) =>
     turn.settled && (turn.outcome === undefined || turn.outcome === "completed"),
   ) === true);
@@ -147,7 +154,7 @@
   }
 
   async function mergeBack() {
-    if (merging) return;
+    if (!canMerge || merging) return;
     merging = true;
     try {
       const { target, prompt } = await serverConnections.apiFor(serverId).sessionMergeBackPrompt(sessionId);
@@ -194,20 +201,33 @@
       </div>
     {/if}
     {#each relations as relation (relation.sessionId)}
-      <div class="flex min-h-8 items-center gap-1 rounded-lg px-2">
-        <button type="button" class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-ring" onclick={() => void openRelation(relation)}>
-          {#if relation.kind === "parent"}
-            <ParentIcon size={16} class="shrink-0" aria-hidden="true" />
-          {:else}
-            <ForkIcon size={16} class="shrink-0" aria-hidden="true" />
-          {/if}
-          <span class="min-w-0 truncate text-[13px] pointer-coarse:text-workspace-chrome" title={relation.title}>{relation.title}</span>
-          <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{relation.kind === "parent" ? "Parent" : relation.kind === "fork-source" ? "Fork source" : "Fork"}</span>
-        </button>
+      {@const relationName = relation.kind === "parent" ? "parent session" : relation.kind === "fork-source" ? "fork source" : "fork"}
+      {@const relationLabel = `Open ${relationName}: ${relation.title}`}
+      <div class="flex min-w-0 items-stretch gap-px {surface === 'threads' ? 'text-workspace-chrome' : ''}">
+        <MenuRow
+          item={{ key: relation.sessionId, phase: "idle", label: relation.title, icon: relation.kind === "parent" ? ParentIcon : ForkIcon, tooltip: relationLabel }}
+          ariaLabel={relationLabel}
+          split={relation.kind === "fork-source"}
+          onActivate={() => void openRelation(relation)}
+        />
         {#if relation.kind === "fork-source"}
-          <button type="button" class="shrink-0 rounded-md px-1.5 py-1 text-chrome-dense hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50" disabled={!canMerge || merging} title="Send the fork’s findings to the source conversation" onclick={() => void mergeBack()}>
-            {merging ? "Sending…" : "Merge back"}
-          </button>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger
+              type="button"
+              class="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring aria-disabled:cursor-default aria-disabled:opacity-50 {surface === 'threads' ? 'mr-1 w-6' : 'w-6.5'}"
+              aria-label="Merge back"
+              aria-disabled={!canMerge || merging}
+              aria-busy={merging}
+              onclick={() => void mergeBack()}
+            >
+              {#if merging}
+                <SpinnerIcon size={PANEL_ROW_ICON_SIZE} aria-hidden="true" class="animate-spin motion-reduce:animate-none" />
+              {:else}
+                <MergeIcon size={PANEL_ROW_ICON_SIZE} aria-hidden="true" />
+              {/if}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={merging ? "Sending findings…" : canMerge ? "Merge back" : view?.stale ? "Refresh agent status to merge back" : "Complete a turn to merge back"} />
+          </TooltipUI.Root>
         {/if}
       </div>
     {/each}
@@ -218,12 +238,14 @@
       {#if hasLive}
         <button
           type="button"
-          class="flex h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg px-2.5 text-left text-chrome-dense font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring"
+          class="flex h-8 w-full min-w-0 cursor-pointer items-center overflow-hidden rounded-lg px-2 text-left text-chrome-dense font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring {surface === 'threads' ? 'gap-2.5' : 'gap-2'}"
           aria-expanded={previousOpen}
           data-testid="rail-agents-previous"
           onclick={togglePrevious}
         >
-          <ChevronRightIcon size={14} aria-hidden="true" class="shrink-0 {previousOpen ? 'rotate-90' : ''}" />
+          <span class="inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+            <ChevronRightIcon size={14} class={previousOpen ? 'rotate-90' : ''} />
+          </span>
           <span class="min-w-0 flex-1 truncate">Previous agents{previousOpen ? "" : ` (${previous.length})`}</span>
           {#if failedCount > 0}
             <span class="shrink-0 text-(--solus-status-error)">{failedCount} failed</span>
@@ -257,7 +279,7 @@
   {#if rows.length > visibleCount}
     <button
       type="button"
-      class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-chrome-dense text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex h-8 w-full cursor-pointer items-center rounded-lg px-2 text-left text-chrome-dense text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {surface === 'threads' ? 'gap-2.5' : 'gap-2'}"
       onclick={showMore}
     >
       <PlusIcon size={16} aria-hidden="true" class="shrink-0" />
@@ -271,17 +293,18 @@
   {@const canStop = row.standing === "live" && !view?.stale && (row.kind === "session"
     ? !row.isRemote || serversStore.readinessFor(runnerServerId(row.serverId)).readiness === "ready"
     : ownsConversation && row.canStop)}
-  {@const mark = row.provider === "codex" ? "codex" : row.provider === "claude-code" ? "claude" : null}
-  {@const elapsedMs = (row.endedAt ?? now) - row.startedAt}
+  {@const elapsedMs = (row.endedAt ?? now) - row.runStartedAt}
   {@const hostLabel = row.kind === "session" && row.isRemote ? serversStore.hostFor(runnerServerId(row.serverId))?.label ?? "Remote host" : null}
-  <div class="group relative flex h-8 items-center">
+  <div class="group relative flex items-center">
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props })}
           <button
             {...props}
             type="button"
-            class="flex h-8 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg px-2.5 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none disabled:cursor-default {isOpen
+            class="flex w-full min-w-0 cursor-pointer items-center overflow-hidden rounded-lg pl-2 text-left text-(--solus-text-secondary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none disabled:cursor-default {surface === 'threads'
+              ? 'h-9 gap-2.5 pr-2 text-workspace-chrome pointer-coarse:h-11'
+              : 'min-h-8 gap-2'} {isOpen
               ? 'bg-(--solus-surface-hover)'
               : ''}"
             aria-label="{row.title}, {row.status}"
@@ -291,31 +314,26 @@
             data-state={row.standing}
             onclick={(e) => open(row, e.metaKey || e.ctrlKey)}
           >
-            <!-- The provider's mark. The state mark sits before the time. -->
-            <span class="relative inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-              {#if mark}
-                <ProviderMark {mark} size={mark === "codex" ? 10 : 14} transparent />
-              {:else}
-                <BotIcon size={16} class="text-(--solus-text-tertiary)" />
-              {/if}
-            </span>
-            <span
-              class="min-w-0 flex-1 truncate text-[13px] pointer-coarse:text-workspace-chrome text-[color-mix(in_srgb,var(--solus-text-primary)_85%,transparent)]"
-              >{row.title}</span
-            >
+            <AgentAvatar provider={row.provider} variant="row" />
+            <span class="min-w-0 flex-1 truncate">{row.title}</span>
             {#if hostLabel}
               <span class="max-w-1/3 shrink-0 truncate text-chrome-dense text-(--solus-text-tertiary)" title={hostLabel}>{hostLabel}</span>
             {/if}
-            <!-- The sidebar's grammar: the state mark, then the time. -->
+            <!-- The sidebar's grammar: the time, then the state mark at the edge. -->
             <span
-              class="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-chrome-dense tabular-nums text-(--solus-text-tertiary) {canStop
+              class="flex shrink-0 items-center gap-2 whitespace-nowrap text-chrome-dense tabular-nums {row.mark?.kind === 'dot'
+                ? 'font-medium text-(--solus-status-working)'
+                : 'text-(--solus-text-tertiary)'} {canStop
                 ? 'group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:opacity-0'
                 : ''}"
             >
-              {#if row.mark}<AgentStateMark mark={row.mark} label={row.status} />{/if}
-              {#if agentMarkShowsElapsed(row.mark)}
-                {row.standing === "stopped" || elapsedMs <= 0 ? row.status : formatCompactElapsed(elapsedMs)}
+              {#if row.standing !== "stopped" && elapsedMs > 0 && agentMarkShowsElapsed(row.mark)}
+                {formatCompactElapsed(elapsedMs)}
               {/if}
+              <!-- The project rail's split carets use a 26px slot. -->
+              <span class="inline-flex h-4 shrink-0 items-center justify-center {surface === 'threads' ? 'w-4' : 'w-6.5'}">
+                {#if row.mark}<AgentStateMark mark={row.mark} label={row.status} />{/if}
+              </span>
             </span>
           </button>
         {/snippet}
@@ -326,7 +344,7 @@
       <!-- Stop shows in place of the time on hover; on touch it always shows. -->
       <button
         type="button"
-        class="pointer-events-none absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-0 transition-[opacity,color,background-color] duration-150 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-status-error) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
+        class="pointer-events-none absolute top-1/2 inline-flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-0 transition-[opacity,color,background-color] duration-150 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-status-error) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 {surface === 'threads' ? 'right-1' : 'right-0.25'}"
         disabled={stopping.has(row.key)}
         aria-label={stopping.has(row.key) ? `Stopping ${row.title}` : `Stop ${row.title}`}
         title="Stop agent"

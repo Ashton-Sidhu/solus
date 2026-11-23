@@ -122,6 +122,15 @@ export const sessionDigests = defineTable('session_digests', {
   updated_at: bigint({ notNull: true }),
 })
 
+/** The runner's execution state. The empty tool id names the session itself. */
+export const sessionExecutions = defineTable('session_executions', {
+  session_id: text({ notNull: true }),
+  tool_id: text({ notNull: true }),
+  organization_id: text({ notNull: true }),
+  revision: integer({ notNull: true }),
+  execution: json({ notNull: true }),
+}, { primaryKey: ['session_id', 'tool_id'] })
+
 // A session's pull requests, its file and automation links, and its watches
 // are edges of `resource_links` (data/links/schema.ts); a session delete
 // removes them explicitly (`deleteEdgesOf`), as no foreign key can.
@@ -138,4 +147,4 @@ export const sessionArtifactCopies = defineTable('session_artifact_copies', {
   updated_at: bigint({ notNull: true }),
 })
 
-export const SESSION_TABLES = [session, sessionRepositories, sessionDigests, sessionArtifactCopies]
+export const SESSION_TABLES = [session, sessionRepositories, sessionDigests, sessionArtifactCopies, sessionExecutions]

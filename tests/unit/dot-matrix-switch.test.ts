@@ -56,7 +56,7 @@ describe('the dots of the grid', () => {
     ])
   })
 
-  test('the default grid is the 13px box of a line glyph', () => {
+  test("the default grid is T3 Code's 13px status symbol, the circle of a 16px line glyph", () => {
     expect(DOT_MATRIX_BOX_PX).toBe(13)
     expect(dotCellOffset(2, DOT_MATRIX_BOX_PX)).toBe(10)
   })

@@ -1,7 +1,9 @@
 <script module lang="ts">
   import { SvelteSet } from "svelte/reactivity";
+  import { installChipSelection } from "../../lib/chip-selection";
 
   const failedFaviconUrls = new SvelteSet<string>();
+  installChipSelection();
 </script>
 
 <script lang="ts">
@@ -9,8 +11,8 @@
   import { webLinkIcon } from "@solus/client-core/web-link-icon";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, Server as ServerIcon } from "@lucide/svelte";
-  import { GitPullRequestIcon } from "../ui/octicons";
+  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, Server as ServerIcon, Workflow as WorkflowIcon } from "@lucide/svelte";
+  import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
@@ -18,7 +20,8 @@
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { tokenClassName } from "../editor/tokenStyle";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
-  import { linkChipCopyParts } from "./lib/markdown-text";
+  import { fileLinkCopyParts, linkChipCopyParts, linkReference } from "./lib/markdown-text";
+  import { fileReferenceText } from "../editor/reference-tokens";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
   import { getMarkdownImageContext, markdownAssetId } from "./lib/markdown-image";
@@ -62,10 +65,15 @@
   const isPlanRef = $derived(href.startsWith("plan://"));
   const isWorkRef = $derived(href.startsWith("work://"));
   const isPrRef = $derived(href.startsWith("pr://"));
+  const isTaskRef = $derived(href.startsWith("task://"));
+  const isAutomationRef = $derived(href.startsWith("automation://"));
+  // What a paste into a composer restores this chip from (`reference-clipboard.ts`).
+  const reference = $derived(linkReference(text ?? "", href));
   const sessionParams = $derived(parseSessionHref(href));
   // A host chip (docs/plans/host-fleet.md D12). It opens the host's page when
   // the host is one of this client's; a reader with no such host sees what the
   // link says of it.
+  // An image embed copies as the image it is.
   const copyParts = $derived(linkChipCopyParts(href, fileChip));
   const hostRef = $derived(parseHostHref(href, text ?? ""));
   // The link names the host by the identity every client knows. A host of this
@@ -108,6 +116,15 @@
     };
   });
   const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
+  // A file link copies as its path; a paste into a composer restores the mention.
+  const fileCopyParts = $derived(
+    fileRef && !fileChip
+      ? fileLinkCopyParts(fileRef.path, fileRef.line, `${codeFileLabel ?? text ?? ""}${fileRef.line ? `:${fileRef.line}` : ""}`)
+      : null,
+  );
+  const fileReference = $derived(
+    fileRef && !fileChip ? fileReferenceText(fileRef.line ? `${fileRef.path}:${fileRef.line}` : fileRef.path) : undefined,
+  );
   // The same tab a click would preview against, so the tooltip names the
   // directory the link would actually open in.
   const fileLinkWorkingDirectory = $derived(
@@ -187,15 +204,18 @@
   }
 </script>
 
-<!-- A chip shows its label; a copy of the prose keeps the whole link (`linkChipCopyParts`). -->
+<!-- A chip copies as what it reads as: its label, or a file's path. Its
+     reference rides along in the copied HTML (`data-solus-reference`). -->
 {#snippet copyOpen()}<span class="solus-token__copy-only">{copyParts.open}</span>{/snippet}
 {#snippet copyClose()}<span class="solus-token__copy-only">{copyParts.close}</span>{/snippet}
+{#snippet fileLabel()}{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}{/snippet}
 
 {#if isPlanRef && linkRoute}
   <button
     type="button"
     onclick={handleClick}
     class={tokenClassName(VARIANT_FOR[planStatus])}
+    data-solus-reference={reference}
   ><span class="solus-token__icon">
       {#if planStatus === "accepted"}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
@@ -204,16 +224,17 @@
       {:else}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
       {/if}
-</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
+</span><span>{@render children?.()}</span>
   </button>
 {:else if isWorkRef && linkRoute}
   <button
     type="button"
     onclick={handleClick}
     class={tokenClassName('work')}
+    data-solus-reference={reference}
   ><span class="solus-token__icon">
       <FileTextIcon size={12} />
-</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
+</span><span>{@render children?.()}</span>
   </button>
 {:else if isPrRef && linkRoute}
   <button
@@ -221,18 +242,30 @@
     onclick={handleClick}
     {@attach warmPrLink}
     class={tokenClassName('pr')}
+    data-solus-reference={reference}
   ><span class="solus-token__icon">
       <GitPullRequestIcon size={12} />
-</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
+</span><span>{@render children?.()}</span>
   </button>
 {:else if sessionParams}
   <button
     type="button"
     onclick={handleClick}
     class={tokenClassName('session')}
+    data-solus-reference={reference}
   ><span class="solus-token__icon">
       <ChatCircleDotsIcon size={12} />
-</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
+</span><span>{@render children?.()}</span>
+  </button>
+{:else if (isTaskRef || isAutomationRef) && linkRoute}
+  <button
+    type="button"
+    onclick={handleClick}
+    class={tokenClassName(isTaskRef ? 'task' : 'automation')}
+    data-solus-reference={reference}
+  ><span class="solus-token__icon">
+      {#if isTaskRef}<IssueOpenedIcon size={12} />{:else}<WorkflowIcon size={12} />{/if}
+</span><span>{@render children?.()}</span>
   </button>
 {:else if hostRef}
   {#snippet hostChip()}
@@ -242,23 +275,24 @@
       {:else}
         <ServerIcon size={12} />
       {/if}
-</span><span>{@render copyOpen()}{#if knownHost}{knownHost.label}{:else}{@render children?.()}{/if}{@render copyClose()}</span>
+</span><span>{#if knownHost}{knownHost.label}{:else}{@render children?.()}{/if}</span>
   {/snippet}
   {#if session && knownHost}
-    <button type="button" onclick={openHost} title={hostFacts} class={tokenClassName('host')}>{@render hostChip()}</button>
+    <button type="button" onclick={openHost} title={hostFacts} class={tokenClassName('host')} data-solus-reference={reference}>{@render hostChip()}</button>
   {:else}
-    <span title={hostFacts} class={tokenClassName('host')}>{@render hostChip()}</span>
+    <span title={hostFacts} class={tokenClassName('host')} data-solus-reference={reference}>{@render hostChip()}</span>
   {/if}
 {:else if fileRef || fileChip}
   <button
     type="button"
     class={tokenClassName("file")}
+    data-solus-reference={fileReference}
     title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
     onclick={handleClick}
   ><span class="solus-token__icon">
       <!-- Only trusted package SVG and static local symbols enter this markup. -->
       <FileIcon path={fileRef?.path ?? text ?? href} size={12} />
-</span><span>{@render copyOpen()}{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}{@render copyClose()}</span>
+</span><span>{#if fileCopyParts}<span class="solus-token__copy-only">{fileCopyParts.open}</span><span class={fileCopyParts.isLabelCopied ? undefined : "solus-token__shown-only"}>{@render fileLabel()}</span><span class="solus-token__copy-only">{fileCopyParts.close}</span>{:else}{@render copyOpen()}{@render fileLabel()}{@render copyClose()}{/if}</span>
   </button>
 {:else}
   {#snippet linkContents()}

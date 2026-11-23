@@ -1,12 +1,13 @@
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
 import { exchangeRequestText, type ExchangeRequest } from '@solus/contracts/session-exchange'
+import type { SessionExecution } from '@solus/contracts/session-execution'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
 import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
-import { dotMarkOfActivity, plainDetail, type AgentLinkStatus } from '../../lib/agent-link'
+import { agentExecutionLink, plainDetail, type AgentLinkStatus, summarizeAgentLinks } from '../../lib/agent-link'
 
 /** The card's single headline state — one treatment, one verb, no layout shift.
  *  `lost` is a message whose reply a host restart took; `limited` is a turn
@@ -58,6 +59,12 @@ export function pendingRequest(ref: AgentConversationRef): ExchangeRequest | nul
   return last?.status === 'awaiting_input' ? last.request ?? null : null
 }
 
+/** Stop is available while a run is active and does not wait for a person. */
+export function canStopAgentConversation(execution: SessionExecution | undefined): boolean {
+  if (!execution?.current || execution.hasPendingQuestion || execution.awaitingApproval) return false
+  return execution.current.phase !== 'awaiting_input' && execution.current.phase !== 'awaiting_plan'
+}
+
 /** The task the other session works on, as its latest report named it. */
 export function cardTaskId(ref: AgentConversationRef): string | undefined {
   return ref.exchanges.findLast((exchange) => exchange.taskId)?.taskId
@@ -67,11 +74,6 @@ export function cardTaskId(ref: AgentConversationRef): string | undefined {
 export function rateLimitedUntil(ref: AgentConversationRef): number | undefined {
   const last = ref.exchanges[ref.exchanges.length - 1]
   return last?.status === 'rate_limited' ? last.rateLimitedUntil : undefined
-}
-
-/** Live states keep their colour, clock and footer; settled states drop all three. */
-export function isLiveAgentConversationState(state: AgentConversationCardState): boolean {
-  return state === 'dispatching' || state === 'replying' || state === 'waiting' || state === 'limited' || state === 'children'
 }
 
 /** This agent has been asked something and hasn't answered yet — including a
@@ -186,15 +188,6 @@ export function formatAgentConversationDuration(ms: number): string {
   return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : `${seconds}s`
 }
 
-/** Wall time the card covers: settled sum where known, live tail included. */
-export function agentConversationElapsedMs(ref: AgentConversationRef, now: number): number {
-  const first = ref.exchanges[0]
-  if (!first) return 0
-  const last = ref.exchanges[ref.exchanges.length - 1]
-  const end = last.settledAt ?? (OPEN_STATUSES.has(last.status) ? now : last.dispatchedAt)
-  return Math.max(0, end - first.dispatchedAt)
-}
-
 /** Host segment of the provenance line. Local sessions omit it — the host is
  *  only a fact worth stating when it differs from where the user is. */
 export function hostLabelFor(serverId: string | undefined): string | null {
@@ -247,50 +240,22 @@ export function agentConversationTitle(ref: AgentConversationRef, meta: SessionM
   return meta?.customTitle || meta?.slug || ref.title
 }
 
-/**
- * The session row's standing, state mark, word, and detail line (T3 Code's
- * subagent link). Every in-flight state is `live`. `activity` is the agent
- * activity the session's host reports for its running turn
- * (`session.activityChanged`); null while nothing is known. The detail says
- * why a settled exchange ended, or the reply's first words when it answered.
- */
+/** Present the agent's saved execution. The exchange still supplies its reply and actions. */
 export function agentConversationLink(
   ref: AgentConversationRef,
-  state: AgentConversationCardState,
-  neverStarted: boolean,
+  execution: SessionExecution | undefined,
   activity: AgentActivity | null,
 ): AgentLinkStatus & { detail: string } {
-  switch (state) {
-    case 'dispatching':
-      return { standing: 'live', mark: { kind: 'dot', mark: 'starting' }, label: neverStarted ? 'Starting' : 'Queued', detail: '' }
-    case 'replying':
-      return { standing: 'live', mark: { kind: 'dot', mark: dotMarkOfActivity(activity) }, label: 'Running', detail: '' }
-    case 'waiting': {
-      // A permission request is Approval and a plan is Plan. A question, or
-      // an exchange that carries no request, is Input.
-      const kind = pendingRequest(ref)?.kind
-      const status = kind === 'permission' ? 'approval' : kind === 'plan' ? 'plan' : 'question'
-      return { standing: 'live', mark: { kind: 'glyph', status }, label: 'Waiting', detail: '' }
+  if (!execution && isPendingAgent(ref)) {
+    const state = agentConversationCardState(ref)
+    if (state === 'failed' || state === 'lost') {
+      return { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, label: 'Failed', detail: 'Never started' }
     }
-    case 'children':
-      return { standing: 'live', mark: { kind: 'dot', mark: 'delegating' }, label: 'Waiting', detail: 'Waiting on agents' }
-    case 'limited':
-      return {
-        standing: 'live',
-        mark: { kind: 'glyph', status: 'limit', limitResetsAt: rateLimitedUntil(ref) },
-        label: 'Waiting',
-        detail: 'Rate limited',
-      }
-    case 'replied':
-      return { standing: 'done', mark: { kind: 'glyph', status: 'finished' }, label: 'Completed', detail: plainDetail(ref.exchanges.at(-1)?.reply ?? '') }
-    case 'failed':
-      return { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, label: 'Failed', detail: neverStarted ? 'Never started' : 'Stopped replying' }
-    case 'lost':
-      // Its host restarted and took the reply: the state the row knew is old.
-      return { standing: 'stopped', mark: { kind: 'dot', mark: 'offline' }, label: 'Stopped', detail: 'Reply lost in a restart' }
-    case 'closed':
-      return { standing: 'stopped', mark: null, label: 'Stopped', detail: 'Closed its session' }
+    return { standing: 'live', mark: { kind: 'dot', mark: 'starting' }, label: 'Starting', detail: '' }
   }
+  const link = agentExecutionLink(execution, { activity })
+  const detail = link.standing === 'done' ? plainDetail(ref.exchanges.at(-1)?.reply ?? '') : ''
+  return { ...link, detail }
 }
 
 // ─── Group ───
@@ -301,53 +266,13 @@ export function needsPersonDecision(ref: AgentConversationRef): boolean {
   return agentConversationCardState(ref) === 'waiting' && pendingRequest(ref) !== null
 }
 
-type AgentGroupTone = 'working' | 'waiting' | 'done' | 'failed' | 'stopped'
-
-const GROUP_TONE = {
-  dispatching: 'working',
-  replying: 'working',
-  children: 'working',
-  limited: 'waiting',
-  waiting: 'waiting',
-  replied: 'done',
-  failed: 'failed',
-  lost: 'stopped',
-  closed: 'stopped',
-} as const satisfies { readonly [state in AgentConversationCardState]: AgentGroupTone }
-
-export interface AgentConversationGroupSummary {
-  /** `7 agents`, as mobile names the same group. */
-  title: string
-  /** `3 working · 1 waiting · 2 done`, in a fixed order. */
-  status: string
-  live: boolean
-  failed: boolean
-  needsPerson: boolean
-}
-
-/** The header of several sessions one turn talks to. */
-export function agentConversationGroupSummary(refs: readonly AgentConversationRef[]): AgentConversationGroupSummary {
-  const counts = { working: 0, waiting: 0, done: 0, failed: 0, stopped: 0 } satisfies { [tone in AgentGroupTone]: number }
-  for (const ref of refs) counts[GROUP_TONE[agentConversationCardState(ref)]] += 1
-  const order: readonly AgentGroupTone[] = ['working', 'waiting', 'done', 'failed', 'stopped']
+export function agentConversationGroupSummary(
+  refs: readonly AgentConversationRef[],
+  linkOf: (ref: AgentConversationRef) => AgentLinkStatus,
+) {
   return {
+    ...summarizeAgentLinks(refs.map(linkOf)),
     title: `${refs.length} agent${refs.length === 1 ? '' : 's'}`,
-    status: order.filter((tone) => counts[tone] > 0).map((tone) => `${counts[tone]} ${tone}`).join(' · '),
-    live: refs.some((ref) => isLiveAgentConversationState(agentConversationCardState(ref))),
-    failed: counts.failed > 0,
     needsPerson: refs.some(needsPersonDecision),
   }
-}
-
-/** Wall time from the first dispatch to the last end, or to now while any runs. */
-export function agentConversationGroupElapsedMs(refs: readonly AgentConversationRef[], now: number): number {
-  let start = Infinity
-  let end = -Infinity
-  for (const ref of refs) {
-    const first = ref.exchanges[0]
-    if (!first) continue
-    start = Math.min(start, first.dispatchedAt)
-    end = Math.max(end, first.dispatchedAt + agentConversationElapsedMs(ref, now))
-  }
-  return start === Infinity ? 0 : Math.max(0, end - start)
 }

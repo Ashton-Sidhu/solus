@@ -34,7 +34,8 @@ export interface DotMarkDefinition {
 }
 
 export const DOT_GRID_SIZE = 3
-/** The row size: a 13px box, the box of the line glyphs. */
+/** The row size: a 13px box, T3 Code's measure for its status symbols, and
+ *  the drawn circle of a 16px line glyph. */
 export const DOT_SIZE_PX = 3
 export const DOT_GAP_PX = 2
 
@@ -149,7 +150,9 @@ const curve = (...points: Array<[offset: number, scale: number]>): DotKeyframe[]
 const PERIMETER: readonly DotCell[] = [[0, 0], [0, 1], [0, 2], [1, 2], [2, 2], [2, 1], [2, 0], [1, 0]]
 
 export const PATTERNS = {
-  sweep: { curve: curve([0, 1], [0.18, 0], [0.5, 0], [0.68, 1], [1, 1]), durationMs: 1600, phase: ([, c]) => c * 0.1 },
+  // Rests at 0.45, never 0: the grid reads as a light texture beside its time,
+  // and a sweep never thins to one column that looks like a ⋮ menu.
+  sweep: { curve: curve([0, 1], [0.18, 0.45], [0.5, 0.45], [0.68, 1], [1, 1]), durationMs: 1600, phase: ([, c]) => c * 0.1 },
   scan: { curve: curve([0, 0], [0.35, 1], [0.72, 0], [1, 0]), durationMs: 1600, phase: ([r]) => r * 0.14 },
   type: { curve: curve([0, 0], [0.12, 1], [0.55, 1], [0.67, 0], [1, 0]), durationMs: 2000, phase: ([r, c]) => (r * 3 + c) * 0.045 },
   checker: { curve: curve([0, 1], [0.5, 0.25], [1, 1]), durationMs: 2400, phase: ([r, c]) => ((r + c) % 2) * 0.5 },

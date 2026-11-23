@@ -67,7 +67,8 @@
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
     onPrRefClick?: (number: number, title?: string) => void;
-    onFileRefClick?: (path: string) => void;
+    onFileRefClick?: (path: string, line?: number) => void;
+    onLinkRefClick?: (href: string, title: string) => void;
     placeholder?: string;
     /** What a screen reader calls the field. */
     ariaLabel?: string;
@@ -117,6 +118,7 @@
     onWorkRefClick,
     onPrRefClick,
     onFileRefClick,
+    onLinkRefClick,
     placeholder = "",
     ariaLabel = "Message input",
     readOnly = false,
@@ -303,6 +305,7 @@
   onWorkRefClick={onWorkRefClick ?? referenceNavigation.openWork}
   onPrRefClick={onPrRefClick ?? referenceNavigation.openPr}
   onFileRefClick={onFileRefClick ?? referenceNavigation.openFile}
+  onLinkRefClick={onLinkRefClick ?? referenceNavigation.openLink}
   {placeholder}
   {ariaLabel}
   {disabled}

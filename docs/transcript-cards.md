@@ -15,9 +15,9 @@ Source: the "Conversation Cards Spec" design project (turns 2b, 3a, 3b, 4a, 4b).
    prose. No centring and no percentage widths.
 3. **Same slots as `ActivityRow`.** A 22px glyph slot, a title, a target, and a
    rail. All sans: mono is kept for code, such as file paths in a diff tree and ids.
-4. **Name the type once.** A lowercase type word after the title (`plan`, `doc`,
-   `artifact`). No uppercase kicker and no status chip. The glyph and the type word
-   carry state.
+4. **Use a lowercase type word when the card needs one.** It follows the title.
+   A document card uses only its icon for the type. No uppercase kicker and no
+   status chip. The glyph and any type word carry state.
 5. **Raise only what blocks.** Passive cards use the quiet shell. Only a card that
    stops the turn until the user acts uses the attention shell.
 

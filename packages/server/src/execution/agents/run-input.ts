@@ -109,10 +109,10 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
 }
 
 /** Resolve the legacy client snapshot once. A fork source is never the new thread id. */
-export function providerConversationFor(input: Pick<SessionRunInput, 'agentSessionId' | 'forked' | 'forkExcludeLatestTurn'>): ProviderConversation {
+export function providerConversationFor(input: Pick<SessionRunInput, 'agentSessionId' | 'forked' | 'forkExcludeLatestTurn' | 'forkPointId'>): ProviderConversation {
   if (!input.agentSessionId) return { kind: 'start' }
   if (input.forked) {
-    return { kind: 'fork', sourceThreadId: input.agentSessionId, excludeLatestTurn: input.forkExcludeLatestTurn }
+    return { kind: 'fork', sourceThreadId: input.agentSessionId, excludeLatestTurn: input.forkExcludeLatestTurn, ...(input.forkPointId && { pointId: input.forkPointId }) }
   }
   return { kind: 'resume', threadId: input.agentSessionId }
 }

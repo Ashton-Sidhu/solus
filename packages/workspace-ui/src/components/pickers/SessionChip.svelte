@@ -611,12 +611,13 @@
   >
     <div class="flex min-h-0 items-stretch rounded-[inherit]">
       {#if !modelOnly}
-        <!-- The agent decides everything beside it, so it is the one surface of
-             its own, the full height of the popup, set apart by tint and not by
-             another line. Picking an agent keeps the picker up so its models can
-             follow. The title sits on a wrapper because a disabled row takes no
-             pointer. -->
-        <DropdownMenu.RadioGroup value={activeAgent} aria-label="Agent" class="flex w-12 shrink-0 flex-col items-center gap-1 rounded-l-[inherit] bg-(--solus-menu-footer-bg) p-1.5">
+        <!-- The agent decides everything beside it, so it is a column of its
+             own, the full height of the popup, set apart by its slate ground
+             (`--solus-menu-rail-bg`) and not by a line. Picking an agent keeps
+             the picker
+             up so its models can follow. The title sits on a wrapper because a
+             disabled row takes no pointer. -->
+        <DropdownMenu.RadioGroup value={activeAgent} aria-label="Agent" class="flex w-12 shrink-0 flex-col items-center gap-1 rounded-l-[inherit] bg-(--solus-menu-rail-bg) p-1.5">
           {#each agentRows as agent (agent.id)}
             <span class="block" title={agent.enabled ? agent.label : `${agent.label}: ${agent.policyDenial ? "Not allowed" : "Not installed"}`}>
               <DropdownMenu.RadioItem

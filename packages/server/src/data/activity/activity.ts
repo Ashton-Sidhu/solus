@@ -45,7 +45,7 @@ function activityId(at: number): string {
 }
 
 /** A new activity, stamped now. */
-export function newActivity(subject: ActivitySubject, by: Attribution, kind: ActivityKind, at = Date.now()): Activity {
+export function newActivity<Kind extends ActivityKind>(subject: ActivitySubject, by: Attribution, kind: Kind, at = Date.now()): Pick<Activity, 'id' | 'subject' | 'at' | 'by' | 'turnId'> & Kind {
   return { ...kind, id: activityId(at), subject, at, by }
 }
 

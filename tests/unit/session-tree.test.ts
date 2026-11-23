@@ -223,3 +223,103 @@ test('merge back includes completed fork work and omits inherited, failed, and u
   expect(result.prompt).not.toContain('Failed finding')
   expect(result.prompt).not.toContain('Unfinished finding')
 })
+
+test('a child turn has the same saved state before its digest exists, after a restart, and when a new turn starts', async () => {
+  const { readSessionTree } = await import('@solus/server/data/sessions/session-digests')
+  const { readSessionExecution, interruptOwnSessionExecutions } = await import('@solus/server/data/sessions/session-executions')
+  const { SessionExecutionRecorder } = await import('@solus/server/execution/sessions/session-execution-recorder')
+  const { upsertOwnSessionRecord } = await import('@solus/server/data/sessions/session-records')
+  await upsertOwnSessionRecord({ sessionId: 'execution-child', provider: 'codex', projectPath: directory, lastActivityAt: 1, parentSessionId: 'lead' })
+  const id = 'execution-child'
+  const published: Array<{ revision: number; stored: Promise<number | undefined> }> = []
+  const recorder = new SessionExecutionRecorder((sessionId, toolId, execution) => {
+    published.push({
+      revision: execution.revision,
+      stored: readSessionExecution('local', sessionId, toolId).then((row) => row?.revision),
+    })
+  })
+  recorder.status({ sessionId: id, agentSessionId: null, status: 'connecting', at: 1 }, 'first')
+  recorder.status({ sessionId: id, agentSessionId: 'provider-thread', status: 'awaiting_input', at: 2, awaitingApproval: true }, 'first')
+  await recorder.settled()
+  expect(await readSessionExecution('local', id, '')).toMatchObject({
+    current: { runId: 'first', phase: 'awaiting_input', startedAt: 1 }, awaitingApproval: true,
+  })
+  expect(await readSessionExecution('another-organization', id, '')).toBeNull()
+
+  recorder.status({ sessionId: id, agentSessionId: 'provider-thread', status: 'completed', at: 3 }, 'first')
+  recorder.settle(id, 'first', 'completed', 3)
+  recorder.settle(id, 'first', 'failed', 3)
+  await recorder.settled()
+  const tree = await readSessionTree('local', 'lead')
+  expect(tree.nodes.find((node) => node.record.sessionId === id)).toMatchObject({
+    digest: null, record: { execution: { current: null, lastTurn: { runId: 'first', outcome: 'completed', startedAt: 1, endedAt: 3 } } },
+  })
+  expect(await Promise.all(published.map(async ({ revision, stored }) => (await stored) === revision))).toEqual([true, true, true, true])
+
+  recorder.status({ sessionId: id, agentSessionId: 'provider-thread', status: 'running', at: 4 }, 'next')
+  await recorder.settled()
+  expect(await readSessionExecution('local', id, '')).toMatchObject({
+    current: { runId: 'next', phase: 'running', startedAt: 4 }, lastTurn: { runId: 'first', outcome: 'completed' },
+  })
+  recorder.status({ sessionId: id, agentSessionId: 'provider-thread', status: 'rate_limited', at: 4 }, 'next', { rateLimitResetsAt: 10_000 })
+  await recorder.settled()
+  expect((await readSessionTree('local', id)).nodes[0]?.record.execution?.current)
+    .toMatchObject({ phase: 'rate_limited', rateLimitResetsAt: 10_000 })
+  recorder.status({ sessionId: id, agentSessionId: 'provider-thread', status: 'background', at: 4 }, 'next', { waitingForAgents: true })
+  await recorder.settled()
+  const background = (await readSessionTree('local', id)).nodes[0]?.record.execution?.current
+  expect(background).toMatchObject({ phase: 'background', waitingForAgents: true })
+  expect(background?.rateLimitResetsAt).toBeUndefined()
+  await interruptOwnSessionExecutions(5)
+  expect(await readSessionExecution('local', id, '')).toMatchObject({
+    current: null, lastTurn: { runId: 'next', outcome: 'interrupted', startedAt: 4, endedAt: 5 },
+  })
+})
+
+test('a copied child never loses a newer status to an older host response or local restart', async () => {
+  const { readSessionTree, storeRemoteSessionTree } = await import('@solus/server/data/sessions/session-digests')
+  const { interruptOwnSessionExecutions } = await import('@solus/server/data/sessions/session-executions')
+  const rec = { sessionId: 'execution-copy', parentSessionId: 'lead', provider: 'claude-code' as const, projectPath: '/remote', lastActivityAt: 1, runnerHostId: 'remote' }
+  const newer: import('@solus/contracts/session-execution').SessionExecution = {
+    revision: 3, current: { runId: 'run', phase: 'background', startedAt: 1 }, lastTurn: null,
+  }
+  const digest = digestOf(rec.sessionId, 'Remote work')
+  digest.subagents[0]!.id = 'tool'
+  await storeRemoteSessionTree('lead', [{ record: { ...rec, execution: newer }, digest, artifacts: [],
+    subagentExecutions: [{ toolId: 'tool', execution: newer }],
+  }])
+  await storeRemoteSessionTree('lead', [{ record: { ...rec, execution: { ...newer, revision: 2 } }, digest, artifacts: [] }])
+  await interruptOwnSessionExecutions(5)
+  expect((await readSessionTree('local', 'lead')).nodes.find((node) => node.record.sessionId === rec.sessionId)).toMatchObject({
+    record: { execution: newer },
+    subagentExecutions: [{ toolId: 'tool', execution: newer }],
+  })
+})
+
+test('a provider subagent status is saved from its lifecycle and read with its metadata', async () => {
+  const { SessionDigests } = await import('@solus/server/execution/sessions/session-digests')
+  const { SessionExecutionRecorder } = await import('@solus/server/execution/sessions/session-execution-recorder')
+  const { readSessionTree, writeSessionDigest } = await import('@solus/server/data/sessions/session-digests')
+  const { upsertOwnSessionRecord } = await import('@solus/server/data/sessions/session-records')
+  const id = 'execution-provider-subagent'
+  await upsertOwnSessionRecord({ sessionId: id, provider: 'claude-code', projectPath: directory, lastActivityAt: 1 })
+  const recorder = new SessionExecutionRecorder(() => {})
+  const digests = new SessionDigests({
+    load: async () => null,
+    write: writeSessionDigest,
+    announce: () => {},
+    subagentChanged: (sessionId, subagent) => recorder.subagent(sessionId, subagent),
+  })
+  digests.observe(id, { type: 'tool_call', toolId: 'tool', toolName: 'Agent', toolInput: '{"description":"Audit"}' })
+  await digests.settled()
+  await recorder.settled()
+  expect((await readSessionTree('local', id)).nodes[0]?.subagentExecutions).toMatchObject([
+    { toolId: 'tool', execution: { current: { phase: 'running' }, lastTurn: null } },
+  ])
+  digests.observe(id, { type: 'subagent_report', toolUseId: 'tool', text: 'Audit done', isError: false })
+  await digests.settled()
+  await recorder.settled()
+  expect((await readSessionTree('local', id)).nodes[0]?.subagentExecutions).toMatchObject([
+    { toolId: 'tool', execution: { current: null, lastTurn: { outcome: 'completed' } } },
+  ])
+})

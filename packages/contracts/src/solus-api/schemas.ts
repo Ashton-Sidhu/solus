@@ -1,3 +1,4 @@
+import { sessionExecutionSchema } from '../session-execution'
 import { z } from 'zod'
 import { activitySchema } from '../activity'
 import { hubNotificationSchema } from '../notification-hub'
@@ -353,6 +354,7 @@ export const workspaceSessionSchema = z.strictObject({
   /** Host with an active turn, when known. */
   runningHostId: workspaceIdSchema.nullable().optional(),
   status: z.enum(['idle', 'running', 'interrupted']),
+  execution: sessionExecutionSchema.optional(),
   model: nullableText(256),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable(),
   parentSessionId: workspaceIdSchema.nullable(),

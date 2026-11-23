@@ -87,6 +87,7 @@
         : "Open session in terminal",
   );
   const hasAgentSession = $derived(!!sess?.agentSessionId);
+  const canPin = $derived(hasAgentSession && sidebarStore.canPinSession(sess?.id));
   // Forking mid-turn is allowed: the fork branches from the source's last
   // settled turn rather than the one still being written.
   const showContinueWorktree = $derived(
@@ -156,8 +157,10 @@
   }
 
   function handleTogglePin() {
-    if (!hasAgentSession) return;
-    void sidebarStore.togglePinnedSession(tabId);
+    if (!canPin) return;
+    void sidebarStore.togglePinnedSession(tabId).catch((error) =>
+      toasts.error("Couldn't change the pin", { description: error instanceof Error ? error.message : String(error) }),
+    );
     requestInputFocus();
   }
 
@@ -189,7 +192,7 @@
   // Row order.
   const rowActions = $derived.by((): SessionAction[] => {
     const actions: SessionAction[] = [];
-    if (hasAgentSession) {
+    if (canPin) {
       actions.push({
         id: "pin",
         label: isPinned ? "Unpin session" : "Pin session to sidebar",
@@ -289,7 +292,7 @@
       tabId === session.focusedChatTabId && shell.supportsNativeSettings && isVisibleRow(),
   });
   useKeybinding("orb.pin", () => handleTogglePin(), {
-    enabled: () => tabId === session.focusedChatTabId && hasAgentSession && isVisibleRow(),
+    enabled: () => tabId === session.focusedChatTabId && canPin && isVisibleRow(),
   });
 </script>
 

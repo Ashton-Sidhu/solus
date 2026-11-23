@@ -12,7 +12,7 @@ The model picker sheet, its catalog filter, and its iOS and Android rows match T
 
 The mobile New session project selection and draft headings follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa`. Project picker rows use the upstream icon component and thumbnail cache. The selected Solus host supplies the signed favicon URL.
 
-The home session rows and tablet sidebar use the T3 Code row styles and swipe controls checked at `dd19bce823d833b5612fd74851d50047e65347fa`. The row reads its project icon, provider, live status and read state from the Solus host.
+The home session rows and tablet sidebar use the T3 Code row styles and swipe controls checked at `dd19bce823d833b5612fd74851d50047e65347fa`. The row reads its project icon, provider, and read state from the Solus host. The Solus adapter reads execution status from the runner’s saved session record and applies newer revisions from host events.
 
 The Solus thread screen uses the T3 Code composer reset from `a09738fb435120d08707db0142ca55b3b7b5c7ec`. On iOS, the conversation gives LegendList the visible height above the composer on each keyboard movement frame. T3’s keyboard-aware list and the previous Solus build both moved a message in the opposite direction at the start of keyboard opening in the same simulator. During an iOS follow-up send, end following pauses while the keyboard closes. The screen checks the final list position before scrolling to the submitted message. The draft heading uses the collapsed composer height for its position. Its scroll area ends above the actual composer, including attachments.
 
@@ -40,6 +40,8 @@ New-session and scheduled-task branch pickers use T3's branch paging hook. Their
 
 The T3 pull request and issue sheets use the selected host for edits, labels, reviewers, assignees, and review submission. A review names the head revision shown in the diff. Session review uses T3’s file list, line selection, and comment composer for working-tree, session, and turn diffs. The draft host and branch pickers use the Solus host list and checkout. A Solus session has one checkout, so a draft offers one project at a time.
 
+The session review picker follows T3's Changes and Uncommitted choices. The Solus host supplies both comparisons and uses its own target branch selection. The picker also offers Session for the session's accumulated changes.
+
 The mobile Issues list can open a pasted issue URL in the T3 issue screen. The selected Solus host resolves the address and supplies the read-only issue details. The Issues list keeps its existing sources.
 
 Solus uses GitHub Octicons for issue and pull request navigation and status icons. The native iOS PNGs and Android drawables match the shared SVG paths in `packages/client-core/src/github-octicons.ts`.
@@ -50,6 +52,8 @@ Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` 
 
 Saved sessions use Archive and Unarchive in both the phone list and the tablet sidebar. Archiving changes only the current person’s list. The host keeps the session, its history, and other people’s access. The upstream Delete action is omitted for saved sessions.
 
+Solus keeps pinned sessions at the top of the phone list and tablet sidebar after completion. A completed pin uses the compact row and keeps its pin mark. Archive clears the pin.
+
 Hosts advertise support for personal session order and the shared auto-settle setting. The list uses T3’s move planner and writes each rank to its owning host. Guest sharing uses a Solus viewer link with a 24-hour lifetime for newly created links. A linked session reads from its paired host or from the signed-in organization’s transcript mirror. The terminal has no Solus host operation.
 
 The queue sheet and T3 pending feed rows read the same Solus queue snapshot. A provider-native agent opens T3’s read-only transcript list from the Agents sheet. The execution host resolves the provider call in its parent session and supplies each history page.
@@ -57,3 +61,5 @@ The queue sheet and T3 pending feed rows read the same Solus queue snapshot. A p
 The mobile PR list, detail, activity, diff pages, change breakdown, and review guide use T3’s persisted query lifecycle. A saved query can show its answer while the host reconnects or refreshes it. Solus stores each answer in the phone’s bounded PR cache under the account, organization, host, and query input. Removing a host clears its saved answers. The live list still reads the host’s projects, PRs, and provider viewer.
 
 Solus replaces the working and waiting icons of T3's session rows with state marks: animated dot marks for live work and still line glyphs for the states that need the person (`docs/plans/session-state-marks.md`). Keep them when an upstream update changes the row's status indicator.
+
+Phone and tablet use T3 Code's **Fork from this response** button and its **Forked from conversation** row, checked at `9f24cac6d42f99e92569b7cbd97ec07932f232d8`. The Solus host supplies the completed Codex or Claude Code response, saves the new session, and reads its history through that response. The first prompt uses the source provider on that host.

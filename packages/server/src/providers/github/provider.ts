@@ -931,9 +931,29 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient('get_pull_request_overview', repo.host, async (client) => {
       const detail = await readGithubPullRequestDetail(client, repo, number)
       const commits = detail.commitsCursor
-        ? [...detail.commits, ...await readGithubPullRequestCommits(client, repo, number, detail.commitsCursor)]
+        ? [...detail.commits, ...await readGithubPullRequestCommits(client, repo, number, detail.commitsCursor, detail.pullRequest.headSha)]
         : detail.commits
       return { pullRequest: detail.pullRequest, commits, reviewers: detail.reviewers }
+    })
+  }
+
+  async getPullRequestOverviewPage(repo: RepoRef, number: number) {
+    return this.withClient('get_pull_request_overview', repo.host, async (client) => {
+      const detail = await readGithubPullRequestDetail(client, repo, number)
+      const { pullRequest, commits, reviewers, commitsCursor } = detail
+      const completeCommits = commitsCursor
+        ? () => this.withClient('list_pull_request_commits', repo.host, async (current) => {
+          // An opaque cursor and its first page belong to the same credential.
+          const first = current === client ? detail : await readGithubPullRequestDetail(current, repo, number)
+          if (first.pullRequest.headSha !== pullRequest.headSha) {
+            throw new Error('This pull request changed. Refresh it to load its commits.')
+          }
+          return first.commitsCursor
+            ? [...first.commits, ...await readGithubPullRequestCommits(current, repo, number, first.commitsCursor, pullRequest.headSha)]
+            : first.commits
+        })
+        : undefined
+      return { pullRequest, commits, reviewers, completeCommits }
     })
   }
 

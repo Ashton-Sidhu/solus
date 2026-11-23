@@ -58,6 +58,7 @@ import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/
 import {
   parseJsonlLine,
   claudeHistoryRows,
+  claudeForkResponses,
   findClaudeForkResumeId,
   resolveClaudeSessionFilePath,
   claudeThreadFiles,
@@ -313,8 +314,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       const checkpointTarget = request.persistence === 'session' && sessionState
         ? { sessionId: sessionState.sessionId, workTree }
         : null
-      const resumeSessionAt = conversation.kind === 'fork' && conversation.excludeLatestTurn && sessionId
-        ? await this.forkResumeId(sessionId, request.cwd)
+      const resumeSessionAt = conversation.kind === 'fork'
+        ? conversation.pointId ?? (conversation.excludeLatestTurn && sessionId
+          ? await this.forkResumeId(sessionId, request.cwd)
+          : null)
         : null
       if (checkpointTarget) await beginTurnCheckpoint(checkpointTarget)
       const { events, result, stopTask } = this.agent.run({
@@ -555,14 +558,19 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   async loadSessionPage(sessionId: string, projectPath: string | undefined, turnLimit: number, before?: string, cachePage = false) {
     const filePath = this.sessionFilePath(sessionId, projectPath)
     if (!filePath) return { messages: [], before: null }
-    if (!cachePage) return loadClaudeHistoryPage(filePath, turnLimit, before)
+    const running = this.isSessionRunning(sessionId)
+    if (!cachePage || running) {
+      const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
+      return { ...page, messages: claudeForkResponses(page.messages, running && before === undefined) }
+    }
     const key = JSON.stringify([filePath, turnLimit, before])
     const revision = await historyFileRevision(filePath)
     const cached = this.historyPages.read(key, revision)
     if (cached) return cached
     const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
-    if (revision && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, page)
-    return page
+    const result = { ...page, messages: claudeForkResponses(page.messages, this.isSessionRunning(sessionId) && before === undefined) }
+    if (revision && !this.isSessionRunning(sessionId) && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
+    return result
   }
 
   async threadFiles(threadId: string, projectPath?: string): Promise<ThreadFile[]> {

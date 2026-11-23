@@ -4,8 +4,10 @@
 // and stores it beside the session's record, so a session tree is read from
 // the database alone: no transcript and no checkout.
 
+import { z } from 'zod'
 import type { ChangedFileStat } from './git-types'
 import type { SessionArtifact } from './session-artifacts'
+import type { SessionExecution } from './session-execution'
 import type { SessionRecord } from './types'
 
 /** The most turns a digest keeps: the newest. */
@@ -55,6 +57,8 @@ export interface DigestTurn {
   toolCalls: [number, number][]
   /** The totals of the checkpoint taken when the turn ended. Null for a turn with no checkpoint. */
   changes: DigestTurnChanges | null
+  /** What the turn cost, as the host that ran it priced it when the turn settled. Absent when the cost is not known: Codex with a model that has no price, or a turn before the field. */
+  costUsd?: number
 }
 
 /** A provider's in-process sub-agent. A session the session started is a node of its tree, not one of these. */
@@ -104,6 +108,13 @@ export interface SessionTreeNode {
   digest: SessionDigest | null
   /** Its own pull requests, works, files, images, automations, and apps, newest link first. */
   artifacts: SessionArtifact[]
+  /** The execution state of provider sub-agents, keyed by their tool call id. */
+  subagentExecutions?: SessionSubagentExecution[]
+}
+
+export interface SessionSubagentExecution {
+  toolId: string
+  execution: SessionExecution
 }
 
 /** A session, then every session below it through `parentSessionId`. */
@@ -133,3 +144,42 @@ export function digestLine(text: string): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > DIGEST_TEXT_LENGTH ? `${line.slice(0, DIGEST_TEXT_LENGTH - 1)}…` : line
 }
+
+const changeCountsSchema = z.object({ filesChanged: z.number(), additions: z.number(), deletions: z.number() })
+
+/** A digest as it is stored and copied between hosts: every reader parses it with this. */
+export const sessionDigestSchema = z.object({
+  sessionId: z.string(),
+  turns: z.array(z.object({
+    id: z.string(),
+    startedAt: z.number(),
+    endedAt: z.number(),
+    settled: z.boolean(),
+    outcome: z.enum(['completed', 'failed', 'interrupted', 'dead']).optional(),
+    prompt: z.string(),
+    toolCalls: z.array(z.tuple([z.number(), z.number()])),
+    changes: changeCountsSchema.nullable(),
+    costUsd: z.number().nonnegative().optional(),
+  })),
+  changes: changeCountsSchema.extend({
+    files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number(), status: z.enum(['A', 'M', 'D', 'R']) })),
+  }).nullable(),
+  subagents: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    status: z.enum(['running', 'completed', 'failed', 'stopped']),
+    startedAt: z.number(),
+    endedAt: z.number().nullable(),
+    detail: z.string(),
+    canStop: z.literal(true).optional(),
+    workflow: z.object({
+      phases: z.array(z.object({ index: z.number(), title: z.string() })),
+      agents: z.array(z.object({
+        index: z.number(), label: z.string(), state: z.enum(['queued', 'running', 'completed', 'failed']),
+        phaseIndex: z.number().optional(), phaseTitle: z.string().optional(), attempt: z.number().optional(),
+      })),
+    }).optional(),
+  })),
+  lastReply: z.string().nullable(),
+  updatedAt: z.number(),
+}) satisfies z.ZodType<SessionDigest>

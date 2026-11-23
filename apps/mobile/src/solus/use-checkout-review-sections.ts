@@ -14,7 +14,7 @@ import {
   type ReviewCacheForThread,
 } from "../features/review/reviewState";
 
-type CheckoutSection = ReviewSectionItem & { scope: DiffScope };
+type CheckoutSection = ReviewSectionItem & { scope: Exclude<DiffScope, { kind: "pr" }> };
 
 export function useCheckoutReviewSections(
   controller: ConversationController,
@@ -32,18 +32,27 @@ export function useCheckoutReviewSections(
       {
         id: "git:branch-range",
         kind: "branch-range",
-        title: gt("Session changes"),
+        title: gt("Changes", { $context: "diff section: branch changes" }),
         subtitle: null,
-        scope: { kind: "session" },
+        scope: { kind: "branch" },
         diff: null,
         isLoading: false,
       },
       {
         id: "git:working-tree",
         kind: "working-tree",
-        title: gt("Uncommitted changes"),
+        title: gt("Uncommitted", { $context: "diff section: working tree" }),
         subtitle: null,
         scope: { kind: "working-tree" },
+        diff: null,
+        isLoading: false,
+      },
+      {
+        id: "session",
+        kind: "session",
+        title: gt("Session"),
+        subtitle: null,
+        scope: { kind: "session" },
         diff: null,
         isLoading: false,
       },
@@ -66,19 +75,15 @@ export function useCheckoutReviewSections(
   const selectedId = resolveReviewSelectedSectionId(sections, cache.selectedSectionId);
   const selected = sections.find((item) => item.id === selectedId)!;
   // The scope stays stable across renders, including when another snapshot arrives.
-  const kind = selected.scope.kind;
-  const index = selected.scope.kind === "turn" ? selected.scope.index : null;
+  const selection = selected.scope.kind === "turn" ? selected.scope.index : selected.scope.kind;
   const diff = useHostSettingsRead(
     controller.hostId,
     useCallback(
       (api: HostApi) =>
         api.diff(controller.context(), {
-          scope:
-            index === null
-              ? { kind: kind === "working-tree" ? "working-tree" : "session" }
-              : { kind: "turn", index },
+          scope: typeof selection === "number" ? { kind: "turn", index: selection } : { kind: selection },
         }),
-      [controller, cwd, kind, index],
+      [controller, cwd, selection],
     ),
     "git.checkoutChanged",
   );

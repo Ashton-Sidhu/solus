@@ -133,6 +133,27 @@ describe.serial('session emitter', () => {
     expect(JSON.parse(turn!.attrs)).toMatchObject({ taskTitle: 'Check duplicate tasks' })
   })
 
+  test("tells its listeners what a turn cost when the turn settles, and nothing for a turn with no known cost", () => {
+    // WHY: the session digest keeps each turn's cost for the Threads timeline;
+    // it hears it here, the one place that prices every provider's turn.
+    const emitter = new emitterModule.SessionEmitter()
+    const heard: unknown[] = []
+    const stop = emitter.onTurnCost((cost) => heard.push(cost))
+    emitter.beginTurn({ sessionId: 'priced', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })
+    emitter.completeSetup('priced', { provider: 'claude-code', model: 'claude-sonnet-5', projectRoot: '/repo', origin: 'typed', isResume: false }, 1_010)
+    emitter.onEvent('priced', {
+      type: 'task_complete', result: 'done', costUsd: 0.25, durationMs: 50, numTurns: 1, usage: { outputTokens: 20 }, sessionId: 'provider-1',
+    }, 1_045)
+    emitter.recordTerminal('priced', 'ok', 1_050)
+    emitter.finishTurn('priced', 'completed', 1_051)
+    expect(heard).toEqual([{ sessionId: 'priced', startedAt: 1_000, endedAt: 1_050, costUsd: 0.25 }])
+
+    emitter.beginTurn({ sessionId: 'unpriced', prompt: 'look', promptSource: 'typed', startedAt: 2_000 })
+    emitter.finishTurn('unpriced', 'completed', 2_100)
+    expect(heard).toHaveLength(1)
+    stop()
+  })
+
   test('records a Claude turn with natural-duration child spans', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'claude-1', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })

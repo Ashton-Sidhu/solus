@@ -8,7 +8,7 @@ import { z } from 'zod'
 
 /**
  * A person's pins are `pinned_at` on their own `personal_resource_state` row
- * of a session, beside their settle and archive, which end it (`SessionViewer`).
+ * of a session, beside their settle and archive. Archive ends the pin.
  * The label, folder, and model are read from the session record, so a rename
  * reaches the pin with no write of its own. A session with no started record
  * has nothing to show, so its pin is not listed.
@@ -36,7 +36,8 @@ export async function readPinnedSessions(personKey: string): Promise<PinnedSessi
     FROM ${personalResourceState}
     JOIN ${session} ON session_records.session_id = personal_resource_state.resource_id
     WHERE personal_resource_state.created_by = ${personKey} AND personal_resource_state.resource_kind = 'session'
-      AND personal_resource_state.pinned_at IS NOT NULL AND session_records.started_at IS NOT NULL
+      AND personal_resource_state.pinned_at IS NOT NULL AND personal_resource_state.archived_at IS NULL
+      AND session_records.started_at IS NOT NULL
     ORDER BY personal_resource_state.pinned_at DESC
   `))
   return rows.map((row) => {
@@ -58,15 +59,18 @@ export async function togglePinnedSession(personKey: string, pin: Pick<PinnedSes
   const database = getDatabase()
   const unpinned = (await database.run(sql`
     UPDATE ${personalResourceState} SET pinned_at = NULL
-    WHERE resource_kind = 'session' AND resource_id = ${pin.sessionId} AND created_by = ${personKey} AND pinned_at IS NOT NULL
+    WHERE resource_kind = 'session' AND resource_id = ${pin.sessionId} AND created_by = ${personKey}
+      AND pinned_at IS NOT NULL AND archived_at IS NULL
   `)).changes > 0
   if (!unpinned) {
     const organizationId = await organizationOfSession(pin.sessionId)
-    await database.run(sql`
+    const pinned = (await database.run(sql`
       INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, pinned_at)
       VALUES (${organizationId}, 'session', ${pin.sessionId}, ${personKey}, ${pin.pinnedAt})
       ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO UPDATE SET pinned_at = excluded.pinned_at
-    `)
+      WHERE personal_resource_state.archived_at IS NULL
+    `)).changes > 0
+    if (!pinned) throw new Error('Return the session to the list before pinning it.')
   }
   return readPinnedSessions(personKey)
 }

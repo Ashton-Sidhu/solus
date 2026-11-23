@@ -209,10 +209,13 @@ export class PrReviewActions {
     const number = target.number
     // The row's verb picks the tab: an inbox row that says Review lands on the
     // diff, everything else on Activity.
-    this.workspace.pullRequests.view.tab = opts.tab ?? 'activity'
+    const tab = opts.tab ?? 'activity'
+    this.workspace.pullRequests.view.tab = tab
     this.workspace.router.navigate(ref, { via: opts.via })
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
-    this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).prefetch()
+    if (tab === 'activity') {
+      this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).prefetchActivity()
+    }
     try {
       await this.workspace.router.resolve(ref, {
         api,
@@ -236,10 +239,8 @@ export class PrReviewActions {
     }
   }
 
-  /** Read a pull request a pointer is resting on, so the click that follows
-   * finds its review target and Activity already loaded. Both reads land in
-   * the same caches the open uses. Failures stay silent: the open reports
-   * its own. */
+  /** Resolve the review target for a pointer at rest. Opening the Activity
+   * tab starts its own reads. Failures stay silent until the user opens it. */
   warmPullRequest(target: PullRequestOpenTarget, opts: { ctx?: IpcContext; serverId?: string } = {}): void {
     const { ctx, serverId, api, ref, isOtherRepository } = this.prReviewPlan(target, opts)
     if (isOtherRepository) return
@@ -247,7 +248,6 @@ export class PrReviewActions {
       api,
       ipc: (cwd) => (cwd ? this.workspace.ctxForDirectory(cwd) : ctx),
     }).catch(() => {})
-    this.workspace.pullRequests.projects.get(api, serverId, ctx).get(target.number).prefetch()
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this

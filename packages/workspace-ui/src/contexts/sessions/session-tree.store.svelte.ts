@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { SessionTree } from '@solus/contracts/session-digest'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
-import { EMPTY_SESSION_TREE_VIEW, readSessionTreeWithRelations, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
+import { EMPTY_SESSION_TREE_VIEW, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
 
 interface Followed {
   serverId: string
@@ -20,7 +20,13 @@ interface Followed {
 class SessionTreeStore {
   private readonly views = new SvelteMap<string, SessionTreeView>()
   private readonly followed = new Map<string, Followed>()
+  private readonly treeReaders = new Set<(serverId: string, tree: SessionTree) => void>()
   private stopReadiness: (() => void) | null = null
+
+  onTreeRead(listener: (serverId: string, tree: SessionTree) => void): () => void {
+    this.treeReaders.add(listener)
+    return () => this.treeReaders.delete(listener)
+  }
 
   /** Follow a session's tree until the returned release. */
   retain(serverId: string, sessionId: string): () => void {
@@ -40,12 +46,17 @@ class SessionTreeStore {
           sessionTree: (id) => {
             const platform = localApi.getPlatform?.()
             const api = serverConnections.apiFor(serverId)
-            return platform && platform !== 'web' ? readSessionTreeWithRelations(api, id) : api.sessionTree(id)
+            return platform && platform !== 'web' ? api.sessionTree(id, true) : api.sessionTree(id)
           },
         },
         events: serverConnections.eventsFor(serverId),
         sessionId,
-        onChange: (view) => this.views.set(sessionId, view),
+        onChange: (view) => {
+          this.views.set(sessionId, view)
+          if (view.tree && !view.loading && !view.stale) {
+            for (const listener of this.treeReaders) listener(serverId, view.tree)
+          }
+        },
       })
       held = { serverId, watch, holders: 0 }
       this.followed.set(sessionId, held)

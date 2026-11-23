@@ -11,7 +11,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { computeGitState, parseStatus } = await import('@solus/server/git/git-helpers')
 
-const { getDiff, getDiffStats, getEpisodeDiff } = await import('@solus/server/git/session-snapshots')
+const { getDiff, getDiffFileContents, getDiffStats, getEpisodeDiff } = await import('@solus/server/git/session-snapshots')
 
 const directories: string[] = []
 afterAll(() => {
@@ -89,6 +89,31 @@ test('on the target branch, the change totals are the uncommitted work', async (
   expect(status?.uncommittedTotals).toEqual(status?.branchChanges)
 })
 
+test('Changes on the default branch includes local commits ahead of its remote', async () => {
+  const directory = repository()
+  git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], directory)
+  writeFileSync(join(directory, 'base.ts'), 'one\ntwo\nthree\ncommitted\n')
+  git(['commit', '-am', 'local commit'], directory)
+  writeFileSync(join(directory, 'untracked.ts'), 'untracked\n')
+
+  const status = await computeGitState(directory, { includeDetails: true })
+  expect(status?.branchChanges).toEqual({ fileCount: 2, insertions: 2, deletions: 0 })
+  expect(status?.uncommittedTotals).toEqual({ fileCount: 1, insertions: 1, deletions: 0 })
+
+  const scope = { kind: 'branch' } as const
+  const patch = await getDiff(directory, directory, scope, null)
+  expect(patch?.patch).toContain('+committed')
+  expect(patch?.patch).toContain('+untracked')
+  const uncommitted = await getDiff(directory, directory, { kind: 'working-tree' }, null)
+  expect(uncommitted?.patch).not.toContain('+committed')
+  expect(uncommitted?.patch).toContain('+untracked')
+  const files = await getDiffStats(directory, directory, scope, null)
+  expect(files.map((file) => file.path)).toEqual(['base.ts', 'untracked.ts'])
+  const contents = await getDiffFileContents(directory, directory, null, { scope, path: 'base.ts' })
+  expect(contents?.oldFile?.contents).toBe('one\ntwo\nthree\n')
+  expect(contents?.newFile?.contents).toBe('one\ntwo\nthree\ncommitted\n')
+})
+
 test('the status scan reports whitespace in file names exactly', async () => {
   // WHY: trimming git's output dropped the trailing space of the last path, so
   // the list named a file that does not exist (t3code #12464).
@@ -126,6 +151,7 @@ for (const objectFormat of ['sha1', 'sha256']) test(`a repository with no commit
   const patch = await getDiff(directory, directory, scope, null)
   expect(patch?.patch).toContain('+x')
   expect(await getEpisodeDiff(directory, directory, 'HEAD')).toEqual(patch)
+  expect(await getDiff(directory, directory, { kind: 'branch' }, null)).toEqual(patch)
   expect(await getDiffStats(directory, directory, scope, null)).toEqual([
     { path: 'draft.ts', additions: 1, deletions: 0, status: 'A' },
   ])

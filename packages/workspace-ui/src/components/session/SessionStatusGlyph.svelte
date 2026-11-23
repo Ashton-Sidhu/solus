@@ -32,8 +32,8 @@
   title={label}
 >
   {#if visual.kind === "dot"}
-    <DotMatrix mark={visual.mark} size={14} />
+    <DotMatrix mark={visual.mark} />
   {:else if Icon}
-    <Icon size={14} class="size-3.5" />
+    <Icon size={16} strokeWidth={2.25} class="size-4" />
   {/if}
 </span>

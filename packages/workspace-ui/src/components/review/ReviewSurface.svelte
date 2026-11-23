@@ -137,12 +137,8 @@
     if (next !== view) onSelectView(next);
   }
 
-  // An absent scope is the branch review: the whole branch against its target.
-  // Its base is live Git state rather than something a link may pin, so it is
-  // resolved here instead of being carried in the route.
-  // Kept whole, not reduced to the base it names: the guide asks the same
-  // question (for its own staleness check), and one answer read twice is one
-  // round trip instead of two on the way to the first painted hunk.
+  // Guides use their own comparison, which can start at the session base.
+  // Keep the context for both the guide's patch and its staleness check.
   let reviewContext = $state<ReviewContext | null>(null);
   // Separate from the context itself: a checkout with no resolvable context is
   // an answer — read the working tree — and null alone cannot tell that apart
@@ -204,7 +200,7 @@
 
   let checkedRevision = $state<string | null>(null);
   const currentRevision = $derived(JSON.stringify([getServerId(), guideIdentity?.repoRoot, guideKey, targetPullRequest?.headSha, targetPullRequest?.baseSha]));
-  const loader = new GuideLoader({
+  const loader: GuideLoader = new GuideLoader({
     getApi,
     getServerId,
     getCtx,
@@ -230,7 +226,9 @@
   // is the authority for its recorded base SHA; never resolve the managed
   // checkout against HEAD, which produces an empty HEAD..HEAD patch.
   const diffScope = $derived<DiffScope | null>(
-    scope ?? targetDiffScope ?? (targetPullRequest ? loader.diffScope : branchScope),
+    scope ?? targetDiffScope ?? (targetPullRequest
+      ? loader.diffScope
+      : !target && view !== "guide" ? { kind: "branch" } : branchScope),
   );
 
   // Generation is durable and shared: it outlives this pane, so the tab's state
@@ -456,7 +454,7 @@
   <LensSurface subject={lensSubject} active={view === "lens"} {sourceTabId} />
 {/snippet}
 
-{#if branchScopeError}
+{#if branchScopeError && !diffScope}
   <div class="flex h-full min-h-0 flex-col">
     <div class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0" aria-hidden="true"></div>
     <div

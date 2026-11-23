@@ -39,13 +39,15 @@ const itemSupportAtomFamily = Atom.family((key: string) => {
   }).pipe(Atom.withLabel(`mobile-v2-item-support:${key}`));
 });
 
+const emptySupportAtom = Atom.make(EMPTY_V2_ITEM_SUPPORT);
+
 export function useV2ItemSupport(target: {
   readonly environmentId: EnvironmentId;
   readonly sourceThreadId: ThreadId;
   readonly sourceItemId: TurnItemId;
-}): V2ItemSupport {
+} | null): V2ItemSupport {
   return useAtomValue(
-    itemSupportAtomFamily(
+    target === null ? emptySupportAtom : itemSupportAtomFamily(
       supportKey({
         environmentId: target.environmentId,
         threadId: target.sourceThreadId,

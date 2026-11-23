@@ -4,7 +4,11 @@ import { z } from 'zod'
 export const taskReadOptionsSchema = z.discriminatedUnion('section', [
   z.object({ section: z.literal('details') }).strict(),
   z
-    .object({ section: z.literal('provider'), cursor: z.string().min(1).max(2048).optional() })
+    .object({
+      section: z.literal('provider'),
+      cursor: z.string().min(1).max(2048).optional(),
+      timelineOnly: z.literal(true).optional()
+    })
     .strict()
 ])
 export type TaskReadOptions = z.infer<typeof taskReadOptionsSchema>

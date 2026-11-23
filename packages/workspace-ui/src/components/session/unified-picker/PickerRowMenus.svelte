@@ -2,7 +2,7 @@
   import type { Task } from "@solus/contracts/task-types";
   import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import type { SessionMeta } from "@solus/contracts/types";
-  import { getWorkspaceContext } from "../../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { sessionListStore } from "../../../contexts/workspace/session-list.store.svelte";
   import { toasts } from "../../../lib/toasts";
@@ -32,6 +32,7 @@
   let { menu = $bindable(), sessionsFor, portalTarget, onStart, onResume, onOpenTask, onOpenSource }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
 
   async function moveTask(task: Task, category: TaskStatusCategory): Promise<void> {
     try {
@@ -61,8 +62,10 @@
   function archiveActions(conversation: SessionMeta | null) {
     const serverId = conversation?.serverId;
     if (!conversation || !serverId) return {};
+    const target = { serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId, publication: conversation.publication };
     const setArchived = (isArchived: boolean) => {
-      void sessionListStore.setArchived({ serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId, publication: conversation.publication }, isArchived)
+      const change = isArchived ? sidebarStore.archiveSessions([target]) : sessionListStore.setArchived(target, false);
+      void change
         .then(() => { conversation.archived = isArchived || undefined; })
         .catch((error) => toasts.error(isArchived ? "Couldn't archive it" : "Couldn't return it to the list", {
           description: error instanceof Error ? error.message : String(error),

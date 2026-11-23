@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken, type SlashReferenceToken } from './reference-tokens'
+import { REFERENCE_ATTRIBUTE } from './reference-clipboard'
 import { tokenClassName } from './tokenStyle'
 
 export interface SlashRefAttrs {
@@ -32,6 +33,7 @@ export const SlashRefExtension = Node.create({
   renderHTML({ node, HTMLAttributes }) {
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-slash-ref': node.attrs.command,
+      [REFERENCE_ATTRIBUTE]: serializeReferenceToken(slashToken(node.attrs)),
       contenteditable: 'false',
       class: tokenClassName('slash', true),
     }),

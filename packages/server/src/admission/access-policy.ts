@@ -92,6 +92,7 @@ export const RESOURCE_LOCATORS = {
   loadSession: sessionIdAt(0),
   loadSessionSubagent: sessionFieldAt(0, 'sessionId'),
   loadSessionPage: sessionFieldAt(0, 'sessionId'),
+  forkSessionFromResponse: sessionFieldAt(0, 'sessionId'),
   loadSessionToolInputs: sessionFieldAt(0, 'sessionId'),
   mcpAppRead: sessionFieldAt(0, 'sessionId'),
   mcpAppLiveRead: sessionFieldAt(0, 'sessionId'),

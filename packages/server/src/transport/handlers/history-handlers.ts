@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { HistoryPageManifests, resumeHistoryPage } from '../../data/sessions/history-blocks'
 import type { SessionRuntime } from '../../execution/session-runtime'
+import { isResponseForkCursor, needsResponseFork, readResponseForkPage, savedResponseFork } from '../../execution/sessions/response-fork'
+import { readSessionExecution } from '../../data/sessions/session-executions'
 import { readSessionTree } from '../../data/sessions/session-digests'
 import { sessionTreeRelations } from '../../data/sessions/session-tree-relations'
 import { hostStarterOf } from '@solus/contracts/session-starter'
@@ -30,7 +32,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
-import { MAX_SESSION_TOOL_INPUTS, type WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { MAX_SESSION_TOOL_INPUTS, type ProviderHistoryPage, type SessionLoadMessage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 
 const log = createLogger('main', 'history-handlers')
@@ -52,10 +54,34 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
    * rows a runner mirrored, already projected; on a host the provider's
    * transcript, projected here.
    */
-  const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> =>
-    isApiMode()
-      ? readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
-      : projectSessionHistory(storePromptImages(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
+  async function forkHistory(
+    handlerCtx: HandlerCtx, sessionId: string, turnLimit: number, before?: string,
+  ): Promise<ProviderHistoryPage | null> {
+    if (isApiMode() || (!needsResponseFork(sessionId) && !isResponseForkCursor(before))) return null
+    const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
+    const fork = savedResponseFork(record)
+    if (!record || !fork) return null
+    if (!await server.handle('getSessionInfo', [fork.historySessionId ?? fork.sourceSessionId], handlerCtx)) {
+      throw new Error('The fork source is no longer available.')
+    }
+    return readResponseForkPage(sessionRuntime, { sessionId, provider: record.provider, cwd: record.cwd, turnLimit, before, ...fork })
+  }
+
+  const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> => {
+    if (isApiMode()) return readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
+    let page = await forkHistory(handlerCtx, sessionId, 20)
+    if (!page) return projectSessionHistory(storePromptImages(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
+    const pages: SessionLoadMessage[][] = []
+    let rows = 0
+    do {
+      pages.push(page.messages)
+      rows += page.messages.length
+      if (!page.before || (limit && rows >= limit)) break
+      page = await forkHistory(handlerCtx, sessionId, 20, page.before)
+    } while (page)
+    const messages = pages.reverse().flat()
+    return projectSessionHistory(storePromptImages(limit ? messages.slice(-limit) : messages))
+  }
   /** A session's activity for a history read (plans/012 §5), inside the window the read covers. */
   const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string, window: ActivityWindow) =>
     activityFor(recordScopeOf(handlerCtx.principal), { kind: 'session', id: sessionId }, { window })
@@ -69,7 +95,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const storage = !isApiMode() ? readSessionStorage(sessionId) : null
     if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turnCount ?? 0, pushRefused: !!storage?.pushRefusedHead }
     if (!record) return meta
-    const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
+    const execution = await readSessionExecution(record.organizationId, sessionId, '')
+    const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication, execution: execution ?? undefined }
     return described
   }
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>
@@ -182,7 +209,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const mirrored = isApiMode()
     const source = mirrored
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await sessionRuntime.history.loadSessionPage(pageRequest)
+      : await forkHistory(handlerCtx, request.sessionId, request.turnLimit, pageRequest.before)
+        ?? await sessionRuntime.history.loadSessionPage(pageRequest)
     const historyReadyAt = performance.now()
     const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
     const key = request.knownHistoryBlocks && manifests.sourceKey(

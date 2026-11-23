@@ -1,3 +1,4 @@
+import type { SessionRecord } from "@solus/contracts/types";
 import { hostQuery } from "./host-query";
 import { usesWindowFilter, visibleInWindow } from "@solus/client-core/organization-filter";
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
@@ -5,7 +6,7 @@ import { hostQueryScope } from "../state/host-query-scope";
 import { solus } from "./runtime";
 
 /** A child session or a deep link can name a record outside the first list page. */
-export async function rememberSession(hostId: string, sessionId: string) {
+export async function rememberSession(hostId: string, sessionId: string, confirmed?: SessionRecord) {
   const known = solus.threads.thread(hostId, sessionId);
   if (
     known &&
@@ -18,7 +19,7 @@ export async function rememberSession(hostId: string, sessionId: string) {
     return known.record;
   const scope = hostQueryScope(hostId);
   const host = solus.connections.connection(hostId);
-  const record = await host?.api.sessionRecordGet(sessionId);
+  const record = confirmed ?? await host?.api.sessionRecordGet(sessionId);
   if (scope !== hostQueryScope(hostId)) throw new Error("The connection changed.");
   if (
     !record ||

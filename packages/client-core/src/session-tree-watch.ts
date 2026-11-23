@@ -1,5 +1,4 @@
 import type { SessionTree } from '@solus/contracts/session-digest'
-import { hostStarterOf } from '@solus/contracts/session-starter'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 
@@ -17,28 +16,6 @@ export interface SessionTreeWatchOptions {
   events: HostEventSubscriber
   sessionId: string
   onChange: (view: SessionTreeView) => void
-}
-
-/** Older hosts return the tree without relationship rows. Its root still names its parent. */
-export async function readSessionTreeWithRelations(api: Pick<HostApi, 'sessionTree' | 'getSessionInfo'>, sessionId: string): Promise<SessionTree> {
-  const tree = await api.sessionTree(sessionId, true)
-  if (tree.relations !== undefined) return tree
-  const root = tree.nodes[0]?.record
-  if (root?.sessionId !== sessionId) return tree
-  if (root.parentSessionId && root.parentSessionId !== sessionId) {
-    // The host checks the reader's own access to the parent.
-    const parent = await api.getSessionInfo(root.parentSessionId).catch(() => null)
-    if (parent) return { ...tree, relations: [{
-      kind: 'parent', sessionId: root.parentSessionId,
-      title: parent.customTitle?.trim() || parent.slug?.trim() || parent.firstMessage?.trim() || 'Untitled session',
-      runnerHostId: parent.serverId ?? null,
-    }] }
-  }
-  const origin = hostStarterOf(root.startedBy)
-  if (!origin || origin.sessionId === sessionId) return tree
-  return { ...tree, relations: [{
-    kind: 'parent', sessionId: origin.sessionId, title: origin.hostLabel, runnerHostId: null, hostLabel: origin.hostLabel,
-  }] }
 }
 
 /**

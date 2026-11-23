@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
-  import { formatActivityDuration } from "./lib/activity-summary";
-  import { plainDetail, subagentLinkStatus } from "./lib/agent-link";
+  import { plainDetail, type AgentLinkStatus } from "./lib/agent-link";
   import { subagentDetail } from "./lib/subagent-card";
   import type { SubagentRow } from "./lib/subagent-group";
   import AgentLinkRow from "./AgentLinkRow.svelte";
@@ -10,13 +9,14 @@
   interface Props {
     row: SubagentRow;
     tabId: string;
+    link: AgentLinkStatus;
+    elapsed: string;
   }
-  let { row, tabId }: Props = $props();
+  let { row, tabId, link, elapsed }: Props = $props();
 
   const session = getWorkspaceContext();
   const router = session.router;
 
-  const link = $derived(subagentLinkStatus(row));
   const isOpen = $derived(
     router.companionSurface?.name === "subagent" && router.companionSurface.params.messageId === row.id,
   );
@@ -28,10 +28,10 @@
   title={row.name}
   detail={plainDetail(subagentDetail(row))}
   hint={[row.modelLabel, row.effortLabel].filter(Boolean).join(" · ")}
-  elapsed={formatActivityDuration(row.elapsedMs)}
+  {elapsed}
   open={isOpen}
   ariaLabel={`Open ${row.name}`}
   data-testid="subagent-card"
-  data-state={row.state}
+  data-state={link.standing}
   onOpen={() => session.openSubagent(tabId, row.id)}
 />

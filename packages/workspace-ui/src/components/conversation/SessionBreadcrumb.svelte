@@ -402,12 +402,12 @@
       {#if item.status === "running" || item.status === "starting"}
         {@const dot = liveDotMark(item.attention, sidebarStore.liveFactsOf({ tabId: item.tabIds[0], sessionId: item.sessionId, serverId: item.serverId }, item.attention))}
         <span
-          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-running-icon)'}"
+          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-working)'}"
           role="img"
           aria-label={note?.text}
           title={note?.text}
         >
-          <DotMatrix mark={dot ?? "working"} size={14} />
+          <DotMatrix mark={dot ?? "working"} />
         </span>
       {:else if note}
         <span class={ROW_STATUS} style:color={note.color}>{note.text}</span>
@@ -799,12 +799,12 @@
                       {#if status === "running" || status === "starting"}
                         {@const dot = liveDotMark(child.attention, sidebarStore.liveFactsOf(child, child.attention))}
                         <span
-                          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-running-icon)'}"
+                          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-working)'}"
                           role="img"
                           aria-label={note?.text}
                           title={note?.text}
                         >
-                          <DotMatrix mark={dot ?? "working"} size={14} />
+                          <DotMatrix mark={dot ?? "working"} />
                         </span>
                       {:else if note}
                         <span class={ROW_STATUS} style:color={note.color}

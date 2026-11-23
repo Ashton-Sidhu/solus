@@ -1,3 +1,4 @@
+import { sessionExecutionStatus, type SessionExecution } from "@solus/contracts/session-execution";
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
 import type { AgentActivity } from "@solus/contracts/agent-activity";
 import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
@@ -20,7 +21,7 @@ import { effectiveSnoozed } from "./thread-snooze";
  * Thread List v2 model on Solus data. A T3 thread is a Solus session.
  * Settled is its shared `SessionState`; archived and snoozed are this
  * person's own `SessionView`, so they change only this person's list. Its
- * live status is the last `session.statusChanged` the host sent; its pull
+ * live status is the latest saved execution the host sent; its pull
  * requests are the session's links. A session out of the person's list (they
  * archived it, or it is idle) does not show; a search also finds it
  * (docs/plans/session-archive.md). T3 concepts Solus does not have (pins, a
@@ -572,7 +573,8 @@ export interface ThreadListV2Facts {
   /** This person's `SessionView` by thread key, as the host announced or
       answered it after the record was read. It overrides the record's view. */
   readonly views: ReadonlyMap<string, SessionView>;
-  /** Last live status by thread key. */
+  /** Latest execution event and its presentation facts, by thread key. */
+  readonly executions?: ReadonlyMap<string, SessionExecution>;
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
   /** Thread keys whose last live status said a question waits on the person. */
   readonly pendingQuestions?: ReadonlySet<string>;
@@ -645,10 +647,13 @@ export function buildThreadListV2ListItems(input: {
     const key = item.thread.key;
     const state = threadState(item.thread, input.facts);
     const view = threadView(item.thread, input.facts);
+    const reported = input.facts.executions?.get(key);
+    const saved = item.thread.record.execution;
+    const execution = reported && (!saved || reported.revision >= saved.revision) ? reported : saved;
     const status = resolveThreadListV2Status(
       item.thread.record,
-      input.facts.liveStatus.get(key),
-      input.facts.pendingQuestions?.has(key) || undefined,
+      execution ? sessionExecutionStatus(execution) : input.facts.liveStatus.get(key),
+      execution ? execution.hasPendingQuestion === true : input.facts.pendingQuestions?.has(key) || undefined,
     );
     const snoozedUntil = item.snoozed ? view.snoozedUntil : null;
     const hasElapsedTime = status === "working" || status === "waiting";
@@ -662,7 +667,7 @@ export function buildThreadListV2ListItems(input: {
       snoozedUntil,
       timeLabelAt: resolveThreadListV2ItemTimeLabelAt(item, status, state, snoozedUntil !== null),
       snoozable: !item.snoozed && !item.archived && canSnoozeThread(status),
-      statusStartedAt: hasElapsedTime ? (input.facts.statusSince?.get(key) ?? null) : null,
+      statusStartedAt: hasElapsedTime ? (execution?.current?.startedAt ?? input.facts.statusSince?.get(key) ?? null) : null,
       showTrailingDivider: false,
     };
   });

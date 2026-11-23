@@ -148,13 +148,8 @@ export interface RouteParams {
    *  for the app itself and `manage` for its Manage page; `section` is where
    *  the reader is on that page. */
   app: { slug: string; serverId?: string; view?: 'manage'; section?: AppManageSection }
-  /** The one surface for reading a local change: map, guide, and diff. `view`
-   *  is which face is showing; `scope` is *which* change all three read. An
-   *  absent scope is the branch review — the whole branch against its target,
-   *  which has no `DiffScope` kind of its own because its base sha is live Git
-   *  state the pane resolves rather than something a link may pin. The working
-   *  directory and checkout come off the source tab's environment for the same
-   *  reason. */
+  /** The review surface reads the source tab's checkout. An absent scope
+   *  selects the checkout comparison or the linked guide's own comparison. */
   review: {
     sourceTabId: string
     view?: ReviewView
@@ -279,7 +274,7 @@ function parseScopedId(segment: string): ScopedId {
  */
 function serializeDiffScope(scope: DiffScope | undefined): string {
   if (!scope || scope.kind === 'session') return 'session'
-  if (scope.kind === 'working-tree') return 'working-tree'
+  if (scope.kind === 'working-tree' || scope.kind === 'branch') return scope.kind
   if (scope.kind === 'turn') return `turn~${scope.index}`
   return ['pr', scope.baseSha].join('~')
 }
@@ -525,8 +520,7 @@ export const ROUTES: RouteTable = {
         sourceTabId: head,
         view: second && isReviewView(second) ? second : 'diff',
       }
-      // `branch` in the scope slot is the branch review, whose base is resolved
-      // live. Anything else is a real DiffScope.
+      // Checkout Changes is the default; a guide can keep its recorded base.
       const scopeSegment = rest[0]
       if (scopeSegment && scopeSegment !== 'branch') params.scope = parseDiffScope(scopeSegment)
       const filePath = optional(rest.slice(1).join('/'))

@@ -10,7 +10,7 @@ import type {
   RepoRef,
   ReviewThread,
 } from '@solus/contracts/providers'
-import type { Provider } from '../providers/types'
+import type { Provider, PullRequestOverviewPage } from '../providers/types'
 import { CachedField } from './cached-field'
 
 /**
@@ -22,6 +22,11 @@ const DETAIL_TTL_MS = 15_000
 const ACTIVITY_TTL_MS = 15_000
 /** A pull request's size only moves when somebody pushes to it. */
 const FILE_STATS_TTL_MS = 60_000
+
+interface OverviewPage {
+  overview: PullRequestOverview
+  continuation?: { load: () => Promise<PrCommit[]>; field: CachedField<PrCommit[]> }
+}
 
 /** A late answer must not undo a newer one: the host's `updatedAt` says which is newer. */
 function newerPullRequest(previous: Contracts.PullRequest | undefined, next: Contracts.PullRequest): Contracts.PullRequest {
@@ -75,7 +80,7 @@ export class PullRequest {
   private readonly pullRequestField = new CachedField<Contracts.PullRequest>(DETAIL_TTL_MS, newerPullRequest)
   private readonly threadsField = new CachedField<ReviewThread[]>(ACTIVITY_TTL_MS)
   private readonly commentsField = new CachedField<PrConversationItem[]>(ACTIVITY_TTL_MS)
-  private readonly commitsField = new CachedField<PrCommit[]>(ACTIVITY_TTL_MS)
+  private readonly overviewPage = new CachedField<OverviewPage>(DETAIL_TTL_MS)
   private readonly reviewersField = new CachedField<PrReviewer[]>(ACTIVITY_TTL_MS)
   private readonly stackField = new CachedField<PrStack | null>(ACTIVITY_TTL_MS)
   private readonly changedFilesField = new CachedField<ChangedFileStat[]>(FILE_STATS_TTL_MS)
@@ -98,29 +103,33 @@ export class PullRequest {
     private readonly onRead: (pullRequest: Contracts.PullRequest) => void = () => {},
   ) {}
 
-  /** The one detail read in flight. The pull request, its commits and its
-   *  reviewers come in one answer, so a reader of any of them joins it. */
-  private overviewFlight: Promise<PullRequestOverview> | null = null
+  /** The first page is shared by header, reviewer and commit readers. */
+  private overviewFlight: Promise<OverviewPage> | null = null
   /** When the last detail read answered; 0 after `forget`. */
   private detailReadAt = 0
 
-  /** Read the pull request with its commits and reviewers, and keep all three. */
-  private loadOverview(): Promise<PullRequestOverview> {
-    this.overviewFlight ??= this.provider.review.getPullRequestOverview(this.repo, this.number)
-      .then((overview) => {
+  private loadOverview(): Promise<OverviewPage> {
+    const review = this.provider.review
+    this.overviewFlight ??= (review.getPullRequestOverviewPage?.(this.repo, this.number)
+      ?? review.getPullRequestOverview(this.repo, this.number))
+      .then((overview: PullRequestOverviewPage) => {
         this.pullRequestField.seed(overview.pullRequest)
         this.detailReadAt = Date.now()
-        this.commitsField.seed(overview.commits)
         this.reviewersField.seed(overview.reviewers)
         this.onRead(overview.pullRequest)
-        return overview
+        return this.overviewPage.seed({
+          overview,
+          ...(overview.completeCommits && {
+            continuation: { load: overview.completeCommits, field: new CachedField<PrCommit[]>(ACTIVITY_TTL_MS) }
+          })
+        })
       })
       .finally(() => { this.overviewFlight = null })
     return this.overviewFlight
   }
 
   private async load(): Promise<Contracts.PullRequest> {
-    return (await this.loadOverview()).pullRequest
+    return (await this.loadOverview()).overview.pullRequest
   }
 
   /**
@@ -159,7 +168,7 @@ export class PullRequest {
    * it fresh costs one read, not two.
    */
   recentDetail(maxAgeMs: number): Promise<Contracts.PullRequest> | null {
-    if (this.overviewFlight) return this.overviewFlight.then(({ pullRequest }) => pullRequest)
+    if (this.overviewFlight) return this.overviewFlight.then(({ overview }) => overview.pullRequest)
     const held = this.pullRequestField.peek()
     return held && Date.now() - this.detailReadAt < maxAgeMs ? Promise.resolve(held) : null
   }
@@ -181,10 +190,10 @@ export class PullRequest {
    * same answer — and each part keeps its own lifetime for the callers that
    * ask for it alone. Parts that are not young share one detail read.
    */
-  async overview(): Promise<PullRequestOverview> {
+  async overview(options?: { includeCommits?: boolean }): Promise<PullRequestOverview> {
     const [pullRequest, commits, reviewers] = await Promise.all([
       this.read(),
-      this.commits(),
+      options?.includeCommits === false ? [] : this.commits(),
       this.reviewers(),
     ])
     return { pullRequest, commits, reviewers }
@@ -201,7 +210,8 @@ export class PullRequest {
   }
 
   async commits(): Promise<PrCommit[]> {
-    return this.commitsField.read(async () => (await this.loadOverview()).commits)
+    const { overview, continuation } = await this.overviewPage.read(() => this.loadOverview())
+    return continuation ? continuation.field.read(continuation.load) : overview.commits
   }
 
   async stack(): Promise<PrStack | null> {
@@ -209,7 +219,7 @@ export class PullRequest {
   }
 
   async reviewers(): Promise<PrReviewer[]> {
-    return this.reviewersField.read(async () => (await this.loadOverview()).reviewers)
+    return this.reviewersField.read(async () => (await this.loadOverview()).overview.reviewers)
   }
 
   /**
@@ -257,7 +267,7 @@ export class PullRequest {
     this.pullRequestField.clear()
     this.threadsField.clear()
     this.commentsField.clear()
-    this.commitsField.clear()
+    this.overviewPage.clear()
     this.reviewersField.clear()
     this.changedFilesField.clear()
     this.changedFilesSha = null

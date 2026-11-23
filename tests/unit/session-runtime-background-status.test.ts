@@ -422,6 +422,43 @@ describe.serial('SessionRuntime background status for Claude shells and Monitors
     }
   })
 
+  // WHY: after the turn completes, the SDK can wake the agent in the open query
+  // (a task settled, a prompt was steered in). That wake is a new turn. It kept
+  // the id of the turn that had already settled, so its own end settled
+  // nothing: Stop left the session "running" in every list, for good.
+  test('a wake after the completed turn is a new turn that Stop settles', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      const [finished] = settlements(events)
+      backend.init()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('running')
+
+      expect(plane.stopSession(SESSION_ID, HOST_ACTOR)).toBe(true)
+      await flush()
+      const [, stopped] = settlements(events)
+      expect(stopped?.outcome).toBe('interrupted')
+      expect(stopped?.turnId).not.toBe(finished?.turnId)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a wake after the completed turn completes on its own result, with work still running', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      backend.init()
+      backend.result()
+      await flush()
+      expect(statuses(events).slice(-2)).toEqual(['running', 'completed'])
+      const [finished, woken] = settlements(events)
+      expect(woken?.outcome).toBe('completed')
+      expect(woken?.turnId).not.toBe(finished?.turnId)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('a prompt after an unmarked shell goes into the open query, never a second run', async () => {
     const { backend, plane } = await endTurnWithTaskRunning({ awaitable: true })
     try {

@@ -10,11 +10,21 @@ import type { RouteRef } from '../contexts/workspace/routing/route-registry'
  * Total — an href that names no destination returns null, and the caller falls
  * back to opening it externally.
  */
+/** A task or an automation, named by its id. */
+function recordRoute(href: string, params: URLSearchParams, serverId?: string): RouteRef | null {
+  if (href.startsWith('task://')) {
+    const taskId = params.get('taskId') ?? ''
+    return taskId ? { name: 'task', params: { taskId, serverId } } : null
+  }
+  const automationId = params.get('automationId') ?? ''
+  return automationId ? { name: 'automation', params: { automationId, serverId } } : null
+}
+
 export function routeForHref(
   href: string,
   opts: { title?: string; serverId?: string } = {},
 ): RouteRef | null {
-  if (!/^(plan|work|pr|task):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
+  if (!/^(plan|work|pr|task|automation):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
   let url: URL
   try {
     url = new URL(href)
@@ -50,10 +60,7 @@ export function routeForHref(
     return workId ? { name: 'work', params: { workId, serverId: opts.serverId } } : null
   }
 
-  if (href.startsWith('task://')) {
-    const taskId = params.get('taskId') ?? ''
-    return taskId ? { name: 'task', params: { taskId, serverId: opts.serverId } } : null
-  }
+  if (/^(task|automation):\/\//i.test(href)) return recordRoute(href, params, opts.serverId)
 
   const pr = parsePullRequestHref(href)
   return pr ? { name: 'prReview', params: { number: pr.number, title: opts.title } } : null

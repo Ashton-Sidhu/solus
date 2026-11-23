@@ -3,7 +3,8 @@ import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
-import { sessionRecordStatusOf, type SessionStatus } from '@solus/contracts/types'
+import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
+import { sessionRecordStatusOf } from '@solus/contracts/types'
 import type { PinnedSession, ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -49,7 +50,7 @@ export type HostThreadsState =
 
 export interface SessionRowChange {
   title?: string | null
-  status?: { status: SessionStatus; at: number }
+  execution?: SessionExecution
 }
 
 export interface HostThreads {
@@ -346,9 +347,11 @@ export class ThreadDirectory {
       const thread = state.value.threads[index]!
       const record = thread.record
       const customTitle = delta.title !== undefined ? delta.title : record.customTitle
-      const status = delta.status ? sessionRecordStatusOf(delta.status.status) : record.status
-      const lastActivityAt = Math.max(record.lastActivityAt, delta.status?.at ?? record.lastActivityAt)
-      if (customTitle === record.customTitle && status === record.status && lastActivityAt === record.lastActivityAt) continue
+      const execution = delta.execution && (!record.execution || record.execution.revision < delta.execution.revision)
+        ? delta.execution : record.execution
+      const status = execution ? sessionRecordStatusOf(sessionExecutionStatus(execution)) : record.status
+      const lastActivityAt = Math.max(record.lastActivityAt, execution?.current?.startedAt ?? execution?.lastTurn?.endedAt ?? 0)
+      if (customTitle === record.customTitle && execution === record.execution) continue
       if (!orderChanged && lastActivityAt !== record.lastActivityAt) {
         // Activity only moves forward. A row below both preceding rows keeps
         // its place in both lists. Recheck equal times to preserve tie order.
@@ -359,7 +362,7 @@ export class ThreadDirectory {
           || lastActivityAt >= (visibleBefore?.record.lastActivityAt ?? Infinity)
       }
       threads ??= state.value.threads.slice()
-      const next = { ...thread, record: { ...record, customTitle, status, lastActivityAt } }
+      const next = { ...thread, record: { ...record, customTitle, status, lastActivityAt, execution } }
       threads[index] = next
       replaced.push(next)
     }

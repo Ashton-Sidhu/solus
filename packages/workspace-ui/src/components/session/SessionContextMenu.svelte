@@ -78,6 +78,8 @@
       onArchive?: () => void;
       /** Returns an archived session to the list. */
       onUnarchive?: () => void;
+      /** Pins a listed session that has no open tab. */
+      onPin?: () => Promise<void>;
     } | null;
     /** A sidebar can dismiss its row without closing the mounted tab. Other
      *  surfaces keep the ordinary workspace close behavior. */
@@ -340,18 +342,22 @@
     await sessionPullRequestsStore.link(pullRequestServerId, sess.id, url);
   }
 
-  /** A pinned session stays at the top of the sidebar. Unpinning needs
-   *  only the pin; pinning needs an open tab, which names what the pin keeps. */
-  const pin = $derived(sidebarStore.pinFor(sess?.id ?? sessionId, unreadServerId));
-  const canPin = $derived(!pin && !!tabId && !!sess?.agentSessionId);
+  const pinSessionId = $derived(sess?.id ?? sessionId);
+  const canChangePin = $derived(!rowActions?.onUnarchive && sidebarStore.canPinSession(pinSessionId));
+  const pin = $derived(canChangePin
+    ? sidebarStore.pinFor(pinSessionId, unreadServerId)
+    : null);
+  const canPin = $derived(canChangePin && !pin && (!!rowActions?.onPin || (!!tabId && !!sess?.agentSessionId)));
 
   async function togglePin() {
     const targetPin = pin;
     const targetTabId = tabId;
+    const pinListedSession = rowActions?.onPin;
     onClose();
     try {
       if (targetPin) await sidebarStore.unpinSession(targetPin);
       else if (targetTabId) await sidebarStore.togglePinnedSession(targetTabId);
+      else await pinListedSession?.();
     } catch (error) {
       toasts.error(targetPin ? "Couldn't unpin the session" : "Couldn't pin the session", {
         description: error instanceof Error ? error.message : String(error),

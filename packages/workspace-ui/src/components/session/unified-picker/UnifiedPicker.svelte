@@ -671,7 +671,7 @@
       type="text"
       placeholder={PICKER_RESULT_PLACEHOLDERS[resultType]}
       aria-label="Search"
-      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-black shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent dark:caret-white"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-black shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:shadow-none focus-visible:ring-0 dark:bg-transparent dark:caret-white"
     />
     <!-- The order, the mode and the filters, at the far end of the box they
          act on. The counts live under the list alone. -->

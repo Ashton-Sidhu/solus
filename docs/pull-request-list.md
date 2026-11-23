@@ -141,12 +141,14 @@ narrows; it is not covered, so the queue stays readable. The ↑ / ↓ keys move
 through the list, and the `#number` switcher in the panel walks the same order.
 
 When the pointer, the keyboard focus, or the ↑ / ↓ highlight rests on a row for
-150 ms, the page reads that pull request's overview (its detail, commits, and
-reviewers in one request), so the panel opens with them. Passing over rows, or
+150 ms, the page reads that pull request's detail, so the panel can show its
+header on open. GitHub returns the first commit page with the detail. Activity
+reads any remaining commit pages when it opens. Passing over rows, or
 holding ↑ / ↓, reads nothing. A touch has no rest, so a tap reads only when it
 opens the row. Comments and changed files are read when the panel opens. On
 desktop and web only: the mobile app has no pointer rest, and it paints an
-opened pull request from its device copy instead.
+opened pull request from its device copy instead. The mobile summary asks for
+reviewers and leaves commit pages to Activity.
 
 - The panel opens at half the page. Drag its left edge (or focus the edge and
   press ← / →, Shift for bigger steps) to resize it. The width is remembered on

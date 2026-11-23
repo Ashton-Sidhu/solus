@@ -8,21 +8,21 @@
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { copyText, toasts } from "../../../lib/toasts";
   import AgentLinkRow from "../AgentLinkRow.svelte";
+  import { agentExecutionElapsedMs, agentMarkShowsElapsed } from "../lib/agent-link";
   import TranscriptCardAction from "../TranscriptCardAction.svelte";
   import type { AgentConversationRef } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
+  import { getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
   import {
     agentAccent,
     agentConversationCardState,
-    agentConversationElapsedMs,
     agentConversationLink,
     agentConversationTitle,
+    canStopAgentConversation,
     cardTaskId,
     formatAgentConversationDuration,
     hostLabelFor,
-    isLiveAgentConversationState,
     isPendingAgent,
     openAgentSession,
     pendingRequest,
@@ -56,7 +56,6 @@
   let { ref, tabId, skipMotion = false, accentIndex = 0, grouped = false }: Props = $props();
 
   const session = getWorkspaceContext();
-  const sidebarStore = getSessionSidebarStore();
 
   // The caller's tab routes RPCs to the caller's host. A session started on
   // another host is read and opened there; any other on the caller's host.
@@ -86,7 +85,12 @@
   const linked = $derived(neverStarted ? [] : linkedArtifacts(ref, caller));
   let now = $state(Date.now());
   const cardState = $derived(agentConversationCardState(ref));
-  const live = $derived(isLiveAgentConversationState(cardState));
+  const execution = $derived(session.sessions.executionFor(serverId, ref.sessionId));
+  const canStop = $derived(canStopAgentConversation(execution));
+  const link = $derived(agentConversationLink(ref, execution,
+    serverId && execution?.current?.phase === "running" ? session.sessions.activityFor(serverId, ref.sessionId) : null,
+  ));
+  const live = $derived(link.standing === "live");
   // Reloaded transcripts default the provider; the index knows the truth.
   const provider = $derived(meta?.provider ?? ref.provider);
   const agentName = $derived(agentLabel(provider));
@@ -97,13 +101,12 @@
 
   const onScreen = conversationIsVisible();
   $effect(() => {
-    if (!live || !onScreen()) return;
+    if (!execution?.current || !agentMarkShowsElapsed(link.mark) || !onScreen()) return;
     return liveActivityClock.subscribe((value) => { now = value; });
   });
 
-  const elapsed = $derived(
-    formatAgentConversationDuration(agentConversationElapsedMs(ref, now)),
-  );
+  const elapsedMs = $derived(agentExecutionElapsedMs(execution, now));
+  const elapsed = $derived(elapsedMs !== null && elapsedMs > 0 ? formatAgentConversationDuration(elapsedMs) : "");
   // What the other agent's turn waits on a person for; answered right here.
   const request = $derived(cardState === "waiting" ? pendingRequest(ref) : null);
   const taskId = $derived(cardTaskId(ref));
@@ -129,14 +132,9 @@
   }
 
   function stop() {
-    void api.stopSession(ref.sessionId);
+    if (canStop) void sessionApi.stopSession(ref.sessionId);
   }
 
-  // What the other agent does now, as its host reports it: read only while it replies.
-  const activity = $derived(
-    cardState === "replying" ? sidebarStore.activityOf({ sessionId: ref.sessionId, serverId: serverId ?? null }) : null,
-  );
-  const link = $derived(agentConversationLink(ref, cardState, neverStarted, activity));
   let menuOpen = $state(false);
 
   async function copySessionId() {
@@ -170,7 +168,7 @@
       hint={provenance || undefined}
       ariaLabel="Open {agentName} session: {title}"
       data-testid="agent-conversation-card"
-      data-state={cardState}
+      data-state={link.standing}
       onOpen={neverStarted ? undefined : () => open()}
       onOpenSecondary={neverStarted ? undefined : () => open({ split: true })}
       trailing={neverStarted ? undefined : rowActions}
@@ -179,12 +177,12 @@
     <!-- The header is the whole summary; the dialogue is read in the agent's own
          session. A body appears only when the other agent waits on a person here. -->
     {#if request}
-      <!-- Indented to the title: px-2, the 24px avatar, and the 10px gap. -->
+      <!-- Align the request with the agent row's title. -->
       <!-- A click in the answer must not open the session. -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="cursor-auto pt-1 pr-2 pb-1 pl-[2.625rem] text-transcript-meta"
+        class="cursor-auto pt-1 pr-2 pb-1 pl-8 text-transcript-meta"
         onclick={(e) => e.stopPropagation()}
       >
         <AgentRequestCard {ref} {request} {tabId} />
@@ -266,7 +264,7 @@
   <TranscriptCardAction kind="item" onclick={() => void copySessionId()}>
     Copy session ID
   </TranscriptCardAction>
-  {#if live && cardState !== "waiting"}
+  {#if canStop}
     <TranscriptCardAction kind="item" destructive onclick={stop}>
       Stop {agentName}
     </TranscriptCardAction>

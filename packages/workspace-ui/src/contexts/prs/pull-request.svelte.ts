@@ -516,13 +516,10 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   /**
-   * Warm every read the review surface makes, at the moment this is opened.
-   *
-   * The worktree fetch that gates the pane is far slower than these, so they
-   * land first and the Activity tab paints filled. Rejections are swallowed:
-   * the surface re-requests through the same mirrors and owns the error banner.
+   * Start the Activity reads as soon as the user opens that tab. The surface
+   * joins these reads through the same mirrors and owns errors.
    */
-  prefetch(): void {
+  prefetchActivity(): void {
     void this.loadOverview().catch(() => {})
     void this.loadComments().catch(() => {})
     void this.loadChangedFiles().catch(() => {})

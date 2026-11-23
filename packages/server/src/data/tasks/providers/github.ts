@@ -8,6 +8,7 @@ import {
 } from '../../../providers/github/asset-upload'
 import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
 import { isInsufficientScopes } from './failures'
+import { githubIssueMetadata } from './github-issue-metadata'
 import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
 import {
   CLEAR_PROJECT_FIELD_MUTATION,
@@ -98,12 +99,15 @@ export async function readIssueNode(graphql: Graphql, home: IssueNumber, include
   return issue
 }
 
-export function githubIssueDetails(node: IssueNode): ProviderTaskDetails {
+export async function githubIssueDetails(node: IssueNode, graphql: Graphql): Promise<ProviderTaskDetails> {
   const comments = node.comments ?? { totalCount: 0, nodes: [] }
+  // A failing closing-PR page must not hide the issue. Activity retries the metadata read.
+  const providerMetadata = await githubIssueMetadata(node, graphql).catch(() => undefined)
   return {
     task: issueToTask(node),
     comments: comments.nodes.map(commentFromNode),
     commentsTruncated: comments.totalCount > comments.nodes.length,
+    ...(providerMetadata && { providerMetadata }),
   }
 }
 
@@ -234,11 +238,14 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
 
   constructor(private readonly run: GithubRun) {}
 
-  async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
+  async fetch(ref: TaskRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
     return this.run('get_github_task', async ({ graphql }) => {
-      const { node } = await withoutProjectScope((queries) => graphql<TaskNodeResponse>(queries.taskNode, { id: ref.id }))
-      if (node?.__typename === 'Issue') return githubIssueDetails(node)
+      const { node } = await withoutProjectScope((queries) => graphql<TaskNodeResponse>(
+        options?.providerMetadata ? queries.taskNodeWithMetadata : queries.taskNode,
+        { id: ref.id }
+      ))
+      if (node?.__typename === 'Issue') return githubIssueDetails(node, graphql)
       const item = node?.__typename === 'DraftIssue' ? node.projectV2Items.nodes.find(Boolean) : null
       if (node?.__typename !== 'DraftIssue' || !item) {
         throw new TaskProviderError(

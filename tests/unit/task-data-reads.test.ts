@@ -75,6 +75,21 @@ test('provider failures do not hide task content, and older history reads reques
   expect(store.current.details.value).toEqual(details)
 })
 
+test('when the issue already has reactions and closing links, activity asks only for the timeline', async () => {
+  const api = new FakeApi().on('tasksGet', () => ({ ...provider, author: null }))
+  const store = await storeWith(api)
+  const metadata = {
+    author: 'Ada', assignees: [], reactions: [],
+    pullRequests: [{
+      url: 'https://github.com/acme/app/pull/7', number: 7, title: 'Fix login',
+      state: 'open' as const, closesIssue: true,
+    }],
+  }
+  await store.loadProvider(metadata)
+  expect(api.callsOf('tasksGet')).toEqual([[details.task.id, { section: 'provider', timelineOnly: true }]])
+  expect(store.current.provider.value).toMatchObject({ author: 'Ada', pullRequests: metadata.pullRequests })
+})
+
 test('an older host that ignores the requested section gives a retryable error', async () => {
   const store = await storeWith(new FakeApi().on('tasksGet', () => details))
   await store.loadDetails()

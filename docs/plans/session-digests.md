@@ -362,6 +362,26 @@ copies a clean shape and does not add a fourth path. Trace and diagram:
   overlaps a read, and keeps the last tree, stale, when a read fails.
 - Replay provider (`showcase`) for a turn that renders; no real provider turn.
 
+## Execution status
+
+The runner saves the current phase and latest turn outcome in
+`session_executions`. A row belongs to a Solus session. A provider subagent
+has a separate row under its tool call ID. The row has a revision and the
+current and last turn IDs. A new turn can run while the last turn's outcome
+remains available.
+
+The runner saves each change before it sends `session.executionChanged`.
+List, detail, watch, and tree reads return the saved state. Remote tree
+copies accept a state only when its revision is newer. After a restart, the
+runner marks its own open runs interrupted. Older sessions get a status when
+the runner records a turn. The migration does not infer status from old
+transcripts or delegation receipts.
+
+The desktop and web Sessions store uses the revision to apply reads and live
+updates in order. The Project panel and Threads use the same Agents card and
+store. Native mobile uses the saved status in its existing session rows and
+conversation.
+
 ## Open questions
 
-None. The UI stages (4 and 5) are next.
+None.

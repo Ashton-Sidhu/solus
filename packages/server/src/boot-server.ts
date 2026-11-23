@@ -167,7 +167,7 @@ import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabaseForShutdown, getDatabase } from './db/database'
-import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, onSessionRecordDeleted, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
+import { announceSessionRecordChanged, assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, onSessionRecordDeleted, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -317,6 +317,8 @@ import { activityFor } from './data/activity/activity'
 import { WorktreeMover } from './execution/sessions/worktree-move'
 import { markAwaitedTasks } from './execution/sessions/background-work'
 import { WorktreeOffers } from './execution/sessions/worktree-offers'
+import { SessionExecutionRecorder } from './execution/sessions/session-execution-recorder'
+import { interruptOwnSessionExecutions } from './data/sessions/session-executions'
 import { SessionDigests } from './execution/sessions/session-digests'
 import { emitSessionDigestChanged, onSessionDigestChanged, readSessionDigests, writeSessionDigest } from './data/sessions/session-digests'
 import { onTurnCheckpointed } from './git/turn-checkpoints'
@@ -822,6 +824,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     orchestrator,
     agentIdFromContext: opts.agentIdFromContext,
     shares,
+    onResponseForkCreated: (sessionId) => { void events.broadcast('session.forkCreated', { sessionId }) },
   }
   registerSessionHandlers(server, sessionDeps)
   registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
@@ -860,15 +863,46 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (event.type === 'turn_settled') worktreeMover.turnSettled(sessionId, event.outcome)
   })
   // What each session did, kept up to date by the host that runs it (docs/plans/session-digests.md).
+  const executionRecorder = new SessionExecutionRecorder((sessionId, toolId, execution) => {
+    events.broadcast('session.executionChanged', { sessionId, ...(toolId ? { toolId } : {}), execution })
+    if (!toolId) void announceSessionRecordChanged(sessionId, execution).catch((error) => {
+      log.warn('session_execution_report_failed', { sessionId, error: String(error) })
+    })
+    void emitSessionDigestChanged(sessionId).catch((error) => {
+      log.warn('session_execution_tree_announcement_failed', { sessionId, error: String(error) })
+    })
+  })
+  const recordStatus = (event: HostEventMap['session.statusChanged']) => {
+    const { sessionId, status } = event
+    const resetsAt = status === 'rate_limited' ? opts.sessionRuntime.rateLimitPark.rateLimits.peek(sessionId)?.resetsAt : null
+    const waitingForAgents = status === 'background' && orchestrator.isAwaitingReplies(sessionId)
+    executionRecorder.status(event, opts.sessionRuntime.activeSessions.get(sessionId)?.activeTurnId, {
+      ...(waitingForAgents && { waitingForAgents: true }),
+      ...(resetsAt != null && { rateLimitResetsAt: resetsAt * 1000 }),
+    })
+  }
+  opts.sessionRuntime.on('session-status', recordStatus)
+  opts.sessionRuntime.on('session-question', recordStatus)
   const sessionDigests = new SessionDigests({
+    subagentChanged: (sessionId, agent) => executionRecorder.subagent(sessionId, agent),
     load: async (sessionId) => (await readSessionDigests(ANY_ORGANIZATION, [sessionId])).get(sessionId) ?? null,
     write: writeSessionDigest,
     announce: (sessionId) => void emitSessionDigestChanged(sessionId),
   })
-  opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+  const recordSessionEvent = (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    if (!to?.only && event.type === 'turn_settled') {
+      executionRecorder.settle(sessionId, event.turnId, event.outcome, event.settledAt)
+    }
     sessionDigests.observe(sessionId, event, to)
+  }
+  opts.sessionRuntime.on('event', recordSessionEvent)
+  domainEventUnsubscribes.push(() => {
+    opts.sessionRuntime.off('session-status', recordStatus)
+    opts.sessionRuntime.off('session-question', recordStatus)
+    opts.sessionRuntime.off('event', recordSessionEvent)
   })
   domainEventUnsubscribes.push(onTurnCheckpointed((checkpoint) => sessionDigests.checkpointed(checkpoint)))
+  domainEventUnsubscribes.push(opts.sessionRuntime.sessionEmitter.onTurnCost((cost) => sessionDigests.costed(cost)))
   registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
@@ -1426,6 +1460,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   phaseDone('update_services_ready')
   // Restore receipts before scheduled work or client admission can add requests.
+  await interruptOwnSessionExecutions(Date.now())
   const interruptedSessions = await interruptSweep
   orchestrator.recover()
   if (interruptedSessions) orchestrator.reportChildrenInterruptedByRestart(interruptedSessions)
@@ -1968,7 +2003,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Every host admits its own guests (docs/plans/host-sharing.md §4.1).
     resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
     runner: {
-      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, onTranscriptChanged: (sessionId) => events.broadcast('session.transcriptChanged', { sessionId }) }),
+      deliver: (runner, request) => applyRunnerDelivery(runner, request, {
+        shares,
+        onTranscriptChanged: (sessionId) => events.broadcast('session.transcriptChanged', { sessionId }),
+        onExecutionChanged: (sessionId, runnerHostId, execution) => events.broadcast('session.executionChanged', { sessionId, runnerHostId, execution }),
+      }),
     },
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
@@ -2423,6 +2462,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         hostOrganizations.stop()
         await managedHostActivity.stop()
         liveActivityRelay.stop()
+        await sessionDigests.settled()
+        await executionRecorder.settled()
         await runnerDelivery?.stop()
         // A registration check still retrying could start cloudflared again after it stops.
         registrar.stopResuming()

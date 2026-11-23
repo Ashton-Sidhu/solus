@@ -325,8 +325,8 @@ export class SessionStatuses {
     }
   }
 
-  setStatus(sessionId: string, newStatus: SessionStatus): void {
-    this.applyStatus(sessionId, newStatus)
+  setStatus(sessionId: string, newStatus: SessionStatus, startsTurn = false): void {
+    this.applyStatus(sessionId, newStatus, startsTurn)
     this.notifyActiveWork()
   }
 
@@ -389,7 +389,7 @@ export class SessionStatuses {
     })
   }
 
-  private applyStatus(sessionId: string, newStatus: SessionStatus): void {
+  private applyStatus(sessionId: string, newStatus: SessionStatus, startsTurn: boolean): void {
     if (!this.rt.isShuttingDown && (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'interrupted' || newStatus === 'dead' || newStatus === 'rate_limited')) {
       this.rt.restarts.restartRuns?.remove(sessionId)
     } else if (newStatus === 'background') {
@@ -416,18 +416,25 @@ export class SessionStatuses {
     if (oldStatus === newStatus) {
       // The wait changed between a permission and a question; the status did
       // not, so only the readers of the status feed hear it.
-      if (hasApprovalChanged) this.rt.emit('session-question', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...this.waitFacts(sessionId) })
+      if (startsTurn) this.rt.emit('session-status', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...this.waitFacts(sessionId) })
+      else if (hasApprovalChanged) this.rt.emit('session-question', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...this.waitFacts(sessionId) })
       return
     }
 
     let goalUpdate: ThreadGoal | null = null
     if (session) {
       session.status = newStatus
-      // Leaving 'background' for 'running' is the agent taking a new turn in
-      // the open query — a steered prompt, or its reply to a settled task. It
-      // settles on its own id; the 'background' span before it never settles,
-      // so a turn left waiting on background work does not notify as finished.
-      if (oldStatus === 'background' && newStatus === 'running') session.activeTurnId = crypto.randomUUID()
+      // A busy session always holds a turn that has not settled, so its end —
+      // a result, an exit, or Stop — settles it exactly once. The agent can
+      // start a turn that no prompt dispatched: Claude wakes it in the open
+      // query when a task settles, after the turn already ended. That turn
+      // gets its own id. Leaving 'background' also starts a new turn: the
+      // 'background' span before it never settles, so a turn left waiting on
+      // background work does not notify as finished. A dispatch (`startsTurn`)
+      // names its turn itself.
+      const startsOwnTurn = (newStatus === 'running' || newStatus === 'connecting') && !startsTurn
+        && (oldStatus === 'background' || !session.activeTurnId || session.activeTurnId === session.settledTurnId)
+      if (startsOwnTurn) session.activeTurnId = crypto.randomUUID()
       if (session.backendId === 'claude-code' && agentSessionId) {
         goalUpdate = this.rt.claudeGoals.applySessionStatus(agentSessionId, newStatus)
       }

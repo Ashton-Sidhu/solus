@@ -36,3 +36,9 @@ turn.
 
 The mobile app does not have the row or the action list yet. It has a Stop button
 in its composer.
+
+On a phone or tablet, tap **Fork from this response** next to Copy on a
+completed Codex or Claude Code reply. Solus opens a separate session named
+`<title> fork` and marks the end of the inherited history with **Forked from
+conversation**. The host saves the fork before you send a prompt. Send the
+first prompt to the source provider on the same host.

@@ -185,8 +185,11 @@ export function startSolus() {
         }
       };
       const stops = [
-        connection.events.subscribe("session.statusChanged", ({sessionId, status, at}) => {
-          deltas.set(sessionId, {...deltas.get(sessionId), status: {status, at}});
+        connection.events.subscribe("session.executionChanged", ({sessionId, toolId, execution}) => {
+          if (toolId) return;
+          const queued = deltas.get(sessionId);
+          if (queued?.execution && queued.execution.revision >= execution.revision) return;
+          deltas.set(sessionId, {...queued, execution});
           scheduleRecords();
         }),
         connection.events.subscribe("session.titleChanged", ({sessionId, title}) => {
@@ -196,6 +199,7 @@ export function startSolus() {
         connection.events.subscribe("share.changed", ({resource}) => {
           if (resource.kind === "session") recordChanged({sessionId: resource.id});
         }),
+        connection.events.subscribe("session.forkCreated", recordChanged),
         connection.events.subscribe("session.viewChanged", recordChanged),
         connection.events.subscribe("session.stateChanged", recordChanged),
         connection.events.subscribe("session.indexChanged", ({sessionIds}) => {

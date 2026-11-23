@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { SessionDigest, SessionTree, SessionTreeNode } from '@solus/contracts/session-digest'
+import type { SessionExecution, SessionTurnOutcome } from '@solus/contracts/session-execution'
 import type { SessionRecord } from '@solus/contracts/types'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { childRows, childRowsIn, descendantsOf, mergedFileChanges, treeOwnedArtifacts, treeTimeline, treeTotals, turnChanges } from '@solus/client-core/session-tree'
 import { linkSections, scopedArtifacts } from '@solus/client-core/session-overview'
-import { readSessionTreeWithRelations, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
-import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
-import { stackedBarHeights, timelineBarText, timelineLayout } from '@solus/client-core/turn-timeline'
+import { SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
+import { timelineBarText, timelineChartRows, timelineLayout } from '@solus/client-core/turn-timeline'
+import { agentConversationLink } from '@solus/workspace-ui/components/conversation/agent-conversation/lib/agent-conversation'
 import { treeAgentRows } from '@solus/workspace-ui/components/project-panel/lib/rail-agents'
 
 /**
@@ -39,6 +40,11 @@ function digest(sessionId: string, files: Array<[string, number, number]>, extra
 
 const node = (record: SessionRecord, digest: SessionDigest | null, artifacts: SessionTreeNode['artifacts'] = []): SessionTreeNode => ({ record, digest, artifacts })
 
+const running: SessionExecution = { revision: 2, current: { runId: 'next', phase: 'running', startedAt: START }, lastTurn: null }
+const settled = (outcome: SessionTurnOutcome): SessionExecution => ({
+  revision: 1, current: null, lastTurn: { runId: 'first', startedAt: START, endedAt: START + 10_000, outcome },
+})
+
 const file = (path: string, linkedAt: number) => ({ kind: 'file' as const, hostId: 'host-1', path, title: path, linkedAt })
 
 const tree: SessionTree = {
@@ -54,15 +60,15 @@ describe('session tree model', () => {
   test('the Agents panel takes direct delegates and provider calls from the same tree', () => {
     const withAgents = {
       nodes: [
-        node(record('lead', null, { provider: 'claude-code' }), digest('lead', [], {
+        { ...node(record('lead', null, { provider: 'claude-code' }), digest('lead', [], {
           subagents: [
             { id: 'tool', title: 'Check the files', status: 'failed', startedAt: 2, endedAt: 3, detail: 'Read failed' },
           ],
-        })),
-        node(record('local-child', 'lead', { customTitle: 'Local delegate', status: 'interrupted' }), digest('local-child', [], {
+        })), subagentExecutions: [{ toolId: 'tool', execution: settled('failed') }] },
+        node(record('local-child', 'lead', { customTitle: 'Local delegate', execution: settled('interrupted') }), digest('local-child', [], {
           turns: [{ id: 'open', startedAt: 1, endedAt: 2, settled: false, prompt: 'Work', toolCalls: [], changes: null }],
         })),
-        node(record('remote-child', 'lead', { runnerHostId: 'remote', status: 'running', createdAt: 4 }), null),
+        node(record('remote-child', 'lead', { runnerHostId: 'remote', execution: running, createdAt: 4 }), null),
         node(record('grandchild', 'local-child'), null),
       ],
     }
@@ -75,6 +81,31 @@ describe('session tree model', () => {
     ])
     expect(treeAgentRows(withAgents, 'local-child', 'local').map((row) => row.id)).toEqual(['grandchild'])
   })
+  test('a run outcome survives an empty digest and an old tree cannot hide a new run', () => {
+    const child = record('child', 'lead', { createdAt: START })
+    const rowsFor = (saved: SessionExecution | undefined, live?: SessionExecution) =>
+      treeAgentRows({ nodes: [node({ ...child, execution: saved }, null)] }, 'lead', 'local', () => live)
+    expect(rowsFor(undefined)[0]).toMatchObject({ status: 'Unknown' })
+    expect(rowsFor(settled('completed'))[0]).toMatchObject({ status: 'Completed', standing: 'done', endedAt: START + 10_000 })
+    expect(rowsFor(settled('completed'), running)[0]).toMatchObject({ status: 'Running', standing: 'live' })
+    expect(rowsFor(running, settled('completed'))[0]).toMatchObject({ status: 'Running', standing: 'live' })
+  })
+
+  test('a conversation card and both panels show the same mark from the runner', () => {
+    const child = record('child', 'lead', { runnerHostId: 'remote', execution: settled('completed') })
+    const tree = { nodes: [node(child, null)] }
+    const [row] = treeAgentRows(tree, 'lead', 'local',
+      (serverId, sessionId) => serverId === 'remote' && sessionId === 'child' ? running : undefined,
+      (serverId) => serverId === 'remote' ? 'read' : null,
+    )
+    const card = agentConversationLink({
+      sessionId: 'child', provider: 'codex', title: 'Child', cwd: '/project', origin: 'created',
+      exchanges: [{ messageId: 'first', index: 1, prompt: 'Work', dispatchedAt: START, status: 'done' }],
+    }, running, 'read')
+    expect(row).toMatchObject({ status: card.label, standing: card.standing, mark: { kind: 'dot', mark: 'reading' } })
+    expect(row?.mark).toEqual(card.mark)
+  })
+
   test('a timeline from the digest lays out as the conversation drew it', () => {
     // WHY: buckets start at the turn's start, as the bars do, so each call lands in its bar.
     const timeline = treeTimeline(tree.nodes[0]!.digest, START + 60_000)
@@ -161,46 +192,15 @@ describe('agent filter model', () => {
     const layout = timelineLayout(turns, [START, START + 1_000], 100, [START + 2_000, START + 20_000, START - 60_000])
     expect(layout.bars.slice(0, 2).map((bar) => [bar.calls, bar.agentCalls])).toEqual([[2, 1], [0, 1]])
     expect(timelineBarText(layout.bars[0]!)).toBe('2 tool calls, 1 by agents')
-    const heights = stackedBarHeights(layout.bars[0]!, layout.fullHeightCalls, 44)
-    expect(heights.own).toBeGreaterThan(heights.agents)
-    expect(heights.agents).toBeGreaterThan(0)
-    // A span with no calls is a dot; an agent call before the session's turn has no bar.
-    expect(stackedBarHeights(layout.bars[3]!, layout.fullHeightCalls, 44)).toEqual({ own: 2, agents: 0 })
+    const rows = timelineChartRows(layout, 0, 0.05)
+    const [, ownTop] = rows[0]!.own!
+    const [agentsBottom, agentsTop] = rows[0]!.agents!
+    // The agents' part sits on the session's own, and is the smaller of the two.
+    expect(agentsBottom).toBe(ownTop)
+    expect(ownTop).toBeGreaterThan(agentsTop - agentsBottom)
+    // A span with no calls draws nothing; an agent call before the session's turn has no bar.
+    expect(rows[3]).toMatchObject({ own: null, agents: null })
     expect(layout.bars.reduce((total, bar) => total + bar.agentCalls, 0)).toBe(2)
-  })
-})
-
-describe('desktop session relationships', () => {
-  const childTree: SessionTree = { nodes: [tree.nodes[1]!] }
-
-  test('an older host can still name the child session’s parent', async () => {
-    const result = await readSessionTreeWithRelations({
-      sessionTree: async (id, includeRelations) => {
-        expect([id, includeRelations]).toEqual(['child', true])
-        return childTree
-      },
-      getSessionInfo: async (id) => {
-        expect(id).toBe('lead')
-        return sessionMetaFromRecord(tree.nodes[0]!.record)
-      },
-    }, 'child')
-    expect(result.relations).toEqual([{ kind: 'parent', sessionId: 'lead', title: 'Session lead', runnerHostId: null }])
-  })
-
-  test('a host that declines the parent read leaves the link hidden', async () => {
-    const getSessionInfo = async () => { throw new Error('This session is not shared with you') }
-    expect(await readSessionTreeWithRelations({ sessionTree: async () => childTree, getSessionInfo }, 'child')).toEqual(childTree)
-  })
-
-  test('the current host’s relationship answer is authoritative, even when empty', async () => {
-    const answer: SessionTree = { ...childTree, relations: [] }
-    let parentReads = 0
-    const result = await readSessionTreeWithRelations({
-      sessionTree: async () => answer,
-      getSessionInfo: async () => { parentReads++; return null },
-    }, 'child')
-    expect(result).toBe(answer)
-    expect(parentReads).toBe(0)
   })
 })
 

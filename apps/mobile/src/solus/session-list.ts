@@ -4,6 +4,7 @@ import {
   threadFaviconRoot,
   type ThreadListV2Facts,
 } from "@solus-mobile/features/threads/threadListV2";
+import { sessionExecutionStatus } from "@solus/contracts/session-execution";
 import type { AgentActivity } from "@solus/contracts/agent-activity";
 import type { SessionPlace, SessionStarter, SessionStatus } from "@solus/contracts/types";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -90,6 +91,7 @@ export function createSessionListProjection() {
           ThreadListV2Facts,
           | "attention"
           | "liveStatus"
+          | "executions"
           | "pendingQuestions"
           | "awaitingApprovals"
           | "agentActivity"
@@ -119,17 +121,21 @@ export function createSessionListProjection() {
         hostProjects?.has(record.projectPath) && !hostProjects.has(root)
           ? record.projectPath
           : root;
-      const live = facts.liveStatus?.get(key);
+      const reported = facts.executions?.get(key);
+      const saved = record.execution;
+      const execution = reported && (!saved || reported.revision >= saved.revision) ? reported : saved;
+      const live = execution ? sessionExecutionStatus(execution) : facts.liveStatus?.get(key);
       const attention = facts.attention?.get(key);
       // Mobile rows show a waiting permission and a plan to approve as one Approval.
-      const approval = facts.awaitingApprovals?.has(key) === true || attention?.kind === "needs_approval";
+      const approval = execution ? execution.awaitingApproval === true
+        : facts.awaitingApprovals?.has(key) === true || attention?.kind === "needs_approval";
       const liveStatus = live === "awaiting_input" && approval
         ? "awaiting_plan"
         : live ?? (attention && attentionStatus[attention.kind]);
       const agentActivity = facts.agentActivity?.get(key);
       const hostAway = awayHosts?.has(hostId) === true;
-      const since = facts.statusSince?.get(key) ?? attention?.since;
-      const pendingQuestion = live === undefined
+      const since = execution?.current?.startedAt ?? execution?.lastTurn?.endedAt ?? facts.statusSince?.get(key) ?? attention?.since;
+      const pendingQuestion = execution ? execution.hasPendingQuestion === true : live === undefined
         ? record.hasPendingQuestion === true
         : facts.pendingQuestions?.has(key) === true;
       const readEvent = facts.viewedAt?.get(key);

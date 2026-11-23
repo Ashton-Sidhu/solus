@@ -1,3 +1,4 @@
+import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
 import {
     MessageCircleQuestionMark as InputIcon,
     ShieldAlert as ApprovalIcon,
@@ -66,9 +67,11 @@ function hasPendingPlanQuestion(plans: Record<string, Plan>): boolean {
   return false
 }
 
-export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string, Plan>): AttentionState {
-  if (sess.status === 'awaiting_plan') return 'awaiting_plan'
-  if (sess.status === 'awaiting_input') return waitingAttention(sess) ?? 'awaiting'
+export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string, Plan>, execution?: SessionExecution): AttentionState {
+  const status = execution ? sessionExecutionStatus(execution) : sess.status
+  if (status === 'awaiting_plan') return 'awaiting_plan'
+  if (status === 'awaiting_input') return (execution ? execution.awaitingApproval ? 'approval' : 'awaiting' : waitingAttention(sess)) ?? 'awaiting'
+  if (execution?.hasPendingQuestion) return 'awaiting'
   const waiting = waitingAttention(sess)
   if (waiting) return waiting
   // This runs once per open tab inside hot derived chains (sidebar, tab strip) on
@@ -88,10 +91,10 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
       if (p?.status === 'pending' && p.questionId) return 'awaiting_plan'
     }
   }
-  if (sess.status === 'rate_limited') return 'limited'
-  if (sess.status === 'connecting') return 'starting'
-  if (sess.status === 'running') return 'running'
-  return settledAttention(sess.status, tab.hasUnread)
+  if (status === 'rate_limited') return 'limited'
+  if (status === 'connecting') return 'starting'
+  if (status === 'running') return 'running'
+  return settledAttention(status, tab.hasUnread)
 }
 
 /** What a session whose turn has ended still has to say. */
@@ -210,7 +213,7 @@ export function liveDotMark(state: AttentionState, live: LiveMarkFacts = {}): Do
  *  (breadcrumb, switcher, previews). Colours are the ones the sidebar spends. */
 export function getAttentionMark(state: AttentionState, live: LiveMarkFacts = {}): StatusMarkVisual | null {
   const dot = liveDotMark(state, live)
-  if (dot) return { kind: 'dot', mark: dot, color: dot === 'offline' ? 'var(--muted-foreground)' : 'var(--solus-status-running-icon)' }
+  if (dot) return { kind: 'dot', mark: dot, color: dot === 'offline' ? 'var(--muted-foreground)' : 'var(--solus-status-working)' }
   if (state === 'awaiting') return { kind: 'glyph', component: InputIcon, color: 'var(--primary)' }
   if (state === 'approval') return { kind: 'glyph', component: ApprovalIcon, color: 'var(--primary)' }
   if (state === 'awaiting_plan') return { kind: 'glyph', component: FileTextIcon, color: 'var(--primary)' }

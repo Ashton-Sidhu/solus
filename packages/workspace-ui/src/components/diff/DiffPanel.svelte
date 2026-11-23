@@ -458,7 +458,7 @@
     const signal = changedFilesSignal;
     if (signal === prevChangedFilesSignal) return;
     prevChangedFilesSignal = signal;
-    if (patchOverride !== null || (selectedScope.kind !== "session" && selectedScope.kind !== "working-tree")) return;
+    if (patchOverride !== null || selectedScope.kind === "turn" || selectedScope.kind === "pr") return;
     const timer = setTimeout(() => {
       void diffState.refresh(selectedScope, { silent: true });
     }, LIVE_REFRESH_DEBOUNCE_MS);
@@ -557,7 +557,7 @@
     reviewLabel
       ? reviewLabel
       : isWorkingTreeScope
-      ? "Working tree"
+      ? "Uncommitted"
       : isWorktree
         ? displayedWorktreeBranch
         : (checkoutGit(sess?.run)?.branch ?? worktreeBranch),

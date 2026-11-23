@@ -111,6 +111,31 @@ export function getWorkingBranch(cwd: string): Promise<string | null> {
     .then((branch) => (branch === 'HEAD' ? null : branch), () => null)
 }
 
+/** Changes compares the live checkout with the merge base of its target.
+ * Use local refs so opening a diff never requires a remote connection. */
+export async function getCheckoutComparisonBase(
+  cwd: string,
+  known?: { branch: string | null; targetBranch: string },
+): Promise<string> {
+  const [branch, targetBranch] = known
+    ? [known.branch, known.targetBranch]
+    : await Promise.all([getWorkingBranch(cwd), getDefaultBranchLocal(cwd)])
+  if (!branch) return 'HEAD'
+
+  const refs = [`refs/remotes/origin/${targetBranch}`]
+  if (branch === targetBranch) {
+    // A branch tracking a remote default can have local commits to review.
+    const upstream = await runAsync('git', ['rev-parse', '--symbolic-full-name', '@{upstream}'], cwd).catch(() => '')
+    if (upstream.startsWith('refs/remotes/')) refs.unshift(upstream)
+  } else {
+    refs.push(`refs/heads/${targetBranch}`)
+  }
+  for (const ref of new Set(refs)) {
+    const base = await runAsync('git', ['merge-base', '--end-of-options', ref, 'HEAD'], cwd).catch(() => '')
+    if (base) return base
+  }
+  return 'HEAD'
+}
 
 /** A step of a new worktree that `createWorktree` reports while it works. */
 export type WorktreeSetupStage = (typeof WORKTREE_SETUP_STEPS)[number]['id']

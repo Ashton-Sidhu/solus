@@ -1,6 +1,7 @@
 import { mediaTypeFor } from "@solus/contracts/media-types";
 import type { IpcContext } from "@solus/contracts/types";
 import { requestInputFocus } from "./inputFocus";
+import { splitFileLine } from "./file-href";
 
 export const FILE_PREVIEW_EVENT = "solus:preview-file";
 
@@ -21,8 +22,6 @@ export function filePreviewMediaKind(path: string): "image" | "video" | null {
   const kind = mediaTypeFor(path.split(/[?#]/, 1)[0])?.kind;
   return kind === "image" || kind === "video" ? kind : null;
 }
-
-const LINE_SUFFIX_RE = /^(.+?):(\d+)(?::\d+)?$/;
 
 function decodePath(path: string): string {
   try {
@@ -50,14 +49,7 @@ export function parseFileHref(href: string): FilePreviewRequest | null {
   rawPath = decodePath(rawPath.split(/[?#]/, 1)[0] ?? "");
   if (!rawPath) return null;
 
-  let line: number | undefined;
-  const lineMatch = rawPath.match(LINE_SUFFIX_RE);
-  if (lineMatch) {
-    rawPath = lineMatch[1];
-    line = Number(lineMatch[2]);
-  }
-
-  return { path: rawPath, line };
+  return splitFileLine(rawPath);
 }
 
 export function requestFilePreview(request: FilePreviewRequest) {

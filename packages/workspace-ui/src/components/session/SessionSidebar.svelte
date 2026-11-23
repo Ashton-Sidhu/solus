@@ -169,11 +169,14 @@
   let completedShelfOpen = $state(false);
 
   function toggleSection(section: SidebarSection) {
+    if (section === "completed") {
+      completedShelfOpen = !completedShelfOpen;
+      return;
+    }
     let isOpen: boolean;
     if (section === "shared") isOpen = sharedSectionOpen = !sharedSectionOpen;
     else if (section === "working") isOpen = workingSectionOpen = !workingSectionOpen;
-    else if (section === "snoozed") isOpen = snoozedShelfOpen = !snoozedShelfOpen;
-    else isOpen = completedShelfOpen = !completedShelfOpen;
+    else isOpen = snoozedShelfOpen = !snoozedShelfOpen;
     if (isOpen) tick().then(() => requestAnimationFrame(() => revealOpenedSection(section)));
   }
   /** A section opened at the bottom of a scrolled list puts its rows below
@@ -780,7 +783,12 @@
   }
 
   function listedRowActions(row: SidebarTask) {
-    return { onArchive: sidebarStore.canArchive(row) ? () => removeTask(row) : undefined };
+    return {
+      onArchive: sidebarStore.canArchive(row) ? () => removeTask(row) : undefined,
+      onPin: row.serverId && sidebarStore.canPinSession(row.sessionId)
+        ? () => sidebarStore.toggleRowPin(row)
+        : undefined,
+    };
   }
 
   function regeneratePinnedTitle(pin: PinnedSession) {
@@ -871,15 +879,16 @@
 
 {#snippet taskRow(task: SidebarTask, inFolder: boolean)}
   {@const prChoices = sidebarStore.prChoicesFor(task)}
+  {@const sessionId = sidebarStore.sessionIdOfRow(task)}
   <TaskRow
     {task}
-    isPinned={sidebarStore.isPinned(sidebarStore.sessionIdOfRow(task), task.serverId)}
-    onTogglePin={() => {
+    isPinned={sidebarStore.isPinned(sessionId, task.serverId)}
+    onTogglePin={task.serverId && sidebarStore.canPinSession(sessionId) ? () => {
       void sidebarStore.toggleRowPin(task).catch((error) =>
         toasts.error("Couldn't change the pin", { description: error instanceof Error ? error.message : String(error) }),
       );
       requestInputFocus();
-    }}
+    } : undefined}
     shareOwner={task.share ? (memberByKey(sharesStore.directory, task.share.ownerKey) ?? null) : null}
     prChip={prChipForChoices(prChoices)}
     {prChoices}

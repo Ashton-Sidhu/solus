@@ -777,7 +777,9 @@
     }
     pullRequests.view.tab = tab ?? "activity";
     const target = targetFor(pr);
-    if (target) store.get(target.api, target.serverId, target.ctx).get(pr.number).prefetch();
+    if (target && pullRequests.view.tab === "activity") {
+      store.get(target.api, target.serverId, target.ctx).get(pr.number).prefetchActivity();
+    }
   }
 
   /** The row's pull request as the store holds it, which reads its stack.
@@ -805,15 +807,13 @@
     if (pageScope.allProjects) aggregateSelectedKey = aggregateOpenKey = key;
     else listView.selectedNumber = listView.openNumber = number;
     pullRequests.view.tab = "activity";
-    layer.prefetch();
+    layer.prefetchActivity();
   }
 
-  /** A row the pointer or the highlight rests on is read before it is
-   *  opened: one overview read, which the panel's own reads then join or find
-   *  held. Comments and files wait for the open. */
+  /** A row at rest warms its header. Activity waits for the open. */
   const restPrefetch = new RestPrefetch<PullRequest>((pr) => {
     const target = targetFor(pr);
-    if (target) void store.get(target.api, target.serverId, target.ctx).get(pr.number).loadOverview().catch(() => {});
+    if (target) void store.get(target.api, target.serverId, target.ctx).get(pr.number).loadDetail().catch(() => {});
   });
   onDestroy(() => restPrefetch.cancel());
 

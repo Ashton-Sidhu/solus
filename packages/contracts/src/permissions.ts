@@ -422,7 +422,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs', diffStatsBatch: 'read.diffs',
   // Sessions — driving: turns, the queue, typing, and sending or dismissing a suggestion
   prompt: 'drive.prompt', compactSession: 'drive.prompt', retry: 'drive.prompt', promptHeadlessSession: 'drive.prompt',
-  sessionPrepare: 'drive.prompt',
+  sessionPrepare: 'drive.prompt', forkSessionFromResponse: 'drive.prompt',
   stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', mcpTaskCancel: 'drive.prompt', mcpTaskAnswer: 'drive.prompt', integrationResourceWatchStop: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
   cancelQueuedPrompt: 'drive.prompt', editQueuedPrompt: 'drive.prompt', sessionQueue: 'drive.prompt', sessionQueueChange: 'drive.prompt',
   presenceSetComposing: 'drive.prompt', writePlanFile: 'drive.prompt', sessionSuggestionDecide: 'drive.prompt',

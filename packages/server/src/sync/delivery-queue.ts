@@ -120,6 +120,9 @@ export function queueSessionFacts(destination: DeliveryDestination, record: Sess
     if (existing) {
       const queued = z.custom<SessionRecordUpsert>().parse(JSON.parse(existing.payload))
       merged = { ...queued, ...record, lastActivityAt: Math.max(queued.lastActivityAt, record.lastActivityAt) }
+      if (queued.execution && (!record.execution || queued.execution.revision > record.execution.revision)) {
+        merged.execution = queued.execution
+      }
       getDb().prepare('DELETE FROM delivery_queue WHERE seq = ?').run(existing.seq)
     }
     seq = nextDeliverySeq()

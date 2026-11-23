@@ -336,7 +336,7 @@ describe("a person's session list", () => {
 
     const settled = await operations.update(context, 'kept', { settled: true })
     expect(settled.view?.settledAt).toEqual(expect.any(Number))
-    expect(await pinnedIds()).toEqual([])
+    expect(await pinnedIds()).toEqual(['kept'])
     expect(settled.state).toBeUndefined()
     expect(await stateOf('kept')).toBeNull()
 
@@ -348,7 +348,7 @@ describe("a person's session list", () => {
     await operations.admitTurn({ ...context, scopes: ['sessions:admit'], delegation: { hostId: 'vm-1' } }, 'kept')
     expect(await stateOf('kept')).toBeNull()
     expect((await viewer('kept', hostUserKey()).view()).settledAt).toBeNull()
-    // A new turn reopens the session without restoring a completed pin.
-    expect(await pinnedIds()).toEqual([])
+    // A new turn keeps an existing pin and does not restore an archived one.
+    expect(await pinnedIds()).toEqual(['kept'])
   })
 })

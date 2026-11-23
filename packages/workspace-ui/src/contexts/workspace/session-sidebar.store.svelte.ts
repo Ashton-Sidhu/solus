@@ -35,7 +35,7 @@ import { CHAT_LABEL } from '../../lib/paths'
 import { isChat } from '@solus/contracts/chat'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-scope'
-import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
+import { executionAttention } from '../../components/session/lib/sidebar-session-status'
 import { delegatedRows, nestedRowParents } from '../../components/session/lib/session-tree'
 import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
 import type { PinnedEntry, SidebarSection } from '../../components/session/lib/sidebar-list-items'
@@ -61,7 +61,7 @@ import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { checksPresentation } from '../../components/prs/lib/checks'
 import type { Via } from '@solus/contracts/analytics-events'
 import { nextOpenSidebarTabAfterClose } from './session-sidebar-selection'
-import { serverConnections, type ManagedConnection } from '@solus/client-core/server-connections'
+import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostReadiness } from '@solus/client-core/host-readiness'
 import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
@@ -189,12 +189,7 @@ export function registrySessionHomes(): SessionHomeHosts {
 
 export class SessionSidebarStore {
   private taskModelsById = new Map<string, SidebarTask>()
-  private liveSessionStatuses?: SidebarSessionStatusFeed
   private hasSettledBootLocation = false
-
-  private sessionStatusFeed(): SidebarSessionStatusFeed {
-    return this.liveSessionStatuses ??= new SidebarSessionStatusFeed()
-  }
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
@@ -266,7 +261,8 @@ export class SessionSidebarStore {
     const share = linkedTask ? undefined : sessionListStore.shareFacts(session.id)?.share
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
     const projectKey = environmentProjectKey(environment, session.run)
-    const attention = getAttentionState(session, tab, this.planStore.plans)
+    const execution = this.session.sessions.executionFor(runHost(session.run), session.id)
+    const attention = getAttentionState(session, tab, this.planStore.plans, execution)
     const state = sessionListStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
@@ -289,7 +285,7 @@ export class SessionSidebarStore {
       attention,
       unread: tab.hasUnread && !isSettled,
       createdAt: firstActivityAt(session),
-      runStartedAt: attention === 'running' ? turnStartedAt(session) : 0,
+      runStartedAt: attention === 'running' ? execution?.current?.startedAt ?? turnStartedAt(session) : 0,
       limitResetsAt: sessionLimitResetsAt(session) ?? undefined,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
@@ -312,7 +308,9 @@ export class SessionSidebarStore {
   private buildListedSessionRow(listed: ListedSession): SidebarTask {
     const projectKey = worktreeProjectRoot(listed.projectPath ?? '~')
     const state = sessionListStore.stateFor(listed.sessionId)
-    const lifecycle = sessionRowLifecycle(state, null, this.lifecycleNow)
+    const execution = this.session.sessions.executionFor(listed.serverId, listed.sessionId)
+    const attention = executionAttention(execution)
+    const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
     const rowId = `session:${listed.sessionId}`
     const linkedTask = this.session.tasksStore.taskForSession(listed.sessionId)
     const share = listed.share
@@ -328,11 +326,11 @@ export class SessionSidebarStore {
       groupKey: groupKeyFor(listed.serverId, projectKey),
       branchName: null,
       serverId: listed.serverId,
-      status: taskStatusFor(null, !!state?.settledAt),
-      attention: null,
+      status: taskStatusFor(attention, !!state?.settledAt),
+      attention,
       unread: isUnopenedShare(share, sessionListStore.openedGrantAt(listed.sessionId)),
       createdAt: listed.createdAt,
-      runStartedAt: 0,
+      runStartedAt: execution?.current?.startedAt ?? 0,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
       snoozedUntil: lifecycle.snoozedUntil,
@@ -962,44 +960,11 @@ export class SessionSidebarStore {
     })
   }
 
-  /** Keep the status of linked sessions with no tab live for the picker,
-   *  and the agent activity of every running session for its state mark. */
-  subscribeSessionStatuses(): () => void {
-    const stopEvents = subscribeAllHosts('session.statusChanged', (serverId, event) => {
-      this.sessionStatusFeed().apply(serverId, event)
-    })
-    const stopActivities = subscribeAllHosts('session.activityChanged', (serverId, event) => {
-      this.sessionStatusFeed().applyActivity(serverId, event)
-    })
-    // A reset connection lost the activity events of its time away.
-    const stopResets = new Map<string, () => void>()
-    const bindReset = (connection: ManagedConnection) => {
-      stopResets.get(connection.serverId)?.()
-      stopResets.set(connection.serverId, connection.transport.onReset(() => {
-        this.sessionStatusFeed().resetActivities(connection.serverId)
-      }))
-    }
-    for (const serverId of serverConnections.serverIds()) {
-      const connection = serverConnections.connectionFor(serverId)
-      if (connection) bindReset(connection)
-    }
-    const stopConnections = serverConnections.onConnectionCreated(bindReset)
-    const stopViews = subscribeAllHosts('session.viewChanged', (serverId, { sessionId, view }) => {
-      if (view.settledAt === null && view.archivedAt === null) return
+  subscribeSessionViews(): () => void {
+    return subscribeAllHosts('session.viewChanged', (serverId, { sessionId, view }) => {
+      if (view.archivedAt === null) return
       this.dropPin(serverConnections.resolveId(serverId), sessionId)
     })
-    // A list read (each reconnect makes one) answers what the events missed.
-    const stopRecords = sessionListStore.onRecordsRead((serverId, records, readStartedAt) => {
-      for (const record of records) this.sessionStatusFeed().adoptRecord(serverId, record, readStartedAt)
-    })
-    return () => {
-      stopEvents()
-      stopActivities()
-      stopConnections()
-      for (const stop of stopResets.values()) stop()
-      stopViews()
-      stopRecords()
-    }
   }
 
   /** Forget a session's pin on this client. An older manifest read must not restore it. */
@@ -1011,18 +976,20 @@ export class SessionSidebarStore {
     }
   }
 
-  /** The pins that completing or archiving these sessions ends, each with the
+  /** The pins that archive clears, each with the
    *  home that takes the change. Read before the change: its announcement
    *  drops the pin from this client. */
   private pinsEndedBy(targets: SessionListTarget[]): EndedPin[] {
-    return targets.flatMap((target) => {
-      const pin = this.pinFor(target.sessionId, target.serverId)
-      if (!pin) return []
-      return [{ pin, pinServerId: serverConnections.resolveId(target.serverId), homeServerId: serverConnections.resolveId(sessionListStore.homeFor(target)) }]
+    const homes = new Map(targets.map((target) =>
+      [target.sessionId, serverConnections.resolveId(sessionListStore.homeFor(target))] as const,
+    ))
+    return this.pinnedSessions.flatMap((pin) => {
+      const homeServerId = homes.get(pin.sessionId)
+      return pin.serverId && homeServerId ? [{ pin, pinServerId: pin.serverId, homeServerId }] : []
     })
   }
 
-  /** Completing or archiving a session ends its pin. A home that holds the pin
+  /** Archiving a session ends its pin. A home that holds the pin
    *  removes it; a home elsewhere (an organization's Solus API) never sees the
    *  pin, so it is removed on the host that holds it. */
   private async endPins(ended: EndedPin[]): Promise<void> {
@@ -1040,7 +1007,6 @@ export class SessionSidebarStore {
   releaseTab(tabId: string): void {
     const session = this.session.sessionFor(tabId)
     if (!session) return
-    this.sessionStatusFeed().clear(serverConnections.resolveId(runHost(session.run)), session.id)
   }
 
   /** Hydrate the pinned list by fanning out over every connected host: pins
@@ -1080,9 +1046,11 @@ export class SessionSidebarStore {
   }
 
   isPinned(sessionId: string | null | undefined, serverId?: string | null): boolean {
-    if (!sessionId || this.pinFor(sessionId, serverId) === null) return false
-    const state = sessionListStore.stateFor(sessionId)
-    return state?.settledAt == null && state?.archivedAt == null
+    return this.canPinSession(sessionId) && this.pinFor(sessionId, serverId) !== null
+  }
+
+  canPinSession(sessionId: string | null | undefined): boolean {
+    return !!sessionId && sessionListStore.stateFor(sessionId)?.archivedAt == null
   }
 
   /** The pin of a session on its host, or null when it has none. */
@@ -1113,8 +1081,8 @@ export class SessionSidebarStore {
     const tabId = this.session.tabIdForHostSession(sessionId, serverId ?? undefined)
     const tab = tabId ? this.session.tabs[tabId] : undefined
     const sess = tabId ? this.session.sessionFor(tabId) : undefined
-    if (tab && sess) return getAttentionState(sess, tab, this.planStore.plans)
-    return this.sessionStatusFeed().stateFor(serverId, sessionId)?.attention ?? null
+    if (tab && sess) return getAttentionState(sess, tab, this.planStore.plans, this.session.sessions.executionFor(runHost(sess.run), sess.id))
+    return executionAttention(this.session.sessions.executionFor(serverId, sessionId))
   }
 
   /** The agent activity of a session's running turn, for its state mark. A
@@ -1126,7 +1094,7 @@ export class SessionSidebarStore {
     const sessionId = session?.id ?? target.sessionId
     const serverId = session ? runHost(session.run) : target.serverId
     if (!sessionId || !serverId) return null
-    return this.sessionStatusFeed().activityFor(serverConnections.resolveId(serverId), sessionId)
+    return this.session.sessions.activityFor(serverId, sessionId)
   }
 
   /** What a live state mark needs beside the attention: the agent activity
@@ -1156,7 +1124,8 @@ export class SessionSidebarStore {
   private liveChildFor(tabId: string): Omit<SidebarSessionChild, 'lastActivityAt'> {
     const tab = this.session.tabs[tabId]
     const sess = this.session.sessionFor(tabId)
-    const attention = tab && sess ? getAttentionState(sess, tab, this.planStore.plans) : null
+    const execution = sess ? this.session.sessions.executionFor(runHost(sess.run), sess.id) : undefined
+    const attention = tab && sess ? getAttentionState(sess, tab, this.planStore.plans, execution) : null
     return {
       tabId,
       label: sess ? sessionTitle(sess) : tabId,
@@ -1168,7 +1137,7 @@ export class SessionSidebarStore {
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
       branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
-      runStartedAt: sess && attention === 'running' ? turnStartedAt(sess) : 0,
+      runStartedAt: sess && attention === 'running' ? execution?.current?.startedAt ?? turnStartedAt(sess) : 0,
       limitResetsAt: (sess && sessionLimitResetsAt(sess)) ?? undefined,
     }
   }
@@ -1333,7 +1302,7 @@ export class SessionSidebarStore {
   /**
    * The check on a row: completing says "I am finished with this". It settles
    * the session on its host and unloads its conversation, exactly as the row's
-   * close control does; the row goes to Completed on this person's clients. On a
+   * close control does. Its row goes to Completed unless it is pinned. On a
    * settled session it makes the session active again, and opens it when no
    * conversation of it is here. A session that has not started has nothing on
    * its host, so its row is only closed.
@@ -1353,7 +1322,6 @@ export class SessionSidebarStore {
     }
     // The sessions it delegated are finished with it: they settle and close too.
     const targets = [target, ...this.closeDelegatedRows(row, (child) => this.canShelve(child))]
-    const endedPins = this.pinsEndedBy(targets)
     const settling = Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, true)))
     this.closeTask(row)
     const { toasts } = await import('../../lib/toasts')
@@ -1363,7 +1331,6 @@ export class SessionSidebarStore {
       toasts.error("Couldn't change session status", { description: error instanceof Error ? error.message : String(error) })
       return
     }
-    void this.endPins(endedPins)
     // Undo makes the session active again, as the mobile list's Undo does.
     toasts.undo('Session marked as completed.', () => {
       void Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, false))).catch(() => {
@@ -1434,19 +1401,20 @@ export class SessionSidebarStore {
       // an empty mounted transcript into the Unix epoch in the picker.
       () => restoredSessionActivityAt(this.tabActivityAt(tabId), link))
     }
-    const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+    const execution = this.session.sessions.executionFor(linkServerId, link.sessionId)
+    const attention = executionAttention(execution)
     const checkout = link.checkoutPath && linkServerId ? this.session.environment.checkouts.get(linkServerId, link.checkoutPath) : undefined
     return {
       sessionId: link.sessionId,
       projectKey,
       branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
       label: sessionDisplayName({ link, taskTitle: record.title }),
-      attention: liveState?.attention ?? null,
-      unread: liveState?.attention === 'error',
+      attention: attention,
+      unread: attention === 'error',
       serverId: linkServerId,
       provider: link.provider,
       modelId: link.model,
-      runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
+      runStartedAt: attention === 'running' ? execution?.current?.startedAt ?? 0 : 0,
       lastActivityAt: link.lastActivityAt ?? link.linkedAt,
     }
   }
@@ -1497,7 +1465,7 @@ export class SessionSidebarStore {
   }
 
   /** Close tabs and, when the leading conversation closes, move forward: the next open
-   *  sidebar row below it, wrapping to the top. With none left, a draft in the
+   *  sidebar row below it that is not pinned, wrapping to the top. With none left, a draft in the
    *  closed conversation's project takes its place. */
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
@@ -1511,7 +1479,9 @@ export class SessionSidebarStore {
     const sidebarTabIds = sidebarTasks.flatMap((task) =>
       this.sessionsFor(task).flatMap((child) => child.tabId ? [child.tabId] : []),
     )
-    const openTabIds = openRows.flatMap((task) =>
+    // A pinned row keeps its place in the order, so closing a pinned session
+    // still moves to the row below it, but a close never opens a pinned one.
+    const openTabIds = [...this.sessionRows, ...this.sharedRows, ...this.workingRows].flatMap((task) =>
       this.sessionsFor(task).flatMap((child) => child.tabId ? [child.tabId] : []),
     )
     const nextTabId = closesLeadingConversation
@@ -1579,11 +1549,16 @@ export class SessionSidebarStore {
     void this.archiveOnHost([target, ...delegated])
   }
 
-  /** Archive sessions on their hosts. Only a refused archive says it failed,
-   *  with the host's reason; Undo returns the sessions to the list. */
-  private async archiveOnHost(targets: SessionListTarget[]): Promise<void> {
+  async archiveSessions(targets: SessionListTarget[]): Promise<void> {
     const endedPins = this.pinsEndedBy(targets)
-    const archiving = Promise.all(targets.map((target) => sessionListStore.setArchived(target, true)))
+    await Promise.all(targets.map((target) => sessionListStore.setArchived(target, true)))
+    void this.endPins(endedPins)
+  }
+
+  /** Archive sessions on their hosts. A refused archive shows the host's
+   *  reason. Undo returns the sessions to the list. */
+  private async archiveOnHost(targets: SessionListTarget[]): Promise<void> {
+    const archiving = this.archiveSessions(targets)
     const { toasts } = await import('../../lib/toasts')
     try {
       await archiving
@@ -1591,7 +1566,6 @@ export class SessionSidebarStore {
       toasts.error("Couldn't archive it", { description: error instanceof Error ? error.message : String(error) })
       return
     }
-    void this.endPins(endedPins)
     toasts.undo('Session archived', () => {
       void Promise.all(targets.map((target) => sessionListStore.setArchived(target, false))).catch(() => {
         toasts.error("Couldn't return it to the list")
@@ -1608,7 +1582,7 @@ export class SessionSidebarStore {
   /** Toggle the row's host-owned pin, including a session with no open tab. */
   async toggleRowPin(row: SidebarTask): Promise<void> {
     const sessionId = this.sessionIdOfRow(row)
-    if (!sessionId || !row.serverId) return
+    if (!sessionId || !row.serverId || !this.canPinSession(sessionId)) return
     const existing = this.pinFor(sessionId, row.serverId)
     if (existing) {
       await this.unpinSession(existing)
@@ -1636,7 +1610,7 @@ export class SessionSidebarStore {
   async togglePinnedSession(tabId: string): Promise<void> {
     const tab = this.session.tabs[tabId]
     const session = this.session.sessionFor(tabId)
-    if (!tab || !session?.agentSessionId) return
+    if (!tab || !session?.agentSessionId || !this.canPinSession(session.id)) return
 
     const pinServerId = serverConnections.resolveId(runHost(session.run))
     // Captured before the toggle: the list orders by `pinnedAt`, so restoring a

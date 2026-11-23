@@ -1,6 +1,8 @@
 <script lang="ts" module>
   import type { Component, Snippet } from "svelte";
 
+  export const PANEL_ROW_ICON_SIZE = 16;
+
   export type ActionRowPhase = "idle" | "loading" | "success" | "error";
   /** Every Phosphor glyph satisfies this, and so does a brand logo that renders
    *  at the same metric — a row's icon is not always a glyph from one set. */
@@ -45,6 +47,7 @@
 
   interface Props {
     item: ActionRowItem;
+    ariaLabel?: string;
     /** Primary half of a split row: stretches so the caret can sit beside it. */
     split?: boolean;
     /** Renders the idle icon in place of `item.icon`, for an icon that needs
@@ -56,7 +59,8 @@
       event: MouseEvent & { currentTarget: HTMLButtonElement },
     ) => void;
   }
-  let { item, split = false, iconSnippet, onInspect, onActivate }: Props = $props();
+  let { item, ariaLabel, split = false, iconSnippet, onInspect, onActivate }: Props = $props();
+  const hasTrailing = $derived(!!(item.diffStat?.insertions || item.diffStat?.deletions || item.badgeIcon || item.badge || item.hint));
 </script>
 
 <TooltipUI.Root>
@@ -71,6 +75,7 @@
         class:is-success={item.phase === "success"}
         class:is-loading={item.phase === "loading"}
         class:has-badge-prefix={!!item.badge && !!item.badgePrefix}
+        aria-label={ariaLabel}
         disabled={item.disabled}
         onclick={onActivate}
         onmouseenter={() => { if (!item.disabled) onInspect?.(); }}
@@ -79,38 +84,40 @@
         <span class="menu-left">
           <span class="menu-icon" data-tone={item.iconTone}>
             {#if item.phase === "loading"}
-              <span class="glyph-spin"><SpinnerGapIcon size={16} /></span>
+              <span class="glyph-spin"><SpinnerGapIcon size={PANEL_ROW_ICON_SIZE} /></span>
             {:else if item.phase === "success"}
-              <span class="glyph-pop"><CheckIcon size={16} weight="bold" /></span>
+              <span class="glyph-pop"><CheckIcon size={PANEL_ROW_ICON_SIZE} weight="bold" /></span>
             {:else if iconSnippet}
               {@render iconSnippet()}
             {:else}
               {@const Icon = item.icon}
-              <Icon size={16} />
+              <Icon size={PANEL_ROW_ICON_SIZE} />
             {/if}
           </span>
           <span class="menu-label">{item.label}</span>
         </span>
-        <span class="menu-right">
-          {#if item.diffStat?.insertions}<span class="menu-trail stat-add"
-              >+{item.diffStat.insertions}</span
-            >{/if}
-          {#if item.diffStat?.deletions}<span class="menu-trail stat-del"
-              >−{item.diffStat.deletions}</span
-            >{/if}
-          {#if item.badgeIcon}{@const BadgeIcon = item.badgeIcon}<span
-              class="menu-trail inline-flex"
-              data-tone={item.badgeIconTone}><BadgeIcon size={14} /></span
-            >{/if}
-          {#if item.badge && item.badgePrefix}<span class="menu-trail badge-with-prefix"
-              ><span class="badge-prefix">{item.badgePrefix}</span><span
-                >{item.badge}</span
-              ></span
-            >{:else if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
-          {#if item.hint}<Kbd variant="inline"
-              >{item.hint}</Kbd
-            >{/if}
-        </span>
+        {#if hasTrailing}
+          <span class="menu-right">
+            {#if item.diffStat?.insertions}<span class="menu-trail stat-add"
+                >+{item.diffStat.insertions}</span
+              >{/if}
+            {#if item.diffStat?.deletions}<span class="menu-trail stat-del"
+                >−{item.diffStat.deletions}</span
+              >{/if}
+            {#if item.badgeIcon}{@const BadgeIcon = item.badgeIcon}<span
+                class="menu-trail inline-flex"
+                data-tone={item.badgeIconTone}><BadgeIcon size={14} /></span
+              >{/if}
+            {#if item.badge && item.badgePrefix}<span class="menu-trail badge-with-prefix"
+                ><span class="badge-prefix">{item.badgePrefix}</span><span
+                  >{item.badge}</span
+                ></span
+              >{:else if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
+            {#if item.hint}<Kbd variant="inline"
+                >{item.hint}</Kbd
+              >{/if}
+          </span>
+        {/if}
       </button>
     {/snippet}
   </TooltipUI.Trigger>

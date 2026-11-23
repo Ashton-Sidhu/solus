@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Message } from "@solus/contracts/types";
+  import AgentStateMark from "../AgentStateMark.svelte";
+  import { agentGroupElapsedMs, agentMarkShowsElapsed } from "../lib/agent-link";
   import AgentAvatar from "../AgentAvatar.svelte";
   import TranscriptCard from "../TranscriptCard.svelte";
   import { conversationIsVisible } from "../lib/conversation-visibility";
@@ -8,13 +10,16 @@
   import AgentConversationCard from "./AgentConversationCard.svelte";
   import ArtifactChip from "./ArtifactChip.svelte";
   import { chipTotals } from "@solus/client-core/session-artifact-chips";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../../contexts";
+  import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
   import { runHost } from "../../../contexts/workspace/run-location";
   import { ensureLinkedArtifacts, linkedArtifacts } from "./lib/linked-artifacts.svelte";
   import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
   import {
-    agentConversationGroupElapsedMs,
     agentConversationGroupSummary,
+    agentConversationLink,
+    isPendingAgent,
     formatAgentConversationDuration,
   } from "./lib/agent-conversation";
 
@@ -38,15 +43,31 @@
   const cards = $derived(messages.filter((message) => message.agentConversationRef));
   const refs = $derived(cards.map((message) => message.agentConversationRef!));
   const isBatch = $derived(cards.length > 1);
-  const summary = $derived(agentConversationGroupSummary(refs));
+  const session = getWorkspaceContext();
+  const caller = $derived({
+    sessionId: session.sessionFor(tabId)?.id,
+    serverId: runHost(session.sessionFor(tabId)?.run),
+  });
+  const summary = $derived(agentConversationGroupSummary(refs, (ref) => {
+    const serverId = ref.serverId ?? caller.serverId;
+    const execution = session.sessions.executionFor(serverId, ref.sessionId);
+    const activity = serverId && execution?.current?.phase === "running" ? session.sessions.activityFor(serverId, ref.sessionId) : null;
+    return agentConversationLink(ref, execution, activity);
+  }));
 
   let now = $state(Date.now());
   const onScreen = conversationIsVisible();
   $effect(() => {
-    if (!isBatch || !summary.live || !onScreen()) return;
+    if (caller.serverId && caller.sessionId && onScreen()) return sessionTreeStore.retain(caller.serverId, caller.sessionId);
+  });
+  $effect(() => {
+    if (!isBatch || !summary.live || !agentMarkShowsElapsed(summary.mark) || !onScreen()) return;
     return liveActivityClock.subscribe((value) => { now = value; });
   });
-  const elapsed = $derived(formatAgentConversationDuration(agentConversationGroupElapsedMs(refs, now)));
+  const elapsedMs = $derived(agentGroupElapsedMs(refs.map((ref) =>
+    session.sessions.executionFor(ref.serverId ?? caller.serverId, ref.sessionId),
+  ), now));
+  const elapsed = $derived(elapsedMs !== null && elapsedMs > 0 ? formatAgentConversationDuration(elapsedMs) : "");
 
   // Folded until the reader opens it. A session that waits on a person opens
   // it, because the answer is given in that session's row.
@@ -55,14 +76,19 @@
   const expanded = $derived(view.openedByUser ?? summary.needsPerson);
 
   // Folded, the header totals what the sessions linked; open, each row shows its own.
-  const session = getWorkspaceContext();
-  const caller = $derived({
-    sessionId: session.sessionFor(tabId)?.id,
-    serverId: runHost(session.sessionFor(tabId)?.run),
-  });
   $effect(() => {
     if (!isBatch) return;
     for (const ref of refs) ensureLinkedArtifacts(ref, caller);
+  });
+  const trackedAgents = $derived(refs.filter((ref) => !isPendingAgent(ref)).map((ref) => ({
+    sessionId: ref.sessionId, serverId: ref.serverId ?? caller.serverId,
+  })));
+  $effect(() => {
+    if (!isBatch) return;
+    const releases = trackedAgents.flatMap(({ sessionId, serverId }) =>
+      serverId ? [agentConversationMeta.retain(sessionId, serverConnections.apiFor(serverId), serverId)] : [],
+    );
+    return () => releases.forEach((release) => release());
   });
   const totals = $derived(isBatch ? chipTotals(refs.map((ref) => linkedArtifacts(ref, caller))) : []);
 
@@ -81,7 +107,6 @@
   <div class="@container/agents">
     <TranscriptCard
       title={summary.title}
-      target={summary.status}
       {expanded}
       bodyLayout="rows"
       failed={summary.failed && !summary.live}
@@ -121,7 +146,8 @@
             {/each}
           </span>
         {/if}
-        <span class="font-mono">{elapsed}</span>
+        {#if elapsed && summary.mark && agentMarkShowsElapsed(summary.mark)}<span class="font-mono">{elapsed}</span>{/if}
+        {#if summary.mark}<AgentStateMark mark={summary.mark} label={summary.status} />{/if}
       {/snippet}
       {#snippet body()}
         {#each cards as message, index (message.id)}

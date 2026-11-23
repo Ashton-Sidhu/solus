@@ -41,6 +41,25 @@ describe('nextOpenSidebarTabAfterClose', () => {
     )).toBe('last')
   })
 
+  test('a close never opens a pinned session, even one that wraps to the top', () => {
+    // The store keeps pinned rows in the order but not among the open rows.
+    expect(nextOpenSidebarTabAfterClose(
+      ['pinned', 'first', 'closing'],
+      ['first'],
+      ['closing'],
+      'closing',
+    )).toBe('first')
+  })
+
+  test('closing a pinned session moves to the first row below the pins', () => {
+    expect(nextOpenSidebarTabAfterClose(
+      ['closing', 'other-pinned', 'first'],
+      ['first'],
+      ['closing'],
+      'closing',
+    )).toBe('first')
+  })
+
   test('returns no session when only snoozed or completed work remains', () => {
     expect(nextOpenSidebarTabAfterClose(
       ['closing', 'snoozed', 'completed'],

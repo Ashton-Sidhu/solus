@@ -15,11 +15,14 @@ import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { parseStoredStarter } from '@solus/contracts/session-starter'
 import { aclEntry } from '../../sharing/schema'
-import { deleteActivityFor } from '../activity/activity'
+import type { Activity } from '@solus/contracts/activity'
+import { appendActivity, deleteActivityFor } from '../activity/activity'
 import { personalResourceState } from '../personal-state/schema'
 import { resourceLinks } from '../links/schema'
 import { deleteEdgesOf } from '../links/resource-links'
-import { session, sessionArtifactCopies, sessionDigests } from './schema'
+import type { SessionExecution } from '@solus/contracts/session-execution'
+import { writeSessionExecution } from './session-executions'
+import { session, sessionArtifactCopies, sessionDigests, sessionExecutions } from './schema'
 import { machineSessionHome, sessionIdentityOf, type SessionHome } from './session-identity'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
 import { sessionTranscripts, sessionTurnDiffs } from './transcript-schema'
@@ -400,9 +403,11 @@ function emitChanged(record: SessionRecord | null): void {
 }
 
 /** The stored record after a partial write, handed to the listeners. */
-async function emitStored(sessionId: string): Promise<void> {
+export async function announceSessionRecordChanged(sessionId: string, execution?: SessionExecution): Promise<void> {
   if (changedListeners.size === 0) return
-  emitChanged(await getSessionRecord(ANY_ORGANIZATION, sessionId))
+  const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+  if (!record || record.runnerHostId !== null) return
+  emitChanged(execution ? { ...record, execution } : record)
 }
 
 /** The reported value when one was given (null included), else what is stored, else nothing. */
@@ -504,6 +509,13 @@ export function upsertSessionRecord(organizationId: string, input: SessionRecord
   return serialized(input.sessionId, () => upsertRecordNow(organizationId, input, birth ?? null))
 }
 
+/** A saved fork and its transcript marker appear together, before its first turn. */
+export function createResponseForkRecord(
+  input: SessionRecordUpsert, birth: SessionBirth, activity: Extract<Activity, { kind: 'forked' }>,
+): Promise<SessionRecord> {
+  return serialized(input.sessionId, () => upsertRecordNow(birth.organizationId, input, birth, false, activity))
+}
+
 /**
  * The host's own writers — the indexer, the runtime — report what they saw of a
  * session on this disk. The row keeps the home it has; a session nobody
@@ -530,15 +542,16 @@ async function readStoredRecord(db: Db, scope: RecordScope, input: SessionRecord
   return { record: recordFromRow({ ...row, provider: row.provider ?? input.provider, project_path: row.project_path ?? input.projectPath }), startedAt: row.started_at }
 }
 
-async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth: SessionBirth | null, bornSettled = false): Promise<SessionRecord> {
+async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth: SessionBirth | null, bornSettled = false, forkActivity?: Extract<Activity, { kind: 'forked' }>): Promise<SessionRecord> {
   const now = Date.now()
   const merged = await getDatabase().transaction(async (db) => {
     const stored = await readStoredRecord(db, scope, input)
+    if (forkActivity && stored) throw new Error('The fork session already exists.')
     const organizationId = isAnyOrganization(scope) ? birth?.organizationId ?? machineSessionHome().organizationId : scope
     const merged = mergeRecord(stored?.record ?? null, organizationId, input, birth)
     // The first report starts the session; a later one never moves `started_at`,
     // and never names the owner, the organization, or the publication.
-    await db.run(sql`
+    const written = await db.run(sql`
       INSERT INTO ${session} (
         session_id, organization_id, created_by, publication, started_at, provider, project_path, project_remote, runner_host_id,
         title, custom_title, status, model, reasoning_effort, parent_session_id, root_session_id,
@@ -583,6 +596,11 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         started_by = COALESCE(session_records.started_by, excluded.started_by)
       WHERE session_records.organization_id = excluded.organization_id
     `)
+    if (forkActivity) {
+      if (!written.changes) throw new Error('The fork session already exists.')
+      await appendActivity(merged.organizationId, forkActivity, db)
+    }
+    if (input.execution) await writeSessionExecution(merged.organizationId, input.sessionId, '', input.execution, db)
     return merged
   })
   emitChanged(merged)
@@ -603,14 +621,21 @@ export function assignSessionOrganization(sessionId: string, organizationId: str
     const identity = await sessionIdentityOf(sessionId)
     if (!identity) return null
     if (organizationId === LOCAL_ORGANIZATION_ID) return identity.organizationId === LOCAL_ORGANIZATION_ID ? identity : null
-    const result = await getDatabase().run(sql`
-      UPDATE ${session} SET organization_id = ${organizationId},
-        publication = ${options.published ? 'published' : sql`publication`},
-        admitted_at = COALESCE(admitted_at, ${options.admittedAt ?? null})
-      WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
-    `)
+    const result = await getDatabase().transaction(async (db) => {
+      const updated = await db.run(sql`
+        UPDATE ${session} SET organization_id = ${organizationId},
+          publication = ${options.published ? 'published' : sql`publication`},
+          admitted_at = COALESCE(admitted_at, ${options.admittedAt ?? null})
+        WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
+      `)
+      if (updated.changes > 0) await db.run(sql`
+        UPDATE ${sessionExecutions} SET organization_id = ${organizationId}
+        WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
+      `)
+      return updated
+    })
     organizationBySession.delete(sessionId)
-    if (result.changes > 0) await emitStored(sessionId)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
     const assigned = await sessionIdentityOf(sessionId)
     return assigned?.organizationId === organizationId ? assigned : null
   })
@@ -623,7 +648,7 @@ export function markSessionPublished(sessionId: string): Promise<void> {
       UPDATE ${session} SET publication = 'published'
       WHERE session_id = ${sessionId} AND publication <> 'published' AND organization_id <> ${LOCAL_ORGANIZATION_ID}
     `)
-    if (result.changes > 0) await emitStored(sessionId)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
   })
 }
 
@@ -663,6 +688,7 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
       await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'session' AND resource_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTranscripts} WHERE session_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTurnDiffs} WHERE session_id = ${sessionId}`)
+      await db.run(sql`DELETE FROM ${sessionExecutions} WHERE session_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionDigests} WHERE session_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionArtifactCopies} WHERE session_id = ${sessionId}`)
       await deleteActivityFor({ kind: 'session', id: sessionId }, db)
@@ -700,7 +726,7 @@ export function setSessionRecordBranch(sessionId: string, branch: string): Promi
     const result = await getDatabase().run(sql`
       UPDATE ${session} SET branch = ${branch} WHERE session_id = ${sessionId}
     `)
-    if (result.changes > 0) await emitStored(sessionId)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
   })
 }
 
@@ -710,7 +736,7 @@ export function setSessionRecordTitle(scope: RecordScope, sessionId: string, cus
       UPDATE ${session} SET custom_title = ${customTitle}
       WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
     `)
-    if (result.changes > 0) await emitStored(sessionId)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
   })
 }
 
@@ -721,7 +747,7 @@ export function setSessionRecordGeneratedTitle(sessionId: string, title: string)
       UPDATE ${session} SET custom_title = ${title}
       WHERE session_id = ${sessionId} AND custom_title IS NULL
     `)
-    if (result.changes > 0) await emitStored(sessionId)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
     return result.changes > 0
   })
 }

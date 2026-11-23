@@ -202,6 +202,7 @@ export interface SidebarRowMarkInput {
   /** The last snooze expired after this row was last visited. */
   woke: boolean
   lifecycle: SidebarTask['lifecycle']
+  isPinned?: boolean
   /** Start of the turn in flight. 0 unless running. */
   runStartedAt: number
   /** Several sessions are running at once, so no single turn can be dated. */
@@ -253,7 +254,7 @@ export function resolveSidebarRowMark(input: SidebarRowMarkInput): SidebarRowMar
   if (input.lifecycle === 'snoozed') {
     return { kind: 'wake', label: formatWakeIn(input.snoozedUntil, input.now) }
   }
-  if (input.lifecycle === 'completed') {
+  if (input.lifecycle === 'completed' && !input.isPinned) {
     const label = formatCompletedAge(input.completedAt, input.now)
     return label ? { kind: 'age', label } : null
   }

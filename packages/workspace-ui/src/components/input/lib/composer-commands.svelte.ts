@@ -6,7 +6,7 @@ import { parseAgentAuthCommand } from '@solus/contracts/agent-auth';
 import { createGoalCommand } from './goal-command';
 import { loadPromptHistory, savePromptToHistory } from './prompt-history';
 import { pendingPlanForPrompt } from './pending-plan';
-import { pendingQuestionForPrompt, answersForQuestionNote } from './pending-question';
+import { pendingQuestionForPrompt, answersForQuestionNote, promptHasMoreThanText } from './pending-question';
 import { isTextOnly, permissionForFeedback, promptSendPath, type PermissionFeedbackTarget } from './pending-permission';
 import { requestInputFocus } from '../../../lib/inputFocus';
 import { isMac } from '../../../lib/keybindings/match';
@@ -237,7 +237,6 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       hasPendingPlan: Boolean(pendingPlan),
       hasPendingQuestion: Boolean(pendingQuestion),
       hasFeedbackTarget: Boolean(feedbackTarget),
-      hasText: Boolean(text),
       hasTargetTab: Boolean(targetTabId),
     });
     let accepted = true;
@@ -253,11 +252,21 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     } else if (path === "question-answer" && pendingQuestion && targetTabId) {
       // Match the question card's free-text answer. Responding releases the held
       // provider turn; queuing this as a normal prompt would leave it blocked.
-      session.controls.respondQuestion(
+      // A draft with only files answers with the same words a prompt would use.
+      const answered = session.controls.respondQuestion(
         targetTabId,
         pendingQuestion.questionId,
-        answersForQuestionNote(pendingQuestion, text),
+        answersForQuestionNote(pendingQuestion, text || fallbackText),
       );
+      // The files cannot go in the answer. They steer the turn the answer
+      // resumes; sent before the answer lands, they would queue behind it.
+      if (promptHasMoreThanText(prompt)) {
+        void answered.then((ok) => {
+          if (!ok) return;
+          if (onDispatch) onDispatch(fallbackText, "steer");
+          else session.dispatch.sendMessage(fallbackText, undefined, targetTabId, "steer");
+        });
+      }
     } else if (path === "permission-feedback" && feedbackTarget && targetTabId) {
       // The card's request waits on the agent that asked, a subagent's
       // included. The text goes with its denial to that agent; sent as a

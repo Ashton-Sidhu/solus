@@ -52,7 +52,7 @@ function harness(opts: { projectRepository?: string | null } = {}) {
   const project = {
     repositoryKey: opts.projectRepository === undefined ? 'github.com/owner/repo' : opts.projectRepository,
     prFor: () => undefined,
-    get: () => ({ prefetch: () => events.push('prefetch') }),
+    get: () => ({ prefetchActivity: () => events.push('prefetch') }),
   }
   const workspace = {
     ctx,
@@ -88,6 +88,14 @@ describe('opening a pull request link', () => {
     expect(openedExternally).toEqual([])
   })
 
+  test('opening the Diff tab does not start an Activity read', async () => {
+    const { actions, events, answer } = harness()
+    const open = actions.openPullRequest({ number: 7, url: LINK }, { tab: 'diff' })
+    expect(events).toEqual(['navigate:7', 'resolve'])
+    answer().resolve({ number: 7 } as PrReviewTarget)
+    await open
+  })
+
   test('a link to a repository this project does not read opens in the browser without a host request', async () => {
     const { actions, events } = harness()
     await actions.openPullRequest({ number: 3, url: OTHER_LINK })
@@ -119,11 +127,11 @@ describe('opening a pull request link', () => {
 })
 
 describe('resting the pointer on a pull request link', () => {
-  test('reads the review target and Activity without opening a pane', () => {
+  test('reads the review target without opening a pane or reading Activity', () => {
     const { actions, events } = harness()
     actions.warmPullRequest({ number: 7, url: LINK })
 
-    expect(events).toEqual(['resolve', 'prefetch'])
+    expect(events).toEqual(['resolve'])
   })
 
   test('reads nothing for a repository this project does not read', () => {

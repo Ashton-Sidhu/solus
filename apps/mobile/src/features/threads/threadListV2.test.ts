@@ -419,8 +419,8 @@ describe("buildThreadListV2Items", () => {
     expect(layout.snoozedCount).toBe(1);
   });
 
-  it("moves a settled pinned thread into the settled shelf — parity with web (#7969)", () => {
-    const layout = buildThreadListV2Items({
+  it("keeps a completed pin at the top and shows it as completed in search", () => {
+    const input = {
       threads: [
         makeThread({ id: ThreadId.make("active"), title: "Active" }),
         makeThread({
@@ -434,11 +434,16 @@ describe("buildThreadListV2Items", () => {
       environmentId: null,
       searchQuery: "",
       now: NOW,
-    });
+    };
+    const layout = buildThreadListV2Items(input);
 
-    expect(layout.items.map((item) => item.thread.id)).toEqual(["active", "pinned-settled"]);
-    expect(layout.items.map((item) => item.pinned)).toEqual([false, false]);
-    expect(layout.settledCount).toBe(1);
+    expect(layout.items.map((item) => item.thread.id)).toEqual(["pinned-settled", "active"]);
+    expect(layout.items[0]).toMatchObject({ variant: "slim", pinned: true });
+    expect(layout.settledCount).toBe(0);
+    expect(buildThreadListV2ListItems({ items: layout.items, pendingTasks: [] })[0])
+      .toMatchObject({ type: "v2-thread", timeLabel: "" });
+    const search = buildThreadListV2Items({ ...input, searchQuery: "Pinned while settled" });
+    expect(search.items[0]).toMatchObject({ variant: "slim", pinned: true });
   });
 
   it("snooze hides a pinned thread and wake restores it to the pinned block", () => {

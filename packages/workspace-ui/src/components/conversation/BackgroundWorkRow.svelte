@@ -58,7 +58,7 @@
   testid="background-work-row"
 >
   {#snippet glyph()}
-    <span class="flex items-center text-chart-5"><DotMatrix mark="running" /></span>
+    <span class="flex items-center text-(--solus-status-working)"><DotMatrix mark="running" /></span>
   {/snippet}
   {#snippet label()}<span class="activity-shimmer">{wait.label}</span>{/snippet}
 </ActivityRow>

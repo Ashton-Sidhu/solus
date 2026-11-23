@@ -1,9 +1,9 @@
 <script lang="ts">
   import {
-    Network as StartedSessionsIcon,
     Undo2 as ArrowUUpLeftIcon,
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
+    ChevronRight as ChevronRightIcon,
     Laptop as LaptopIcon,
     Workflow as AutomationIcon,
     Moon as MoonIcon,
@@ -246,10 +246,11 @@
   const stateLabel = $derived(attentionLabel(task.attention, task.limitResetsAt, live));
 
   // Ticks each second, tabular figures, so the row never reflows around it.
-  // Both shelves report an age or a countdown, so they tick too.
+  // The Completed and Snoozed shelves also use the clock.
   let now = $state(Date.now());
   $effect(() => {
-    if (task.status !== "running" && task.lifecycle === "active") return;
+    const showsShelfClock = task.lifecycle === "snoozed" || (task.lifecycle === "completed" && !isPinned);
+    if (task.status !== "running" && !showsShelfClock) return;
     return liveActivityClock.subscribe((value) => {
       now = value;
     });
@@ -261,6 +262,7 @@
       unread: task.unread,
       woke: task.woke,
       lifecycle: task.lifecycle,
+      isPinned,
       runStartedAt: task.runStartedAt,
       manyRunning: runningSessionCount > 1,
       completedAt: task.completedAt,
@@ -326,18 +328,19 @@
          ink, the rest sit back at half. Terracotta is spent on the selected
          elbow alone, so the clock never competes with the green a pull
          request chip puts on the same row. -->
-    <span class="flex shrink-0 items-center gap-1.5">
-      <span class="flex shrink-0 items-center {mark.mark === 'offline' ? 'text-muted-foreground' : 'text-chart-5'}">
+    <span
+      class="flex shrink-0 items-center gap-2 {mark.mark === 'offline'
+        ? 'text-muted-foreground'
+        : isCurrentSession
+          ? 'text-(--solus-status-working)'
+          : 'text-[color-mix(in_oklch,var(--solus-status-working)_70%,transparent)]'}"
+    >
+      {#if mark.elapsed}
+        <span class="shrink-0 text-sidebar-time font-medium tabular-nums">{mark.elapsed}</span>
+      {/if}
+      <span class="flex shrink-0 items-center">
         <DotMatrix mark={mark.mark} label={stateLabel} />
       </span>
-      {#if mark.elapsed}
-        <span
-          class="shrink-0 text-sidebar-time tabular-nums {isCurrentSession
-            ? 'font-medium text-foreground'
-            : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
-          >{mark.elapsed}</span
-        >
-      {/if}
     </span>
   {:else if mark?.kind === "wake"}
     <!-- The same blue the Snoozed shelf header uses, so a sleeping row and the
@@ -370,9 +373,9 @@
       {#each nestedMarks as nested, index (index)}
         <span class="flex shrink-0 items-center">
           {#if nested.kind === "glyph"}
-            <TaskStatusGlyph status={nested.status} size={13} label="" showsWord={false} />
+            <TaskStatusGlyph status={nested.status} label="" showsWord={false} />
           {:else}
-            <span class="flex shrink-0 items-center text-chart-5">
+            <span class="flex shrink-0 items-center text-(--solus-status-working)">
               <DotMatrix mark={nested.mark} />
             </span>
           {/if}
@@ -496,25 +499,15 @@
   </span>
 {/snippet}
 
-<!-- A row that started sessions and has no pull request names them on a
-     chip, in the bare form the task and pull request chips take: a glyph and
-     a count, no plate. The chip opens and closes the drawer of those
-     sessions; it is in full ink while they are open and recedes while they
-     are folded. A row with a pull request spends one chip on both: the pull
-     request chip leads with the pull request and lists the sessions in its
-     menu (`PrChip`), so a title line never carries two link chips beside the
-     task chip.
+<!-- The count and chevron match the sidebar section headers. For a row
+     with a pull request, the pull request menu lists the sessions it started.
      The sessions appear and go at once: a height that animates lays out the
      whole column every frame, on top of the conversation switch. -->
 {#snippet startedSessionsChip()}
   {#if hasStartedSessions && !prChip}
     <button
       type="button"
-      class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs tabular-nums transition-[color,opacity,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring {isNestedOpen
-        ? 'text-foreground'
-        : 'text-muted-foreground'} {recedes
-        ? 'opacity-75 group-hover/row:opacity-100'
-        : ''}"
+      class="relative flex shrink-0 cursor-pointer items-center gap-1.5 text-chrome-shelf font-normal text-muted-foreground transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       aria-expanded={isNestedOpen}
       aria-label={nestedToggleLabel}
       title={nestedToggleLabel}
@@ -525,11 +518,10 @@
         onToggleNested();
       }}
     >
-      <!-- The chip only counts. What those sessions are doing is the
-           trailing slot's to say, with the marks the rest of the sidebar
-           uses. -->
-      <StartedSessionsIcon size={12.5} class="shrink-0" />
-      <span>{nestedSessions.length}</span>
+      <span class="tabular-nums opacity-60">{nestedSessions.length}</span>
+      <span class="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+        <ChevronRightIcon size={14} class={isNestedOpen ? 'rotate-90' : ''} />
+      </span>
     </button>
   {/if}
 {/snippet}
@@ -821,7 +813,7 @@
          at the last row while the list keeps its padding inside the raised
          card. -->
     <div
-      class="relative mt-0.5 pb-2 pl-[calc(0.25rem+1px)] before:absolute before:top-0 before:bottom-2 before:left-0 before:w-px before:bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] before:content-[''] {inFolder
+      class="relative mt-1.5 space-y-0.5 pb-2 pl-[calc(0.25rem+1px)] before:absolute before:top-0 before:bottom-2 before:left-0 before:w-px before:bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] before:content-[''] {inFolder
         ? 'ml-[1.6875rem]'
         : 'ml-[calc(0.625rem-0.5px)]'}"
     >

@@ -2,23 +2,48 @@ import { describe, expect, test } from 'bun:test'
 import {
   formatCompactElapsed,
   railAgentList,
+  relatedSessionTitle,
   sessionAgentMessages,
 } from '@solus/workspace-ui/components/project-panel/lib/rail-agents'
-import type { AgentConversationRef, AgentExchangeStatus, Message, SessionMeta } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentExchangeStatus, Message, Session, SessionMeta } from '@solus/contracts/types'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
-import { subagentLinkStatus } from '@solus/workspace-ui/components/conversation/lib/agent-link'
-import { subagentRow } from '@solus/workspace-ui/components/conversation/lib/subagent-group'
+import type { SessionExecution, SessionExecutionPhase, SessionTurnOutcome } from '@solus/contracts/session-execution'
+import { agentExecutionLink } from '@solus/workspace-ui/components/conversation/lib/agent-link'
 import {
-  agentConversationCardState,
   agentConversationLink,
 } from '@solus/workspace-ui/components/conversation/agent-conversation/lib/agent-conversation'
 
 const NOW = 100_000
+
+test('a related row uses the open fork title on its host and the saved title when closed', () => {
+  const relation = { kind: 'fork' as const, sessionId: 'fork', title: 'Saved prompt', runnerHostId: 'runner' }
+  const workspace = {
+    tabIdForHostSession: (sessionId: string, host: string | undefined) =>
+      sessionId === 'fork' && host === 'runner' ? 'tab' : undefined,
+    sessionFor: () => ({ title: 'Fork: Session Pinning Behavior' }) as Session,
+  }
+
+  expect(relatedSessionTitle(relation, 'local', workspace)).toBe('Fork: Session Pinning Behavior')
+  expect(relatedSessionTitle({ ...relation, runnerHostId: 'other' }, 'local', workspace)).toBe('Saved prompt')
+})
+
+const phaseOf = (phase: SessionExecutionPhase): SessionExecution => ({
+  revision: 1, current: { runId: 'run', startedAt: NOW - 2000, phase }, lastTurn: null,
+})
+const outcomeOf = (outcome: SessionTurnOutcome): SessionExecution => ({
+  revision: 2, current: null, lastTurn: { runId: 'run', startedAt: NOW - 3000, endedAt: NOW - 1000, outcome },
+})
 const CONTEXT = {
   fallback: { model: 'Sonnet 5', effort: 'medium' },
   metaFor: (): SessionMeta | undefined => undefined,
   hostLabel: null,
   activityOf: (): AgentActivity | null => null,
+  executionOf: (ref: AgentConversationRef): SessionExecution =>
+    ref.sessionId === 'done-session' ? outcomeOf('completed') : phaseOf('running'),
+  subagentExecutionOf: (toolId: string): SessionExecution => {
+    if (toolId === 'live' || toolId === 'reader') return phaseOf('running')
+    return outcomeOf(toolId === 'b' ? 'failed' : 'completed')
+  },
 }
 
 function subagent(overrides: Partial<Message> & Pick<Message, 'id'>): Message {
@@ -77,7 +102,7 @@ describe('rail list', () => {
     expect(list.detail).toBe('2 running')
   })
 
-  test('a session messaged across turns is one row: it stands where its last card says, sorted by its first', () => {
+  test('a session messaged across turns is one row: it shows the saved session status and sorts by its first card', () => {
     const list = railAgentList(
       [
         sessionCard('first', 's1', 'done', NOW - 90_000),
@@ -95,6 +120,7 @@ describe('rail list', () => {
   test('the index title and provider win over what the dispatch guessed', () => {
     const list = railAgentList([sessionCard('c', 's1', 'done', NOW)], NOW, {
       ...CONTEXT,
+      executionOf: () => outcomeOf('completed'),
       metaFor: () => ({ slug: 'audit-the-rpc-chain', provider: 'claude-code' }) as SessionMeta,
     })
 
@@ -119,16 +145,20 @@ describe('rail marks', () => {
     })
     const replying = sessionCard('c1', 'replying', 'running', NOW)
     const waiting = sessionCard('c2', 'waiting', 'waiting_for_children', NOW)
-    const context = { ...CONTEXT, activityOf: (ref: AgentConversationRef) => (ref.sessionId === 'replying' ? 'edit' as const : null) }
+    const context = {
+      ...CONTEXT,
+      executionOf: (ref: AgentConversationRef) => phaseOf(ref.sessionId === 'waiting' ? 'background' : 'running'),
+      activityOf: (ref: AgentConversationRef) => ref.sessionId === 'replying' ? 'edit' as const : null,
+    }
     const list = railAgentList([reader, replying, waiting], NOW, context)
     const byId = new Map(list.active.map((row) => [row.id, row.mark]))
 
-    expect(byId.get('reader')).toEqual(subagentLinkStatus(subagentRow(reader, NOW, CONTEXT.fallback)).mark)
-    expect(byId.get('reader')).toEqual({ kind: 'dot', mark: 'reading' })
+    expect(byId.get('reader')).toEqual(agentExecutionLink(phaseOf('running'), { providerSubagent: true }).mark)
+    expect(byId.get('reader')).toEqual({ kind: 'dot', mark: 'working' })
     const replyingRef = replying.agentConversationRef!
-    expect(byId.get('replying')).toEqual(agentConversationLink(replyingRef, agentConversationCardState(replyingRef), false, 'edit').mark)
+    expect(byId.get('replying')).toEqual(agentConversationLink(replyingRef, context.executionOf(replyingRef), 'edit').mark)
     expect(byId.get('replying')).toEqual({ kind: 'dot', mark: 'editing' })
-    expect(byId.get('waiting')).toEqual({ kind: 'dot', mark: 'delegating' })
+    expect(byId.get('waiting')).toEqual({ kind: 'dot', mark: 'background' })
   })
 
   // WHY: the host's activity is live only while the session replies; a

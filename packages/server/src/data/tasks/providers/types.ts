@@ -1,4 +1,4 @@
-import type { TaskInvolvement } from '@solus/contracts/task-data'
+import type { TaskInvolvement, TaskProviderMetadata } from '@solus/contracts/task-data'
 import type { z } from 'zod'
 import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {
@@ -71,6 +71,7 @@ export interface ProviderTaskDetails {
   comments: ProviderComment[]
   /** The task has more comments than `comments` holds. */
   commentsTruncated: boolean
+  providerMetadata?: TaskProviderMetadata
 }
 
 /** One task of a source, with where the source puts it. */
@@ -155,7 +156,7 @@ export interface TaskSourceAdapter {
 export interface TaskProviderAdapter {
   readonly id: TaskRef['provider']
   /** Read one task by its stable id, with its comments and its epic. */
-  fetch(ref: TaskRef): Promise<ProviderTaskDetails>
+  fetch(ref: TaskRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails>
   /** Change fields. Answers the task as the provider has it after the write. */
   update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask>
   /**

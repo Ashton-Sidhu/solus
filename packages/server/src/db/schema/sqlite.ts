@@ -40,6 +40,7 @@ export const acl_entry = sharingSchema.aclEntry.sqlite
 export const session = sessionsSchema.session.sqlite
 export const session_repositories = sessionsSchema.sessionRepositories.sqlite
 export const session_digests = sessionsSchema.sessionDigests.sqlite
+export const session_executions = sessionsSchema.sessionExecutions.sqlite
 export const session_artifact_copies = sessionsSchema.sessionArtifactCopies.sqlite
 export const resource_links = linksSchema.resourceLinks.sqlite
 export const pull_request_observations = linksSchema.pullRequestObservations.sqlite

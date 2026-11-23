@@ -10,9 +10,9 @@ import { diffFilePath, diffFileStats, toTreeDisplayPath } from '../../../lib/dif
 export type ReviewScopeKind = 'branch' | 'session' | 'working-tree'
 
 export const REVIEW_SCOPE_LABELS = {
-  branch: 'Branch',
+  branch: 'Changes',
   session: 'Session',
-  'working-tree': 'Working tree',
+  'working-tree': 'Uncommitted',
 } satisfies { [kind in ReviewScopeKind]: string }
 
 /**
@@ -21,14 +21,13 @@ export const REVIEW_SCOPE_LABELS = {
  * picker and gives null.
  */
 export function reviewScopeKind(scope: DiffScope | undefined): ReviewScopeKind | null {
-  if (!scope) return 'branch'
+  if (!scope || scope.kind === 'branch') return 'branch'
   if (scope.kind === 'session' || scope.kind === 'turn') return 'session'
   if (scope.kind === 'working-tree') return 'working-tree'
   return null
 }
 
-/** The route scope for a picker choice. The branch review has no `DiffScope`
- *  kind of its own: its base is live Git state that the surface resolves. */
+/** The route uses its default scope for Changes. */
 export function diffScopeForReviewScope(kind: ReviewScopeKind): DiffScope | undefined {
   if (kind === 'branch') return undefined
   return { kind }

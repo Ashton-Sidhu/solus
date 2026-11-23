@@ -6,6 +6,7 @@ import type {
   PrDiffRequest,
   PrDiffSlice,
   PrConversationItem,
+  PrCommit,
   PrFilter,
   PrFilterChoice,
   PrLabel,
@@ -30,6 +31,10 @@ import type {
 } from '@solus/contracts/providers'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import type { PullRequestHead } from '@solus/contracts/repository-key'
+
+export interface PullRequestOverviewPage extends PullRequestOverview {
+  completeCommits?: () => Promise<PrCommit[]>
+}
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
@@ -118,9 +123,12 @@ export interface ReviewProvider {
   ): Promise<PullRequest>
   /** Open PRs that currently request or assign the given viewer's attention. */
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]>
-  /** The pull request with its commits and reviewers, in as few requests as
-   *  the host allows. Every read of one pull request goes through this. */
+  /** The pull request with its complete commit list and reviewers. */
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
+  /** A provider can let header readers finish before the commit list does. */
+  getPullRequestOverviewPage?(
+    repo: RepoRef, number: number
+  ): Promise<PullRequestOverviewPage>
   updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequest>
   getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string>
   /** Take the pull request rather than its number, like `listReviewerCandidates`:

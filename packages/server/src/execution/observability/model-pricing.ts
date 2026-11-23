@@ -16,10 +16,28 @@ interface ModelTokenPricing {
  * OpenAI list prices per million tokens for every Codex model Solus supports.
  * Keep this catalog beside the cost calculation so a model cannot silently
  * fall back to zero. Prices were checked against the official model pages on
- * 2026-09-04. Cache writes use the ordinary input rate unless OpenAI publishes
- * a separate rate; GPT-5.6 writes cost 1.25x input.
+ * 2026-09-04, and the GPT-6.1 and GPT-6.2 rows on 2026-11-23. Cache writes use
+ * the ordinary input rate unless OpenAI publishes a separate rate; GPT-5.6,
+ * GPT-6.1 Terra, and GPT-6.2 Astra writes cost 1.25x input. Over 272K input tokens, input and
+ * cache rates double and output costs 1.5x.
  */
 export const CODEX_TOKEN_PRICING = {
+  'gpt-6.2-astra': {
+    standard: { input: 8, cachedInput: 0.4, cacheWrite: 10, output: 40 },
+    longContext: { thresholdTokens: 272_000, input: 16, cachedInput: 0.8, cacheWrite: 20, output: 60 },
+  },
+  'gpt-6.2-sol': {
+    standard: { input: 2, cachedInput: 0.1, cacheWrite: 2, output: 10 },
+    longContext: { thresholdTokens: 272_000, input: 4, cachedInput: 0.2, cacheWrite: 4, output: 15 },
+  },
+  'gpt-6.1-terra': {
+    standard: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 },
+    longContext: { thresholdTokens: 272_000, input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 7.5 },
+  },
+  'gpt-6.1-sol': {
+    standard: { input: 2, cachedInput: 0.1, cacheWrite: 2, output: 10 },
+    longContext: { thresholdTokens: 272_000, input: 4, cachedInput: 0.2, cacheWrite: 4, output: 15 },
+  },
   'gpt-6-astra': {
     standard: { input: 10, cachedInput: 1, cacheWrite: 10, output: 50 },
   },
@@ -69,8 +87,15 @@ function tokenCount(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 0
 }
 
-/** Returns no value for an unknown model instead of recording a false zero. */
-export function codexTokenCostUsd(model: string, usage: UsageData): number | undefined {
+/**
+ * What a turn's tokens cost. Returns no value for an unknown model instead of
+ * recording a false zero. The long-context rate is per request: a turn sums
+ * many requests, so its token totals pass the threshold when no request did.
+ * `requestInputTokens` is the largest request's input, which the context fill
+ * at the end of the turn stands for; unknown, the turn is billed at the
+ * standard rate.
+ */
+export function codexTokenCostUsd(model: string, usage: UsageData, requestInputTokens?: number): number | undefined {
   const pricing = codexTokenPricingByModel.get(model)
   if (!pricing) return undefined
 
@@ -79,8 +104,7 @@ export function codexTokenCostUsd(model: string, usage: UsageData): number | und
   const cacheWrite = tokenCount(usage.cacheCreationTokens)
   const output = tokenCount(usage.outputTokens)
   if (input + cachedInput + cacheWrite + output === 0) return undefined
-  const totalInput = input + cachedInput + cacheWrite
-  const prices = pricing.longContext && totalInput > pricing.longContext.thresholdTokens
+  const prices = pricing.longContext && requestInputTokens !== undefined && requestInputTokens > pricing.longContext.thresholdTokens
     ? pricing.longContext
     : pricing.standard
 

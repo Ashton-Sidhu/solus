@@ -323,6 +323,7 @@ import {
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 import { waitForThreadShell } from "./threadForkNavigation";
+import { forkSolusResponse, useCanForkSolusResponse } from "../../solus/response-fork";
 import { resolveUserMessageIntentBadge } from "./userMessageIntentBadge";
 import { fileChipClipboardPath, fileChipMenu, resolveFileChipTarget } from "./fileChipMenu";
 import { useFileChipShare } from "./useFileChipShare";
@@ -459,25 +460,31 @@ function AssistantForkButton(props: {
   readonly iconColor: ColorValue;
   readonly buttonSize: number;
   readonly iconSize: number;
-  readonly projectedItem: OrchestrationV2ProjectedTurnItem;
+  readonly projectedItem?: OrchestrationV2ProjectedTurnItem;
+  readonly hostForkPointId?: string;
+  readonly sourceThreadId: ThreadId;
+  readonly threadId: ThreadId;
   readonly sourceTitle: string;
 }) {
-  const support = useV2ItemSupport({
-    environmentId: props.environmentId,
-    sourceThreadId: props.projectedItem.sourceThreadId,
-    sourceItemId: props.projectedItem.sourceItemId,
-  });
+  const { projectedItem, hostForkPointId, environmentId, sourceThreadId } = props;
+  const support = useV2ItemSupport(projectedItem ? {
+    environmentId,
+    sourceThreadId: projectedItem.sourceThreadId,
+    sourceItemId: projectedItem.sourceItemId,
+  } : null);
+  const canForkOnHost = useCanForkSolusResponse(environmentId, props.threadId, !!hostForkPointId);
   const gt = useGT();
+  const m = useMessages();
   const forkFromRun = useAtomCommand(threadEnvironment.forkFromRun, "fork from response");
+  const forkOnHost = useAtomCommand(forkSolusResponse, { reportFailure: false });
   const selectDetail = useSelectWorkspaceDetail();
   const [busy, setBusy] = useState(false);
-  const canFork = canForkProjectedAssistantItem({
-    projectedItem: props.projectedItem,
+  const runId = projectedItem?.item.runId;
+  const canFork = projectedItem && runId && canForkProjectedAssistantItem({
+    projectedItem,
     capabilities: support.providerSession?.capabilities,
   });
-  const runId = props.projectedItem.item.runId;
-
-  if (!canFork || runId === null) return null;
+  if (!canForkOnHost && !canFork) return null;
 
   return (
     <Pressable
@@ -486,31 +493,35 @@ function AssistantForkButton(props: {
       disabled={busy}
       onPress={() => {
         const targetThreadId = ThreadId.make(uuidv4());
+        const fork = hostForkPointId
+          ? () => forkOnHost({ environmentId, threadId: props.threadId, sourceThreadId, targetThreadId, pointId: hostForkPointId })
+          : runId && projectedItem
+            ? () => forkFromRun({
+                environmentId,
+                input: {
+                  sourceThreadId: projectedItem.sourceThreadId,
+                  targetThreadId,
+                  runId,
+                  title: `${props.sourceTitle} fork`,
+                  creationSource: "mobile",
+                },
+              })
+            : null;
+        if (!fork) return;
         setBusy(true);
         void Haptics.selectionAsync();
-        void forkFromRun({
-          environmentId: props.environmentId,
-          input: {
-            sourceThreadId: props.projectedItem.sourceThreadId,
-            targetThreadId,
-            runId,
-            title: `${props.sourceTitle} fork`,
-            creationSource: "mobile",
-          },
-        })
+        void fork()
           .then(async (result) => {
             if (isAtomCommandInterrupted(result)) return;
             if (result._tag !== "Success") {
               Dialog.alert(
                 gt("Could not confirm fork"),
-                gt("Reconnect and check the thread list before trying again."),
+                (hostForkPointId ? errorDisplayMessage(squashAtomCommandFailure(result), m) : null)
+                  ?? gt("Reconnect and check the thread list before trying again."),
               );
               return;
             }
-            const targetThreadReady = await waitForThreadShell(
-              scopeThreadRef(props.environmentId, targetThreadId),
-            );
-            if (!targetThreadReady) {
+            if (!hostForkPointId && !await waitForThreadShell(scopeThreadRef(environmentId, targetThreadId))) {
               Dialog.alert(
                 gt("Fork created"),
                 gt(
@@ -521,7 +532,7 @@ function AssistantForkButton(props: {
             }
             selectDetail({
               name: "Thread",
-              params: { environmentId: props.environmentId, threadId: targetThreadId },
+              params: { environmentId, threadId: targetThreadId },
             });
           })
           .finally(() => setBusy(false));
@@ -2802,13 +2813,16 @@ function renderFeedEntry(
               buttonSize={props.replyActionSize.button}
               iconSize={props.replyActionSize.icon}
             />
-            {message.projectedItem ? (
+            {message.projectedItem || message.hostForkPointId ? (
               <AssistantForkButton
                 environmentId={props.environmentId}
                 iconColor={iconSubtleColor}
                 buttonSize={props.replyActionSize.button}
                 iconSize={props.replyActionSize.icon}
-                projectedItem={message.projectedItem}
+                {...(message.projectedItem && { projectedItem: message.projectedItem })}
+                {...(message.hostForkPointId && { hostForkPointId: message.hostForkPointId })}
+                sourceThreadId={message.sourceThreadId}
+                threadId={props.threadId}
                 sourceTitle={props.threadTitle}
               />
             ) : null}

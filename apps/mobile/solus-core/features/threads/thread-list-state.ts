@@ -4,6 +4,7 @@ import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionChange, type SessionState, type SessionView } from "@solus/contracts/session-state";
+import { sessionExecutionStatus, type SessionExecution } from "@solus/contracts/session-execution";
 import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
@@ -81,12 +82,11 @@ export class ThreadListState {
   private readonly pinRequests = new Map<string, number>();
   private readonly states = new Map<string, SessionState>();
   private readonly views = new Map<string, SessionView>();
+  private readonly executions = new Map<string, SessionExecution>();
   private readonly liveStatus = new Map<string, SessionStatus>();
   private readonly pendingQuestions = new Set<string>();
   private readonly awaitingApprovals = new Set<string>();
   private readonly agentActivity = new Map<string, AgentActivity>();
-  /** The keys a session's live status went to: a list may hold either id. */
-  private readonly sessionKeys = new Map<string, readonly string[]>();
   private readonly statusSince = new Map<string, number>();
   private readonly viewedAt = new Map<string, number | null>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
@@ -201,7 +201,6 @@ export class ThreadListState {
     };
     try {
       const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
-      if (settled) this.removePin(hostId, sessionId);
       // Only an editor's unsettle ends the shared settle; the answer says when it did.
       if (state) this.write(this.states, hostId, connection, sessionId, state);
       else if (!settled) restoreState();
@@ -313,10 +312,10 @@ export class ThreadListState {
     this.dropHostEntries(this.attention, hostId);
     this.attentionReads.delete(hostId);
     this.dropHostEntries(this.liveStatus, hostId);
+    this.dropHostEntries(this.executions, hostId);
     this.dropHostEntries(this.pendingQuestions, hostId);
     this.dropHostEntries(this.awaitingApprovals, hostId);
     this.dropHostEntries(this.agentActivity, hostId);
-    this.dropHostEntries(this.sessionKeys, hostId);
     this.dropHostEntries(this.statusSince, hostId);
     this.dropHostEntries(this.viewedAt, hostId);
     this.publish();
@@ -343,38 +342,33 @@ export class ThreadListState {
     });
     // Only this person's connections hear their own view change.
     connection.events.subscribe("session.viewChanged", ({ sessionId, view }) => {
-      if (view.settledAt !== null || view.archivedAt !== null) this.removePin(hostId, sessionId);
+      if (this.connectionFor(hostId) !== connection) return;
+      if (view.archivedAt !== null) this.removePin(hostId, sessionId);
       this.write(this.views, hostId, connection, sessionId, view);
     });
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
     });
-    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion, awaitingApproval }) => {
-      if (this.connectionFor(hostId) !== connection) return;
-      // A list may hold either id for the same session.
-      const pending = hasPendingQuestion === true;
-      const approval = status === "awaiting_input" && awaitingApproval === true;
-      const keys = [threadKey(hostId, sessionId)];
-      if (agentSessionId && agentSessionId !== sessionId) keys.push(threadKey(hostId, agentSessionId));
-      this.sessionKeys.set(keys[0]!, keys);
+    connection.events.subscribe("session.executionChanged", ({ sessionId, toolId, execution }) => {
+      if (toolId || this.connectionFor(hostId) !== connection) return;
+      const key = threadKey(hostId, sessionId);
+      const held = this.executions.get(key);
+      if (held && held.revision >= execution.revision) return;
+      this.executions.set(key, execution);
+      const status = sessionExecutionStatus(execution);
+      const pending = execution.hasPendingQuestion === true;
+      const approval = status === "awaiting_input" && execution.awaitingApproval === true;
       // The agent activity belongs to a running turn; any other status ends it.
       const keepsActivity = isTurnLive(status);
-      if (keys.every(key =>
-        this.liveStatus.get(key) === status &&
-        this.pendingQuestions.has(key) === pending &&
-        this.awaitingApprovals.has(key) === approval &&
-        (keepsActivity || !this.agentActivity.has(key))
-      )) return;
-      for (const key of keys) {
-        this.setLiveStatus(key, status, pending, at);
-        if (approval) this.awaitingApprovals.add(key);
-        else this.awaitingApprovals.delete(key);
-        if (!keepsActivity) this.agentActivity.delete(key);
-      }
-      this.lastRowChange = { previous: this.snapshot, keys };
+      this.setLiveStatus(key, status, pending, execution.current?.startedAt ?? execution.lastTurn?.endedAt ?? 0);
+      if (approval) this.awaitingApprovals.add(key);
+      else this.awaitingApprovals.delete(key);
+      if (!keepsActivity) this.agentActivity.delete(key);
+      this.lastRowChange = { previous: this.snapshot, keys: [key] };
       this.snapshot = {
         ...this.snapshot,
         liveStatus: new Map(this.liveStatus),
+        executions: new Map(this.executions),
         pendingQuestions: new Set(this.pendingQuestions),
         awaitingApprovals: new Set(this.awaitingApprovals),
         agentActivity: new Map(this.agentActivity),
@@ -389,13 +383,10 @@ export class ThreadListState {
       // An activity sent as the turn ended changes nothing. With no live
       // status yet (after a reconnect), the record's running turn takes it.
       if (activity !== null && live !== undefined && !isTurnLive(live)) return;
-      const keys = this.sessionKeys.get(sessionKey) ?? [sessionKey];
-      if (keys.every(key => this.agentActivity.get(key) === (activity ?? undefined))) return;
-      for (const key of keys) {
-        if (activity === null) this.agentActivity.delete(key);
-        else this.agentActivity.set(key, activity);
-      }
-      this.lastRowChange = { previous: this.snapshot, keys: [...keys] };
+      if (this.agentActivity.get(sessionKey) === (activity ?? undefined)) return;
+      if (activity === null) this.agentActivity.delete(sessionKey);
+      else this.agentActivity.set(sessionKey, activity);
+      this.lastRowChange = { previous: this.snapshot, keys: [sessionKey] };
       this.snapshot = { ...this.snapshot, agentActivity: new Map(this.agentActivity) };
       this.changes.notify();
     });
@@ -409,7 +400,6 @@ export class ThreadListState {
       this.dropHostEntries(this.pendingQuestions, hostId);
       this.dropHostEntries(this.awaitingApprovals, hostId);
       this.dropHostEntries(this.agentActivity, hostId);
-      this.dropHostEntries(this.sessionKeys, hostId);
       this.dropHostEntries(this.statusSince, hostId);
       this.dropHostEntries(this.viewedAt, hostId);
       this.dropHostEntries(this.states, hostId);
@@ -499,6 +489,7 @@ export class ThreadListState {
       states: new Map(this.states),
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
+      executions: new Map(this.executions),
       pendingQuestions: new Set(this.pendingQuestions),
       awaitingApprovals: new Set(this.awaitingApprovals),
       agentActivity: new Map(this.agentActivity),

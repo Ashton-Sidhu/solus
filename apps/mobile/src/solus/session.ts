@@ -35,8 +35,9 @@ export type SessionRow = Pick<
   | "state"
   | "pullRequests"
   | "hasPendingQuestion"
+  | "execution"
   | "status"
-> & { projectRoot?: string | null };
+> & { projectRoot?: string | null; startedBy?: SessionRecord['startedBy'] };
 
 interface SessionActivity {
   pullRequests?: readonly ThreadPullRequestLink[] | undefined;
@@ -77,6 +78,8 @@ export function sessionShell(
 ): OrchestrationV2ThreadShell {
   const settledAt = view?.settledAt ?? state?.settledAt;
   const id = ThreadId.make(record.sessionId);
+  const fork = record.startedBy?.kind === "person" ? record.startedBy.fork : undefined;
+  const sourceThreadId = fork ? ThreadId.make(fork.sourceSessionId) : null;
   const instanceId = ProviderInstanceId.make(
     record.provider === "claude-code" ? "claudeAgent" : record.provider,
   );
@@ -107,8 +110,12 @@ export function sessionShell(
     branch: record.branch,
     worktreePath: record.isWorktree ? record.cwd : null,
     activeProviderThreadId: null,
-    lineage: { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
-    forkedFrom: null,
+    lineage: sourceThreadId
+      ? { rootThreadId: sourceThreadId, parentThreadId: sourceThreadId, relationshipToParent: "fork" }
+      : { rootThreadId: id, parentThreadId: null, relationshipToParent: null },
+    forkedFrom: fork && sourceThreadId
+      ? { type: "run", threadId: sourceThreadId, runId: RunId.make(fork.pointId) }
+      : null,
     createdBy: "user",
     creationSource: "mobile",
     latestRunId: runId,

@@ -91,7 +91,7 @@
   {#snippet glyph()}
     {#if item.state === "running"}
       <!-- The Working dot mark: the row does not know what the work does. -->
-      <span class="flex items-center text-chart-5"><DotMatrix mark="working" /></span>
+      <span class="flex items-center text-(--solus-status-working)"><DotMatrix mark="working" /></span>
     {:else if item.state === "waiting"}
       <WaitingIcon aria-hidden="true" />
     {:else if item.state === "attention"}

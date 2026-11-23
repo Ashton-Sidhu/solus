@@ -61,7 +61,7 @@
   /* Links read by colour alone; a dotted rule shows on hover and focus. A
      reference token keeps its own treatment. */
   .prose a:not(.solus-token, :has(> .solus-token)) {
-    color: LinkText;
+    color: color-mix(in oklab, LinkText 85%, black);
     text-decoration: none;
   }
   .prose a:not(.solus-token, :has(> .solus-token)):is(:hover, :focus-visible) {

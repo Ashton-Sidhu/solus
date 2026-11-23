@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { BrowserPage } from '@solus/contracts/browser-types'
 import type { BrowserPageEntry } from '@solus/workspace-ui/contexts/browser/browser.store.svelte'
 import {
+  failureLabel,
   groupPagesByBranch,
   pageLabel,
   pageStatus,
@@ -201,7 +202,9 @@ describe('what a page pill says about the page', () => {
     return { ...entry({ id: 'p', url: 'http://localhost:5173/' }).page, ...overrides }
   }
 
-  test('marks a page whose load failed', () => {
+  test('keeps the cause of a failure', () => {
+    // WHY: a dead dev server and a crashed page need different fixes, so the
+    // pill must not fold them into one "failed" mark.
     expect(
       pageStatus(page({ loadState: 'failed', problem: { kind: 'load-failed', message: 'x' } })),
     ).toBe('failed')
@@ -209,7 +212,25 @@ describe('what a page pill says about the page', () => {
       pageStatus(
         page({ loadState: 'ready', problem: { kind: 'target-unreachable', message: 'x' } }),
       ),
-    ).toBe('failed')
+    ).toBe('unreachable')
+    expect(pageStatus(page({ problem: { kind: 'surface-crashed', message: 'x' } }))).toBe(
+      'crashed',
+    )
+  })
+
+  test('names the failure, with the host\'s reason when it gave one', () => {
+    expect(failureLabel('unreachable', 'ECONNREFUSED 127.0.0.1:5188')).toBe(
+      'Server not reachable — ECONNREFUSED 127.0.0.1:5188',
+    )
+    expect(failureLabel('crashed', undefined)).toBe('Page crashed')
+  })
+
+  test('shows a failure over a load still in progress', () => {
+    expect(
+      pageStatus(
+        page({ loadState: 'loading', problem: { kind: 'target-unreachable', message: 'x' } }),
+      ),
+    ).toBe('unreachable')
   })
 
   test('marks a page that is still loading', () => {

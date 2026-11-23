@@ -19,7 +19,7 @@
     /** A status with no line glyph (running, idle, done) draws nothing. */
     status: TaskStatus | GlyphStatus;
     label: string;
-    /** 13.5px in the sidebar's margin, 13px on a session row. */
+    /** 16px everywhere a row shows a state: the circle is 13px across, as T3 Code's. */
     size?: number;
     /** Input, Approval, and Limited say their word beside the glyph. A
      *  stack of several marks leaves it out. */
@@ -27,7 +27,7 @@
     /** While limited: when the provider window reopens, in epoch ms. */
     limitResetsAt?: number | null;
   }
-  let { status, label, size = 13.5, showsWord = true, limitResetsAt = null }: Props = $props();
+  let { status, label, size = 16, showsWord = true, limitResetsAt = null }: Props = $props();
 
   // Reserved colour, one meaning each: terracotta wants you, red has stopped,
   // amber is the provider's problem and not yours, and the complete tone is
@@ -95,12 +95,19 @@
         class="flex items-center gap-1"
         in:fade={{ duration: reduceMotion ? 0 : 120 }}
       >
-        <Glyph {size} />
+        <!-- T3 Code's measure: a 13pt SF Symbol at semibold fills its box,
+             but a Lucide glyph keeps a 2-unit margin. At 16px the circle is
+             13px across and the 2.25 stroke is 1.5px, as T3's. -->
+        <Glyph {size} strokeWidth={2.25} />
+        <!-- The ladder, in the container the mark sits in: the glyph holds at
+             every width, the word and the reset time join it from 18rem up.
+             Below that the title needs the room, and the sentence stays in the
+             label. Hidden, never unmounted, so a resize costs no remount. -->
         {#if word}
-          <span class="text-xs leading-none font-semibold whitespace-nowrap" aria-hidden="true">{word}</span>
+          <span class="text-xs leading-none font-semibold whitespace-nowrap @max-[18rem]:hidden" aria-hidden="true">{word}</span>
         {/if}
         {#if resetClock}
-          <span class="text-xs leading-none font-normal whitespace-nowrap tabular-nums text-muted-foreground" aria-hidden="true">{resetClock}</span>
+          <span class="text-xs leading-none font-normal whitespace-nowrap tabular-nums text-muted-foreground @max-[18rem]:hidden" aria-hidden="true">{resetClock}</span>
         {/if}
       </span>
     {/key}

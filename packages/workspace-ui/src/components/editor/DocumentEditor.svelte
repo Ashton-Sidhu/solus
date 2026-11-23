@@ -52,6 +52,7 @@
   import type { WorkEmbedChoice } from "./lib/work-embed";
   import { linkActivation } from "./lib/link-preview";
   import { FileLinkExtension } from "./fileLinkExtension";
+  import { referencesAsDocumentHtml } from "./reference-clipboard";
   import { requestFilePreview } from "../../lib/filePreview";
 
   interface Props {
@@ -279,6 +280,8 @@
               return false;
             },
           },
+          // A chip copied from a message or a composer pastes as the same chip.
+          transformPastedHTML: referencesAsDocumentHtml,
           handlePaste: (view, event) => {
             // 1) Files → store images inline and other attachments as links.
             const files = attachmentFilesFromDataTransfer(event.clipboardData);

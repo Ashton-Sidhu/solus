@@ -15,6 +15,7 @@ import type { Attribution, User } from './user'
 import type { Activity } from './activity'
 import type { ResourceRole, ShareSummary } from './sharing'
 import type { SessionState, SessionView } from './session-state'
+import type { SessionExecution } from './session-execution'
 import type { SessionPullRequestLink } from './session-pull-requests'
 import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
@@ -491,7 +492,7 @@ export type SessionPlace = 'chat' | 'project'
  *  it once, when it makes the session. Ids only: a client reads the current name
  *  of an automation or a webhook from its store. */
 export type SessionStarter =
-  | { kind: 'person'; personKey: string }
+  | { kind: 'person'; personKey: string; fork?: SessionForkPoint }
   | { kind: 'automation'; automationId: string; runId: string }
   | { kind: 'webhook'; webhookId: string; deliveryId: string }
   /** Another agent session. `hostLabel` names its host when that host is not this one. */
@@ -499,6 +500,15 @@ export type SessionStarter =
 
 /** A session start that another host asks for (docs/plans/cross-host-sessions.md). */
 export type SessionStarterFromHost = Extract<SessionStarter, { kind: 'session' }> & { hostLabel: string }
+
+/** A saved fork can show its inherited history before its provider thread exists. */
+export interface SessionForkPoint {
+  sourceSessionId: string
+  sourceThreadId: string
+  pointId: string
+  /** The session that owns the provider history if the source is itself unstarted. */
+  historySessionId?: string
+}
 
 // ─── Model Profiles ───
 
@@ -2048,7 +2058,7 @@ export type NormalizedEvent =
    *  never saved in a transcript and never replayed to a client that joins. */
   | { type: 'tool_progress'; toolUseId: string; progress: number; total?: number; message?: string }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
-  | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
+  | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; forkPointId?: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
    *  fires only after all work owned by the turn has stopped. */
   | { type: 'turn_settled'; turnId: string; outcome: 'completed' | 'failed' | 'interrupted' | 'dead'; settledAt: number }
@@ -2350,6 +2360,7 @@ export interface SessionRunInput {
   agentSessionId: string | null
   forked: boolean
   forkExcludeLatestTurn?: boolean
+  forkPointId?: string
   workingDirectory: string
   projectPath: string
   additionalDirs: string[]
@@ -2452,6 +2463,7 @@ export interface WatchSessionInput {
 
 export interface WatchSessionResult {
   resumed?: boolean
+  execution?: SessionExecution
   /** Set when `attachRuntime` was asked for: null means no live runtime. */
   runtime?: RuntimeSessionInfo | null
   /** Questions that remain open after their Codex turn has ended. */
@@ -2623,6 +2635,7 @@ export interface EnrichedError {
 export interface SessionMeta {
   provider: AgentId
   sessionId: string
+  execution?: SessionExecution
   /** Local session repository facts from one row, with no Git read. */
   head?: string | null
   syncedTurn?: number
@@ -2715,6 +2728,8 @@ export type RecordPublication = 'local' | 'published'
 
 export interface SessionRecord {
   sessionId: string
+  /** The runner's persisted state. Absent until the runner records a turn. */
+  execution?: SessionExecution
   /** The canonical organization (§3, R10): `local` while unassigned, else an organization id that never changes. */
   organizationId: string
   publication: RecordPublication

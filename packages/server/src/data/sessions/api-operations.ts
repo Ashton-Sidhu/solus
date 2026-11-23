@@ -1,3 +1,4 @@
+import { readSessionExecutions } from './session-executions'
 import { readOwnSessionArtifacts } from './session-artifacts'
 import { session as sessionTable } from './schema'
 import { sessionRepositories } from './schema'
@@ -89,9 +90,13 @@ export class SessionApiOperations {
   constructor(private readonly shares: ShareManager) {}
 
   private async records(context: WorkspaceRequestContext, records: SessionRecord[]): Promise<WorkspaceSession[]> {
-    const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
-    const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
-    const access = await this.shares.accessOf(context.principal, 'session', records.map(session => session.sessionId))
+    const sessionIds = records.map(session => session.sessionId)
+    const [executions, projects, links, access] = await Promise.all([
+      readSessionExecutions(apiScope(context), sessionIds),
+      projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : [])),
+      readSessionPullRequests(apiScope(context), sessionIds),
+      this.shares.accessOf(context.principal, 'session', sessionIds),
+    ])
     const isOwnerReading = isHostOwner(context.principal)
     // Questions wait on the host that runs the session; the workspace service keeps none.
     const asking = isApiMode() ? new Set<string>() : sessionsWithPendingAsyncQuestion(records.map(session => session.sessionId))
@@ -108,6 +113,7 @@ export class SessionApiOperations {
         provider: session.provider, title: withinNameLimit(session.title), customTitle: withinNameLimit(session.customTitle),
         projectId: session.projectRemote ? projects.get(session.organizationId)?.get(session.projectRemote) ?? null : null,
         projectPath: session.projectPath, projectRemote: session.projectRemote, runnerHostId: session.runnerHostId,
+        execution: executions.get(session.sessionId)?.execution,
         status: session.status, model: session.model, reasoningEffort: session.reasoningEffort ?? null,
         parentSessionId: session.parentSessionId, rootSessionId: session.rootSessionId,
         publication: session.publication, size: session.size,

@@ -263,7 +263,8 @@
   // listener callback or an initial loader happens to read synchronously.
   onMount(() =>
     untrack(() => {
-      const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
+      const unsubSessions = session.sessions.subscribe();
+      const unsubSessionViews = sessionSidebarStore.subscribeSessionViews();
       const unsubProjectDirectory = listenForProjectDirectory();
       const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
         session.automationsStore.applyChange(serverId, event);
@@ -299,7 +300,8 @@
       // Devices load on first use; their first event loads them (device-feature.ts).
       const unsubDevices = followDeviceRequests(session);
       return () => {
-        unsubSessionStatuses();
+        unsubSessions();
+        unsubSessionViews();
         unsubProjectDirectory();
         unsubAutomations();
         unsubWorkReviews();

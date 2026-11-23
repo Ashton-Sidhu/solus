@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { SessionArtifact } from '@solus/contracts/session-artifacts'
-import type { SessionDigest, SessionTree } from '@solus/contracts/session-digest'
+import { sessionDigestSchema, type SessionDigest, type SessionSubagentExecution, type SessionTree } from '@solus/contracts/session-digest'
 import type { SessionRecord, SessionRecordUpsert } from '@solus/contracts/types'
 import { attributionSchema } from '@solus/contracts/user'
 import { getDatabase } from '../../db/database'
@@ -10,6 +10,8 @@ import { scopeClause } from '../scope'
 import { workTypeSchema } from '../works/work-rows'
 import { session, sessionArtifactCopies, sessionDigests } from './schema'
 import { ancestorsOf, getSessionRecord, organizationOfSession, readSessionMetadataPage, upsertSessionRecord } from './session-records'
+import { sessionExecutionSchema } from '@solus/contracts/session-execution'
+import { readSessionExecutions, writeSessionExecution } from './session-executions'
 import { readArtifactsBySession } from './session-artifacts'
 
 /**
@@ -22,42 +24,6 @@ import { readArtifactsBySession } from './session-artifacts'
 /** A delegation tree is never this large; the bound also ends a cycle in the rows. */
 const MAX_TREE_SESSIONS = 200
 
-const changeCountsSchema = z.object({ filesChanged: z.number(), additions: z.number(), deletions: z.number() })
-
-const digestSchema = z.object({
-  sessionId: z.string(),
-  turns: z.array(z.object({
-    id: z.string(),
-    startedAt: z.number(),
-    endedAt: z.number(),
-    settled: z.boolean(),
-    outcome: z.enum(['completed', 'failed', 'interrupted', 'dead']).optional(),
-    prompt: z.string(),
-    toolCalls: z.array(z.tuple([z.number(), z.number()])),
-    changes: changeCountsSchema.nullable(),
-  })),
-  changes: changeCountsSchema.extend({
-    files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number(), status: z.enum(['A', 'M', 'D', 'R']) })),
-  }).nullable(),
-  subagents: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    status: z.enum(['running', 'completed', 'failed', 'stopped']),
-    startedAt: z.number(),
-    endedAt: z.number().nullable(),
-    detail: z.string(),
-    canStop: z.literal(true).optional(),
-    workflow: z.object({
-      phases: z.array(z.object({ index: z.number(), title: z.string() })),
-      agents: z.array(z.object({
-        index: z.number(), label: z.string(), state: z.enum(['queued', 'running', 'completed', 'failed']),
-        phaseIndex: z.number().optional(), phaseTitle: z.string().optional(), attempt: z.number().optional(),
-      })),
-    }).optional(),
-  })),
-  lastReply: z.string().nullable(),
-  updatedAt: z.number(),
-}) satisfies z.ZodType<SessionDigest>
 
 const artifactSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -125,14 +91,14 @@ export async function readSessionDigests(scope: RecordScope, sessionIds: readonl
     SELECT session_id, digest AS value FROM ${sessionDigests}
     WHERE ${scopeClause(scope, sql`${sessionDigests}.organization_id`)} AND session_id IN (${inList(sessionIds)})
   `))
-  return new Map(rows.map((row) => [row.session_id, digestSchema.parse(JSON.parse(row.value))]))
+  return new Map(rows.map((row) => [row.session_id, sessionDigestSchema.parse(JSON.parse(row.value))]))
 }
 
 /**
  * The session, then every session below it, level by level, oldest started
  * first: each with its record, its digest, and its artifacts. One statement
- * walks the tree and reads the records; one reads the digests; the artifacts
- * are the batched read of `session-artifacts.ts` for the sessions this host
+ * walks the tree and reads the records. The digests and executions each use
+ * a batched read. The artifacts are the batched read of `session-artifacts.ts` for the sessions this host
  * runs, and the stored copies for the sessions another host runs. The count of
  * reads does not grow with the tree. Empty when the session has no record.
  */
@@ -150,17 +116,24 @@ export async function readSessionTree(scope: RecordScope, sessionId: string): Pr
   const ids = records.map((record) => record.sessionId)
   const localIds = records.filter((record) => !record.runnerHostId).map((record) => record.sessionId)
   const remoteIds = records.filter((record) => record.runnerHostId).map((record) => record.sessionId)
-  const [digests, artifacts, copies] = await Promise.all([
+  const [digests, artifacts, copies, executions] = await Promise.all([
     readSessionDigests(scope, ids),
     localIds.length ? readArtifactsBySession(scope, localIds) : new Map<string, SessionArtifact[]>(),
     readArtifactCopies(scope, remoteIds),
+    readSessionExecutions(scope, ids, true),
   ])
   return {
-    nodes: records.map((record) => ({
-      record,
-      digest: digests.get(record.sessionId) ?? null,
-      artifacts: artifacts.get(record.sessionId) ?? copies.get(record.sessionId) ?? [],
-    })),
+    nodes: records.map((record) => {
+      const digest = digests.get(record.sessionId) ?? null
+      const saved = executions.get(record.sessionId)
+      const toolIds = new Set(digest?.subagents.map((agent) => agent.id))
+      return {
+        record: { ...record, execution: saved?.execution },
+        subagentExecutions: saved?.subagents.filter(({ toolId }) => toolIds.has(toolId)),
+        digest,
+        artifacts: artifacts.get(record.sessionId) ?? copies.get(record.sessionId) ?? [],
+      }
+    }),
   }
 }
 
@@ -168,6 +141,7 @@ export async function readSessionTree(scope: RecordScope, sessionId: string): Pr
 export interface RemoteSessionNode {
   record: SessionRecordUpsert
   digest: SessionDigest | null
+  subagentExecutions?: SessionSubagentExecution[]
   artifacts: SessionArtifact[]
 }
 
@@ -183,7 +157,10 @@ export async function storeRemoteSessionTree(parentSessionId: string, nodes: rea
   const birth = { organizationId: parent.organizationId, ownerKey: parent.ownerKey }
   for (const node of nodes) {
     await upsertSessionRecord(parent.organizationId, { ...node.record, rootSessionId: parent.rootSessionId ?? parent.sessionId }, birth)
-    if (node.digest) await writeSessionDigest(digestSchema.parse(node.digest))
+    for (const agent of node.subagentExecutions ?? []) {
+      await writeSessionExecution(parent.organizationId, node.record.sessionId, agent.toolId, sessionExecutionSchema.parse(agent.execution))
+    }
+    if (node.digest) await writeSessionDigest(sessionDigestSchema.parse(node.digest))
     await writeArtifactCopy(node.record.sessionId, parent.organizationId, artifactSchema.array().parse(node.artifacts))
   }
   await emitSessionDigestChanged(parentSessionId)

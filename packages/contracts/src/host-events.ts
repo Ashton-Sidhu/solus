@@ -59,6 +59,7 @@ export interface HostEventMap {
   'session.eventReceived': { sessionId: string; event: WireNormalizedEvent; cursor?: string }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.indexChanged': SessionIndexUpdatedEvent
+  'session.forkCreated': { sessionId: string }
   'session.titleChanged': SessionTitleChangedEvent
   'session.headChanged': SessionHeadChanged
   /** This session was read, or returned to unread, on some client. Every other
@@ -91,6 +92,7 @@ export interface HostEventMap {
    *  waits for the person: the session needs input whatever its status. Absent means none.
    *  `awaitingApproval` is set while the status is `awaiting_input` and the newest
    *  input that waits is a permission request, not a question. Absent means a question. */
+  'session.executionChanged': { sessionId: string; toolId?: string; runnerHostId?: string; execution: import('./session-execution').SessionExecution }
   'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true; awaitingApproval?: true }
   /** What the agent does now inside a running turn, from its top-level events
    *  only. At most one for each session in 250 ms; null when the turn settled.
@@ -276,6 +278,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'git.checkoutChanged': { owner: 'git', category: 'delta', recovery: 'reload', description: 'Checkout identity changed; recover through checkoutSnapshot.' },
   'session.eventReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A normalized provider event arrived for a watched session.' },
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
+  'session.forkCreated': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A response fork is available before its first prompt.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
   'session.headChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud session repository facts changed.' },
@@ -285,6 +288,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
   'session.viewChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: "One person's view of a session changed: archived, returned, snoozed, or woken." },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
+  'session.executionChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A saved session or provider sub-agent execution changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
   'session.activityChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'What the agent does now inside a running turn changed.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },

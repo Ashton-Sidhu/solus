@@ -575,8 +575,8 @@ export class ProviderEvents {
         // Settle the status while the record still exists, so `applyStatus`
         // reads the real previous status and the global feed and the watching
         // clients each learn the transition exactly once. A queued prompt about
-        // to take over is not a settlement, so it suppresses the terminal
-        // status — asked, not dispatched, because the drain must happen after
+        // to take over suppresses the terminal presentation status. The queue
+        // is checked before dispatch, because the drain must happen after
         // the teardown below or it would delete the record its own run creates.
         const status = this.rt.activeSessions.get(sessionId)?.status
         if (agentSessionId) {
@@ -587,6 +587,10 @@ export class ProviderEvents {
         const queueWillTakeOver = (newStatus === 'interrupted' || newStatus === 'completed') && this.rt.scheduler.hasReadyQueuedRequest(sessionId)
         const wasStarting = status === 'connecting' || (newStatus === 'interrupted' && status === 'running')
         if (!queueWillTakeOver && !wasStarting) this.rt.statuses.setStatus(sessionId, newStatus)
+        else if (exited && (newStatus === 'completed' || newStatus === 'interrupted' || newStatus === 'failed' || newStatus === 'dead')) {
+          // The UI can skip a status as the queue takes over, but the run still ends.
+          this.rt.statuses.queueTurnSettlement(sessionId, exited, newStatus)
+        }
         // A wait on reports alone is no interrupted work: after a host restart
         // the reports still come through the exchanges' own recovery.
         if (newStatus === 'background' && !hasBackgroundWork) this.rt.restarts.restartRuns?.remove(sessionId)

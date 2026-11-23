@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { AlarmClock as SnoozedIcon, Bot as BotIcon } from "@lucide/svelte";
-  import ProviderMark from "../../ui/ProviderMark.svelte";
+  import { AlarmClock as SnoozedIcon } from "@lucide/svelte";
+  import AgentAvatar from "../../conversation/AgentAvatar.svelte";
   import AgentStateMark from "../../conversation/AgentStateMark.svelte";
   import { agentMarkShowsElapsed } from "../../conversation/lib/agent-link";
   import { formatCompactElapsed, type RailAgentRow } from "../../project-panel/lib/rail-agents";
@@ -24,8 +24,7 @@
   }
   let { row, onOpen, onContextMenu, wakesAt = null, onWake }: Props = $props();
 
-  const mark = $derived(row.provider === "codex" ? "codex" : row.provider === "claude-code" ? "claude" : null);
-  const elapsed = $derived(agentMarkShowsElapsed(row.mark) ? formatCompactElapsed(row.elapsedMs) : null);
+  const elapsed = $derived(row.elapsedMs > 0 && agentMarkShowsElapsed(row.mark) ? formatCompactElapsed(row.elapsedMs) : null);
   const wakeTime = $derived(wakesAt === null ? null : wakeTimeLabel(wakesAt, Date.now()));
 </script>
 
@@ -38,11 +37,7 @@
   oncontextmenu={onContextMenu}
 >
   <span class="flex h-5 items-center justify-center opacity-70" aria-hidden="true">
-    {#if mark}
-      <ProviderMark {mark} size={mark === "codex" ? 11 : 14} transparent />
-    {:else}
-      <BotIcon size={16} class="text-muted-foreground" />
-    {/if}
+    <AgentAvatar provider={row.provider} variant="row" />
   </span>
   <button
     type="button"
@@ -53,7 +48,7 @@
     onclick={(event) => onOpen(event.metaKey || event.ctrlKey)}
   >
     <span class="block truncate text-workspace-chrome leading-5 text-foreground">{row.title}</span>
-    <span class="block truncate text-xs leading-5 text-muted-foreground">{row.detail || row.status}</span>
+    {#if row.detail}<span class="block truncate text-xs leading-5 text-muted-foreground">{row.detail}</span>{/if}
   </button>
   <span class="flex h-5 shrink-0 items-center gap-2">
     {#if wakeTime}

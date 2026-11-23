@@ -29,6 +29,22 @@ describe('CodexBackend steering', () => {
     await expect(handle.runPromise).rejects.toBe(failure)
   })
 
+  test('a response fork passes the selected turn without stopping or reading the source', async () => {
+    const backend = new CodexBackend()
+    const failure = new Error('test stops before provider startup')
+    const request = mock(async (_method: string, _params?: object) => { throw failure })
+    ;(backend as unknown as { client: { request: typeof request } }).client = { request }
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'codex', prompt: 'fork', cwd: '/tmp', tools: [],
+      permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
+      conversation: { kind: 'fork', sourceThreadId: 'source-thread', pointId: 'selected-turn' },
+    })
+    await expect(handle.runPromise).rejects.toBe(failure)
+    expect(request.mock.calls.map(([method]) => method)).toEqual(['thread/fork'])
+    expect(request.mock.calls[0]?.[1]).toMatchObject({ threadId: 'source-thread', lastTurnId: 'selected-turn' })
+  })
+
   test.each(['start', 'fork'] as const)('an explicit %s rejection is retryable without a duplicate provider thread', async (kind) => {
     const backend = new CodexBackend()
     const request = mock(async () => { throw new CodexRpcError('Request rejected', -32000) })

@@ -69,6 +69,9 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
 
+  // The dialog owns the close, so it can play its exit animation first.
+  let { onClose }: { onClose: () => void } = $props();
+
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   let searchQuery = $state("");
@@ -387,16 +390,12 @@
 
   let searchInputEl = $state<HTMLInputElement | null>(null);
 
-  function close() {
-    session.router.close("settings");
-  }
-
   function goBack() {
     if (session.settingsTab === "api-access" && connectionsNav.isOnPage) {
       connectionsNav.back();
       return;
     }
-    close();
+    onClose();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -409,7 +408,7 @@
         return;
       }
       e.preventDefault();
-      close();
+      onClose();
     }
     if ((e.metaKey || e.ctrlKey) && e.key === "f") {
       e.preventDefault();
@@ -675,7 +674,7 @@
         {/if}
         <button
           type="button"
-          onclick={close}
+          onclick={onClose}
           aria-label="Close settings"
           class={PAGE_SOFT_ICON_BTN}
         >

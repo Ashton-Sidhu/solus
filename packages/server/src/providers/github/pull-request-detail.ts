@@ -80,6 +80,7 @@ const PULL_REQUEST_COMMITS_QUERY = `
   query PullRequestCommits($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
+        headRefOid
         commits(first: ${COMMITS_PER_PAGE}, after: $cursor) { ${COMMIT_FIELDS} }
       }
     }
@@ -151,7 +152,7 @@ interface PullRequestDetailResponse {
 }
 
 interface PullRequestCommitsResponse {
-  repository: { pullRequest: { commits: GqlCommitPage } | null } | null
+  repository: { pullRequest: { headRefOid: string; commits: GqlCommitPage } | null } | null
 }
 
 /** A missing PR in a repository GitHub did resolve is a domain result. */
@@ -271,17 +272,27 @@ export async function readGithubPullRequestCommits(
   repo: RepoRef,
   number: number,
   cursor: string,
+  expectedHead: string,
 ): Promise<PrCommit[]> {
   const commits: PrCommit[] = []
   let after: string | null = cursor
+  const seen = new Set<string>()
   while (after) {
+    if (seen.has(after)) throw new Error('GitHub repeated the pull request commit cursor.')
+    seen.add(after)
     const response: PullRequestCommitsResponse = await client.graphql<PullRequestCommitsResponse>(
       PULL_REQUEST_COMMITS_QUERY,
       { owner: repo.owner, repo: repo.repo, number, cursor: after },
     )
-    const page = response.repository?.pullRequest?.commits
-    if (!page) break
+    const pullRequest = response.repository?.pullRequest
+    if (pullRequest?.headRefOid !== expectedHead) {
+      throw new Error('This pull request changed. Refresh it to load its commits.')
+    }
+    const page = pullRequest.commits
     commits.push(...commitsOf(page))
+    if (page.pageInfo.hasNextPage && !page.pageInfo.endCursor) {
+      throw new Error('GitHub did not return the next pull request commit cursor.')
+    }
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
   }
   return commits

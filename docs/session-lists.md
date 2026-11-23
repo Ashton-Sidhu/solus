@@ -7,13 +7,12 @@ Each session row has a **Pin session** control. Pinned sessions stay at the top
 of the session list without a separate header. The pin mark shows their state;
 **Unpin session** returns them to their normal place. Desktop and web keep
 pins above project folders in project view. Drafts stay first in status view.
-Mobile uses the same host pins. Completing or archiving a session removes its
-pin. The row moves to Completed or leaves the sidebar immediately, as an
-unpinned session does. A refused change restores its previous place and pin.
-Reopening it does not restore the pin. When the session's home is an
-organization's Solus API, the client removes the pin on the host that holds
-it. A pin is the host owner's own: the host keeps it with their completion and
-archive of the session, which end it. Snoozing keeps the pin.
+Mobile uses the same host pins. You can pin a completed session directly.
+Completing a pinned session keeps its place. Snoozing keeps the pin. Unpinning
+a completed session returns it to Completed. Archive removes the session from
+the list and clears its pin. Choose **Return to List** before pinning an archived
+session again. If the session's home is the organization's Solus API, the
+client clears the pin on the host that holds it.
 
 The session sidebar context menu on desktop and web has a **Snooze** submenu.
 Choose a preset to snooze the session immediately, or **Pick date and time…**
@@ -123,9 +122,9 @@ other personal settings. The default is **By status**.
   section, and the Snoozed and Completed shelves.
 - A closed section or shelf still shows the session that is on screen. When
   that session is its only row, the header is a plain label and count, with
-  no toggle, because closing it would hide nothing. When a section opens at
-  the bottom of the list, the list scrolls just enough to show its last row,
-  and never past its header.
+  no toggle, because closing it would hide nothing. In both views, Completed
+  opens below its header and keeps the sidebar's scroll position. For other
+  sections, the list scrolls just enough to show the last row, up to the header.
 - **By project** shows one folder per project for the open sessions,
   working or not, in the project filter's order. In a folder, the session that
   you last sent a prompt to is first. A reply, a wake, or an automation prompt
@@ -139,9 +138,10 @@ other personal settings. The default is **By status**.
   - In both views, the sessions that a session started are listed one step in
     below it, behind a guide line. They are open while you are in that
     session or one of them, and close when you click into another session.
-    Click the session's row to open it and them; click the chip after the
-    title that counts them, or press → and ← on the row, to fold or unfold
-    them while you read. A folded row still shows the session that is on screen.
+    Click the session row to open the session and the sessions it started.
+    Click the chevron and count after the title, or press → and ← on the row,
+    to unfold or fold the list. The chevron points down when the list is open
+    and right when it is closed. A folded row still shows the session on screen.
     While one of them is on screen, the session and its sessions sit on one
     raised card. When the session's own row has no mark of its own, its
     trailing slot shows the marks of the sessions it started, stacked: a

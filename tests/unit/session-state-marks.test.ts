@@ -75,9 +75,9 @@ describe('the dot mark of a live state', () => {
     }
   })
 
-  test('Offline is muted, live work takes the running tone', () => {
+  test('Offline is muted, live work takes the one working colour every row uses', () => {
     expect(getAttentionMark('running', { isHostOffline: true })).toEqual({ kind: 'dot', mark: 'offline', color: 'var(--muted-foreground)' })
-    expect(getAttentionMark('running', { activity: 'edit' })).toEqual({ kind: 'dot', mark: 'editing', color: 'var(--solus-status-running-icon)' })
+    expect(getAttentionMark('running', { activity: 'edit' })).toEqual({ kind: 'dot', mark: 'editing', color: 'var(--solus-status-working)' })
   })
 
   test('a host is unreachable once its link is down, not while it is first checked', () => {

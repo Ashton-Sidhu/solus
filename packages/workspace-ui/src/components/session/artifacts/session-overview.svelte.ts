@@ -3,7 +3,6 @@ import type { ChangedFileStat, TurnSnapshot } from '@solus/contracts/git-types'
 import type { SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { SessionTree, SessionTreeNode } from '@solus/contracts/session-digest'
 import type { Session } from '@solus/contracts/types'
-import type { AgentActivity } from '@solus/contracts/agent-activity'
 import type { TurnSpan } from '@solus/client-core/session-artifact-chips'
 import {
   isInScope,
@@ -18,8 +17,8 @@ import {
   type OwnedArtifact,
   type ScopedArtifacts,
 } from '@solus/client-core/session-overview'
-import { childRows, mergedFileChanges, scopedNodes, treeOwnedArtifacts, treeTimeline, type AgentScope, type TreeSessionRow } from '@solus/client-core/session-tree'
-import type { TimelineTurn } from '@solus/client-core/turn-timeline'
+import { childRows, digestTurnCosts, mergedFileChanges, scopedNodes, treeOwnedArtifacts, treeTimeline, type AgentScope, type TreeSessionRow } from '@solus/client-core/session-tree'
+import type { TimelineTurn, TurnCost } from '@solus/client-core/turn-timeline'
 import { recentArtifacts, type RecentArtifact } from '@solus/client-core/recent-artifacts'
 import { artifactOpensStore } from '../../../contexts/sessions/artifact-opens.store.svelte'
 import { sessionArtifactsStore } from '../../../contexts/sessions/session-artifacts.store.svelte'
@@ -64,8 +63,6 @@ export class SessionOverview {
     private readonly workspace: OverviewWorkspace,
     private readonly sessionId: () => string,
     private readonly serverId: () => string,
-    /** The agent activity of a session's running turn, as its host reports it. */
-    private readonly activityOf: (sessionId: string, serverId: string) => AgentActivity | null,
   ) {}
 
   /** The session, when its conversation is open in this workspace. */
@@ -144,6 +141,12 @@ export class SessionOverview {
   })
   readonly timelineLive: boolean = $derived.by(() => this.timeline.live)
 
+  /** What the timeline's turns cost, from the digests: the filter's session, and under the whole tree every session below it too. */
+  readonly turnCosts: TurnCost[] = $derived.by(() => {
+    const nodes = this.agentScope === 'all' ? (this.tree?.nodes ?? []) : this.focusNode ? [this.focusNode] : []
+    return nodes.flatMap((node) => digestTurnCosts(node.digest))
+  })
+
   readonly scopeIndex: number | null = $derived.by(() => {
     if (this.scopeTurnId === null) return null
     const index = this.timeline.turns.findIndex((turn) => turn.id === this.scopeTurnId)
@@ -165,7 +168,9 @@ export class SessionOverview {
       },
       metaFor: (sessionId) => agentConversationMeta.metaFor(sessionId),
       hostLabel: hostLabelFor(this.serverId()),
-      activityOf: (ref) => this.activityOf(ref.sessionId, ref.serverId ?? this.serverId()),
+      activityOf: (ref) => this.workspace.sessions.activityFor(ref.serverId ?? this.serverId(), ref.sessionId),
+      executionOf: (ref) => this.workspace.sessions.executionFor(ref.serverId ?? this.serverId(), ref.sessionId),
+      subagentExecutionOf: (toolId) => this.workspace.sessions.executionFor(this.serverId(), session.id, toolId),
     })
     return [...list.active, ...list.previous]
   })

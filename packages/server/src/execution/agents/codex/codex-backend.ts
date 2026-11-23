@@ -693,13 +693,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           }
 
       // A turn that ignored Stop would take this run's input as its own.
-      if (threadId) await this.forceStopUnansweredTurn(threadId)
+      if (threadId && !(conversation.kind === 'fork' && conversation.pointId)) await this.forceStopUnansweredTurn(threadId)
 
       let response: CodexThreadStartResponse
       if (conversation.kind === 'fork' && threadId) {
         const sourceThreadId = threadId
-        let lastTurnId: string | undefined
-        if (conversation.excludeLatestTurn) {
+        let lastTurnId = conversation.pointId
+        if (!lastTurnId && conversation.excludeLatestTurn) {
           const turns = await this.readThreadTurns(handle.client, threadId)
           const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
           lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
@@ -1768,7 +1768,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (changedFiles) {
       this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })
     }
-    for (const event of normalized) this.emit('normalized', sessionId, event)
+    for (const event of normalized) {
+      if (event.type === 'task_complete' && exitCode === 0 && typeof turnId === 'string') event.forkPointId = turnId
+      this.emit('normalized', sessionId, event)
+    }
     if (sessionId) this.nativeChildren.release(sessionId)
     this.forgetRoutingForSession(sessionId)
     this.finishRun(handle)

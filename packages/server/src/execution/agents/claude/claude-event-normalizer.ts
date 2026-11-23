@@ -143,6 +143,7 @@ function normalize(
 
 export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   private interrupted = false
+  private forkPointId: string | undefined
   private readonly turnSummary: TurnSummary = {
     toolCallCount: 0,
     sawRateLimit: false,
@@ -190,6 +191,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // after a seam as a new turn with its usage at zero, so the final result
   // reports only the last segment, and this is added to it.
   private earlierSegmentsUsage: UsageData = {}
+  // What the query had spent by its last report. Claude reports its spend as a
+  // running total for the whole query, and one query serves every turn of a
+  // conversation it stays open for; a turn's own cost is what the total grew by.
+  private reportedCostUsd = 0
 
   constructor(now?: () => number) {
     this.partialInputs = new ClaudePartialToolInputs(now)
@@ -258,6 +263,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     } else if (raw.type === 'assistant') {
       const frame = raw as AssistantEvent
+      if (!frame.parent_tool_use_id && frame.message?.model !== '<synthetic>'
+        && normalized.some((event) => event.type === 'assistant_message')) {
+        this.forkPointId = frame.uuid
+      }
       if (frame.message?.id && !frame.parent_tool_use_id) {
         const blocks = frame.message.content?.filter(block => block.type === 'thinking') ?? []
         const base = this.snapshotBases.get(frame.uuid) ?? this.snapshotOffsets.get(frame.message.id) ?? 0
@@ -277,12 +286,16 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     // SAFETY: ClaudeEvent.type is the provider discriminant for result events.
     const failedTurnUsage = raw.type === 'result' ? this.failedTurnUsage(raw as ResultEvent) : null
     if (failedTurnUsage) normalized.push(failedTurnUsage)
+    const forkPointId = this.forkPointId
+    if (raw.type === 'result') this.forkPointId = undefined
     if (this.isCompacting && isBareIdleStatus(raw)) {
       // A failed stop removes the running divider and draws none.
       normalized.push({ type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true })
     }
     for (const event of normalized) {
       if (event.type === 'task_complete') {
+        if (forkPointId) event.forkPointId = forkPointId
+        event.costUsd = this.takeTurnCostUsd(event.costUsd) ?? 0
         for (const advisor of this.advisorUsage.values()) event.usage = addUsage(event.usage, advisor)
         this.advisorUsage.clear()
         event.usage = addUsage(event.usage, this.earlierSegmentsUsage)
@@ -317,17 +330,13 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   }
 
   /** The partial usage of a result that ends the turn without success. A seam
-   *  is inside the turn: its segment's spend waits for the turn's end. A
-   *  continuation after a background task was never counted as a turn. */
+   *  is inside the turn: its segment's spend waits for the turn's end. */
   private failedTurnUsage(result: ResultEvent): NormalizedEvent | null {
     if (isAbortSeamResult(result)) {
       this.earlierSegmentsUsage = addUsage(this.earlierSegmentsUsage, this.takeSegmentUsage(result))
       return null
     }
-    if (!result.is_error && result.subtype === 'success') {
-      if (isTaskNotificationResult(result)) this.messageUsage.clear()
-      return null
-    }
+    if (!result.is_error && result.subtype === 'success') return null
     return this.takeUnreportedUsage(result)
   }
 
@@ -344,9 +353,19 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     if (usageTokens(usage) === 0) return null
 
     const partialTurn: PartialTurnUsage = { usage }
-    if (result?.total_cost_usd) partialTurn.costUsd = result.total_cost_usd
+    const costUsd = this.takeTurnCostUsd(result?.total_cost_usd)
+    if (costUsd !== undefined) partialTurn.costUsd = costUsd
     if (result?.duration_ms) partialTurn.durationMs = result.duration_ms
     return { type: 'usage', partialTurn }
+  }
+
+  /** What the query spent since its last report, from a result's running
+   *  total. Undefined when the result reports no spend. */
+  private takeTurnCostUsd(totalCostUsd: number | undefined): number | undefined {
+    if (!totalCostUsd) return undefined
+    const costUsd = Math.max(0, totalCostUsd - this.reportedCostUsd)
+    this.reportedCostUsd = Math.max(this.reportedCostUsd, totalCostUsd)
+    return costUsd
   }
 
   /** The spend of the current segment: the result's own usage when it reports
@@ -734,14 +753,6 @@ export function isAbortSeamResult(event: ResultEvent): boolean {
     || event.terminal_reason === 'aborted_tools'
 }
 
-/** Claude can automatically resume the parent when a background task reports
- *  back. The resulting `result` closes only that internal continuation; treating
- *  it as the user's task_complete resets the UI and can complete the session
- *  while sibling tasks are still running. */
-export function isTaskNotificationResult(event: ResultEvent): boolean {
-  return event.origin?.kind === 'task-notification'
-}
-
 /**
  * An error result carries no `result` text — the detail lives in `errors`, with
  * `subtype`/`terminal_reason` as the only clue when that array is empty. Reading
@@ -758,7 +769,6 @@ function resultErrorMessage(event: ResultEvent): string {
 
 function normalizeResult(event: ResultEvent): NormalizedEvent[] {
   if (isAbortSeamResult(event)) return []
-  if (isTaskNotificationResult(event) && !event.is_error && event.subtype === 'success') return []
 
   if (event.is_error || event.subtype !== 'success') {
     const message = resultErrorMessage(event)

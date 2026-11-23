@@ -105,10 +105,15 @@ export async function taskDetails(scope: RecordScope, taskId: string): Promise<T
  * answer is that copy with `fromCache`. `personKey` is the person who reads:
  * they are told when the read shows that the task became theirs.
  */
-export async function getTask(scope: RecordScope, taskId: string, personKey?: string, resolved?: ProviderTaskDetails): Promise<TaskDetails> {
+export async function getTask(
+  scope: RecordScope, taskId: string, personKey?: string,
+  options?: { resolved?: ProviderTaskDetails; providerMetadata?: boolean }
+): Promise<TaskDetails> {
   const before = await loadTask(taskId)
   try {
-    const task = resolved ? await storeTaskDetails(resolved) : await fetchTask(taskId)
+    const ref = refOf(taskId)
+    const answer = options?.resolved ?? await taskAdapters().provider(ref.provider).fetch(ref, options)
+    const task = await storeTaskDetails(answer)
     if (!before || before.updatedAt !== task.updatedAt || before.category !== task.category) emitChanged(taskId)
     if (personKey && before && task.assignee && task.assignee !== before.assignee) {
       const assignment = { taskId, title: task.title, provider: task.providerId, assignee: task.assignee, updatedAt: task.updatedAt }
@@ -116,7 +121,8 @@ export async function getTask(scope: RecordScope, taskId: string, personKey?: st
         log.warn('task_assignment_notify_failed', { taskId, error: error instanceof Error ? error.message : String(error) })
       })
     }
-    return await taskDetails(scope, taskId)
+    const details = await taskDetails(scope, taskId)
+    return answer.providerMetadata ? { ...details, providerMetadata: answer.providerMetadata } : details
   } catch (error) {
     if (!before) throw taskWriteError(error)
     log.warn('task_read_from_cache', { taskId, error: error instanceof Error ? error.message : String(error) })

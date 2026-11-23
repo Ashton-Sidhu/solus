@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
+import { Octokit } from '@octokit/rest'
 import { taskKey } from '@solus/contracts/task-sources'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
@@ -8,7 +9,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { GitHubTaskProvider, githubIssueDetails, readIssueNode } = await import('@solus/server/data/tasks/providers/github')
-const { githubIssueEvent } = await import('@solus/server/data/tasks/task-inspection')
+const { readGithubIssueTimeline } = await import('@solus/server/providers/github/issue-timeline')
 const { GitHubRepoSource } = await import('@solus/server/data/tasks/sources/github-repo')
 const { GitHubProjectSource } = await import('@solus/server/data/tasks/sources/github-project')
 const { TaskProviderError, MAX_SOURCE_TASKS } = await import('@solus/server/data/tasks/providers/types')
@@ -191,48 +192,93 @@ describe('the identity of a GitHub task', () => {
 })
 
 describe('reading one issue', () => {
-  test('a commit reference preserves its actor, abbreviated SHA, message, and URL', () => {
-    expect(githubIssueEvent({
-      __typename: 'ReferencedEvent',
-      id: 'reference-1',
-      createdAt: '2025-09-22T12:00:00Z',
-      actor: { login: 'stainless-app' },
-      commit: {
-        abbreviatedOid: '8a81adf',
-        commitUrl: 'https://github.com/acme/app/commit/8a81adf',
-        messageHeadline: 'release: 0.1.0-alpha.1 (#5)',
-      },
-    })).toMatchObject({
-      at: Date.parse('2025-09-22T12:00:00Z'),
-      actor: 'stainless-app',
-      text: 'added a commit that references this issue',
-      link: {
-        label: 'release: 0.1.0-alpha.1 (#5) (8a81adf)',
-        url: 'https://github.com/acme/app/commit/8a81adf',
+  test('reads every GitHub timeline page and keeps comments and unfamiliar event types', async () => {
+    const pages: number[] = []
+    const sha = '8a81adf' + 'a'.repeat(33)
+    const rest = new Octokit({
+      request: {
+        fetch: async (input) => {
+          const url = new URL(String(input))
+          expect(url.pathname).toBe('/repos/acme/app/issues/7/timeline')
+          const page = Number(url.searchParams.get('page'))
+          pages.push(page)
+          return Response.json(page === 1 ? [{
+            id: 1, event: 'commented', node_id: 'comment-1',
+            created_at: '2024-05-30T12:00:00Z', body: 'Older comment', user: { login: 'ada' },
+          }] : [{
+            id: 2, event: 'referenced', actor: { login: 'stainless-app' },
+            created_at: '2025-09-22T12:00:00Z',
+            commit_id: sha, commit_url: `https://api.github.com/repos/acme/app/commits/${sha}`,
+          }, {
+            id: 3, event: 'added_to_project_v2', created_at: '2025-09-23T12:00:00Z'
+          }], {
+            headers: page === 1
+              ? { link: `<${url.origin}${url.pathname}?page=2>; rel="next", <${url.origin}${url.pathname}?page=2>; rel="last"` }
+              : {},
+          })
+        },
       },
     })
+    const issue = { owner: 'acme', repo: 'app', number: 7 }
+    const latest = await readGithubIssueTimeline(rest, 'github:issue', issue)
+    expect(latest.events).toMatchObject([
+      { actor: 'stainless-app', link: { label: '8a81adf', url: `https://github.com/acme/app/commit/${sha}` } },
+      { text: 'recorded “added to project v2”' },
+    ])
+    expect(latest.historyCursor).toBe('older:1')
+    const earlier = await readGithubIssueTimeline(rest, 'github:issue', issue, latest.historyCursor ?? undefined)
+    expect(earlier.comments).toMatchObject([{ providerCommentId: 'comment-1', body: 'Older comment' }])
+    expect(earlier.historyCursor).toBeNull()
+    expect(pages).toEqual([1, 2, 1])
   })
 
-  test('gets the issue and its comments by URL coordinates in one provider request', async () => {
+  test('gets the issue, latest comments, and reactions in one provider request', async () => {
     const { run, graphqlCalls, restCalls } = fakeGithub(() => ({
       repository: { issue: issueNode({
+        author: { login: 'ada' },
+        reactionGroups: [],
+        closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
         comments: {
           totalCount: 1,
-          nodes: [{ id: 'IC_1', author: null, body: 'First comment', createdAt: '2026-08-01T09:00:00Z' }],
+          nodes: [{
+            id: 'IC_1', author: null, body: 'Latest comment', createdAt: '2026-08-01T09:00:00Z',
+            reactionGroups: [{ content: 'THUMBS_UP', users: { totalCount: 2 }, viewerHasReacted: false }],
+          }],
         },
       }) },
     }))
 
     const result = await run('resolve_github_issue', async ({ graphql }) =>
-      githubIssueDetails(await readIssueNode(graphql, { owner: 'acme', repo: 'app', number: 7 }, true)))
+      githubIssueDetails(await readIssueNode(graphql, { owner: 'acme', repo: 'app', number: 7 }, true), graphql))
 
     expect(result.task.title).toBe('Ship the thing')
-    expect(result.comments[0]?.body).toBe('First comment')
+    expect(result.comments[0]?.body).toBe('Latest comment')
+    expect(result.providerMetadata?.reactions).toEqual([
+      { targetId: 'IC_1', content: 'THUMBS_UP', count: 2, viewerHasReacted: false },
+    ])
     expect(graphqlCalls).toHaveLength(1)
     expect(graphqlCalls[0]?.variables).toEqual({ owner: 'acme', repo: 'app', number: 7 })
-    expect(graphqlCalls[0]?.query).toContain('comments(first: 100)')
+    expect(graphqlCalls[0]?.query).toContain('comments(last: 100)')
     expect(graphqlCalls[0]?.query).not.toContain('timelineItems')
     expect(restCalls).toHaveLength(0)
+  })
+
+  test('reads only the closing pull request connection when it has another page', async () => {
+    const pr = (number: number) => ({
+      number, title: `Fix ${number}`, url: `https://github.com/acme/app/pull/${number}`, state: 'OPEN',
+    })
+    const { run, graphqlCalls } = fakeGithub(({ query }) => query.includes('query IssueClosingPullRequests')
+      ? { node: { closedByPullRequestsReferences: { nodes: [pr(9)], pageInfo: { hasNextPage: false, endCursor: null } } } }
+      : { node: issueNode({
+          author: null, reactionGroups: [], comments: { totalCount: 0, nodes: [] },
+          closedByPullRequestsReferences: { nodes: [pr(8)], pageInfo: { hasNextPage: true, endCursor: 'more' } },
+        }) })
+    const result = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'I_node7' }, { providerMetadata: true })
+    expect(graphqlCalls).toHaveLength(2)
+    expect(graphqlCalls[0]?.query).toContain('closedByPullRequestsReferences(first: 20')
+    expect(graphqlCalls[1]?.variables).toEqual({ id: 'I_node7', cursor: 'more' })
+    expect(graphqlCalls[1]?.query).not.toContain('comments')
+    expect(result.providerMetadata?.pullRequests.map((pullRequest) => pullRequest.number)).toEqual([8, 9])
   })
 
   test('gives the comments, says when there are more, and gives the epic with its description', async () => {

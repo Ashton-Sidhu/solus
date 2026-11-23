@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
-import { serializeReferenceToken, type ReferenceToken } from '../reference-tokens'
+import { referenceCopyText, serializeReferenceToken, type ReferenceToken } from '../reference-tokens'
+import { REFERENCE_ATTRIBUTE } from '../reference-clipboard'
 import { tokenClassName, type IconArray, type TokenVariant } from '../tokenStyle'
 
 /**
@@ -88,10 +89,11 @@ export function createReferenceNode<Attrs extends object>(spec: ReferenceNodeSpe
     },
 
     // An atom contributes nothing to a plain-text copy unless it says
-    // otherwise. Emit the same canonical token the markdown serializer does.
+    // otherwise. A copy reads as the chip's name; the reference itself rides in
+    // the copied HTML (`data-solus-reference`), which a composer pastes back.
     renderText({ node }) {
       // SAFETY: same schema invariant as renderMarkdown above.
-      return serializeReferenceToken(spec.toToken(node.attrs as Partial<Attrs>))
+      return referenceCopyText(spec.toToken(node.attrs as Partial<Attrs>))
     },
 
     addAttributes() {
@@ -118,6 +120,7 @@ export function createReferenceNode<Attrs extends object>(spec: ReferenceNodeSpe
         'span',
         mergeAttributes(HTMLAttributes, {
           [spec.dataAttr]: spec.idOf(attrs),
+          [REFERENCE_ATTRIBUTE]: serializeReferenceToken(spec.toToken(attrs)),
           contenteditable: 'false',
           class: tokenClassName(spec.variant(attrs)),
         }),

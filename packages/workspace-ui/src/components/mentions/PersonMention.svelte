@@ -10,16 +10,13 @@
 
   const mentions = getMentionContext();
   const user = $derived(mentionUser(mention, personStanding(mention.userId, mentions.directory())));
-  // The chip shows a name. A copy keeps the whole mention, so a paste still
-  // names the person: the link's target goes after the name as copy-only text.
-  const copyTarget = $derived.by(() => {
-    const markdown = personMentionMarkdown(mention);
-    return markdown.slice(markdown.lastIndexOf("]("));
-  });
+  // A copy reads as `@name`. The mention itself rides in the copied HTML, so a
+  // paste into a composer is the same mention (`reference-clipboard.ts`).
+  const reference = $derived(personMentionMarkdown(mention));
 </script>
 
 {#if user}
-  <span data-person-ref={mention.userId}><span class="solus-token__copy-only">[@</span><UserChip {user} /><span class="solus-token__copy-only">{copyTarget}</span></span>
+  <span data-person-ref={mention.userId} data-solus-reference={reference}><span class="solus-token__copy-only">@</span><UserChip {user} /></span>
 {:else}
-  <span class="text-(--solus-text-tertiary)" data-person-ref={mention.userId}><span class="solus-token__copy-only">[</span>@{mention.name}<span class="solus-token__copy-only">{copyTarget}</span></span>
+  <span class="text-(--solus-text-tertiary)" data-person-ref={mention.userId} data-solus-reference={reference}>@{mention.name}</span>
 {/if}

@@ -262,6 +262,9 @@
   @container pane (width < 30rem) {
     .turn-items { --turn-item-gap: 0.75rem; }
   }
+  /* An activity row's chassis already pads 7px above and below its label, so
+     text beside a tool group takes a smaller item gap: the padding makes up
+     the rest. */
   .turn-item[data-body-kind="tool-group"]:has(+ .turn-item[data-body-kind="assistant"]:not([hidden])),
   .turn-item[data-body-kind="assistant"]:has(+ .turn-item[data-body-kind="tool-group"]:not([hidden])) {
     --turn-item-gap: 0.25rem;

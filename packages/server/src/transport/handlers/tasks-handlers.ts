@@ -138,8 +138,8 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
     const [id, options] = args
     const read = taskReadOptionsSchema.parse(options ?? { section: 'details' })
     const taskId = z.string().min(1).max(512).parse(id)
-    if (read.section === 'provider') return inspectTask(taskId, read.cursor)
-    return getTask(recordScopeOf(ctx.principal), taskId, readerOf(ctx).personKey)
+    if (read.section === 'provider') return inspectTask(taskId, read.cursor, read.timelineOnly)
+    return getTask(recordScopeOf(ctx.principal), taskId, readerOf(ctx).personKey, { providerMetadata: true })
   })
 
   server.register('tasksCreate', (args, ctx) => {

@@ -39,9 +39,10 @@ When a turn ends and only unmarked work runs, the session settles as
 `completed` and notifies. For Claude, the SDK query stays open for that work: a new prompt
 goes into it, and Stop on the session cancels it and the work. The clients
 still show the background row, with its Stop, after the completed turn (see
-Clients). If that work ends later and the SDK wakes the agent, the reply comes
-into the same session; the session is already `completed`, so it does not
-notify again.
+Clients). If that work ends later and the SDK wakes the agent, the reply is a
+new turn in the same session, with its own turn id. It ends like any turn: on
+its own result (`completed`, and it notifies), or on Stop (`interrupted`). A
+prompt steered into the open query is answered in such a turn too.
 
 The status does not say that unmarked work runs, so the host sends a fact of
 its own: `background_work { running }`, when the session's set of running tasks

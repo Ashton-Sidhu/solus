@@ -69,7 +69,7 @@ describe('pinned sessions', () => {
     expect(await pinnedIds(ALICE)).toEqual(['newer', 'older'])
   })
 
-  test("a person's settle or archive ends their pin; a snooze or another person's settle keeps it", async () => {
+  test('completion and snooze keep pins, and archive clears them until the session is pinned again', async () => {
     for (const sessionId of ['settled', 'archived', 'snoozed', 'settled-by-bob']) {
       await recorded(sessionId)
       await pins.togglePinnedSession(ALICE, { sessionId, pinnedAt: 1 })
@@ -78,11 +78,17 @@ describe('pinned sessions', () => {
     await new states.SessionViewer('archived', ALICE).archive()
     await new states.SessionViewer('snoozed', ALICE).snooze(Date.now() + 60_000)
     await new states.SessionViewer('settled-by-bob', BOB).settle()
-    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled-by-bob', 'snoozed'])
+    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled', 'settled-by-bob', 'snoozed'])
+    await expect(pins.togglePinnedSession(ALICE, { sessionId: 'archived', pinnedAt: 2 })).rejects.toThrow('Return the session to the list')
 
-    // A return to the list does not restore the pin.
+    // An archived session must be returned before it can be pinned again.
     await new states.SessionViewer('archived', ALICE).returnToList()
-    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled-by-bob', 'snoozed'])
+    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled', 'settled-by-bob', 'snoozed'])
+    await pins.togglePinnedSession(ALICE, { sessionId: 'settled', pinnedAt: 2 })
+    expect(await pinnedIds(ALICE)).not.toContain('settled')
+    const [repinned] = await pins.togglePinnedSession(ALICE, { sessionId: 'settled', pinnedAt: 3 })
+    expect(repinned?.sessionId).toBe('settled')
+    expect((await new states.SessionViewer('settled', ALICE).view()).settledAt).not.toBeNull()
   })
 
   test('a session with no started record is not listed', async () => {

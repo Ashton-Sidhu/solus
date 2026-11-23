@@ -1,15 +1,16 @@
+import type { SessionExecution, SessionExecutionPhase, SessionTurnOutcome } from '@solus/contracts/session-execution'
 import { describe, expect, test } from 'bun:test'
 import type { AgentConversationRef, AgentExchange, ExchangeProgress, Message, Session, SessionMeta } from '@solus/contracts/types'
 import { formatParentPrompt, formatSessionNotice, type ExchangeRequest } from '@solus/contracts/session-exchange'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
-import { agentMarkShowsElapsed } from '@solus/workspace-ui/components/conversation/lib/agent-link'
+import { agentGroupElapsedMs, agentMarkShowsElapsed } from '@solus/workspace-ui/components/conversation/lib/agent-link'
 import {
   agentConversationCardState,
-  agentConversationGroupElapsedMs,
   agentConversationGroupSummary,
   agentConversationLink,
   agentConversationTitle,
   agentMessages,
+  canStopAgentConversation,
   needsPersonDecision,
   pendingRequest,
   rateLimitedUntil,
@@ -295,66 +296,70 @@ describe('a plan the other agent brought back', () => {
   })
 })
 
-describe("a card's status line", () => {
-  // WHY: the standing, the word, and the detail are the only things that say
-  // where the other session stands; a session that never started must not read
-  // as one that broke, and a reply shows its first words.
-  test('names the live state, tells a launch failure from a stop, and shows the reply', () => {
-    const live = cardRef({ status: 'running' })
-    expect(agentConversationLink(live, 'replying', false, null)).toMatchObject({ standing: 'live', label: 'Running', detail: '' })
-    expect(agentConversationLink(live, 'dispatching', true, null)).toMatchObject({ standing: 'live', label: 'Starting' })
-    expect(agentConversationLink(live, 'failed', true, null)).toMatchObject({ standing: 'failed', detail: 'Never started' })
-    expect(agentConversationLink(live, 'failed', false, null)).toMatchObject({ detail: 'Stopped replying' })
+const phaseOf = (phase: SessionExecutionPhase, facts: Pick<SessionExecution, 'awaitingApproval' | 'hasPendingQuestion'> = {}): SessionExecution => ({
+  revision: 1, current: { runId: 'run', startedAt: 1, phase }, lastTurn: null, ...facts,
+})
+const outcomeOf = (outcome: SessionTurnOutcome): SessionExecution => ({
+  revision: 2, current: null, lastTurn: { runId: 'run', startedAt: 1, endedAt: 3, outcome },
+})
 
-    const replied = cardRef({ status: 'answered', reply: '- Moved the `diff` panel' })
-    expect(agentConversationLink(replied, 'replied', false, null)).toMatchObject({
-      standing: 'done',
-      label: 'Completed',
-      detail: 'Moved the diff panel',
+test('Stop follows the saved run as it waits, resumes, and ends', () => {
+  expect(canStopAgentConversation(undefined)).toBe(false)
+  expect(canStopAgentConversation(phaseOf('awaiting_input', { awaitingApproval: true }))).toBe(false)
+  expect(canStopAgentConversation(phaseOf('awaiting_plan'))).toBe(false)
+  expect(canStopAgentConversation(phaseOf('running', { hasPendingQuestion: true }))).toBe(false)
+  expect(canStopAgentConversation(phaseOf('running'))).toBe(true)
+  expect(canStopAgentConversation(phaseOf('background'))).toBe(true)
+  expect(canStopAgentConversation(phaseOf('rate_limited'))).toBe(true)
+  expect(canStopAgentConversation(outcomeOf('completed'))).toBe(false)
+})
+
+describe("a card's status line", () => {
+  test('the exchange supplies reply text while the saved execution controls the status', () => {
+    const ref = cardRef({ status: 'done', reply: '- Moved the `diff` panel' })
+    expect(agentConversationLink(ref, undefined, null)).toMatchObject({ label: 'Unknown', mark: null })
+    expect(agentConversationLink(ref, phaseOf('running'), 'edit')).toMatchObject({
+      standing: 'live', label: 'Running', mark: { kind: 'dot', mark: 'editing' },
     })
+    expect(agentConversationLink(ref, outcomeOf('completed'), null)).toMatchObject({
+      standing: 'done', label: 'Completed', detail: 'Moved the diff panel',
+    })
+    expect(agentConversationLink(ref, outcomeOf('interrupted'), null)).toMatchObject({ standing: 'stopped', label: 'Interrupted' })
+  })
+
+  test('a launch without a saved session shows its provisional state', () => {
+    const ref = { ...cardRef({ status: 'dispatched' }), starting: true }
+    expect(agentConversationLink(ref, undefined, null)).toMatchObject({ standing: 'live', label: 'Starting' })
+    expect(agentConversationLink({ ...cardRef({ status: 'failed' }), starting: true }, undefined, null))
+      .toMatchObject({ standing: 'failed', detail: 'Never started' })
   })
 })
 
 describe("a card's state mark", () => {
-  const markOf = (exchange: Partial<AgentExchange>, activity: AgentActivity | null = null) => {
-    const ref = cardRef(exchange)
-    return agentConversationLink(ref, agentConversationCardState(ref), false, activity).mark
-  }
+  const markOf = (execution: SessionExecution, activity: AgentActivity | null = null) =>
+    agentConversationLink(cardRef({ status: 'running' }), execution, activity).mark
 
-  // WHY: a started session's row speaks the sidebar's state marks, so a person
-  // reads the same state in the same mark wherever the session shows: dots
-  // while it works, a still glyph when a person must act or it is done.
-  test('every card state has the mark of the same state in the sidebar', () => {
-    expect(markOf({ status: 'dispatched' })).toEqual({ kind: 'dot', mark: 'starting' })
-    expect(markOf({ status: 'queued' })).toEqual({ kind: 'dot', mark: 'starting' })
-    expect(markOf({ status: 'waiting_for_children' })).toEqual({ kind: 'dot', mark: 'delegating' })
-    expect(markOf({ status: 'rate_limited', rateLimitedUntil: 4_000 })).toEqual({ kind: 'glyph', status: 'limit', limitResetsAt: 4_000 })
-    expect(markOf({ status: 'failed' })).toEqual({ kind: 'glyph', status: 'error' })
-    expect(markOf({ status: 'lost' })).toEqual({ kind: 'dot', mark: 'offline' })
-    expect(markOf({ status: 'done' })).toEqual({ kind: 'glyph', status: 'finished' })
-    expect(markOf({ status: 'interrupted' })).toEqual({ kind: 'glyph', status: 'finished' })
-    const closed = { ...cardRef({ status: 'done' }), closedByAgent: true }
-    expect(agentConversationLink(closed, agentConversationCardState(closed), false, null).mark).toBeNull()
+  test('the mark follows the saved execution phase and activity', () => {
+    expect(markOf(phaseOf('connecting'))).toEqual({ kind: 'dot', mark: 'starting' })
+    expect(markOf(phaseOf('background'), 'run')).toEqual({ kind: 'dot', mark: 'background' })
+    const delegating = phaseOf('background')
+    expect(markOf({ ...delegating, current: { ...delegating.current!, waitingForAgents: true } }))
+      .toEqual({ kind: 'dot', mark: 'delegating' })
+    expect(markOf(phaseOf('running'), 'read')).toEqual({ kind: 'dot', mark: 'reading' })
+    expect(markOf(phaseOf('running'))).toEqual({ kind: 'dot', mark: 'working' })
+    expect(markOf(phaseOf('rate_limited'))).toEqual({ kind: 'glyph', status: 'limit' })
+    const limited = phaseOf('rate_limited')
+    expect(markOf({ ...limited, current: { ...limited.current!, rateLimitResetsAt: 4000 } }))
+      .toEqual({ kind: 'glyph', status: 'limit', limitResetsAt: 4000 })
+    expect(markOf(outcomeOf('failed'))).toEqual({ kind: 'glyph', status: 'error' })
+    expect(markOf(outcomeOf('completed'), 'read')).toEqual({ kind: 'glyph', status: 'finished' })
   })
 
-  // WHY: a replying session shows what its agent does now, as its host
-  // reports it; with no report yet it only says that it works.
-  test('a replying session shows the dot mark of its agent activity, and Working while none is known', () => {
-    expect(markOf({ status: 'running' }, 'read')).toEqual({ kind: 'dot', mark: 'reading' })
-    expect(markOf({ status: 'running' }, 'think')).toEqual({ kind: 'dot', mark: 'thinking' })
-    expect(markOf({ status: 'running' }, 'reply')).toEqual({ kind: 'dot', mark: 'writing' })
-    expect(markOf({ status: 'answered' }, 'run')).toEqual({ kind: 'dot', mark: 'running' })
-    expect(markOf({ status: 'running' })).toEqual({ kind: 'dot', mark: 'working' })
-  })
-
-  // WHY: Approval and Input ask different things of a person, so the request
-  // the exchange waits on picks the glyph.
-  test('a waiting session shows Approval for a permission, Input for a question or no request', () => {
-    const permission = { kind: 'permission', permission: {} } as ExchangeRequest
-    const question = { kind: 'question', question: {} } as ExchangeRequest
-    expect(markOf({ status: 'awaiting_input', request: permission })).toEqual({ kind: 'glyph', status: 'approval' })
-    expect(markOf({ status: 'awaiting_input', request: question })).toEqual({ kind: 'glyph', status: 'question' })
-    expect(markOf({ status: 'awaiting_input' })).toEqual({ kind: 'glyph', status: 'question' })
+  test('saved wait facts choose the mark even if the exchange reports running', () => {
+    expect(markOf(phaseOf('awaiting_input', { awaitingApproval: true }))).toEqual({ kind: 'glyph', status: 'approval' })
+    expect(markOf(phaseOf('awaiting_input'))).toEqual({ kind: 'glyph', status: 'question' })
+    expect(markOf(phaseOf('awaiting_plan'))).toEqual({ kind: 'glyph', status: 'plan' })
+    expect(markOf({ ...outcomeOf('completed'), hasPendingQuestion: true })).toEqual({ kind: 'glyph', status: 'question' })
   })
 
   // WHY: the time beside a mark dates a turn; Starting and Offline have none
@@ -423,19 +428,23 @@ describe('a group of agent cards', () => {
   const done = { ...cardRef({ status: 'done', reply: 'ok', dispatchedAt: 2_000, settledAt: 3_000 }), sessionId: 'c' }
 
   test('counts where each session stands and says when one needs a person', () => {
-    expect(agentConversationGroupSummary([running, waiting, done])).toEqual({
+    const linkOf = (ref: AgentConversationRef) => agentConversationLink(ref,
+      ref === done ? outcomeOf('completed') : phaseOf(ref === waiting ? 'awaiting_input' : 'running'), null)
+    expect(agentConversationGroupSummary([running, waiting, done], linkOf)).toEqual({
       title: '3 agents',
       status: '1 working · 1 waiting · 1 done',
       live: true,
       failed: false,
       needsPerson: true,
+      mark: { kind: 'glyph', status: 'question' },
     })
-    expect(agentConversationGroupSummary([done]).needsPerson).toBe(false)
-    expect(agentConversationGroupSummary([done]).live).toBe(false)
+    expect(agentConversationGroupSummary([done], linkOf).needsPerson).toBe(false)
+    expect(agentConversationGroupSummary([done], linkOf).live).toBe(false)
   })
 
-  test('runs from the first dispatch to now while any session works, and to the last end after', () => {
-    expect(agentConversationGroupElapsedMs([running, done], 10_000)).toBe(10_000)
-    expect(agentConversationGroupElapsedMs([done], 10_000)).toBe(1_000)
+  test('measures the saved runs to now while any session works and to the last end after', () => {
+    expect(agentGroupElapsedMs([phaseOf('running'), outcomeOf('completed')], 10)).toBe(9)
+    expect(agentGroupElapsedMs([outcomeOf('completed')], 10)).toBe(2)
+    expect(agentGroupElapsedMs([undefined], 10)).toBeNull()
   })
 })

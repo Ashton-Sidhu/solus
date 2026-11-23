@@ -16,7 +16,8 @@ function harness(stored: SessionDigest | null = null) {
   const writes: SessionDigest[] = []
   const announced: string[] = []
   const digests = new SessionDigests({
-    load: async () => stored && structuredClone(stored),
+    // As the database does: a digest read after a write reads that write.
+    load: async () => structuredClone(writes.at(-1) ?? stored),
     write: async (digest) => { writes.push(structuredClone(digest)) },
     announce: (sessionId) => { announced.push(sessionId) },
     now: () => now,
@@ -230,5 +231,20 @@ describe('session digests', () => {
     run.send({ type: 'turn_settled', turnId: 'prompt-1', outcome: 'failed', settledAt: START + 1_000 })
     await run.digests.settled()
     expect(run.last().turns).toEqual([expect.objectContaining({ id: 'prompt-1', settled: true, outcome: 'failed' })])
+  })
+
+  test("a turn keeps what it cost once the host priced it, even after it settled", async () => {
+    // WHY: the digest is the record that outlives the host's 30 days of
+    // metrics and travels with the session tree, so a turn's cost lives here.
+    const run = harness()
+    run.send({ type: 'user_message', text: 'One', clientPromptId: 'one' })
+    run.send({ type: 'turn_settled', turnId: 'one', outcome: 'completed', settledAt: START + 1_000 })
+    run.at(5_000)
+    run.send({ type: 'user_message', text: 'Two', clientPromptId: 'two' })
+    run.send({ type: 'turn_settled', turnId: 'two', outcome: 'completed', settledAt: START + 9_000 })
+    // The host's clock for the first turn starts a moment before its prompt.
+    run.digests.costed({ sessionId: 'session-1', startedAt: START - 3, endedAt: START + 1_200, costUsd: 0.42 })
+    await run.digests.settled()
+    expect(run.last().turns.map((turn) => turn.costUsd)).toEqual([0.42, undefined])
   })
 })

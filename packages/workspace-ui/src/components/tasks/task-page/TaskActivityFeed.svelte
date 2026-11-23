@@ -216,7 +216,7 @@
       <Button variant="outline" size="sm" class="mb-3"
         disabled={providerPending || providerLoadingMore}
         onclick={onLoadOlderProvider}
-      >{providerLoadingMore ? "Loading…" : providerError ? "Try again" : "Load older activity"}</Button>
+      >{providerLoadingMore ? "Loading…" : providerError ? "Try again" : "Load more activity"}</Button>
     {/if}
   {/if}
   <ol class="relative flex flex-col gap-5" role="list">

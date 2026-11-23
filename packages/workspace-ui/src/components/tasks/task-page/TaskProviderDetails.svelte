@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Task as StoredTask } from '../../../contexts/tasks/task.svelte';
   import type { Task, TaskComment } from '@solus/contracts/task-types';
-  import type { TaskProviderData, TaskReactionContent } from '@solus/contracts/task-data';
+  import type { TaskProviderData, TaskProviderMetadata, TaskReactionContent } from '@solus/contracts/task-data';
   import { parseTaskKey } from '@solus/contracts/task-sources';
   import { toasts } from '../../../lib/toasts';
   let {
@@ -9,6 +9,7 @@
     taskData,
     comments,
     value,
+    metadata,
     readOnly = false,
     onOpenExternal,
   }: {
@@ -16,6 +17,7 @@
     taskData?: StoredTask['data'];
     comments: TaskComment[];
     value?: TaskProviderData;
+    metadata?: TaskProviderMetadata;
     readOnly?: boolean;
     onOpenExternal: (url: string) => void;
   } = $props();
@@ -33,11 +35,12 @@
   const issueId = $derived(parseTaskKey(task.id)?.id ?? '');
   let targetId = $state('');
   const selectedTarget = $derived(targetId || issueId);
+  const provider = $derived(value ?? metadata);
   async function react(content: TaskReactionContent) {
     if (!taskData || readOnly) return;
     busy = true;
     try {
-      const previous = value?.reactions.find(
+      const previous = provider?.reactions.find(
         (reaction) =>
           reaction.targetId === selectedTarget && reaction.content === content,
       );
@@ -56,23 +59,23 @@
   }
 </script>
 
-{#if task.kind === 'issue' && value}
+{#if task.kind === 'issue' && provider}
   <section class="grid gap-3 border-t border-border/60 py-5" aria-label="Issue provider">
-      {#if value.unavailableReason}<p
+      {#if value?.unavailableReason}<p
           class="text-sm text-muted-foreground"
         >
           {value.unavailableReason}
         </p>{/if}
-      {#if value.author}<p class="text-sm text-muted-foreground">
-          Opened by {value.author}
+      {#if provider.author}<p class="text-sm text-muted-foreground">
+          Opened by {provider.author}
         </p>{/if}
-      {#if value.commentsTruncated}<p
+      {#if value?.commentsTruncated && value.comments === undefined}<p
           class="text-sm text-muted-foreground"
         >
           The provider returned only part of the comments. Open the provider to
           read all comments.
         </p>{/if}
-      {#if taskData && !readOnly && value.capabilities.reactions}
+      {#if taskData && !readOnly && (value?.capabilities.reactions ?? !!metadata)}
         <label class="grid gap-1 text-sm"
           >React to
           <select
@@ -93,7 +96,7 @@
         </label>
         <div class="flex flex-wrap gap-1">
           {#each reactions as reaction (reaction.content)}
-            {@const held = value.reactions.find(
+            {@const held = provider.reactions.find(
               (item) =>
                 item.targetId === selectedTarget &&
                 item.content === reaction.content,
@@ -110,9 +113,9 @@
           {/each}
         </div>
       {/if}
-      {#if value.pullRequests.length}
+      {#if provider.pullRequests.length}
         <h3 class="text-sm font-medium">Provider pull requests</h3>
-        {#each value.pullRequests as pr (pr.url)}
+        {#each provider.pullRequests as pr (pr.url)}
           <button
             type="button"
             class="rounded-md p-2 text-left text-sm hover:bg-muted"

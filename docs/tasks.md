@@ -380,8 +380,11 @@ Use **Open issue URL** on the Tasks page or the mobile Issues list to read a
 GitHub issue or an issue from a connected Jira site or Linear workspace.
 The issue opens in the existing detail pane, or on the issue screen on a phone.
 The description and comments are available while provider activity loads.
-Activity combines comments, Solus changes, and provider events, including
-GitHub commit references. Use **Load older activity** when more events are available.
+For GitHub, the issue read includes its newest comments, reactions, and
+closing pull requests. The activity read uses those details when available.
+Activity combines comments, Solus changes, and provider events. GitHub
+activity comes from its issue timeline, including commit references and
+comments beyond the initial issue read. Use **Load more activity** for other pages.
 The detail is read-only and leaves your task sources as they are. You can
 open the issue on its provider to make changes.
 

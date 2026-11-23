@@ -246,6 +246,19 @@ export class RunLauncher {
   private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: TurnStop, releaseLaunch: () => void): Promise<StartedRun> {
     await this.rt.sessionCheckouts.finishHeldMove(request.sessionId)
     request = this.rt.sessionCheckouts.continueInMovedCheckout(request)
+    // More than one prompt can be queued before the first fork turn obtains
+    // a provider thread. Once it exists, those prompts continue the fork.
+    if (request.input.forkPointId) {
+      const active = resolveSessionLineageById(request.sessionId)?.active
+      if (active?.providerSessionId) {
+        const { forkPointId: _pointId, ...input } = request.input
+        request = {
+          ...request,
+          input: { ...input, agentSessionId: active.providerSessionId, forked: false },
+          target: { kind: 'session', sessionId: request.sessionId },
+        }
+      }
+    }
     await this.rt.handoffs.handOffForPrompt(request, request.actor ?? HOST_ACTOR)
     const { input, target, options, sessionId, sourceClientId } = request
     this.failedSetupPrompts.delete(sessionId)
@@ -344,7 +357,7 @@ export class RunLauncher {
     // A fork is a new session branching from another's thread. A move into a
     // worktree forks the session's own active thread and stays the same
     // session; its handler records the move (plans/012 §5).
-    if (isForkingInput && input.agentSessionId && !activeLineage?.providerSessionId) {
+    if (isForkingInput && input.agentSessionId && !activeLineage?.providerSessionId && !input.forkPointId) {
       await this.rt.recordActivity({ kind: 'session', id: sessionId }, request.actor ?? HOST_ACTOR, forkedFrom(input.agentSessionId, input.forkExcludeLatestTurn))
     }
     const sessionGitContext = isForkingInput ? null : existingSession?.gitContext
@@ -770,7 +783,7 @@ export class RunLauncher {
       activeTurnId,
       settledTurnId: existingSession?.settledTurnId,
     })
-    this.rt.statuses.setStatus(sessionId, newStatus)
+    this.rt.statuses.setStatus(sessionId, newStatus, true)
     this.rt.statuses.notifyActiveWork()
     // A prompt is work: a settled session is active again, and back in the
     // list of the person the turn is for.

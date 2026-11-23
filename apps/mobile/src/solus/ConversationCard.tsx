@@ -262,6 +262,7 @@ export function ConversationCard({
   const item = useTranscriptItem(store, id);
   if (!item) return null;
   switch (item.kind) {
+    case "fork": return null;
     case "user":
       return (
         <View>

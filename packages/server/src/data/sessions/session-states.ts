@@ -194,8 +194,8 @@ function personRow(sessionId: string, personKey: string): SQL {
 /**
  * One person's own view of one session: their settle, archive, and snooze. It
  * changes that person's list, and nobody else's. Each change is announced to
- * that person with the view it leaves. A settle or an archive also ends their
- * pin (`pinned-sessions.ts`); a snooze keeps it, and a return does not restore it.
+ * that person with the view it leaves. Archive ends the pin
+ * (`pinned-sessions.ts`). Completion and snooze keep it.
  */
 export class SessionViewer {
   constructor(readonly sessionId: string, readonly personKey: string) {}
@@ -211,7 +211,7 @@ export class SessionViewer {
 
   /** Settle the session in this person's list. Returns false when they settled it already. */
   async settle(at = Date.now()): Promise<boolean> {
-    return this.write(sql`settled_at = ${at}, pinned_at = NULL`, sql`settled_at IS NULL`, { settled_at: at })
+    return this.write(sql`settled_at = ${at}`, sql`settled_at IS NULL`, { settled_at: at })
   }
 
   /** End this person's settle. Returns false when they had not settled it. */
@@ -226,7 +226,7 @@ export class SessionViewer {
 
   /** Return the session to this person's list, on the shelf it left. Returns false when it was in the list. */
   async unarchive(): Promise<boolean> {
-    return this.write(sql`archived_at = NULL`, sql`archived_at IS NOT NULL`)
+    return this.write(sql`archived_at = NULL, pinned_at = NULL`, sql`archived_at IS NOT NULL`)
   }
 
   /** Snooze the session until a wake time, or wake it now with `until` null. */
@@ -239,7 +239,12 @@ export class SessionViewer {
    *  list again. Their first prompt leaves an empty row, which puts a session
    *  they do not own in their list; the row is never cleaned up. */
   async returnToList(): Promise<void> {
-    await this.write(sql`settled_at = NULL, archived_at = NULL, snoozed_until = NULL, snooze_note = NULL`, sql`(settled_at IS NOT NULL OR archived_at IS NOT NULL OR snoozed_until IS NOT NULL)`, {})
+    await this.write(
+      sql`settled_at = NULL, archived_at = NULL, snoozed_until = NULL, snooze_note = NULL,
+        pinned_at = CASE WHEN archived_at IS NULL THEN pinned_at ELSE NULL END`,
+      sql`(settled_at IS NOT NULL OR archived_at IS NOT NULL OR snoozed_until IS NOT NULL)`,
+      {},
+    )
   }
 
   async reorder(section: 'active' | 'pinned', key: string): Promise<void> {

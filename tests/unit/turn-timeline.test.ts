@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   barHeightShare,
   breakLabel,
+  costAxisTop,
   timelineBarText,
+  timelineChartRows,
   timelineLabels,
   timelineLayout,
   timelineWorkMs,
@@ -138,5 +140,55 @@ describe('time labels', () => {
     // 5px bars in a 200px plot, 50px labels: the second turn starts 25px after
     // the first, and the last starts inside the room kept for the end label.
     expect(timelineLabels(ranges, 5, 200, 50)).toEqual([0, 2])
+  })
+})
+
+describe('cost', () => {
+  const turns = [turn('a', 0, 2 * MINUTE), turn('b', 12 * MINUTE, 14 * MINUTE), turn('c', 20 * MINUTE, 22 * MINUTE)]
+
+  test("a turn's cost is spread over its own bars, and nothing is spent in the waits", () => {
+    // WHY: the curve shows where the money went. A cost on the wrong turn, or
+    // one that rises while nobody works, points at the wrong work.
+    const layout = timelineLayout(turns, [], 200, [], [
+      // The host's clock for a turn can start a moment before the prompt's time.
+      { startedAt: 12 * MINUTE - 5, endedAt: 14 * MINUTE + 50, costUsd: 3 },
+      { startedAt: 0, endedAt: 2 * MINUTE, costUsd: 0.5 },
+    ])
+    const spentIn = (index: number) => {
+      const range = layout.ranges[index]!
+      return layout.bars.slice(range.from, range.to).reduce((sum, bar) => sum + bar.costUsd, 0)
+    }
+    expect(spentIn(0)).toBeCloseTo(0.5)
+    expect(spentIn(1)).toBeCloseTo(3)
+    expect(layout.bars.filter((bar) => bar.turn === null).every((bar) => bar.costUsd === 0)).toBe(true)
+    const b = layout.ranges[1]!
+    expect(layout.bars[b.from]!.costUsd).toBeCloseTo(layout.bars[b.to - 1]!.costUsd)
+    expect(layout.runningCostUsd[b.to - 1]).toBeCloseTo(3.5)
+    expect(layout.totalCostUsd).toBeCloseTo(3.5)
+  })
+
+  test('a turn with no known cost reads as unknown, not as free', () => {
+    const layout = timelineLayout(turns, [], 200, [], [{ startedAt: 0, endedAt: 2 * MINUTE, costUsd: 0.5 }])
+    expect(layout.turnCostUsd).toEqual([0.5, null, null])
+    expect(timelineLayout(turns, [], 200).totalCostUsd).toBe(0)
+  })
+
+  test('the cost axis tops out at a round figure over the total, so its middle rung is round too', () => {
+    // WHY: the axis says how much was spent; "$48.35" as a rung reads as a
+    // measurement, "$50" reads as a scale.
+    expect(costAxisTop(48.35)).toBe(50)
+    expect(costAxisTop(3.2)).toBe(4)
+    expect(costAxisTop(0.42)).toBe(0.5)
+    expect(costAxisTop(0)).toBe(0)
+  })
+
+  test('the line rides the bars on its own scale: nothing at the floor, the whole at the end', () => {
+    const layout = timelineLayout(turns, [5_000], 200, [], [{ startedAt: 0, endedAt: 2 * MINUTE, costUsd: 4 }])
+    const rows = timelineChartRows(layout, costAxisTop(4), 0.05)
+    expect(rows[0]!.cost).toBeGreaterThan(0)
+    expect(rows.at(-1)!.cost).toBe(1)
+    // The bars stop short of the top, so the axis's top rung stays clear of them.
+    expect(Math.max(...rows.map((row) => row.own?.[1] ?? 0))).toBeLessThan(1)
+    expect(rows.every((row, index) => index === 0 || row.cost >= rows[index - 1]!.cost)).toBe(true)
   })
 })

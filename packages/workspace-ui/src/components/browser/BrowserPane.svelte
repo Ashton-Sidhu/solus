@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { Bot, GitBranch, Plus, X } from "@lucide/svelte";
+  import {
+    Bot,
+    GitBranch,
+    LoaderCircle,
+    MonitorX,
+    Plus,
+    TriangleAlert,
+    Unplug,
+    X,
+  } from "@lucide/svelte";
   import type {
     BrowserAgentUse,
     BrowserAppearance,
@@ -22,6 +31,7 @@
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import { underStrip } from "../ui/lib/pane-strip";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import * as TooltipUI from "../ui/tooltip";
   import BrowserAnnotationBar from "./BrowserAnnotationBar.svelte";
   import BrowserCloseConfirm from "./BrowserCloseConfirm.svelte";
   import BrowserCommentPopup from "./BrowserCommentPopup.svelte";
@@ -37,6 +47,7 @@
   } from "./lib/annotation-attachment";
   import { commentAnchorPosition } from "./lib/comment-anchor";
   import {
+    failureLabel,
     groupPagesByBranch,
     pageLabel,
     pageStatus,
@@ -808,29 +819,68 @@
                      page to look at, and a dead dev server is exactly the reason
                      to switch. -->
                 {#if status}
-                  <span
-                    class="size-1.5 shrink-0 rounded-full {status === 'failed'
-                      ? 'bg-[var(--failure)]'
-                      : 'bg-[var(--warning)]'}"
-                    title={status === "failed"
-                      ? "This page failed to load"
-                      : "Loading"}
-                  ></span>
+                  {@const label =
+                    status === "loading"
+                      ? "Loading"
+                      : failureLabel(status, candidate.page.problem?.message)}
+                  <TooltipUI.Root>
+                    <TooltipUI.Trigger>
+                      {#snippet child({ props })}
+                        <span
+                          {...props}
+                          class="flex shrink-0 {status === 'loading'
+                            ? 'text-(--solus-text-tertiary)'
+                            : 'text-[var(--failure)]'}"
+                          role="img"
+                          aria-label={label}
+                        >
+                          {#if status === "loading"}
+                            <LoaderCircle
+                              class="size-3 animate-spin motion-reduce:animate-none"
+                            />
+                          {:else if status === "unreachable"}
+                            <Unplug class="size-3" />
+                          {:else if status === "crashed"}
+                            <MonitorX class="size-3" />
+                          {:else}
+                            <TriangleAlert class="size-3" />
+                          {/if}
+                        </span>
+                      {/snippet}
+                    </TooltipUI.Trigger>
+                    <TooltipUI.Content side="bottom" value={label} />
+                  </TooltipUI.Root>
                 {/if}
                 <!-- An agent working in this page, as the host judges it: the
                      field is present exactly while the close would be refused. -->
                 {#if candidate.page.agentUse}
-                  <Bot
-                    class="size-3 shrink-0 text-[var(--warning)]"
-                    aria-label="An agent is using this page"
-                  />
+                  <TooltipUI.Root>
+                    <TooltipUI.Trigger>
+                      {#snippet child({ props })}
+                        <span
+                          {...props}
+                          class="flex shrink-0 text-[var(--warning)]"
+                          role="img"
+                          aria-label="An agent is using this page"
+                        >
+                          <Bot class="size-3" />
+                        </span>
+                      {/snippet}
+                    </TooltipUI.Trigger>
+                    <TooltipUI.Content
+                      side="bottom"
+                      value="An agent is using this page"
+                    />
+                  </TooltipUI.Root>
                 {/if}
                 <button
                   type="button"
-                  class="text-workspace-chrome min-w-0 max-w-40 truncate font-medium {key ===
-                  activeKey
-                    ? 'text-(--solus-text-primary)'
-                    : 'text-(--solus-text-secondary)'}"
+                  class="text-workspace-chrome min-w-0 max-w-40 truncate font-medium {status &&
+                  status !== 'loading'
+                    ? 'text-[color:color-mix(in_oklch,var(--failure)_72%,var(--foreground))]'
+                    : key === activeKey
+                      ? 'text-(--solus-text-primary)'
+                      : 'text-(--solus-text-secondary)'}"
                   title={routeLabel(candidate.page.url)}
                   onclick={() => activatePage(candidate)}
                 >

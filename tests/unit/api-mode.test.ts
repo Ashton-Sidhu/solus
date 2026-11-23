@@ -239,8 +239,12 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     // record that cannot name its working directory, branch and parent cannot be
     // resumed or grouped, and a report that omits them must not erase them.
     const server = await bootServer()
+    const execution = {
+      revision: 2, current: null,
+      lastTurn: { runId: 'first', outcome: 'completed', startedAt: 2, endedAt: 3 },
+    } as const
     await server.handle('sessionRecordUpsert', [{
-      sessionId: 's-where', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 3,
+      sessionId: 's-where', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 3, execution,
       cwd: '/home/vm/repo', slug: 'brave-otter', isWorktree: true, branch: 'feat/x', projectRoot: '/home/vm/repo',
       parentSessionId: 's-parent', rootSessionId: 's-parent',
       delegation: { messageId: 'm-1', depth: 1, intent: 'delegate', createdAt: 2 },
@@ -249,9 +253,11 @@ describe('organization isolation through HTTP operations and retained RPC', () =
 
     const page = await api.listSessions(authority(alice), { scope: 'all', parentSessionId: 's-parent', limit: 50 })
     expect(page.items.find(item => item.id === 's-where')).toMatchObject({
+      execution,
       cwd: '/home/vm/repo', slug: 'brave-otter', isWorktree: true, branch: 'feat/x', projectRoot: '/home/vm/repo',
       delegation: { messageId: 'm-1', depth: 1, intent: 'delegate', createdAt: 2 },
     })
+    expect((await api.getSession(authority(alice), 's-where')).execution).toEqual(execution)
     // The service has no first sweep: its list is always its whole list.
     expect(page.indexing).toBe(false)
   })

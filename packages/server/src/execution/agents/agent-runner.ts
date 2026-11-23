@@ -36,7 +36,7 @@ function agentRunAttrs(promptChars: number, reasoningEffort: string | undefined)
 export type ProviderConversation =
   | { kind: 'start' }
   | { kind: 'resume'; threadId: string }
-  | { kind: 'fork'; sourceThreadId: string; excludeLatestTurn?: boolean }
+  | { kind: 'fork'; sourceThreadId: string; excludeLatestTurn?: boolean; pointId?: string }
 
 export interface AgentRunRequest {
   provider: AgentId

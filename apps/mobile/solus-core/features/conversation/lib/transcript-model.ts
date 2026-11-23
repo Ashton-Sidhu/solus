@@ -31,7 +31,7 @@ export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
   | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[] }
-  | { kind: 'assistant'; id: string; text: string; streaming?: boolean; timestamp?: number; sourceSessionId?: string }
+  | { kind: 'assistant'; id: string; text: string; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
   | ToolItem
@@ -67,6 +67,7 @@ export type TranscriptItem =
     }
   /** The host handed the session's thread to another provider (plans/021). */
   | { kind: 'handoff'; id: string; activity: AgentSwitch }
+  | { kind: 'fork'; id: string; activity: Extract<Activity, { kind: 'forked' }> }
   | { kind: 'setup'; id: string; card: StatusCardState }
   /** `sessionId` is the session the app's activity belongs to: the app is read through it. */
   | { kind: 'mcp_app'; id: string; activityId: string; sessionId: string; app: McpAppReference }
@@ -160,6 +161,7 @@ export class TranscriptModel {
   /** The compaction that started and has not stopped. */
   private runningCompactionId: string | null = null
   private proseSinceUser = false
+  private lastResponseId: string | null = null
   private readonly settledTurns = new Set<string>()
   /** The newest saved revision applied per artifact work, so a repeated update adds no card. */
   private readonly artifactUpdates = new Map<string, string>()
@@ -251,7 +253,7 @@ export class TranscriptModel {
   private historyItem(row: WireSessionLoadMessage): string | null {
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
-    if (row.activity?.kind === 'agent_switched') return this.addHandoff(row.activity, false)
+    if (row.activity?.kind === 'agent_switched' || row.activity?.kind === 'forked') return this.addDivider(row.activity, false)
     if (row.activity?.kind === 'stopped') return this.addSessionEvent(row.activity, false)
     if (row.activity) return null
     const id = row.messageId ?? this.mintId('h')
@@ -268,7 +270,7 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
-      this.items.set(id, { kind: 'assistant', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId })
+      this.items.set(id, { kind: 'assistant', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, forkPointId: row.forkPointId })
       return id
     }
     if (row.role === 'tool' && row.toolId) {
@@ -476,6 +478,10 @@ export class TranscriptModel {
       case 'task_complete':
         this.dropRunningCompaction()
         this.addProseOnce(event.result)
+        const response = this.lastResponseId ? this.items.get(this.lastResponseId) : undefined
+        if (response?.kind === 'assistant' && event.forkPointId) {
+          this.replace({ ...response, forkPointId: event.forkPointId, sourceSessionId: event.sessionId })
+        }
         this.clearRequests()
         return true
       case 'turn_settled':
@@ -591,6 +597,7 @@ export class TranscriptModel {
       const id = this.mintId('a')
       this.append({ kind: 'assistant', id, text, streaming: true })
       this.streamTarget = id
+      this.lastResponseId = id
     }
     this.proseSinceUser = true
   }
@@ -598,7 +605,9 @@ export class TranscriptModel {
   /** Final text adds a row only when no prose streamed since the person spoke. */
   private addProseOnce(text: string): void {
     if (!this.proseSinceUser && text.trim()) {
-      this.append({ kind: 'assistant', id: this.mintId('a'), text })
+      const id = this.mintId('a')
+      this.append({ kind: 'assistant', id, text })
+      this.lastResponseId = id
       this.proseSinceUser = true
     }
     this.finishStream()
@@ -699,6 +708,7 @@ export class TranscriptModel {
       this.agentCards.closeTurn()
       this.finishStream()
       this.proseSinceUser = false
+      this.lastResponseId = null
     }
   }
 
@@ -868,6 +878,7 @@ export class TranscriptModel {
     this.agentCards.closeTurn()
     this.finishStream()
     this.proseSinceUser = false
+    this.lastResponseId = null
     if (event.clientPromptId) {
       this.queued = this.queued.filter((queued) => queued.clientPromptId !== event.clientPromptId)
       const existing = this.items.get(event.clientPromptId)
@@ -916,13 +927,13 @@ export class TranscriptModel {
     return id
   }
 
-  /** The handoff's row id, or null when the row is already shown. Live, the
-   *  host records the handoff after the prompt that caused it is on screen:
-   *  the divider goes before that prompt, as history orders it. */
-  private addHandoff(activity: AgentSwitch, live: boolean): string | null {
+  /** Live dividers go before the prompt that caused them, as in saved history. */
+  private addDivider(activity: AgentSwitch | Extract<Activity, { kind: 'forked' }>, live: boolean): string | null {
     const id = `activity:${activity.id}`
     if (this.items.has(id)) return null
-    const item: TranscriptItem = { kind: 'handoff', id, activity }
+    const item: TranscriptItem = activity.kind === 'forked'
+      ? { kind: 'fork', id, activity }
+      : { kind: 'handoff', id, activity }
     if (!live) {
       this.items.set(id, item)
       return id
@@ -1019,7 +1030,7 @@ export class TranscriptModel {
     if (activity.kind === 'mcp_app') this.addMcpApp(activity, true)
     else if (activity.kind === 'worktree_offered') this.addWorktreeOffer(activity, true)
     else if (activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(activity.offerId, activity.resolution)
-    else if (activity.kind === 'agent_switched') this.addHandoff(activity, true)
+    else if (activity.kind === 'agent_switched' || activity.kind === 'forked') this.addDivider(activity, true)
     else if (activity.kind === 'stopped') this.addSessionEvent(activity, true)
   }
 

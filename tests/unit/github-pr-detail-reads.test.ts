@@ -238,6 +238,7 @@ describe('GitHub pull request detail', () => {
       commitsPage: () => ({
         repository: {
           pullRequest: {
+            headRefOid: 'head-sha',
             commits: {
               pageInfo: { hasNextPage: false, endCursor: null },
               nodes: [{ commit: { oid: 'c101', message: 'Late commit', committedDate: '2026-08-02T00:00:00Z', author: null } }],
@@ -253,6 +254,55 @@ describe('GitHub pull request detail', () => {
     expect(client.calls).toEqual(['graphql:PullRequestDetail', 'graphql:PullRequestCommits'])
     expect(overview.commits.map((commit) => commit.sha)).toEqual(['c1', 'c101'])
     expect(overview.commits[1]).toMatchObject({ author: '', committedAt: '2026-08-02T00:00:00Z' })
+  })
+
+  test('header and reviewer reads finish before the remaining commit pages are requested', async () => {
+    const client = countingClient({
+      detail: detailWith({ commits: { hasNextPage: true, endCursor: 'cursor-100', oids: ['c1'] } }),
+      commitsPage: () => ({
+        repository: {
+          pullRequest: {
+            headRefOid: 'head-sha',
+            commits: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [{ commit: { oid: 'c101', message: 'Last commit', committedDate: '2026-08-02T00:00:00Z', author: null } }],
+            },
+          },
+        },
+      }),
+    })
+    const provider = new CountingProvider([client])
+    const pullRequest = new PrIndex().pullRequest(repo, { review: provider } as unknown as Provider, 65)
+
+    const summary = await pullRequest.overview({ includeCommits: false })
+    expect(summary.pullRequest.headSha).toBe('head-sha')
+    expect(summary.reviewers).not.toHaveLength(0)
+    expect(summary.commits).toEqual([])
+    expect(client.calls).toEqual(['graphql:PullRequestDetail'])
+
+    const [commits, overview] = await Promise.all([pullRequest.commits(), pullRequest.overview()])
+    expect(commits.map(({ sha }) => sha)).toEqual(['c1', 'c101'])
+    expect(overview.commits).toEqual(commits)
+    expect(client.calls).toEqual(['graphql:PullRequestDetail', 'graphql:PullRequestCommits'])
+  })
+
+  test('a push during commit pagination leaves a valid header and rejects mixed revisions', async () => {
+    const client = countingClient({
+      detail: detailWith({ commits: { hasNextPage: true, endCursor: 'cursor-100', oids: ['c1'] } }),
+      commitsPage: () => ({
+        repository: {
+          pullRequest: {
+            headRefOid: 'new-head',
+            commits: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+          },
+        },
+      }),
+    })
+    const provider = new CountingProvider([client])
+    const pullRequest = new PrIndex().pullRequest(repo, { review: provider } as unknown as Provider, 65)
+    await expect(pullRequest.commits()).rejects.toThrow('This pull request changed')
+    expect((await pullRequest.read()).headSha).toBe('head-sha')
+    expect(client.calls).toEqual(['graphql:PullRequestDetail', 'graphql:PullRequestCommits'])
   })
 })
 

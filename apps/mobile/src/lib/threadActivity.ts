@@ -158,6 +158,7 @@ export interface ThreadFeedMessage {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly projectedItem?: OrchestrationV2ProjectedTurnItem;
+  readonly hostForkPointId?: string;
   readonly checkpointSummary?: ThreadCheckpointSummary;
 }
 
@@ -2479,7 +2480,7 @@ function liveToolActivitySummary(
 
 /** Native host cards and messages use the same ordered feed and restart cache as T3 rows. */
 export type ThreadFeedSourceRow =
-  | (OrchestrationV2ProjectedTurnItem & { readonly hostTime?: string; readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> } })
+  | (OrchestrationV2ProjectedTurnItem & { readonly hostTime?: string; readonly hostForkPointId?: string; readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> } })
   | { readonly hostEntries: ReadonlyArray<RawThreadFeedEntry>; readonly item?: never };
 
 interface ThreadFeedBuild {
@@ -2763,6 +2764,7 @@ export function buildThreadFeed(
           createdAt,
           updatedAt,
           ...(row.hostTime === undefined && { projectedItem: row }),
+          ...(row.hostForkPointId && { hostForkPointId: row.hostForkPointId }),
         },
       };
       projectedEntriesCache.set(row, { attemptId, locale, entries: [entry] });

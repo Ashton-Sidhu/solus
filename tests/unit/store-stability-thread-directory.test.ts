@@ -260,12 +260,12 @@ test('session events preserve untouched rows and request only the missing record
   await directory.load('h')
   const untouched = directory.thread('h', 'a')
   const missing = directory.applyRowChanges('h', new Map([
-    ['b', { title: 'Renamed', status: { status: 'running', at: 5 } }],
+    ['b', { title: 'Renamed', execution: { revision: 1, current: { runId: 'run', phase: 'running', startedAt: 5 }, lastTurn: null } }],
     ['c', { title: 'New' }],
   ]))
   expect(directory.threads()[0]?.record).toMatchObject({ sessionId: 'b', customTitle: 'Renamed', lastActivityAt: 5 })
   const beforeStatus = directory.threads()
-  directory.applyRowChanges('h', new Map([['b', { status: { status: 'idle', at: 6 } }]]))
+  directory.applyRowChanges('h', new Map([['b', { execution: { revision: 2, current: null, lastTurn: { runId: 'run', outcome: 'completed', startedAt: 5, endedAt: 6 } } }]]))
   expect(directory.changedPositions(beforeStatus, [])).toEqual([0])
   expect(missing).toEqual(['c'])
   expect(answer.reads).toEqual([])

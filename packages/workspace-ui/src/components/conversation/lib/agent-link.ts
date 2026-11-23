@@ -1,6 +1,7 @@
 import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-activity'
 import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from '@solus/client-core/dot-marks'
-import type { Message } from '@solus/contracts/types'
+import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
+import type { Message, SessionStatus } from '@solus/contracts/types'
 import type { GlyphStatus } from '../../session/lib/task-list'
 import type { SubagentRowState } from './subagent-group'
 
@@ -35,12 +36,97 @@ export function dotMarkOfActivity(activity: AgentActivity | null | undefined): D
   return activity ? DOT_MARK_FOR_ACTIVITY[activity] : 'working'
 }
 
+const executionLabels: Record<SessionStatus, string> = {
+  connecting: 'Starting',
+  running: 'Running',
+  background: 'Background',
+  awaiting_input: 'Waiting for input',
+  awaiting_plan: 'Waiting for plan approval',
+  rate_limited: 'Rate limited',
+  idle: 'Idle',
+  completed: 'Completed',
+  failed: 'Failed',
+  interrupted: 'Interrupted',
+  dead: 'Run lost',
+}
+
+/** The state mark for a saved agent execution, shared by the conversation and both panels. */
+export function agentExecutionLink(
+  execution: SessionExecution | undefined,
+  { activity, providerSubagent = false }: { activity?: AgentActivity | null; providerSubagent?: boolean } = {},
+): AgentLinkStatus {
+  if (!execution) return { standing: 'stopped', mark: null, label: 'Unknown' }
+  const status = sessionExecutionStatus(execution)
+  const label = executionLabels[status]
+  if (status === 'awaiting_plan') return { standing: 'live', mark: { kind: 'glyph', status: 'plan' }, label }
+  if (execution.awaitingApproval) return { standing: 'live', mark: { kind: 'glyph', status: 'approval' }, label: 'Waiting for approval' }
+  if (execution.hasPendingQuestion || status === 'awaiting_input') {
+    return { standing: 'live', mark: { kind: 'glyph', status: 'question' }, label: execution.hasPendingQuestion ? 'Waiting for answer' : label }
+  }
+  if (status === 'rate_limited') {
+    const limitResetsAt = execution.current?.rateLimitResetsAt
+    return { standing: 'live', mark: { kind: 'glyph', status: 'limit', ...(limitResetsAt !== undefined && { limitResetsAt }) }, label }
+  }
+  if (execution.current) {
+    if (status === 'background') {
+      return execution.current.waitingForAgents
+        ? { standing: 'live', mark: { kind: 'dot', mark: 'delegating' }, label: 'Waiting on agents' }
+        : { standing: 'live', mark: { kind: 'dot', mark: 'background' }, label }
+    }
+    const mark = status === 'connecting' ? 'starting' : dotMarkOfActivity(activity)
+    return { standing: 'live', mark: { kind: 'dot', mark }, label }
+  }
+  if (status === 'completed') return { standing: 'done', mark: { kind: 'glyph', status: 'finished' }, label }
+  if (status === 'failed' || status === 'dead') return { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, label }
+  return { standing: 'stopped', mark: null, label: providerSubagent && status === 'interrupted' ? 'Stopped' : label }
+}
+
+export function agentExecutionElapsedMs(execution: SessionExecution | undefined, now: number): number | null {
+  if (execution?.current) return Math.max(0, now - execution.current.startedAt)
+  if (execution?.lastTurn) return Math.max(0, execution.lastTurn.endedAt - execution.lastTurn.startedAt)
+  return null
+}
+
+/** Wall time from the earliest run start to the latest run end. */
+export function agentGroupElapsedMs(executions: readonly (SessionExecution | undefined)[], now: number): number | null {
+  let start = Infinity
+  let end = -Infinity
+  for (const execution of executions) {
+    const run = execution?.current ?? execution?.lastTurn
+    if (!run) continue
+    start = Math.min(start, run.startedAt)
+    end = Math.max(end, 'endedAt' in run ? run.endedAt : now)
+  }
+  return start === Infinity ? null : Math.max(0, end - start)
+}
+
+type AgentGroupTone = 'working' | 'waiting' | 'done' | 'failed' | 'stopped' | 'unknown'
+
+/** Count agent states and use the first mark that needs attention. */
+export function summarizeAgentLinks(links: readonly AgentLinkStatus[]) {
+  const counts: Record<AgentGroupTone, number> = { working: 0, waiting: 0, done: 0, failed: 0, stopped: 0, unknown: 0 }
+  const marks = new Map<AgentGroupTone, AgentStateMark>()
+  for (const link of links) {
+    const tone = link.standing === 'live' ? link.mark?.kind === 'glyph' ? 'waiting' : 'working'
+      : link.label === 'Unknown' ? 'unknown' : link.standing
+    counts[tone] += 1
+    if (link.mark && !marks.has(tone)) marks.set(tone, link.mark)
+  }
+  const order: readonly AgentGroupTone[] = ['working', 'waiting', 'done', 'failed', 'stopped', 'unknown']
+  return {
+    status: order.filter((tone) => counts[tone] > 0).map((tone) => `${counts[tone]} ${tone}`).join(' · '),
+    live: counts.working + counts.waiting > 0,
+    failed: counts.failed > 0,
+    mark: marks.get('waiting') ?? marks.get('working') ?? marks.get('failed') ?? marks.get('done') ?? null,
+  }
+}
+
 /** Whether the row keeps its elapsed time beside the mark. The marks of a
  *  running turn and of a settled agent do. Starting and Offline have no turn
  *  to date, and Input, Approval, and Limited spend the slot on their word. */
 export function agentMarkShowsElapsed(mark: AgentStateMark | null): boolean {
   if (!mark) return true
-  if (mark.kind === 'dot') return mark.mark !== 'starting' && mark.mark !== 'offline'
+  if (mark.kind === 'dot') return mark.mark !== 'starting' && mark.mark !== 'background' && mark.mark !== 'offline'
   return mark.status === 'finished' || mark.status === 'error'
 }
 

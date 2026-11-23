@@ -121,7 +121,12 @@ async function moveThread(t: EnvironmentThreadShell, destination: ThreadMoveDest
   const section =
     (typeof destination === "object" && destination.section) ||
     (current.pinnedAt ? "pinned" : "active");
-  if (section === "settled") return listActions.settleThread(current);
+  if (section === "settled") {
+    if (current.pinnedAt == null) return listActions.settleThread(current);
+    if (current.settledOverride === "settled") return listActions.unpinThread(current);
+    if (!(await listActions.settleThread(current))) return false;
+    return pin(current, false);
+  }
   const now = new Date().toISOString();
   const ordered = getThreadListV2OrderedSection({
     threads,
@@ -151,7 +156,7 @@ async function moveThread(t: EnvironmentThreadShell, destination: ThreadMoveDest
         if (lifecycle.unsnooze || (section === "pinned" && current.snoozedUntil))
           await solus.threadList.snooze(t.environmentId, t.id, null);
         check(current);
-        if (lifecycle.unsettle || (section === "pinned" && current.settledAt))
+        if (lifecycle.unsettle)
           await solus.threadList.setSettled(t.environmentId, t.id, false);
         check(current);
         if (lifecycle.pin || lifecycle.unpin) {

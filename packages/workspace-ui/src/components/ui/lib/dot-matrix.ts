@@ -41,7 +41,7 @@ export function planDotMarkSwitch(input: {
   return { kind: 'atCycleEnd', delayMs: msUntilCycleEnd(input.timelineMs, input.shownDurationMs) }
 }
 
-/** The box of the grid at the default dot size and gap: 13px, the box of the
+/** The box of the grid at the default dot size and gap: 13px, the drawn circle of the
  *  line glyphs. */
 export const DOT_MATRIX_BOX_PX = DOT_GRID_SIZE * DOT_SIZE_PX + (DOT_GRID_SIZE - 1) * DOT_GAP_PX
 

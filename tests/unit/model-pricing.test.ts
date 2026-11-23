@@ -23,11 +23,19 @@ describe('Codex token pricing', () => {
     })).toBeCloseTo(1.2125, 10)
   })
 
-  test('uses the long-context rate after the published input threshold', () => {
+  test('uses the long-context rate when a request passes the published input threshold', () => {
     expect(codexTokenCostUsd('gpt-5.5', {
       inputTokens: 272_001,
       outputTokens: 10_000,
-    })).toBeCloseTo(3.17001, 10)
+    }, 272_001)).toBeCloseTo(3.17001, 10)
+  })
+
+  test("a turn's many small requests are billed at the standard rate, however large their sum", () => {
+    // WHY: a Codex turn sums every request it made. One turn here read 22M
+    // cached tokens in requests of ~130K; at the long-context rate its cost doubled.
+    const usage = { inputTokens: 300_000, cacheReadTokens: 20_000_000, outputTokens: 40_000 }
+    expect(codexTokenCostUsd('gpt-6.2-astra', usage, 130_000)).toBeCloseTo((300_000 * 8 + 20_000_000 * 0.4 + 40_000 * 40) / 1_000_000, 10)
+    expect(codexTokenCostUsd('gpt-6.2-astra', usage)).toBeCloseTo(codexTokenCostUsd('gpt-6.2-astra', usage, 130_000)!, 10)
   })
 
   test('returns no cost for a model missing from the static catalog', () => {

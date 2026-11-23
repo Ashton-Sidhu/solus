@@ -128,6 +128,7 @@ const claudeTranscriptLineSchema = z.object({
   error: z.string().optional().catch(undefined),
   message: z.object({
     content: z.union([z.string(), z.array(claudeContentBlockSchema)]).optional(),
+    model: z.string().optional(),
   }).optional(),
   toolUseResult: z.object({
     isAsync: z.boolean().optional(),
@@ -236,6 +237,10 @@ export function claudeHistoryRows(line: string): SessionLoadMessage[] {
           thoughtIndex++
         }
         if (row) rows.push(row)
+      }
+      if (obj.uuid && !obj.isSidechain && !obj.parent_tool_use_id && !obj.error && obj.message.model !== '<synthetic>') {
+        const response = rows.findLast((row) => row.role === 'assistant')
+        if (response) response.forkPointId = obj.uuid
       }
       return rows
     }
@@ -375,6 +380,23 @@ function claudeHistoryRow(obj: z.infer<typeof claudeTranscriptLineSchema>): Sess
     }
   }
   return null
+}
+
+/** Offer the last visible response in each completed turn. A running turn's
+ * saved rows may already contain an assistant UUID, but it cannot be forked yet. */
+export function claudeForkResponses(messages: SessionLoadMessage[], latestTurnRunning: boolean): SessionLoadMessage[] {
+  let sawResponse = latestTurnRunning
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message.role === 'user' && !message.parentToolUseId) sawResponse = false
+    if (!message.forkPointId) continue
+    if (sawResponse) {
+      const { forkPointId: _forkPointId, ...row } = message
+      messages[index] = row
+    }
+    sawResponse = true
+  }
+  return messages
 }
 
 /** Find the assistant message immediately before the latest real user prompt.

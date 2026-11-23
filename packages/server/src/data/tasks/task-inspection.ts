@@ -1,6 +1,7 @@
 import { connectedSite } from '../../atlassian/api'
 import { linearConnection } from './providers/linear-api'
 import { taskKey } from '@solus/contracts/task-sources'
+import { withTaskProviderMetadata } from '@solus/contracts/task-data'
 import { serializeTaskWrite } from './task-writes'
 import {
   inspectLinearIssue,
@@ -12,111 +13,20 @@ import { parseTaskKey, type TaskSource } from '@solus/contracts/task-sources'
 import type {
   TaskExternalIssue,
   TaskProviderData,
-  TaskProviderEvent,
   TaskReactionContent,
   TaskTemplate
 } from '@solus/contracts/task-data'
 import { githubRun, jiraTransport, taskAdapters } from './providers/registry'
 import { githubIssueDetails, readIssueNode } from './providers/github'
+import {
+  GITHUB_ISSUE_METADATA_QUERY, githubIssueIdentity, githubIssueMetadata, githubReactionContent,
+  type GitHubIssueProviderSelection
+} from './providers/github-issue-metadata'
 import type { ProviderTaskDetails } from './providers/types'
 import { getTask } from './task'
 import type { RecordScope } from '../../admission/principal'
-import { emitChanged } from './task-store'
-
-const reactionContent = z.enum([
-  'THUMBS_UP',
-  'THUMBS_DOWN',
-  'LAUGH',
-  'HOORAY',
-  'CONFUSED',
-  'HEART',
-  'ROCKET',
-  'EYES'
-])
-const reactionGroup = z.object({
-  content: reactionContent,
-  viewerHasReacted: z.boolean(),
-  users: z.object({ totalCount: z.number() })
-})
-const reactionTarget = z.object({ id: z.string(), reactionGroups: z.array(reactionGroup) })
-const eventSchema = z.object({
-  __typename: z.string(),
-  id: z.string(),
-  createdAt: z.string(),
-  actor: z.object({ login: z.string() }).nullish(),
-  label: z.object({ name: z.string() }).nullish(),
-  assignee: z.object({ login: z.string().optional() }).nullish(),
-  previousTitle: z.string().nullish(),
-  currentTitle: z.string().nullish(),
-  milestoneTitle: z.string().nullish(),
-  commit: z.object({
-    abbreviatedOid: z.string(),
-    commitUrl: z.string(),
-    messageHeadline: z.string()
-  }).nullish(),
-  source: z
-    .object({
-      __typename: z.string(),
-      url: z.string().optional(),
-      number: z.number().optional(),
-      title: z.string().optional(),
-      state: z.string().optional(),
-      closingIssuesReferences: z.object({ nodes: z.array(z.object({ id: z.string() })) }).optional()
-    })
-    .nullish()
-})
-const githubInspectionSchema = z.object({
-  node: z
-    .object({
-      __typename: z.literal('Issue'),
-      id: z.string(),
-      author: z.object({ login: z.string() }).nullable(),
-      assignees: z.object({
-        nodes: z.array(z.object({ login: z.string(), avatarUrl: z.string() }))
-      }),
-      reactionGroups: z.array(reactionGroup),
-      comments: z.object({
-        nodes: z.array(reactionTarget),
-        pageInfo: z.object({ hasNextPage: z.boolean() })
-      }),
-      timelineItems: z.object({
-        pageInfo: z.object({ hasPreviousPage: z.boolean(), startCursor: z.string().nullable() }),
-        nodes: z.array(eventSchema.nullable())
-      })
-    })
-    .nullable()
-})
-
-const INSPECTION_QUERY = `query($id: ID!, $before: String) {
-  node(id: $id) { __typename ... on Issue {
-    id author { login } assignees(first: 100) { nodes { login avatarUrl } }
-    reactionGroups { content viewerHasReacted users { totalCount } }
-    comments(first: 100) { nodes { id reactionGroups { content viewerHasReacted users { totalCount } } } pageInfo { hasNextPage } }
-    timelineItems(last: 50, before: $before, itemTypes: [CLOSED_EVENT, REOPENED_EVENT, LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, RENAMED_TITLE_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT, LOCKED_EVENT, UNLOCKED_EVENT]) {
-      pageInfo { hasPreviousPage startCursor }
-      nodes {
-        __typename
-        ... on ClosedEvent { id createdAt actor { login } }
-        ... on ReopenedEvent { id createdAt actor { login } }
-        ... on LabeledEvent { id createdAt actor { login } label { name } }
-        ... on UnlabeledEvent { id createdAt actor { login } label { name } }
-        ... on AssignedEvent { id createdAt actor { login } assignee { ... on User { login } } }
-        ... on UnassignedEvent { id createdAt actor { login } assignee { ... on User { login } } }
-        ... on RenamedTitleEvent { id createdAt actor { login } previousTitle currentTitle }
-        ... on ReferencedEvent { id createdAt actor { login } commit { abbreviatedOid commitUrl messageHeadline } }
-        ... on MilestonedEvent { id createdAt actor { login } milestoneTitle }
-        ... on DemilestonedEvent { id createdAt actor { login } milestoneTitle }
-        ... on LockedEvent { id createdAt actor { login } }
-        ... on UnlockedEvent { id createdAt actor { login } }
-        ... on CrossReferencedEvent { id createdAt actor { login } source {
-          __typename
-          ... on Issue { url number title }
-          ... on PullRequest { url number title state closingIssuesReferences(first: 100) { nodes { id } } }
-        } }
-      }
-    }
-  } }
-}`
+import { emitChanged, taskHomeOf } from './task-store'
+import { readGithubIssueTimeline } from '../../providers/github/issue-timeline'
 
 const emptyInspection = (reason: string): TaskProviderData => ({
   author: null,
@@ -129,62 +39,32 @@ const emptyInspection = (reason: string): TaskProviderData => ({
   unavailableReason: reason
 })
 
-export async function inspectTask(taskId: string, cursor?: string): Promise<TaskProviderData> {
+export async function inspectTask(taskId: string, cursor?: string, timelineOnly = false): Promise<TaskProviderData> {
   const ref = parseTaskKey(taskId)
   if (!ref) throw new Error('Invalid task key.')
   if (cursor && cursor.length > 4096) throw new Error('Invalid history cursor.')
   if (ref.provider === 'linear') return inspectLinearIssue(ref.workspaceId, ref.id, cursor)
   if (ref.provider === 'github')
-    return githubRun('inspect_github_task', async ({ graphql }) => {
-      const answer = await graphql(INSPECTION_QUERY, { id: ref.id, before: cursor ?? null })
-      const kind = z.object({ node: z.object({ __typename: z.string() }).nullable() }).parse(answer)
-        .node?.__typename
-      if (kind && kind !== 'Issue')
-        return emptyInspection('Draft items do not expose provider history or reactions.')
-      const { node } = githubInspectionSchema.parse(answer)
-      if (!node) throw new Error('This issue is unavailable to your GitHub connection.')
-      const events = node.timelineItems.nodes.flatMap((event) => event ? githubIssueEvent(event) ?? [] : [])
-      return {
-        commentsTruncated: node.comments.pageInfo.hasNextPage,
-        author: node.author?.login ?? null,
-        assignees: node.assignees.nodes,
-        reactions: [
-          { id: node.id, reactionGroups: node.reactionGroups },
-          ...node.comments.nodes
-        ].flatMap((target) =>
-          target.reactionGroups.map((group) => ({
-            targetId: target.id,
-            content: group.content,
-            count: group.users.totalCount,
-            viewerHasReacted: group.viewerHasReacted
-          }))
-        ),
-        events,
-        historyCursor: node.timelineItems.pageInfo.hasPreviousPage
-          ? node.timelineItems.pageInfo.startCursor
-          : null,
-        pullRequests: node.timelineItems.nodes.flatMap((event) => {
-          const pr = event?.source
-          if (pr?.__typename !== 'PullRequest' || !pr.url || pr.number === undefined || !pr.title)
-            return []
-          return [
-            {
-              url: pr.url,
-              number: pr.number,
-              title: pr.title,
-              state:
-                pr.state === 'MERGED'
-                  ? ('merged' as const)
-                  : pr.state === 'CLOSED'
-                    ? ('closed' as const)
-                    : ('open' as const),
-              closesIssue:
-                pr.closingIssuesReferences?.nodes.some((issue) => issue.id === ref.id) ?? false
-            }
-          ]
-        }),
-        capabilities: { history: true, reactions: true, multipleAssignees: true, templates: true }
+    return githubRun('inspect_github_task', async ({ graphql, rest }) => {
+      const capabilities = { history: true, reactions: true, multipleAssignees: true, templates: true }
+      const home = cursor || timelineOnly ? await taskHomeOf(taskId) : null
+      if (home?.provider === 'github' && home.kind === 'issue') {
+        const timeline = await readGithubIssueTimeline(rest, taskId, home, cursor)
+        return { ...timeline, author: null, assignees: [], reactions: [], capabilities }
       }
+      const { node } = await graphql<{ node: GitHubIssueProviderSelection | null }>(GITHUB_ISSUE_METADATA_QUERY, { id: ref.id })
+      if (node && node.__typename !== 'Issue')
+        return emptyInspection('Draft items do not expose provider history or reactions.')
+      const identity = githubIssueIdentity.safeParse(node)
+      if (!node || !identity.success || !identity.data.repository || identity.data.number === undefined)
+        throw new Error('This issue is unavailable to your GitHub connection.')
+      const { repository, number } = identity.data
+      const [timeline, metadata] = await Promise.all([
+        readGithubIssueTimeline(rest, taskId, { owner: repository.owner.login, repo: repository.name, number }, cursor),
+        githubIssueMetadata(node, graphql)
+      ])
+      const data = { ...timeline, author: null, assignees: [], reactions: [], capabilities }
+      return metadata ? withTaskProviderMetadata(data, metadata) : data
     })
   const answer = await taskAdapters().provider(ref.provider).fetch(ref)
   if (answer.task.home.provider !== 'jira')
@@ -239,33 +119,6 @@ export async function inspectTask(taskId: string, cursor?: string): Promise<Task
   }
 }
 
-export function githubIssueEvent(event: z.infer<typeof eventSchema>): TaskProviderEvent | null {
-  const texts = {
-    ClosedEvent: 'closed the issue',
-    ReopenedEvent: 'reopened the issue',
-    LabeledEvent: `added label ${event.label?.name ?? ''}`,
-    UnlabeledEvent: `removed label ${event.label?.name ?? ''}`,
-    AssignedEvent: event.assignee?.login === event.actor?.login && event.actor?.login
-      ? 'self-assigned this issue' : `assigned ${event.assignee?.login ?? 'an account'}`,
-    UnassignedEvent: `unassigned ${event.assignee?.login ?? 'an account'}`,
-    RenamedTitleEvent: `changed the title from “${event.previousTitle ?? ''}” to “${event.currentTitle ?? ''}”`,
-    CrossReferencedEvent: event.source?.url ? 'referenced this issue from' : 'referenced this issue',
-    ReferencedEvent: 'added a commit that references this issue',
-    MilestonedEvent: `added this issue to milestone ${event.milestoneTitle ?? ''}`,
-    DemilestonedEvent: `removed this issue from milestone ${event.milestoneTitle ?? ''}`,
-    LockedEvent: 'locked the conversation',
-    UnlockedEvent: 'unlocked the conversation'
-  }
-  const text = Object.entries(texts).find(([kind]) => kind === event.__typename)?.[1]
-  if (!text) return null
-  const commit = event.commit
-  const source = event.source
-  const link = commit
-    ? { url: commit.commitUrl, label: `${commit.messageHeadline} (${commit.abbreviatedOid})` }
-    : source?.url && source.title ? { url: source.url, label: source.title } : undefined
-  return { id: event.id, at: Date.parse(event.createdAt), actor: event.actor?.login ?? null, text, ...(link && { link }) }
-}
-
 /** Verify a reaction target belongs to this issue before sending the mutation. */
 export function reactToTask(
   taskId: string,
@@ -285,13 +138,13 @@ async function reactToTaskNow(
   z.string().min(1).max(256).parse(targetId)
   z.boolean().parse(add)
   if (ref?.provider === 'linear') {
-    reactionContent.parse(content)
+    githubReactionContent.parse(content)
     await reactToLinearIssue(ref.workspaceId, ref.id, targetId, content, add)
     emitChanged(taskId)
     return
   }
   if (ref?.provider !== 'github') throw new Error('This provider does not support issue reactions.')
-  reactionContent.parse(content)
+  githubReactionContent.parse(content)
   await githubRun('react_to_github_task', async ({ graphql }) => {
     const { node } = z
       .object({
@@ -413,7 +266,7 @@ export async function resolveTaskUrl(
     resolved = await githubRun(
       'resolve_github_issue',
       async ({ graphql }) =>
-        githubIssueDetails(await readIssueNode(graphql, { owner, repo, number: Number(number) }, true))
+        githubIssueDetails(await readIssueNode(graphql, { owner, repo, number: Number(number) }, true), graphql)
     )
   } else if (url.hostname === 'linear.app') {
     const match = /^\/([^/]+)\/issue\/([A-Za-z][A-Za-z0-9]*-[1-9]\d*)(?:\/[^/]*)?\/?$/.exec(
@@ -437,8 +290,10 @@ export async function resolveTaskUrl(
       .fetch({ provider: 'jira', cloudId: site.cloudId, id: match[1] })
   }
   const taskId = taskKey(resolved.task.ref)
-  const details = getTask(scope, taskId, personKey, resolved)
-  if (detailsOnly) return { details: await details, readOnly: true }
-  const [task, inspection] = await Promise.all([details, inspectTask(taskId)])
-  return { details: task, inspection, readOnly: true }
+  const details = await getTask(scope, taskId, personKey, { resolved })
+  if (detailsOnly) return { details, readOnly: true }
+  const metadata = details.providerMetadata
+  const timeline = await inspectTask(taskId, undefined, !!metadata)
+  const inspection = metadata ? withTaskProviderMetadata(timeline, metadata) : timeline
+  return { details, inspection, readOnly: true }
 }
