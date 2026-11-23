@@ -58,8 +58,12 @@ vi.mock("./runtime", () => ({
     threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
     connections: { connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
+    // A started session's card reads its agent activity from the thread list.
+    threadList: { changes: { subscribe: () => () => {} }, facts: () => ({ agentActivity: new Map() }) },
   },
 }));
+// The dots read app state and screen focus; these tests are about what a card opens.
+vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
 }));
