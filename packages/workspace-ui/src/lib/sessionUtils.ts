@@ -1,18 +1,19 @@
 import {
-    MessageSquare as ChatTeardropIcon,
+    MessageCircleQuestionMark as InputIcon,
+    ShieldAlert as ApprovalIcon,
     FileText as FileTextIcon,
-    LoaderCircle as SpinnerGapIcon,
     CircleCheck as CheckCircleIcon,
     CircleX as XCircleIcon,
     Clock as ClockIcon,
-    Activity as ActivityIcon,
   } from "@lucide/svelte";
   import type { AttentionKind } from '@solus/contracts/attention-types'
+  import type { AgentActivity } from '@solus/contracts/agent-activity'
+  import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from '@solus/client-core/dot-marks'
+  import type { HostReadiness } from '@solus/client-core/host-readiness'
   import type { TaskSessionLink } from '@solus/contracts/task-types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
-import { hasAnswerableRequest } from '../contexts/workspace/session.utils'
 import { checkoutGit, checkoutPlace, runHost } from '../contexts/workspace/run-location'
 import { isInsideHostPath } from '@solus/contracts/host-path'
 
@@ -20,11 +21,28 @@ export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }
   | { kind: 'history'; meta: SessionMeta }
 
-export type StatusIcon = { component: any; color: string; spin: boolean }
+/** What a status shows (docs/plans/session-state-marks.md): a still line
+ *  glyph, or a dot mark that moves while the agent works. */
+export type StatusMarkVisual =
+  | { kind: 'glyph'; component: any; color: string }
+  | { kind: 'dot'; mark: DotMarkName; color: string }
 
-/** `limited` is a turn the provider's rate limit holds: it waits for the
- *  window to reopen, not for the user, and it does no work meanwhile. */
-export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' | 'running' | 'background' | 'limited' | null
+/** `awaiting` is a question that waits (Input); `approval` is a permission
+ *  request that waits. `starting` is a turn whose agent connects, before it
+ *  runs. `limited` is a turn the provider's rate limit holds: it waits for
+ *  the window to reopen, not for the user, and it does no work meanwhile. */
+export type AttentionState = 'awaiting' | 'approval' | 'awaiting_plan' | 'error' | 'unread' | 'starting' | 'running' | 'background' | 'limited' | null
+
+/** What an open tab waits on: a permission request is Approval, a question is
+ *  Input. The host shows the newest of the two; a tab knows no order between
+ *  its two queues, so a question that waits beside a permission request
+ *  shows Input. Null when nothing can be answered: a closed request still
+ *  shows its card, but nobody can answer it. */
+function waitingAttention(sess: Session): 'approval' | 'awaiting' | null {
+  if (sess.questionQueue.some((request) => !request.expired)) return 'awaiting'
+  if (sess.permissionQueue.some((request) => !request.expired)) return 'approval'
+  return null
+}
 
 /** True when `path` is `root` itself or nested beneath it (prefix match on
  *  path segments). Used to scope plans/works to the projects open in the
@@ -50,9 +68,9 @@ function hasPendingPlanQuestion(plans: Record<string, Plan>): boolean {
 
 export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string, Plan>): AttentionState {
   if (sess.status === 'awaiting_plan') return 'awaiting_plan'
-  if (sess.status === 'awaiting_input') return 'awaiting'
-  // A closed request still shows its card, but nobody can answer it: it does not ask for attention.
-  if (hasAnswerableRequest(sess)) return 'awaiting'
+  if (sess.status === 'awaiting_input') return waitingAttention(sess) ?? 'awaiting'
+  const waiting = waitingAttention(sess)
+  if (waiting) return waiting
   // This runs once per open tab inside hot derived chains (sidebar, tab strip) on
   // every stream tick, so avoid the O(messages) scan unless a relevant plan
   // actually exists. The cheap O(plans) pre-check short-circuits the common case
@@ -71,7 +89,8 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
     }
   }
   if (sess.status === 'rate_limited') return 'limited'
-  if (sess.status === 'running' || sess.status === 'connecting') return 'running'
+  if (sess.status === 'connecting') return 'starting'
+  if (sess.status === 'running') return 'running'
   return settledAttention(sess.status, tab.hasUnread)
 }
 
@@ -111,24 +130,61 @@ export function formatLimitReset(resetsAt: number): string {
   return `resets ${formatResetClock(resetsAt)}`
 }
 
-/** `limitResetsAt` (epoch ms) adds the reset time to a limited state's label
+/** What a live row says beside its attention: the agent activity of a
+ *  running turn, and whether the row's host is not reachable now. */
+export interface LiveMarkFacts {
+  activity?: AgentActivity | null
+  isHostOffline?: boolean
+}
+
+/** The agent activity of a running turn as a row's label says it. */
+const ACTIVITY_LABELS = {
+  think: 'the agent is thinking',
+  read: 'the agent is reading files',
+  edit: 'the agent is editing files',
+  run: 'the agent is running a command',
+  search: 'the agent is searching',
+  reply: 'the agent is writing a reply',
+  other: 'the agent is working',
+} satisfies Record<AgentActivity, string>
+
+/** The host is not reachable now, so a live state it reported can be old.
+ *  `checking` is a host this client has not reached yet: it has reported no
+ *  live state to doubt. */
+export function isHostUnreachable(readiness: HostReadiness | null | undefined): boolean {
+  return readiness === 'reconnecting' || readiness === 'unreachable' || readiness === 'refused' || readiness === 'gone'
+}
+
+/** True for a state that a host reports while the agent works. A row whose
+ *  host is not reachable cannot say that it is still true. */
+export function isLiveAttention(state: AttentionState): boolean {
+  return state === 'starting' || state === 'running' || state === 'background'
+}
+
+/** The full sentence of a state, for the tooltip and `aria-label`. A row
+ *  shows a mark or one word; this sentence is never replaced by it.
+ *  `limitResetsAt` (epoch ms) adds the reset time to a limited state's label
  *  when it is known. */
-export function attentionLabel(state: AttentionState, limitResetsAt?: number | null): string {
-  if (state === 'awaiting') return 'needs input'
+export function attentionLabel(state: AttentionState, limitResetsAt?: number | null, live: LiveMarkFacts = {}): string {
+  if (live.isHostOffline && isLiveAttention(state)) return 'the host is offline, so this state can be old'
+  if (state === 'awaiting') return 'needs input: the agent asks a question'
+  if (state === 'approval') return 'needs approval: the agent asks for permission'
   if (state === 'awaiting_plan') return 'waiting for plan'
   if (state === 'limited') return limitResetsAt ? `rate limited, ${formatLimitReset(limitResetsAt)}` : 'rate limited'
   if (state === 'error') return 'error'
   if (state === 'unread') return 'finished'
+  if (state === 'starting') return 'the agent is starting'
+  if (state === 'running') return ACTIVITY_LABELS[live.activity ?? 'other']
   if (state === 'background') return 'background task running'
   return ''
 }
 
 /** The sidebar state a host attention kind shows as, so a notification about a
- *  session wears the same glyph and color as that session's sidebar row. The
- *  sidebar draws a permission and a question with one "needs input" glyph. */
+ *  session wears the same glyph and color as that session's sidebar row. */
 export function attentionStateForKind(kind: AttentionKind): AttentionState {
   switch (kind) {
     case 'needs_approval':
+      return 'approval'
     case 'question':
       return 'awaiting'
     case 'failed':
@@ -138,23 +194,31 @@ export function attentionStateForKind(kind: AttentionKind): AttentionState {
   }
 }
 
-export function getAttentionIcon(state: AttentionState): StatusIcon | null {
-  if (state === 'awaiting')
-    return { component: ChatTeardropIcon, color: 'var(--solus-status-permission)', spin: false }
-  if (state === 'awaiting_plan')
-    return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
+/** The dot mark of a live state: the agent activity of a running turn, the
+ *  Working sweep when the activity is not known (after a reconnect), and the
+ *  muted ripple when the host is not reachable. Null for a state that is not
+ *  live. */
+export function liveDotMark(state: AttentionState, live: LiveMarkFacts = {}): DotMarkName | null {
+  if (!isLiveAttention(state)) return null
+  if (live.isHostOffline) return 'offline'
+  if (state === 'starting') return 'starting'
+  if (state === 'background') return 'background'
+  return live.activity ? DOT_MARK_FOR_ACTIVITY[live.activity] : 'working'
+}
+
+/** The mark and colour of a state, on the surfaces that draw one status mark
+ *  (breadcrumb, switcher, previews). Colours are the ones the sidebar spends. */
+export function getAttentionMark(state: AttentionState, live: LiveMarkFacts = {}): StatusMarkVisual | null {
+  const dot = liveDotMark(state, live)
+  if (dot) return { kind: 'dot', mark: dot, color: dot === 'offline' ? 'var(--muted-foreground)' : 'var(--solus-status-running-icon)' }
+  if (state === 'awaiting') return { kind: 'glyph', component: InputIcon, color: 'var(--primary)' }
+  if (state === 'approval') return { kind: 'glyph', component: ApprovalIcon, color: 'var(--primary)' }
+  if (state === 'awaiting_plan') return { kind: 'glyph', component: FileTextIcon, color: 'var(--primary)' }
   // Amber, not the terracotta of a request: the provider holds this turn, and
   // nothing waits on the user. A clock marks the wait for the limit to reset.
-  if (state === 'limited')
-    return { component: ClockIcon, color: 'var(--warning)', spin: false }
-  if (state === 'error')
-    return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
-  if (state === 'unread')
-    return { component: CheckCircleIcon, color: 'var(--solus-status-complete)', spin: false }
-  if (state === 'running')
-    return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
-  if (state === 'background')
-    return { component: ActivityIcon, color: 'var(--solus-status-running-icon)', spin: false }
+  if (state === 'limited') return { kind: 'glyph', component: ClockIcon, color: 'var(--warning)' }
+  if (state === 'error') return { kind: 'glyph', component: XCircleIcon, color: 'var(--destructive)' }
+  if (state === 'unread') return { kind: 'glyph', component: CheckCircleIcon, color: 'var(--solus-status-complete)' }
   return null
 }
 
@@ -252,9 +316,9 @@ export const STATUS_GROUP_LABELS = {
 
 export function getStatusGroupKey(sess: Session, tab: Tab, plans?: Record<string, Plan>): StatusGroupKey {
   const attention = getAttentionState(sess, tab, plans)
-  if (attention === 'awaiting' || attention === 'awaiting_plan') return 'waiting'
+  if (attention === 'awaiting' || attention === 'approval' || attention === 'awaiting_plan') return 'waiting'
   if (attention === 'limited') return 'rate-limited'
-  if (attention === 'running') return 'running'
+  if (attention === 'running' || attention === 'starting') return 'running'
   if (attention === 'error') return 'error'
   // The turn is over, so it groups with the finished sessions.
   if (sess.status === 'completed' || sess.status === 'background') return 'completed'

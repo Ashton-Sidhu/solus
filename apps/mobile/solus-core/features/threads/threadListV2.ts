@@ -1,4 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
+import type { AgentActivity } from "@solus/contracts/agent-activity";
 import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 import type { MenuAction } from "@react-native-menu/menu";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
@@ -575,6 +576,10 @@ export interface ThreadListV2Facts {
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
   /** Thread keys whose last live status said a question waits on the person. */
   readonly pendingQuestions?: ReadonlySet<string>;
+  /** Thread keys whose last live status waits on a permission request, not a question. */
+  readonly awaitingApprovals?: ReadonlySet<string>;
+  /** What the agent does now in a running turn, by thread key. Live only. */
+  readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
   /** When the live status began, by thread key: the host's time of the
       change into it. */
   readonly statusSince?: ReadonlyMap<string, number>;

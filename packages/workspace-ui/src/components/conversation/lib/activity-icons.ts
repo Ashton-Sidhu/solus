@@ -8,7 +8,7 @@ import {
     Wrench as WrenchIcon,
   } from "@lucide/svelte";
   import type { Component } from 'svelte'
-import type { ActivityKind } from './activity-summary'
+import type { AgentActivityKind } from '@solus/contracts/agent-activity'
 
 /** One glyph per kind, stacked in the order the kinds first happened. */
 export const KIND_ICONS = {
@@ -19,4 +19,4 @@ export const KIND_ICONS = {
   edit: PencilSimpleIcon,
   run: TerminalIcon,
   other: WrenchIcon,
-} satisfies Record<ActivityKind, Component>
+} satisfies Record<AgentActivityKind, Component>

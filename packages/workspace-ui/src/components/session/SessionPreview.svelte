@@ -10,7 +10,7 @@
     type HitWindowMessage,
     type PreviewExtraction,
   } from "../../lib/sessionPreviewMessages";
-  import type { AttentionState } from "../../lib/sessionUtils";
+  import type { AttentionState, LiveMarkFacts } from "../../lib/sessionUtils";
   import { highlightWordRuns } from "../../lib/searchHighlight";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -47,6 +47,8 @@
     query?: string;
     onContinue?: () => void;
     attention?: AttentionState;
+    /** The agent activity and the host's reach, for a live state mark. */
+    live?: LiveMarkFacts;
   }
   let {
     preview,
@@ -59,6 +61,7 @@
     query = "",
     onContinue,
     attention,
+    live,
   }: Props = $props();
 
   const hasSession = $derived(!!preview || !!hitWindow || loading);
@@ -142,7 +145,7 @@
   {#if hasSession && title}
     <div class="flex min-w-0 flex-shrink-0 items-center gap-3 px-[1.125rem] pb-2.5 pt-3">
       {#if attention !== undefined}
-        <SessionStatusGlyph {attention} class="max-md:hidden" />
+        <SessionStatusGlyph {attention} {live} class="max-md:hidden" />
       {/if}
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div

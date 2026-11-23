@@ -1,5 +1,6 @@
 <script lang="ts">
   import ActivityRow from "./ActivityRow.svelte";
+  import DotMatrix from "../ui/DotMatrix.svelte";
   import BackgroundStopButton from "./BackgroundStopButton.svelte";
   import type { BackgroundWait } from "./lib/activity-summary";
 
@@ -10,8 +11,8 @@
    * server, its Monitor) still runs (`showsBackgroundWork`). The turn's own summary row
    * sits above a long answer, where nobody looks for what is still going on.
    *
-   * It takes the live row's spinner and shimmer: the work is still running,
-   * even though the turn is finished.
+   * It takes the Running dot mark and the live row's shimmer: the work is
+   * still running, even though the turn is finished.
    *
    * Its Stop ends only the background work. The session Stop interrupts a turn,
    * and this turn already finished, so it would report a stop that never
@@ -57,7 +58,7 @@
   testid="background-work-row"
 >
   {#snippet glyph()}
-    <span class="activity-spinner" aria-hidden="true"></span>
+    <span class="flex items-center text-chart-5"><DotMatrix mark="running" /></span>
   {/snippet}
   {#snippet label()}<span class="activity-shimmer">{wait.label}</span>{/snippet}
 </ActivityRow>

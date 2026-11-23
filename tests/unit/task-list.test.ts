@@ -12,7 +12,7 @@ import {
   formatCompletedAge,
   formatWakeIn,
   filterSidebarTasks,
-  hasGlyph,
+  hasStatusMark,
   shouldEmphasizeTitle,
   shouldLeadTitle,
   prChipFor,
@@ -428,14 +428,16 @@ describe('projectFilterChoices', () => {
   })
 })
 
-describe('hasGlyph', () => {
-  it('spends a glyph only on states that want a person', () => {
-    // Work in flight is not an alert: running reports elapsed time instead, and
-    // idle reports nothing at all.
-    expect(hasGlyph('question')).toBe(true)
-    expect(hasGlyph('error')).toBe(true)
-    expect(hasGlyph('running')).toBe(false)
-    expect(hasGlyph('idle')).toBe(false)
+describe('hasStatusMark', () => {
+  it('lets only the states that want a person, and background, outrank unread output', () => {
+    // Work in flight is not an alert: a running or starting turn shows its
+    // dots only when nothing is unread, and idle reports nothing at all.
+    expect(hasStatusMark('question')).toBe(true)
+    expect(hasStatusMark('approval')).toBe(true)
+    expect(hasStatusMark('error')).toBe(true)
+    expect(hasStatusMark('starting')).toBe(false)
+    expect(hasStatusMark('running')).toBe(false)
+    expect(hasStatusMark('idle')).toBe(false)
   })
 })
 
@@ -642,10 +644,17 @@ describe('taskStatusFor', () => {
 
   it('maps every attention state that wants a person', () => {
     expect(taskStatusFor('awaiting')).toBe('question')
+    expect(taskStatusFor('approval')).toBe('approval')
     expect(taskStatusFor('awaiting_plan')).toBe('plan')
     expect(taskStatusFor('error')).toBe('error')
     expect(taskStatusFor('limited')).toBe('limit')
     expect(taskStatusFor('running')).toBe('running')
+  })
+
+  it('keeps a turn that connects apart from one that runs', () => {
+    // Starting has its own mark (the S drawn backward) and no clock yet.
+    expect(taskStatusFor('starting')).toBe('starting')
+    expect(taskStatusFor('starting', true)).toBe('starting')
   })
 
   it('tells a background task apart from a running agent, without asking for the user', () => {
@@ -653,7 +662,7 @@ describe('taskStatusFor', () => {
     // forever. It has its own glyph, but it wants nothing from the user.
     expect(taskStatusFor('background')).toBe('background')
     expect(taskStatusFor('background', true)).toBe('background')
-    expect(hasGlyph('background')).toBe(true)
+    expect(hasStatusMark('background')).toBe(true)
     expect(shouldEmphasizeTitle('background', false, false)).toBe(false)
   })
 
@@ -674,7 +683,7 @@ describe('title emphasis', () => {
     // selection and as the states that are actually blocked on a person — so a
     // heavier row meant three unrelated things and ranked none of them. The
     // margin dot carries unread now, and weight is back to one meaning per row.
-    expect(hasGlyph('idle')).toBe(false)
+    expect(hasStatusMark('idle')).toBe(false)
     expect(shouldEmphasizeTitle('idle', true, false)).toBe(false)
   })
 
@@ -781,7 +790,7 @@ describe('open sessions the picker offers', () => {
 describe('done rows', () => {
   it('spends no glyph, so the row falls back to standing information', () => {
     // Completed is the quietest row in the column: it has nothing to ask for.
-    expect(hasGlyph('done')).toBe(false)
+    expect(hasStatusMark('done')).toBe(false)
   })
 })
 
@@ -897,13 +906,13 @@ describe('resolveSidebarRowMark', () => {
         unread: true,
         runStartedAt: base.now - 5_000,
       }),
-    ).toEqual({ kind: 'unread' })
+    ).toEqual({ kind: 'glyph', status: 'finished' })
   })
 
-  it('dates the turn when there is exactly one to date', () => {
+  it('dates the turn beside its dot mark when there is exactly one to date', () => {
     expect(
       resolveSidebarRowMark({ ...base, status: 'running', runStartedAt: base.now - 41_000 }),
-    ).toEqual({ kind: 'elapsed', label: '41s' })
+    ).toEqual({ kind: 'dot', mark: 'working', elapsed: '41s' })
   })
 
   it('shows motion instead of a number when no single turn can be dated', () => {
@@ -916,9 +925,59 @@ describe('resolveSidebarRowMark', () => {
         runStartedAt: base.now - 41_000,
         manyRunning: true,
       }),
-    ).toEqual({ kind: 'spinner' })
+    ).toEqual({ kind: 'dot', mark: 'working', elapsed: null })
     expect(resolveSidebarRowMark({ ...base, status: 'running', runStartedAt: 0 }))
-      .toEqual({ kind: 'spinner' })
+      .toEqual({ kind: 'dot', mark: 'working', elapsed: null })
+  })
+
+  it('draws the agent activity of a running turn, and Working when it is not known', () => {
+    // The five core steps spell S·O·L·U·S. After a reconnect the activity is
+    // not known until the next event, so the row shows the Working sweep.
+    const running = { ...base, status: 'running' as const, runStartedAt: base.now - 2_000 }
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'think' } })).toEqual({ kind: 'dot', mark: 'thinking', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'read' } })).toEqual({ kind: 'dot', mark: 'reading', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'edit' } })).toEqual({ kind: 'dot', mark: 'editing', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'run' } })).toEqual({ kind: 'dot', mark: 'running', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'search' } })).toEqual({ kind: 'dot', mark: 'searching', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'reply' } })).toEqual({ kind: 'dot', mark: 'writing', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: 'other' } })).toEqual({ kind: 'dot', mark: 'working', elapsed: '2s' })
+    expect(resolveSidebarRowMark({ ...running, live: { activity: null } })).toEqual({ kind: 'dot', mark: 'working', elapsed: '2s' })
+  })
+
+  it('shows Starting and Background with no clock', () => {
+    // Neither has a turn to date: one has not begun, the other has ended.
+    expect(resolveSidebarRowMark({ ...base, status: 'starting', runStartedAt: base.now - 2_000 }))
+      .toEqual({ kind: 'dot', mark: 'starting', elapsed: null })
+    expect(resolveSidebarRowMark({ ...base, status: 'background' }))
+      .toEqual({ kind: 'dot', mark: 'background', elapsed: null })
+  })
+
+  it('shows Offline, with no clock, for a live state whose host is not reachable', () => {
+    // The state can be old, so the row says so instead of claiming the work goes on.
+    const offline = { live: { isHostOffline: true, activity: 'edit' as const } }
+    expect(resolveSidebarRowMark({ ...base, status: 'running', runStartedAt: base.now - 2_000, ...offline }))
+      .toEqual({ kind: 'dot', mark: 'offline', elapsed: null })
+    expect(resolveSidebarRowMark({ ...base, status: 'starting', ...offline }))
+      .toEqual({ kind: 'dot', mark: 'offline', elapsed: null })
+    expect(resolveSidebarRowMark({ ...base, status: 'background', ...offline }))
+      .toEqual({ kind: 'dot', mark: 'offline', elapsed: null })
+    // A state that wants a person stays what it is: the host said it waits.
+    expect(resolveSidebarRowMark({ ...base, status: 'approval', ...offline }))
+      .toEqual({ kind: 'glyph', status: 'approval' })
+  })
+
+  it('gives Input, Approval, Limited, Plan, and Failed their line glyphs over unread output and work', () => {
+    for (const status of ['question', 'approval', 'limit', 'plan', 'error'] as const) {
+      expect(resolveSidebarRowMark({ ...base, status, unread: true, runStartedAt: base.now - 1_000 }))
+        .toEqual({ kind: 'glyph', status })
+    }
+  })
+
+  it('shows the Done check for finished work that is not read', () => {
+    expect(resolveSidebarRowMark({ ...base, status: 'idle', unread: true }))
+      .toEqual({ kind: 'glyph', status: 'finished' })
+    expect(resolveSidebarRowMark({ ...base, status: 'starting', unread: true }))
+      .toEqual({ kind: 'glyph', status: 'finished' })
   })
 
 

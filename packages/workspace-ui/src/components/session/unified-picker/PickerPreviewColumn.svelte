@@ -4,7 +4,7 @@
   import { readSessionMeta } from "@solus/client-core/session-meta";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
   import type { SessionMeta } from "@solus/contracts/types";
-  import { getWorkspaceContext } from "../../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { createSessionPreviewStore } from "../../../lib/preview.svelte";
   import { boundHitWindow } from "../../../lib/sessionPreviewMessages";
@@ -66,6 +66,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
   const preview = createSessionPreviewStore();
   onDestroy(() => preview.reset());
 
@@ -169,6 +170,7 @@
         byline={entry.task.title}
         timeAgo={relativeTime(pickerSessionActivity(entry))}
         attention={entry.session.attention}
+        live={sidebarStore.liveFactsOf(entry.session, entry.session.attention)}
         {query}
       />
     {:else if entry?.kind === "task"}

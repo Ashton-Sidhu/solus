@@ -215,21 +215,21 @@ ends. A failed setup card stays for its recovery actions.
 
 Sub-agents and the sessions another agent starts follow T3 Code's subagent
 link: one row (`AgentLinkRow`) on the transcript card's surface (its fill,
-radius, and quiet ring). The row has a 24px round provider avatar with a
-status dot, the title
-(12px, 500), a detail line (11px, muted), the elapsed time (10px, mono), and a
-chevron when there is something to open. The row takes a 4% wash on hover.
+radius, and quiet ring). The row has a 24px round provider avatar, the title
+(12px, 500), a detail line (11px, muted), the state mark and the elapsed time
+(10px, mono), and a chevron when there is something to open. The row takes a 4% wash on hover.
 The avatar uses `ProviderMark` (transparent), as T3 Code does: one quiet tile
 for every provider, and the mark carries the identity. Claude is in its brand
 colour and Codex is in the text colour. The tile fill is opaque: 2% foreground
 on the card in light mode and 3% white on the card in dark mode.
 
-- **Dot.** Blue (`--chart-5`) for every in-flight state, sage (`--chart-3`)
-  when done, destructive when failed, and muted when stopped or closed.
+- **State mark.** The sidebar's state marks (`docs/plans/session-state-marks.md`,
+  "Agent rows"), before the elapsed time. Dots move while the agent works and
+  keep the time beside them; Input, Approval, and Limited show a glyph and a
+  word, and no time; Done and Failed show the glyph and the time.
 - **Status word.** `Running`, `Queued`, `Starting`, `Waiting`, `Completed`,
-  `Failed`, or `Stopped`. It is the detail line when there is no detail.
-  When there is a detail and the agent is not done, the word also shows
-  after the title, at 10px.
+  `Failed`, or `Stopped`. It is the detail line when there is no detail, and
+  the row's `aria-label` says it.
 - **Detail.** For a sub-agent: the step in flight and its target while it runs,
   the first line of its answer when it returns, or the reason it failed. For
   a session: the first line of the reply, or why it ended (`Never started`,

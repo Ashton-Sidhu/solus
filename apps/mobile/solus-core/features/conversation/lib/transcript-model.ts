@@ -1,3 +1,4 @@
+import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-activity'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
@@ -88,6 +89,10 @@ export class TranscriptModel {
   status: SessionStatus = 'idle'
   /** Background work of the session runs on its host, held or not (`background_work`). */
   backgroundWorkRunning = false
+  /** What the agent does now, by the host's rules (`session-activity.ts`). A
+   *  provider sub-agent's own transcript is where the client reads it: the
+   *  host sends `session.activityChanged` only for top-level work. Live only. */
+  activity: AgentActivity | null = null
   permissions: readonly PendingPermission[] = []
   questions: readonly PendingQuestion[] = []
   rateLimit: RateLimitInfo | null = null
@@ -282,6 +287,11 @@ export class TranscriptModel {
     if ('parentToolUseId' in event && event.parentToolUseId) {
       const { parentToolUseId, ...childEvent } = event
       this.childTranscript(parentToolUseId, (child) => child.apply(childEvent))
+      return
+    }
+    this.trackActivity(event)
+    if (event.type === 'background_task_progress') {
+      this.applyBackgroundProgress(event)
       return
     }
     if (event.type === 'browser_snapshot_captured') {
@@ -563,6 +573,29 @@ export class TranscriptModel {
         return
       }
     }
+  }
+
+  private trackActivity(event: WireNormalizedEvent): void {
+    if (event.type === 'thinking') {
+      if (event.state !== 'stop') this.activity = 'think'
+    } else if (event.type === 'tool_call') {
+      // A question tool is the Input state, not an activity: it changes nothing.
+      this.activity = agentActivityOfTool(event.toolName) ?? this.activity
+    } else if (event.type === 'text_chunk') {
+      this.activity = 'reply'
+    } else if (event.type === 'turn_settled') {
+      this.activity = null
+    }
+  }
+
+  /** A background sub-agent reports its last tool on the call that started it. */
+  private applyBackgroundProgress(event: Extract<WireNormalizedEvent, { type: 'background_task_progress' }>): void {
+    const { toolUseId, lastToolName } = event
+    if (!toolUseId || !lastToolName) return
+    const id = this.findTool(toolUseId, true)
+    const item = id ? this.items.get(id) : undefined
+    if (!id || item?.kind !== 'tool' || !item.subagent || item.lastToolName === lastToolName) return
+    this.replace({ ...item, lastToolName }, id)
   }
 
   hasRunningTool(toolId: string): boolean {

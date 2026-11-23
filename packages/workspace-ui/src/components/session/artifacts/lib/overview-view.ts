@@ -1,8 +1,8 @@
 import type { RailAgentRow } from '../../../project-panel/lib/rail-agents'
-import type { AgentLinkTone } from '../../../conversation/lib/agent-link'
+import type { AgentStanding } from '../../../conversation/lib/agent-link'
 
 /** A group of the Agents card: how its agents stand, or that their sessions are snoozed. */
-export type AgentGroupKey = AgentLinkTone | 'snoozed'
+export type AgentGroupKey = AgentStanding | 'snoozed'
 
 /** One group of the Agents card: its rows, newest first. */
 export interface AgentGroup {
@@ -17,7 +17,7 @@ const AGENT_GROUPS: readonly { key: AgentGroupKey; label: string }[] = [
   { key: 'live', label: 'Working' },
   { key: 'done', label: 'Done' },
   { key: 'failed', label: 'Failed' },
-  { key: 'idle', label: 'Stopped' },
+  { key: 'stopped', label: 'Stopped' },
   { key: 'snoozed', label: 'Snoozed' },
 ]
 
@@ -27,7 +27,7 @@ const AGENT_GROUPS: readonly { key: AgentGroupKey; label: string }[] = [
  * group with no rows is left out.
  */
 export function agentGroups(rows: readonly RailAgentRow[], isSnoozed: (row: RailAgentRow) => boolean): AgentGroup[] {
-  const keyOf = (row: RailAgentRow): AgentGroupKey => (isSnoozed(row) ? 'snoozed' : row.tone)
+  const keyOf = (row: RailAgentRow): AgentGroupKey => (isSnoozed(row) ? 'snoozed' : row.standing)
   return AGENT_GROUPS.map(({ key, label }) => ({ key, label, rows: rows.filter((row) => keyOf(row) === key) })).filter(
     (group) => group.rows.length > 0,
   )

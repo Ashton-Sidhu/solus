@@ -1,6 +1,8 @@
 import { cutText } from '@solus/contracts/text-cut'
 import { MODEL_PROFILES, REASONING_EFFORT_LABELS, modelLabelFor, type AgentId, type Message } from '@solus/contracts/types'
+import type { DotMarkName } from '@solus/client-core/dot-marks'
 import { liveToolStep } from './activity-summary'
+import { subagentDotMark } from './agent-link'
 import { intentInProgress } from './activity-phrase'
 import { parseSubagentInput } from './subagent'
 import { z } from 'zod'
@@ -17,6 +19,8 @@ export interface SubagentRow {
   /** The surface the agent owns — its own description, never a number. */
   name: string
   state: SubagentRowState
+  /** The dot mark of the step a running agent is on; null once it settled. */
+  liveMark: DotMarkName | null
   /** Participle while live, the agent's result as a fact once it lands. */
   activity: string
   /** What the live step is on. Mono, truncates, empty once settled. */
@@ -120,6 +124,7 @@ export function subagentRow(
     id: message.id,
     name: subagentName(message),
     state,
+    liveMark: state === 'running' ? subagentDotMark(message) : null,
     activity: live ? live.activity : resultSummary(message, subs),
     target: live?.target ?? '',
     ...subagentIdentity(message, fallback),

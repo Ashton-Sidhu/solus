@@ -26,6 +26,7 @@
     attemptServerId,
     sessionTitle,
     type AttentionState,
+    type LiveMarkFacts,
   } from "../../../lib/sessionUtils";
   import { taskSessionRow, type TaskSessionHost } from "./lib/task-page";
   import { runHost } from "../../../contexts/workspace/run-location";
@@ -65,6 +66,12 @@
   // knows only whether it runs.
   const sidebarStore = session.workspace ? getSessionSidebarStore() : null;
   const now = Date.now();
+
+  /** The agent activity and the host's reach, for a live state mark. The
+   *  console has no sidebar to ask: its running rows show Working. */
+  function liveFactsFor(sessionId: string, serverId: string | null, attention: AttentionState): LiveMarkFacts {
+    return sidebarStore?.liveFactsOf({ sessionId, serverId }, attention) ?? {};
+  }
 
   /** Six rows, then "Show all", as the Linked list does. The lead is pinned
    *  first, so the cap never hides it. */
@@ -113,6 +120,7 @@
       const isReachable = !!host && !("unknown" in host);
       const attention: AttentionState =
         sidebarStore?.sessionAttention(serverId, link.sessionId) ?? (running ? "running" : null);
+      const live = liveFactsFor(link.sessionId, serverId, attention);
       return {
         ...taskSessionRow(
           link,
@@ -133,6 +141,7 @@
         isReachable,
         stopServerId,
         attention,
+        live,
         people,
         activeUserId: activeTurnAuthorOf(people),
       };
@@ -196,7 +205,7 @@
         >
           <div class="flex items-start gap-2.5 px-[13px] pt-[13px] pb-3">
             <span class="flex size-[26px] shrink-0 items-center justify-center rounded-lg bg-[var(--wash-2)]">
-              <SessionStatusGlyph attention={row.attention} />
+              <SessionStatusGlyph attention={row.attention} live={row.live} />
             </span>
             <span class="flex min-w-0 flex-1 flex-col gap-1">
               <span class="leading-[1.35] font-medium text-pretty">{row.title}</span>
@@ -350,7 +359,7 @@
             }
           }}
         >
-          <SessionStatusGlyph attention={row.attention} />
+          <SessionStatusGlyph attention={row.attention} live={row.live} />
 
           <span class="flex min-w-0 flex-1 items-center gap-2">
             <span class="min-w-0 truncate" title={row.title}>{row.title}</span>

@@ -25,9 +25,10 @@ export interface SidebarFolder {
   hasHiddenAttention: boolean
 }
 
-/** A row that wants the person: unread output, a question, a plan, or an error. */
+/** A row that wants the person: unread output, a question, a permission
+ *  request, a plan, or an error. */
 export function needsAttention(row: Pick<SidebarTask, 'unread' | 'status'>): boolean {
-  return row.unread || row.status === 'question' || row.status === 'plan' || row.status === 'error'
+  return row.unread || row.status === 'question' || row.status === 'approval' || row.status === 'plan' || row.status === 'error'
 }
 
 /**

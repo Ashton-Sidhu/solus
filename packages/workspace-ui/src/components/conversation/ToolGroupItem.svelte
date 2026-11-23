@@ -21,9 +21,9 @@
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { KIND_ICONS } from "./lib/activity-icons";
+  import { agentActivityKind } from "@solus/contracts/agent-activity";
   import {
     activityDurationMs,
-    activityKind,
     activityKinds,
     activitySummary,
     failedToolLabel,
@@ -308,7 +308,7 @@
         {#if step.role === "tool"}
           {@const parsed = parsedInput(step)}
           {@const endMs = toolEndMs(step)}
-          {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
+          {@const Glyph = KIND_ICONS[agentActivityKind(step.toolName)]}
           {@const failed = step.toolStatus === "error"}
           {@const open = openLines.has(step.id)}
           <!-- An open call shows its input as code, parsed only while open. A

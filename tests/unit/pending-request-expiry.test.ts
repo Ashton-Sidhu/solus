@@ -214,9 +214,11 @@ describe('a client after a request expires', () => {
   }
 
   test('the sidebar does not hold a session in awaiting for a request nobody can answer', () => {
-    expect(getAttentionState(session([permission], []), tab)).toBe('awaiting')
+    expect(getAttentionState(session([permission], []), tab)).toBe('approval')
     expect(getAttentionState(session([], [question]), tab)).toBe('awaiting')
-    expect(getAttentionState(session([{ ...permission, expired: 'run_ended' }], [{ ...question, expired: 'closed' }]), tab)).not.toBe('awaiting')
+    const closed = getAttentionState(session([{ ...permission, expired: 'run_ended' }], [{ ...question, expired: 'closed' }]), tab)
+    expect(closed).not.toBe('awaiting')
+    expect(closed).not.toBe('approval')
   })
 
   test('mobile keeps the closed card to say why, and drops it when the next turn starts', () => {

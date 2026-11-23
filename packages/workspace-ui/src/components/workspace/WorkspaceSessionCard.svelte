@@ -51,7 +51,10 @@
   oncontextmenu={onContextMenu}
 >
   <span class="flex h-4 min-w-0 items-center gap-1.5 text-muted-foreground">
-    {#if item.runnerOffline}
+    {#if item.runnerOffline && attention === "running"}
+      <!-- The runner is away while the card says it runs: the state can be old. -->
+      <SessionStatusGlyph {attention} live={{ isHostOffline: true }} />
+    {:else if item.runnerOffline}
       <OfflineIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
     {:else}
       <SessionStatusGlyph {attention} />

@@ -81,7 +81,31 @@ describe('the marks a row stacks for the sessions it started', () => {
         { attention: 'running', unread: true },
         { attention: 'awaiting', unread: false },
       ]),
-    ).toEqual([{ kind: 'glyph', status: 'question' }, { kind: 'unread' }, { kind: 'spinner' }])
+    ).toEqual([{ kind: 'glyph', status: 'question' }, { kind: 'glyph', status: 'finished' }, { kind: 'dot', mark: 'working' }])
+  })
+
+  test('tells Approval from Input, and a failure leads the stack', () => {
+    // WHY: a permission request and a question want different answers, so a
+    // folded drawer must say which one waits.
+    expect(
+      nestedStateMarks([
+        { attention: 'awaiting', unread: false },
+        { attention: 'approval', unread: false },
+        { attention: 'error', unread: false },
+      ]),
+    ).toEqual([{ kind: 'glyph', status: 'error' }, { kind: 'glyph', status: 'approval' }, { kind: 'glyph', status: 'question' }])
+  })
+
+  test('work in flight is one dot mark: Working while one runs, else Starting', () => {
+    // WHY: no single activity is true of several sessions, so the stack
+    // shows the Working sweep; a session that only connects shows Starting.
+    expect(nestedStateMarks([{ attention: 'starting', unread: false }])).toEqual([{ kind: 'dot', mark: 'starting' }])
+    expect(
+      nestedStateMarks([
+        { attention: 'starting', unread: false },
+        { attention: 'running', unread: false },
+      ]),
+    ).toEqual([{ kind: 'dot', mark: 'working' }])
   })
 
   test('quiet sessions add no mark', () => {

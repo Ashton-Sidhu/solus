@@ -2,21 +2,22 @@
   import type { Snippet } from "svelte";
   import { ChevronRight as ChevronRightIcon } from "@lucide/svelte";
   import { isNestedInteractive } from "./lib/transcript-card";
-  import type { AgentLinkTone } from "./lib/agent-link";
+  import { agentMarkShowsElapsed, type AgentLinkStatus } from "./lib/agent-link";
   import AgentAvatar from "./AgentAvatar.svelte";
+  import AgentStateMark from "./AgentStateMark.svelte";
 
   /**
    * One agent in the transcript, as a flat row (T3 Code's subagent link): the
-   * avatar, the title, one detail line, the elapsed time, and a chevron when
-   * there is something to open. A sub-agent and a session another agent
-   * started both use it.
+   * avatar, the title, one detail line, the state mark and the elapsed time,
+   * and a chevron when there is something to open. A sub-agent and a session
+   * another agent started both use it.
    */
   interface Props {
     provider: string;
-    tone: AgentLinkTone;
+    /** The standing, the state mark, and the word. The word is the detail
+     *  line when there is no detail. */
+    link: AgentLinkStatus;
     title: string;
-    /** `Running`, `Completed`, `Failed`. It is the detail line when there is no detail. */
-    status: string;
     /** What the agent is on, or what it came back with. Plain text, one line. */
     detail?: string;
     elapsed?: string;
@@ -38,9 +39,8 @@
   }
   let {
     provider,
-    tone,
+    link,
     title,
-    status,
     detail = "",
     elapsed = "",
     hint,
@@ -54,7 +54,8 @@
     below,
   }: Props = $props();
 
-  const failed = $derived(tone === "failed");
+  const failed = $derived(link.standing === "failed");
+  const showsElapsed = $derived(!!elapsed && agentMarkShowsElapsed(link.mark));
 
   function handleClick(e: MouseEvent) {
     if (!onOpen || isNestedInteractive(e.target, e.currentTarget)) return;
@@ -80,7 +81,7 @@
     : ''} {open ? 'bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]' : ''}"
   role={onOpen ? "button" : undefined}
   tabindex={onOpen ? 0 : undefined}
-  aria-label={`${ariaLabel ?? (onOpen ? `Open ${title}` : title)}, ${status}`}
+  aria-label={`${ariaLabel ?? (onOpen ? `Open ${title}` : title)}, ${link.label}`}
   title={hint || undefined}
   aria-current={open ? "true" : undefined}
   data-testid={dataTestId}
@@ -89,28 +90,29 @@
   onkeydown={handleKeydown}
 >
   <div class="flex w-full min-w-0 items-center gap-2.5">
-    <AgentAvatar {provider} {tone} />
+    <AgentAvatar {provider} />
     <span class="min-w-0 flex-1">
-      <span class="flex items-baseline gap-2">
-        <span class="min-w-0 truncate text-xs font-medium text-(--solus-text-primary)">{title}</span>
-        {#if detail && tone !== "done"}
-          <span class="shrink-0 text-[0.625rem] {failed ? 'text-destructive' : 'text-muted-foreground'}"
-            >{status}</span
-          >
-        {/if}
-      </span>
+      <span class="block truncate text-xs font-medium text-(--solus-text-primary)">{title}</span>
       <span
         class="block truncate text-[0.6875rem] leading-relaxed {failed
           ? 'text-destructive'
-          : 'text-muted-foreground'}">{detail || status}</span
+          : 'text-muted-foreground'}">{detail || link.label}</span
       >
     </span>
     {#if trailing}{@render trailing()}{/if}
-    {#if elapsed}
-      <span
-        class="shrink-0 font-mono text-[0.625rem] tabular-nums text-[color-mix(in_oklch,var(--muted-foreground)_80%,transparent)]"
-        >{elapsed}</span
-      >
+    <!-- The sidebar's grammar: the mark, then the time. A live clock is in
+         full ink, a settled one steps back. -->
+    {#if link.mark || showsElapsed}
+      <span class="flex shrink-0 items-center gap-1.5">
+        {#if link.mark}<AgentStateMark mark={link.mark} label={link.label} />{/if}
+        {#if showsElapsed}
+          <span
+            class="shrink-0 font-mono text-[0.625rem] tabular-nums {link.standing === 'live'
+              ? 'text-foreground'
+              : 'text-[color-mix(in_oklch,var(--muted-foreground)_80%,transparent)]'}">{elapsed}</span
+          >
+        {/if}
+      </span>
     {/if}
     {#if onOpen}
       <ChevronRightIcon

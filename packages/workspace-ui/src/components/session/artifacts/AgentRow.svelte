@@ -1,20 +1,16 @@
 <script lang="ts">
-  import {
-    AlarmClock as SnoozedIcon,
-    CircleCheck as DoneIcon,
-    CircleDashed as StoppedIcon,
-    CircleX as FailedIcon,
-    LoaderCircle as WorkingIcon,
-  } from "@lucide/svelte";
+  import { AlarmClock as SnoozedIcon, Bot as BotIcon } from "@lucide/svelte";
   import ProviderMark from "../../ui/ProviderMark.svelte";
+  import AgentStateMark from "../../conversation/AgentStateMark.svelte";
+  import { agentMarkShowsElapsed } from "../../conversation/lib/agent-link";
   import { formatCompactElapsed, type RailAgentRow } from "../../project-panel/lib/rail-agents";
   import { wakeTimeLabel } from "./lib/overview-view";
 
   /**
    * One agent the session dispatched: a sub-agent, or a session it started.
-   * The glyph says how it stands; the title line ends with its provider and how
-   * long it ran (counting while it runs); the line under it says what it is on
-   * or came back with. What it linked is in the surface's link cards, not on
+   * Its provider leads; the title line ends with its state mark, the one the
+   * conversation's row shows for it, and how long it ran (counting while it
+   * runs); the line under it says what it is on or came back with. What it linked is in the surface's link cards, not on
    * the row. A snoozed session shows when it wakes; the pill wakes it now.
    */
   interface Props {
@@ -29,7 +25,7 @@
   let { row, onOpen, onContextMenu, wakesAt = null, onWake }: Props = $props();
 
   const mark = $derived(row.provider === "codex" ? "codex" : row.provider === "claude-code" ? "claude" : null);
-  const elapsed = $derived(formatCompactElapsed(row.elapsedMs));
+  const elapsed = $derived(agentMarkShowsElapsed(row.mark) ? formatCompactElapsed(row.elapsedMs) : null);
   const wakeTime = $derived(wakesAt === null ? null : wakeTimeLabel(wakesAt, Date.now()));
 </script>
 
@@ -38,18 +34,14 @@
 <div
   class="relative grid grid-cols-[1rem_minmax(0,1fr)_auto] gap-x-2.5 rounded-lg px-2 py-2 transition-colors duration-(--duration-base) ease-(--ease-premium) hover:bg-[var(--wash-2)] has-[>button:disabled]:hover:bg-transparent"
   data-testid="artifacts-agent-row"
-  data-state={row.tone}
+  data-state={row.standing}
   oncontextmenu={onContextMenu}
 >
-  <span class="flex h-5 items-center justify-center" aria-hidden="true">
-    {#if row.tone === "live"}
-      <WorkingIcon size={16} class="animate-spin text-(--solus-status-running-icon) motion-reduce:animate-none" />
-    {:else if row.tone === "done"}
-      <DoneIcon size={16} class="text-(--solus-status-complete)" />
-    {:else if row.tone === "failed"}
-      <FailedIcon size={16} class="text-(--solus-status-error)" />
+  <span class="flex h-5 items-center justify-center opacity-70" aria-hidden="true">
+    {#if mark}
+      <ProviderMark {mark} size={mark === "codex" ? 11 : 14} transparent />
     {:else}
-      <StoppedIcon size={16} class="text-(--solus-text-tertiary)" />
+      <BotIcon size={16} class="text-muted-foreground" />
     {/if}
   </span>
   <button
@@ -77,12 +69,10 @@
         <span class="truncate tabular-nums @max-[23rem]/card:hidden">Until {wakeTime}</span>
       </button>
     {/if}
-    {#if mark}
-      <span class="inline-flex size-3.5 shrink-0 items-center justify-center opacity-70" aria-hidden="true">
-        <ProviderMark {mark} size={mark === "codex" ? 9 : 12} transparent />
-      </span>
+    {#if row.mark}<AgentStateMark mark={row.mark} label={row.status} />{/if}
+    <!-- The sidebar's clock: ink, not hue, so it never competes with the mark or a chip's colour. -->
+    {#if elapsed}
+      <span class="shrink-0 text-sidebar-time tabular-nums text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]">{elapsed}</span>
     {/if}
-    <!-- The sidebar's clock: ink, not hue, so it never competes with the glyph or a chip's colour. -->
-    <span class="shrink-0 text-sidebar-time tabular-nums text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]">{elapsed}</span>
   </span>
 </div>

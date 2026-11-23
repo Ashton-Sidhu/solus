@@ -57,7 +57,7 @@ export function singleHostServerConnections() {
   const connection = (serverId = primaryServerId) => ({
     serverId,
     target: { id: serverId, label: serverId, url: 'http://test.invalid', sessionToken: 'test', local: serverId === 'local' },
-    transport: { destroy: () => {}, events: events(serverId) },
+    transport: { destroy: () => {}, events: events(serverId), onReset: () => () => {} },
     api: api(serverId),
     events: events(serverId),
     link: { readiness: readinessByServerId.get(serverId) ?? 'ready', attempt: 0 },

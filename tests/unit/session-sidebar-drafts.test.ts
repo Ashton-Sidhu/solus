@@ -10,7 +10,7 @@ const connections = singleHostServerConnections()
 afterEach(() => connections.reset())
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 mock.module('@lucide/svelte', () => ({
-  MessageSquare: () => {}, FileText: () => {}, LoaderCircle: () => {},
+  MessageSquare: () => {}, MessageCircleQuestionMark: () => {}, ShieldAlert: () => {}, FileText: () => {}, LoaderCircle: () => {},
   CircleCheck: () => {}, CircleX: () => {}, Clock: () => {}, Activity: () => {},
   CircleDashed: () => {}, GitBranch: () => {}, GitMerge: () => {}, GitPullRequest: () => {}, CircleAlert: () => {},
 }))

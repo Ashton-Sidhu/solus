@@ -1602,10 +1602,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       void prSync.turnEnded(event.sessionId).catch((error) => log.warn('pr_sync_turn_end_failed', { sessionId: event.sessionId, error: String(error) }))
     }
   })
-  // A message-mode question was asked or settled: the status is unchanged, so
+  // A message-mode question was asked or settled, or the input that waits
+  // changed between a permission and a question: the status is unchanged, so
   // nothing a turn's end does runs again. Only readers of the feed learn of it.
   opts.sessionRuntime.on('session-question', (event: HostEventMap['session.statusChanged']) => {
     events.broadcast('session.statusChanged', event)
+  })
+  // A separate topic: the activity changes many times in a turn, and nothing a status change does runs again for it.
+  opts.sessionRuntime.on('session-activity', (event: HostEventMap['session.activityChanged']) => {
+    events.broadcast('session.activityChanged', event)
   })
   opts.sessionRuntime.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 

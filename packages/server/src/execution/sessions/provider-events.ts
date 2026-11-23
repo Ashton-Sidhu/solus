@@ -459,6 +459,7 @@ export class ProviderEvents {
 
       if (!sessionId) return
       this.rt.inputRequests.stampTurnAuthor(sessionId, event)
+      this.rt.activity.observe(sessionId, event)
 
       // ─── Delivery ───
       //

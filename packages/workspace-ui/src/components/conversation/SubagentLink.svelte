@@ -16,7 +16,7 @@
   const session = getWorkspaceContext();
   const router = session.router;
 
-  const status = $derived(subagentLinkStatus(row.state));
+  const link = $derived(subagentLinkStatus(row));
   const isOpen = $derived(
     router.companionSurface?.name === "subagent" && router.companionSurface.params.messageId === row.id,
   );
@@ -24,9 +24,8 @@
 
 <AgentLinkRow
   provider={row.provider}
-  tone={status.tone}
+  {link}
   title={row.name}
-  status={status.label}
   detail={plainDetail(subagentDetail(row))}
   hint={[row.modelLabel, row.effortLabel].filter(Boolean).join(" · ")}
   elapsed={formatActivityDuration(row.elapsedMs)}

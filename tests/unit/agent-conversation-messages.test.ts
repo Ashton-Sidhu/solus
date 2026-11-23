@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentConversationRef, AgentExchange, ExchangeProgress, Message, Session, SessionMeta } from '@solus/contracts/types'
-import { formatParentPrompt, formatSessionNotice } from '@solus/contracts/session-exchange'
+import { formatParentPrompt, formatSessionNotice, type ExchangeRequest } from '@solus/contracts/session-exchange'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
+import { agentMarkShowsElapsed } from '@solus/workspace-ui/components/conversation/lib/agent-link'
 import {
   agentConversationCardState,
   agentConversationGroupElapsedMs,
@@ -294,22 +296,80 @@ describe('a plan the other agent brought back', () => {
 })
 
 describe("a card's status line", () => {
-  // WHY: the dot, the word, and the detail are the only things that say where
-  // the other session stands; a session that never started must not read as
-  // one that broke, and a reply shows its first words.
+  // WHY: the standing, the word, and the detail are the only things that say
+  // where the other session stands; a session that never started must not read
+  // as one that broke, and a reply shows its first words.
   test('names the live state, tells a launch failure from a stop, and shows the reply', () => {
     const live = cardRef({ status: 'running' })
-    expect(agentConversationLink(live, 'replying', false)).toEqual({ tone: 'live', label: 'Running', detail: '' })
-    expect(agentConversationLink(live, 'dispatching', true)).toMatchObject({ tone: 'live', label: 'Starting' })
-    expect(agentConversationLink(live, 'failed', true)).toMatchObject({ tone: 'failed', detail: 'Never started' })
-    expect(agentConversationLink(live, 'failed', false)).toMatchObject({ detail: 'Stopped replying' })
+    expect(agentConversationLink(live, 'replying', false, null)).toMatchObject({ standing: 'live', label: 'Running', detail: '' })
+    expect(agentConversationLink(live, 'dispatching', true, null)).toMatchObject({ standing: 'live', label: 'Starting' })
+    expect(agentConversationLink(live, 'failed', true, null)).toMatchObject({ standing: 'failed', detail: 'Never started' })
+    expect(agentConversationLink(live, 'failed', false, null)).toMatchObject({ detail: 'Stopped replying' })
 
     const replied = cardRef({ status: 'answered', reply: '- Moved the `diff` panel' })
-    expect(agentConversationLink(replied, 'replied', false)).toEqual({
-      tone: 'done',
+    expect(agentConversationLink(replied, 'replied', false, null)).toMatchObject({
+      standing: 'done',
       label: 'Completed',
       detail: 'Moved the diff panel',
     })
+  })
+})
+
+describe("a card's state mark", () => {
+  const markOf = (exchange: Partial<AgentExchange>, activity: AgentActivity | null = null) => {
+    const ref = cardRef(exchange)
+    return agentConversationLink(ref, agentConversationCardState(ref), false, activity).mark
+  }
+
+  // WHY: a started session's row speaks the sidebar's state marks, so a person
+  // reads the same state in the same mark wherever the session shows: dots
+  // while it works, a still glyph when a person must act or it is done.
+  test('every card state has the mark of the same state in the sidebar', () => {
+    expect(markOf({ status: 'dispatched' })).toEqual({ kind: 'dot', mark: 'starting' })
+    expect(markOf({ status: 'queued' })).toEqual({ kind: 'dot', mark: 'starting' })
+    expect(markOf({ status: 'waiting_for_children' })).toEqual({ kind: 'dot', mark: 'delegating' })
+    expect(markOf({ status: 'rate_limited', rateLimitedUntil: 4_000 })).toEqual({ kind: 'glyph', status: 'limit', limitResetsAt: 4_000 })
+    expect(markOf({ status: 'failed' })).toEqual({ kind: 'glyph', status: 'error' })
+    expect(markOf({ status: 'lost' })).toEqual({ kind: 'dot', mark: 'offline' })
+    expect(markOf({ status: 'done' })).toEqual({ kind: 'glyph', status: 'finished' })
+    expect(markOf({ status: 'interrupted' })).toEqual({ kind: 'glyph', status: 'finished' })
+    const closed = { ...cardRef({ status: 'done' }), closedByAgent: true }
+    expect(agentConversationLink(closed, agentConversationCardState(closed), false, null).mark).toBeNull()
+  })
+
+  // WHY: a replying session shows what its agent does now, as its host
+  // reports it; with no report yet it only says that it works.
+  test('a replying session shows the dot mark of its agent activity, and Working while none is known', () => {
+    expect(markOf({ status: 'running' }, 'read')).toEqual({ kind: 'dot', mark: 'reading' })
+    expect(markOf({ status: 'running' }, 'think')).toEqual({ kind: 'dot', mark: 'thinking' })
+    expect(markOf({ status: 'running' }, 'reply')).toEqual({ kind: 'dot', mark: 'writing' })
+    expect(markOf({ status: 'answered' }, 'run')).toEqual({ kind: 'dot', mark: 'running' })
+    expect(markOf({ status: 'running' })).toEqual({ kind: 'dot', mark: 'working' })
+  })
+
+  // WHY: Approval and Input ask different things of a person, so the request
+  // the exchange waits on picks the glyph.
+  test('a waiting session shows Approval for a permission, Input for a question or no request', () => {
+    const permission = { kind: 'permission', permission: {} } as ExchangeRequest
+    const question = { kind: 'question', question: {} } as ExchangeRequest
+    expect(markOf({ status: 'awaiting_input', request: permission })).toEqual({ kind: 'glyph', status: 'approval' })
+    expect(markOf({ status: 'awaiting_input', request: question })).toEqual({ kind: 'glyph', status: 'question' })
+    expect(markOf({ status: 'awaiting_input' })).toEqual({ kind: 'glyph', status: 'question' })
+  })
+
+  // WHY: the time beside a mark dates a turn; Starting and Offline have none
+  // to date, and Input, Approval, and Limited spend the slot on their word.
+  test('the elapsed time shows beside working and settled marks only', () => {
+    expect(agentMarkShowsElapsed({ kind: 'dot', mark: 'reading' })).toBe(true)
+    expect(agentMarkShowsElapsed({ kind: 'dot', mark: 'delegating' })).toBe(true)
+    expect(agentMarkShowsElapsed({ kind: 'dot', mark: 'starting' })).toBe(false)
+    expect(agentMarkShowsElapsed({ kind: 'dot', mark: 'offline' })).toBe(false)
+    expect(agentMarkShowsElapsed({ kind: 'glyph', status: 'finished' })).toBe(true)
+    expect(agentMarkShowsElapsed({ kind: 'glyph', status: 'error' })).toBe(true)
+    expect(agentMarkShowsElapsed({ kind: 'glyph', status: 'approval' })).toBe(false)
+    expect(agentMarkShowsElapsed({ kind: 'glyph', status: 'question' })).toBe(false)
+    expect(agentMarkShowsElapsed({ kind: 'glyph', status: 'limit' })).toBe(false)
+    expect(agentMarkShowsElapsed(null)).toBe(true)
   })
 })
 

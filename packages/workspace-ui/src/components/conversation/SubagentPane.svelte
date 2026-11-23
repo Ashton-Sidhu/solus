@@ -1,10 +1,5 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import {
-    Check as CheckIcon,
-    CircleAlert as WarningCircleIcon,
-    LoaderCircle as SpinnerIcon,
-  } from "@lucide/svelte";
   import { SubagentHistoryStore, type SubagentHistoryState } from "@solus/client-core/subagent-history-store";
   import { providerSubagentMessages } from "./lib/subagent-history";
   import { getSessionRecords, getSurfaceContext } from "../../contexts";
@@ -13,6 +8,8 @@
   import RecordTranscript from "../session/record/RecordTranscript.svelte";
   import { subagentConversation } from "./lib/subagent-view";
   import { subagentLiveStep, subagentRow } from "./lib/subagent-group";
+  import { subagentLinkStatus } from "./lib/agent-link";
+  import AgentStateMark from "./AgentStateMark.svelte";
   import { formatActivityDuration } from "./lib/activity-summary";
   import { subagentTranscriptText } from "./lib/tool-trace";
   import { liveActivityClock } from "../../lib/shared-clock";
@@ -93,6 +90,7 @@
       : message.subMessages?.length ? subagentConversation(message)
         : subagentConversation({ ...message, subMessages: restored }),
   );
+  const link = $derived(row ? subagentLinkStatus(row) : null);
   const liveStep = $derived(message && running ? subagentLiveStep(message) : null);
   const copyText = $derived(
     message ? subagentTranscriptText(childMessages) : "",
@@ -127,15 +125,9 @@
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) min-w-0 shrink-0 items-center gap-2.5 mr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    {#if row}
-      <span class="inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-        {#if row.state === "running"}
-          <SpinnerIcon size={14} class="text-(--solus-status-running) motion-safe:animate-spin" />
-        {:else if row.state === "failed"}
-          <WarningCircleIcon size={14} class="text-(--solus-status-error)" />
-        {:else}
-          <CheckIcon size={14} class="text-(--solus-status-complete)" />
-        {/if}
+    {#if row && link}
+      <span class="inline-flex size-4 shrink-0 items-center justify-center">
+        {#if link.mark}<AgentStateMark mark={link.mark} label={link.label} />{/if}
       </span>
       <h2 class="m-0 min-w-0 flex-1 truncate leading-tight font-medium">{row.name}</h2>
       <span class="no-drag shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"

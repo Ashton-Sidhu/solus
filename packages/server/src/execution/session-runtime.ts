@@ -15,6 +15,7 @@ import { AttentionService } from '../attention/attention-service'
 import { prepareSessionTask } from '../data/tasks/session-task'
 import { recordSessionExecutionPreferences } from '../data/sessions/session-states'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
+import { SessionActivity } from './sessions/session-activity'
 import { AppModelContexts } from './sessions/app-model-contexts'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
@@ -206,6 +207,8 @@ export class SessionRuntime extends EventEmitter {
   readonly claudeGoals = new ClaudeGoalStore()
   readonly sessionEmitter = new SessionEmitter()
   readonly responseText = new ResponseTextBuffer()
+  /** What each session's agent does now inside its turn; the host broadcasts it as `session.activityChanged`. */
+  readonly activity = new SessionActivity((event) => this.emit('session-activity', event))
   /** Cached provider quota windows. Fed by the provider streams
    *  below and by the polled read in the usage handlers. */
   readonly usageLimits = new UsageLimitsStore()

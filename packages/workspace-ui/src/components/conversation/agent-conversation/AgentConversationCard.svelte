@@ -11,7 +11,7 @@
   import TranscriptCardAction from "../TranscriptCardAction.svelte";
   import type { AgentConversationRef } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getWorkspaceContext } from "../../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
   import {
     agentAccent,
@@ -56,6 +56,7 @@
   let { ref, tabId, skipMotion = false, accentIndex = 0, grouped = false }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
 
   // The caller's tab routes RPCs to the caller's host. A session started on
   // another host is read and opened there; any other on the caller's host.
@@ -131,7 +132,11 @@
     void api.stopSession(ref.sessionId);
   }
 
-  const link = $derived(agentConversationLink(ref, cardState, neverStarted));
+  // What the other agent does now, as its host reports it: read only while it replies.
+  const activity = $derived(
+    cardState === "replying" ? sidebarStore.activityOf({ sessionId: ref.sessionId, serverId: serverId ?? null }) : null,
+  );
+  const link = $derived(agentConversationLink(ref, cardState, neverStarted, activity));
   let menuOpen = $state(false);
 
   async function copySessionId() {
@@ -158,9 +163,8 @@
   >
     <AgentLinkRow
       {provider}
-      tone={link.tone}
+      {link}
       {title}
-      status={link.label}
       detail={link.detail}
       {elapsed}
       hint={provenance || undefined}

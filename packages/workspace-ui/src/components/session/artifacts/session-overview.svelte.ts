@@ -3,6 +3,7 @@ import type { ChangedFileStat, TurnSnapshot } from '@solus/contracts/git-types'
 import type { SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { SessionTree, SessionTreeNode } from '@solus/contracts/session-digest'
 import type { Session } from '@solus/contracts/types'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
 import type { TurnSpan } from '@solus/client-core/session-artifact-chips'
 import {
   isInScope,
@@ -63,6 +64,8 @@ export class SessionOverview {
     private readonly workspace: OverviewWorkspace,
     private readonly sessionId: () => string,
     private readonly serverId: () => string,
+    /** The agent activity of a session's running turn, as its host reports it. */
+    private readonly activityOf: (sessionId: string, serverId: string) => AgentActivity | null,
   ) {}
 
   /** The session, when its conversation is open in this workspace. */
@@ -162,6 +165,7 @@ export class SessionOverview {
       },
       metaFor: (sessionId) => agentConversationMeta.metaFor(sessionId),
       hostLabel: hostLabelFor(this.serverId()),
+      activityOf: (ref) => this.activityOf(ref.sessionId, ref.serverId ?? this.serverId()),
     })
     return [...list.active, ...list.previous]
   })
@@ -170,7 +174,7 @@ export class SessionOverview {
     this.isOwnFocus ? this.agentRows.filter((row) => isInScope(this.scope, row.startedAt)) : [],
   )
   readonly agents: RailAgentRow[] = $derived.by(() => this.scopedAgents.filter((row) => textMatchesQuery(row.title, this.query)))
-  readonly hasLiveAgent: boolean = $derived.by(() => this.agentRows.some((row) => row.tone === 'live'))
+  readonly hasLiveAgent: boolean = $derived.by(() => this.agentRows.some((row) => row.standing === 'live'))
 
   /** The started sessions whose index record the agent rows read, as `sessionId host` lines. */
   readonly startedSessionKeys: string = $derived.by(() =>

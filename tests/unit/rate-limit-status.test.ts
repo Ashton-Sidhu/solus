@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { RateLimitInfo, Session, SessionStatus, Tab } from '@solus/contracts/types'
 import {
   attentionLabel,
-  getAttentionIcon,
+  getAttentionMark,
   getAttentionState,
   getStatusGroupKey,
   sessionLimitResetsAt,
@@ -49,10 +49,11 @@ describe('rate-limited attention', () => {
   })
 
   test('limited has its own mark, apart from a request for the user', () => {
-    const limited = getAttentionIcon('limited')
-    const awaiting = getAttentionIcon('awaiting')
-    expect(limited).not.toBeNull()
-    expect(limited?.component).not.toBe(awaiting?.component)
+    const limited = getAttentionMark('limited')
+    const awaiting = getAttentionMark('awaiting')
+    expect(limited?.kind).toBe('glyph')
+    expect(awaiting?.kind).toBe('glyph')
+    expect(limited?.kind === 'glyph' && awaiting?.kind === 'glyph' && limited.component !== awaiting.component).toBe(true)
     expect(limited?.color).not.toBe(awaiting?.color)
   })
 

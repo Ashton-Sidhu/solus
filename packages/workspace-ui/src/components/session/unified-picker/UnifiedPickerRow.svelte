@@ -5,7 +5,7 @@
   import { relativeTime, taskRef } from "../../tasks/lib/tasks-api";
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
-  import type { AttentionState } from "../../../lib/sessionUtils";
+  import type { AttentionState, LiveMarkFacts } from "../../../lib/sessionUtils";
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
@@ -48,6 +48,8 @@
     /** A session row's live state. Null for a task row, whose state comes
      *  from its own sessions, and for an idle session. */
     attention: AttentionState;
+    /** The agent activity and the host's reach, for a live state mark. */
+    live?: LiveMarkFacts;
     onActivate: (entry: PickerEntry) => void;
     onHover: (event: PointerEvent, entry: PickerEntry) => void;
     onContextMenu: (event: MouseEvent, entry: PickerEntry) => void;
@@ -60,6 +62,7 @@
     selectedIndex,
     query,
     attention,
+    live = {},
     onActivate,
     onHover,
     onContextMenu,
@@ -151,7 +154,7 @@
 {:else if row.kind === "task"}
   {@const task = row.task}
   {@const isSelected = row.entryIndex === selectedIndex}
-  {@const isRunning = row.sessions.some((child) => child.attention === "running")}
+  {@const isRunning = row.sessions.some((child) => child.attention === "running" || child.attention === "starting")}
   <div
     class="relative h-11 overflow-hidden rounded-lg"
     {style}
@@ -285,7 +288,7 @@
         {#if sessionProjectKey}<ProjectFavicon projectKey={sessionProjectKey} class="size-3.5" />{/if}
       </span>
       <span class="min-w-0 flex-1">
-        <span class="block truncate {attention === 'running' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
+        <span class="block truncate {attention === 'running' || attention === 'starting' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
           >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}{#if row.kind === "conversation" && row.meta.shared}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-shared">Shared</span>{/if}{#if row.kind === "conversation" && row.meta.archived}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-archived">Archived</span>{/if}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
@@ -295,7 +298,7 @@
       <PresenceStack {people} size={16} max={3} />
       <!-- A session with a live state shows it, as a task row does, so a
            running session reads as running in a flat list too. -->
-      {#if attention}<SessionStatusGlyph {attention} />{/if}
+      {#if attention}<SessionStatusGlyph {attention} {live} />{/if}
       <!-- Its task, so two sessions with one name under two tasks can be told apart. -->
       {@render byline(pickerSessionTaskTitle(row), relativeTime(pickerSessionActivity(row)))}
     </button>

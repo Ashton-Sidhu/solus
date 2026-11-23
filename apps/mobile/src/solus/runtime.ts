@@ -293,7 +293,10 @@ function readDirectory() {
     if (paths) paths.add(project.id);
     else projectPaths.set(project.environmentId, new Set([project.id]));
   }
-  const threads = projectThreads(solus.threads.threads(), facts, automationNames, projectPaths);
+  const awayHosts = new Set(
+    solus.registry.hosts().filter((host) => solus.connections.readiness(host.id).away).map((host) => host.id),
+  );
+  const threads = projectThreads(solus.threads.threads(), facts, automationNames, projectPaths, undefined, awayHosts);
   const hostsById = Object.fromEntries(environments.map((env) => [env.environmentId, env]));
   return { projects, threads, environments, hostsById, state, unread: facts.unread, listHosts: solusListHosts(environments) };
 }
