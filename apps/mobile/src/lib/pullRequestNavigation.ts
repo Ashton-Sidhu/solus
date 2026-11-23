@@ -2,7 +2,29 @@ import { parsePullRequestAnchor } from "@t3tools/shared/pullRequestAnchor";
 import { resolveChangeRequestLinkTarget } from "@t3tools/client-runtime/change-request-links";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, type IssueRef } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type IssueRef, type ThreadPullRequestLink } from "@t3tools/contracts";
+
+export interface PullRequestContext {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly pullRequests?: readonly Pick<ThreadPullRequestLink, "url" | "host" | "repository" | "number">[];
+}
+
+/** A session link already identifies the PR on its host, including for an unlisted project. */
+export function linkedPullRequestDestination(
+  url: string,
+  context: PullRequestContext | null,
+): ReturnType<typeof nativePullRequestDestination> {
+  const link = context?.pullRequests?.find(candidate => candidate.url === url);
+  if (!link || !context) return null;
+  return {
+    environmentId: context.environmentId,
+    projectId: context.projectId,
+    host: link.host,
+    repository: link.repository,
+    number: link.number,
+  };
+}
 
 /** The PullRequest route for a change request link from a project, or null for the browser. */
 export function nativePullRequestDestination(

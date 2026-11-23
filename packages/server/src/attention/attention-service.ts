@@ -95,6 +95,8 @@ export function attentionActionForStatus(
 }
 
 interface AttentionInput {
+  /** When the turn finished, before its notification delay. */
+  since?: number
   sessionId: string
   kind: AttentionKind
   summary: string
@@ -158,7 +160,7 @@ export class AttentionService {
       sessionId: input.sessionId,
       kind: input.kind,
       // Keep `since` stable while the same kind persists; reset it when the kind flips.
-      since: existing && existing.kind === input.kind ? existing.since : Date.now(),
+      since: existing && existing.kind === input.kind ? existing.since : input.since ?? Date.now(),
       summary: input.summary,
     }
     if (input.projectKey) entry.projectKey = input.projectKey
@@ -181,7 +183,7 @@ export class AttentionService {
    *  window, so a repeated `completed` cannot push the entry out. */
   confirmFinished(input: Omit<AttentionInput, 'kind'>): void {
     if (this.pendingFinished.has(input.sessionId)) return
-    const finished: AttentionInput = { ...input, kind: 'finished' }
+    const finished: AttentionInput = { ...input, kind: 'finished', since: Date.now() }
     const cancel = this.schedule(() => {
       this.pendingFinished.delete(input.sessionId)
       this.set(finished)

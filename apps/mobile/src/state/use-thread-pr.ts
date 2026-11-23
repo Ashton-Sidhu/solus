@@ -93,7 +93,7 @@ export function useThreadPr(thread: EnvironmentThreadShell): ThreadPrPresentatio
           linkedPullRequest: thread.linkedPullRequest,
           branchPullRequest: thread.branchPullRequest,
         },
-        supportsLinks,
+        supportsLinks || thread.source?.pullRequests !== undefined,
         resolve,
       ),
     [
@@ -101,6 +101,7 @@ export function useThreadPr(thread: EnvironmentThreadShell): ThreadPrPresentatio
       thread.linkedPullRequest,
       thread.branchPullRequest,
       supportsLinks,
+      thread.source?.pullRequests,
       resolve,
     ],
   );

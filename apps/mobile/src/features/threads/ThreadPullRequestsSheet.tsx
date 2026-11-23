@@ -10,7 +10,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SheetHeader } from "../../components/ui/SheetHeader";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
-import { useThreadSelection } from "../../state/use-thread-selection";
+import { useSolusDirectory } from "../../solus/runtime";
 import {
   LinkedPullRequestRow,
   linkedPullRequestKey,
@@ -19,14 +19,16 @@ import {
 import { useLinkedPullRequestActions } from "./useLinkedPullRequestActions";
 
 export function ThreadPullRequestsSheet(
-  _props: StaticScreenProps<{ readonly environmentId: string; readonly threadId: string }>,
+  { route }: StaticScreenProps<{ readonly environmentId: string; readonly threadId: string }>,
 ) {
   const navigation = useNavigation();
   const gt = useGT();
   const insets = useSafeAreaInsets();
-  const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
-    useThreadSelection();
-  const lines = useLinkedPullRequestLines(selectedThread, selectedEnvironmentRuntime);
+  const { threads, projects, listHosts } = useSolusDirectory();
+  const { environmentId, threadId } = route.params;
+  const selectedThread = threads.find(thread => thread.environmentId === environmentId && thread.id === threadId) ?? null;
+  const selectedThreadProject = projects.find(project => project.environmentId === environmentId && project.id === selectedThread?.projectId) ?? null;
+  const lines = useLinkedPullRequestLines(selectedThread);
   const openCount = useMemo(
     () =>
       lines.filter((line) => line.link.snapshot === null || line.link.snapshot.state === "open")
@@ -40,7 +42,7 @@ export function ThreadPullRequestsSheet(
   const actions = useLinkedPullRequestActions({
     thread: selectedThread,
     project: selectedThreadProject,
-    runtime: selectedEnvironmentRuntime,
+    connected: !!selectedThread && listHosts.connectedEnvironmentIds.has(selectedThread.environmentId),
   });
   const rowInputs = { lines, actions };
   const term = changeRequestTermKind(actions.terminology);

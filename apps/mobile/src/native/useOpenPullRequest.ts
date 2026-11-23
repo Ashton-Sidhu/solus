@@ -1,6 +1,8 @@
 import { useNavigation, useRoute, StackActions } from "@react-navigation/native";
 import { isStandaloneIssueLink, resolveIssueLinkTarget } from "@t3tools/client-runtime/issue-links";
 import {
+  type PullRequestContext,
+  linkedPullRequestDestination,
   nativePullRequestDestination,
   pullRequestCandidateForIssueLink,
 } from "../lib/pullRequestNavigation";
@@ -18,8 +20,6 @@ import { withKnownPullRequestSummary } from "../state/use-thread-pr";
 let linkNavigationId = 0;
 const nextLinkNavigationId = () => ++linkNavigationId;
 
-type PullRequestContext = { readonly environmentId: string; readonly projectId: string };
-
 // Avoid useRoute so layouts without route context can open any thread's pull requests.
 export function useNavigateToPullRequest(options?: { readonly replace?: boolean }) {
   const navigation = useNavigation();
@@ -36,9 +36,9 @@ export function useNavigateToPullRequest(options?: { readonly replace?: boolean 
   return async (url: string, context: PullRequestContext | null) => {
     // Read at press time so a config push does not hand every link a new handler.
     const serverConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
-    const destination = nativePullRequestDestination(url, context, projects, (environmentId) =>
-      serverConfigs.has(environmentId),
-    );
+    const destination =
+      linkedPullRequestDestination(url, context) ??
+      nativePullRequestDestination(url, context, projects, (id) => serverConfigs.has(id));
     if (!destination) {
       // An issue link from the same text opens the issue; anything else leaves for the browser.
       const environmentId = context && EnvironmentId.make(context.environmentId);
@@ -126,11 +126,8 @@ export function useOpenPullRequest(options?: {
   const projectId =
     options?.context?.projectId ?? first(routeContext?.projectId) ?? thread?.projectId;
   const navigateToPullRequest = useNavigateToPullRequest({ replace: options?.replace });
-  return (url: string) =>
-    navigateToPullRequest(
-      url,
-      environmentId && projectId
-        ? { environmentId: String(environmentId), projectId: String(projectId) }
-        : null,
-    );
+  const context = options?.context ?? (environmentId && projectId
+    ? { environmentId: String(environmentId), projectId: String(projectId) }
+    : null);
+  return (url: string) => navigateToPullRequest(url, context);
 }

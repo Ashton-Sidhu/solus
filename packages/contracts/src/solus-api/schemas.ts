@@ -242,6 +242,7 @@ export const workspaceSessionViewSchema = z.strictObject({
   archivedAt: z.number().int().min(0).nullable(),
   snoozedUntil: z.number().int().min(0).nullable(),
   snoozeNote: z.string().max(1000).nullable(),
+  viewedAt: z.number().int().optional(),
 }).meta({ description: "The caller's own view of the session. It changes the caller's list, and nobody else's." })
 export type WorkspaceSessionView = z.infer<typeof workspaceSessionViewSchema>
 

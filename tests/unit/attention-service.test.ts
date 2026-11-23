@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -68,6 +68,20 @@ describe('AttentionService — entry lifecycle + persistence', () => {
     expect(entry.since).toBeGreaterThan(0)
     expect(svc.list()).toHaveLength(1)
     expect(changes.at(-1)).toHaveLength(1)
+  })
+
+  test('reading a completion during its notification delay still counts as reading it', () => {
+    let confirm = () => {}
+    const service = new AttentionService(statePath, run => { confirm = run; return () => {} })
+    const clock = spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      service.confirmFinished({ sessionId: 's1', summary: 'Finished' })
+      clock.mockReturnValue(6000)
+      confirm()
+      expect(service.get('s1')?.since).toBe(1000)
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   test('latest wins — a new kind replaces the entry and resets `since`', async () => {

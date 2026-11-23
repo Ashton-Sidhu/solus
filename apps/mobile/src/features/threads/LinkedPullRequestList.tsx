@@ -17,7 +17,6 @@ import * as Dialog from "../../components/ui/Dialog";
 import { Menu } from "../../components/ui/Menu";
 import { cn } from "../../lib/cn";
 import { RelativeTime } from "../../components/RelativeTime";
-import type { EnvironmentRuntimeState } from "../../state/remote-runtime-types";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import type { LinkedPullRequestActions } from "./useLinkedPullRequestActions";
@@ -35,16 +34,14 @@ import {
 
 export function useLinkedPullRequestLines(
   thread: EnvironmentThreadShell | null,
-  runtime: EnvironmentRuntimeState | null,
 ) {
-  const supported = (runtime?.serverConfig ?? null) !== null;
   const pullRequests = thread?.pullRequests;
   return useMemo(() => {
-    const chains = resolveThreadPullRequestChains(supported ? (pullRequests ?? []) : []);
+    const chains = resolveThreadPullRequestChains(pullRequests ?? []);
     const open = chains.filter((chain) => chain.layers.some(isOpenLink));
     const done = chains.filter((chain) => !chain.layers.some(isOpenLink));
     return [...pullRequestListLines(open), ...pullRequestListLines(done)];
-  }, [pullRequests, supported]);
+  }, [pullRequests]);
 }
 
 function isOpenLink(link: PullRequestListLine["link"]) {
@@ -81,7 +78,7 @@ export const LinkedPullRequestRow = memo(function LinkedPullRequestRow(props: {
           messages,
         )
       : null;
-  const watching = open && link.watch !== undefined;
+  const watching = open && (props.actions?.isWatching(link) ?? (link.watch !== undefined));
   const additions = snapshot?.additions ?? 0;
   const deletions = snapshot?.deletions ?? 0;
   const term = changeRequestTermKind(

@@ -834,10 +834,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const pinnedRow = props.pinned === true;
   const dormant = useSwipeRowDormant(props.activationKey);
 
-  const selectThread = () => {
-    if (props.canOperateThread && props.markedUnread) void listActions.setRead(thread, true);
-    onSelectThread(thread);
-  };
   const { providerDrivers, providerIconUrl } = useMemo(() => {
     const provider = props.providers?.find(
       (candidate) =>
@@ -881,7 +877,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     />
   ) : null;
   const status = resolveThreadListV2RowStatus(thread);
-  const isUnread = status === "ready" && (props.markedUnread ?? threadHasUnseenCompletion(thread));
+  const isUnread = status === "ready" && (props.markedUnread === true || threadHasUnseenCompletion(thread));
+  const selectThread = () => {
+    if (props.canOperateThread && (isUnread || props.markedUnread || props.wokeAt !== null || status === "failed")) {
+      void listActions.setRead(thread, true);
+    }
+    onSelectThread(thread);
+  };
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
   const statusEntry =
@@ -1363,19 +1365,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ? primaryAction.swipeHint
       : primaryAction.swipeSnoozeHint;
 
-  const titleTextInset = props.project ? projectIconSize + 8 : 0;
+  const rowProject = props.project ?? thread.fallbackProject;
+  const titleTextInset = rowProject ? projectIconSize + 8 : 0;
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
-        {props.project ? (
+        {rowProject ? (
           <View className="justify-center" style={{ height: titleLineHeight }}>
             <ProjectFavicon
               environmentId={thread.environmentId}
-              faviconPath={props.project.faviconPath}
-              projectIcon={props.project.projectIcon}
+              faviconPath={props.project?.faviconPath}
+              projectIcon={props.project?.projectIcon}
               size={projectIconSize}
-              projectTitle={props.project.title}
-              workspaceRoot={props.project.workspaceRoot}
+              projectTitle={rowProject.title}
+              workspaceRoot={rowProject.workspaceRoot}
             />
           </View>
         ) : null}
@@ -1688,15 +1691,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             sidebarPane && "px-3",
           )}
         >
-          {props.project ? (
+          {rowProject ? (
             <View className="opacity-40">
               <ProjectFavicon
                 environmentId={thread.environmentId}
-                faviconPath={props.project.faviconPath}
-                projectIcon={props.project.projectIcon}
+                faviconPath={props.project?.faviconPath}
+                projectIcon={props.project?.projectIcon}
                 size={projectIconSize}
-                projectTitle={props.project.title}
-                workspaceRoot={props.project.workspaceRoot}
+                projectTitle={rowProject.title}
+                workspaceRoot={rowProject.workspaceRoot}
               />
             </View>
           ) : null}

@@ -6,7 +6,7 @@ import {
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
-import type { EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
+import { type EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 export interface ThreadRowProviderInstance {
@@ -16,15 +16,27 @@ export interface ThreadRowProviderInstance {
   readonly showBadge: boolean;
 }
 
+const solusProviderNames = new Map<string, string>([
+  ["claudeAgent", "Claude Code"],
+  ["codex", "Codex"],
+  ["opencode", "OpenCode"],
+  ["replay", "Replay"],
+]);
+
 /** Scope by environment; default instance ids name different accounts on different servers. */
 export function resolveThreadProviderInstance(
   providers: ReadonlyArray<ThreadListProvider> | undefined,
   thread: EnvironmentThreadShell,
 ): ThreadRowProviderInstance | null {
-  if (providers === undefined) return null;
   const instanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
-  const snapshot = providers.find((provider) => provider.instanceId === instanceId);
-  if (!snapshot) return null;
+  const snapshot = providers?.find((provider) => provider.instanceId === instanceId);
+  if (!snapshot || !providers) {
+    // A Solus session names its driver even when there is no T3 instance catalog.
+    const displayName = solusProviderNames.get(instanceId);
+    return displayName
+      ? { driverKind: ProviderDriverKind.make(instanceId), displayName, showBadge: false }
+      : null;
+  }
   const entry = {
     driverKind: snapshot.driver,
     displayName: resolveProviderInstanceDisplayName(snapshot),
