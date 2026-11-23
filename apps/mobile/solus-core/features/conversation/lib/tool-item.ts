@@ -22,6 +22,9 @@ export interface ToolItem {
   report: string | null
   /** Pictures the call returned, stored on the host. */
   images?: readonly ToolResultImage[]
+  /** The tool a background sub-agent ran last (`background_task_progress`),
+   *  when its own rows do not reach this client. Live only. */
+  lastToolName?: string
   /** The latest progress a running MCP call reported. Live only: history never has it. */
   progress?: ToolProgress
   /** Audio the call returned, stored on the host. */

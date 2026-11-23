@@ -18,7 +18,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import { changeTotals, isInScope, type OwnedArtifact } from "@solus/client-core/session-overview";
-  import { getClientShellContext, getSessionEnvironmentStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
+  import { getClientShellContext, getSessionEnvironmentStore, getSessionSidebarStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
   import { sessionArtifactsStore } from "../../../contexts/sessions/session-artifacts.store.svelte";
   import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
   import { artifactKey } from "../../../contexts/sessions/session-artifacts";
@@ -65,6 +65,7 @@
   const session = getWorkspaceContext();
   const environment = getSessionEnvironmentStore();
   const settings = getSettingsContext();
+  const sidebarStore = getSessionSidebarStore();
   const pane = paneActions(() => paneId);
 
   const serverId = $derived(params.serverId ?? session.serverIdForSession(params.sessionId));
@@ -72,6 +73,7 @@
     session,
     () => params.sessionId,
     () => serverId,
+    (agentSessionId, agentServerId) => sidebarStore.activityOf({ sessionId: agentSessionId, serverId: agentServerId }),
   );
   const sess = $derived(overview.session);
   // The conversation's tab, which the diff pane and the history read go through.
@@ -155,7 +157,7 @@
   const changesTree = $derived(changeTree(treeChanges));
   // A small change, or a search, shows its files at once; a larger one opens on its folders.
   const changeTreesOpen = $derived(treeChanges.length <= OPEN_TREE_FILE_LIMIT || overview.query.trim().length > 0);
-  const runningAgents = $derived(desktopLineage ? 0 : overview.agents.filter((row) => row.tone === "live").length);
+  const runningAgents = $derived(desktopLineage ? 0 : overview.agents.filter((row) => row.standing === "live").length);
 
   const showsChanges = $derived(overview.changes.length > 0);
   const showsAgents = $derived.by(() => {

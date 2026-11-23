@@ -1,4 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useMessages } from "gt-react-native";
+import { agentCardStatus } from "@solus-mobile/features/conversation/lib/agent-cards";
 import { Alert, Pressable, View } from "react-native";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
@@ -8,6 +10,7 @@ import { RequestActionButton } from "@solus-mobile/features/threads/RequestActio
 import { compactionDividerText } from "@solus/contracts/context-compaction";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
 import { rememberSession } from "./session-record";
+import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useOpenLinkedThreadRead } from "../features/threads/useOpenLinkedThread";
 import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
@@ -21,6 +24,14 @@ import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
 import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferCard";
 import { ThreadToolAudio } from "@solus-mobile/features/threads/ThreadToolAudio";
 import { AppText } from "../components/ui/AppText";
+import {
+  startedSessionStateMark,
+  stateMarkLabel,
+  subagentStateMark,
+  toolStateMark,
+  type StateMark,
+} from "../features/threads/state-marks";
+import { StateMarkView } from "../features/threads/StateMark";
 import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
 import { PlanCard } from "./PlanCard";
 import { solus } from "./runtime";
@@ -28,21 +39,33 @@ import { solus } from "./runtime";
 function Details({
   title,
   subtitle,
+  mark,
   children,
 }: {
   title: string;
   subtitle?: string;
+  /** The state mark of the agent or call (docs/plans/session-state-marks.md). */
+  mark?: { state: StateMark; environmentId: EnvironmentId } | null;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const messages = useMessages();
   return (
     <View className="mb-2 gap-2 rounded-2xl border border-border bg-card p-3">
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={
+          mark
+            ? [title, stateMarkLabel(mark.state, messages), subtitle].filter(Boolean).join(", ")
+            : undefined
+        }
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(!open)}
       >
-        <AppText className="font-medium">{title}</AppText>
+        <View className="flex-row items-center gap-2">
+          <AppText className="min-w-0 shrink font-medium">{title}</AppText>
+          {mark ? <StateMarkView mark={mark.state} environmentId={mark.environmentId} /> : null}
+        </View>
         {subtitle ? <AppText className="text-xs text-foreground-muted">{subtitle}</AppText> : null}
       </Pressable>
       {open && children}
@@ -60,10 +83,23 @@ function AgentCard({
   const navigation = useNavigation();
   const openLinked = useOpenLinkedThreadRead();
   const [loading, setLoading] = useState(false);
+  const hostId = store.controller.hostId;
+  // The started session's own live facts, as its thread row reads them.
+  const key = threadKey(hostId, item.sessionId);
+  const activity = useSyncExternalStore(solus.threadList.changes.subscribe, () =>
+    solus.threadList.facts().agentActivity?.get(key),
+  );
+  const awaitingApproval = useSyncExternalStore(
+    solus.threadList.changes.subscribe,
+    () => solus.threadList.facts().awaitingApprovals?.has(key) === true,
+  );
+  const mark = startedSessionStateMark(agentCardStatus(item), item.startedAt, {
+    activity,
+    awaitingApproval,
+  });
   const open = async () => {
     if (loading) return;
     setLoading(true);
-    const hostId = store.controller.hostId;
     try {
       const head = solus.cloudSessions.headFor(item.sessionId);
       const childHost = head?.lastRunServerId ?? head?.lastRunHostId ?? hostId;
@@ -85,9 +121,8 @@ function AgentCard({
   return (
     <Details
       title={item.title || "Agent session"}
-      subtitle={[item.provider, item.model, item.exchanges.at(-1)?.status]
-        .filter(Boolean)
-        .join(" · ")}
+      subtitle={[item.provider, item.model].filter(Boolean).join(" · ")}
+      mark={{ state: mark, environmentId: EnvironmentId.make(hostId) }}
     >
       <AppText selectable>{item.prompt}</AppText>
       {item.reply && <AppText selectable>{item.reply}</AppText>}
@@ -106,10 +141,12 @@ function ToolCard({
   item: Extract<TranscriptItem, { kind: "tool" }>;
 }) {
   const text = toolFullDetail(item);
+  const mark = item.subagent ? subagentStateMark(item) : toolStateMark(item);
   return (
     <Details
       title={toolRowLabel(item)}
-      subtitle={[item.toolName, item.status, item.progress?.message].filter(Boolean).join(" · ")}
+      subtitle={[item.toolName, item.progress?.message].filter(Boolean).join(" · ")}
+      mark={mark && { state: mark, environmentId: EnvironmentId.make(store.controller.hostId) }}
     >
       {text && (
         <AppText selectable className="font-mono text-xs">

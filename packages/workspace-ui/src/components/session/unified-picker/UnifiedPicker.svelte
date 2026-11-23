@@ -23,7 +23,7 @@
   import { blurActiveTextInputOnMobile, requestInputFocus } from "../../../lib/inputFocus";
   import { comboHint } from "../../../lib/keybindings/manifest";
   import { useKeybinding, useScope } from "../../../lib/keybindings/use-keybinding.svelte";
-  import type { AttentionState } from "../../../lib/sessionUtils";
+  import type { AttentionState, LiveMarkFacts } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
   import { automationProjectKey } from "../../automations/lib/automation-projects";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
@@ -157,6 +157,13 @@
     if (row.kind === "session") return row.session.attention;
     if (row.kind === "conversation") return sidebarStore.sessionAttention(row.meta.serverId ?? null, row.meta.sessionId);
     return null;
+  }
+  // What a live state mark needs beside it: the agent activity and the
+  // host's reach.
+  function rowLive(row: PickerRow, attention: AttentionState): LiveMarkFacts {
+    if (row.kind === "session") return sidebarStore.liveFactsOf(row.session, attention);
+    if (row.kind === "conversation") return sidebarStore.liveFactsOf({ sessionId: row.meta.sessionId, serverId: row.meta.serverId ?? null }, attention);
+    return {};
   }
   // The picker opens where the user already is. Without this it listed every
   // root task on every connected host, so ⌘P from a project's own composer
@@ -717,6 +724,7 @@
                 {selectedIndex}
                 {query}
                 attention={rowAttention(row)}
+                live={rowLive(row, rowAttention(row))}
                 onActivate={clickEntry}
                 onHover={hoverEntry}
                 onContextMenu={openContextMenu}

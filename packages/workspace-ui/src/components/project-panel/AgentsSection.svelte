@@ -14,6 +14,8 @@
   import { toasts } from "../../lib/toasts";
   import * as TooltipUI from "../ui/tooltip";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import AgentStateMark from "../conversation/AgentStateMark.svelte";
+  import { agentMarkShowsElapsed } from "../conversation/lib/agent-link";
   import { openAgentSession } from "../conversation/agent-conversation/lib/agent-conversation";
   import PanelSection from "./PanelSection.svelte";
   import LineageWorkflow from "./LineageWorkflow.svelte";
@@ -61,9 +63,9 @@
     turn.settled && (turn.outcome === undefined || turn.outcome === "completed"),
   ) === true);
   const ownsConversation = $derived(!view?.tree?.nodes[0]?.record.runnerHostId);
-  const running = $derived(isPanelItemShown(hiddenItems, "agents.running") ? rows.filter((row) => row.tone === "live") : []);
-  const previous = $derived(isPanelItemShown(hiddenItems, "agents.previous") ? rows.filter((row) => row.tone !== "live") : []);
-  const failedCount = $derived(previous.filter((row) => row.tone === "failed").length);
+  const running = $derived(isPanelItemShown(hiddenItems, "agents.running") ? rows.filter((row) => row.standing === "live") : []);
+  const previous = $derived(isPanelItemShown(hiddenItems, "agents.previous") ? rows.filter((row) => row.standing !== "live") : []);
+  const failedCount = $derived(previous.filter((row) => row.standing === "failed").length);
   const header = $derived(running.length > 0
     ? `${running.length} running`
     : previous.length > 0 ? `${previous.length} previous` : "");
@@ -247,7 +249,7 @@
       <li>
         {@render agentRow(row)}
         {#if row.kind === "subagent" && row.workflow}
-          <LineageWorkflow workflow={row.workflow} halted={row.tone === "idle" || row.tone === "failed"} />
+          <LineageWorkflow workflow={row.workflow} halted={row.standing === "stopped" || row.standing === "failed"} />
         {/if}
       </li>
     {/each}
@@ -266,7 +268,7 @@
 
 {#snippet agentRow(row: TreeAgentRow)}
   {@const isOpen = row.kind === "subagent" && openSubagent?.sessionId === sessionId && openSubagent.toolId === row.id}
-  {@const canStop = row.tone === "live" && !view?.stale && (row.kind === "session"
+  {@const canStop = row.standing === "live" && !view?.stale && (row.kind === "session"
     ? !row.isRemote || serversStore.readinessFor(runnerServerId(row.serverId)).readiness === "ready"
     : ownsConversation && row.canStop)}
   {@const mark = row.provider === "codex" ? "codex" : row.provider === "claude-code" ? "claude" : null}
@@ -286,26 +288,16 @@
             aria-current={isOpen ? "true" : undefined}
             data-testid="rail-agent-row"
             data-kind={row.kind}
-            data-state={row.tone}
+            data-state={row.standing}
             onclick={(e) => open(row, e.metaKey || e.ctrlKey)}
           >
-            <!-- The provider's mark, and a status dot on its corner. -->
+            <!-- The provider's mark. The state mark sits before the time. -->
             <span class="relative inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
               {#if mark}
                 <ProviderMark {mark} size={mark === "codex" ? 10 : 14} transparent />
               {:else}
                 <BotIcon size={16} class="text-(--solus-text-tertiary)" />
               {/if}
-              <span
-                class="absolute -right-1 -bottom-1 size-2 rounded-full border-2 border-(--solus-container-bg) {row.tone ===
-                'live'
-                  ? 'bg-(--solus-status-running)'
-                  : row.tone === 'done'
-                    ? 'bg-(--solus-status-complete)'
-                    : row.tone === 'failed'
-                      ? 'bg-(--solus-status-error)'
-                      : 'bg-[color-mix(in_srgb,var(--solus-text-tertiary)_45%,transparent)]'}"
-              ></span>
             </span>
             <span
               class="min-w-0 flex-1 truncate text-[13px] pointer-coarse:text-workspace-chrome text-[color-mix(in_srgb,var(--solus-text-primary)_85%,transparent)]"
@@ -314,16 +306,17 @@
             {#if hostLabel}
               <span class="max-w-1/3 shrink-0 truncate text-chrome-dense text-(--solus-text-tertiary)" title={hostLabel}>{hostLabel}</span>
             {/if}
+            <!-- The sidebar's grammar: the state mark, then the time. -->
             <span
-              class="shrink-0 whitespace-nowrap text-chrome-dense tabular-nums {row.tone === 'failed'
-                ? 'text-(--solus-status-error)'
-                : 'text-(--solus-text-tertiary)'} {canStop
+              class="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-chrome-dense tabular-nums text-(--solus-text-tertiary) {canStop
                 ? 'group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:opacity-0'
                 : ''}"
-              >{row.tone === "failed" || row.tone === "idle" || elapsedMs <= 0
-                ? row.status
-                : formatCompactElapsed(elapsedMs)}</span
             >
+              {#if row.mark}<AgentStateMark mark={row.mark} label={row.status} />{/if}
+              {#if agentMarkShowsElapsed(row.mark)}
+                {row.standing === "stopped" || elapsedMs <= 0 ? row.status : formatCompactElapsed(elapsedMs)}
+              {/if}
+            </span>
           </button>
         {/snippet}
       </TooltipUI.Trigger>

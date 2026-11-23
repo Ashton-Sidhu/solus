@@ -2,6 +2,7 @@
   import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon } from "@lucide/svelte";
   import type { BackgroundItem } from "@solus/client-core/background-item";
   import ActivityRow from "./ActivityRow.svelte";
+  import DotMatrix from "../ui/DotMatrix.svelte";
   import BackgroundStopButton from "./BackgroundStopButton.svelte";
   import { Button } from "../ui/button";
   import { liveActivityClock } from "../../lib/shared-clock";
@@ -89,7 +90,8 @@
 >
   {#snippet glyph()}
     {#if item.state === "running"}
-      <span class="activity-spinner" aria-hidden="true"></span>
+      <!-- The Working dot mark: the row does not know what the work does. -->
+      <span class="flex items-center text-chart-5"><DotMatrix mark="working" /></span>
     {:else if item.state === "waiting"}
       <WaitingIcon aria-hidden="true" />
     {:else if item.state === "attention"}

@@ -1,11 +1,12 @@
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
 import { exchangeRequestText, type ExchangeRequest } from '@solus/contracts/session-exchange'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
 import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
-import { plainDetail, type AgentLinkStatus } from '../../lib/agent-link'
+import { dotMarkOfActivity, plainDetail, type AgentLinkStatus } from '../../lib/agent-link'
 
 /** The card's single headline state — one treatment, one verb, no layout shift.
  *  `lost` is a message whose reply a host restart took; `limited` is a turn
@@ -247,34 +248,48 @@ export function agentConversationTitle(ref: AgentConversationRef, meta: SessionM
 }
 
 /**
- * The session row's status dot, word, and detail line (T3 Code's subagent
- * link). Every in-flight state is `live`; the detail says why a settled
- * exchange ended, or the reply's first words when it answered.
+ * The session row's standing, state mark, word, and detail line (T3 Code's
+ * subagent link). Every in-flight state is `live`. `activity` is the agent
+ * activity the session's host reports for its running turn
+ * (`session.activityChanged`); null while nothing is known. The detail says
+ * why a settled exchange ended, or the reply's first words when it answered.
  */
 export function agentConversationLink(
   ref: AgentConversationRef,
   state: AgentConversationCardState,
   neverStarted: boolean,
+  activity: AgentActivity | null,
 ): AgentLinkStatus & { detail: string } {
   switch (state) {
     case 'dispatching':
-      return { tone: 'live', label: neverStarted ? 'Starting' : 'Queued', detail: '' }
+      return { standing: 'live', mark: { kind: 'dot', mark: 'starting' }, label: neverStarted ? 'Starting' : 'Queued', detail: '' }
     case 'replying':
-      return { tone: 'live', label: 'Running', detail: '' }
-    case 'waiting':
-      return { tone: 'live', label: 'Waiting', detail: '' }
+      return { standing: 'live', mark: { kind: 'dot', mark: dotMarkOfActivity(activity) }, label: 'Running', detail: '' }
+    case 'waiting': {
+      // A permission request is Approval and a plan is Plan. A question, or
+      // an exchange that carries no request, is Input.
+      const kind = pendingRequest(ref)?.kind
+      const status = kind === 'permission' ? 'approval' : kind === 'plan' ? 'plan' : 'question'
+      return { standing: 'live', mark: { kind: 'glyph', status }, label: 'Waiting', detail: '' }
+    }
     case 'children':
-      return { tone: 'live', label: 'Waiting', detail: 'Waiting on agents' }
+      return { standing: 'live', mark: { kind: 'dot', mark: 'delegating' }, label: 'Waiting', detail: 'Waiting on agents' }
     case 'limited':
-      return { tone: 'live', label: 'Waiting', detail: 'Rate limited' }
+      return {
+        standing: 'live',
+        mark: { kind: 'glyph', status: 'limit', limitResetsAt: rateLimitedUntil(ref) },
+        label: 'Waiting',
+        detail: 'Rate limited',
+      }
     case 'replied':
-      return { tone: 'done', label: 'Completed', detail: plainDetail(ref.exchanges.at(-1)?.reply ?? '') }
+      return { standing: 'done', mark: { kind: 'glyph', status: 'finished' }, label: 'Completed', detail: plainDetail(ref.exchanges.at(-1)?.reply ?? '') }
     case 'failed':
-      return { tone: 'failed', label: 'Failed', detail: neverStarted ? 'Never started' : 'Stopped replying' }
+      return { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, label: 'Failed', detail: neverStarted ? 'Never started' : 'Stopped replying' }
     case 'lost':
-      return { tone: 'idle', label: 'Stopped', detail: 'Reply lost in a restart' }
+      // Its host restarted and took the reply: the state the row knew is old.
+      return { standing: 'stopped', mark: { kind: 'dot', mark: 'offline' }, label: 'Stopped', detail: 'Reply lost in a restart' }
     case 'closed':
-      return { tone: 'idle', label: 'Stopped', detail: 'Closed its session' }
+      return { standing: 'stopped', mark: null, label: 'Stopped', detail: 'Closed its session' }
   }
 }
 

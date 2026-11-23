@@ -370,17 +370,22 @@ let projected: {
   facts: ReturnType<typeof solus.threadList.facts>;
   projects: ReturnType<typeof readProjects>["projectPaths"];
   automationRevision: number;
+  awayHosts: string;
 } | undefined;
 
 function readDirectory() {
   const workspace = getSolusWorkspace();
   const facts = solus.threadList.facts();
   const rows = solus.threads.threads();
+  // A host past its reconnect grace marks its rows Offline. A change of that
+  // set touches rows whose facts did not change, so it projects every row.
+  const away = solus.registry.hosts().filter((host) => solus.connections.readiness(host.id).away).map((host) => host.id);
+  const awayKey = away.join(",");
   const keys = projected && solus.threadList.changedKeys(projected.facts);
-  const changes = projected && keys && projected.projects === workspace.projectPaths && projected.automationRevision === automationRevision
+  const changes = projected && keys && projected.projects === workspace.projectPaths && projected.automationRevision === automationRevision && projected.awayHosts === awayKey
     ? solus.threads.changedPositions(projected.rows, keys) : undefined;
-  const threads = projectThreads(rows, facts, automationNames, workspace.projectPaths, changes);
-  projected = { rows, facts, projects: workspace.projectPaths, automationRevision };
+  const threads = projectThreads(rows, facts, automationNames, workspace.projectPaths, changes, new Set(away));
+  projected = { rows, facts, projects: workspace.projectPaths, automationRevision, awayHosts: awayKey };
   if (directoryWorkspace === workspace && snapshot.threads === threads && snapshot.unread === facts.unread) return snapshot;
   directoryWorkspace = workspace;
   return { ...workspace, threads, unread: facts.unread };

@@ -4,6 +4,7 @@ import {
   threadFaviconRoot,
   type ThreadListV2Facts,
 } from "@solus-mobile/features/threads/threadListV2";
+import type { AgentActivity } from "@solus/contracts/agent-activity";
 import type { SessionPlace, SessionStarter, SessionStatus } from "@solus/contracts/types";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { hostPathBaseName } from "@solus/contracts/host-path";
@@ -15,6 +16,10 @@ import { toThreadShell, type SessionRow } from "./session";
 export type SessionListThread = EnvironmentThreadShell & {
   automationName?: string | null;
   fallbackProject?: { title: string; workspaceRoot: string };
+  /** The live facts the row's state mark reads (docs/plans/session-state-marks.md). */
+  agentActivity?: AgentActivity;
+  starting?: true;
+  hostAway?: true;
 };
 
 const attentionStatus = {
@@ -62,6 +67,8 @@ export function createSessionListProjection() {
       pinnedAt: number | undefined;
       automationName: string | null | undefined;
       liveStatus: SessionStatus | undefined;
+      agentActivity: AgentActivity | undefined;
+      hostAway: boolean;
       pendingQuestion: boolean;
       since: number | undefined;
       viewedAt: number | null;
@@ -79,11 +86,23 @@ export function createSessionListProjection() {
     >,
     facts: Pick<ThreadListV2Facts, "views" | "states" | "pins"> &
       Partial<
-        Pick<ThreadListV2Facts, "attention" | "liveStatus" | "pendingQuestions" | "statusSince" | "viewedAt" | "pullRequests">
+        Pick<
+          ThreadListV2Facts,
+          | "attention"
+          | "liveStatus"
+          | "pendingQuestions"
+          | "awaitingApprovals"
+          | "agentActivity"
+          | "statusSince"
+          | "viewedAt"
+          | "pullRequests"
+        >
       >,
     automationNames?: ReadonlyMap<string, ReadonlyMap<string, string>>,
     projectsByHost?: ReadonlyMap<string, ReadonlySet<string>>,
     changedPositions?: readonly number[],
+    /** Hosts past their grace and not ready since: their live states are not current. */
+    awayHosts?: ReadonlySet<string>,
   ) => {
     const projectRow = ({ hostId, record, key }: (typeof rows)[number]) => {
       const view = facts.views.get(key) ?? record.view;
@@ -102,9 +121,13 @@ export function createSessionListProjection() {
           : root;
       const live = facts.liveStatus?.get(key);
       const attention = facts.attention?.get(key);
-      const liveStatus = live === "awaiting_input" && attention?.kind === "needs_approval"
+      // Mobile rows show a waiting permission and a plan to approve as one Approval.
+      const approval = facts.awaitingApprovals?.has(key) === true || attention?.kind === "needs_approval";
+      const liveStatus = live === "awaiting_input" && approval
         ? "awaiting_plan"
         : live ?? (attention && attentionStatus[attention.kind]);
+      const agentActivity = facts.agentActivity?.get(key);
+      const hostAway = awayHosts?.has(hostId) === true;
       const since = facts.statusSince?.get(key) ?? attention?.since;
       const pendingQuestion = live === undefined
         ? record.hasPendingQuestion === true
@@ -121,6 +144,8 @@ export function createSessionListProjection() {
         held.pinnedAt === pinnedAt &&
         held.automationName === automationName &&
         held.liveStatus === liveStatus &&
+        held.agentActivity === agentActivity &&
+        held.hostAway === hostAway &&
         held.since === since &&
         held.viewedAt === viewedAt &&
         held.pendingQuestion === pendingQuestion &&
@@ -151,6 +176,9 @@ export function createSessionListProjection() {
         shell.fallbackProject = { title: hostPathBaseName(faviconRoot) || faviconRoot, workspaceRoot: faviconRoot };
       }
       if (automationName !== undefined) shell.automationName = automationName;
+      if (agentActivity) shell.agentActivity = agentActivity;
+      if (liveStatus === "connecting") shell.starting = true;
+      if (hostAway) shell.hostAway = true;
       cache.set(record, {
         hostId,
         view,
@@ -159,6 +187,8 @@ export function createSessionListProjection() {
         automationName,
         hostLinks,
         liveStatus,
+        agentActivity,
+        hostAway,
         since,
         pendingQuestion,
         viewedAt,

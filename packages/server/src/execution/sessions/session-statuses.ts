@@ -10,6 +10,7 @@ import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession } from '../../db/session-indexer'
 import type { BackendSession, SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
 import { isSessionBusyStatus, sessionRecordStatusOf } from '@solus/contracts/types'
+import type { HostEventMap } from '@solus/contracts/host-events'
 import type { SessionRuntime } from '../session-runtime'
 import { backgroundWorkHolds } from './background-work'
 import { deriveSessionStatus, turnOfStatus } from './derived-status'
@@ -19,6 +20,20 @@ const log = createLogger('SessionRuntime', 'session-statuses.ts')
 /** The `session.statusChanged` field for a waiting message-mode question; absent when there is none. */
 function pendingQuestionFact(sessionId: string): { hasPendingQuestion?: true } {
   return hasPendingAsyncQuestion(sessionId) ? { hasPendingQuestion: true } : {}
+}
+
+/** What the status feed says waits for the person. */
+type WaitFacts = Pick<HostEventMap['session.statusChanged'], 'hasPendingQuestion' | 'awaitingApproval'>
+
+/** The newest permission or question that waits. A backwards scan without
+ *  the copy and reverse allocations: this runs on every status transition,
+ *  several times per turn. */
+function newestPendingRequest(events: NormalizedEvent[]): Extract<NormalizedEvent, { type: 'permission_request' | 'question_request' }> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.type === 'permission_request' || e.type === 'question_request') return e
+  }
+  return undefined
 }
 
 /** The first stack frame outside this file: the call site that wrote the status. */
@@ -43,6 +58,8 @@ export class SessionStatuses {
   /** Provider thread id → the session record status this process last wrote for it. */
   recordStatusWritten = new Map<string, SessionRecordStatus>()
   private hadActiveWork = false
+  /** Sessions in `awaiting_input` whose newest waiting input is a permission request. */
+  private readonly approvalWaits = new Set<string>()
   runWatchdogTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(private readonly rt: SessionRuntime) {
@@ -222,18 +239,7 @@ export class SessionStatuses {
    *  service dedupes, so calling this on no-op transitions is cheap. */
   syncAttention(agentSessionId: string, sessionId: string, newStatus: SessionStatus): void {
     const session = this.rt.activeSessions.get(sessionId)
-    // Backwards scan without the copy + reverse allocations: this runs on every
-    // status transition, several times per turn.
-    let pendingEvent: NormalizedEvent | undefined
-    if (session) {
-      for (let i = session.pendingInputEvents.length - 1; i >= 0; i--) {
-        const e = session.pendingInputEvents[i]
-        if (e.type === 'permission_request' || e.type === 'question_request') {
-          pendingEvent = e
-          break
-        }
-      }
-    }
+    const pendingEvent = session ? newestPendingRequest(session.pendingInputEvents) : undefined
     const pending = pendingEvent?.type === 'question_request'
       ? 'question'
       : pendingEvent?.type === 'permission_request'
@@ -294,7 +300,14 @@ export class SessionStatuses {
   questionsChanged(agentSessionId: string, sessionId: string): void {
     const status = this.rt.activeSessions.get(sessionId)?.status ?? 'completed'
     this.syncAttention(agentSessionId, sessionId, status)
-    this.rt.emit('session-question', { sessionId, agentSessionId, status, at: Date.now(), ...pendingQuestionFact(sessionId) })
+    this.rt.emit('session-question', { sessionId, agentSessionId, status, at: Date.now(), ...this.waitFacts(sessionId) })
+  }
+
+  /** The `session.statusChanged` fields that say what waits for the person. */
+  private waitFacts(sessionId: string): WaitFacts {
+    const facts: WaitFacts = pendingQuestionFact(sessionId)
+    if (this.approvalWaits.has(sessionId)) facts.awaitingApproval = true
+    return facts
   }
 
   private attentionSummary(kind: Exclude<AttentionKind, 'finished'>, event?: NormalizedEvent): string {
@@ -332,7 +345,9 @@ export class SessionStatuses {
     const settledAt = Date.now()
     queueMicrotask(() => {
       log.info('turn_settled', { sessionId, turnId, outcome, settledAt })
-      this.rt.publish(sessionId, { type: 'turn_settled', turnId, outcome, settledAt })
+      const settled: NormalizedEvent = { type: 'turn_settled', turnId, outcome, settledAt }
+      this.rt.publish(sessionId, settled)
+      this.rt.activity.observe(sessionId, settled)
     })
   }
 
@@ -394,7 +409,16 @@ export class SessionStatuses {
     if (agentSessionId) this.syncAttention(agentSessionId, sessionId, newStatus)
 
     const oldStatus = session?.status ?? 'idle'
-    if (oldStatus === newStatus) return
+    const isAwaitingApproval = newStatus === 'awaiting_input' && newestPendingRequest(session?.pendingInputEvents ?? [])?.type === 'permission_request'
+    const hasApprovalChanged = isAwaitingApproval !== this.approvalWaits.has(sessionId)
+    if (isAwaitingApproval) this.approvalWaits.add(sessionId)
+    else this.approvalWaits.delete(sessionId)
+    if (oldStatus === newStatus) {
+      // The wait changed between a permission and a question; the status did
+      // not, so only the readers of the status feed hear it.
+      if (hasApprovalChanged) this.rt.emit('session-question', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...this.waitFacts(sessionId) })
+      return
+    }
 
     let goalUpdate: ThreadGoal | null = null
     if (session) {
@@ -410,7 +434,7 @@ export class SessionStatuses {
     }
     // Global (not watch-scoped) feed so agent-conversation cards can track
     // sessions no client is looking at.
-    this.rt.emit('session-status', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...pendingQuestionFact(sessionId) })
+    this.rt.emit('session-status', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...this.waitFacts(sessionId) })
 
     if (session && newStatus === 'interrupted' && session.pendingInputEvents.length > 0) {
       const hasPendingPlans = session.pendingInputEvents.some((e) => e.type === 'plan')

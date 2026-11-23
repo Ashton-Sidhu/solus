@@ -42,6 +42,7 @@ import IconCircleFilled from "@tabler/icons-react-native/IconCircleFilled";
 import IconCircleCheck from "@tabler/icons-react-native/IconCircleCheck";
 import IconCircleDashed from "@tabler/icons-react-native/IconCircleDashed";
 import IconCircleDot from "@tabler/icons-react-native/IconCircleDot";
+import IconCircleX from "@tabler/icons-react-native/IconCircleX";
 import IconCircleXFilled from "@tabler/icons-react-native/IconCircleXFilled";
 import IconMoodPlus from "@tabler/icons-react-native/IconMoodPlus";
 import IconTag from "@tabler/icons-react-native/IconTag";
@@ -296,6 +297,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "wifi.slash": IconWifiOff,
   "wrench.and.screwdriver": IconTool,
   xmark: IconX,
+  "xmark.circle": IconCircleX,
   "xmark.circle.fill": IconCircleXFilled,
 } satisfies Partial<
   Record<

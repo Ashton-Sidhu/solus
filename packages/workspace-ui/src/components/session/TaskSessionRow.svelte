@@ -1,15 +1,12 @@
 <script lang="ts">
-  import {
-    LoaderCircle as SpinnerGapIcon,
-    X as XIcon,
-  } from "@lucide/svelte";
-  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { X as XIcon } from "@lucide/svelte";
+  import { getSessionSidebarStore, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { shouldActivateRenameableRow } from "../../lib/rename-input";
   import { liveActivityClock } from "../../lib/shared-clock";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
-  import UnreadDot from "./UnreadDot.svelte";
+  import DotMatrix from "../ui/DotMatrix.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import {
@@ -18,7 +15,6 @@
     shouldRecedeRow,
     taskStatusFor,
   } from "./lib/task-list";
-  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
 
   interface Props {
     /** A session the row's session delegated, listed under that row. */
@@ -71,6 +67,12 @@
   // asks for you: the one on screen and one with news keep full ink.
   const recedes = $derived(shouldRecedeRow(status, session.unread, false, isCurrent));
 
+  const sidebarStore = getSessionSidebarStore();
+  // What the agent does now, and whether its host is reachable: the dot
+  // mark of a live state.
+  const live = $derived(sidebarStore.liveFactsOf(session, session.attention));
+  const label = $derived(attentionLabel(session.attention, session.limitResetsAt, live));
+
   let now = $state(Date.now());
   $effect(() => {
     if (status !== "running") return;
@@ -80,8 +82,8 @@
   });
 
   // The same ladder the row above spends, one level down: a session row is a
-  // leaf, so it always has a single datable turn and never needs the spinner
-  // fallback, and neither shelf's clock can reach it.
+  // leaf, so it always has a single datable turn, and neither shelf's clock
+  // can reach it.
   const mark = $derived(
     resolveSidebarRowMark({
       status,
@@ -93,6 +95,7 @@
       completedAt: 0,
       snoozedUntil: 0,
       now,
+      live,
     }),
   );
 
@@ -141,26 +144,24 @@
         <TaskStatusGlyph
           status={mark.status}
           size={13}
-          label={attentionLabel(session.attention, session.limitResetsAt)}
+          label={label || "unread"}
+          limitResetsAt={session.limitResetsAt}
         />
-      {:else if mark?.kind === "unread"}
-        <UnreadDot size={12} />
-      {:else if mark?.kind === "elapsed"}
-        <!-- The clock states its time in full ink, not hue. Terracotta
-             stays on the elbow, so the clock never competes with the green
-             of a pull request chip beside it. -->
-        <span
-          class="shrink-0 text-sidebar-time font-medium tabular-nums text-foreground"
-          >{mark.label}</span
-        >
-      {:else if mark?.kind === "spinner"}
-        <span
-          class="flex shrink-0 items-center text-chart-5"
-          role="img"
-          onanimationstart={alignStatusAnimationPhase}
-          aria-label={attentionLabel(session.attention, session.limitResetsAt)}
-        >
-          <SpinnerGapIcon size={13} class="animate-spin" />
+      {:else if mark?.kind === "dot"}
+        <!-- The dots move in the running tone; offline is muted, as its
+             state can be old. The clock beside them states its time in full
+             ink, not hue. Terracotta stays on the elbow, so the clock never
+             competes with the green of a pull request chip beside it. -->
+        <span class="flex shrink-0 items-center gap-1.5">
+          <span class="flex shrink-0 items-center {mark.mark === 'offline' ? 'text-muted-foreground' : 'text-chart-5'}">
+            <DotMatrix mark={mark.mark} {label} />
+          </span>
+          {#if mark.elapsed}
+            <span
+              class="shrink-0 text-sidebar-time font-medium tabular-nums text-foreground"
+              >{mark.elapsed}</span
+            >
+          {/if}
         </span>
       {/if}
     </span>
@@ -271,5 +272,6 @@
     modelId={session.modelId}
     attention={session.attention}
     limitResetsAt={session.limitResetsAt}
+    {live}
   />
 </TooltipUI.Root>

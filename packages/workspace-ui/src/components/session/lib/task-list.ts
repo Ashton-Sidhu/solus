@@ -3,7 +3,8 @@ import { latestPrObservation } from '../../../contexts/prs/linked-pr'
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
 import type { Session } from '@solus/contracts/types'
 import type { Task, TaskPrSnapshot } from '@solus/contracts/task-types'
-import type { AttentionState } from '../../../lib/sessionUtils'
+import type { DotMarkName } from '@solus/client-core/dot-marks'
+import { liveDotMark, type AttentionState, type LiveMarkFacts } from '../../../lib/sessionUtils'
 import type { ListProjectOption } from '../../ui/list-page/list-page'
 import { shareSortAt, type SessionShare } from '../../../contexts/workspace/shared-sessions'
 import type { SidebarSection } from './sidebar-list-items'
@@ -11,22 +12,27 @@ import type { SidebarSection } from './sidebar-list-items'
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
  *  reports what a task wants from a person, so "finished but unread" is not a
  *  separate task status here — session attention carries it, and the margin
- *  reports it with a dot rather than another glyph.
+ *  reports it with the Done check.
+ *
+ *  `question` is a question that waits (Input) and `approval` a permission
+ *  request that waits. `starting` is a turn whose agent connects.
  *
  *  `done` is the one status the user sets rather than the agent: it is what the
  *  check in the hover cluster writes, and it only says "I am finished with
  *  this", which nothing else in the app knows.
  *
  *  `background` is a finished turn whose background task still runs. */
-export type TaskStatus = 'question' | 'error' | 'plan' | 'limit' | 'running' | 'background' | 'idle' | 'done'
+export type TaskStatus = 'question' | 'approval' | 'error' | 'plan' | 'limit' | 'starting' | 'running' | 'background' | 'idle' | 'done'
 
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
 export const STATUS_RANK = {
+  approval: 0,
   question: 0,
   error: 1,
   plan: 2,
   limit: 3,
+  starting: 4,
   running: 4,
   background: 5,
   idle: 6,
@@ -35,18 +41,39 @@ export const STATUS_RANK = {
 
 export const ATTENTION_RANK = {
   awaiting: 6,
+  approval: 6,
   awaiting_plan: 6,
   limited: 5,
   error: 4,
+  starting: 3,
   running: 3,
   unread: 2,
   background: 1,
 } satisfies Record<NonNullable<AttentionState>, number>
 
-/** Statuses that earn a glyph. Running reports elapsed time instead; idle and
- *  done report nothing at all. */
-export function hasGlyph(status: TaskStatus): boolean {
-  return status !== 'running' && status !== 'idle' && status !== 'done'
+/** Statuses whose own mark outranks unread output: the line glyphs of a state
+ *  that wants a person, and the Background pattern. A running or starting
+ *  turn shows its dot mark only when nothing is unread; idle and done report
+ *  nothing at all. */
+export function hasStatusMark(status: TaskStatus): boolean {
+  return status !== 'starting' && status !== 'running' && status !== 'idle' && status !== 'done'
+}
+
+/** The line glyphs (`TaskStatusGlyph`): the states that want a person, and
+ *  `finished`, the Done check of finished work that is not read. */
+export type GlyphStatus = Extract<TaskStatus, 'question' | 'approval' | 'error' | 'plan' | 'limit'> | 'finished'
+
+export function isGlyphStatus(status: TaskStatus | 'finished'): status is GlyphStatus {
+  return status === 'finished' || (hasStatusMark(status) && status !== 'background')
+}
+
+/** The one word beside a line glyph. Input, Approval, and Limited carry it;
+ *  Plan, Failed, and Done are glyph only (docs/plans/session-state-marks.md). */
+export function glyphWord(status: GlyphStatus): string | null {
+  if (status === 'question') return 'Input'
+  if (status === 'approval') return 'Approval'
+  if (status === 'limit') return 'Limited'
+  return null
 }
 
 /** Error remains visible in the margin after it is read, but only an unread
@@ -59,7 +86,7 @@ export function shouldEmphasizeTitle(
 ): boolean {
   if (status === 'error') return unread
   // Background work does not ask for the user, so its glyph earns no weight.
-  return isCurrent || (hasGlyph(status) && status !== 'background')
+  return isCurrent || (hasStatusMark(status) && status !== 'background')
 }
 
 /**
@@ -86,9 +113,9 @@ export function shouldLeadTitle(
 
 /** Session output stays unread independently of the durable task lifecycle.
  * A state that needs the user keeps its more specific glyph; otherwise the
- * unread dot wins over idle, running, or done presentation. */
+ * Done check wins over idle, starting, running, or done presentation. */
 export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
-  return unread && !hasGlyph(status)
+  return unread && !hasStatusMark(status)
 }
 
 /**
@@ -113,12 +140,16 @@ export function taskStatusFor(attention: AttentionState, markedDone = false): Ta
   switch (attention) {
     case 'awaiting':
       return 'question'
+    case 'approval':
+      return 'approval'
     case 'error':
       return 'error'
     case 'awaiting_plan':
       return 'plan'
     case 'limited':
       return 'limit'
+    case 'starting':
+      return 'starting'
     case 'running':
       return 'running'
     case 'background':
@@ -156,13 +187,12 @@ export function formatCompletedAge(completedAt: number, now: number): string {
   return `${Math.floor(elapsed / 86_400_000)}d`
 }
 
-/** The single thing a row's trailing slot says. */
+/** The single thing a row's trailing slot says. A dot mark of a running turn
+ *  carries the turn's elapsed time when one turn can be dated. */
 export type SidebarRowMark =
-  | { kind: 'glyph'; status: TaskStatus }
+  | { kind: 'glyph'; status: GlyphStatus }
   | { kind: 'woke' }
-  | { kind: 'unread' }
-  | { kind: 'elapsed'; label: string }
-  | { kind: 'spinner' }
+  | { kind: 'dot'; mark: DotMarkName; elapsed: string | null }
   | { kind: 'wake'; label: string }
   | { kind: 'age'; label: string }
 
@@ -179,6 +209,9 @@ export interface SidebarRowMarkInput {
   completedAt: number
   snoozedUntil: number
   now: number
+  /** The agent activity of the running turn, and whether the row's host is
+   *  not reachable now. */
+  live?: LiveMarkFacts
 }
 
 /**
@@ -197,20 +230,25 @@ export interface SidebarRowMarkInput {
  * row's mark and its position in the pickers can never disagree.
  */
 export function resolveSidebarRowMark(input: SidebarRowMarkInput): SidebarRowMark | null {
-  if (hasGlyph(input.status)) return { kind: 'glyph', status: input.status }
+  const live = input.live ?? {}
+  if (input.status === 'background') {
+    return { kind: 'dot', mark: liveDotMark('background', live) ?? 'background', elapsed: null }
+  }
+  if (isGlyphStatus(input.status)) return { kind: 'glyph', status: input.status }
   // A lapsed snooze is a promise the column made to the user, so it outranks
   // unread output the user has never been told to expect.
   if (input.woke) return { kind: 'woke' }
-  if (showsUnreadIndicator(input.status, input.unread)) return { kind: 'unread' }
-  if (input.status === 'running') {
+  if (showsUnreadIndicator(input.status, input.unread)) return { kind: 'glyph', status: 'finished' }
+  if (input.status === 'starting' || input.status === 'running') {
+    const mark = liveDotMark(input.status, live) ?? 'working'
     // A number can only date one turn. Once several sessions run at once there
-    // is no single clock to report, so the row says *that* work is in flight
-    // and leaves the durations to the session rows that own them. A reconnect
-    // with no reliable start time takes the same fallback: show motion rather
-    // than leave a running row blank.
-    return input.runStartedAt && !input.manyRunning
-      ? { kind: 'elapsed', label: formatElapsed(input.now - input.runStartedAt) }
-      : { kind: 'spinner' }
+    // is no single clock to report, so the row shows only the motion and
+    // leaves the durations to the session rows that own them. A reconnect
+    // with no reliable start time takes the same fallback. Starting has no
+    // turn to date yet, and a row whose host is offline cannot say how long
+    // the turn has run.
+    const isDatable = input.status === 'running' && mark !== 'offline' && !!input.runStartedAt && !input.manyRunning
+    return { kind: 'dot', mark, elapsed: isDatable ? formatElapsed(input.now - input.runStartedAt) : null }
   }
   if (input.lifecycle === 'snoozed') {
     return { kind: 'wake', label: formatWakeIn(input.snoozedUntil, input.now) }
@@ -242,7 +280,7 @@ export function shouldRecedeRow(
   woke: boolean,
   isOnPath: boolean,
 ): boolean {
-  return !hasGlyph(status) && !unread && !woke && !isOnPath
+  return !hasStatusMark(status) && !unread && !woke && !isOnPath
 }
 
 export interface SidebarTask {
@@ -325,7 +363,7 @@ export function filterSidebarTasks(
  *  the active list. `running` is deliberately absent: quiet progress is exactly
  *  what the user chose to hide, and a snoozed task keeps working. */
 function outranksSnooze(attention: AttentionState): boolean {
-  return attention === 'awaiting' || attention === 'awaiting_plan' || attention === 'error'
+  return attention === 'awaiting' || attention === 'approval' || attention === 'awaiting_plan' || attention === 'error'
 }
 
 /**
@@ -467,7 +505,7 @@ export type RowActivity = (task: SidebarTask) => number
 /** Statuses of an agent that is busy and does not need the user: a running
  *  turn, background work after a finished turn, or a wait on a rate limit. */
 export function isWorkingStatus(status: TaskStatus): boolean {
-  return status === 'running' || status === 'background' || status === 'limit'
+  return status === 'starting' || status === 'running' || status === 'background' || status === 'limit'
 }
 
 /** Whether a row folds into the Working section until it comes back to the
@@ -562,7 +600,7 @@ export function buildProjectSummaries(
     return {
       project,
       count: tasks.length,
-      waiting: tasks.filter((task) => task.status === 'question' || task.status === 'plan').length,
+      waiting: tasks.filter((task) => task.status === 'question' || task.status === 'approval' || task.status === 'plan').length,
       failed: tasks.filter((task) => task.status === 'error').length,
       leadTaskKey: ranked[0].key,
     }

@@ -3,7 +3,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { ExternalLink as ExternalLinkIcon } from "@lucide/svelte";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
-  import { getPullRequestsContext, getWorkspaceContext } from "../../../contexts";
+  import { getPullRequestsContext, getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { relativeTime, taskRef } from "../../tasks/lib/tasks-api";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
@@ -50,6 +50,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
   const pullRequests = getPullRequestsContext();
 
   const bars = $derived(priorityBars(task.priority));
@@ -157,7 +158,7 @@
           class="flex h-[30px] w-full shrink-0 cursor-pointer items-center gap-3 overflow-hidden text-left text-workspace-chrome transition-[background-color] duration-100 hover:bg-[var(--wash-1)] max-md:h-[38px] {index ? 'border-t-[0.5px] border-[var(--hairline)]' : ''} {index === 0 ? 'text-foreground' : 'text-muted-foreground'}"
           onclick={() => onSelectSession(item)}
         >
-          <SessionStatusGlyph attention={item.attention} />
+          <SessionStatusGlyph attention={item.attention} live={sidebarStore.liveFactsOf(item, item.attention)} />
           <span class="min-w-0 flex-1 truncate">{item.label}</span>
           <span class="shrink-0 font-mono text-micro whitespace-nowrap tabular-nums opacity-60">{relativeTime(item.lastActivityAt || task.updatedAt)}</span>
         </button>

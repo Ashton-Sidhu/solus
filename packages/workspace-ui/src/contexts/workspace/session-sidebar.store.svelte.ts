@@ -3,6 +3,7 @@ import { SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
 import type { HostApi } from '@solus/client-core/host-api'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { makePrompt } from './session.factories'
@@ -42,10 +43,13 @@ import {
   attemptServerId,
   findOpenTabForSession,
   getAttentionState,
+  isHostUnreachable,
+  isLiveAttention,
   sessionLimitResetsAt,
   sessionDisplayName,
   sessionTitle,
   type AttentionState,
+  type LiveMarkFacts,
 } from '../../lib/sessionUtils'
 import { environmentBranchKey, environmentProjectKey } from '../git/session-environment.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
@@ -57,7 +61,8 @@ import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { checksPresentation } from '../../components/prs/lib/checks'
 import type { Via } from '@solus/contracts/analytics-events'
 import { nextOpenSidebarTabAfterClose } from './session-sidebar-selection'
-import { serverConnections } from '@solus/client-core/server-connections'
+import { serverConnections, type ManagedConnection } from '@solus/client-core/server-connections'
+import type { HostReadiness } from '@solus/client-core/host-readiness'
 import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
@@ -923,6 +928,9 @@ export class SessionSidebarStore {
      *  answers on its own for a store built without one. */
     private readonly sessionHomes: SessionHomeHosts = registrySessionHomes(),
     private readonly activeOrganizationId: () => string | null = () => null,
+    /** Whether this client can reach a host now, for the Offline mark. The
+     *  app core hands in the reactive servers store. */
+    private readonly hostReadiness: (serverId: string) => HostReadiness = (serverId) => serverConnections.readinessFor(serverId).readiness,
   ) {
     this.session.setOpenTabPredicate((tabId) =>
       !this.session.tasksStore.loaded
@@ -954,11 +962,28 @@ export class SessionSidebarStore {
     })
   }
 
-  /** Keep the status of linked sessions with no tab live for the picker. */
+  /** Keep the status of linked sessions with no tab live for the picker,
+   *  and the agent activity of every running session for its state mark. */
   subscribeSessionStatuses(): () => void {
     const stopEvents = subscribeAllHosts('session.statusChanged', (serverId, event) => {
       this.sessionStatusFeed().apply(serverId, event)
     })
+    const stopActivities = subscribeAllHosts('session.activityChanged', (serverId, event) => {
+      this.sessionStatusFeed().applyActivity(serverId, event)
+    })
+    // A reset connection lost the activity events of its time away.
+    const stopResets = new Map<string, () => void>()
+    const bindReset = (connection: ManagedConnection) => {
+      stopResets.get(connection.serverId)?.()
+      stopResets.set(connection.serverId, connection.transport.onReset(() => {
+        this.sessionStatusFeed().resetActivities(connection.serverId)
+      }))
+    }
+    for (const serverId of serverConnections.serverIds()) {
+      const connection = serverConnections.connectionFor(serverId)
+      if (connection) bindReset(connection)
+    }
+    const stopConnections = serverConnections.onConnectionCreated(bindReset)
     const stopViews = subscribeAllHosts('session.viewChanged', (serverId, { sessionId, view }) => {
       if (view.settledAt === null && view.archivedAt === null) return
       this.dropPin(serverConnections.resolveId(serverId), sessionId)
@@ -967,7 +992,14 @@ export class SessionSidebarStore {
     const stopRecords = sessionListStore.onRecordsRead((serverId, records, readStartedAt) => {
       for (const record of records) this.sessionStatusFeed().adoptRecord(serverId, record, readStartedAt)
     })
-    return () => { stopEvents(); stopViews(); stopRecords() }
+    return () => {
+      stopEvents()
+      stopActivities()
+      stopConnections()
+      for (const stop of stopResets.values()) stop()
+      stopViews()
+      stopRecords()
+    }
   }
 
   /** Forget a session's pin on this client. An older manifest read must not restore it. */
@@ -1083,6 +1115,30 @@ export class SessionSidebarStore {
     const sess = tabId ? this.session.sessionFor(tabId) : undefined
     if (tab && sess) return getAttentionState(sess, tab, this.planStore.plans)
     return this.sessionStatusFeed().stateFor(serverId, sessionId)?.attention ?? null
+  }
+
+  /** The agent activity of a session's running turn, for its state mark. A
+   *  row or a session listed under it is named by its open tab, or by its
+   *  session and host when no tab is open. Null when it is not known: a
+   *  running row then shows Working. */
+  activityOf(target: { tabId?: string; sessionId?: string; serverId: string | null }): AgentActivity | null {
+    const session = target.tabId ? this.session.sessionFor(target.tabId) : undefined
+    const sessionId = session?.id ?? target.sessionId
+    const serverId = session ? runHost(session.run) : target.serverId
+    if (!sessionId || !serverId) return null
+    return this.sessionStatusFeed().activityFor(serverConnections.resolveId(serverId), sessionId)
+  }
+
+  /** What a live state mark needs beside the attention: the agent activity
+   *  of a running turn, and whether the session's host is not reachable now.
+   *  A state that is not live reads neither. */
+  liveFactsOf(target: { tabId?: string; sessionId?: string; serverId: string | null }, attention: AttentionState): LiveMarkFacts {
+    if (!isLiveAttention(attention)) return {}
+    const serverId = target.tabId ? runHost(this.session.sessionFor(target.tabId)?.run) ?? target.serverId : target.serverId
+    return {
+      activity: attention === 'running' ? this.activityOf(target) : null,
+      isHostOffline: !!serverId && isHostUnreachable(this.hostReadiness(serverId)),
+    }
   }
 
   childForTab(tabId: string): SidebarSessionChild {

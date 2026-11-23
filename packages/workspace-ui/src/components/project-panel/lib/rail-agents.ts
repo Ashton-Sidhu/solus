@@ -4,13 +4,14 @@
 // under "Previous agents"; once none run, the settled ones are the list. Per the renderer rules the .svelte holds markup and
 // thin handlers; the reading of each row lives here.
 import type { AgentConversationRef, AgentId, Message, SessionMeta, SessionRecordStatus } from '@solus/contracts/types'
-import type { DigestSubagent, DigestTurn, DigestWorkflow, SessionTree } from '@solus/contracts/session-digest'
+import type { DigestSubagent, DigestTurn, DigestWorkflow, SessionDelegationResult, SessionTree } from '@solus/contracts/session-digest'
 import { nodeTitle } from '@solus/client-core/session-tree'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
 import {
   subagentRow,
   type SubagentModelFallback,
 } from '../../conversation/lib/subagent-group'
-import { subagentLinkStatus, type AgentLinkTone } from '../../conversation/lib/agent-link'
+import { subagentLinkStatus, type AgentStanding, type AgentStateMark } from '../../conversation/lib/agent-link'
 import {
   agentConversationCardState,
   agentConversationElapsedMs,
@@ -38,7 +39,9 @@ export interface RailAgentRow {
   title: string
   /** Null for a session whose host keeps no record of it. */
   provider: AgentId | null
-  tone: AgentLinkTone
+  standing: AgentStanding
+  /** The state mark: the same one the conversation's row shows for this agent. */
+  mark: AgentStateMark | null
   /** One or two words: `Running`, `Completed`, `Failed`. */
   status: string
   elapsedMs: number
@@ -69,6 +72,8 @@ export interface RailAgentContext {
   metaFor: (sessionId: string) => SessionMeta | undefined
   /** The host the sessions live on, when it is not this device. */
   hostLabel: string | null
+  /** The agent activity of a started session's running turn, from its host. */
+  activityOf: (ref: AgentConversationRef) => AgentActivity | null
 }
 
 export function railAgentTooltip(title: string, status: string, detail: string): string {
@@ -80,7 +85,9 @@ export type TreeAgentRow = {
   id: string
   title: string
   provider: AgentId
-  tone: AgentLinkTone
+  standing: AgentStanding
+  /** The digest knows no live step, so a running agent shows Working. */
+  mark: AgentStateMark | null
   status: string
   detail: string
   startedAt: number
@@ -90,29 +97,31 @@ export type TreeAgentRow = {
   | { kind: 'session'; serverId: string; cwd: string; isRemote: boolean }
 )
 
-const SUBAGENT_STATUS = {
-  running: { tone: 'live', status: 'Running' },
-  completed: { tone: 'done', status: 'Completed' },
-  failed: { tone: 'failed', status: 'Failed' },
-  stopped: { tone: 'idle', status: 'Stopped' },
-} as const satisfies Record<DigestSubagent['status'], { tone: AgentLinkTone; status: string }>
+type TreeAgentState = Pick<TreeAgentRow, 'standing' | 'mark' | 'status'>
 
-function childSessionStatus(status: SessionRecordStatus, lastTurn: DigestTurn | undefined): Pick<TreeAgentRow, 'tone' | 'status'> {
-  if (status === 'interrupted') return { tone: 'idle', status: 'Interrupted' }
+const SUBAGENT_STATUS = {
+  running: { standing: 'live', mark: { kind: 'dot', mark: 'working' }, status: 'Running' },
+  completed: { standing: 'done', mark: { kind: 'glyph', status: 'finished' }, status: 'Completed' },
+  failed: { standing: 'failed', mark: { kind: 'glyph', status: 'error' }, status: 'Failed' },
+  stopped: { standing: 'stopped', mark: null, status: 'Stopped' },
+} as const satisfies Record<DigestSubagent['status'], TreeAgentState>
+
+function childSessionStatus(status: SessionRecordStatus, lastTurn: DigestTurn | undefined, delegation: SessionDelegationResult | undefined): TreeAgentState {
+  if (status === 'interrupted') return { standing: 'stopped', mark: null, status: 'Interrupted' }
   if (status === 'running' || lastTurn?.settled === false) return SUBAGENT_STATUS.running
-  switch (lastTurn?.outcome) {
+  switch (lastTurn?.outcome ?? delegation?.outcome) {
     case 'completed': return SUBAGENT_STATUS.completed
     case 'failed':
     case 'dead': return SUBAGENT_STATUS.failed
-    case 'interrupted': return { tone: 'idle', status: 'Interrupted' }
-    default: return { tone: 'idle', status: 'Idle' }
+    case 'interrupted': return { standing: 'stopped', mark: null, status: 'Interrupted' }
+    default: return { standing: 'stopped', mark: null, status: lastTurn?.settled ? 'Ended' : 'Idle' }
   }
 }
 
 /** Direct delegates and the session's own provider sub-agents. A child lists its own agents when opened. */
 export function treeAgentRows(tree: SessionTree | null, sessionId: string, serverId: string): TreeAgentRow[] {
   const rows: TreeAgentRow[] = []
-  for (const { record, digest } of tree?.nodes ?? []) {
+  for (const { record, digest, delegationResult } of tree?.nodes ?? []) {
     if (record.sessionId === sessionId) {
       for (const subagent of digest?.subagents ?? []) {
         rows.push({
@@ -131,7 +140,8 @@ export function treeAgentRows(tree: SessionTree | null, sessionId: string, serve
       }
     } else if (record.parentSessionId === sessionId) {
       const lastTurn = digest?.turns.at(-1)
-      const state = childSessionStatus(record.status, lastTurn)
+      const delegation = delegationResult && (!lastTurn || delegationResult.settledAt >= lastTurn.startedAt) ? delegationResult : undefined
+      const state = childSessionStatus(record.status, lastTurn, delegation)
       rows.push({
         key: `session:${record.sessionId}`,
         kind: 'session',
@@ -143,7 +153,7 @@ export function treeAgentRows(tree: SessionTree | null, sessionId: string, serve
         cwd: record.cwd ?? '',
         detail: digest?.lastReply ?? '',
         startedAt: record.createdAt,
-        endedAt: state.tone === 'live' ? null : (lastTurn?.endedAt ?? record.lastActivityAt),
+        endedAt: state.standing === 'live' ? null : (lastTurn?.endedAt ?? delegation?.settledAt ?? record.lastActivityAt),
         ...state,
       })
     }
@@ -174,7 +184,7 @@ export function workflowPhases(workflow: DigestWorkflow) {
 
 function subagentAgentRow(message: Message, now: number, context: RailAgentContext): RailAgentRow {
   const row = subagentRow(message, now, context.fallback)
-  const link = subagentLinkStatus(row.state)
+  const link = subagentLinkStatus(row)
   const detail = [row.activity, row.target].filter(Boolean).join(' ')
   return {
     key: `subagent:${row.id}`,
@@ -182,7 +192,8 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
     id: row.id,
     title: row.name,
     provider: row.provider,
-    tone: link.tone,
+    standing: link.standing,
+    mark: link.mark,
     status: link.label,
     elapsedMs: row.elapsedMs,
     detail,
@@ -196,7 +207,8 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
 function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: number, context: RailAgentContext): RailAgentRow {
   const meta = context.metaFor(ref.sessionId)
   const pending = isPendingAgent(ref)
-  const link = agentConversationLink(ref, agentConversationCardState(ref), pending)
+  const state = agentConversationCardState(ref)
+  const link = agentConversationLink(ref, state, pending, state === 'replying' ? context.activityOf(ref) : null)
   const title = agentConversationTitle(ref, meta)
   const provenance = provenanceLine(ref, meta, context.hostLabel)
   return {
@@ -205,7 +217,8 @@ function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: numb
     id: ref.sessionId,
     title,
     provider: meta?.provider ?? ref.provider,
-    tone: link.tone,
+    standing: link.standing,
+    mark: link.mark,
     status: link.label,
     elapsedMs: agentConversationElapsedMs(ref, now),
     detail: link.detail,
@@ -234,9 +247,9 @@ export function railAgentList(messages: Message[], now: number, context: RailAge
     rows.push(sessionAgentRow(ref, startedAt, now, context))
   }
   const ordered = rows.sort((a, b) => b.startedAt - a.startedAt)
-  const active = ordered.filter((row) => row.tone === 'live')
-  const previous = ordered.filter((row) => row.tone !== 'live')
-  const failed = previous.filter((row) => row.tone === 'failed').length
+  const active = ordered.filter((row) => row.standing === 'live')
+  const previous = ordered.filter((row) => row.standing !== 'live')
+  const failed = previous.filter((row) => row.standing === 'failed').length
   const done = previous.length - failed
   return {
     active,

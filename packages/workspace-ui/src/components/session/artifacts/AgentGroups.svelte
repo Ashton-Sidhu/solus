@@ -77,7 +77,7 @@
   function snooze(row: RailAgentRow, rowServerId: string, until: number, note = "") {
     const target = { serverId: rowServerId, sessionId: row.id };
     void sessionListStore.snooze(target, until, note).catch(() => toasts.error("Couldn't snooze it"));
-    toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: !!note, keepsRunning: row.tone === "live" }), () => wake(row, rowServerId));
+    toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: !!note, keepsRunning: row.standing === "live" }), () => wake(row, rowServerId));
     requestInputFocus();
   }
 
@@ -139,7 +139,7 @@
     showSplit
     onOpenInSplit={() => onOpen(target.row, true)}
     rowActions={{
-      onStop: target.row.tone === "live" ? () => stopAgent(target.row, target.serverId, target.tabId) : undefined,
+      onStop: target.row.standing === "live" ? () => stopAgent(target.row, target.serverId, target.tabId) : undefined,
       done: sessionRow?.status === "done",
       onToggleDone: sessionRow ? () => void completeRow(sessionRow) : undefined,
       onSnooze:

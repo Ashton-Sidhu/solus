@@ -14,22 +14,14 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { listActions } from "../../solus/list-actions";
 import type { SessionListThread } from "../../solus/session-list";
-import { useVisibleSecondClock } from "./use-visible-second-clock";
 import type { ThreadMoveDestination } from "./threadOrder";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
-import {
-  formatWorkingDurationLabel,
-  resolveThreadWorkingStartedAt,
-} from "@t3tools/client-runtime/state/models";
-import {
-  type EnvironmentId,
-  type EnvironmentMachineKind,
-} from "@t3tools/contracts";
-import { toServerClock } from "@t3tools/client-runtime/clock";
+import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import { type EnvironmentMachineKind } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -37,11 +29,14 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
-import { Platform, Pressable, Text as RNText, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
+import { DotMatrix } from "../../components/ui/DotMatrix";
+import { DOT_MARK_LABEL, STATE_GLYPHS, type StateGlyph } from "./state-marks";
+import { StateMarkDuration } from "./StateMark";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Menu } from "../../components/ui/Menu";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
@@ -80,6 +75,8 @@ import {
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozePresets,
   threadHasUnseenCompletion,
+  dotMarkShowsElapsedTime,
+  resolveThreadListV2DotMark,
   resolveThreadListV2RowStatus,
   resolveThreadListV2Status,
   resolveThreadListV2ProviderDrivers,
@@ -95,92 +92,20 @@ import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
 
-interface StatusLabel {
-  // Null when the icon and timer carry the status on their own.
-  readonly label: string | null;
-  readonly icon: AppSymbolName;
-  readonly className: string;
-  readonly iconTintClassName: string;
-}
-const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> = {
-  approval: {
-    label: msg("Approval", { $context: "thread status, waiting for approval" }),
-    icon: "exclamationmark.shield",
-    className: "text-warning-foreground",
-    iconTintClassName: "accent-warning-foreground",
-  },
-  input: {
-    label: msg("Input", { $context: "thread status, waiting for user input" }),
-    icon: "questionmark.bubble",
-    className: "text-adaptive-indigo-600-300",
-    iconTintClassName: "accent-adaptive-indigo-600-300",
-  },
+// The state marks (docs/plans/session-state-marks.md): working and waiting rows
+// show a dot mark, the others a line glyph. Input, Approval, and Limited add a word.
+const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StateGlyph>> = {
+  approval: STATE_GLYPHS.approval,
+  input: STATE_GLYPHS.input,
   request: {
     label: msg("Request", { $context: "thread status, a guest request is waiting" }),
     icon: "person.crop.circle",
     className: "text-adaptive-fuchsia-600-300",
     iconTintClassName: "accent-adaptive-fuchsia-600-300",
   },
-  working: {
-    label: null,
-    icon: "circle.dashed",
-    className: "text-adaptive-sky-600-400",
-    iconTintClassName: "accent-adaptive-sky-600-400",
-  },
-  waiting: {
-    label: null,
-    icon: "circle.dashed.inset.filled",
-    className: "text-foreground-muted",
-    iconTintClassName: "accent-foreground-muted",
-  },
-  failed: {
-    label: msg("Failed", { $context: "thread status" }),
-    icon: "exclamationmark.circle",
-    className: "text-danger-foreground",
-    iconTintClassName: "accent-danger-foreground",
-  },
-  limited: {
-    label: msg("Limited", { $context: "thread status, usage limit reached" }),
-    icon: "exclamationmark.circle",
-    className: "text-warning-foreground",
-    iconTintClassName: "accent-warning-foreground",
-  },
+  failed: STATE_GLYPHS.failed,
+  limited: STATE_GLYPHS.limited,
 };
-const DONE_STATUS_LABEL: StatusLabel = {
-  label: msg("Done", { $context: "thread status, turn finished" }),
-  icon: "checkmark.circle",
-  className: "text-adaptive-emerald-700-300",
-  iconTintClassName: "accent-adaptive-emerald-700-300",
-};
-
-// DM Sans has no tabular figures, so a ticking timer in it reflows the row every second.
-const TABULAR_DURATION_STYLE = {
-  fontFamily: Platform.OS === "ios" ? "System" : "sans-serif",
-  fontWeight: "700",
-  fontVariant: ["tabular-nums"],
-} as const;
-
-function ThreadListV2Duration(props: {
-  readonly environmentId: EnvironmentId;
-  readonly startedAt: string | null;
-  readonly leadingSpace: boolean;
-}) {
-  const messages = useMessages();
-  const startedAtMs = Date.parse(props.startedAt ?? "");
-  const nowMs = useVisibleSecondClock(Number.isFinite(startedAtMs));
-  if (!Number.isFinite(startedAtMs)) return null;
-  return (
-    <>
-      {props.leadingSpace ? " " : null}
-      <RNText style={TABULAR_DURATION_STYLE}>
-        {formatWorkingDurationLabel(
-          toServerClock(props.environmentId, nowMs) - startedAtMs,
-          messages,
-        )}
-      </RNText>
-    </>
-  );
-}
 
 const SETTLE_ACTION: MenuAction = { id: "settle", title: msg("Settle", { $context: "verb, thread action" }), image: "checkmark" };
 
@@ -850,19 +775,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     }
     onSelectThread(thread);
   };
-  const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
-  const statusEntry =
-    (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
-      ? {
-          ...workingLabel,
-          label: msg("Goal", { $context: "thread status, working toward a goal" }),
-        }
-      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
-  const statusLabel = statusEntry && {
-    ...statusEntry,
-    label: statusEntry.label === null ? null : m(statusEntry.label),
-  };
+  const dotMark = resolveThreadListV2DotMark(thread, status);
+  const goalLabel =
+    status === "working" && thread.goal?.status === "active"
+      ? gt("Goal", { $context: "thread status, working toward a goal" })
+      : null;
+  const statusEntry = STATUS_LABEL_BY_STATUS[status] ?? (isUnread ? STATE_GLYPHS.done : undefined);
+  const statusLabel = statusEntry && { ...statusEntry, label: m(statusEntry.label) };
   const recede = shouldRecedeThreadRow({ status, selected });
   const isRegeneratingTitle = thread.titleRegeneration != null;
   // List items keep marked text so they stay the same objects across a language switch.
@@ -874,13 +794,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       title: automationMark ? gt("{title}, automation", { title }) : title,
       variant,
       woke: showsWoke,
-      // Working and waiting rows show only an icon and a duration, so name them for speech.
-      statusLabel:
-        statusLabel &&
-        (statusLabel.label ??
-          (status === "waiting"
-            ? gt("Waiting", { $context: "thread status" })
-            : gt("Working", { $context: "thread status" }))),
+      // A dot mark and a glyph without a word are named for speech.
+      statusLabel: dotMark
+        ? goalLabel
+          ? gt("{state}, working toward a goal", { state: m(DOT_MARK_LABEL[dotMark]) })
+          : m(DOT_MARK_LABEL[dotMark])
+        : statusLabel?.label,
       timeLabel,
       snoozeWakeLabel: snoozedRow ? snoozeWakeLabelText : undefined,
       branch: thread.branch,
@@ -1423,6 +1342,38 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 {gt("Woke", { $context: "thread came back from snooze" })}
               </Text>
             </Pressable>
+          ) : dotMark ? (
+            <View className="flex-row items-center gap-1">
+              <DotMatrix
+                mark={dotMark}
+                dotClassName={
+                  selected
+                    ? "bg-thread-selected-foreground"
+                    : dotMark === "offline"
+                      ? "bg-foreground-muted"
+                      : "bg-adaptive-sky-600-400"
+                }
+              />
+              {goalLabel !== null || dotMarkShowsElapsedTime(dotMark) ? (
+                <Text
+                  className={cn(
+                    "text-xs font-t3-bold",
+                    selected
+                      ? selectedThreadRowColors.foregroundClassName
+                      : "text-adaptive-sky-600-400",
+                  )}
+                >
+                  {goalLabel}
+                  {dotMarkShowsElapsedTime(dotMark) ? (
+                    <StateMarkDuration
+                      environmentId={thread.environmentId}
+                      startedAt={resolveThreadWorkingStartedAt(thread)}
+                      leadingSpace={goalLabel !== null}
+                    />
+                  ) : null}
+                </Text>
+              ) : null}
+            </View>
           ) : statusLabel ? (
             <View className="flex-row items-center gap-1">
               <SymbolView
@@ -1436,27 +1387,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 type="monochrome"
                 weight="semibold"
               />
-              <Text
-                className={cn(
-                  "text-xs font-t3-bold",
-                  selected ? selectedThreadRowColors.foregroundClassName : statusLabel.className,
-                )}
-              >
-                {statusLabel.label}
-                {status === "working" ? (
-                  <ThreadListV2Duration
-                    environmentId={thread.environmentId}
-                    startedAt={resolveThreadWorkingStartedAt(thread)}
-                    leadingSpace={statusLabel.label !== null}
-                  />
-                ) : status === "waiting" ? (
-                  <ThreadListV2Duration
-                    environmentId={thread.environmentId}
-                    startedAt={thread.latestRun?.completedAt ?? null}
-                    leadingSpace={statusLabel.label !== null}
-                  />
-                ) : null}
-              </Text>
+              {statusLabel.glyphOnly ? null : (
+                <Text
+                  className={cn(
+                    "text-xs font-t3-bold",
+                    selected ? selectedThreadRowColors.foregroundClassName : statusLabel.className,
+                  )}
+                >
+                  {statusLabel.label}
+                </Text>
+              )}
             </View>
           ) : (
             <Text

@@ -179,12 +179,12 @@ describe('reading the transcript', () => {
 })
 
 describe('the agents card', () => {
-  const agent = (key: string, tone: RailAgentRow['tone']) => ({ key, tone }) as RailAgentRow
+  const agent = (key: string, standing: RailAgentRow['standing']) => ({ key, standing }) as RailAgentRow
 
   test('groups the agents by how they stand, what still works first, and keeps each group in its order', () => {
     // WHY: a reader scans the card for what still runs, then for what came
     // back. A group with nothing in it is noise, so it is left out.
-    const groups = agentGroups([agent('a', 'done'), agent('b', 'live'), agent('c', 'failed'), agent('d', 'done'), agent('e', 'idle')], () => false)
+    const groups = agentGroups([agent('a', 'done'), agent('b', 'live'), agent('c', 'failed'), agent('d', 'done'), agent('e', 'stopped')], () => false)
     expect(groups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
       ['Working', ['b']],
       ['Done', ['a', 'd']],

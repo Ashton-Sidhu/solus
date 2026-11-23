@@ -3,7 +3,7 @@ import type { AttentionKind } from '@solus/contracts/attention-types'
 import type { Session, SessionStatus, Tab } from '@solus/contracts/types'
 import {
   attentionStateForKind,
-  getAttentionIcon,
+  getAttentionMark,
   getAttentionState,
 } from '@solus/workspace-ui/lib/sessionUtils'
 
@@ -32,16 +32,29 @@ describe('session-attention toast icon', () => {
   for (const kind of Object.keys(RAISED_BY) as AttentionKind[]) {
     test(`${kind} toast shows the sidebar glyph and color for that session`, () => {
       const { session, tab } = RAISED_BY[kind]
-      const sidebarIcon = getAttentionIcon(getAttentionState(session, tab))
-      const toastIcon = getAttentionIcon(attentionStateForKind(kind))
+      const sidebarIcon = getAttentionMark(getAttentionState(session, tab))
+      const toastIcon = getAttentionMark(attentionStateForKind(kind))
 
       expect(sidebarIcon).not.toBeNull()
       expect(toastIcon).toEqual(sidebarIcon)
     })
   }
 
+  const glyphOf = (kind: AttentionKind) => {
+    const mark = getAttentionMark(attentionStateForKind(kind))
+    return mark?.kind === 'glyph' ? mark.component : null
+  }
+
   test('a failure toast is not drawn like an input request', () => {
-    expect(getAttentionIcon(attentionStateForKind('failed'))?.component)
-      .not.toBe(getAttentionIcon(attentionStateForKind('question'))?.component)
+    expect(glyphOf('failed')).not.toBe(glyphOf('question'))
+  })
+
+  test('an approval toast is not drawn like a question', () => {
+    // WHY: a permission request and a question want different answers, so the
+    // shield and the question bubble must differ wherever they show.
+    expect(attentionStateForKind('needs_approval')).toBe('approval')
+    expect(attentionStateForKind('question')).toBe('awaiting')
+    expect(glyphOf('needs_approval')).not.toBeNull()
+    expect(glyphOf('needs_approval')).not.toBe(glyphOf('question'))
   })
 })

@@ -75,9 +75,11 @@ export function statusColor(status: TaskStatus): string | null {
     // Stopped and waiting on a person — the same terracotta the permission
     // prompts use.
     case 'question':
+    case 'approval':
       return 'var(--solus-status-permission)'
     case 'plan':
       return 'var(--solus-status-running)'
+    case 'starting':
     case 'running':
     case 'background':
       return 'var(--solus-status-running-icon)'
@@ -104,9 +106,11 @@ export interface StatusNote {
 
 const STATUS_TEXT = new Map<TaskStatus, string>([
   ['question', 'Needs you'],
+  ['approval', 'Needs approval'],
   ['plan', 'Plan ready'],
   ['error', 'Failed'],
   ['limit', 'Rate limited'],
+  ['starting', 'Starting'],
   ['running', 'Running'],
   ['background', 'Background task'],
 ])

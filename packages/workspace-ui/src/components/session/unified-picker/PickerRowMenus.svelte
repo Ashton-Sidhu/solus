@@ -102,7 +102,7 @@
     serverId={menuSession.serverId ?? null}
     showSplit
     rowActions={{
-      onStop: menuSession.attention === "running" && menuSession.tabId
+      onStop: (menuSession.attention === "running" || menuSession.attention === "starting") && menuSession.tabId
         ? () => session.controls.interruptTabSession(menuSession.tabId!)
         : undefined,
       ...archiveActions(menu.conversation),

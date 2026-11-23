@@ -18,7 +18,6 @@
     FolderOpen as FolderOpenIcon,
     Plus as PlusIcon,
     PanelLeft as SidebarSimpleIcon,
-    LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionSidebarStore, groupKeyFor, hosts } from "../../contexts";
@@ -27,8 +26,9 @@
   import { toasts } from "../../lib/toasts";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
-    getAttentionIcon,
+    getAttentionMark,
     hasSessionStarted,
+    liveDotMark,
     sessionTitle,
   } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
@@ -49,6 +49,7 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
+  import DotMatrix from "../ui/DotMatrix.svelte";
   import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
   import {
     breadcrumbLeafLabels,
@@ -186,7 +187,8 @@
     taskSyncOps.some((op) => op.state === "failed"),
   );
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
-  const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
+  const currentLive = $derived(current ? sidebarStore.liveFactsOf(current, current.attention) : {});
+  const statusIcon = $derived(getAttentionMark(current?.attention ?? null, currentLive));
   const currentStatusColor = $derived(statusColor(currentStatus));
   // Whose turn waits: "Needs you" to its author, "Needs Alice" to everyone else (plan 004 F2).
   const currentNeeds = $derived(
@@ -397,17 +399,15 @@
       oncontextmenu={(event) => openRowContextMenu(event, item)}
     >
       <span class={MENU_LABEL}>{item.title}</span>
-      {#if item.status === "running"}
+      {#if item.status === "running" || item.status === "starting"}
+        {@const dot = liveDotMark(item.attention, sidebarStore.liveFactsOf({ tabId: item.tabIds[0], sessionId: item.sessionId, serverId: item.serverId }, item.attention))}
         <span
-          class={ROW_STATUS}
+          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-running-icon)'}"
           role="img"
-          aria-label="Running"
-          title="Running"
+          aria-label={note?.text}
+          title={note?.text}
         >
-          <SpinnerGapIcon
-            size={14}
-            class="animate-spin motion-reduce:animate-none"
-          />
+          <DotMatrix mark={dot ?? "working"} size={14} />
         </span>
       {:else if note}
         <span class={ROW_STATUS} style:color={note.color}>{note.text}</span>
@@ -752,17 +752,19 @@
                     >{leafLabels.session}</span
                   >
                   {#if statusIcon}
-                    {@const StatusIcon = statusIcon.component}
                     <span
-                      class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
-                        ? 'animate-spin motion-reduce:animate-none'
-                        : ''}"
-                      style:color={currentStatusColor ?? statusIcon.color}
+                      class="flex size-[0.8125rem] shrink-0 items-center justify-center"
+                      style:color={statusIcon.kind === "dot" && statusIcon.mark === "offline" ? statusIcon.color : currentStatusColor ?? statusIcon.color}
                       role="img"
                       aria-label={statusNote(currentStatus, currentNeeds)?.text}
                       title={statusNote(currentStatus, currentNeeds)?.text}
                     >
-                      <StatusIcon size={14} weight="regular" />
+                      {#if statusIcon.kind === "dot"}
+                        <DotMatrix mark={statusIcon.mark} />
+                      {:else}
+                        {@const StatusIcon = statusIcon.component}
+                        <StatusIcon size={14} />
+                      {/if}
                     </span>
                   {/if}
                 </button>
@@ -794,17 +796,15 @@
                           ? 'font-medium'
                           : ''}">{child.label}</span
                       >
-                      {#if status === "running"}
+                      {#if status === "running" || status === "starting"}
+                        {@const dot = liveDotMark(child.attention, sidebarStore.liveFactsOf(child, child.attention))}
                         <span
-                          class={ROW_STATUS}
+                          class="{ROW_STATUS} {dot === 'offline' ? 'text-muted-foreground' : 'text-(--solus-status-running-icon)'}"
                           role="img"
-                          aria-label="Running"
-                          title="Running"
+                          aria-label={note?.text}
+                          title={note?.text}
                         >
-                          <SpinnerGapIcon
-                            size={14}
-                            class="animate-spin motion-reduce:animate-none"
-                          />
+                          <DotMatrix mark={dot ?? "working"} size={14} />
                         </span>
                       {:else if note}
                         <span class={ROW_STATUS} style:color={note.color}
@@ -930,7 +930,7 @@
         }}
         rowActions={{
           onStop:
-            menuChild.tabId && menuChild.attention === "running"
+            menuChild.tabId && (menuChild.attention === "running" || menuChild.attention === "starting")
               ? () => session.controls.interruptTabSession(menuChild.tabId!)
               : undefined,
           done: menuSessionRow?.status === "done",

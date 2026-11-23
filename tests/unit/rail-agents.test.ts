@@ -5,12 +5,20 @@ import {
   sessionAgentMessages,
 } from '@solus/workspace-ui/components/project-panel/lib/rail-agents'
 import type { AgentConversationRef, AgentExchangeStatus, Message, SessionMeta } from '@solus/contracts/types'
+import type { AgentActivity } from '@solus/contracts/agent-activity'
+import { subagentLinkStatus } from '@solus/workspace-ui/components/conversation/lib/agent-link'
+import { subagentRow } from '@solus/workspace-ui/components/conversation/lib/subagent-group'
+import {
+  agentConversationCardState,
+  agentConversationLink,
+} from '@solus/workspace-ui/components/conversation/agent-conversation/lib/agent-conversation'
 
 const NOW = 100_000
 const CONTEXT = {
   fallback: { model: 'Sonnet 5', effort: 'medium' },
   metaFor: (): SessionMeta | undefined => undefined,
   hostLabel: null,
+  activityOf: (): AgentActivity | null => null,
 }
 
 function subagent(overrides: Partial<Message> & Pick<Message, 'id'>): Message {
@@ -96,6 +104,41 @@ describe('rail list', () => {
   test('the header counts running agents, and outcomes once none run', () => {
     expect(railAgentList([], NOW, CONTEXT).detail).toBe('')
     expect(railAgentList([subagent({ id: 'a' }), subagent({ id: 'b', toolStatus: 'error' })], NOW, CONTEXT).detail).toBe('1 done · 1 failed')
+  })
+})
+
+describe('rail marks', () => {
+  // WHY: the Agents card and the conversation show one agent, so they must
+  // show it in one mark: a person who reads "Reading" in the transcript must
+  // not read "Working" in the card.
+  test('a rail row has the mark the conversation row gives the same agent', () => {
+    const reader = subagent({
+      id: 'reader',
+      toolStatus: 'running',
+      subMessages: [{ id: 'r', role: 'tool', content: '', toolName: 'Read', toolStatus: 'running', timestamp: NOW } as Message],
+    })
+    const replying = sessionCard('c1', 'replying', 'running', NOW)
+    const waiting = sessionCard('c2', 'waiting', 'waiting_for_children', NOW)
+    const context = { ...CONTEXT, activityOf: (ref: AgentConversationRef) => (ref.sessionId === 'replying' ? 'edit' as const : null) }
+    const list = railAgentList([reader, replying, waiting], NOW, context)
+    const byId = new Map(list.active.map((row) => [row.id, row.mark]))
+
+    expect(byId.get('reader')).toEqual(subagentLinkStatus(subagentRow(reader, NOW, CONTEXT.fallback)).mark)
+    expect(byId.get('reader')).toEqual({ kind: 'dot', mark: 'reading' })
+    const replyingRef = replying.agentConversationRef!
+    expect(byId.get('replying')).toEqual(agentConversationLink(replyingRef, agentConversationCardState(replyingRef), false, 'edit').mark)
+    expect(byId.get('replying')).toEqual({ kind: 'dot', mark: 'editing' })
+    expect(byId.get('waiting')).toEqual({ kind: 'dot', mark: 'delegating' })
+  })
+
+  // WHY: the host's activity is live only while the session replies; a
+  // settled session must not keep the dot mark of its last step.
+  test('a settled session reads no activity', () => {
+    let reads = 0
+    const context = { ...CONTEXT, activityOf: () => { reads++; return 'read' as const } }
+    const list = railAgentList([sessionCard('c', 'done-session', 'done', NOW)], NOW, context)
+    expect(list.previous[0]!.mark).toEqual({ kind: 'glyph', status: 'finished' })
+    expect(reads).toBe(0)
   })
 })
 

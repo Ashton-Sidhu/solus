@@ -13,6 +13,7 @@ import type { ConnectionConnectNeeded } from './connections'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent, ReviewLensChangedEvent } from './review'
 import type { PrSyncChange } from './providers'
+import type { AgentActivity } from './agent-activity'
 import type {
   AgentUsageLimits,
   AnnotationsChanged,
@@ -87,8 +88,15 @@ export interface HostEventMap {
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
   /** `hasPendingQuestion` is set while a question that does not block the turn
-   *  waits for the person: the session needs input whatever its status. Absent means none. */
-  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true }
+   *  waits for the person: the session needs input whatever its status. Absent means none.
+   *  `awaitingApproval` is set while the status is `awaiting_input` and the newest
+   *  input that waits is a permission request, not a question. Absent means a question. */
+  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true; awaitingApproval?: true }
+  /** What the agent does now inside a running turn, from its top-level events
+   *  only. At most one for each session in 250 ms; null when the turn settled.
+   *  Live only: a client that reconnects knows none until the next one
+   *  (docs/plans/session-state-marks.md). */
+  'session.activityChanged': { sessionId: string; activity: AgentActivity | null; at: number }
   'setup.statusChanged': SetupStatusEvent
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
@@ -278,6 +286,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.viewChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: "One person's view of a session changed: archived, returned, snoozed, or woken." },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
+  'session.activityChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'What the agent does now inside a running turn changed.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },
   'session.suggestionsChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A suggestion on a session was made, sent, dismissed, or withdrawn.' },
   'setup.statusChanged': { owner: 'setup', category: 'targeted', recovery: 'reset', description: 'A host setup step changed status.' },

@@ -6,7 +6,7 @@
   } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../servers/lib/managed-host";
-  import type { AttentionState } from "../../lib/sessionUtils";
+  import type { AttentionState, LiveMarkFacts } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
@@ -32,6 +32,8 @@
     attention?: AttentionState;
     /** While rate limited: when the provider window reopens, in epoch ms. */
     limitResetsAt?: number;
+    /** The agent activity and the host's reach, for a live state's sentence. */
+    live?: LiveMarkFacts;
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
     isGuest?: boolean;
   }
@@ -48,6 +50,7 @@
     modelId,
     attention,
     limitResetsAt,
+    live,
     isGuest = false,
   }: Props = $props();
 
@@ -126,7 +129,7 @@
         </div>
       {/if}
       {#if attention}
-        <div class="text-(--solus-text-secondary)">{attentionLabel(attention, limitResetsAt)}</div>
+        <div class="text-(--solus-text-secondary)">{attentionLabel(attention, limitResetsAt, live)}</div>
       {/if}
     </div>
   </div>

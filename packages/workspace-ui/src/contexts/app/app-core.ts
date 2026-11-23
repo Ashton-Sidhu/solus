@@ -116,7 +116,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isSolusApi: isSolusApiId,
     isConnected: (serverId) => !!serverId && serversStore.readinessFor(serverId).readiness === 'ready',
-  }, () => serversStore.activeOrganizationId)
+  }, () => serversStore.activeOrganizationId, (serverId) => serversStore.readinessFor(serverId).readiness)
   session.trackVisibleConversations()
   trackBranchReviewGuides(session, sessionEnvironmentStore)
   session.onTabClosing = (tabId) => sessionSidebarStore.releaseTab(tabId)

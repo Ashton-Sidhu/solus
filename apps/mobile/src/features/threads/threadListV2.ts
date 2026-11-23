@@ -1,4 +1,6 @@
 import { msg } from "gt-react-native";
+import type { AgentActivity } from "@solus/contracts/agent-activity";
+import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from "@solus/client-core/dot-marks";
 import {
   canSnooze,
   effectiveSnoozed,
@@ -354,6 +356,32 @@ export function resolveThreadListV2RowStatus(
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";
+}
+
+/**
+ * The dot mark of a row whose agent works, or null when a line glyph or the
+ * time shows (docs/plans/session-state-marks.md). On Solus a waiting row is a
+ * session with background work. An away host makes every live mark Offline:
+ * what the row last heard is not current.
+ */
+export function resolveThreadListV2DotMark(
+  thread: {
+    readonly agentActivity?: AgentActivity | undefined;
+    readonly starting?: true | undefined;
+    readonly hostAway?: true | undefined;
+  },
+  status: ThreadListV2Status,
+): DotMarkName | null {
+  if (status !== "working" && status !== "waiting") return null;
+  if (thread.hostAway) return "offline";
+  if (status === "waiting") return "background";
+  if (thread.starting) return "starting";
+  return thread.agentActivity ? DOT_MARK_FOR_ACTIVITY[thread.agentActivity] : "working";
+}
+
+/** Only the marks of a running turn keep its elapsed time beside them. */
+export function dotMarkShowsElapsedTime(mark: DotMarkName): boolean {
+  return mark !== "starting" && mark !== "background" && mark !== "offline";
 }
 
 function parseTimestampMs(isoDate: string): number {

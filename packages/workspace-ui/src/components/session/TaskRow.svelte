@@ -10,7 +10,6 @@
     Pin as PinIcon,
     Sun as SunIcon,
     User as UserIcon,
-    LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { attentionLabel } from "../../lib/sessionUtils";
@@ -26,10 +25,10 @@
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import TaskSessionRow from "./TaskSessionRow.svelte";
-  import UnreadDot from "./UnreadDot.svelte";
+  import DotMatrix from "../ui/DotMatrix.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
-  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { getSessionSidebarStore, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     resolveSidebarRowMark,
     taskRowBranchName,
@@ -39,7 +38,6 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
-  import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
   import { nestedStateMarks, visibleNestedSessions } from "./lib/session-tree";
   import UserAvatar from "../users/UserAvatar.svelte";
   import type { User } from "@solus/contracts/user";
@@ -186,8 +184,8 @@
   const nestedMarksLabel = $derived(
     nestedMarks
       .map((nested) =>
-        nested.kind === "spinner" ? "a session it started is working"
-        : nested.kind === "unread" ? "a session it started has unread output"
+        nested.kind === "dot" ? `a session it started is ${nested.mark}`
+        : nested.status === "finished" ? "a session it started has unread output"
         : `a session it started: ${nested.status}`,
       )
       .join("; "),
@@ -239,6 +237,14 @@
     sessions.filter((session) => session.attention === "running").length,
   );
 
+  const sidebarStore = getSessionSidebarStore();
+  // What the agent does now, and whether its host is reachable: the dot
+  // mark of a live state.
+  const live = $derived(
+    sidebarStore.liveFactsOf({ tabId: task.tabIds[0], sessionId: task.sessionId, serverId: task.serverId }, task.attention),
+  );
+  const stateLabel = $derived(attentionLabel(task.attention, task.limitResetsAt, live));
+
   // Ticks each second, tabular figures, so the row never reflows around it.
   // Both shelves report an age or a countdown, so they tick too.
   let now = $state(Date.now());
@@ -260,6 +266,7 @@
       completedAt: task.completedAt,
       snoozedUntil: task.snoozedUntil,
       now,
+      live,
     }),
   );
 
@@ -298,7 +305,8 @@
   {#if mark?.kind === "glyph"}
     <TaskStatusGlyph
       status={mark.status}
-      label={attentionLabel(task.attention, task.limitResetsAt)}
+      label={stateLabel || "unread"}
+      limitResetsAt={task.limitResetsAt}
     />
   {:else if mark?.kind === "woke"}
     <span
@@ -309,32 +317,28 @@
     >
       <AlarmIcon size={14} />
     </span>
-  {:else if mark?.kind === "unread"}
-    <UnreadDot />
-  {:else if mark?.kind === "spinner"}
+  {:else if mark?.kind === "dot"}
     <!-- Work in flight and work finished are the same axis, so they share a
          colour: the pane's one cool tone, which terracotta is never spent on.
-         The spinner is that dot still turning. -->
-    <span
-      class="flex shrink-0 items-center text-chart-5"
-      role="img"
-      onanimationstart={alignStatusAnimationPhase}
-      aria-label={attentionLabel(task.attention, task.limitResetsAt)}
-    >
-      <SpinnerGapIcon size={14} class="animate-spin" />
+         Offline is muted: its state can be old. One session running also
+         states its time beside the dots. The clock separates on ink and
+         weight, not hue: the row you are reading states its time in full
+         ink, the rest sit back at half. Terracotta is spent on the selected
+         elbow alone, so the clock never competes with the green a pull
+         request chip puts on the same row. -->
+    <span class="flex shrink-0 items-center gap-1.5">
+      <span class="flex shrink-0 items-center {mark.mark === 'offline' ? 'text-muted-foreground' : 'text-chart-5'}">
+        <DotMatrix mark={mark.mark} label={stateLabel} />
+      </span>
+      {#if mark.elapsed}
+        <span
+          class="shrink-0 text-sidebar-time tabular-nums {isCurrentSession
+            ? 'font-medium text-foreground'
+            : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
+          >{mark.elapsed}</span
+        >
+      {/if}
     </span>
-  {:else if mark?.kind === "elapsed"}
-    <!-- One session running, so running spends a number rather than a glyph.
-         The clock separates on ink and weight, not hue: the row you are reading
-         states its time in full ink, the rest sit back at half. Terracotta is
-         spent on the selected elbow alone, so the clock never competes with the
-         green a pull request chip puts on the same row. -->
-    <span
-      class="shrink-0 text-sidebar-time tabular-nums {isCurrentSession
-        ? 'font-medium text-foreground'
-        : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
-      >{mark.label}</span
-    >
   {:else if mark?.kind === "wake"}
     <!-- The same blue the Snoozed shelf header uses, so a sleeping row and the
          shelf holding it read as one thing. -->
@@ -352,13 +356,11 @@
   {:else if nestedMarks.length > 0}
     <!-- A quiet row with sessions under it shows their marks instead,
          stacked: each state once, the ones that want you first. The same
-         ring or spinner sits on the session's own row in the drawer, so the
-         summary and the detail never disagree. Every mark keeps its own
+         glyph or dot mark sits on the session's own row in the drawer, so
+         the summary and the detail never disagree. Every mark keeps its own
          colour, so the stack holds at full strength on a receded row. -->
-    <!-- The marks sit side by side, close enough to read as one cluster.
-         They do not overlap: the ring and the spinner are strokes, not
-         discs, and a halo that cut one out of the other left both as
-         broken arcs. -->
+    <!-- The marks sit side by side, close enough to read as one cluster,
+         without their words: a stack has no room for them. -->
     <span
       class="flex shrink-0 items-center gap-[0.1875rem]"
       role="img"
@@ -368,12 +370,10 @@
       {#each nestedMarks as nested, index (index)}
         <span class="flex shrink-0 items-center">
           {#if nested.kind === "glyph"}
-            <TaskStatusGlyph status={nested.status} size={13} label="" />
-          {:else if nested.kind === "unread"}
-            <UnreadDot size={12} />
+            <TaskStatusGlyph status={nested.status} size={13} label="" showsWord={false} />
           {:else}
-            <span class="flex shrink-0 items-center text-chart-5" onanimationstart={alignStatusAnimationPhase}>
-              <SpinnerGapIcon size={13} class="animate-spin" />
+            <span class="flex shrink-0 items-center text-chart-5">
+              <DotMatrix mark={nested.mark} />
             </span>
           {/if}
         </span>
@@ -606,7 +606,7 @@
     data-task-key={task.key}
     aria-selected={isCurrentSession}
     aria-expanded={hasStartedSessions ? isNestedOpen : undefined}
-    aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${mark?.kind === "glyph" ? ` — ${attentionLabel(task.attention, task.limitResetsAt)}` : ""}`}
+    aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${mark?.kind === "glyph" || mark?.kind === "dot" ? ` — ${stateLabel || "unread"}` : ""}`}
     title={task.snoozeNote && task.snoozedUntil > 0 && task.snoozedUntil <= Date.now()
       ? `Snooze reminder: ${task.snoozeNote}`
       : task.lifecycle === "snoozed" && task.snoozeNote
@@ -805,6 +805,7 @@
       modelId={tooltipSession?.modelId}
       attention={task.attention}
       limitResetsAt={task.limitResetsAt}
+      {live}
     />
   </TooltipUI.Root>
 

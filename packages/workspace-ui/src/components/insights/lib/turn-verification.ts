@@ -1,6 +1,7 @@
 import type { MetricsSpan } from '@solus/contracts/observability-types'
 import { projectRelativePath, unwrapShellCommand } from '../../../lib/changedFiles'
-import { activityKind, parseToolInput, toolPathsFromParsed } from '../../conversation/lib/activity-summary'
+import { agentActivityKind } from '@solus/contracts/agent-activity'
+import { parseToolInput, toolPathsFromParsed } from '../../conversation/lib/activity-summary'
 import { asStringOrNull } from './result-columns'
 import { withoutLeadingCd } from './waterfall'
 
@@ -95,7 +96,7 @@ const NON_CODE_PATH = /\.(md|mdx|txt)$/i
  * shell. The `cd` into the project is removed, as the waterfall's labels do.
  */
 export function shellCommand(span: MetricsSpan): string | null {
-  if (activityKind(span.name) !== 'run') return null
+  if (agentActivityKind(span.name) !== 'run') return null
   const raw = asStringOrNull(span.attrs.input)?.trim()
   if (!raw) return null
   const recorded = raw.startsWith('{') ? parseToolInput(raw)?.command : undefined
@@ -142,7 +143,7 @@ function commandResult(span: MetricsSpan): 'passed' | 'failed' | 'unknown' {
 function editedFiles(tools: MetricsSpan[]): EditedFile[] {
   const byPath = new Map<string, EditedFile>()
   for (const span of tools) {
-    if (activityKind(span.name) !== 'edit' || span.status === 'error') continue
+    if (agentActivityKind(span.name) !== 'edit' || span.status === 'error') continue
     const parsed = parseToolInput(asStringOrNull(span.attrs.input) ?? '')
     const at = span.endedAt ?? span.startedAt
     for (const path of parsed ? toolPathsFromParsed(parsed) : []) {

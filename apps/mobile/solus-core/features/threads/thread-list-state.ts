@@ -1,3 +1,4 @@
+import type { AgentActivity } from "@solus/contracts/agent-activity";
 import type { AttentionEntry } from "@solus/contracts/attention-types";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
@@ -82,6 +83,10 @@ export class ThreadListState {
   private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
   private readonly pendingQuestions = new Set<string>();
+  private readonly awaitingApprovals = new Set<string>();
+  private readonly agentActivity = new Map<string, AgentActivity>();
+  /** The keys a session's live status went to: a list may hold either id. */
+  private readonly sessionKeys = new Map<string, readonly string[]>();
   private readonly statusSince = new Map<string, number>();
   private readonly viewedAt = new Map<string, number | null>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
@@ -309,6 +314,9 @@ export class ThreadListState {
     this.attentionReads.delete(hostId);
     this.dropHostEntries(this.liveStatus, hostId);
     this.dropHostEntries(this.pendingQuestions, hostId);
+    this.dropHostEntries(this.awaitingApprovals, hostId);
+    this.dropHostEntries(this.agentActivity, hostId);
+    this.dropHostEntries(this.sessionKeys, hostId);
     this.dropHostEntries(this.statusSince, hostId);
     this.dropHostEntries(this.viewedAt, hostId);
     this.publish();
@@ -341,16 +349,54 @@ export class ThreadListState {
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
     });
-    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion }) => {
+    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion, awaitingApproval }) => {
       if (this.connectionFor(hostId) !== connection) return;
       // A list may hold either id for the same session.
       const pending = hasPendingQuestion === true;
+      const approval = status === "awaiting_input" && awaitingApproval === true;
       const keys = [threadKey(hostId, sessionId)];
       if (agentSessionId && agentSessionId !== sessionId) keys.push(threadKey(hostId, agentSessionId));
-      if (keys.every(key => this.liveStatus.get(key) === status && this.pendingQuestions.has(key) === pending)) return;
-      for (const key of keys) this.setLiveStatus(key, status, pending, at);
+      this.sessionKeys.set(keys[0]!, keys);
+      // The agent activity belongs to a running turn; any other status ends it.
+      const keepsActivity = isTurnLive(status);
+      if (keys.every(key =>
+        this.liveStatus.get(key) === status &&
+        this.pendingQuestions.has(key) === pending &&
+        this.awaitingApprovals.has(key) === approval &&
+        (keepsActivity || !this.agentActivity.has(key))
+      )) return;
+      for (const key of keys) {
+        this.setLiveStatus(key, status, pending, at);
+        if (approval) this.awaitingApprovals.add(key);
+        else this.awaitingApprovals.delete(key);
+        if (!keepsActivity) this.agentActivity.delete(key);
+      }
       this.lastRowChange = { previous: this.snapshot, keys };
-      this.snapshot = { ...this.snapshot, liveStatus: new Map(this.liveStatus), pendingQuestions: new Set(this.pendingQuestions), statusSince: new Map(this.statusSince) };
+      this.snapshot = {
+        ...this.snapshot,
+        liveStatus: new Map(this.liveStatus),
+        pendingQuestions: new Set(this.pendingQuestions),
+        awaitingApprovals: new Set(this.awaitingApprovals),
+        agentActivity: new Map(this.agentActivity),
+        statusSince: new Map(this.statusSince),
+      };
+      this.changes.notify();
+    });
+    connection.events.subscribe("session.activityChanged", ({ sessionId, activity }) => {
+      if (this.connectionFor(hostId) !== connection) return;
+      const sessionKey = threadKey(hostId, sessionId);
+      const live = this.liveStatus.get(sessionKey);
+      // An activity sent as the turn ended changes nothing. With no live
+      // status yet (after a reconnect), the record's running turn takes it.
+      if (activity !== null && live !== undefined && !isTurnLive(live)) return;
+      const keys = this.sessionKeys.get(sessionKey) ?? [sessionKey];
+      if (keys.every(key => this.agentActivity.get(key) === (activity ?? undefined))) return;
+      for (const key of keys) {
+        if (activity === null) this.agentActivity.delete(key);
+        else this.agentActivity.set(key, activity);
+      }
+      this.lastRowChange = { previous: this.snapshot, keys: [...keys] };
+      this.snapshot = { ...this.snapshot, agentActivity: new Map(this.agentActivity) };
       this.changes.notify();
     });
     // A fresh server session forgets what was live, and a change may have
@@ -361,6 +407,9 @@ export class ThreadListState {
       this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
       this.dropHostEntries(this.liveStatus, hostId);
       this.dropHostEntries(this.pendingQuestions, hostId);
+      this.dropHostEntries(this.awaitingApprovals, hostId);
+      this.dropHostEntries(this.agentActivity, hostId);
+      this.dropHostEntries(this.sessionKeys, hostId);
       this.dropHostEntries(this.statusSince, hostId);
       this.dropHostEntries(this.viewedAt, hostId);
       this.dropHostEntries(this.states, hostId);
@@ -451,6 +500,8 @@ export class ThreadListState {
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
       pendingQuestions: new Set(this.pendingQuestions),
+      awaitingApprovals: new Set(this.awaitingApprovals),
+      agentActivity: new Map(this.agentActivity),
       statusSince: new Map(this.statusSince),
       viewedAt: new Map(this.viewedAt),
       unread: new Map(Array.from(this.viewedAt, ([key, at]) => [key, at === null])),
@@ -458,4 +509,9 @@ export class ThreadListState {
     };
     this.changes.notify();
   }
+}
+
+/** A status in which a turn starts or runs, so its agent activity stays. */
+function isTurnLive(status: SessionStatus): boolean {
+  return status === "running" || status === "connecting";
 }

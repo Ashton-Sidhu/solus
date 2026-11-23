@@ -113,6 +113,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.suggestionsChanged':
     case 'session.transcriptChanged':
     case 'session.statusChanged':
+    case 'session.activityChanged':
     case 'session.presenceChanged':
     case 'device.surfaceRequested':
     case 'mcpTask.changed':

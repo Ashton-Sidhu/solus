@@ -11,28 +11,7 @@ import { parseSubagentInput } from './subagent'
 import { agentsAwaitingReply, waitingOnLabel } from '../agent-conversation/lib/agent-conversation'
 import { intentAsPurpose, intentInProgress } from './activity-phrase'
 import { hostPathBaseName } from '@solus/contracts/host-path'
-
-/** The things an activity block can report having done. Thinking is a kind
- *  too: it always arrives with the tools, so it folds into the same sentence
- *  rather than earning a row of its own. So is asking: the answered question
- *  folds away with the turn, and the row is what still says it was asked. */
-export type ActivityKind = 'think' | 'ask' | 'search' | 'read' | 'edit' | 'run' | 'other'
-
-const KIND_FOR_TOOL = {
-  Read: 'read',
-  read_file: 'read',
-  view_image: 'read',
-  NotebookRead: 'read',
-  Glob: 'search',
-  Grep: 'search',
-  WebSearch: 'search',
-  WebFetch: 'search',
-  Edit: 'edit',
-  Write: 'edit',
-  NotebookEdit: 'edit',
-  Bash: 'run',
-  exec_command: 'run',
-} as const satisfies Record<string, ActivityKind>
+import { agentActivityKind, type AgentActivityKind } from '@solus/contracts/agent-activity'
 
 /** Past tense, because a finished block reads as a caption. */
 const VERB_FOR_KIND = {
@@ -43,7 +22,7 @@ const VERB_FOR_KIND = {
   edit: 'edited',
   run: 'ran commands',
   other: 'used tools',
-} as const satisfies Record<ActivityKind, string>
+} as const satisfies Record<AgentActivityKind, string>
 
 const CHANGE_PATH_KEYS = [
   'file_path',
@@ -123,14 +102,6 @@ export function parseToolInput(value: string): ParsedToolInput | null {
   return parsed
 }
 
-export function activityKind(toolName: string | undefined): ActivityKind {
-  if (!toolName) return 'other'
-  // Every provider spells the question tool differently, so it is matched
-  // rather than listed beside the fixed tool names above.
-  if (isQuestionTool(toolName)) return 'ask'
-  return KIND_FOR_TOOL[toolName] ?? 'other'
-}
-
 /** What a running tool is doing, said as one sentence: the label is the
  *  sentence, and the target is its object in the mono face — a file, a
  *  pattern, a command — or empty when the label already says it all. */
@@ -202,7 +173,7 @@ export function liveToolStep(name: string, input?: string): LiveToolStep {
 }
 
 /**
- * Friendly copy for the one live activity row. The first two phases are held
+ * Friendly copy for the one agent activity row. The first two phases are held
  * briefly so a fast transport handshake does not make the row jump straight
  * from the prompt to "Thinking".
  */
@@ -517,12 +488,12 @@ function joinClauses(clauses: string[]): string {
 
 /** The distinct kinds this block covers, in the order they first happened —
  *  drives both the glyph stack and the verbs in the summary. */
-export function activityKinds(tools: Message[]): ActivityKind[] {
-  const kinds: ActivityKind[] = []
+export function activityKinds(tools: Message[]): AgentActivityKind[] {
+  const kinds: AgentActivityKind[] = []
   if (tools.some((tool) => tool.thinkingMs)) kinds.push('think')
   for (const tool of tools) {
     // Codex can answer without a tool row; its receipt has no name to match.
-    const kind = tool.questionAnswer ? 'ask' : activityKind(tool.toolName)
+    const kind = tool.questionAnswer ? 'ask' : agentActivityKind(tool.toolName)
     if (!kinds.includes(kind)) kinds.push(kind)
   }
   return kinds

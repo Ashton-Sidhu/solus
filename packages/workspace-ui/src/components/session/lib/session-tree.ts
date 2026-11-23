@@ -1,4 +1,5 @@
-import { hasGlyph, taskStatusFor, type TaskStatus } from './task-list'
+import type { DotMarkName } from '@solus/client-core/dot-marks'
+import { isGlyphStatus, taskStatusFor, type GlyphStatus } from './task-list'
 import type { SidebarTask } from './task-list'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
@@ -98,35 +99,39 @@ export function visibleNestedSessions<T extends { tabId?: string | null }>(
 
 /** One mark of a session under a row, as the row's trailing slot stacks them. */
 export type NestedStateMark =
-  | { kind: 'glyph'; status: TaskStatus }
-  | { kind: 'unread' }
-  | { kind: 'spinner' }
+  | { kind: 'glyph'; status: GlyphStatus }
+  | { kind: 'dot'; mark: DotMarkName }
 
 /** The order the stack reads in: what wants the person first, then unread
  *  output, then work in flight. */
-const GLYPH_ORDER: TaskStatus[] = ['error', 'question', 'plan', 'limit']
+const GLYPH_ORDER: GlyphStatus[] = ['error', 'approval', 'question', 'plan', 'limit']
 
 /**
  * What the sessions under a row are doing, as one stack of marks: each
  * distinct state once, in the order the sidebar ranks them. The row's own
  * mark takes the slot when it has one; this stack stands in only when the
  * row itself is quiet, so a folded drawer never hides a session that wants
- * the person or is still working.
+ * the person or is still working. Work in flight is one mark for all the
+ * sessions: Working while any of them runs, since no single activity is
+ * true of all of them, else Starting while one connects.
  */
 export function nestedStateMarks(
   sessions: readonly Pick<{ attention: AttentionState; unread: boolean }, 'attention' | 'unread'>[],
 ): NestedStateMark[] {
-  const glyphs = new Set<TaskStatus>()
+  const glyphs = new Set<GlyphStatus>()
   let unread = false
   let running = false
+  let starting = false
   for (const session of sessions) {
     const status = taskStatusFor(session.attention)
-    if (hasGlyph(status)) glyphs.add(status)
+    if (isGlyphStatus(status)) glyphs.add(status)
     if (session.unread) unread = true
     if (status === 'running') running = true
+    if (status === 'starting') starting = true
   }
   const marks: NestedStateMark[] = GLYPH_ORDER.filter((status) => glyphs.has(status)).map((status) => ({ kind: 'glyph', status }))
-  if (unread) marks.push({ kind: 'unread' })
-  if (running) marks.push({ kind: 'spinner' })
+  if (unread) marks.push({ kind: 'glyph', status: 'finished' })
+  if (running) marks.push({ kind: 'dot', mark: 'working' })
+  else if (starting) marks.push({ kind: 'dot', mark: 'starting' })
   return marks
 }

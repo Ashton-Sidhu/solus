@@ -68,9 +68,10 @@ describe('session tree model', () => {
     }
     const rows = treeAgentRows(withAgents, 'lead', 'local')
     expect(rows).toMatchObject([
-      { kind: 'session', id: 'remote-child', serverId: 'remote', tone: 'live', endedAt: null },
-      { kind: 'subagent', id: 'tool', provider: 'claude-code', tone: 'failed', detail: 'Read failed' },
-      { kind: 'session', id: 'local-child', serverId: 'local', title: 'Local delegate', status: 'Interrupted' },
+      // A running delegate shows Working: the digest knows no live step. A stopped one shows no mark.
+      { kind: 'session', id: 'remote-child', serverId: 'remote', standing: 'live', mark: { kind: 'dot', mark: 'working' }, endedAt: null },
+      { kind: 'subagent', id: 'tool', provider: 'claude-code', standing: 'failed', mark: { kind: 'glyph', status: 'error' }, detail: 'Read failed' },
+      { kind: 'session', id: 'local-child', serverId: 'local', title: 'Local delegate', standing: 'stopped', mark: null, status: 'Interrupted' },
     ])
     expect(treeAgentRows(withAgents, 'local-child', 'local').map((row) => row.id)).toEqual(['grandchild'])
   })
