@@ -6,7 +6,7 @@ import { runAsync } from '../../../git/exec'
 import { listBranchRefs } from '../../../git/worktree-manager'
 import { resolveHomePath } from '../../../platform/paths'
 import { sessionSettings } from '../../sessions/session-settings'
-import type { AgentMoveResult, WorktreeMover, WorktreeMoveTarget, WorktreeStatus } from '../../sessions/worktree-move'
+import type { AgentMoveResult, WorktreeMover, WorktreeStatus } from '../../sessions/worktree-move'
 
 /** Wired once the host boots (`boot-server.ts`). */
 let worktreeMover: WorktreeMover | null = null
@@ -18,22 +18,21 @@ export function setWorktreeMover(mover: WorktreeMover, sessionActor: (sessionId:
 }
 
 const MOVE_CHECKOUT_DESC = [
-  'Move THIS session to another checkout of its repository: the project folder, an existing worktree, or a new worktree. Solus binds the session to that folder, so the diff, Git status, changed files, and branch follow. Use this, not `git worktree add`, `cd`, or EnterWorktree, to start isolated work in a worktree or to leave one. Check `checkout_status` first.',
+  'Say where THIS session works next: a checkout of its repository, and the branch that checkout must be on. Solus works out the Git steps and binds the session there, so the diff, Git status, changed files, and branch follow. Use this, not `git worktree add`, `git switch` in another checkout, `cd`, or EnterWorktree, to start isolated work in a worktree or to leave one. Get the paths and branches from `checkout_status` first.',
   'Call last in your turn. Your process stays in the old folder until the turn ends; the next turn starts in the new one with the conversation kept. `continue_with` starts that turn; without it, the session waits for the next message.',
-  '`branch: "bring"` takes the branch with its commits from a worktree into the project folder, or from the project folder into a new worktree. `remove_worktree` removes the worktree you leave. Both run when the turn ends, and need checkouts with no uncommitted changes that no other session works in.',
+  'Git steps that change a checkout run when the turn ends, and the result lists them. A checkout they change must have no uncommitted changes, and no other session can work in it. A branch checked out in the worktree you leave is freed only with `remove_worktree`.',
 ].join('\n\n')
 
 const moveCheckoutFields = {
-  to: z.string().min(1).describe('"project_folder", "new_worktree", or the path of an existing worktree of this repository.'),
-  branch: z.enum(['stay', 'bring']).optional().describe('Default "stay": the branch stays in the checkout you leave.'),
-  base_branch: z.string().optional().describe('New worktree only: the branch to start from. Default: the target branch.'),
-  branch_name: z.string().optional().describe('New worktree only: a short name for the new branch. The branch-naming settings apply.'),
-  purpose: z.string().optional().describe('New worktree only: one sentence about the work, used to name the branch when branch_name is absent.'),
-  remove_worktree: z.boolean().optional().describe('Remove the worktree you leave when the turn ends. Default false.'),
+  checkout: z.string().min(1).describe('The checkout to work in: its path as checkout_status lists it (the project folder or a worktree), or "new_worktree" to make a new worktree.'),
+  branch: z.string().min(1).optional().describe('The branch that checkout must be on: an existing branch, or a new one to make. Omitted: the checkout keeps its branch, and a new worktree gets a branch the naming settings name.'),
+  base_branch: z.string().min(1).optional().describe('Only for a branch that does not exist yet: the branch it starts from. Default: the target branch.'),
+  remove_worktree: z.boolean().optional().describe('Remove the worktree you leave when the turn ends. Its branch and commits stay. Default false.'),
   continue_with: z.string().max(120_000).optional().describe('Work to resume in the new checkout next turn. Omitted: the session waits.'),
 }
 
-const moveCheckoutInput = z.object(moveCheckoutFields)
+// Strict: a field the tool does not know, such as a misspelled option, is refused, not dropped.
+const moveCheckoutInput = z.object(moveCheckoutFields).strict()
 
 export const moveCheckoutAgentTool: AgentTool = {
   name: 'move_checkout',
@@ -47,36 +46,30 @@ export const moveCheckoutAgentTool: AgentTool = {
     const sessionId = context.sessionId()
     if (!sessionId) return { ok: false, text: 'move_checkout needs a Solus session. A sub-agent cannot move its parent session.' }
     if (!worktreeMover) return { ok: false, text: 'Checkout moves are not available on this host.' }
-    const isNew = input.to === 'new_worktree'
-    if (!isNew && (input.base_branch || input.branch_name || input.purpose)) {
-      return { ok: false, text: 'base_branch, branch_name, and purpose apply only to "new_worktree".' }
-    }
-    const target: WorktreeMoveTarget = isNew
-      ? { kind: 'new', baseBranch: input.base_branch, branchName: input.branch_name, namePrompt: input.purpose }
-      : input.to === 'project_folder' ? { kind: 'project-folder' } : { kind: 'existing', path: input.to }
     const result = await worktreeMover.moveForAgent({
       sessionId,
       cwd: resolveHomePath(context.cwd),
-      target,
+      checkout: input.checkout === 'new_worktree' ? 'new_worktree' : resolveHomePath(input.checkout),
+      branch: input.branch,
+      baseBranch: input.base_branch,
+      removeWorktree: input.remove_worktree,
+      continueWith: input.continue_with,
       actor: actorOfSession(sessionId) ?? HOST_ACTOR,
       preferences: sessionSettings(sessionId)?.preferences,
       signal: context.abortSignal,
-    }, {
-      bringBranch: input.branch === 'bring',
-      removeWorktree: input.remove_worktree,
-      continueWith: input.continue_with,
     })
     if (!result.success || !result.directory) return { ok: false, text: result.error ?? 'The move failed.' }
-    return { ok: true, text: moveResultText(result, input) }
+    return { ok: true, text: moveResultText(result, !!input.continue_with) }
   },
 }
 
-function moveResultText(result: AgentMoveResult, input: z.infer<typeof moveCheckoutInput>): string {
+function moveResultText(result: AgentMoveResult, continues: boolean): string {
   const place = `${result.directory} on ${result.branch ?? 'a detached HEAD'}`
-  const first = input.branch === 'bring'
-    ? `Move recorded. When this turn ends, Solus brings branch ${result.branch} to ${result.directory}, and the session works there. If a step fails, the session stays where it is.`
-    : `Moved this session to ${place}.${input.remove_worktree ? ' When this turn ends, Solus removes the worktree you left. If it cannot, the worktree stays.' : ''}`
-  const next = input.continue_with
+  const steps = result.steps.length === 1 ? result.steps[0] : result.steps.map((step, index) => `(${index + 1}) ${step}`).join(', ')
+  const first = result.movesAtTurnEnd
+    ? `Move recorded. When this turn ends, Solus will ${steps}. Then the session works in ${place}. If a step fails, the steps after it do not run.`
+    : `Moved this session to ${place}.${result.steps.length > 0 ? ` When this turn ends, Solus will ${steps}. If it cannot, the worktree stays.` : ''}`
+  const next = continues
     ? 'Your continue_with prompt then starts the next turn there, with the conversation kept.'
     : 'The conversation continues there when the session gets its next message. Pass continue_with to resume automatically.'
   return `${first} End your turn now: your process stays in the old folder until it ends. ${next}`

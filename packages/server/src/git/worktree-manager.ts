@@ -136,6 +136,9 @@ export interface CreateWorktreeOptions {
   generatedName?: string | null
   /** The person's naming preference; the project's `.solus/config.json` still wins. */
   naming?: WorktreeBranchNaming
+  /** A branch the caller names, used as it is: an existing branch to check
+   *  out, or a new one made at the start point. Naming does not apply. */
+  branch?: { name: string; exists: boolean }
 }
 
 /** The linked worktree that currently holds `branch`, excluding `projectPath`
@@ -367,15 +370,8 @@ export async function createWorktree(
   const targetBranchMs = Date.now() - targetBranchStartedAt
   throwIfAborted(options.signal)
   const startPointStartedAt = Date.now()
-  const { startPoint, refresh } = await dispatchStep<WorktreeStartPoint>(
-    'start_point',
-    { projectPath, targetBranch, fn: 'resolveWorktreeStartPoint', file: 'worktree-manager.ts' },
-    async (annotate) => {
-      const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options)
-      annotate({ startPoint: resolved.startPoint, fetchInBackground: !!resolved.refresh })
-      return resolved
-    },
-  )
+  const named = options.branch
+  const { startPoint, refresh } = await worktreeStartPoint(projectPath, targetBranch, options)
   const startPointMs = Date.now() - startPointStartedAt
   options.onStage?.('checkout', { status: 'active' })
   let startCommit: string
@@ -393,9 +389,7 @@ export async function createWorktree(
     // Parallel checkout, one worker for each core, unless the person set their own.
     runAsync('git', ['config', '--get', 'checkout.workers'], projectPath).then(() => [], () => ['-c', 'checkout.workers=0']),
   ])
-  const branchId = randomBytes(4).toString('hex')
-  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName, namer, branchId) : null
-  const branch = await availableBranchName(projectPath, generatedBranch ?? initialWorktreeBranchName(namer, branchId))
+  const branch = await worktreeBranch(projectPath, options, namer)
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
@@ -403,12 +397,15 @@ export async function createWorktree(
   // Reserving the branch is atomic: a collision fails before we own anything.
   throwIfAborted(options.signal)
   // Do not cancel the atomic reservation: observe its outcome before rollback.
-  await runAsync('git', ['branch', branch, startCommit], projectPath)
+  // A named new branch is reserved the same way, so a name that is taken fails here.
+  if (!named?.exists) await runAsync('git', ['branch', branch, startCommit], projectPath)
   let branchCommit = startCommit
   try {
     // The rename from the title uses this naming, whatever either setting says by then.
-    await captureWorktreeBranchNaming(projectPath, branch, namer.naming)
-      .catch((error) => log.warn('worktree_naming_capture_failed', { branch, error: String(error) }))
+    if (!named) {
+      await captureWorktreeBranchNaming(projectPath, branch, namer.naming)
+        .catch((error) => log.warn('worktree_naming_capture_failed', { branch, error: String(error) }))
+    }
     throwIfAborted(options.signal)
     const checkoutArgs = [...checkoutConfig, 'worktree', 'add', worktreePath, branch]
     await dispatchStep<string>(
@@ -492,7 +489,8 @@ export async function createWorktree(
         entry.branch === branch && existsSync(worktreePath) && realpathSync(entry.path) === realpathSync(worktreePath),
       )
       if (owned) await runAsync('git', ['worktree', 'remove', '--force', worktreePath], projectPath)
-      if (!listProjectWorktrees(projectPath).some((entry) => entry.branch === branch)) {
+      // An existing branch was never this attempt's to delete.
+      if (!named?.exists && !listProjectWorktrees(projectPath).some((entry) => entry.branch === branch)) {
         await runAsync('git', ['update-ref', '-d', `refs/heads/${branch}`, branchCommit], projectPath)
       }
     } catch (cleanupError) {
@@ -500,6 +498,29 @@ export async function createWorktree(
     }
     throw error
   }
+}
+
+/** Where a new worktree's branch starts. An existing branch is checked out as
+ *  it is: it has no start point to fetch. */
+function worktreeStartPoint(projectPath: string, targetBranch: string, options: CreateWorktreeOptions): Promise<WorktreeStartPoint> {
+  if (options.branch?.exists) return Promise.resolve({ startPoint: options.branch.name })
+  return dispatchStep<WorktreeStartPoint>(
+    'start_point',
+    { projectPath, targetBranch, fn: 'resolveWorktreeStartPoint', file: 'worktree-manager.ts' },
+    async (annotate) => {
+      const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options)
+      annotate({ startPoint: resolved.startPoint, fetchInBackground: !!resolved.refresh })
+      return resolved
+    },
+  )
+}
+
+/** The new worktree's branch: the one the caller names, else a free name the naming makes. */
+async function worktreeBranch(projectPath: string, options: CreateWorktreeOptions, namer: Awaited<ReturnType<typeof resolveWorktreeBranchNamer>>): Promise<string> {
+  if (options.branch) return options.branch.name
+  const branchId = randomBytes(4).toString('hex')
+  const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName, namer, branchId) : null
+  return availableBranchName(projectPath, generatedBranch ?? initialWorktreeBranchName(namer, branchId))
 }
 
 /**

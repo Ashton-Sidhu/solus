@@ -134,39 +134,55 @@ Claude's `EnterWorktree` tool and a shell `git worktree add` followed by `cd`
 both move the agent, but not the session.
 
 **`move_checkout`.** Agents use this Solus tool (Sessions group) to start
-isolated work in a worktree and to leave one. `to` is `"project_folder"`,
-`"new_worktree"`, or the path of an existing worktree of the same repository.
-A new worktree starts from `base_branch` (default: the session's target branch),
-and the branch-naming settings above name its branch from `branch_name`, or from
-`purpose` when there is no name. Git makes a new worktree from the project folder,
-so a session in a worktree can also start a new one. The tool refuses a move
-into the checkout the session is already in. Moves of one session run one after
-another.
+isolated work in a worktree and to leave one. The agent says where the session
+works next, and Solus works out the Git steps:
+
+- `checkout`: the path of a checkout of the same repository, as
+  `checkout_status` lists it (the project folder or a worktree), or
+  `"new_worktree"` to make a new worktree.
+- `branch`: the branch that checkout must be on, an existing one or a new one.
+  Omitted, the checkout keeps its branch, and a new worktree gets a branch that
+  the branch-naming settings above name. A branch the agent names is used as it
+  is.
+- `base_branch`: only for a branch that does not exist yet, the branch it
+  starts from (default: the session's target branch, or `origin/<base>` when
+  there is no local branch).
+- `remove_worktree`: remove the worktree the session leaves. Its branch and
+  commits stay.
+- `continue_with`: the prompt that starts the next turn.
+
+Unknown fields are refused, so a misspelled option is not dropped. Git makes a
+new worktree from the project folder, so a session in a worktree can also start
+a new one.
+
+| Request | Git steps |
+| --- | --- |
+| A checkout that is already on `branch`, or no `branch` | None. The session moves when the tool runs. |
+| A checkout on another branch | `git switch <branch>` in that checkout, or `git switch -c` from `base_branch` for a new branch. |
+| `"new_worktree"` and a branch | A new worktree on that branch, or on a new branch from `base_branch`. Every new worktree has the same setup: the start point from `origin/<base>`, the `.worktreeinclude` files, and the submodules. A branch the agent names keeps its exact name. |
+| The branch is checked out in the worktree the session leaves | That worktree is removed first. This needs `remove_worktree`; without it, the tool refuses and says so. |
+| The branch is checked out in the project folder the session leaves | The project folder switches to the target branch first. |
+| The branch is checked out in another checkout | Refused. The error names that checkout. |
+| The checkout the session is in, and another branch | A branch switch in place. The session does not move, and no divider is recorded. |
 
 The tool follows T3 Code's worktree handoff: the agent calls it last in its turn.
 A provider process cannot change its directory, so the turn that calls the tool
 keeps its process in the old folder. The next turn forks the provider thread into
-the new checkout with the conversation kept. `continue_with` is a prompt that
-starts that turn when the turn ends; without it, the session waits for the next
-message. If the agent asks for more than one move in a turn, the second is
-refused.
+the new checkout with the conversation kept. If the agent asks for more than one
+move in a turn, the second is refused.
 
-Two options change Git, so they run when the turn ends, not when the tool runs:
-
-| Option | What happens when the turn ends |
-| --- | --- |
-| `branch: "bring"` from a worktree to the project folder | Solus removes the worktree and switches the project folder to its branch. The session then works in the project folder. |
-| `branch: "bring"` from the project folder to `"new_worktree"` | Solus switches the project folder to the target branch, and makes a worktree on the branch. The session then works in the worktree. |
-| `remove_worktree` | The session moves when the tool runs. Solus then removes the worktree it left. The branch and its commits stay. |
-
-Each checkout that one of these options changes must have no uncommitted
-changes, and no other live session can work in it. The host checks when the tool
-runs, so the agent gets a refusal in the same turn, and again before the Git
-steps run. If a step fails then, the session stays where it was and the worktree
-stays; the `continue_with` prompt starts with "The move did not finish:" and the
-reason. A turn that is stopped or fails cancels the steps that wait. The next
-turn waits for the steps to finish before it starts. The steps that wait are
-kept in memory, so a host restart before the turn ends cancels them.
+The Git steps run when the turn ends, not when the tool runs, and the tool
+result lists them in order. A move with no step, or with only the removal of the
+worktree left behind, moves the session when the tool runs. Every other move
+moves the session after its steps. Each checkout that a step changes must have no
+uncommitted changes, and no other live session can work in it. The host checks
+when the tool runs, so the agent gets a refusal in the same turn, and again
+before the steps run. If a step fails, the steps after it do not run, the session
+stays where it was (or works in the project folder if its own worktree was
+already removed), and the `continue_with` prompt starts with "The move did not
+finish:" and the reason. A turn that is stopped or fails cancels the steps that
+wait. The next turn waits for the steps to finish before it starts. The steps
+are kept in memory, so a host restart before the turn ends cancels them.
 
 The user's **Continue in worktree** action, the tool, and the card below use one
 server path (`WorktreeMover`). The session's checkout changes at once, and every

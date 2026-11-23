@@ -98,10 +98,10 @@ The Sessions group holds the orchestration tools: `start_sessions`,
 `send_session`, `stop_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
 [Session orchestration](session-orchestration.md). The group also holds
-`move_checkout`, which moves the calling session to the project folder, a new
-worktree, or an existing worktree of its repository, so the diff, Git status,
-and branch follow. It can take the branch along and remove the worktree it
-leaves when the turn ends. A sub-agent cannot call it for its parent.
+`move_checkout`: the agent names the checkout the calling session works in next
+(the project folder, an existing worktree, or a new worktree) and the branch it
+must be on, and Solus runs the Git steps when the turn ends, so the diff, Git
+status, and branch follow. It can also remove the worktree the session leaves. A sub-agent cannot call it for its parent.
 `checkout_status` reports the directory the session is bound to, its branch and
 target branch, every checkout of its repository, and, on request, its branches.
 See

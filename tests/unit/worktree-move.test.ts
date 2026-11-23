@@ -25,6 +25,7 @@ let WorktreeOffers: typeof import('@solus/server/execution/sessions/worktree-off
 let worktreeAddPaths: typeof import('@solus/server/execution/sessions/worktree-offers')['worktreeAddPaths']
 let checkoutStatusText: typeof import('@solus/server/execution/agents/tools/worktree-tools')['checkoutStatusText']
 let worktreeTools: typeof import('@solus/server/execution/agents/tools/worktree-tools')
+let createWorktree: typeof import('@solus/server/git/worktree-manager')['createWorktree']
 type WorktreeOffersInstance = InstanceType<typeof WorktreeOffers>
 
 beforeAll(async () => {
@@ -32,6 +33,7 @@ beforeAll(async () => {
   ;({ WorktreeMover, worktreeOfRepository, checkoutOfRepository } = await import('@solus/server/execution/sessions/worktree-move'))
   ;({ WorktreeOffers, worktreeAddPaths } = await import('@solus/server/execution/sessions/worktree-offers'))
   worktreeTools = await import('@solus/server/execution/agents/tools/worktree-tools')
+  ;({ createWorktree } = await import('@solus/server/git/worktree-manager'))
   ;({ checkoutStatusText } = worktreeTools)
 })
 
@@ -244,7 +246,7 @@ describe('moves to and from the project folder', () => {
     const { runtime, bindings, directories, activity } = fakeRuntime()
     bindings.set('s1', { repoRoot: repo, worktreePath: worktree, branch: 'feature', targetBranch: 'main' })
     directories.set('s1', worktree)
-    const result = await new WorktreeMover(runtime).move({ sessionId: 's1', cwd: worktree, target: { kind: 'project-folder' }, actor: HOST_ACTOR })
+    const result = await new WorktreeMover(runtime).move({ sessionId: 's1', cwd: worktree, target: { kind: 'existing', path: repo }, actor: HOST_ACTOR })
     expect(result.success).toBe(true)
     expect(directories.get('s1')).toBe(repo)
     expect(bindings.get('s1')?.worktreePath).toBeUndefined()
@@ -259,7 +261,7 @@ describe('moves to and from the project folder', () => {
 
   test('a session already in the project folder is told so', async () => {
     const { runtime } = fakeRuntime()
-    expect(await new WorktreeMover(runtime).move({ sessionId: 's1', cwd: repo, target: { kind: 'project-folder' }, actor: HOST_ACTOR }))
+    expect(await new WorktreeMover(runtime).move({ sessionId: 's1', cwd: repo, target: { kind: 'existing', path: repo }, actor: HOST_ACTOR }))
       .toEqual({ success: false, error: 'This session is already in the project folder.' })
   })
 
@@ -281,69 +283,80 @@ describe('moves to and from the project folder', () => {
   })
 })
 
-describe('the agent move: Git steps wait for the turn to end', () => {
+describe('the agent move: a checkout and a branch; Git steps wait for the turn to end', () => {
   /** A repository of its own, with a worktree on `feature`: these tests change both. */
   function scratch(name: string) {
     const projectFolder = makeRepo(name)
     const feature = join(root, `${name}-feature`)
     git(projectFolder, 'worktree', 'add', '-q', '-b', 'feature', feature)
-    const harness = fakeRuntime({ repo: projectFolder })
+    // Every new worktree goes through the host's one creator, with its setup.
+    const harness = fakeRuntime({ repo: projectFolder, create: (projectRoot, base, options) => createWorktree(projectRoot, base, options) })
     const mover = new WorktreeMover(harness.runtime)
     const enterFeature = () => {
       harness.bindings.set('s1', { repoRoot: projectFolder, worktreePath: feature, branch: 'feature', targetBranch: 'main' })
       harness.directories.set('s1', feature)
     }
-    return { projectFolder, feature, mover, enterFeature, ...harness }
+    /** What the next turn does first: the steps run, then the turn starts. */
+    const endTurn = async () => {
+      mover.turnSettled('s1', 'completed')
+      await harness.nextTurn()
+    }
+    return { projectFolder, feature, mover, enterFeature, endTurn, ...harness }
   }
-  const toProjectFolder = (cwd: string) => ({ sessionId: 's1', cwd, target: { kind: 'project-folder' as const }, actor: HOST_ACTOR })
+  const request = (cwd: string, fields: { checkout: string; branch?: string; baseBranch?: string; removeWorktree?: boolean; continueWith?: string }) =>
+    ({ sessionId: 's1', cwd, actor: HOST_ACTOR, ...fields })
 
   test('remove_worktree moves the session now and removes the worktree only when the turn completes', async () => {
-    const { projectFolder, feature, mover, enterFeature, directories, nextTurn } = scratch('remove-left')
+    const { projectFolder, feature, mover, enterFeature, directories, endTurn } = scratch('remove-left')
     enterFeature()
-    const result = await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true })
-    expect(result).toMatchObject({ success: true, directory: projectFolder, atTurnEnd: true })
+    const result = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    expect(result).toMatchObject({ success: true, directory: projectFolder, branch: 'main', movesAtTurnEnd: false, steps: [`remove the worktree ${feature}`] })
     expect(directories.get('s1')).toBe(projectFolder)
     // The agent's process still runs in the worktree until its turn ends.
     expect(existsSync(feature)).toBe(true)
-    mover.turnSettled('s1', 'completed')
-    await nextTurn()
+    await endTurn()
     expect(existsSync(feature)).toBe(false)
     // Removing the worktree keeps its branch and commits.
     expect(git(projectFolder, 'branch', '--list', 'feature')).toContain('feature')
   })
 
   test('a stopped turn cancels what waits, and the next turn does not wait for it', async () => {
-    const { feature, mover, enterFeature, held } = scratch('remove-stopped')
+    const { projectFolder, feature, mover, enterFeature, held } = scratch('remove-stopped')
     enterFeature()
-    await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true })
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
     mover.turnSettled('s1', 'interrupted')
     expect(held.has('s1')).toBe(false)
     expect(existsSync(feature)).toBe(true)
   })
 
   test('a worktree with uncommitted changes, or one another session works in, is refused before anything moves', async () => {
-    const { feature, mover, enterFeature, directories } = scratch('remove-refused')
+    const { projectFolder, feature, mover, enterFeature, directories } = scratch('remove-refused')
     enterFeature()
     writeFileSync(join(feature, 'draft.txt'), 'not committed')
-    const dirty = await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true })
+    const dirty = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
     expect(dirty.error).toContain('uncommitted changes')
     rmSync(join(feature, 'draft.txt'))
     directories.set('s2', feature)
-    const shared = await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true })
+    const shared = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
     expect(shared.error).toBe(`Another session works in ${feature}.`)
     expect(directories.get('s1')).toBe(feature)
   })
 
-  test('bringing a branch from a worktree: the worktree goes, and the project folder continues the branch', async () => {
-    const { projectFolder, feature, mover, enterFeature, directories, activity, nextTurn } = scratch('bring-in')
+  test('the worktree branch into the project folder: freed only with remove_worktree, then the folder continues it', async () => {
+    const { projectFolder, feature, mover, enterFeature, directories, activity, endTurn } = scratch('bring-in')
     enterFeature()
     git(feature, 'commit', '-q', '--allow-empty', '-m', 'feature work')
-    const result = await mover.moveForAgent(toProjectFolder(feature), { bringBranch: true })
-    expect(result).toMatchObject({ success: true, directory: projectFolder, branch: 'feature', atTurnEnd: true })
+    // WHY: freeing the branch deletes the worktree folder; that is never implied.
+    expect((await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'feature' }))).error)
+      .toBe(`feature is checked out in ${feature}, the worktree you leave. Pass remove_worktree to free it.`)
+    const result = await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'feature', removeWorktree: true }))
+    expect(result).toMatchObject({
+      success: true, directory: projectFolder, branch: 'feature', movesAtTurnEnd: true,
+      steps: [`remove the worktree ${feature}`, `switch ${projectFolder} to feature`],
+    })
     // Nothing changes while the turn runs.
     expect(directories.get('s1')).toBe(feature)
-    mover.turnSettled('s1', 'completed')
-    await nextTurn()
+    await endTurn()
     expect(existsSync(feature)).toBe(false)
     expect(git(projectFolder, 'branch', '--show-current')).toBe('feature')
     expect(git(projectFolder, 'log', '-1', '--format=%s')).toBe('feature work')
@@ -351,30 +364,84 @@ describe('the agent move: Git steps wait for the turn to end', () => {
     expect(activity.at(-1)).toEqual({ kind: 'moved_to_worktree', path: projectFolder, branch: 'feature', projectFolder: true })
   })
 
-  test('bringing a branch from the project folder: the folder goes back to the target branch, a worktree continues the branch', async () => {
-    const { projectFolder, mover, bindings, directories, nextTurn } = scratch('bring-out')
+  test('the project folder branch into a new worktree: the folder goes back to the target branch', async () => {
+    const { projectFolder, mover, bindings, directories, endTurn } = scratch('bring-out')
     git(projectFolder, 'switch', '-q', '-c', 'topic')
     git(projectFolder, 'commit', '-q', '--allow-empty', '-m', 'topic work')
     bindings.set('s1', { repoRoot: projectFolder, branch: 'topic', targetBranch: 'main' })
-    const result = await mover.moveForAgent({ sessionId: 's1', cwd: projectFolder, target: { kind: 'new' }, actor: HOST_ACTOR }, { bringBranch: true })
     const topic = join(projectFolder, '.git', 'solus', 'worktrees', 'topic')
-    expect(result).toMatchObject({ success: true, directory: topic, branch: 'topic', atTurnEnd: true })
-    mover.turnSettled('s1', 'completed')
-    await nextTurn()
+    const result = await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'topic' }))
+    expect(result).toMatchObject({
+      success: true, directory: topic, branch: 'topic', movesAtTurnEnd: true,
+      steps: [`switch the project folder ${projectFolder} to main`, `make a worktree at ${topic} on topic`],
+    })
+    await endTurn()
     expect(git(projectFolder, 'branch', '--show-current')).toBe('main')
-    expect(git(topic, 'branch', '--show-current')).toBe('topic')
     expect(git(topic, 'log', '-1', '--format=%s')).toBe('topic work')
     expect(directories.get('s1')).toBe(topic)
   })
 
+  test('a new worktree on a branch the agent names exactly, from the base it names', async () => {
+    // WHY: a declared branch is the branch. The naming settings shape only a branch the agent did not name.
+    const { projectFolder, mover, directories, endTurn } = scratch('named')
+    git(projectFolder, 'branch', 'release')
+    git(projectFolder, 'commit', '-q', '--allow-empty', '-m', 'only on main')
+    const path = join(projectFolder, '.git', 'solus', 'worktrees', 'fix-login')
+    const result = await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'fix/login', baseBranch: 'release' }))
+    expect(result.steps).toEqual([`make a worktree at ${path} on a new branch fix/login from release`])
+    await endTurn()
+    expect(git(path, 'branch', '--show-current')).toBe('fix/login')
+    expect(git(path, 'log', '-1', '--format=%s')).toBe('init')
+    expect(directories.get('s1')).toBe(path)
+  })
+
+  test('a worktree on a named branch gets the same setup as every new worktree', async () => {
+    // WHY: a plain `git worktree add` left out the ignored files the project
+    // lists in .worktreeinclude, such as .env, so the agent worked without them.
+    const { projectFolder, mover, endTurn } = scratch('named-setup')
+    writeFileSync(join(projectFolder, '.gitignore'), '.env\n')
+    writeFileSync(join(projectFolder, '.worktreeinclude'), '.env\n')
+    git(projectFolder, 'add', '.gitignore', '.worktreeinclude')
+    git(projectFolder, 'commit', '-q', '-m', 'include .env')
+    writeFileSync(join(projectFolder, '.env'), 'TOKEN=local')
+    await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'with-env' }))
+    await endTurn()
+    const path = join(projectFolder, '.git', 'solus', 'worktrees', 'with-env')
+    expect(git(path, 'branch', '--show-current')).toBe('with-env')
+    expect(existsSync(join(path, '.env'))).toBe(true)
+  })
+
+  test('a branch for the checkout the session stays in is a switch, not a move', async () => {
+    const { projectFolder, mover, directories, activity, endTurn } = scratch('in-place')
+    const result = await mover.moveForAgent(request(projectFolder, { checkout: projectFolder, branch: 'docs' }))
+    expect(result.steps).toEqual([`switch ${projectFolder} to a new branch docs from main`])
+    await endTurn()
+    expect(git(projectFolder, 'branch', '--show-current')).toBe('docs')
+    expect(directories.get('s1')).toBe(projectFolder)
+    // No divider: the session did not change checkout.
+    expect(activity).toEqual([])
+  })
+
+  test('refusals name the reason: a branch in another checkout, a missing base, a base for a branch that exists', async () => {
+    const { projectFolder, feature, mover } = scratch('refusals')
+    expect((await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'feature' }))).error)
+      .toBe(`feature is checked out in ${feature}. Choose that checkout, or another branch.`)
+    expect((await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'x', baseBranch: 'nope' }))).error)
+      .toBe('The base branch nope does not exist.')
+    git(projectFolder, 'branch', 'spare')
+    expect((await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'spare', baseBranch: 'main' }))).error)
+      .toBe('spare already exists, so base_branch does not apply.')
+    expect((await mover.moveForAgent(request(projectFolder, { checkout: projectFolder }))).error)
+      .toBe('This session is already in that checkout, on that branch.')
+  })
+
   test('continue_with starts the next turn after the move, and says when a step failed', async () => {
-    const { feature, mover, enterFeature, continued, nextTurn } = scratch('continue')
+    const { projectFolder, feature, mover, enterFeature, continued, endTurn } = scratch('continue')
     enterFeature()
-    await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true, continueWith: 'Run the tests.' })
-    // The agent kept writing in the worktree after the call: Git refuses to remove it.
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true, continueWith: 'Run the tests.' }))
+    // The agent kept writing in the worktree after the call: the check before the steps refuses.
     writeFileSync(join(feature, 'late.txt'), 'written after the call')
-    mover.turnSettled('s1', 'completed')
-    await nextTurn()
+    await endTurn()
     await Promise.resolve()
     expect(existsSync(feature)).toBe(true)
     expect(continued).toHaveLength(1)
@@ -383,11 +450,22 @@ describe('the agent move: Git steps wait for the turn to end', () => {
   })
 
   test('one move waits per turn', async () => {
-    const { feature, mover, enterFeature } = scratch('one-at-a-time')
+    const { projectFolder, feature, mover, enterFeature } = scratch('one-at-a-time')
     enterFeature()
-    await mover.moveForAgent(toProjectFolder(feature), { removeWorktree: true })
-    expect((await mover.moveForAgent({ sessionId: 's1', cwd: feature, target: { kind: 'new' }, actor: HOST_ACTOR }, {})).error)
-      .toBe('A move already waits for this turn to end.')
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    expect((await mover.moveForAgent(request(feature, { checkout: 'new_worktree' }))).error).toBe('A move already waits for this turn to end.')
+  })
+
+  test('move_checkout lists the steps, and refuses an option it does not know', async () => {
+    // WHY: a dropped option looks like a move that succeeded without it.
+    const { projectFolder, feature, mover, enterFeature } = scratch('tool-options')
+    enterFeature()
+    worktreeTools.setWorktreeMover(mover, () => undefined)
+    const context = { provider: 'claude-code' as const, cwd: feature, sessionId: () => 's1', abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
+    const unknown = await worktreeTools.moveCheckoutAgentTool.execute({ checkout: projectFolder, bring_branch: true }, context)
+    expect(unknown.ok).toBe(false)
+    const moved = await worktreeTools.moveCheckoutAgentTool.execute({ checkout: projectFolder, branch: 'feature', remove_worktree: true }, context)
+    expect(moved.text).toStartWith(`Move recorded. When this turn ends, Solus will (1) remove the worktree ${feature}, (2) switch ${projectFolder} to feature. Then the session works in ${projectFolder} on feature.`)
   })
 
   test('checkout_status names uncommitted changes, other sessions, and the branches with their checkouts', async () => {

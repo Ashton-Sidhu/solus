@@ -9,7 +9,7 @@ import type { Actor } from '../../admission/actor'
 import type { CheckoutService } from '../../git/checkout-service'
 import { gitOutputPath, runAsync } from '../../git/exec'
 import { resolveRepoRoot } from '../../git/git-helpers'
-import { getWorkingBranch } from '../../git/worktree-manager'
+import { getDefaultBranch } from '../../git/worktree-manager'
 import { worktreePathFor } from '../../git/worktree-path'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
@@ -31,8 +31,6 @@ export type WorktreeMoveTarget =
   /** A checkout of the session's repository that already exists: a linked
    *  worktree, or the project folder. */
   | { kind: 'existing'; path: string }
-  /** The repository's main checkout. */
-  | { kind: 'project-folder' }
 
 export interface WorktreeMoveRequest {
   sessionId: string
@@ -46,14 +44,19 @@ export interface WorktreeMoveRequest {
 }
 
 /**
- * What the agent's `move_checkout` adds to a move. These steps change the
- * folder the agent's process still runs in, so they run when the turn that
- * asked for them ends, as T3 Code's worktree handoff does.
+ * The agent's `move_checkout`: the checkout the session works in next, and the
+ * branch that checkout must be on. The host works out the Git steps. A step
+ * that changes a checkout runs when the turn that asked for it ends, as T3
+ * Code's worktree handoff does: the agent's process still runs in its folder.
  */
-export interface AgentMoveOptions {
-  /** Take the session's branch along: from a linked worktree into the project
-   *  folder, or from the project folder into a new worktree. */
-  bringBranch?: boolean
+export interface AgentMoveRequest extends Omit<WorktreeMoveRequest, 'target'> {
+  /** A checkout of the session's repository, by path, or 'new_worktree'. */
+  checkout: string
+  /** The branch the checkout must be on. Omitted: the checkout keeps its branch,
+   *  and a new worktree gets a branch the naming settings name. */
+  branch?: string
+  /** Only for a branch that does not exist yet: where it starts. Default: the target branch. */
+  baseBranch?: string
   /** Remove the linked worktree the session leaves. */
   removeWorktree?: boolean
   /** The prompt that starts the next turn, sent when this turn ends. */
@@ -66,9 +69,35 @@ export interface AgentMoveResult {
   /** Where the session works from the next turn. */
   directory?: string
   branch?: string | null
-  /** The move, or part of it, runs when this turn ends. */
-  atTurnEnd: boolean
+  /** The Git steps that run when this turn ends, in order, as the agent reads them. */
+  steps: string[]
+  /** The session moves when the steps finish; false when it moved at once. */
+  movesAtTurnEnd: boolean
 }
+
+/** One Git step of an agent move: what it does, the checkout it changes, and the work. */
+interface MoveStep {
+  says: string
+  /** The checkout whose files the step changes; it must be clean and free. */
+  changes?: string
+  run: () => Promise<void>
+}
+
+interface AgentMoveStart {
+  from: string
+  fromReal: string
+  checkouts: Array<RepositoryCheckout & { real: string | null }>
+  projectFolder: string
+  leavesWorktree: boolean
+  removeFrom: MoveStep
+}
+
+type AgentMovePlan =
+  | { refusal: string }
+  /** The session moves now; the steps (removing the worktree it left) wait. */
+  | { moveNow: WorktreeMoveTarget; steps: MoveStep[] }
+  /** The steps run when the turn ends, and the session then works in `directory`. */
+  | { directory: string; branch: string; steps: MoveStep[]; sameCheckout: boolean; from: string; projectFolder: string }
 
 /** What a move needs from the SessionRuntime, which owns session state. */
 export interface WorktreeMoveRuntime {
@@ -149,46 +178,144 @@ export class WorktreeMover {
 
   /**
    * The agent's move. A move that only changes the binding happens at once.
-   * Taking the branch along or removing the worktree left behind waits for the
-   * turn to end: the agent's process still runs in that folder until then. The
-   * checks run now, so a refusal reaches the agent in this turn, and again
-   * before the Git steps run.
+   * Steps that change a checkout wait for the turn to end: the agent's process
+   * still runs in its folder until then. The checks run now, so a refusal
+   * reaches the agent in this turn, and again before the steps run.
    */
-  async moveForAgent(request: WorktreeMoveRequest, options: AgentMoveOptions): Promise<AgentMoveResult> {
-    const start = await this.agentMoveStart(request, options)
-    if ('refusal' in start) return refused(start.refusal)
-    const { from, projectFolder, inProjectFolder } = start
-    if (!options.bringBranch) return this.moveAndHoldForAgent(request, options, from, projectFolder)
-    const plan = inProjectFolder
-      ? await this.branchToNewWorktree(request, projectFolder)
-      : await this.branchToProjectFolder(request, from, projectFolder)
+  async moveForAgent(request: AgentMoveRequest): Promise<AgentMoveResult> {
+    const plan = await this.agentMovePlan(request)
     if ('refusal' in plan) return refused(plan.refusal)
-    this.holdForTurnEnd(request.sessionId, { work: plan.work, continueWith: options.continueWith })
-    return { success: true, directory: plan.directory, branch: plan.branch, atTurnEnd: true }
+    const busy = await this.refusalForSteps(plan.steps, request.sessionId)
+    if (busy) return refused(busy)
+    const { sessionId, continueWith } = request
+    const steps = plan.steps.map((step) => step.says)
+    if ('moveNow' in plan) {
+      const moved = await this.move({ ...request, target: plan.moveNow })
+      if (!moved.success || !moved.gitContext) return refused(moved.error ?? 'The move failed.')
+      const directory = moved.gitContext.worktreePath ?? moved.gitContext.repoRoot
+      if (plan.steps.length > 0 || continueWith) {
+        this.holdForTurnEnd(sessionId, { work: () => this.runSteps(plan.steps, sessionId), continueWith })
+      }
+      return { success: true, directory, branch: moved.gitContext.branch ?? moved.gitContext.detachedHeadSha ?? null, steps, movesAtTurnEnd: false }
+    }
+    const work = async () => {
+      try {
+        await this.runSteps(plan.steps, sessionId)
+      } catch (error) {
+        // A step after the removal of the session's folder failed: work in the project folder, not in a folder that is gone.
+        if (!existsSync(plan.from)) await this.bindExisting(request, plan.projectFolder)
+        throw error
+      }
+      // A branch switch in the session's own checkout is no move: the checkout service reads the new branch.
+      if (plan.sameCheckout) await this.runtime.checkouts.refresh(plan.directory)
+      else await this.bindExisting(request, plan.directory)
+    }
+    this.holdForTurnEnd(sessionId, { work, continueWith })
+    return { success: true, directory: plan.directory, branch: plan.branch, steps, movesAtTurnEnd: true }
   }
 
-  /** Where an agent move starts, or why it cannot. */
-  private async agentMoveStart(request: WorktreeMoveRequest, options: AgentMoveOptions): Promise<{ from: string; projectFolder: string; inProjectFolder: boolean } | { refusal: string }> {
+  /** The Git steps that bring the session to the checkout and branch it asked for, or why not. */
+  private async agentMovePlan(request: AgentMoveRequest): Promise<AgentMovePlan> {
+    const start = await this.agentMoveStart(request)
+    if ('refusal' in start) return start
+    const target = request.checkout === 'new_worktree' ? null : await checkoutOfRepository(start.from, request.checkout)
+    if (request.checkout !== 'new_worktree' && !target) return { refusal: `${request.checkout} is not a checkout of this session's repository. checkout_status lists them.` }
+    if (target === start.fromReal && request.removeWorktree) return { refusal: 'You cannot remove the worktree you stay in.' }
+    const targetBranch = start.checkouts.find((checkout) => checkout.real === target)?.branch ?? null
+    if (!request.branch || request.branch === targetBranch) return this.plainMovePlan(request, start, target)
+    return this.branchMovePlan(request, start, target, request.branch)
+  }
+
+  /** Where an agent move starts: the session's checkout, the repository's checkouts, and the step that removes the one it leaves. */
+  private async agentMoveStart(request: AgentMoveRequest): Promise<AgentMoveStart | { refusal: string }> {
     if (this.turnEndMoves.has(request.sessionId)) return { refusal: 'A move already waits for this turn to end.' }
     const from = this.boundDirectory(request.sessionId, request.cwd)
-    const projectFolder = from ? (await repositoryCheckouts(from))[0]?.path : undefined
-    if (!from || !projectFolder) return { refusal: 'This session is not in a git repository.' }
-    const inProjectFolder = await realpathOrNull(from) === await realpathOrNull(projectFolder)
-    if (options.removeWorktree && inProjectFolder) return { refusal: 'This session is in the project folder. There is no worktree to remove.' }
-    const busy = options.removeWorktree ? await this.refusalToChange(from, request.sessionId) : null
-    return busy ? { refusal: busy } : { from, projectFolder, inProjectFolder }
+    const checkouts = from ? await withRealPaths(await repositoryCheckouts(from)) : []
+    const fromReal = from ? await realpathOrNull(from) : null
+    const project = checkouts[0]
+    if (!from || !fromReal || !project) return { refusal: 'This session is not in a git repository.' }
+    const leavesWorktree = fromReal !== project.real
+    if (request.removeWorktree && !leavesWorktree) return { refusal: 'This session is in the project folder. There is no worktree to remove.' }
+    const removeFrom: MoveStep = { says: `remove the worktree ${from}`, changes: from, run: () => this.removeWorktree(from, project.path) }
+    return { from, fromReal, checkouts, projectFolder: project.path, leavesWorktree, removeFrom }
   }
 
-  /** Move the session now; removing the worktree it left and the continuation wait for the turn to end. */
-  private async moveAndHoldForAgent(request: WorktreeMoveRequest, options: AgentMoveOptions, from: string, projectFolder: string): Promise<AgentMoveResult> {
-    const moved = await this.move(request)
-    if (!moved.success || !moved.gitContext) return refused(moved.error ?? 'The move failed.')
-    const directory = moved.gitContext.worktreePath ?? projectFolder
-    const branch = moved.gitContext.branch ?? moved.gitContext.detachedHeadSha ?? null
-    const removeWorktree = options.removeWorktree ? () => this.removeWorktree(from, projectFolder) : null
-    if (!removeWorktree && !options.continueWith) return { success: true, directory, branch, atTurnEnd: false }
-    this.holdForTurnEnd(request.sessionId, { work: removeWorktree ?? (async () => {}), continueWith: options.continueWith })
-    return { success: true, directory, branch, atTurnEnd: !!removeWorktree }
+  /** A move that changes no branch: the session moves now. */
+  private plainMovePlan(request: AgentMoveRequest, start: AgentMoveStart, target: string | null): AgentMovePlan {
+    const steps = request.removeWorktree ? [start.removeFrom] : []
+    if (!target) return { moveNow: { kind: 'new', baseBranch: request.baseBranch }, steps }
+    if (target === start.fromReal) return { refusal: 'This session is already in that checkout, on that branch.' }
+    if (request.baseBranch) return { refusal: 'base_branch applies only to a branch that does not exist yet.' }
+    return { moveNow: { kind: 'existing', path: target }, steps }
+  }
+
+  /** A move that puts `wanted` in `target`, or in a new worktree when `target` is null. */
+  private async branchMovePlan(request: AgentMoveRequest, start: AgentMoveStart, target: string | null, wanted: string): Promise<AgentMovePlan> {
+    const { projectFolder } = start
+    const validName = await runAsync('git', ['check-ref-format', '--branch', wanted], projectFolder).then(() => true, () => false)
+    if (!validName) return { refusal: `${wanted} is not a valid branch name.` }
+    const holder = start.checkouts.find((checkout) => checkout.branch === wanted)
+    const exists = !!holder || await refExists(projectFolder, `refs/heads/${wanted}`)
+    if (exists && request.baseBranch) return { refusal: `${wanted} already exists, so base_branch does not apply.` }
+    const sessionTarget = this.runtime.getGitContext(request.sessionId)?.targetBranch || await getDefaultBranch(projectFolder)
+    const freeing = holder ? this.freeBranch(request, start, holder, wanted, sessionTarget) : []
+    if ('refusal' in freeing) return freeing
+    const base = request.baseBranch || sessionTarget
+    const from = exists ? null : await startPoint(projectFolder, base)
+    if (!exists && !from) return { refusal: `The base branch ${base} does not exist.` }
+    const directory = target ?? worktreePathFor(projectFolder, wanted.replace(/\//g, '-'))
+    if (!target && existsSync(directory)) return { refusal: `${directory} already exists.` }
+    const checkout = target ? switchStep(target, wanted, from) : this.newWorktreeStep(request, projectFolder, directory, wanted, exists ? null : base, sessionTarget)
+    const steps = [...freeing, checkout]
+    if (request.removeWorktree && !freeing.includes(start.removeFrom)) steps.push(start.removeFrom)
+    return { directory, branch: wanted, steps, sameCheckout: directory === start.fromReal, from: start.from, projectFolder }
+  }
+
+  /** The step that makes a worktree on `branch`, through the same setup as every
+   *  new worktree: start point, `.worktreeinclude` files, and submodules. */
+  private newWorktreeStep(request: AgentMoveRequest, projectFolder: string, directory: string, branch: string, base: string | null, sessionTarget: string): MoveStep {
+    const run = async () => {
+      await this.runtime.checkouts.create(projectFolder, base ?? sessionTarget, {
+        naming: request.preferences?.worktreeBranchNaming,
+        branch: { name: branch, exists: !base },
+      })
+    }
+    return base
+      ? { says: `make a worktree at ${directory} on a new branch ${branch} from ${base}`, run }
+      : { says: `make a worktree at ${directory} on ${branch}`, run }
+  }
+
+  /**
+   * The step that frees `wanted` from the checkout that has it. Git checks a
+   * branch out in one checkout at a time, and only the checkout the session
+   * leaves can give it up: its worktree is removed, which needs
+   * `remove_worktree`, or the project folder goes back to the target branch.
+   */
+  private freeBranch(request: AgentMoveRequest, start: AgentMoveStart, holder: RepositoryCheckout & { real: string | null }, wanted: string, sessionTarget: string): MoveStep[] | { refusal: string } {
+    if (holder.real !== start.fromReal) return { refusal: `${wanted} is checked out in ${holder.path}. Choose that checkout, or another branch.` }
+    if (start.leavesWorktree) {
+      return request.removeWorktree
+        ? [start.removeFrom]
+        : { refusal: `${wanted} is checked out in ${start.from}, the worktree you leave. Pass remove_worktree to free it.` }
+    }
+    if (sessionTarget === wanted) return { refusal: `${wanted} is the target branch, and the project folder must keep it.` }
+    return [{ says: `switch the project folder ${start.projectFolder} to ${sessionTarget}`, changes: start.projectFolder, run: () => gitIn(start.projectFolder, ['switch', sessionTarget]) }]
+  }
+
+  /** Check every checkout the steps change, then run them in order. */
+  private async runSteps(steps: MoveStep[], sessionId: string): Promise<void> {
+    const busy = await this.refusalForSteps(steps, sessionId)
+    if (busy) throw new Error(busy)
+    for (const step of steps) await step.run()
+  }
+
+  /** Why one of the checkouts the steps change cannot change now, or null. */
+  private async refusalForSteps(steps: MoveStep[], sessionId: string): Promise<string | null> {
+    for (const checkout of new Set(steps.flatMap((step) => step.changes ? [step.changes] : []))) {
+      const busy = await this.refusalToChange(checkout, sessionId)
+      if (busy) return busy
+    }
+    return null
   }
 
   /**
@@ -236,61 +363,13 @@ export class WorktreeMover {
     return move.started
   }
 
-  /** The session's branch goes from its linked worktree into the project folder:
-   *  the worktree is removed, and the project folder switches to the branch. */
-  private async branchToProjectFolder(request: WorktreeMoveRequest, from: string, projectFolder: string): Promise<TurnEndPlan> {
-    const { target } = request
-    const toProjectFolder = target.kind === 'project-folder'
-      || (target.kind === 'existing' && await realpathOrNull(resolveHomePath(target.path)) === await realpathOrNull(projectFolder))
-    if (!toProjectFolder) return { refusal: 'A branch moves from a worktree into the project folder, or from the project folder into a new worktree.' }
-    const branch = await getWorkingBranch(from)
-    if (!branch) return { refusal: 'This worktree has a detached HEAD, so there is no branch to bring.' }
-    const busy = await this.refusalToChange(from, request.sessionId) ?? await this.refusalToChange(projectFolder, request.sessionId)
-    if (busy) return { refusal: busy }
-    const work = async () => {
-      const busyNow = await this.refusalToChange(from, request.sessionId) ?? await this.refusalToChange(projectFolder, request.sessionId)
-      if (busyNow) throw new Error(busyNow)
-      await runAsync('git', ['worktree', 'remove', from], projectFolder)
-      await runAsync('git', ['switch', branch], projectFolder)
-      await this.bindExisting(request, projectFolder)
-    }
-    return { work, directory: projectFolder, branch }
-  }
-
-  /** The project folder's branch goes into a new worktree: the project folder
-   *  switches to the target branch, and the worktree checks out the branch. */
-  private async branchToNewWorktree(request: WorktreeMoveRequest, projectFolder: string): Promise<TurnEndPlan> {
-    const { target } = request
-    if (target.kind !== 'new') return { refusal: 'A branch moves from a worktree into the project folder, or from the project folder into a new worktree.' }
-    if (target.baseBranch || target.branchName) return { refusal: 'The branch keeps its name and commits, so base_branch and branch_name do not apply.' }
-    const branch = await getWorkingBranch(projectFolder)
-    if (!branch) return { refusal: 'The project folder has a detached HEAD, so there is no branch to bring.' }
-    const targetBranch = this.runtime.getGitContext(request.sessionId)?.targetBranch
-    if (!targetBranch) return { refusal: 'Solus does not know the target branch the project folder goes back to.' }
-    if (branch === targetBranch) return { refusal: `The project folder is on the target branch ${branch}. Move to a new worktree without bringing the branch.` }
-    const path = worktreePathFor(projectFolder, branch.replace(/\//g, '-'))
-    if (existsSync(path)) return { refusal: `${path} already exists.` }
-    const busy = await this.refusalToChange(projectFolder, request.sessionId)
-    if (busy) return { refusal: busy }
-    const work = async () => {
-      const busyNow = await this.refusalToChange(projectFolder, request.sessionId)
-      if (busyNow) throw new Error(busyNow)
-      await runAsync('git', ['switch', targetBranch], projectFolder)
-      await runAsync('git', ['worktree', 'add', path, branch], projectFolder)
-      await this.bindExisting(request, path)
-    }
-    return { work, directory: path, branch }
-  }
-
-  /** Remove a linked worktree no session uses. Git refuses one with changes. */
+  /** Remove a linked worktree. Git refuses one with uncommitted changes. */
   private async removeWorktree(worktree: string, projectFolder: string): Promise<void> {
-    const busy = await this.refusalToChange(worktree, null)
-    if (busy) throw new Error(busy)
-    await runAsync('git', ['worktree', 'remove', worktree], projectFolder)
+    await gitIn(projectFolder, ['worktree', 'remove', worktree])
     log.info('session_left_worktree_removed', { worktreePath: worktree })
   }
 
-  private async bindExisting(request: WorktreeMoveRequest, directory: string): Promise<void> {
+  private async bindExisting(request: Omit<WorktreeMoveRequest, 'target'>, directory: string): Promise<void> {
     const checkout = (await this.runtime.checkouts.refresh(directory)).checkout
     if (!checkout) throw new Error(`${directory} has no checkout Solus can read.`)
     await this.bind({ ...request, target: { kind: 'existing', path: directory } }, directory, checkout)
@@ -376,8 +455,8 @@ export class WorktreeMover {
         ? { directory: checkout.worktreePath, checkout }
         : { refusal: 'The worktree has no checkout Solus can read.' }
     }
-    const directory = target.kind === 'project-folder' ? await realpathOrNull(projectFolder) : await checkoutOfRepository(boundDirectory, target.path)
-    if (!directory) return { refusal: `${target.kind === 'existing' ? target.path : projectFolder} is not a checkout of this session's repository.` }
+    const directory = await checkoutOfRepository(boundDirectory, target.path)
+    if (!directory) return { refusal: `${target.path} is not a checkout of this session's repository.` }
     const isProjectFolder = directory === await realpathOrNull(projectFolder)
     if (await realpathOrNull(boundDirectory) === directory) {
       return { refusal: isProjectFolder ? 'This session is already in the project folder.' : 'This session is already in that worktree.' }
@@ -404,10 +483,34 @@ export class WorktreeMover {
 }
 
 function refused(error: string): AgentMoveResult {
-  return { success: false, error, atTurnEnd: false }
+  return { success: false, error, steps: [], movesAtTurnEnd: false }
 }
 
-type TurnEndPlan = { work: () => Promise<void>; directory: string; branch: string } | { refusal: string }
+/** The step that checks `branch` out in `target`. `from` starts a new branch. */
+function switchStep(target: string, branch: string, from: string | null): MoveStep {
+  return from
+    ? { says: `switch ${target} to a new branch ${branch} from ${from}`, changes: target, run: () => gitIn(target, ['switch', '-c', branch, from]) }
+    : { says: `switch ${target} to ${branch}`, changes: target, run: () => gitIn(target, ['switch', branch]) }
+}
+
+/** Run one Git step of a move; its error is the step's error. */
+async function gitIn(directory: string, args: string[]): Promise<void> {
+  await runAsync('git', args, directory)
+}
+
+async function refExists(directory: string, ref: string): Promise<boolean> {
+  return runAsync('git', ['show-ref', '--verify', '--quiet', ref], directory).then(() => true, () => false)
+}
+
+/** Where a new branch starts: the local branch `base`, else `origin/<base>`, else null. */
+async function startPoint(directory: string, base: string): Promise<string | null> {
+  if (await refExists(directory, `refs/heads/${base}`)) return base
+  return await refExists(directory, `refs/remotes/origin/${base}`) ? `origin/${base}` : null
+}
+
+async function withRealPaths(checkouts: RepositoryCheckout[]): Promise<Array<RepositoryCheckout & { real: string | null }>> {
+  return Promise.all(checkouts.map(async (checkout) => ({ ...checkout, real: await realpathOrNull(checkout.path) })))
+}
 
 async function realpathOrNull(path: string): Promise<string | null> {
   return realpath(path).catch(() => null)
