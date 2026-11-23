@@ -563,6 +563,7 @@ export function threadListV2ListItemsAreEqual(
 
 /** What the list knows about every session beyond its record. */
 export interface ThreadListV2Facts {
+  readonly attention?: ReadonlyMap<string, import("@solus/contracts/attention-types").AttentionEntry>;
   readonly pins?: ReadonlyMap<string, PinnedSession>;
   /** Shared `SessionState` by thread key, as the host announced or answered
       it after the record was read. It overrides the record's state. */
@@ -577,6 +578,7 @@ export interface ThreadListV2Facts {
   /** When the live status began, by thread key: the host's time of the
       change into it. */
   readonly statusSince?: ReadonlyMap<string, number>;
+  readonly viewedAt?: ReadonlyMap<string, number | null>;
   /** Read state announced by each host, by thread key. */
   readonly unread?: ReadonlyMap<string, boolean>;
   /** Pull request links by thread key, read again after the record. */

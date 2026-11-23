@@ -39,6 +39,7 @@ const viewRowSchema = z.object({
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
+  viewed_at: z.number().nullable(),
 })
 
 type ChangeListener = (sessionId: string, state: SessionState) => void
@@ -193,7 +194,7 @@ export class SessionViewer {
   /** This person's view now; empty when they did nothing to the session. */
   async view(): Promise<SessionView> {
     const row = viewRowSchema.nullish().parse(await getDatabase().get(sql`
-      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note FROM ${personalResourceState}
+      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note, viewed_at FROM ${personalResourceState}
       WHERE ${personRow(this.sessionId, this.personKey)}
     `))
     return row ? viewFromColumns(row) ?? EMPTY_SESSION_VIEW : EMPTY_SESSION_VIEW

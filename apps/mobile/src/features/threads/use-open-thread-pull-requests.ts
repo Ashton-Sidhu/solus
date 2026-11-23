@@ -23,10 +23,7 @@ export function useOpenThreadPullRequests() {
       });
       return;
     }
-    void navigateToPullRequest(pr.url, {
-      environmentId: String(thread.environmentId),
-      projectId: String(thread.projectId),
-    }).then((opened) => {
+    void navigateToPullRequest(pr.url, thread).then((opened) => {
       if (!opened)
         Dialog.alert(
           gt(

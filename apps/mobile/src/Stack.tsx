@@ -794,7 +794,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.55 }),
     }),
     ThreadPullRequests: createNativeStackScreen({
-      screen: routeBody(ThreadPullRequestsSheet, Wip),
+      screen: ThreadPullRequestsSheet,
       linking: `${THREAD_LINKING_PREFIX}/pull-requests`,
       options: sheetRoute({ detent: 0.55 }),
     }),

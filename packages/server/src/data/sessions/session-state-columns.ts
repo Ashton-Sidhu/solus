@@ -11,6 +11,7 @@ export interface SessionViewColumns {
   view_settled_at: number | null
   archived_at: number | null
   snoozed_until: number | null
+  viewed_at: number | null
   snooze_note: string | null
 }
 
@@ -19,8 +20,8 @@ export function stateFromColumns(row: SessionStateColumns): SessionState | null 
   return row.settled_at === null ? null : { settledAt: row.settled_at, settledBy: row.settled_by }
 }
 
-/** A person's view; null when they did not settle, archive, or snooze the session. */
+/** A person's view; including the last completion they read. */
 export function viewFromColumns(row: SessionViewColumns): SessionView | null {
-  if (row.view_settled_at === null && row.archived_at === null && row.snoozed_until === null) return null
-  return { settledAt: row.view_settled_at, archivedAt: row.archived_at, snoozedUntil: row.snoozed_until, snoozeNote: row.snooze_note }
+  if (row.view_settled_at === null && row.archived_at === null && row.snoozed_until === null && row.viewed_at === null) return null
+  return { settledAt: row.view_settled_at, archivedAt: row.archived_at, snoozedUntil: row.snoozed_until, snoozeNote: row.snooze_note, ...(row.viewed_at === null ? {} : { viewedAt: row.viewed_at }) }
 }

@@ -167,6 +167,17 @@ describe('the session list reads only the sessions that can be in it', () => {
     }
   }
 
+  test('a list read restores only the current reader’s last visit', async () => {
+    const where = sql`session_records.session_id = 'bobs-prompted'`
+    const read = async (personKey: string) =>
+      (await records.readSessionListPage(where, 1, 'last_activity_at', { personKey, now }))[0]?.view?.viewedAt
+    await states.markSessionViewed('bobs-prompted', ALICE, now - 200)
+    expect(await read(ALICE)).toBe(now - 200)
+    expect(await read(BOB)).toBeUndefined()
+    await states.markSessionUnread('bobs-prompted', ALICE)
+    expect(await read(ALICE)).toBeUndefined()
+  })
+
   test('the fixture covers every way into and out of the list', async () => {
     // WHY: an equal answer on a fixture with nothing in it proves nothing.
     const reader = { personKey: ALICE, teamIds: [TEAM], now }

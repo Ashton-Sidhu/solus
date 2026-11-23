@@ -20,6 +20,8 @@ export interface SessionState {
 /** One person's own view of a session. It changes that person's list, and
  *  nobody else's. */
 export interface SessionView {
+  /** When this person last read the session, in epoch milliseconds. */
+  viewedAt?: number | undefined
   /** When this person settled the session. */
   settledAt: number | null
   /** When this person took the session out of their list. */

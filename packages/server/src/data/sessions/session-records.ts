@@ -94,7 +94,7 @@ const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.map((name) => `session_record
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
   'session_records.settled_at', 'session_records.settled_by',
-  'reader_view.settled_at AS view_settled_at', 'reader_view.archived_at', 'reader_view.snoozed_until', 'reader_view.snooze_note',
+  'reader_view.settled_at AS view_settled_at', 'reader_view.archived_at', 'reader_view.snoozed_until', 'reader_view.snooze_note', 'reader_view.viewed_at',
 ].join(', '))
 
 /** A row is a record once its provider started; a row only an admission or a claim made is not listed. */
@@ -107,6 +107,7 @@ const recordWithStateRowSchema = recordRowSchema.extend({
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
+  viewed_at: z.number().nullable(),
   shared_by: z.string().nullable(),
   granted_at: z.coerce.number().nullable(),
   listed: z.coerce.number(),

@@ -1,3 +1,4 @@
+import type { AttentionEntry } from "@solus/contracts/attention-types";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
@@ -28,9 +29,11 @@ import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV
 export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
+    | "listAttention"
     | "pinnedSessionsList"
     | "togglePinnedSession"
     | "sessionPullRequests"
+    | "sessionPullRequestPut"
     | "sessionPullRequestDelete"
     | "sessionPullRequestWatch"
     | "sessionUpdate"
@@ -71,17 +74,21 @@ const EMPTY_FACTS: ThreadListV2Facts = {
 export class ThreadListState {
   readonly changes = new Listeners();
   private readonly pins = new Map<string, PinnedSession>();
+  private readonly attention = new Map<string, AttentionEntry>();
+  private readonly attentionReads = new Map<string, symbol>();
+  private readonly prReads = new Map<string, symbol>();
   private readonly pinRequests = new Map<string, number>();
   private readonly states = new Map<string, SessionState>();
   private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
   private readonly pendingQuestions = new Set<string>();
   private readonly statusSince = new Map<string, number>();
-  private readonly unread = new Map<string, boolean>();
+  private readonly viewedAt = new Map<string, number | null>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
   private readonly watched = new WeakSet<ThreadListConnection>();
   /** A stable snapshot, replaced only when something changes. */
   private snapshot: ThreadListV2Facts = EMPTY_FACTS;
+  private lastRowChange?: { previous: ThreadListV2Facts; keys: string[] };
   private expansion: ThreadListShelfExpansion;
 
   constructor(
@@ -92,6 +99,11 @@ export class ThreadListState {
   }
 
   facts = (): ThreadListV2Facts => this.snapshot;
+
+  changedKeys(previous: ThreadListV2Facts): readonly string[] | undefined {
+    if (previous === this.snapshot) return [];
+    return previous === this.lastRowChange?.previous ? this.lastRowChange.keys : undefined;
+  }
 
   shelfExpansion = (): ThreadListShelfExpansion => this.expansion;
 
@@ -106,7 +118,35 @@ export class ThreadListState {
    *  host, which reads them here (`loadPins`). */
   follow(hostId: string): void {
     const connection = this.connectionFor(hostId);
-    if (connection) this.watch(hostId, connection);
+    if (!connection) return;
+    this.watch(hostId, connection);
+    const read = Symbol();
+    this.attentionReads.set(hostId, read);
+    void connection.api.listAttention().then(entries => {
+      if (this.attentionReads.get(hostId) === read && this.connectionFor(hostId) === connection)
+        this.receiveAttention(hostId, entries);
+    }, () => {});
+  }
+
+  private receiveAttention(hostId: string, entries: readonly AttentionEntry[]): void {
+    this.attentionReads.delete(hostId);
+    const prior = this.snapshot.attention;
+    const keys = new Set<string>();
+    for (const key of this.attention.keys()) {
+      if (key.startsWith(threadKey(hostId, ""))) keys.add(key);
+    }
+    this.dropHostEntries(this.attention, hostId);
+    for (const entry of entries) {
+      const key = threadKey(hostId, entry.sessionId);
+      this.attention.set(key, entry);
+      const old = prior?.get(key);
+      if (old?.since === entry.since && old.kind === entry.kind) keys.delete(key);
+      else keys.add(key);
+    }
+    if (!keys.size) return;
+    this.lastRowChange = { previous: this.snapshot, keys: [...keys] };
+    this.snapshot = { ...this.snapshot, attention: new Map(this.attention) };
+    this.changes.notify();
   }
 
   /** Read the host's pins after connect, refresh, or a toggle, and answer
@@ -204,10 +244,10 @@ export class ThreadListState {
   async markRead(hostId: string, sessionId: string, read: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    await connection.api.setSessionReadState(sessionId, read ? Date.now() : null);
+    const viewedAt = read ? Date.now() : null;
+    const confirmed = await connection.api.setSessionReadState(sessionId, viewedAt);
     if (this.connectionFor(hostId) !== connection) return;
-    this.unread.set(threadKey(hostId, sessionId), !read);
-    this.publish();
+    this.publishRead(threadKey(hostId, sessionId), confirmed);
   }
 
   /** Watch a session's pull request, or stop: its agent wakes on news
@@ -222,6 +262,12 @@ export class ThreadListState {
     const outcome = await connection.api.sessionPullRequestWatch(sessionId, target.repository, target.number, watching);
     await this.refreshPullRequests(hostId, sessionId);
     return outcome;
+  }
+
+  async linkPullRequest(hostId: string, sessionId: string, url: string): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    await connection.api.sessionPullRequestPut(sessionId, url);
+    if (this.connectionFor(hostId) === connection) await this.refreshPullRequests(hostId, sessionId);
   }
 
   /** Remove a pull request from a session. PR sync does not link it again
@@ -249,10 +295,13 @@ export class ThreadListState {
     this.dropHostEntries(this.states, hostId);
     this.dropHostEntries(this.views, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
+    this.dropHostEntries(this.prReads, hostId);
+    this.dropHostEntries(this.attention, hostId);
+    this.attentionReads.delete(hostId);
     this.dropHostEntries(this.liveStatus, hostId);
     this.dropHostEntries(this.pendingQuestions, hostId);
     this.dropHostEntries(this.statusSince, hostId);
-    this.dropHostEntries(this.unread, hostId);
+    this.dropHostEntries(this.viewedAt, hostId);
     this.publish();
   }
 
@@ -265,9 +314,12 @@ export class ThreadListState {
   private watch(hostId: string, connection: ThreadListConnection): void {
     if (this.watched.has(connection)) return;
     this.watched.add(connection);
+    connection.events.subscribe("attention.snapshotChanged", ({ entries }) => {
+      if (this.connectionFor(hostId) === connection) this.receiveAttention(hostId, entries);
+    });
     connection.events.subscribe("session.readStateChanged", ({ sessionId, viewedAt }) => {
-      this.unread.set(threadKey(hostId, sessionId), viewedAt === null);
-      this.publish();
+      if (this.connectionFor(hostId) !== connection) return;
+      this.publishRead(threadKey(hostId, sessionId), viewedAt);
     });
     connection.events.subscribe("session.stateChanged", ({ sessionId, state }) => {
       this.write(this.states, hostId, connection, sessionId, state);
@@ -281,23 +333,33 @@ export class ThreadListState {
       void this.refreshPullRequests(hostId, sessionId);
     });
     connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion }) => {
+      if (this.connectionFor(hostId) !== connection) return;
       // A list may hold either id for the same session.
       const pending = hasPendingQuestion === true;
-      this.setLiveStatus(threadKey(hostId, sessionId), status, pending, at);
-      if (agentSessionId) this.setLiveStatus(threadKey(hostId, agentSessionId), status, pending, at);
-      this.publish();
+      const keys = [threadKey(hostId, sessionId)];
+      if (agentSessionId && agentSessionId !== sessionId) keys.push(threadKey(hostId, agentSessionId));
+      if (keys.every(key => this.liveStatus.get(key) === status && this.pendingQuestions.has(key) === pending)) return;
+      for (const key of keys) this.setLiveStatus(key, status, pending, at);
+      this.lastRowChange = { previous: this.snapshot, keys };
+      this.snapshot = { ...this.snapshot, liveStatus: new Map(this.liveStatus), pendingQuestions: new Set(this.pendingQuestions), statusSince: new Map(this.statusSince) };
+      this.changes.notify();
     });
     // A fresh server session forgets what was live, and a change may have
     // been missed; the records read again answer it, and the directory's
     // whole read of the new session reads the pins again.
     connection.onReset(() => {
+      if (this.connectionFor(hostId) !== connection) return;
       this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
       this.dropHostEntries(this.liveStatus, hostId);
       this.dropHostEntries(this.pendingQuestions, hostId);
       this.dropHostEntries(this.statusSince, hostId);
+      this.dropHostEntries(this.viewedAt, hostId);
       this.dropHostEntries(this.states, hostId);
       this.dropHostEntries(this.views, hostId);
       this.dropHostEntries(this.pullRequests, hostId);
+      this.dropHostEntries(this.prReads, hostId);
+      this.dropHostEntries(this.attention, hostId);
+      this.attentionReads.delete(hostId);
       this.publish();
     });
   }
@@ -307,7 +369,11 @@ export class ThreadListState {
   private setLiveStatus(key: string, status: SessionStatus, hasPendingQuestion: boolean, at: number): void {
     const previous = this.liveStatus.get(key);
     const shown = (value: SessionStatus, pending: boolean) => resolveThreadListV2Status({ status: "idle" }, value, pending);
-    if (previous === undefined || shown(previous, this.pendingQuestions.has(key)) !== shown(status, hasPendingQuestion)) {
+    if (
+      previous === undefined ||
+      (status === "completed" && previous !== status) ||
+      shown(previous, this.pendingQuestions.has(key)) !== shown(status, hasPendingQuestion)
+    ) {
       this.statusSince.set(key, at);
     }
     this.liveStatus.set(key, status);
@@ -335,10 +401,17 @@ export class ThreadListState {
   private async refreshPullRequests(hostId: string, sessionId: string): Promise<void> {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
+    const key = threadKey(hostId, sessionId);
+    const read = Symbol();
+    this.prReads.set(key, read);
     const links = await connection.api.sessionPullRequests(sessionId).catch(() => null);
+    if (this.prReads.get(key) !== read) return;
+    this.prReads.delete(key);
     if (!links || this.connectionFor(hostId) !== connection) return;
-    this.pullRequests.set(threadKey(hostId, sessionId), links);
-    this.publish();
+    this.pullRequests.set(key, links);
+    this.lastRowChange = { previous: this.snapshot, keys: [key] };
+    this.snapshot = { ...this.snapshot, pullRequests: new Map(this.pullRequests) };
+    this.changes.notify();
   }
 
   private requireConnection(hostId: string): ThreadListConnection {
@@ -352,15 +425,26 @@ export class ThreadListState {
     for (const key of Array.from(map.keys())) if (key.startsWith(prefix)) map.delete(key);
   }
 
+  private publishRead(key: string, at: number | null): void {
+    if (this.viewedAt.get(key) === at) return;
+    this.viewedAt.set(key, at);
+    this.lastRowChange = { previous: this.snapshot, keys: [key] };
+    this.snapshot = { ...this.snapshot, viewedAt: new Map(this.viewedAt), unread: new Map(this.snapshot.unread).set(key, at === null) };
+    this.changes.notify();
+  }
+
   private publish(): void {
+    this.lastRowChange = undefined;
     this.snapshot = {
+      attention: new Map(this.attention),
       pins: new Map(this.pins),
       states: new Map(this.states),
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
       pendingQuestions: new Set(this.pendingQuestions),
       statusSince: new Map(this.statusSince),
-      unread: new Map(this.unread),
+      viewedAt: new Map(this.viewedAt),
+      unread: new Map(Array.from(this.viewedAt, ([key, at]) => [key, at === null])),
       pullRequests: new Map(this.pullRequests),
     };
     this.changes.notify();

@@ -2,23 +2,17 @@ import {
   pullRequestLinkProject,
   resolveLinkPullRequestInput,
 } from "@t3tools/client-runtime/pull-request-link-input";
-import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { resourceRoleAtLeast } from "@solus/contracts/sharing";
+import { watchRefusalMessage } from "@solus-mobile/features/threads/threadListV2";
+import { solus } from "../../solus/runtime";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-  type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
-import {
-  canStartThreadPullRequestWatch,
-  planThreadPullRequestMutation,
-} from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../../lib/changeRequestTerm";
-import { AuthOrchestrationOperateScope, type ThreadPullRequestLink } from "@t3tools/contracts";
+import { canStartThreadPullRequestWatch } from "@t3tools/client-runtime/thread-pull-request-compatibility";
+import type { ThreadPullRequestLink } from "@t3tools/contracts";
 import * as Clipboard from "expo-clipboard";
 import { useGT } from "gt-react-native";
 
@@ -26,69 +20,42 @@ import * as Dialog from "../../components/ui/Dialog";
 import { m } from "../../i18n/messages";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import type { MenuProps } from "../../components/ui/Menu.types";
-import type { EnvironmentRuntimeState } from "../../state/remote-runtime-types";
-import { useEnvironmentScope } from "../../state/session";
-import { threadEnvironment } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
 
 type MenuAction = MenuProps["actions"][number];
 
 export function useLinkedPullRequestActions(input: {
   readonly thread: EnvironmentThreadShell | null;
   readonly project: EnvironmentProject | null;
-  readonly runtime: EnvironmentRuntimeState | null;
+  readonly connected: boolean;
 }) {
   const gt = useGT();
-  const { thread, project, runtime } = input;
+  const { thread, project, connected } = input;
   const terminology = sourceControlClients.get(project?.repositoryIdentity?.provider).changeRequest;
-  const capabilities = runtime?.serverConfig?.environment.capabilities;
-  const canOperate = useEnvironmentScope(
-    thread?.environmentId ?? null,
-    AuthOrchestrationOperateScope,
-  );
-  const canEdit = canOperate && capabilities !== undefined;
-  const canWatch = canOperate && capabilities?.threadPullRequestWatch === true;
-  const canStartWatch = canWatch && thread !== null && canStartThreadPullRequestWatch(thread);
-  const link = useAtomCommand(threadEnvironment.linkPullRequest, { reportFailure: false });
-  const unlink = useAtomCommand(threadEnvironment.unlinkPullRequest, { reportFailure: false });
-  const watch = useAtomCommand(threadEnvironment.watchPullRequest, { reportFailure: false });
+  const session = thread && solus.threads.thread(thread.environmentId, thread.id);
+  const canEdit = connected && resourceRoleAtLeast(session?.record.role ?? "none", "editor");
+  const canStartWatch = canEdit && thread !== null && canStartThreadPullRequestWatch(thread);
+  const links = session && (solus.threadList.facts().pullRequests.get(session.key) ?? session.record.pullRequests);
+  const isWatching = (link: ThreadPullRequestLink) =>
+    links?.some(raw => raw.repository === `${link.host}/${link.repository}` && raw.number === link.number && raw.watch !== undefined) === true;
 
-  const run = async (
-    failureTitle: string,
-    pending: Promise<AtomCommandResult<unknown, unknown>>,
-  ) => {
-    const result = await pending;
-    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
-    const cause = squashAtomCommandFailure(result);
-    Dialog.alert(failureTitle, errorDisplayMessage(cause, m) ?? gt("Try again."));
+  const run = (failureTitle: string, pending: Promise<void>) => {
+    void pending.catch(error => Dialog.alert(failureTitle, error instanceof Error ? error.message : String(error)));
   };
 
   const setLinked = (
     reference: { host: string; repository: string; number: number; url: string },
     linked: boolean,
   ) => {
-    if (thread === null) return;
-    const mutation = planThreadPullRequestMutation({
-      capabilities,
-      threadId: thread.id,
-      reference,
-      linked,
-    });
-    if (mutation === null) return;
-    const environmentId = thread.environmentId;
-    void run(
+    if (!thread || !canEdit) return;
+    run(
       linked
-        ? gt(
-            "{term, select, mr {Couldn't link this merge request} cr {Couldn't link this change request} other {Couldn't link this pull request}}",
-            { term: changeRequestTermKind(terminology) },
-          )
-        : gt(
-            "{term, select, mr {Couldn't unlink this merge request} cr {Couldn't unlink this change request} other {Couldn't unlink this pull request}}",
-            { term: changeRequestTermKind(terminology) },
-          ),
-      mutation.type === "thread.pull-request.link"
-        ? link({ environmentId, input: mutation.input })
-        : unlink({ environmentId, input: mutation.input }),
+        ? gt("Couldn't link this pull request")
+        : gt("Couldn't unlink this pull request"),
+      linked
+        ? solus.threadList.linkPullRequest(thread.environmentId, thread.id, reference.url)
+        : solus.threadList.unlinkPullRequest(thread.environmentId, thread.id, {
+            repository: `${reference.host}/${reference.repository}`, number: reference.number,
+          }),
     );
   };
 
@@ -110,10 +77,17 @@ export function useLinkedPullRequestActions(input: {
       initialValue: "",
       confirmText: gt("Link", { $context: "verb, confirms linking a pull request" }),
       onConfirm: (reference) => {
+        const [host, owner, repo] = session?.record.projectRemote?.split("/") ?? [];
+        const repository = owner && repo ? `${owner}/${repo}` : null;
+        const linkedProject = pullRequestLinkProject(project?.repositoryIdentity) ??
+          (host === "github.com" && repository ? {
+            host, repository, terminology,
+            webUrl: (number: number) => `https://${host}/${repository}/pull/${number}`,
+          } : null);
         const resolved = resolveLinkPullRequestInput(
           {
             reference,
-            project: pullRequestLinkProject(project?.repositoryIdentity),
+            project: linkedProject,
             hasProject: () => true,
           },
           m,
@@ -148,11 +122,11 @@ export function useLinkedPullRequestActions(input: {
 
   const menuActions = (link: ThreadPullRequestLink): MenuAction[] => {
     const open = link.snapshot === null || link.snapshot.state === "open";
-    const watching = link.watch !== undefined;
+    const watching = isWatching(link);
     return [
       { id: "copy", title: gt("Copy link"), image: "link" },
       { id: "browser", title: gt("Open in browser"), image: "safari" },
-      ...((watching ? canWatch : canStartWatch) && open
+      ...((watching ? canEdit : canStartWatch) && open
         ? [
             {
               id: "watch",
@@ -197,24 +171,19 @@ export function useLinkedPullRequestActions(input: {
           );
         }
       });
-    else if (action === "watch" && thread !== null)
-      void run(
-        gt("Couldn't change watching"),
-        watch({
-          environmentId: thread.environmentId,
-          input: {
-            threadId: thread.id,
-            host: link.host,
-            repository: link.repository,
-            number: link.number,
-            watching: link.watch === undefined,
-          },
-        }),
-      );
+    else if (action === "watch" && canEdit && thread !== null) {
+      const title = gt("Couldn't change watching");
+      run(title, solus.threadList.setWatching(thread.environmentId, thread.id, {
+        repository: `${link.host}/${link.repository}`, number: link.number,
+      }, !isWatching(link)).then(outcome => {
+        const message = watchRefusalMessage(outcome);
+        if (message) Dialog.alert(title, message);
+      }));
+    }
     else if (action === "unlink") setLinked(link, false);
   };
 
-  return { canLink: canEdit, terminology, promptLink, menuActions, onMenuAction };
+  return { canLink: canEdit, terminology, promptLink, menuActions, onMenuAction, isWatching };
 }
 
 export type LinkedPullRequestActions = ReturnType<typeof useLinkedPullRequestActions>;

@@ -57,12 +57,15 @@ vi.mock("../connection/runtime", async () => {
     ),
   };
 });
+// This suite exercises row demand. The thread store is only read when opening a detail.
+vi.mock("./threads", () => ({ environmentThreadShells: {} }));
 vi.mock("./server", async () => {
   const { Atom } = await import("effect/reactivity");
-  const config = Atom.make({ environment: { capabilities: { threadPullRequests: true } } });
+  const config = Atom.make(null);
   return { serverEnvironment: { configValueAtom: () => config } };
 });
 
+import { toThreadShell } from "../solus/session";
 import { ThreadPrDemandProvider } from "./thread-pr-demand";
 import { useThreadPr } from "./use-thread-pr";
 
@@ -340,6 +343,25 @@ it.effect("keeps mounted passive state through an Android-style Activity tab swi
       expect(h.passive()).toBe(passive);
       expect(h.mounts).toBe(1);
       expect(h.requests.length - before).toBe(1);
+    });
+  }),
+);
+
+it.effect("shows a host-supplied PR without a T3 server config or a PR query", () =>
+  Effect.gen(function* () {
+    using h = yield* setup();
+    const value = toThreadShell(environmentId, {
+      sessionId: "s", provider: "codex", projectPath: "/project", model: null, title: "Task",
+      customTitle: null, createdAt: 0, lastActivityAt: 1000, branch: null,
+      cwd: "/project", isWorktree: false, status: "idle",
+    }, undefined, undefined, undefined, undefined, { pullRequests: [{
+      host: "github.com", repository: "acme/app", number: 12, url: reference.url,
+      source: "manual", linkedAt: "1970-01-01T00:00:01.000Z", snapshot: null, stack: null,
+    }] });
+    yield* Effect.promise(async () => {
+      await h.render({ value });
+      expect(h.badge()).toBe("#12 pull request status pending");
+      expect(h.requests).toHaveLength(0);
     });
   }),
 );
