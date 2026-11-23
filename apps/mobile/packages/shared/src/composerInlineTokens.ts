@@ -1,5 +1,11 @@
+import { composerFileLinkPath } from "./composerTrigger.ts";
 import { fileBasename } from "./path.ts";
 import { markdownMathRanges } from "./markdownMath.ts";
+
+/** The formulas a Markdown parser finds in text, as source offsets. */
+export type FindMathRanges = (
+  text: string,
+) => ReadonlyArray<{ readonly start: number; readonly end: number }>;
 
 export type ComposerInlineToken =
   | {
@@ -19,6 +25,8 @@ export type ComposerInlineToken =
 
 export interface CollectComposerInlineTokensOptions {
   readonly preserveTrailingFrom?: ReadonlyArray<ComposerInlineToken>;
+  /** Override the default Markdown formula parser. */
+  readonly findMath?: FindMathRanges;
 }
 
 const SKILL_MENTION_SOURCE =
@@ -51,6 +59,7 @@ function collectMentionTokens(text: string): ComposerInlineToken[] {
     try {
       path = decodeURIComponent(encodedPath);
     } catch {}
+    path = composerFileLinkPath(encodedPath, path);
     const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
     const basename = separatorIndex >= 0 ? path.slice(separatorIndex + 1) : path;
     const hasExternalScheme = URI_SCHEME_REGEX.test(path) && !WINDOWS_DRIVE_PATH_REGEX.test(path);
@@ -101,6 +110,7 @@ function collectMentionTokens(text: string): ComposerInlineToken[] {
  */
 export function composerMathRanges(
   text: string,
+  findMath: FindMathRanges = markdownMathRanges,
   mentions: ReadonlyArray<ComposerInlineToken> = collectMentionTokens(text),
 ) {
   let masked = text;
@@ -111,7 +121,7 @@ export function composerMathRanges(
       "x".repeat(mention.end - mention.start) +
       masked.slice(mention.end);
   }
-  return markdownMathRanges(masked).map(({ start, end }) => ({
+  return findMath(masked).map(({ start, end }) => ({
     start,
     end,
     source: text.slice(start, end),
@@ -158,7 +168,10 @@ export function collectComposerInlineTokens(
   // TeX can contain literal skill and file tokens, especially inside \text{}.
   // They remain formula source rather than becoming composer context chips.
   // Confirmed trailing file links are masked too, so a kept chip is not read as TeX.
-  const math = matches.length > 0 ? composerMathRanges(text, matches) : [];
+  const math =
+    matches.length > 0
+      ? composerMathRanges(text, options.findMath, matches)
+      : [];
   return matches
     .filter(
       (match) => !math.some((formula) => match.start < formula.end && match.end > formula.start),

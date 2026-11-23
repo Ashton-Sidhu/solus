@@ -1,6 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import { mobileHost } from "../../state/mobile-host";
-import { THREAD_FEED_MAINTAIN_SCROLL_AT_END, THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD } from "./threadFeedEndFollow";
 import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types";
 import { MessageVideo } from "../../solus/MessageVideo";
 import { isUploadVideo, isUploadImage, uploadImagePreview } from "../../solus/upload-images";
@@ -112,10 +111,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  classifyMarkdownImageSource,
-  markdownImageSourceFragment,
-} from "@t3tools/client-runtime/markdown-images";
+import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import {
   contextCompactionTokenCounts,
   resolveViewedImageAsset,
@@ -340,6 +336,10 @@ import { openSettings } from "../settings/settings-navigation";
 import { loopbackUrlForDevice } from "../browser/browserTabs";
 import { useOpenLocalPreview } from "../browser/useOpenLocalPreview";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
+import {
+  THREAD_FEED_MAINTAIN_SCROLL_AT_END,
+  THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD,
+} from "./threadFeedEndFollow";
 import { useMessageTimeFormatter } from "./useMessageTimeFormatter";
 
 const WIDE_MARKDOWN_BLOCK_OPTIONS = {
@@ -3848,20 +3848,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         />
       );
     }
-    if (imageSource._tag === "Blocked") {
+    if (
+      media?.kind !== "image" ||
+      !("resource" in media.source) ||
+      media.source.resource._tag !== "media-file"
+    ) {
       return <ThreadMarkdownImageUnavailable alt={image.alt} />;
     }
     return (
       <ThreadMarkdownImage
-        environmentId={props.environmentId}
-        resource={{
-          _tag: "media-file",
-          threadId: props.threadId,
-          path: imageSource.path,
-        }}
+        environmentId={media.source.environmentId}
+        resource={media.source.resource}
         alt={image.alt}
-        srcFragment={markdownImageSourceFragment(image.href)}
-        actionsSource={media?.source.actionsSource}
+        srcFragment={media.source.srcFragment}
+        actionsSource={media.source.actionsSource}
         onPressPreview={onPressPreview}
       />
     );
