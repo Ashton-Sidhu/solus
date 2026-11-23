@@ -252,11 +252,18 @@ describe("threadListV2RowAccessibilityLabel", () => {
     woke: false,
     statusLabel: undefined,
     timeLabel: "5m",
+    branch: null,
     snoozeWakeLabel: undefined,
     providerNameLabel: "Codex",
     hasQueuedMessages: false,
     regeneratingTitle: false,
   } as const;
+
+  it.each(["card", "slim"] as const)("announces the session branch on a %s row", (variant) => {
+    expect(threadListV2RowAccessibilityLabel({ ...row, variant, branch: "feature/login" })).toBe(
+      "Fix login, 5m, Branch feature/login, Codex",
+    );
+  });
 
   it("speaks the status or time the row shows beside its title", () => {
     expect(threadListV2RowAccessibilityLabel({ ...row, statusLabel: "Approval" })).toBe(

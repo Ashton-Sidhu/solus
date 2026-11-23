@@ -12,4 +12,4 @@ The model picker sheet, its catalog filter, and its iOS and Android rows match T
 
 The home session rows and tablet sidebar use the T3 Code row styles and swipe controls checked at `dd19bce823d833b5612fd74851d50047e65347fa`. The row reads its project icon, provider, live status and read state from the Solus host.
 
-Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` for the Input and Done indicators and linked pull request badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet.
+Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` for the Input and Done indicators and linked pull request badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet. Solus also shows the session’s recorded Git branch on active and compact rows, even when the session has no linked PR.

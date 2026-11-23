@@ -917,6 +917,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             : gt("Working", { $context: "thread status" }))),
       timeLabel,
       snoozeWakeLabel: snoozedRow ? snoozeWakeLabelText : undefined,
+      branch: thread.branch,
       providerNameLabel,
       hasQueuedMessages: props.hasQueuedMessages === true,
       regeneratingTitle: isRegeneratingTitle,
@@ -1367,6 +1368,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rowProject = props.project ?? thread.fallbackProject;
   const titleTextInset = rowProject ? projectIconSize + 8 : 0;
+  const branchLabel = thread.branch ? (
+    <View className="min-w-0 flex-row items-center gap-1">
+      <SymbolView
+        name="arrow.triangle.branch"
+        size={12}
+        tintColorClassName={selected ? selectedThreadRowColors.mutedIconTintClassName : rowAppearance.tertiaryIconTintClassName}
+      />
+      <Text
+        className={cn("shrink text-xs", selected ? selectedThreadRowColors.mutedForegroundClassName : rowAppearance.tertiaryForegroundClassName)}
+        style={{ fontFamily: MONO_FONT }}
+        numberOfLines={1}
+        ellipsizeMode="middle"
+      >
+        {thread.branch}
+      </Text>
+    </View>
+  ) : null;
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
@@ -1505,6 +1523,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+        {branchLabel ? <View className="min-w-0 flex-1">{branchLabel}</View> : null}
         {(rawStatus === "failed" || rawStatus === "limited") && thread.runtime?.lastError ? (
           <Text
             className={cn(
@@ -1545,7 +1564,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             </Text>
           </View>
         ) : (
-          <View className="flex-1" />
+          branchLabel ? null : <View className="flex-1" />
         )}
         {pr ? (
           <Pressable
@@ -1716,6 +1735,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             >
               {title}
             </Text>
+            {branchLabel}
             {providerNameLabel ? (
               <Text
                 className={cn(
