@@ -52,8 +52,8 @@ export interface WorktreeMoveRequest {
 export interface AgentMoveRequest extends Omit<WorktreeMoveRequest, 'target'> {
   /** A checkout of the session's repository, by path, or 'new_worktree'. */
   checkout: string
-  /** The branch the checkout must be on. Omitted: the checkout keeps its branch,
-   *  and a new worktree gets a branch the naming settings name. */
+  /** The branch the checkout must be on. Required for an existing checkout;
+   *  omitted for a new worktree, the naming settings name a new branch. */
   branch?: string
   /** Only for a branch that does not exist yet: where it starts. Default: the target branch. */
   baseBranch?: string
@@ -222,6 +222,10 @@ export class WorktreeMover {
     if (request.checkout !== 'new_worktree' && !target) return { refusal: `${request.checkout} is not a checkout of this session's repository. checkout_status lists them.` }
     if (target === start.fromReal && request.removeWorktree) return { refusal: 'You cannot remove the worktree you stay in.' }
     const targetBranch = start.checkouts.find((checkout) => checkout.real === target)?.branch ?? null
+    // A move to an existing checkout states the branch it ends on, so a checkout on an unexpected branch is never a silent result.
+    if (target && !request.branch) {
+      return { refusal: `Name the branch ${target} must be on. It is on ${targetBranch ?? 'a detached HEAD'}; pass that branch to keep it.` }
+    }
     if (!request.branch || request.branch === targetBranch) return this.plainMovePlan(request, start, target)
     return this.branchMovePlan(request, start, target, request.branch)
   }

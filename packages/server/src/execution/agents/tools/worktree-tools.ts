@@ -25,7 +25,7 @@ const MOVE_CHECKOUT_DESC = [
 
 const moveCheckoutFields = {
   checkout: z.string().min(1).describe('The checkout to work in: its path as checkout_status lists it (the project folder or a worktree), or "new_worktree" to make a new worktree.'),
-  branch: z.string().min(1).optional().describe('The branch that checkout must be on: an existing branch, or a new one to make. Omitted: the checkout keeps its branch, and a new worktree gets a branch the naming settings name.'),
+  branch: z.string().min(1).optional().describe('The branch that checkout must be on: an existing branch, or a new one to make. Required for an existing checkout; pass the branch it is on to keep it. Optional only for "new_worktree": omitted, the naming settings name a new branch.'),
   base_branch: z.string().min(1).optional().describe('Only for a branch that does not exist yet: the branch it starts from. Default: the target branch.'),
   remove_worktree: z.boolean().optional().describe('Remove the worktree you leave when the turn ends. Its branch and commits stay. Default false.'),
   continue_with: z.string().max(120_000).optional().describe('Work to resume in the new checkout next turn. Omitted: the session waits.'),

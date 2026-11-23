@@ -309,7 +309,7 @@ describe('the agent move: a checkout and a branch; Git steps wait for the turn t
   test('remove_worktree moves the session now and removes the worktree only when the turn completes', async () => {
     const { projectFolder, feature, mover, enterFeature, directories, endTurn } = scratch('remove-left')
     enterFeature()
-    const result = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    const result = await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true }))
     expect(result).toMatchObject({ success: true, directory: projectFolder, branch: 'main', movesAtTurnEnd: false, steps: [`remove the worktree ${feature}`] })
     expect(directories.get('s1')).toBe(projectFolder)
     // The agent's process still runs in the worktree until its turn ends.
@@ -320,10 +320,22 @@ describe('the agent move: a checkout and a branch; Git steps wait for the turn t
     expect(git(projectFolder, 'branch', '--list', 'feature')).toContain('feature')
   })
 
+  test('a move to an existing checkout names its branch; the branch it already has needs no Git step', async () => {
+    // WHY: without a branch, the session landed on whatever branch the folder had, and the call did not say which.
+    const { projectFolder, feature, mover, enterFeature, directories } = scratch('branch-required')
+    enterFeature()
+    expect((await mover.moveForAgent(request(feature, { checkout: projectFolder }))).error)
+      .toBe(`Name the branch ${projectFolder} must be on. It is on main; pass that branch to keep it.`)
+    expect(directories.get('s1')).toBe(feature)
+    const result = await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main' }))
+    expect(result).toMatchObject({ success: true, directory: projectFolder, branch: 'main', steps: [], movesAtTurnEnd: false })
+    expect(directories.get('s1')).toBe(projectFolder)
+  })
+
   test('a stopped turn cancels what waits, and the next turn does not wait for it', async () => {
     const { projectFolder, feature, mover, enterFeature, held } = scratch('remove-stopped')
     enterFeature()
-    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true }))
     mover.turnSettled('s1', 'interrupted')
     expect(held.has('s1')).toBe(false)
     expect(existsSync(feature)).toBe(true)
@@ -333,11 +345,11 @@ describe('the agent move: a checkout and a branch; Git steps wait for the turn t
     const { projectFolder, feature, mover, enterFeature, directories } = scratch('remove-refused')
     enterFeature()
     writeFileSync(join(feature, 'draft.txt'), 'not committed')
-    const dirty = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    const dirty = await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true }))
     expect(dirty.error).toContain('uncommitted changes')
     rmSync(join(feature, 'draft.txt'))
     directories.set('s2', feature)
-    const shared = await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    const shared = await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true }))
     expect(shared.error).toBe(`Another session works in ${feature}.`)
     expect(directories.get('s1')).toBe(feature)
   })
@@ -431,14 +443,14 @@ describe('the agent move: a checkout and a branch; Git steps wait for the turn t
     git(projectFolder, 'branch', 'spare')
     expect((await mover.moveForAgent(request(projectFolder, { checkout: 'new_worktree', branch: 'spare', baseBranch: 'main' }))).error)
       .toBe('spare already exists, so base_branch does not apply.')
-    expect((await mover.moveForAgent(request(projectFolder, { checkout: projectFolder }))).error)
+    expect((await mover.moveForAgent(request(projectFolder, { checkout: projectFolder, branch: 'main' }))).error)
       .toBe('This session is already in that checkout, on that branch.')
   })
 
   test('continue_with starts the next turn after the move, and says when a step failed', async () => {
     const { projectFolder, feature, mover, enterFeature, continued, endTurn } = scratch('continue')
     enterFeature()
-    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true, continueWith: 'Run the tests.' }))
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true, continueWith: 'Run the tests.' }))
     // The agent kept writing in the worktree after the call: the check before the steps refuses.
     writeFileSync(join(feature, 'late.txt'), 'written after the call')
     await endTurn()
@@ -452,7 +464,7 @@ describe('the agent move: a checkout and a branch; Git steps wait for the turn t
   test('one move waits per turn', async () => {
     const { projectFolder, feature, mover, enterFeature } = scratch('one-at-a-time')
     enterFeature()
-    await mover.moveForAgent(request(feature, { checkout: projectFolder, removeWorktree: true }))
+    await mover.moveForAgent(request(feature, { checkout: projectFolder, branch: 'main', removeWorktree: true }))
     expect((await mover.moveForAgent(request(feature, { checkout: 'new_worktree' }))).error).toBe('A move already waits for this turn to end.')
   })
 

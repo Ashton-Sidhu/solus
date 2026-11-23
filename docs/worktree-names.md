@@ -141,9 +141,10 @@ works next, and Solus works out the Git steps:
   `checkout_status` lists it (the project folder or a worktree), or
   `"new_worktree"` to make a new worktree.
 - `branch`: the branch that checkout must be on, an existing one or a new one.
-  Omitted, the checkout keeps its branch, and a new worktree gets a branch that
-  the branch-naming settings above name. A branch the agent names is used as it
-  is.
+  It is required for an existing checkout, so every move states the branch it
+  ends on; to keep a checkout's branch, pass that branch. Only for
+  `"new_worktree"` it is optional: omitted, the branch-naming settings above name
+  a new branch. A branch the agent names is used as it is.
 - `base_branch`: only for a branch that does not exist yet, the branch it
   starts from (default: the session's target branch, or `origin/<base>` when
   there is no local branch).
@@ -157,7 +158,8 @@ a new one.
 
 | Request | Git steps |
 | --- | --- |
-| A checkout that is already on `branch`, or no `branch` | None. The session moves when the tool runs. |
+| A checkout that is already on `branch` | None. The session moves when the tool runs. |
+| An existing checkout and no `branch` | Refused. The error names the branch the checkout is on. |
 | A checkout on another branch | `git switch <branch>` in that checkout, or `git switch -c` from `base_branch` for a new branch. |
 | `"new_worktree"` and a branch | A new worktree on that branch, or on a new branch from `base_branch`. Every new worktree has the same setup: the start point from `origin/<base>`, the `.worktreeinclude` files, and the submodules. A branch the agent names keeps its exact name. |
 | The branch is checked out in the worktree the session leaves | That worktree is removed first. This needs `remove_worktree`; without it, the tool refuses and says so. |
