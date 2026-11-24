@@ -40,6 +40,7 @@
   import SubmitReviewForm from "./SubmitReviewForm.svelte";
   import PrReviewDiff from "./PrReviewDiff.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
@@ -198,6 +199,13 @@
       {
         getApi,
         fallbackCtx: () => targetCtx ?? session.ctx,
+        draftViewerKey: () => {
+          const account = accountStore.state;
+          return JSON.stringify([
+            projectCtx().session.organizationId,
+            account.kind === "signed-in" ? [account.consoleUrl, account.identity.sub, account.signedInAt] : account.kind,
+          ]);
+        },
         ctxForDirectory: (path) => session.ctxForDirectory(path),
         threadSource: (ctx, number) => pullRequests.projects.get(api, serverId, ctx).get(number),
         loadDiff: (request) => api.prGetDiff(request),
@@ -225,8 +233,6 @@
     review.setTarget(pr);
     if (pr) untrack(() => review.loadDiff());
   });
-
-  const guideKey = $derived(review.guideKey);
 
   const guide = new PrGuideController({
     getApi,
@@ -363,17 +369,15 @@
     });
   });
 
-  // GitHub-bound draft comments, persisted per guide key (shared store with the
-  // local review guide surface, where drafts become agent feedback instead).
+  const reviewDrafts = $derived(review.drafts);
   $effect(() => {
-    void guideKey;
-    untrack(() => review.loadDrafts());
+    const drafts = reviewDrafts;
+    void untrack(() => drafts.load());
   });
 
-  const drafts = $derived(review.drafts.drafts);
-  const diffComments = $derived(review.drafts.diffComments);
-  const saveDiffComment = (c: GuideDiffCommentSave) => review.drafts.save(c);
-  const removeDraft = (id: string) => review.drafts.remove(id);
+  const diffComments = $derived(reviewDrafts.diffComments);
+  const saveDiffComment = (c: GuideDiffCommentSave) => reviewDrafts.save(c);
+  const removeDraft = (id: string) => reviewDrafts.remove(id);
 
   // The lens reads the same revision the guide does (docs/plans/review-lenses.md).
   const lensSubjectKey = $derived(prLensSubjectKey(serverId, pr));
@@ -394,9 +398,7 @@
   let activityFeedRef: ActivityFeed | null = $state(null);
   let pageComposerRef: ReturnType<typeof PageComposer> | null = $state(null);
   let refreshingPr = $state(false);
-  // Owned here so a typed summary survives closing/reopening the review popover.
   let submitEvent = $state<DraftReview["event"]>("COMMENT");
-  let submitBody = $state("");
 
   async function refreshPr() {
     if (refreshingPr) return;
@@ -433,7 +435,6 @@
   // refresh() covers reviewers and threads. If Activity has not mounted,
   // refresh the records the header uses directly.
   function onReviewSubmitted() {
-    review.drafts.clear();
     loadInterdiff(true);
     if (activityFeedRef) activityFeedRef.refresh();
     else {
@@ -846,21 +847,22 @@
 
 {#snippet reviewButton()}
   {#if pr && reviewDetail?.state === "open" && reviewDetail.viewerPermissions.reviewVerdicts.length > 0}
-    <PrReviewButton draftCount={drafts.length} bind:open={showSubmit}>
+    <PrReviewButton draftCount={reviewDrafts.drafts.length} bind:open={showSubmit}>
       {#snippet form()}
-        <SubmitReviewForm
-          {pr}
-          {drafts}
-          submitReview={(review) =>
-            pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
-          supportedVerdicts={reviewDetail?.capabilities.reviewVerdicts ?? ["comment"]}
-          allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
-          bind:event={submitEvent}
-          bind:body={submitBody}
-          onClose={() => (showSubmit = false)}
-          onSubmitted={onReviewSubmitted}
-          onDraftFixes={openFixComments}
-        />
+        {#key reviewDrafts}
+          <SubmitReviewForm
+            {pr}
+            {reviewDrafts}
+            submitReview={(review) =>
+              pullRequests.projects.get(getApi(), serverId, prCtx()).get(pr.number).submitReview(review)}
+            supportedVerdicts={reviewDetail?.capabilities.reviewVerdicts ?? ["comment"]}
+            allowedVerdicts={reviewDetail?.viewerPermissions.reviewVerdicts ?? ["comment"]}
+            bind:event={submitEvent}
+            onClose={() => (showSubmit = false)}
+            onSubmitted={onReviewSubmitted}
+            onDraftFixes={openFixComments}
+          />
+        {/key}
       {/snippet}
     </PrReviewButton>
   {/if}
@@ -948,8 +950,8 @@
           loader={guideLoader}
           onFileJump={jumpToDiff}
           comments={diffComments}
-          onCommentSave={saveDiffComment}
-          onCommentDelete={removeDraft}
+          onCommentSave={reviewDrafts.ready && !guideLoader.stale ? saveDiffComment : undefined}
+          onCommentDelete={reviewDrafts.ready && !guideLoader.stale ? removeDraft : undefined}
           onAsk={(section) => void openPrComposer(buildPrGuideSectionQuestionDraft(target, section))}
           meta={{
             repo: pr.repo,

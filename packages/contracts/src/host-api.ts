@@ -1083,8 +1083,8 @@ export interface SolusAPI {
   prGuideStatuses(ctx: IpcContext, requests: PrGuideStatusRequest[]): Promise<(ReviewGuideStatusEvent | null)[]>
   cancelGenerateGuide(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope'>): Promise<boolean>
   readGuide(ctx: IpcContext, key: string, target?: ReviewGuideTarget): Promise<ReviewGuide | null>
-  readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
-  writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
+  readReviewState(ctx: IpcContext, key: string, pullRequest?: import('./review').PrReviewDraftScope): Promise<ReviewState | null>
+  writeReviewState(ctx: IpcContext, state: ReviewState, pullRequest?: import('./review').PrReviewDraftScope): Promise<boolean>
 
   /** The lens for one target, with its comments and live job. Null when the
    * target has no checkout the host can resolve. */

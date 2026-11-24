@@ -2,7 +2,7 @@
   import ReviewComposer from "../ui/review-composer/ReviewComposer.svelte";
   import type { PrReviewTarget, PrReviewVerdict } from "@solus/contracts/providers";
   import type { DraftReview, DraftReviewComment } from "@solus/contracts/providers";
-  import type { ReviewDraftComment } from "@solus/contracts/review";
+  import type { ReviewDrafts } from "../review/lib/review-drafts.svelte";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
@@ -12,13 +12,10 @@
   // glance at the queued line comments, and fire one prSubmitReview anchored
   // to the PR head SHA. It hangs from the Review button rather than covering
   // the diff, so the change stays readable while the summary is written.
-  // Event + body are bindable so the host owns them — dismissing never
-  // destroys a typed summary; it's there again on reopen.
   let {
     pr,
-    drafts,
+    reviewDrafts,
     event = $bindable("COMMENT"),
-    body = $bindable(""),
     onClose,
     onSubmitted,
     submitReview,
@@ -27,9 +24,8 @@
     allowedVerdicts,
   }: {
     pr: PrReviewTarget;
-    drafts: ReviewDraftComment[];
+    reviewDrafts: ReviewDrafts;
     event?: DraftReview["event"];
-    body?: string;
     onClose: () => void;
     onSubmitted: () => void;
     /** Submits the draft against the PR's own project. Injected so the form
@@ -42,6 +38,8 @@
     /** Verdicts this viewer may submit (e.g. an author may only comment). */
     allowedVerdicts: PrReviewVerdict[];
   } = $props();
+  const drafts = $derived(reviewDrafts.drafts);
+  const body = $derived(reviewDrafts.summary);
 
   // The shared composer gives each verdict its color and icon.
   const EVENTS: {
@@ -81,7 +79,10 @@
   });
 
   async function submit(draftFixes = false) {
+    if (!canSubmit) return;
     submitting = true;
+    const submittedDraft = reviewDrafts;
+    const clearSubmitted = submittedDraft.captureSubmission();
     const feedback = {
       body: body.trim(),
       comments: drafts.map((draft) => ({ ...draft })),
@@ -99,16 +100,20 @@
     const review: DraftReview = { body: body.trim(), event, commitId: pr.headSha, baseSha: pr.baseSha, comments };
     try {
       await submitReview(review);
-      body = "";
-      onSubmitted();
-      onClose();
-      toasts.success("Review submitted");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toasts.error("Submit failed", { description: message });
       return;
     } finally {
       submitting = false;
+    }
+    const clearing = clearSubmitted();
+    onSubmitted();
+    onClose();
+    toasts.success("Review submitted");
+    await clearing;
+    if (submittedDraft.saveFailed) {
+      toasts.error("The saved review draft could not be cleared");
     }
     if (draftFixes) {
       try {
@@ -127,7 +132,7 @@
   // Only APPROVE may be empty, so gate the rest on having a body or queued comments.
   const needsContent = $derived(event !== "APPROVE" && drafts.length === 0);
   const hasContent = $derived(body.trim().length > 0);
-  const canSubmit = $derived(!submitting && (!needsContent || hasContent));
+  const canSubmit = $derived(reviewDrafts.ready && !submitting && (!needsContent || hasContent));
 
   // The form owns the second press: ⌥A first selects Approve, then confirms it.
   // Its exclusive scope keeps the underlying diff panel from seeing the keystroke.
@@ -142,32 +147,57 @@
   });
 </script>
 
-<ReviewComposer bind:value={event} bind:body {choices} busy={submitting} {canSubmit} {needsContent} onSubmit={() => void submit()}>
-  {#snippet comments()}
-    {#if drafts.length > 0}
-      <ul
-        aria-label="{drafts.length} line {drafts.length === 1 ? 'comment' : 'comments'} included"
-        class="flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain"
-      >
-        {#each drafts as d (d.id)}
-          <!-- Long comments clamp to two lines; the tooltip carries the full text. -->
-          <li class="flex min-w-0 items-baseline gap-2 px-1 py-1 text-workspace-chrome" title="{d.path}:{d.line}&#10;{d.body}">
-            <span class="max-w-[40%] shrink-0 truncate font-mono text-muted-foreground">{d.path.split("/").pop()}:{d.line}</span>
-            <span class="line-clamp-2 min-w-0 flex-1 break-words text-foreground">{d.body}</span>
-          </li>
-        {/each}
-      </ul>
+{#if !reviewDrafts.ready}
+  <div class="flex items-center gap-3 p-4 text-workspace-chrome">
+    {#if reviewDrafts.loadFailed}
+      <p role="alert">Could not load the review draft.</p>
+      <Button variant="outline" size="sm" onclick={() => void reviewDrafts.load()}>Retry</Button>
+    {:else}
+      <p role="status">Loading the review draft…</p>
     {/if}
+  </div>
+{:else}
+  <ReviewComposer
+    bind:value={event}
+    bind:body={() => body, (value) => (reviewDrafts.summary = value)}
+    {choices}
+    busy={submitting}
+    {canSubmit}
+    {needsContent}
+    onSubmit={() => void submit()}
+  >
+    {#snippet comments()}
+      {#if drafts.length > 0}
+        <ul
+          aria-label="{drafts.length} line {drafts.length === 1 ? 'comment' : 'comments'} included"
+          class="flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain"
+        >
+          {#each drafts as d (d.id)}
+            <!-- Long comments clamp to two lines; the tooltip carries the full text. -->
+            <li class="flex min-w-0 items-baseline gap-2 px-1 py-1 text-workspace-chrome" title="{d.path}:{d.line}&#10;{d.body}">
+              <span class="max-w-[40%] shrink-0 truncate font-mono text-muted-foreground">{d.path.split("/").pop()}:{d.line}</span>
+              <span class="line-clamp-2 min-w-0 flex-1 break-words text-foreground">{d.body}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
 
-  {/snippet}
-  {#snippet hint()}
-    {#if needsContent && !hasContent}Add a summary or a line comment{/if}
-  {/snippet}
-  {#snippet actions()}
-    {#if event === "REQUEST_CHANGES" && !pr.headRepo.isFork && onDraftFixes}
-      <Button variant="outline" size="sm" disabled={!canSubmit} onclick={() => void submit(true)}>
-        Submit & draft fixes
-      </Button>
-    {/if}
-  {/snippet}
-</ReviewComposer>
+    {/snippet}
+    {#snippet hint()}
+      {#if needsContent && !hasContent}Add a summary or a line comment{/if}
+    {/snippet}
+    {#snippet actions()}
+      {#if event === "REQUEST_CHANGES" && !pr.headRepo.isFork && onDraftFixes}
+        <Button variant="outline" size="sm" disabled={!canSubmit} onclick={() => void submit(true)}>
+          Submit & draft fixes
+        </Button>
+      {/if}
+    {/snippet}
+  </ReviewComposer>
+  {#if reviewDrafts.saveFailed}
+    <div class="flex items-center gap-3 px-4 pb-4 text-workspace-chrome">
+      <p role="alert">Could not save the review draft.</p>
+      <Button variant="outline" size="sm" onclick={() => void reviewDrafts.persist()}>Retry</Button>
+    </div>
+  {/if}
+{/if}
