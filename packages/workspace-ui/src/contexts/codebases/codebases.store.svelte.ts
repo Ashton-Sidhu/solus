@@ -8,6 +8,7 @@ import type {
 } from '@solus/contracts/codebases'
 import { hasEnoughRoots } from '@solus/contracts/codebases'
 import { hostPathKey } from '@solus/contracts/host-path'
+import type { Place } from '@solus/contracts/types'
 import {
   CodebaseRootRefused,
   codebasesHolding,
@@ -43,12 +44,6 @@ export type CodebaseHostStatus = 'loading' | 'ready' | 'unavailable'
 export interface CodebaseHost extends CodebaseMachine {
   /** The read of the host's codebases. Null while the host is away. */
   status: CodebaseHostStatus | null
-}
-
-/** A folder on a host of this client, before it is a root. */
-export interface CodebaseRootChoice {
-  serverId: string
-  path: string
 }
 
 export interface CodebaseRootMembers {
@@ -272,7 +267,7 @@ export class CodebasesStore {
    * scanned on its host, and the resolved path is stored. One project is
    * refused: it is no codebase.
    */
-  async create(name: string, roots: readonly CodebaseRootChoice[]): Promise<Codebase> {
+  async create(name: string, roots: readonly Place[]): Promise<Codebase> {
     const codebaseName = requiredName(name)
     const scannedRoots: CodebaseRoot[] = []
     for (const choice of roots) {
@@ -298,7 +293,7 @@ export class CodebasesStore {
    * root, for a folder that is inside a root or holds one, for a folder that
    * does not exist, and when the codebase is full.
    */
-  async addRoot(codebaseId: string, choice: CodebaseRootChoice): Promise<Codebase> {
+  async addRoot(codebaseId: string, choice: Place): Promise<Codebase> {
     this.requiredCodebase(codebaseId)
     const root = await this.scannedRoot(choice)
     // Read again: the codebase can change while the host scans.
@@ -364,7 +359,7 @@ export class CodebasesStore {
     return codebase
   }
 
-  private async scannedRoot(choice: CodebaseRootChoice): Promise<CodebaseRoot> {
+  private async scannedRoot(choice: Place): Promise<CodebaseRoot> {
     const installationId = this.installationIdOf(choice.serverId)
     if (!installationId) throw new Error('This host is not ready. Wait until it is connected, then try again.')
     const scan = await this.access.api(choice.serverId).codebaseScanFolder(choice.path)

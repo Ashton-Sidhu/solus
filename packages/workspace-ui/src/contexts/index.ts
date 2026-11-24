@@ -60,7 +60,6 @@ export type {
   CodebaseHostMembers,
   CodebaseHostPresence,
   CodebaseHostStatus,
-  CodebaseRootChoice,
   CodebaseRootMembers,
 } from './codebases/codebases.store.svelte'
 

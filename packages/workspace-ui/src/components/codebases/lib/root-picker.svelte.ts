@@ -1,5 +1,6 @@
 import type { CodebaseFolderScan, CodebaseRoot } from '@solus/contracts/codebases'
-import { codebasesStore, type CodebaseHost, type CodebaseRootChoice } from '../../../contexts/codebases/codebases.store.svelte'
+import type { Place } from '@solus/contracts/types'
+import { codebasesStore, type CodebaseHost } from '../../../contexts/codebases/codebases.store.svelte'
 import { rootFor, rootRefusal, rootRefusalText, type CodebaseRootRefusal } from '@solus/client-core/codebases'
 
 /**
@@ -63,7 +64,7 @@ export class RootPickerState {
   }
 
   /** The folder to add: set only after a scan that found a folder that can be added. */
-  get choice(): CodebaseRootChoice | null {
+  get choice(): Place | null {
     const host = this.host
     return this.scan && host && !this.refusal ? { serverId: host.serverId, path: this.scan.path } : null
   }
