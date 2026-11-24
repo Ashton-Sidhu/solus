@@ -7,6 +7,7 @@ const reactTests = [
   "src/solus/ConversationCards.test.tsx",
   "src/features/browser/LocalPreviewRouteScreen.test.tsx",
   "src/features/threads/ThreadGuestShareSheet.test.tsx",
+  "src/features/threads/ThreadQueueControl.test.tsx",
   "src/features/threads/useSubmitAfterNativeImages.test.tsx",
   "src/features/threads/git/GitBranchesSheet.test.tsx",
   "src/features/threads/new-task-flow-provider.test.tsx",

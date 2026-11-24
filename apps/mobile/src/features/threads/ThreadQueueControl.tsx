@@ -251,6 +251,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     void Haptics.selectionAsync();
     if (store && meta) {
       try {
+        const hostEntry = meta.queue.entries.find((entry) => entry.queueId === runId);
         if (!hostEntry) return;
         await store.controller.changeQueue({
           kind: action,
