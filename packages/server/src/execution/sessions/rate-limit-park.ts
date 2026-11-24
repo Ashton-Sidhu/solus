@@ -40,6 +40,22 @@ export class RateLimitPark {
   resolveRateLimit(ctx: IpcContext, action: RateLimitDecisionAction, actor: Actor): boolean {
     const sessionId = this.rt.sessionIdForCtx(ctx)
     if (!sessionId) return false
+    return this.decide(sessionId, action, actor)
+  }
+
+  /**
+   * Send now for an agent that messages a held session: the person it works for
+   * reset the limit, which the host cannot see. Only a session the limit holds
+   * is released: a limit snapshot also gates a session that still works, and
+   * Send now would set that session idle. When the limit still applies, the
+   * provider refuses again and parks the run.
+   */
+  releaseHeld(sessionId: string, actor: Actor): boolean {
+    if (this.rt.activeSessions.get(sessionId)?.status !== 'rate_limited') return false
+    return this.decide(sessionId, 'send_now', actor)
+  }
+
+  private decide(sessionId: string, action: RateLimitDecisionAction, actor: Actor): boolean {
     const decided = (): void => {
       if (actor.user) void this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'rate_limit_decided', action })
     }

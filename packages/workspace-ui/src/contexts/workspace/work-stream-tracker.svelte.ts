@@ -165,16 +165,17 @@ export class WorkStreamTracker {
     // The persisted document is the last word: a progressive render stops the
     // moment this lands, so what stays on screen is the work, not a tick of it.
     this.lastProgressiveTickByTool.delete(`${session.id}:${event.toolId}`)
-    const streaming = event.toolId ? session.messages.find((m) =>
-      m.artifact && m.artifact.toolId === event.toolId && m.artifact.streaming,
-    ) : undefined
-    if (streaming?.artifact) {
-      streaming.artifact.kind = event.kind
-      streaming.artifact.html = event.html
-      streaming.artifact.path = event.path
-      streaming.artifact.streaming = false
-      if (workRef) streaming.workRef = workRef
-      return streaming
+    const card = event.toolId ? session.messages.find((m) => m.artifact?.toolId === event.toolId) : undefined
+    // A completed card of this call is already its revision: the host replays a
+    // running turn's events to a client that loaded its history page.
+    if (card?.artifact && !card.artifact.streaming) return card
+    if (card?.artifact) {
+      card.artifact.kind = event.kind
+      card.artifact.html = event.html
+      card.artifact.path = event.path
+      card.artifact.streaming = false
+      if (workRef) card.workRef = workRef
+      return card
     }
 
     const completed: Message = {

@@ -16,7 +16,11 @@ import { loadTask } from '../../../data/tasks/task-store'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { toolMayRead } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
-import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnOrder } from '../../orchestration/session-orchestrator'
+import { MAX_WAIT_MS, type ModelChoice, type RateLimitHold, type RemoteTarget, type SendOrder, type SentMessage, type SpawnOrder } from '../../orchestration/session-orchestrator'
+import { resolveSessionLineageById } from '../../../data/sessions/session-lineage'
+import { chooseRunner } from './agent-runner'
+import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
+import type { AgentQueueMutation } from './session-queue-tool'
 import type { ListedRemoteHost, ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
@@ -57,8 +61,9 @@ export interface SessionOrchestration {
     targetSessionId: string,
     message: SendOrder,
     target?: RemoteTarget,
-  ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }>
+  ): Promise<SentMessage>
   readExchange?(senderSessionId: string, exchangeId: string): Exchange | undefined
+  releaseRateLimit(senderSessionId: string, targetSessionId: string): boolean
   stop(senderSessionId: string | undefined, targetSessionId: string): boolean
   /** The host a session the sender started runs on, when it is not this host. */
   remoteHostOf?(senderSessionId: string, targetSessionId: string): string | undefined
@@ -99,6 +104,12 @@ export interface SessionController {
   invalidatePlanCaches(sessionId: string): void
   /** Mark the background tasks a live session's agent waits on; null when the session is not live. */
   awaitBackgroundTasks?(sessionId: string, taskIds: readonly string[], waiting: boolean): AwaitedTasksResult | null
+  /** Names a session for the person the calling session works for; a blank title clears the name. */
+  renameSession?(callerSessionId: string, sessionId: string, title: string): Promise<void>
+  /** The queued messages of a session on this host. */
+  sessionQueue?(sessionId: string): SessionQueueSnapshot
+  /** A change to that queue, for the person the calling session works for. */
+  changeSessionQueue?(callerSessionId: string, sessionId: string, mutation: AgentQueueMutation): Promise<SessionQueueSnapshot>
 }
 
 let sessionController: SessionController | null = null
@@ -193,12 +204,20 @@ const searchSessionsFields = {
 
 const sendSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
-  message: z.string().describe('The message to send into the target session.'),
+  message: z.string().describe('The message to send into the target session. With release_rate_limit=true it can be empty: then only the hold is released, and the messages it held run.'),
   attachments: ATTACHMENTS_FIELD,
   delivery: z
-    .enum(['queue', 'steer'])
+    .enum(['queue', 'steer', 'restart'])
     .default('queue')
-    .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it."),
+    .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it. Use 'restart' to stop the turn in progress and run this message instead; it runs after the messages already in the target's queue (queue_session lists them), and your earlier messages to the target settle with no report, as with stop_session."),
+  agent_provider: z.enum(AGENT_PROVIDER_VALUES).optional()
+    .describe("Run this message on another provider. The session hands off to it with its context, as the user's provider picker does; on a rate-limited session this drops the prompt the limit holds. Omit to keep the session's provider. list_agent_targets lists the choices."),
+  model_id: z.string().trim().min(1).optional().describe("Run this message on this model. Omit to keep the session's model, or to use the default model of a new agent_provider."),
+  reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning effort for this message. Defaults to the session's level, or to the model's default for a new model."),
+  release_rate_limit: z
+    .boolean()
+    .default(false)
+    .describe("Release the target's rate-limit hold before the message is sent, as Send now on its card does. Use it only when the user says the limit is reset or has more usage; the host cannot see a reset before the stated reset time. If the limit still applies, the target is rate limited again. Sessions on this host only."),
   report: REPORT_FIELD,
   request_id: REQUEST_ID_FIELD,
   wait_seconds: WAIT_FIELD,
@@ -600,13 +619,27 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
   if (!callerSessionId) return { ok: false, text: 'send_session is unavailable before the calling session is initialized.' }
   if (sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const message = args.message
-  if (!message.trim()) return { ok: false, text: 'send_session requires a non-empty message.' }
+  if (!message.trim() && !args.release_rate_limit) return { ok: false, text: 'send_session requires a non-empty message.' }
   const report = args.report
   const waitMs = args.wait_seconds * 1000
-  const order: SendOrder = { prompt: message, delivery: args.delivery, notify: report, waitMs }
+  // A restart is a queued message that stops the turn in progress first.
+  const order: SendOrder = { prompt: message, delivery: args.delivery === 'restart' ? 'queue' : args.delivery, notify: report, waitMs }
   if (args.request_id) order.requestId = args.request_id
+  if (args.release_rate_limit) order.releaseRateLimit = true
+  if (args.delivery === 'restart') order.restart = true
   const recipient = await sendRecipient(sessionId, callerSessionId, deps)
   if ('error' in recipient) return { ok: false, text: recipient.error }
+  if (args.release_rate_limit && recipient.target) return { ok: false, text: 'release_rate_limit works only for a session on this host.' }
+  const model = await modelChoiceFor(args, recipient)
+  if (model && 'error' in model) return { ok: false, text: model.error }
+  if (model) order.model = model
+  if (!message.trim()) {
+    const released = sessionOrchestration.releaseRateLimit(callerSessionId, recipient.sessionId)
+    const link = recipientLink(recipient, recipient.meta?.provider ?? deps.ctx!.agentProvider)
+    return released
+      ? { ok: true, text: `Released the rate-limit hold of ${link}. The messages it held run now, and their reports come back as before.` }
+      : { ok: false, text: `No rate limit holds ${link}. Nothing was sent.` }
+  }
   const attachError = await attachTo(order, args.attachments, deps)
   if (attachError) return { ok: false, text: attachError }
   const sent = await sessionOrchestration.send(callerSessionId, recipient.sessionId, order, recipient.target)
@@ -618,8 +651,53 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
   const provider = recipient.meta?.provider ?? sessionOrchestration.readExchange?.(callerSessionId, sent.exchangeId)?.provider ?? deps.ctx!.agentProvider
   return {
     ok: true,
-    text: `${dispatch} ${recipientLink(recipient, provider)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
+    text: `${dispatch} ${recipientLink(recipient, provider)}.${modelNote(model, recipient)}${releaseNote(sent.rateLimitReleased)}${holdNote(sent.rateLimitHold)}${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
   }
+}
+
+/** The provider and model the sender chose for the message, checked against this host's
+ *  catalog as start_sessions checks them; undefined when it chose none. A field it leaves
+ *  out keeps the session's own value, unless the provider changes. */
+async function modelChoiceFor(
+  args: Pick<z.infer<z.ZodObject<typeof sendSessionFields>>, 'agent_provider' | 'model_id' | 'reasoning_effort'>,
+  recipient: SendRecipient,
+): Promise<ModelChoice | { error: string } | undefined> {
+  if (!args.agent_provider && !args.model_id && !args.reasoning_effort) return undefined
+  if (!recipient.meta) return { error: 'agent_provider, model_id, and reasoning_effort work only for a session on this host.' }
+  const targets = await sessionController?.listAgentTargets?.()
+  if (!targets) return { error: 'The provider catalog of this host is unavailable.' }
+  const current = threadProviderOf(recipient.meta)
+  const provider = args.agent_provider ?? current
+  const keepsModel = provider === current
+  const runner = chooseRunner(targets, provider,
+    args.model_id ?? (keepsModel ? recipient.meta.model ?? undefined : undefined),
+    args.reasoning_effort ?? (keepsModel && !args.model_id ? recipient.meta.reasoningEffort ?? undefined : undefined))
+  if ('error' in runner) return runner
+  return { provider: runner.provider as AgentId, modelId: runner.modelId, reasoningEffort: runner.reasoningEffort }
+}
+
+/** The provider that holds the session's thread now: after a handoff, the lineage's. */
+function threadProviderOf(meta: SessionMeta): AgentId {
+  return resolveSessionLineageById(meta.sessionId)?.active.provider ?? meta.provider
+}
+
+function modelNote(model: ModelChoice | undefined, recipient: SendRecipient): string {
+  if (!model || !recipient.meta) return ''
+  const handoff = model.provider !== threadProviderOf(recipient.meta)
+  return ` It runs on ${model.provider} · ${model.modelId} (${model.reasoningEffort})${handoff ? ', and the session hands off to that provider with its context when it starts' : ''}.`
+}
+
+function releaseNote(released: boolean | undefined): string {
+  if (released === undefined) return ''
+  return released ? ' Released its rate-limit hold.' : ' No rate limit held it.'
+}
+
+/** Says that a queued message waits for the reset, so the sender does not read "Queued" as "runs next". */
+function holdNote(hold: RateLimitHold | undefined): string {
+  if (!hold) return ''
+  const until = hold.resetsAt ? `until ${new Date(hold.resetsAt).toISOString()}` : 'until the limit resets (no reset time known)'
+  const limit = hold.limitType ? ` (${hold.limitType})` : ''
+  return ` A rate limit${limit} holds it ${until}. If the user says the limit is reset, call send_session with release_rate_limit=true and an empty message: this message is already queued.`
 }
 
 /** Who a message goes to: a session on this host, or one this session started on another. */

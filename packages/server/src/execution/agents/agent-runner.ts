@@ -72,6 +72,7 @@ export interface AgentRunRequest {
   systemPrompt?: string
   integrationInstructions?: IntegrationInstruction[]
   delegationInstructions?: string
+  hasDefaultWorkerModel?: boolean
   /** The servers Solus runs in this run, whose provider CLI copies it leaves out (mcp-first-class.md §8.5). */
   cliSkip?: RunCliSkip
   maxTurns?: number

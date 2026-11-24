@@ -346,7 +346,15 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         systemPromptAppend: [
           request.systemPrompt,
           runtimeInstructions(
-            { harness: 'Claude Code', model, reasoningEffort: reasoningEffort ?? 'default', workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions, codebase: request.codebase },
+            {
+              harness: 'Claude Code',
+              model,
+              reasoningEffort: reasoningEffort ?? 'default',
+              workingDirectory: request.cwd,
+              delegationInstructions: request.delegationInstructions,
+              hasDefaultWorkerModel: request.hasDefaultWorkerModel,
+              codebase: request.codebase,
+            },
             request.tools,
             request.integrationInstructions,
           ),

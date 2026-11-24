@@ -9,7 +9,6 @@ import {
   parseToolInput,
   liveToolStep,
   settledBackgroundWait,
-  agentWaitHint,
   toolActivityTarget,
 } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
 import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
@@ -210,21 +209,22 @@ describe('describeBackgroundWait', () => {
       { kind: 'agent-conversation-group', messages: [watchedPeer()] },
       { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'I will start when it reports.', timestamp: LAUNCHED_AT + 1 } as Message },
     ]
-    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on an agent…', command: '', agentCardKey: 'ag-peer-card' })
+    expect(describeBackgroundWait(items)).toEqual({ label: 'An agent is working in the background…', command: '', agentCardKey: 'ag-peer-card' })
   })
 
   test('counts the agent sessions, not their provider', () => {
     // WHY: two Claude Code sessions read as "Waiting on Claude Code", which
-    // named the provider as the busy thing and hid that two agents ran.
+    // named the provider as the busy thing and hid that two agents ran. "In
+    // the background" says in the one sentence that the session takes a new
+    // message, as every other background row does.
     const items: GroupedItem[] = [
       { kind: 'agent-conversation-group', messages: [watchedPeer(undefined, 'child-a', 'card-a'), watchedPeer(undefined, 'child-b', 'card-b')] },
       // A second message to the same session is still one agent.
       { kind: 'agent-conversation-group', messages: [watchedPeer(undefined, 'child-a', 'card-a2')] },
     ]
-    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on 2 agents…', command: '', agentCardKey: 'ag-card-a' })
+    expect(describeBackgroundWait(items)).toEqual({ label: '2 agents are working in the background…', command: '', agentCardKey: 'ag-card-a' })
     // The settled row keeps the card to scroll to.
-    expect(settledBackgroundWait(items)).toEqual({ label: 'Waiting on 2 agents', command: '', agentCardKey: 'ag-card-a' })
-    expect(agentWaitHint(settledBackgroundWait(items))).toBe('You can keep chatting')
+    expect(settledBackgroundWait(items)).toEqual({ label: '2 agents are working in the background', command: '', agentCardKey: 'ag-card-a' })
   })
 
   test('says an agent needs you first, and scrolls to its card', () => {
@@ -236,14 +236,12 @@ describe('describeBackgroundWait', () => {
       { kind: 'agent-conversation-group', messages: [askingPeer('child-b', 'card-b')] },
     ]
     const wait = settledBackgroundWait(items)
-    expect(wait).toEqual({ label: 'An agent needs you · waiting on 1 more', command: '', agentCardKey: 'ag-card-b', agentsNeedYou: 1 })
-    expect(agentWaitHint(wait)).toBe('Answer on its card')
+    expect(wait).toEqual({ label: 'An agent is waiting for your answer, and 1 more is working', command: '', agentCardKey: 'ag-card-b', agentsNeedYou: 1 })
 
     const allAsk: GroupedItem[] = [
       { kind: 'agent-conversation-group', messages: [askingPeer('child-a', 'card-a'), askingPeer('child-b', 'card-b')] },
     ]
-    expect(describeBackgroundWait(allAsk)?.label).toBe('2 agents need you')
-    expect(agentWaitHint(describeBackgroundWait(allAsk)!)).toBe('Answer on their cards')
+    expect(describeBackgroundWait(allAsk)?.label).toBe('2 agents are waiting for your answer')
   })
 
   test('puts another session ahead of a sub-agent, and drops it once it replies', () => {
@@ -251,7 +249,7 @@ describe('describeBackgroundWait', () => {
       { kind: 'subagent-group', messages: [subagent()] },
       { kind: 'agent-conversation-group', messages: [watchedPeer()] },
     ]
-    expect(describeBackgroundWait(running)?.label).toBe('Waiting on an agent…')
+    expect(describeBackgroundWait(running)?.label).toBe('An agent is working in the background…')
 
     const replied: GroupedItem[] = [{ kind: 'agent-conversation-group', messages: [watchedPeer('Done.')] }]
     expect(describeBackgroundWait(replied)).toBeNull()

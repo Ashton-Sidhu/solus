@@ -29,7 +29,10 @@ export function recordRows(messages: Message[]): RecordRow[] {
   const rows: RecordRow[] = []
   for (const turn of buildTurns(groupMessages(messages), { running: false })) {
     for (const item of [turn.lead, ...turn.body, ...turn.tail]) {
-      if (item && drawsItem(item)) rows.push({ kind: 'item', key: itemKey(item), item })
+      // A record draws each saved artifact on its own card, the group's too.
+      if (item?.kind === 'artifact-group') {
+        for (const message of item.messages) rows.push({ kind: 'item', key: message.id, item: { kind: 'artifact', message } })
+      } else if (item && drawsItem(item)) rows.push({ kind: 'item', key: itemKey(item), item })
     }
     if (turn.end) rows.push({ kind: 'end', key: `end-${turn.id}`, end: turn.end })
   }

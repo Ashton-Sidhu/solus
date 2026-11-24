@@ -1,6 +1,6 @@
 import type { DotMarkName } from '@solus/client-core/dot-marks'
 import { isGlyphStatus, taskStatusFor, type GlyphStatus } from './task-list'
-import type { SidebarTask } from './task-list'
+import type { SidebarRowMark, SidebarTask } from './task-list'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
 /**
@@ -134,4 +134,29 @@ export function nestedStateMarks(
   if (running) marks.push({ kind: 'dot', mark: 'working' })
   else if (starting) marks.push({ kind: 'dot', mark: 'starting' })
   return marks
+}
+
+/** The states of a session under a row that wait on the person. Errors and
+ *  limits are left out: the session that started it gets their report, and
+ *  nobody can answer them. */
+const ASKS_PERSON: GlyphStatus[] = ['approval', 'question', 'plan']
+
+/**
+ * The mark of a session under the row that waits on the person, when it must
+ * take the row's own slot. A row that waits on its agents still has its own
+ * mark, the Delegating dots, so the stack under it never showed and a folded
+ * row hid the question that holds all of its work. A request outranks every
+ * mark the row can show except a request of its own, as it does in
+ * `resolveSidebarRowMark`. Null when no session under the row asks.
+ */
+export function nestedRequestMark(
+  rowMark: SidebarRowMark | null,
+  nestedMarks: readonly NestedStateMark[],
+): { kind: 'glyph'; status: GlyphStatus } | null {
+  if (rowMark?.kind === 'glyph' && (rowMark.status === 'error' || ASKS_PERSON.includes(rowMark.status))) return null
+  // The stack is in rank order, so the first request is the loudest.
+  for (const mark of nestedMarks) {
+    if (mark.kind === 'glyph' && ASKS_PERSON.includes(mark.status)) return mark
+  }
+  return null
 }

@@ -24,6 +24,7 @@ import { inheritSessionOrganization } from './sessions/turn-organization'
 import { getIndexedSession } from '../db/session-indexer'
 import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOfThread } from '../data/sessions/session-lineage'
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
+import type { RateLimitHold } from './orchestration/session-orders'
 import { ClaudeGoalStore } from '../data/sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
 import type { AgentId, AgentMetadata, BackendSession, NormalizedEvent, IpcContext, PromptOptions, SessionRunInput, SessionStarter, AcceptPlanRequest, AcceptPlanResult } from '@solus/contracts/types'
@@ -72,6 +73,7 @@ export interface SessionRunLifecycle {
   cancel: () => void
   disposition: 'started' | 'steered' | 'queued'
   queueId?: string
+  rateLimitHold?: RateLimitHold
 }
 
 export type DispatchTarget =

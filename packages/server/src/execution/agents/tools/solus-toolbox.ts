@@ -1,5 +1,8 @@
 import { addHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
 import { startSessionsAgentTool } from './start-sessions-tool'
+import { queueSessionAgentTool } from './session-queue-tool'
+import { listSessionsAgentTool } from './session-list-tool'
+import { forkSessionAgentTool } from './session-fork-tool'
 import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import {
@@ -185,6 +188,9 @@ export const solusToolbox = {
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,
+    queue: queueSessionAgentTool,
+    list: listSessionsAgentTool,
+    fork: forkSessionAgentTool,
     watchPullRequest: watchPullRequestAgentTool,
     unlink: unlinkAgentTool,
     listLinks: listLinksAgentTool,

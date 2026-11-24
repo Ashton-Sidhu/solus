@@ -321,11 +321,14 @@ export function InlineHtmlRender({
   html,
   title,
   onOpen,
+  overlay,
 }: {
   readonly html: string;
   readonly title: string;
   /** The person opened the page full screen. */
   readonly onOpen?: () => void;
+  /** Controls that float over the page, such as the version pill of an artifact group. */
+  readonly overlay?: ReactNode;
 }) {
   const gt = useGT();
   const [height, setHeight] = useState(120);
@@ -353,7 +356,10 @@ export function InlineHtmlRender({
     );
   return (
     <InlinePreviewFrame title={title} expandedContent={() => page(false)} onOpen={onOpen}>
-      <View style={{ height }}>{page(true)}</View>
+      <View style={{ height }}>
+        {page(true)}
+        {overlay}
+      </View>
     </InlinePreviewFrame>
   );
 }

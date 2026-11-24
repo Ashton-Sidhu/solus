@@ -151,13 +151,14 @@ each key from the request it serves, so a lock holds even against a modified cli
 
 | Purpose | Keys |
 | --- | --- |
-| Models | `workerModel`, `modelRouting`, `textGenerationModel`, `sourceControlWriterModel` |
+| Models | `workerModel`, `fallbackModel`, `modelRouting`, `textGenerationModel`, `sourceControlWriterModel` |
 | Instructions | `extraInstructions`, `modelInstructions`, `delegationInstructions` |
 | Git conventions | `sourceControlWriting`, `worktreeBranchNaming` |
 | Agent autonomy | `defaultPermissionMode`, `agentTaskLifecyclePolicy`, `rateLimitBehavior` |
 | Reviews | `reviewAgent`, `reviewModel`, `reviewGuideInstructions` |
 
 `workerModel: null` locks "inherit the parent model for unqualified child launches".
+`fallbackModel: null` locks "no fallback model".
 
 Auto model routing (`modelRouting`) sends prompts to an external classifier. To
 prevent this, lock `modelRouting` off.

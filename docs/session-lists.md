@@ -146,7 +146,11 @@ other personal settings. The default is **By status**.
     raised card. When the session's own row has no mark of its own, its
     trailing slot shows the marks of the sessions it started, stacked: a
     question or error first, then the unread ring, then the working spinner,
-    each once. The same mark sits on that session's row. The session's own
+    each once. The same mark sits on that session's row. When one of the
+    sessions it started waits on you (a question, an approval, or a plan),
+    its mark takes the slot even when the row has a mark of its own, such as
+    the dots of a session that waits on its agents. Only a request of the
+    row's own, or an error, keeps the slot. The session's own
     row stays where it is and does not move to the Working section.
   - The + on a folder header, and **New session** in its right-click menu,
     start a session in that project on the host of its checkout. **Copy

@@ -104,6 +104,8 @@ The repository screens of a thread also match T3 Code pull request 35925. In T3 
 
 `vite.config.ts` sets `server.fs.deny` without Vite's default `**/.git/**` entry. A Solus worktree is in `<repository>/.git/solus/worktrees`, and with the default each test of the `react` project fails before it starts.
 
+The Sessions settings page (`SolusSessionSettings` in `src/solus/Settings.tsx`) shows **Default worker model** and **Fallback model** as lists of choice rows, in the same form as its Default agent and Default permissions sections. T3 Code keeps a fallback model (`fallbackModelSelection`) for each project in its server settings, and the T3 mobile app has no control for it. In Solus the two models are personal settings that follow the person to each host, so they are on the personal Sessions page and not on a project page. A tap saves the model at its default reasoning level; desktop and web also choose the level. The rows come from `solus-core/features/settings/worker-model-choices.ts`.
+
 The started-session card follows the model row in T3 Code revision `58b7878eb750d3e1f80b9a0a42b8802efba2adda`. It shows the provider icon, model display name, and reported reasoning effort. Solus supplies the child session's settings from live dispatch and saved tool history.
 
 A tap anywhere on a started-session card opens the child thread. It uses the thread inspector when available. A linked host without a direct connection opens through the parent host in read-only mode.

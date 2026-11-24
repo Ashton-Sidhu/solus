@@ -41,3 +41,18 @@ uses the usual session snooze (`sessionSnooze`) with the reset time as the wake
 time. When the reset time is unknown or has passed, the option does not show.
 Only a session row can be snoozed; a task row cannot, so the decision card hides
 the option for a session that a task row stands for.
+
+## Agents and held messages
+
+A message from an agent (`send_session`) to a limited session waits in its
+queue until the reset. The tool result says so, with the reset time and the
+limit type, so that the agent does not read "Queued" as "runs next".
+
+The host cannot see a reset or new usage before the stated reset time. When the
+person says that the limit is reset, the agent can call `send_session` with
+`release_rate_limit=true`. This does the same thing as **Send now** on the card:
+the held prompt runs, and the queued messages run after it. With an empty
+message, the tool only releases the hold. If the limit still applies, the
+provider refuses again and the session is limited again. A session that no
+limit holds is not changed. The release works only for a session on the same
+host.

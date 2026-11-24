@@ -17,6 +17,7 @@
     workerModelAgents,
     workerModelFor,
     pickerFromWorkerModel,
+    initialFallbackModel,
   } from "./lib/worker-models";
 
   let { isVisible }: { isVisible: (id: string) => boolean } = $props();
@@ -54,6 +55,25 @@
     if (workerModel) theme.setPersonal("workerModel", workerModel);
   }
 
+  let fallbackPickerSelection = $state<PickerSelection | null>(null);
+
+  $effect(() => {
+    const fallbackModel = theme.fallbackModel;
+    fallbackPickerSelection = fallbackModel ? pickerFromWorkerModel(fallbackModel) : null;
+  });
+
+  function setFallbackModelEnabled(enabled: boolean) {
+    theme.setPersonal(
+      "fallbackModel",
+      enabled ? initialFallbackModel(agents, theme.workerModel?.provider ?? theme.activeAgent) : null,
+    );
+  }
+
+  function selectFallbackModel(selection: PickerSelection) {
+    const fallbackModel = workerModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
+    if (fallbackModel) theme.setPersonal("fallbackModel", fallbackModel);
+  }
+
   // Saved on blur, not per keystroke: a synced profile sends after a pause anyway.
   let delegationInstructionsDraft = $state("");
   $effect(() => {
@@ -70,7 +90,7 @@
 
 <SettingsSection
   {...settingsDefinitions["sessions.section-delegation"]}
-  visible={["worker-model", "delegation-instructions"].some(isVisible)}
+  visible={["worker-model", "fallback-model", "delegation-instructions"].some(isVisible)}
 >
   <SettingsRow
     {...settingsDefinitions["sessions.worker-model"]}
@@ -95,6 +115,34 @@
           checked={!!theme.workerModel}
           onCheckedChange={setWorkerModelEnabled}
           aria-label="Use a default worker model"
+        />
+      </div>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    {...settingsDefinitions["sessions.fallback-model"]}
+    managed={managedSetting("fallbackModel")}
+    visible={isVisible("fallback-model")}
+  >
+    {#snippet control()}
+      <div class="flex items-center justify-end gap-2">
+        {#if fallbackPickerSelection}
+          <SessionChip
+            selection={fallbackPickerSelection}
+            {agents}
+            allowFastMode={false}
+            menuSide="bottom"
+            ariaLabel="Fallback model and reasoning"
+            returnFocusOnClose
+            class="w-full @min-[30rem]/pane:w-56"
+            onSelectionChange={selectFallbackModel}
+          />
+        {/if}
+        <Switch
+          checked={!!theme.fallbackModel}
+          onCheckedChange={setFallbackModelEnabled}
+          aria-label="Use a fallback model"
         />
       </div>
     {/snippet}

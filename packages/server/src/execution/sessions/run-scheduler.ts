@@ -136,13 +136,20 @@ export class RunScheduler {
 
     const done = queuedDone.then(() => ({}))
     void done.catch(() => {})
-    return {
+    const lifecycle: SessionRunLifecycle = {
       agentSessionId: Promise.resolve({ agentSessionId: queueKey }),
       done,
       cancel: () => { this.cancelQueued(queueKey, queueId) },
       disposition: 'queued',
       queueId,
     }
+    if (metadata.reason === 'rate_limit') {
+      // The release time counts seconds; the sender's readers count milliseconds.
+      lifecycle.rateLimitHold = {}
+      if (metadata.releaseAt !== undefined) lifecycle.rateLimitHold.resetsAt = metadata.releaseAt * 1000
+      if (metadata.rateLimitType) lifecycle.rateLimitHold.limitType = metadata.rateLimitType
+    }
+    return lifecycle
   }
 
   drainQueue(sessionId: string): void {
@@ -166,23 +173,27 @@ export class RunScheduler {
   sessionQueue(ctx: IpcContext): SessionQueueSnapshot {
     const sessionId = this.rt.sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('A session is required to read its queue.')
-    return { held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this.queuedPromptsForSession(sessionId) }
+    return this.queueSnapshot(sessionId)
   }
 
   publishQueue(sessionId: string): void {
-    this.rt.publish(sessionId, { type: 'session_queue', held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this.queuedPromptsForSession(sessionId) })
+    this.rt.publish(sessionId, { type: 'session_queue', ...this.queueSnapshot(sessionId) })
   }
 
   async sessionQueueChange(ctx: IpcContext, input: SessionQueueMutation, actor: Actor): Promise<SessionQueueSnapshot> {
     const sessionId = this.rt.sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('A session is required to change its queue.')
-    return this.changeSessionQueue(sessionId, runInputFromContext(ctx), sessionQueueMutationSchema.parse(input), actor)
+    const mutation = sessionQueueMutationSchema.parse(input)
+    if (mutation.kind !== 'switch') return this.changeSessionQueue(sessionId, mutation, actor)
+    await this.queueProviderSwitch(sessionId, runInputFromContext(ctx), mutation, actor)
+    this.publishQueue(sessionId)
+    return this.queueSnapshot(sessionId)
   }
 
-  private async changeSessionQueue(sessionId: string, sourceInput: SessionRunInput, mutation: SessionQueueMutation, actor: Actor): Promise<SessionQueueSnapshot> {
-    if (mutation.kind === 'switch') {
-      await this.queueProviderSwitch(sessionId, sourceInput, mutation, actor)
-    } else if (mutation.kind === 'resume') {
+  /** A queue change by session id, for a person's client and an agent's tool.
+   *  The deprecated provider switch needs a client's run input, so only a client sends it. */
+  async changeSessionQueue(sessionId: string, mutation: Exclude<SessionQueueMutation, { kind: 'switch' }>, actor: Actor): Promise<SessionQueueSnapshot> {
+    if (mutation.kind === 'resume') {
       const entries = this.requestQueue.get(sessionId) ?? []
       if (entries.some((entry) => this.reservedQueueEntries.has(entry.queueId))) throw new Error('A queue change is still being applied. Try Resume after it finishes.')
       const resumable = entries.filter((entry) => {
@@ -208,6 +219,10 @@ export class RunScheduler {
       await this.changeQueueEntry(entry, mutation, actor)
     }
     this.publishQueue(sessionId)
+    return this.queueSnapshot(sessionId)
+  }
+
+  queueSnapshot(sessionId: string): SessionQueueSnapshot {
     return { held: !!this.requestQueue.get(sessionId)?.some((entry) => entry.held), entries: this.queuedPromptsForSession(sessionId) }
   }
 

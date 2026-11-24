@@ -32,3 +32,11 @@ export function pickerFromWorkerModel(selection: WorkerModelSelection): PickerSe
     fastMode: false,
   }
 }
+
+/** What the fallback switch turns on with: the default model of the first
+ *  agent that is not `defaultProvider`, because a fallback on the provider
+ *  that is out of usage cannot help. With no other agent, the first agent. */
+export function initialFallbackModel(agents: readonly AgentMetadata[], defaultProvider: AgentId): WorkerModelSelection | null {
+  const agent = agents.find((candidate) => candidate.id !== defaultProvider) ?? agents[0]
+  return agent ? workerModelFor(agent.id, agent.defaultModel) : null
+}

@@ -2,16 +2,14 @@
   import { ChevronLeft, ChevronRight, LayoutTemplate as ArtifactIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import ArtifactView from "../artifact/ArtifactView.svelte";
+  import type { ArtifactVersions } from "../artifact/ArtifactRail.svelte";
   import { Button } from "../ui/button";
-  import HtmlBlock from "./HtmlBlock.svelte";
+  import ArtifactRevisionRender from "./ArtifactRevisionRender.svelte";
   import TranscriptCard from "./TranscriptCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
-  import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import type { ArtifactRevision } from "./lib/artifact-revisions";
-  import { lastReportedHeight } from "../artifact/lib/artifact-view";
-  import { getSurfaceContext } from "../../contexts";
-  import { loadArtifactHtml, worksArtifactHtmlSources } from "../../contexts/workspace/artifact-history";
+  import { latestVersion, revisionVersion } from "./lib/artifact-group";
 
   /**
    * One card in an artifact's revision chain: a completed `revision`, or an
@@ -24,7 +22,6 @@
     revision?: ArtifactRevision;
     update?: NonNullable<Message["artifact"]>;
   } = $props();
-  const origin = getHtmlBlockOrigin();
   const disclosures = getTranscriptDisclosure();
   const latest = $derived(revisions[revisions.length - 1]);
   const isEarlier = $derived(!!revision && revision !== latest);
@@ -34,21 +31,27 @@
   const expanded = $derived(!isEarlier || disclosure.expanded);
   const selected = $derived(revisions.find((entry) => entry.messageId === disclosure.pickedId) ?? revision);
   const selectedIndex = $derived(selected ? revisions.indexOf(selected) : revisions.length);
+  // One number for a version everywhere: the one the host saved, as the frame shows.
+  const selectedVersion = $derived(revisionVersion(revisions, selectedIndex));
   const title = $derived((selected ?? latest).title || "Artifact");
-  const surface = getSurfaceContext();
-  // A saved render remembers its height under its work and version: that is
-  // all a revision whose HTML is still on its host knows about itself.
-  const heightKey = $derived(selected?.workRef?.contentVersion ? `work:${selected.workRef.workId}:${selected.workRef.contentVersion}` : undefined);
-  const pendingHtml = $derived(expanded ? selected?.pendingHtml?.artifact?.historyHtml : undefined);
-
-  // An open card whose HTML the history page left on its host reads it now.
-  $effect(() => {
-    const message = expanded ? selected?.pendingHtml : undefined;
-    if (message) void loadArtifactHtml(message, worksArtifactHtmlSources(surface.worksStore));
+  // A saved version that renders has the rail: the version line and its
+  // controls go in that row. Otherwise the card or the line keeps them.
+  const hasRail = $derived(expanded && !update && !!selected?.workRef && !selected.pendingHtml?.artifact?.historyHtml);
+  const versions = $derived.by((): ArtifactVersions | undefined => {
+    if (!selected || revisions.length < 2) return undefined;
+    return {
+      number: selectedVersion,
+      count: latestVersion(revisions),
+      isFirst: selectedIndex === 0,
+      isLatest: selected === latest,
+      showPrevious: () => (disclosure.pickedId = revisions[selectedIndex - 1].messageId),
+      showNext: () => (disclosure.pickedId = revisions[selectedIndex + 1].messageId),
+      showLatest: () => { disclosure.pickedId = latest.messageId; disclosure.expanded = true; },
+    };
   });
 </script>
 
-<div class="my-2 min-w-0" data-testid="conversation-artifact" data-artifact-version={selectedIndex + 1}>
+<div class="my-2 min-w-0" data-testid="conversation-artifact" data-artifact-version={selected ? selectedVersion : latestVersion(revisions) + 1}>
   {#if isEarlier}
     <!-- An earlier version stays a quiet, superseded card; opening it shows
          that version under the card. -->
@@ -62,9 +65,9 @@
       onOpen={() => (disclosure.expanded = !expanded)}
     >
       {#snippet glyph()}<ArtifactIcon />{/snippet}
-      {#snippet rail()}v{selectedIndex + 1}{/snippet}
+      {#snippet rail()}v{selectedVersion}{/snippet}
       {#snippet actions()}
-        {#if expanded && selected}
+        {#if expanded && selected && !hasRail}
           <TranscriptCardAction
             kind="icon"
             label="Previous version"
@@ -86,16 +89,16 @@
         {/if}
       {/snippet}
     </TranscriptCard>
-  {:else if update || revisions.length > 1}
+  {:else if (update || revisions.length > 1) && !hasRail}
     <!-- A slim version line, no shell: the render below is the object. -->
     <div class="flex h-8 min-w-0 items-center gap-2 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:h-12">
       <span class="inline-flex w-5.5 shrink-0 justify-center text-primary"><ArtifactIcon size={13} /></span>
       <span class="min-w-0 truncate font-medium text-(--solus-text-primary)">{title}</span>
       <span class="shrink-0 text-transcript-meta tabular-nums text-(--muted-foreground)">
         {#if update}
-          v{revisions.length + 1} · updating…
+          v{latestVersion(revisions) + 1} · updating…
         {:else}
-          v{selectedIndex + 1} of {revisions.length}{selected === latest ? " · latest" : ""}
+          v{selectedVersion} of {latestVersion(revisions)}{selected === latest ? " · latest" : ""}
         {/if}
       </span>
       <span class="flex-1"></span>
@@ -132,16 +135,6 @@
   {#if update}
     <ArtifactView artifact={update} skipMotion />
   {:else if expanded && selected}
-    {#key selected.messageId}
-    {#if pendingHtml?.error}
-      <div class="py-2 text-sm text-(--muted-foreground)" role="alert">{pendingHtml.error}</div>
-    {:else if pendingHtml}
-      <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px"></div>
-    {:else if selected.workRef}
-      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
-    {:else}
-      <HtmlBlock html={selected.html} />
-    {/if}
-    {/key}
+    <ArtifactRevisionRender revision={selected} {versions} />
   {/if}
 </div>

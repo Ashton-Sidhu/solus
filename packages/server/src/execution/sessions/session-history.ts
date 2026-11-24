@@ -7,6 +7,8 @@ import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { withPromptSenders } from '../../data/activity/prompt-senders'
 import { ANY_ORGANIZATION } from '../../admission/principal'
+import { getSessionRecord } from '../../data/sessions/session-records'
+import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionLineageResolution, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { startsHistoryTurn, type SessionHistoryPageRequest, type SessionSubagentRequest, type ProviderHistoryPage, type SessionLoadMessage, type SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
@@ -251,6 +253,15 @@ export class SessionHistory {
 
   /** A session's metadata, read from the index row of its active thread. A
    *  session with no lineage is its own thread (docs/plans/session-identity.md). */
+  /** The session as the index knows it, else as its record does: a fork that no
+   *  turn has run in yet is only a record. The `getSessionInfo` RPC reads the same way. */
+  async sessionInfoOrRecord(sessionId: string): Promise<SessionMeta | null> {
+    const meta = await this.getSessionInfo(sessionId)
+    if (meta) return meta
+    const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+    return record ? sessionMetaFromRecord(record) : null
+  }
+
   async getSessionInfo(sessionId: string): Promise<SessionMeta | null> {
     const handoff = resolveSessionLineageById(sessionId)
     const metadataMember = handoff?.active.providerSessionId

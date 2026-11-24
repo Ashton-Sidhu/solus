@@ -38,7 +38,7 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
-  import { nestedStateMarks, visibleNestedSessions } from "./lib/session-tree";
+  import { nestedRequestMark, nestedStateMarks, visibleNestedSessions } from "./lib/session-tree";
   import UserAvatar from "../users/UserAvatar.svelte";
   import type { User } from "@solus/contracts/user";
   import { shareRoleText } from "../../contexts/workspace/shared-sessions";
@@ -271,6 +271,9 @@
       live,
     }),
   );
+  // A session under the row that waits on you takes the row's own slot, even
+  // from the row's Delegating dots: nothing under it moves until you answer.
+  const nestedRequest = $derived(nestedRequestMark(mark, nestedMarks));
 
   // A row is named by its session, through its only tab.
   const renamingRow = $derived(
@@ -304,7 +307,11 @@
   few saturated marks at full strength, which is the whole point of receding.
 -->
 {#snippet stateMark()}
-  {#if mark?.kind === "glyph"}
+  {#if nestedRequest}
+    <span class="flex shrink-0 items-center" title="A session it started needs you">
+      <TaskStatusGlyph status={nestedRequest.status} label="A session it started needs you" showsWord={false} />
+    </span>
+  {:else if mark?.kind === "glyph"}
     <TaskStatusGlyph
       status={mark.status}
       label={stateLabel || "unread"}
@@ -598,7 +605,7 @@
     data-task-key={task.key}
     aria-selected={isCurrentSession}
     aria-expanded={hasStartedSessions ? isNestedOpen : undefined}
-    aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${mark?.kind === "glyph" || mark?.kind === "dot" ? ` — ${stateLabel || "unread"}` : ""}`}
+    aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${nestedRequest ? " — a session it started needs you" : mark?.kind === "glyph" || mark?.kind === "dot" ? ` — ${stateLabel || "unread"}` : ""}`}
     title={task.snoozeNote && task.snoozedUntil > 0 && task.snoozedUntil <= Date.now()
       ? `Snooze reminder: ${task.snoozeNote}`
       : task.lifecycle === "snoozed" && task.snoozeNote

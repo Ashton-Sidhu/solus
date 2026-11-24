@@ -16,6 +16,7 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     activeExchangeIdsFor: (sessionId) => sessionRuntime.activeExchangeIdsFor(sessionId),
     queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
     sessionMeta: (sessionId) => getIndexedSession(sessionId),
+    recordedSessionMeta: (sessionId) => sessionRuntime.history.sessionInfoOrRecord(sessionId),
     // The session that starts another is its first prompt's sender.
     createSession: (order) => {
       const senderSessionId = order.sourceSessionId ?? order.delegation?.parentSessionId
@@ -27,6 +28,8 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined,
       sender: senderSessionId ? { kind: 'agent', ...senderAgent(senderSessionId) } : undefined,
     }),
+    // An agent's release acts for the person its sender works for, as a stop does.
+    releaseRateLimit: (sessionId, senderSessionId) => sessionRuntime.rateLimitPark.releaseHeld(sessionId, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR),
     // An agent's stop acts for the person its sender works for, and names the
     // sender, so the stopped turn says an agent ended it. With no sender, the host's.
     stopSession: (id, senderSessionId) => senderSessionId

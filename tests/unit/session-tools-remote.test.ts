@@ -97,6 +97,7 @@ beforeAll(async () => {
     spawn: async (...args) => { spawned.push(args); return { exchangeId: 'm-remote', sessionId: 'child-on-b' } },
     send: async (...args) => { sentOrders.push(args); return { exchangeId: 'm-sent-b', disposition: 'queued' } },
     readExchange: (_sender, exchangeId) => exchangeId === 'm-sent-b' ? { provider: 'codex' } as never : undefined,
+    releaseRateLimit: () => false,
     stop: (...args) => { stopped.push(args); return true },
     remoteHostOf: (sender, target) => sender === 'solus-parent' && target === 'child-on-b' ? 'Host B' : undefined,
   })
@@ -242,6 +243,16 @@ describe('a session on another host', () => {
     const before = sentOrders.length
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
     expect(result).toEqual({ ok: false, text: 'This host cannot reach other hosts.' })
+    expect(sentOrders).toHaveLength(before)
+  })
+
+  test('send_session refuses to release a rate limit on another host', async () => {
+    // WHY: the hold is on the host that runs the session; this host cannot release it,
+    // and a message sent anyway would wait for the old reset with no word of it.
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    const before = sentOrders.length
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'Continue.', release_rate_limit: true }, { ctx })
+    expect(result).toEqual({ ok: false, text: 'release_rate_limit works only for a session on this host.' })
     expect(sentOrders).toHaveLength(before)
   })
 

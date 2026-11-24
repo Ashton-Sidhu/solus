@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import {
     BookmarkPlus as SaveArtifactIcon,
     Code as CodeIcon,
@@ -115,18 +116,24 @@
   data-testid="html-block"
   data-conversation-preview={origin ? true : undefined}
 >
-  {#if saved}
-    <ArtifactRail
-      workId={saved.workId}
-      title={saved.title}
-      linkContext={origin?.().linkContext}
-    />
-  {/if}
+  {#snippet rail(pill?: Snippet<[Snippet]>, controls?: Snippet<[Snippet]>)}
+    {#if saved}
+      <ArtifactRail
+        workId={saved.workId}
+        title={saved.title}
+        linkContext={origin?.().linkContext}
+        {pill}
+        {controls}
+      />
+    {/if}
+  {/snippet}
   {#if page.html === null}
+    {@render rail()}
     <!-- The page's local images are loading. Hold the height it had last time. -->
     <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{lastReportedHeight(html) ?? 120}px"></div>
   {:else}
-    <SandboxFrame html={page.html} heightKey={html} expandable={false}>
+    <!-- Once saved, the rail is the frame's header, with these actions in its row. -->
+    <SandboxFrame html={page.html} heightKey={html} expandable={false} header={saved ? rail : undefined}>
       {#snippet actions()}
         {#if onShowSource}
           {@render action("Show source", "html-block-source", onShowSource, CodeIcon)}
@@ -142,7 +149,8 @@
             saving,
           )}
         {/if}
-        {#if session}
+        {#if session && !saved}
+          <!-- Once saved, the rail has Open in split. -->
           {@render action("Open in split", "html-block-open-split", openInSplit, PanelRightIcon, saving)}
         {/if}
       {/snippet}

@@ -93,6 +93,12 @@ export class RateLimitState {
     return this.active.get(sessionId) ?? null
   }
 
+  /** Each parked limit whose window is still shut, with its session. Read only:
+   *  unlike `current`, it retires nothing. */
+  held(nowSeconds: number): Array<{ sessionId: string; event: RateLimitEvent }> {
+    return [...this.active].filter(([, event]) => isWindowClosed(event, nowSeconds)).map(([sessionId, event]) => ({ sessionId, event }))
+  }
+
   hasActive(sessionId: string): boolean {
     return this.active.has(sessionId)
   }

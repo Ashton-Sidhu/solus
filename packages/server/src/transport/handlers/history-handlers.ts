@@ -6,7 +6,7 @@ import { readSessionExecution } from '../../data/sessions/session-executions'
 import { readSessionTree } from '../../data/sessions/session-digests'
 import { sessionTreeRelations } from '../../data/sessions/session-tree-relations'
 import { hostStarterOf } from '@solus/contracts/session-starter'
-import type { AgentId, ExchangeProgress, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
+import type { AgentId, ExchangeProgress, IpcContext, SessionMeta } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { formContainerCodebases } from '../../execution/sessions/session-codebase-formation'
@@ -17,7 +17,7 @@ import { organizationForNew, recordScopeOf } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { stampComments } from '../../annotations/stored-comments'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
-import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
+import { getSessionMessageWindow, setSessionBranch } from '../../db/session-indexer'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '../../data/sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
@@ -27,6 +27,7 @@ import { isApiMode } from '../../host/api-mode'
 import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../execution/sessions/session-title'
 import { ensureBackgroundSessionTitle } from '../../execution/sessions/background-session-title'
+import { renameSession } from '../../execution/sessions/session-rename'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -355,46 +356,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
   server.register('setSessionTitle', async (args, ctx) => {
     const [sessionId, title, source = 'manual', generatedDescription, publishEvent = true] = args
-    const trimmed = title?.trim()
-    const customTitle = trimmed || null
-    const previousTitle = getIndexedSession(sessionId)?.customTitle ?? null
-    // The same name again changes nothing: no write, no task refresh, and no
-    // broadcast that every client would answer with reads of its own. A
-    // generated name still carries its description to the clients.
-    if (customTitle === previousTitle && !generatedDescription) {
-      log.debug('session_rename_unchanged', { sessionId })
-      return
-    }
-    await setSessionCustomTitle(sessionId, customTitle)
-    let taskCatalogChanged = false
-    try {
-      // Session names and task names have separate owners. The task snapshot
-      // still needs a refresh because its attempt rows join this session
-      // title, but naming one attempt must not rename the shared task.
-      await emitSessionTasksChanged(recordScopeOf(ctx.principal), sessionId)
-      taskCatalogChanged = true
-    } catch (error) {
-      log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
-    }
-    if (publishEvent) {
-      const event: SessionTitleChangedEvent = {
-        sessionId,
-        title: customTitle,
-        source,
-      }
-      if (generatedDescription) event.generatedDescription = generatedDescription
-      events.broadcast('session.titleChanged', event)
-      // A person's rename is activity, so a teammate reads who did it, now and after a reload (plan 004 step 12).
-      // Every client re-sends a name typed before the session had an id; the same name again is no rename.
-      if (source === 'manual' && ctx.actor.user && customTitle !== previousTitle) {
-        void sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, ctx.actor, { kind: 'renamed', title: customTitle ?? '' })
-      }
-    } else if (!taskCatalogChanged) {
-      // The proxy row changed even when a generated task name lost a race to a
-      // manual edit. Other clients of the task host still need to reload it.
-      await emitSessionTasksChanged(recordScopeOf(ctx.principal), sessionId)
-    }
-    log.info('session_renamed', { sessionId, cleared: !trimmed, taskCatalogChanged })
+    await renameSession(sessionRuntime, events, {
+      sessionId, title, source, generatedDescription, publishEvent, actor: ctx.actor, scope: recordScopeOf(ctx.principal),
+    })
   })
 
   server.register('setSessionBranch', async (args, ctx) => {

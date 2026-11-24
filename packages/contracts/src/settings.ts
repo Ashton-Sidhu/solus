@@ -234,6 +234,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
   delegationInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Additional instructions for an agent when it delegates work.'),
   workerModel: workerModelSelectionSchema.nullable().describe('The default provider, model, and reasoning for child sessions. Applies when the caller specifies neither a provider nor a model.'),
+  fallbackModel: workerModelSelectionSchema.nullable().describe('The provider, model, and reasoning for a session that start_sessions starts with neither a provider nor a model while the provider of its default model is out of usage. Null: no fallback.'),
   textGenerationModel: modelSelectionSchema.describe('The model that writes session titles and worktree names, and commit and pull request text when sourceControlWriterModel is null.'),
   /** Null falls back to `textGenerationModel`. */
   sourceControlWriterModel: modelSelectionSchema.nullable().describe('The model that writes commit messages and pull request text. Null uses textGenerationModel.'),
@@ -333,6 +334,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   agentTaskLifecyclePolicy: 'moderate',
   delegationInstructions: '',
   workerModel: null,
+  fallbackModel: null,
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
   sourceControlWriterModel: null,
   sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
@@ -376,6 +378,7 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'taskSources',
   'delegationInstructions',
   'workerModel',
+  'fallbackModel',
   'textGenerationModel',
   'sourceControlWriterModel',
   'sourceControlWriting',

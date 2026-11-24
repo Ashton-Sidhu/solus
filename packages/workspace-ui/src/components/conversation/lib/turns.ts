@@ -7,6 +7,7 @@ import type { Message, SessionStatus } from '@solus/contracts/types'
 import { isAgentNotice, isNoReplyNotice } from '../../../contexts/workspace/session.utils'
 import { isAgentConversationTool } from '../../../contexts/workspace/agent-conversation-cards'
 import { dividesThread } from '../../activity/lib/activity-line'
+import { isSavedHtmlArtifact } from './artifact-group'
 
 export type GroupedItem =
   | { kind: 'question'; message: Message }
@@ -30,11 +31,14 @@ export type GroupedItem =
   | { kind: 'browser-recording'; message: Message }
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
+  /** The saved HTML works of a turn that wrote two or more of them: one card,
+   *  one tab per work. `messages` are every write, in the order they happened. */
+  | { kind: 'artifact-group'; messages: Message[] }
   | { kind: 'review-guide'; message: Message }
   | { kind: 'mcp-app'; message: Message }
 
 /** The card kinds that gather a whole turn's members into one card. */
-type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'document'
+type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'document' | 'artifact-group'
 
 /**
  * Where a grouping stands after some messages: the rows made so far, the open
@@ -47,8 +51,17 @@ export interface Grouping {
   /** The open card of each kind: its row in `items`, and its members. A
    *  resumed grouping shares the members with the grouping it resumed from
    *  until it grows the card, and copies them then. */
-  cards: Map<CardGroupKind, { index: number; messages: Message[]; shared: boolean }>
+  cards: Map<CardGroupKind, OpenCard>
   activity: Message[]
+}
+
+interface OpenCard {
+  index: number
+  messages: Message[]
+  shared: boolean
+  /** An artifact card that holds one work so far: where each of its writes
+   *  stands as its own row. Undefined once a second work made it a group. */
+  placed?: number[]
 }
 
 export function emptyGrouping(): Grouping {
@@ -98,6 +111,44 @@ function openOrGrowCard(grouping: Grouping, kind: CardGroupKind, msg: Message): 
     : -1
   if (existing >= 0) card.messages[existing] = msg
   else card.messages.push(msg)
+}
+
+// A turn's saved HTML works are one card once it writes a second work, at the
+// position of the first write, like the other cards. Until then each write is
+// its own row, as a single artifact always was. When the second work arrives,
+// the first row becomes the card and the later rows of the first work leave:
+// the card holds them.
+function placeArtifact(grouping: Grouping, msg: Message): void {
+  const { items } = grouping
+  const card = grouping.cards.get('artifact-group')
+  if (!card) {
+    grouping.cards.set('artifact-group', { index: items.length, messages: [msg], shared: false, placed: [items.length] })
+    items.push({ kind: 'artifact', message: msg })
+    return
+  }
+  if (card.shared) {
+    card.messages = card.messages.slice()
+    card.placed = card.placed?.slice()
+    card.shared = false
+    if (!card.placed) items[card.index] = { kind: 'artifact-group', messages: card.messages }
+  }
+  const isNewWork = !card.messages.some((message) => message.workRef?.workId === msg.workRef?.workId)
+  card.messages.push(msg)
+  if (!card.placed) return
+  if (!isNewWork) {
+    card.placed.push(items.length)
+    items.push({ kind: 'artifact', message: msg })
+    return
+  }
+  items[card.index] = { kind: 'artifact-group', messages: card.messages }
+  for (let i = card.placed.length - 1; i > 0; i--) removeItem(grouping, card.placed[i])
+  card.placed = undefined
+}
+
+/** Take one row out, and move every open card after it up one. */
+function removeItem(grouping: Grouping, index: number): void {
+  grouping.items.splice(index, 1)
+  for (const card of grouping.cards.values()) if (card.index > index) card.index--
 }
 
 // Everything between two prose blocks is one activity row: the tool calls,
@@ -159,6 +210,10 @@ export function groupInto(grouping: Grouping, messages: Message[], start: number
         openOrGrowCard(grouping, 'document', msg)
         continue
       }
+      if (isSavedHtmlArtifact(msg)) {
+        placeArtifact(grouping, msg)
+        continue
+      }
       // The SDK writes its interrupt notice back as a user turn to keep the
       // provider transcript well-formed. Nobody typed it, so it renders as a
       // transient row, not a bubble.
@@ -200,6 +255,7 @@ export function itemKey(item: GroupedItem): string {
   if (item.kind === 'agent-conversation-group') return `ag-${item.messages[0].id}`
   if (item.kind === 'browser-snapshot') return `bs-${item.messages[0].id}`
   if (item.kind === 'document') return `ds-${item.messages[0].id}`
+  if (item.kind === 'artifact-group') return `ar-${item.messages[0].id}`
   if (item.kind === 'thought') return `th-${item.message.id}`
   return item.message.id
 }
@@ -354,6 +410,7 @@ const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'mcp-app',
   'artifact',
+  'artifact-group',
   'automation',
   'document',
   'agent-conversation-group',
@@ -630,7 +687,8 @@ function firstTimestamp(items: GroupedItem[]): number {
       item.kind === 'subagent-group' ||
       item.kind === 'agent-conversation-group' ||
       item.kind === 'browser-snapshot' ||
-      item.kind === 'document'
+      item.kind === 'document' ||
+      item.kind === 'artifact-group'
     )
       return item.messages[0].timestamp
     return item.message.timestamp
@@ -700,7 +758,7 @@ export function turnDurationMs(turn: Turn): number | null {
   // transcript rebuild, so no merged copy per call.
   for (const items of [turn.body, turn.tail]) {
     for (const item of items) {
-      if (item.kind === 'browser-snapshot' || item.kind === 'document') {
+      if (item.kind === 'browser-snapshot' || item.kind === 'document' || item.kind === 'artifact-group') {
         // A plate is several messages but one outcome, and the pass's last
         // frame is as much the end of the turn as a sentence would be.
         for (const member of item.messages) end = Math.max(end, member.timestamp)

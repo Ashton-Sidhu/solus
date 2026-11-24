@@ -37,6 +37,7 @@ type ManagedValueDescriptions = { [K in ManagedSessionSettingKey]: (value: Manag
 
 const DESCRIBE: ManagedValueDescriptions = {
   workerModel: (value) => (value ? modelName(value.provider, value.model) : 'the caller\'s model by default'),
+  fallbackModel: (value) => (value ? `${modelName(value.provider, value.model)} while the default provider is out of usage` : 'no fallback model'),
   modelRouting: () => 'a set model routing',
   textGenerationModel: (value) => modelName(value.provider, value.model),
   sourceControlWriterModel: (value) => (value ? modelName(value.provider, value.model) : 'the text-generation model for commits'),

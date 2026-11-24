@@ -305,14 +305,6 @@ export function settledBackgroundWait(items: GroupedItem[]): BackgroundWait {
   }
 }
 
-/** The line after an agent wait's label: what you can do now. A session that
- *  waits on you is answered on its card; otherwise the parent is idle and takes
- *  a new message at once. */
-export function agentWaitHint(wait: BackgroundWait): string {
-  if (!wait.agentsNeedYou) return 'You can keep chatting'
-  return wait.agentsNeedYou === 1 ? 'Answer on its card' : 'Answer on their cards'
-}
-
 /**
  * The command's stated intent, never the command itself: a poll loop's own
  * script is unreadable in a status row. An intent without a known verb is

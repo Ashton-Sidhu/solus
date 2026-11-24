@@ -728,7 +728,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
       const developerInstructions = [
         request.systemPrompt?.trim(),
-        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions, codebase: request.codebase }, tools, request.integrationInstructions),
+        runtimeInstructions({
+          harness: 'Codex',
+          model,
+          reasoningEffort,
+          workingDirectory: request.cwd,
+          delegationInstructions: request.delegationInstructions,
+          hasDefaultWorkerModel: request.hasDefaultWorkerModel,
+          codebase: request.codebase,
+        }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
       const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
       const config = { ...THREAD_CONFIG, [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '' }
