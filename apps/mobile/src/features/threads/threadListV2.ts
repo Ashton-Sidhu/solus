@@ -401,6 +401,20 @@ function sortThreadsForListV2<
   return sortActiveThreadsByOrderKey(threads);
 }
 
+function isThreadSettledForList(
+  thread: EnvironmentThreadShell,
+  input: {
+    readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
+    readonly queuedThreadKeys?: ReadonlySet<string>;
+  },
+): boolean {
+  return (
+    (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
+    thread.settledOverride === "settled" &&
+    input.queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
+  );
+}
+
 export function getThreadListV2OrderedSection(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly section: "pinned" | "active";
@@ -410,15 +424,9 @@ export function getThreadListV2OrderedSection(input: {
   readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
   readonly queuedThreadKeys?: ReadonlySet<string>;
 }): EnvironmentThreadShell[] {
-  const queuedThreadKeys = input.queuedThreadKeys?.size ? input.queuedThreadKeys : undefined;
   const threads = input.threads.filter((thread) => {
     if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) return false;
-    if (
-      thread.pinnedAt == null &&
-      (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
-      thread.settledOverride === "settled" &&
-      queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
-    ) {
+    if (thread.pinnedAt == null && isThreadSettledForList(thread, input)) {
       return false;
     }
     if (
@@ -794,9 +802,7 @@ export function buildThreadListV2Items(input: {
   const working: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const snoozed: EnvironmentThreadShell[] = [];
-  const pinnedCompleted = new Set<EnvironmentThreadShell>();
   let nextSnoozeWakeAt: string | null = null;
-  const queuedThreadKeys = input.queuedThreadKeys?.size ? input.queuedThreadKeys : undefined;
   const listedThreads = input.threads.filter(
     (thread) =>
       thread.archivedAt === null &&
@@ -831,7 +837,6 @@ export function buildThreadListV2Items(input: {
       if (input.matchedThreadKeys?.has(key) !== true) continue;
       contentOnlyThreadKeys.add(key);
     }
-    const supportsSettlement = input.settlementEnvironmentIds?.has(thread.environmentId) ?? true;
     const supportsSnooze = input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true;
     if (supportsSnooze && effectiveSnoozed(thread, { now })) {
       snoozed.push(thread);
@@ -844,14 +849,10 @@ export function buildThreadListV2Items(input: {
       }
       continue;
     }
-    const hasQueuedMessages =
-      queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) === true;
-    const isCompleted = supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages;
-    if (thread.pinnedAt != null) {
-      if (isCompleted) pinnedCompleted.add(thread);
-      pinned.push(thread);
-    } else if (isCompleted) {
+    if (thread.pinnedAt == null && isThreadSettledForList(thread, input)) {
       settled.push(thread);
+    } else if (thread.pinnedAt != null) {
+      pinned.push(thread);
     } else if (workingShelfEnabled && (input.isWorking ?? isThreadWorking)(thread)) {
       working.push(thread);
     } else {
@@ -863,7 +864,11 @@ export function buildThreadListV2Items(input: {
     // Searching lists every match by rank across shelves, as the palette and
     // the web sidebar do, then threads listed for their messages in the
     // server's order. Each row keeps its shelf's look.
-    const slim = new Set([...snoozed, ...settled, ...pinnedCompleted]);
+    const slim = new Set([
+      ...snoozed,
+      ...settled,
+      ...pinned.filter((thread) => isThreadSettledForList(thread, input)),
+    ]);
     const snoozedThreads = new Set(snoozed);
     const pinnedThreads = new Set(pinned);
     const threadByKey = new Map(
@@ -951,7 +956,7 @@ export function buildThreadListV2Items(input: {
     "pinned",
     pending,
   )) {
-    const isCompleted = pinnedCompleted.has(thread);
+    const isCompleted = isThreadSettledForList(thread, input);
     items.push({
       thread,
       variant: isCompleted ? "slim" : "card",

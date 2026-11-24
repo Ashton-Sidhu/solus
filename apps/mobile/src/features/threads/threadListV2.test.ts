@@ -444,6 +444,12 @@ describe("buildThreadListV2Items", () => {
       .toMatchObject({ type: "v2-thread", timeLabel: "" });
     const search = buildThreadListV2Items({ ...input, searchQuery: "Pinned while settled" });
     expect(search.items[0]).toMatchObject({ variant: "slim", pinned: true });
+
+    const queued = buildThreadListV2Items({
+      ...input,
+      queuedThreadKeys: new Set([`${environmentId}:pinned-settled`]),
+    });
+    expect(queued.items[0]).toMatchObject({ variant: "card", pinned: true });
   });
 
   it("snooze hides a pinned thread and wake restores it to the pinned block", () => {
