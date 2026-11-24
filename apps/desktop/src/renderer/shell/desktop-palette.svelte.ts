@@ -115,7 +115,6 @@ export function createDesktopPalette(
     sessionEnvironmentStore,
     pullRequests,
     session,
-    keybindings,
   } = core;
   const activeTabId = $derived(session.activeTabId);
   const paletteGitProjectRoot = $derived.by(() => {
@@ -304,12 +303,8 @@ export function createDesktopPalette(
       label: "Keyboard shortcuts",
       group: "General",
       icon: KeyboardIcon,
-      hint: comboHint("global.show-shortcuts"),
       keywords: ["keybindings", "keys"],
-      run: () => {
-        ui.shortcutsActiveScopes = keybindings.activeScopes();
-        ui.shortcutsModalOpen = true;
-      },
+      run: () => session.showSettings("keybindings", "palette"),
     },
     ...fleetPaletteCommands(() => session.showSettings("api-access", "palette")),
     addOverSshPaletteCommand(),

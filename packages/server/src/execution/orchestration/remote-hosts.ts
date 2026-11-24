@@ -135,7 +135,7 @@ export class RemoteHosts {
     private readonly selfInstallationId: () => string | null = () => null,
     private readonly forwarded: ForwardedHostSource = { list: () => [], credential: () => null },
     private readonly fetchImpl: typeof fetch = fetch,
-    private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> & Partial<Pick<HostPairings, 'renewOnUse'>> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
+    private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> & Partial<Pick<HostPairings, 'renewOnUse' | 'noteUse'>> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
     /** The person's host list as this host keeps it (`host_list`), the list its clients read while signed out. */
     private readonly hostList: () => HostListing[] = () => [],
   ) {}
@@ -350,6 +350,13 @@ export class RemoteHosts {
       localHostId: this.selfInstallationId(),
       onReadinessChange: (readiness) => {
         log.info('remote_host_phase', { hostId: host.hostId, readiness })
+        // Each dial of a machine link is a use of it: its health shows the last one (docs/host-pairing.md).
+        if (host.source === 'paired' && readiness === 'ready') this.pairings.noteUse?.(host.installationId, null)
+        if (host.source === 'paired' && readiness === 'refused') {
+          this.pairings.noteUse?.(host.installationId, link.refusedReason === 'auth'
+            ? 'It refused the credential of this link. Link the machines again.'
+            : 'Another machine answered at the address of this link.')
+        }
         if (readiness !== 'ready') return
         if (hasConnected) for (const listener of reconnected) listener()
         hasConnected = true

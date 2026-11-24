@@ -7,6 +7,7 @@
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import SettingsPageSkeleton from "./SettingsPageSkeleton.svelte";
   import { toastSurface } from "../ui/sonner/toast-surface.svelte";
+  import { ModalResizeHandles, ResizableModal } from "../ui/modal-resize";
 
   const session = getWorkspaceContext();
   // Load the first section beside the frame, and keep the page skeleton until both are ready.
@@ -16,6 +17,7 @@
   const page = Promise.all([import("./SettingsPage.svelte"), firstSection]).then(([loaded]) => loaded);
   let content = $state<HTMLDivElement | null>(null);
   let open = $state(true);
+  const resizable = new ResizableModal("settings");
   useScope("settings-dialog", { exclusive: true, pre: true });
 
   function close() {
@@ -46,7 +48,7 @@
            The zoom is on this full-viewport layer, so it scales from the
            card's centre and keeps no transform after it ends. -->
 
-      <div class="@container/pane pointer-events-auto fixed top-1/2 left-1/2 flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl dark:shadow-none [--solus-page-top-inset:0px]">
+      <div class="@container/pane pointer-events-auto fixed top-1/2 left-1/2 flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl dark:shadow-none [--solus-page-top-inset:0px]" style={resizable.style}>
         <Dialog.Title class="sr-only">Settings</Dialog.Title>
         <Dialog.Description class="sr-only">Change Solus settings. Close to return to your workspace.</Dialog.Description>
         {#await page}
@@ -59,6 +61,7 @@
             <button type="button" class="rounded-lg border border-border px-3 py-2 text-workspace-chrome" onclick={close}>Close settings</button>
           </div>
         {/await}
+        <ModalResizeHandles modal={resizable} label="Resize settings" />
       </div>
     </Dialog.Content>
   </Dialog.Portal>

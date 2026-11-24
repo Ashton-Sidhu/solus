@@ -1310,7 +1310,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             <ProjectFavicon
               environmentId={thread.environmentId}
               faviconPath={props.project?.faviconPath}
-              projectIcon={props.project?.projectIcon}
+              projectIcon={props.project ? props.project.projectIcon : thread.fallbackProject?.projectIcon}
               size={projectIconSize}
               projectTitle={rowProject.title}
               workspaceRoot={rowProject.workspaceRoot}

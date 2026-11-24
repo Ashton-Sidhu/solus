@@ -37,9 +37,10 @@ describe('binding overrides', () => {
 })
 
 describe('binding list coverage', () => {
-  test('lists every declared binding in the shortcuts modal and settings', () => {
-    // WHY: both surfaces render the shared category list. A new scope that is
-    // missing from it makes valid shortcuts impossible to discover or rebind.
+  test('lists every declared binding in Settings → Keybindings', () => {
+    // WHY: Settings is the one place that lists shortcuts. A new scope that is
+    // missing from the category list makes valid shortcuts impossible to
+    // discover or rebind.
     const declaredScopes = new Set(Object.values(KEYBINDINGS).map((binding) => binding.scope))
     const listedBindingIds = ALL_LISTED_SCOPES.flatMap((scope) =>
       Object.entries(KEYBINDINGS)

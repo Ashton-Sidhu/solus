@@ -16,7 +16,7 @@ const CODE = '482913'
 const TOKEN = 'private-host-token'
 const DAY = 24 * 60 * 60 * 1000
 
-function harness(options: { self?: string; pairReply?: () => Response; key?: boolean; pairGate?: Promise<void>; refreshGate?: Promise<void>; refuseRefresh?: boolean; approve?: ApproveStub } = {}) {
+function harness(options: { self?: string; pairReply?: () => Response; key?: boolean; pairGate?: Promise<void>; refreshGate?: Promise<void>; refuseRefresh?: boolean; approve?: ApproveStub; isSilent?: () => boolean } = {}) {
   const sent: Array<{ url: string; authorization: string | null; redirect?: RequestRedirect }> = []
   const pairBodies: Array<{ replacesSessionToken?: string }> = []
   const pairTokens: string[] = []
@@ -27,6 +27,7 @@ function harness(options: { self?: string; pairReply?: () => Response; key?: boo
     const url = new globalThis.URL(String(input))
     sent.push({ url: url.href, authorization: new Headers(init?.headers).get('authorization'), redirect: init?.redirect })
     if (url.pathname === '/health') {
+      if (options.isSilent?.()) throw new TypeError('fetch failed')
       const nonce = url.searchParams.get('nonce')
       return Response.json({ ok: true, installationId: 'remote', name: 'Windows', ...(nonce ? { proof: identity.proveTo(nonce, 'remote') } : {}) })
     }
@@ -48,7 +49,7 @@ function harness(options: { self?: string; pairReply?: () => Response; key?: boo
     return new Response(null, { status: 404 })
   }
   const service = new HostPairings(() => options.self ?? 'self', () => 'Mac', fetchImpl, () => time, options.approve)
-  return { service, sent, pairBodies, pairTokens, pairStarted: pairStarted.promise, refreshStarted: refreshStarted.promise, advance: () => { time += DAY + 1 } }
+  return { service, sent, pairBodies, pairTokens, pairStarted: pairStarted.promise, refreshStarted: refreshStarted.promise, advance: (days = 1) => { time += days * DAY + 1 } }
 }
 type ApproveStub = ConstructorParameters<typeof HostPairings>[4]
 function deferred() {
@@ -412,4 +413,74 @@ test('only a local owner can relay paged session text through an explicit link',
   const read = await server.handle('hostsLinkedSessionPage', ['remote', 'session', 'older', 12], owner)
   expect(read.page).toEqual({ before: 'next', messages: [{ role: 'assistant', content: 'A reply', timestamp: 1, messageId: undefined }] })
   expect(read.meta).toMatchObject({ sessionId: 'session', provider: 'codex', cwd: '', projectPath: '' })
+})
+
+describe('link health', () => {
+  // A link that breaks shows how before an agent tries to use it.
+  test('a machine that answers is reachable, with the time of its pairing as its last reach and its expiry 30 days later', async () => {
+    const h = harness()
+    await h.service.pair({ url: URL, code: CODE })
+    const [health] = await h.service.health()
+    expect(health).toEqual({ installationId: 'remote', status: 'reachable', lastReachedAt: 1, lastError: null, expiresAt: 1 + 30 * DAY })
+    expect(h.sent.filter((call) => call.authorization).length).toBe(0)
+  })
+
+  test('a machine that does not answer is unreachable, and the failed use says why', async () => {
+    let isSilent = false
+    const h = harness({ isSilent: () => isSilent })
+    await h.service.pair({ url: URL, code: CODE })
+    isSilent = true
+    expect(await h.service.credential('remote')).toBeNull()
+    const [health] = await h.service.health()
+    expect(health?.status).toBe('unreachable')
+    expect(health?.lastError).toContain(URL)
+    isSilent = false
+    expect(await h.service.credential('remote')).toBe(TOKEN)
+    h.service.noteUse('remote', null)
+    expect((await h.service.health())[0]).toMatchObject({ status: 'reachable', lastError: null })
+  })
+
+  test('a refused credential makes the link expired, with the refusal as its last error', async () => {
+    const h = harness({ refuseRefresh: true })
+    await h.service.pair({ url: URL, code: CODE })
+    h.advance()
+    expect(await h.service.credential('remote')).toBeNull()
+    expect((await h.service.health())[0]).toMatchObject({ status: 'expired', expiresAt: null, lastError: expect.stringContaining('refused') })
+  })
+
+  test('a credential nobody used for 30 days is expired without a request', async () => {
+    const h = harness()
+    await h.service.pair({ url: URL, code: CODE })
+    h.advance(30)
+    const before = h.sent.length
+    expect((await h.service.health())[0]?.status).toBe('expired')
+    expect(h.sent.length).toBe(before)
+  })
+
+  test('a renewal moves the last reach and the expiry forward, and pairing again clears an old error', async () => {
+    const h = harness()
+    await h.service.pair({ url: URL, code: CODE })
+    h.service.noteUse('remote', 'It did not accept a connection.')
+    h.advance()
+    expect(await h.service.credential('remote')).toBe('refreshed-token')
+    const [renewed] = await h.service.health()
+    expect(renewed?.lastReachedAt).toBe(2 + DAY)
+    expect(renewed?.expiresAt).toBe(2 + DAY + 30 * DAY)
+    expect(renewed?.lastError).toBeNull()
+    h.service.noteUse('remote', 'It did not accept a connection.')
+    await h.service.pair({ url: URL, code: CODE })
+    expect((await h.service.health())[0]?.lastError).toBeNull()
+  })
+
+  test('only the local owner can read link health over RPC', async () => {
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerHostPairingHandlers } = await import('@solus/server/transport/handlers/host-pairing-handlers')
+    const server = new SolusServer()
+    const h = harness()
+    registerHostPairingHandlers(server, h.service)
+    await h.service.pair({ url: URL, code: CODE })
+    const caller = { clientId: 'test-client', principal: OWNER }
+    expect((await server.handle('hostsLinkHealth', [], caller)).map((health) => health.status)).toEqual(['reachable'])
+    await expect(server.handle('hostsLinkHealth', [], { ...caller, principal: { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'a', deviceLabel: 'Remote', expiresAt: 1 } })).rejects.toThrow()
+  })
 })

@@ -126,7 +126,8 @@
         {/await}
       </Tabs.Content>
     {/if}
-    <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
+    <!-- Room below the last card: the page ends with space, not on the window's edge. -->
+    <Tabs.Content value="access" class="mt-5 flex flex-col gap-7 pb-16">
       <HostDetailAccess serverId={host.id} />
     </Tabs.Content>
     <Tabs.Content value="git" class="mt-5 flex flex-col gap-7">

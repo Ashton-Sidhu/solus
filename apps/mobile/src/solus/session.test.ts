@@ -171,6 +171,24 @@ it("uses the host project and provider on a session with an encoded storage fold
   });
 });
 
+it("marks a session in the container root of a codebase with the codebase icon, and follows a change of the codebases", () => {
+  const containers = new Set(["/Users/me/work"]);
+  const project = createSessionListProjection((hostId, path) => hostId === "mac" && containers.has(path));
+  const rows = [
+    { key: "container", hostId: "mac", record: { ...session, projectPath: "/Users/me/work", projectRoot: "/Users/me/work" } },
+    { key: "project", hostId: "mac", record: { ...session, sessionId: "other", projectPath: "/Users/me/app", projectRoot: "/Users/me/app" } },
+  ];
+  const facts = { views: new Map(), states: new Map() };
+  const [inContainer, inProject] = project(rows, facts);
+  expect(inContainer!.fallbackProject?.projectIcon).toEqual({ kind: "lucide", name: "folder-git-2", color: "gray" });
+  expect(inProject!.fallbackProject?.projectIcon).toBeUndefined();
+
+  // The folder stops being a container root: the next projection drops the icon, not the held row.
+  containers.clear();
+  const [afterChange] = project(rows, facts);
+  expect(afterChange!.fallbackProject?.projectIcon).toBeUndefined();
+});
+
 it("updates the T3 status, timer and snooze gate when a host changes state", () => {
   const project = createSessionListProjection();
   const rows = [

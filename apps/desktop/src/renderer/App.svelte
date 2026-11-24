@@ -376,22 +376,6 @@
     {/if}
 
     <LazyDialog
-      open={ui.shortcutsModalOpen}
-      load={() => import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
-      placeholder="Search shortcuts…"
-      centered
-      class="max-h-[70vh] w-[41.25rem]"
-      onclose={() => (ui.shortcutsModalOpen = false)}
-    >
-      {#snippet children(KeyboardShortcutsModal)}
-        <KeyboardShortcutsModal
-          bind:open={ui.shortcutsModalOpen}
-          activeScopes={ui.shortcutsActiveScopes}
-        />
-      {/snippet}
-    </LazyDialog>
-
-    <LazyDialog
       open={ui.goToFileOpen}
       warm={ui.hasWarmedDialogs}
       load={() => import("@solus/workspace-ui/components/search/FilePickerOverlay.svelte")}

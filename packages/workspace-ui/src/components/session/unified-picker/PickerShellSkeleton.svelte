@@ -2,6 +2,7 @@
   import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
   import { portal } from "../../portal";
+  import { modalSizeStyle, readSavedModalSize } from "../../ui/modal-resize";
   import { Skeleton } from "../../ui/skeleton";
   import PickerListSkeleton from "./PickerListSkeleton.svelte";
   import PickerPreviewSkeleton from "./PickerPreviewSkeleton.svelte";
@@ -19,6 +20,8 @@
   let { onClose }: Props = $props();
 
   const layer = getPopoverLayer();
+  // The size the reader gave the search, so the search replaces this in place.
+  const savedSizeStyle = modalSizeStyle(readSavedModalSize("session-picker"));
   /** One placeholder for each type tab, in the measure of its label. */
   const TAB_WIDTHS = ["2rem", "4rem", "3rem", "3.25rem", "6rem", "5.5rem", "4rem"];
 </script>
@@ -32,6 +35,7 @@
     onmousedown={(event) => event.target === event.currentTarget && onClose()}
   >
     <div
+      style={savedSizeStyle}
       class="flex h-[70%] w-[76%] max-w-full flex-col overflow-hidden rounded-3xl bg-popover text-menu text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none"
       role="dialog"
       aria-label="Search"

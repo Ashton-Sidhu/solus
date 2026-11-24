@@ -67,15 +67,23 @@ import { isSessionBusyStatus, isSteerableStatus, requestExpiryText } from "@solu
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { conversationFeed } from "./conversation-feed";
 import {
+  clearComposerDraft,
   clearComposerDraftContent,
   createNewTaskDraft,
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
+  questionAttachmentDraftsAtom,
   sameComposerDraftState,
   setComposerDraftText,
   setComposerDraftContext,
 } from "../state/use-composer-drafts";
-import { hostQueryScope } from "../state/host-query-scope";
+import { hostQueryScope, useHostQueryScope } from "../state/host-query-scope";
+import { appAtomRegistry } from "../state/atom-registry";
+import {
+  questionAttachmentDraftKey,
+  questionAttachmentDraftPrefix,
+  questionAttachmentPreparationAtom,
+} from "../state/question-attachments";
 import { useListened } from "@solus-mobile/app/app-context";
 import { solus, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
@@ -268,7 +276,7 @@ export function useThreadScreenData({
       .then(async (files) => {
         if (!files.length) return false;
         if (edit) {
-          const uploads = await controller.uploadQueueFiles(files);
+          const uploads = await controller.uploadPickedFiles(files);
           if (currentEdit.current === edit.runId)
             setEditUploads((old) => [
               ...old,
@@ -290,23 +298,97 @@ export function useThreadScreenData({
   };
   const firstQuestion = meta.questions.find((q) => !q.expired);
   const question = hasOwnCard(firstQuestion) ? null : firstQuestion;
+  const isAsyncQuestion = question?.responseMode === "message";
   const pending = question
     ? {
         requestId: RuntimeRequestId.make(question.questionId),
         createdAt: shell.updatedAt,
         responseCapability: "live" as const,
-        dismissible: false,
+        dismissible: isAsyncQuestion,
         questions: pendingInputQuestions(question),
       }
     : null;
+  const connectionScope = useHostQueryScope(hostId);
+  const accountScope = solus.sessionCache.scope();
+  const facts = solus.connections.connection(hostId)?.facts;
+  useEffect(() => {
+    if (isAsyncQuestion) facts?.ensure("capabilities");
+  }, [facts, isAsyncQuestion]);
+  const canUploadQuestionAttachments = useSyncExternalStore(
+    useCallback((notify) => facts?.subscribe(notify) ?? (() => {}), [facts]),
+    () => facts?.value("capabilities")?.attachUpload === true,
+  ) && controller.mayDrive;
+  const attachmentDrafts = useAtomValue(
+    questionAttachmentDraftsAtom(isAsyncQuestion
+      ? questionAttachmentDraftPrefix(environmentId, threadId, accountScope)
+      : ""),
+  );
+  const preparations = useAtomValue(questionAttachmentPreparationAtom);
+  const attachmentKeys = isAsyncQuestion && pending
+    ? pending.questions.map(({ id }) => questionAttachmentDraftKey(
+      environmentId, threadId, pending.requestId, id, accountScope,
+    ))
+    : [];
+  const draftOwner = JSON.stringify([accountScope, hostId, threadId, pending?.requestId]);
   const [draftState, setDraftState] = useState<{
     id: string;
     drafts: Record<string, PendingUserInputDraftAnswer>;
   }>({ id: "", drafts: {} });
-  const drafts = draftState.id === pending?.requestId ? draftState.drafts : {};
+  const drafts = draftState.id === draftOwner ? draftState.drafts : {};
   const [respondingQuestion, setRespondingQuestion] = useState<string | null>(null);
+  const questionResponses = useRef(new Set<string>());
   const { respondToPermission, respondingPermissionId } = useHostApprovalResponses(store);
-  const answers = pending ? buildPendingUserInputAnswers(pending.questions, drafts) : null;
+  const answerDrafts = isAsyncQuestion && pending
+    ? Object.fromEntries(pending.questions.map(({ id }, index) => {
+      const key = attachmentKeys[index]!;
+      const attachmentCount = attachmentDrafts[key]?.attachments.length ?? 0;
+      return [id, {
+        ...drafts[id],
+        attachmentCount,
+        attachmentsBlocked: (preparations[key] ?? 0) > 0 ||
+          (attachmentCount > 0 && !canUploadQuestionAttachments),
+      }];
+    }))
+    : drafts;
+  const answers = pending ? buildPendingUserInputAnswers(pending.questions, answerDrafts) : null;
+  const respondToQuestion = async (dismiss: boolean) => {
+    if (!pending || !controller.mayApprove || questionResponses.current.has(draftOwner) ||
+        (dismiss ? !pending.dismissible : !answers)) return;
+    if (connectionScope !== hostQueryScope(hostId)) return;
+    if (!dismiss && attachmentKeys.some((key) =>
+      (appAtomRegistry.get(questionAttachmentPreparationAtom)[key] ?? 0) > 0)) return;
+    questionResponses.current.add(draftOwner);
+    setRespondingQuestion(draftOwner);
+    try {
+      const attachmentPaths: Record<string, string[]> = {};
+      if (!dismiss) {
+        for (const [index, key] of attachmentKeys.entries()) {
+          const attachments = getComposerDraftSnapshot(key).attachments;
+          if (attachments.length === 0) continue;
+          const uploaded = await controller.uploadPickedFiles(attachments.map((attachment) => {
+            if (!attachment.fileUri) throw new Error("The attached file is no longer on this device.");
+            return { uri: attachment.fileUri, name: attachment.name, mimeType: attachment.mimeType, size: attachment.sizeBytes };
+          }));
+          attachmentPaths[pending.questions[index]!.id] = uploaded.map((file) => file.hostPath);
+        }
+      }
+      if (connectionScope !== hostQueryScope(hostId) ||
+          !controller.model.questions.some((question) => question.questionId === pending.requestId && !question.expired)) return;
+      const sent = await controller.answerQuestion(
+        pending.requestId,
+        dismiss ? {} : pendingInputAnswers(pending.questions, drafts, attachmentPaths),
+      );
+      if (sent) {
+        for (const key of attachmentKeys) clearComposerDraft(key);
+      }
+    } catch (error) {
+      if (connectionScope === hostQueryScope(hostId))
+        Alert.alert("Could not send the answer", error instanceof Error ? error.message : "Try again.");
+    } finally {
+      questionResponses.current.delete(draftOwner);
+      setRespondingQuestion((current) => current === draftOwner ? null : current);
+    }
+  };
   const displayedPermission = meta.permissions.find((item) => !item.expired) ?? meta.permissions[0];
   const projectedApproval = displayedPermission ? hostApprovalCard(displayedPermission) : null;
   const approval = projectedApproval ? { ...projectedApproval.approval, createdAt: shell.updatedAt } : null;
@@ -484,8 +566,8 @@ export function useThreadScreenData({
       onWillEnqueue?.();
       if (showingDraft) {
         setStartingDraft({
-          media: composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos),
-          count: meta.attachments.length + meta.uploading,
+          media: composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos, meta.failedAttachments),
+          count: meta.attachments.length + meta.uploading + meta.failedAttachments.length,
         });
       }
       return new Promise<MessageId | null>((resolve) => {
@@ -571,27 +653,24 @@ export function useThreadScreenData({
     dispatchingMessageId: null,
     serverConfig: null,
     activePendingUserInput: pending,
+    questionAttachmentAccess: isAsyncQuestion
+      ? { accountScope, canUpload: canUploadQuestionAttachments }
+      : undefined,
     activePendingUserInputDrafts: drafts,
     activePendingUserInputAnswers: answers,
-    respondingUserInputId: respondingQuestion ? RuntimeRequestId.make(respondingQuestion) : null,
-    onSelectUserInputOption: (id, q, value) =>
+    respondingUserInputId: respondingQuestion === draftOwner ? pending?.requestId ?? null : null,
+    onSelectUserInputOption: (_id, q, value) =>
       setDraftState({
-        id,
+        id: draftOwner,
         drafts: {
           ...drafts,
           [q.id]: toggleQuestionOption(q, drafts[q.id], value),
         },
       }),
-    onChangeUserInputCustomAnswer: (id, key, value) =>
-      setDraftState({ id, drafts: { ...drafts, [key]: typeQuestionRemark(drafts[key], value) } }),
-    onSubmitUserInput: async () => {
-      if (!pending || !answers || !controller.mayApprove || respondingQuestion) return;
-      setRespondingQuestion(pending.requestId);
-      await controller
-        .answerQuestion(pending.requestId, pendingInputAnswers(pending.questions, drafts))
-        .finally(() => setRespondingQuestion(null));
-    },
-    onDismissUserInput: async () => wip(),
+    onChangeUserInputCustomAnswer: (_id, key, value) =>
+      setDraftState({ id: draftOwner, drafts: { ...drafts, [key]: typeQuestionRemark(drafts[key], value) } }),
+    onSubmitUserInput: () => respondToQuestion(false),
+    onDismissUserInput: () => respondToQuestion(true),
     hostMedia: edit
       ? editUploads.flatMap((a): DraftComposerAttachment[] =>
           a.type === "image"
@@ -619,10 +698,10 @@ export function useThreadScreenData({
               : [],
         )
       : (startingDraft?.media ??
-        composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos)),
+        composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos, meta.failedAttachments)),
     hostAttachmentCount: edit
       ? editUploads.length + Number(pickingEdit)
-      : (startingDraft?.count ?? meta.attachments.length + meta.uploading),
+      : (startingDraft?.count ?? meta.attachments.length + meta.uploading + meta.failedAttachments.length),
     onPickDraftMedia: async () => {
       await pickFiles(pickComposerMedia);
     },
@@ -632,6 +711,7 @@ export function useThreadScreenData({
     onNativePasteImages: (uris) => pickFiles(() => pastedComposerImages(uris)),
     onNativePasteText: async (paste) =>
       setComposerDraftText(composerKey, getComposerDraftSnapshot(composerKey).text + paste.text),
+    onRetryHostAttachment: (id: string) => { void controller.retryAttachment(id); },
     onRemoveDraftImage: (id) =>
       edit
         ? setEditUploads((files) => files.filter((f) => f.id !== id))

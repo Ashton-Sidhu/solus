@@ -1,4 +1,5 @@
 import { persistQuery } from "@t3tools/client-runtime/state/query-persistence";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { hostQuery } from "./host-query";
 import {
   EnvironmentId,
@@ -45,6 +46,26 @@ export function sourceControlApi(id: string) {
   return connection.api;
 }
 
+function prSearch(input: PullRequestListInput): string {
+  const { filters, involvement } = input;
+  const terms = [input.query];
+  if (input.state === "merged") terms.push("is:merged");
+  if (involvement === "authored") terms.push("author:@me");
+  if (involvement === "reviewing") terms.push("review-involves:@me");
+  if (filters?.author) terms.push(`author:${JSON.stringify(filters.author)}`);
+  if (filters?.draft) terms.push(`draft:${filters.draft === "only"}`);
+  if (filters?.review) {
+    const review = filters.review === "review-required" ? "required" : filters.review.replaceAll("-", "_");
+    terms.push(`review:${review}`);
+  }
+  if (filters?.checks) terms.push(`status:${filters.checks === "passing" ? "success" : "failure"}`);
+  for (const labels of filters?.labels ?? []) {
+    if (labels.length) terms.push(`label:${labels.map((label) => JSON.stringify(label)).join(",")}`);
+  }
+  for (const label of filters?.excludedLabels ?? []) terms.push(`-label:${JSON.stringify(label)}`);
+  return terms.filter(Boolean).join(" ");
+}
+
 export const solusPrList = hostQuery(
   async (id, input: PullRequestListInput): Promise<PullRequestListResult> => {
     const api = sourceControlApi(id);
@@ -62,6 +83,7 @@ export const solusPrList = hostQuery(
       return [{ projectRoot: p.path, page, cursor: token }];
     });
     const ctx = (path: string) => solus.pullRequests.context(path);
+    const query = prSearch(input);
     const hosts = [...new Set(projects.map((p) => p.repositoryKey!.split("/")[0]!))];
     const [listings, accounts] = await Promise.all([
       projects.length
@@ -70,7 +92,7 @@ export const solusPrList = hostQuery(
             input.cursors ? after.map((p) => p.projectRoot) : projects.map((p) => p.path),
             {
               state: input.state === "merged" ? "closed" : input.state,
-              ...(input.query ? { query: input.query } : {}),
+              ...(query && { query }),
             },
             after,
           )
@@ -187,8 +209,8 @@ function issueRow(task: TaskSummary, projects: readonly ProjectEntry[]): IssueLi
   };
 }
 
-export const solusIssueList = hostQuery(
-  async (id, input: IssueListInput): Promise<IssueListResult> => {
+const issueSnapshot = hostQuery(
+  async (id, input: Omit<IssueListInput, "cursors" | "limit">) => {
     const api = sourceControlApi(id);
     const sources = solus.personal.current().taskSources;
     const search = input.query || (input.involvement && input.involvement !== "all");
@@ -243,21 +265,51 @@ export const solusIssueList = hostQuery(
         (!input.assignee || row.assignees.some((a) => a.login === input.assignee)) &&
         (!input.labels || input.labels.every((label) => row.labels.some((l) => l.name === label))),
     );
-    entries.sort((a, b) =>
-      input.sort === "created"
-        ? b.createdAt.localeCompare(a.createdAt)
-        : b.updatedAt.localeCompare(a.updatedAt),
-    );
     return {
       entries,
       scopes: [...scopes.values()],
       errors: [],
       viewers: {},
-      nextCursors: {},
       trackers: [...groups.values()],
     };
   },
 );
+
+type IssueListTarget = { environmentId: EnvironmentId; input: IssueListInput; scope?: string };
+const issuePages = Atom.family((key: string) => {
+  const target: IssueListTarget = JSON.parse(key);
+  const { cursors, limit = 50, ...filters } = target.input;
+  const source = issueSnapshot({ ...target, input: filters });
+  return Atom.readable(
+    (get) => AsyncResult.map(get(source), (snapshot): IssueListResult => {
+      const date = (row: IssueListEntry) => filters.sort === "created" ? row.createdAt : row.updatedAt;
+      const nextCursors: Record<string, string> = {};
+      const groups = new Map<string, typeof snapshot.entries>();
+      for (const row of snapshot.entries) {
+        const scope = `${row.host} ${JSON.stringify([row.projectId, row.tracker, row.scope])}`;
+        if (cursors && !cursors[scope]) continue;
+        const group = groups.get(scope);
+        if (group) group.push(row);
+        else groups.set(scope, [row]);
+      }
+      const entries = [];
+      for (const [scope, group] of groups) {
+        const cursor = cursors?.[scope];
+        const key = (row: typeof group[number]) => JSON.stringify([date(row), row.solusTaskId]);
+        const sorted = group.filter((row) => cursor === undefined || key(row) < cursor)
+          .sort((left, right) => key(left) < key(right) ? 1 : key(left) > key(right) ? -1 : 0);
+        const slice = sorted.slice(0, limit);
+        entries.push(...slice);
+        const last = slice.at(-1);
+        if (last && sorted.length > limit) nextCursors[scope] = key(last);
+      }
+      return { ...snapshot, entries: entries.sort((a, b) => date(b).localeCompare(date(a))), nextCursors };
+    }),
+    (refresh) => refresh(source),
+  );
+});
+
+export const solusIssueList = (target: IssueListTarget) => issuePages(JSON.stringify(target));
 
 export const solusIssueDetail = hostQuery(
   async (

@@ -34,6 +34,10 @@ export interface UploadedAttachment {
   /** The picked media file on this phone, for the composer's thumbnail.
    *  Never sent: the prompt names `hostPath`. */
   localUri?: string
+  pending?: {
+    keep(): Promise<UploadedAttachment>
+    discard(): Promise<void>
+  }
 }
 
 /** Reading and sending the picked bytes; the Expo adapter is `platform/expo.ts`. */
@@ -41,6 +45,7 @@ export interface AttachmentIo {
   readBase64(uri: string): Promise<string>
   /** POSTs the file's raw bytes; answers the HTTP status. */
   uploadFile(url: string, uri: string, transfer?: AttachmentTransfer): Promise<number>
+  manageUpload?(url: string, method: 'HEAD' | 'POST' | 'DELETE'): Promise<number>
 }
 
 interface AttachmentTransfer {
@@ -90,6 +95,7 @@ export interface AttachmentUploadDeps {
   hostId?: string
   signal?: AbortSignal
   checkAccess?: () => void
+  stage?: boolean
 }
 
 /** Why these files cannot join the prompt, or null when they can. */
@@ -109,6 +115,7 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
   const isImage = kind.type === 'image'
   const id = deps.uuid()
   let dataUrl: string | null = null
+  let pendingUrl: string | undefined
   const transfer = (control: AttachmentTransfer) => {
     checkTransfer(deps, control)
     const inlineUpload = async () => {
@@ -118,7 +125,7 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
       return deps.api.attachUpload(deps.ctx, { name: file.name, mime, dataUrl })
     }
     return video || (isImage && deps.streamImages && file.size !== null && file.size > 0)
-      ? streamUpload(file, mime, deps, inlineUpload, control)
+      ? streamUpload(file, mime, deps, inlineUpload, control, (url) => { pendingUrl = url })
       : inlineUpload()
   }
   const hostPath = await Effect.runPromise(
@@ -135,6 +142,22 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
     dataUrl: isImage ? dataUrl : null,
     localUri: file.uri,
   }
+  const manage = deps.io.manageUpload
+  if (pendingUrl && manage) {
+    const url = pendingUrl
+    uploaded.pending = {
+      async keep() {
+        deps.checkAccess?.()
+        const status = await manage(url, 'POST')
+        if (status === 403 || status === 404)
+          return uploadAttachment(file, { ...deps, stage: false, uuid: () => id })
+        if (status !== 204) throw new Error(`The host could not keep ${file.name} (${status}).`)
+        const { pending: _pending, ...kept } = uploaded
+        return kept
+      },
+      async discard() { await manage(url, 'DELETE') },
+    }
+  }
   return uploaded
 }
 
@@ -150,20 +173,39 @@ async function streamUpload(
   deps: AttachmentUploadDeps,
   inlineUpload: () => Promise<string>,
   control: AttachmentTransfer,
+  onPending: (url: string) => void,
 ): Promise<string> {
   if (file.size === null) throw new Error(`The size of ${file.name} is unknown.`)
   let token: Awaited<ReturnType<HostApi['attachUploadToken']>>
   try {
-    token = await deps.api.attachUploadToken(deps.ctx, { name: file.name, mime, size: file.size })
+    token = await deps.api.attachUploadToken(deps.ctx, {
+      name: file.name, mime, size: file.size,
+      ...(deps.stage && deps.io.manageUpload && { pending: true }),
+    })
   } catch (error) {
     checkTransfer(deps, control)
     if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) throw error
     return inlineUpload()
   }
-  checkTransfer(deps, control)
-  const status = await deps.io.uploadFile(new URL(token.relativeUrl, `${deps.serverUrl.replace(/\/+$/, '')}/`).toString(), file.uri, control)
-  if (status < 200 || status >= 300) throw new Error(`The host refused ${file.name} (${status}).`)
-  return token.hostPath
+  const base = `${deps.serverUrl.replace(/\/+$/, '')}/`
+  const pendingUrl = token.pendingUrl && new URL(token.pendingUrl, base).toString()
+  const manage = deps.io.manageUpload
+  try {
+    checkTransfer(deps, control)
+    try {
+      const status = await deps.io.uploadFile(new URL(token.relativeUrl, base).toString(), file.uri, control)
+      if (status < 200 || status >= 300) throw new Error(`The host refused ${file.name} (${status}).`)
+    } catch (error) {
+      checkTransfer(deps, control)
+      if (!pendingUrl || !manage || await manage(pendingUrl, 'HEAD') !== 204) throw error
+    }
+    checkTransfer(deps, control)
+    if (pendingUrl) onPending(pendingUrl)
+    return token.hostPath
+  } catch (error) {
+    if (pendingUrl && manage) void manage(pendingUrl, 'DELETE').catch(() => {})
+    throw error
+  }
 }
 
 export interface ComposedPrompt {

@@ -1,7 +1,8 @@
 <script lang="ts">
   /** How this host is reached, and who reaches it: its Solus Cloud link, the
-   *  organizations it stands in, its network, pairing, and the devices with
-   *  access. `connectionsStore` is read for this host by the Hosts page. Only a
+   *  organizations it stands in, its network, one card for every way a device
+   *  or machine comes to it (pair code, approval requests, SSH forwards), and
+   *  the devices with access. Machine links are on the host map (FleetView). `connectionsStore` is read for this host by the Hosts page. Only a
    *  local owner (the desktop on the machine or a paired device) may change how
    *  the host is reached; anyone else sees the state and where to change it. */
   import {
@@ -12,17 +13,20 @@
   } from "@lucide/svelte";
   import { connectionsStore } from "../../contexts";
   import { Button } from "../ui/button";
+  import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSelect from "../settings/SettingsSelect.svelte";
+  import ShowMoreRow from "../settings/ShowMoreRow.svelte";
+  import { pageOf } from "../settings/lib/list-page";
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
   import OrganizationsSection from "./OrganizationsSection.svelte";
-  import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
-  import PairApprovalsSection from "./PairApprovalsSection.svelte";
-  import MachineLinksSection from "./MachineLinksSection.svelte";
+  import ForwardedHostRows from "./ForwardedHostRows.svelte";
+  import PairApprovalRows from "./PairApprovalRows.svelte";
+  import { forwardedHostsStore } from "./forwarded-hosts.store.svelte";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
@@ -43,6 +47,8 @@
   const pairingLocked = $derived(pairingLock(serverId));
   let addressCopied = $state(false);
   let servePort = $state(443);
+  let connectedExpanded = $state(false);
+  let pairedExpanded = $state(false);
 
   const info = $derived(connections.serverInfo);
   $effect(() => { if (info?.tailscaleServe) servePort = info.tailscaleServe.port; });
@@ -55,6 +61,12 @@
   // Only a principal with host.local.reach may list and decide approval requests.
   const showsApprovals = $derived(hasPairing && info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.local.reach"));
   const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
+  const connectedPage = $derived(pageOf(connections.sessions, connectedExpanded));
+  const pairedPage = $derived(pageOf(connections.pairedDevices, pairedExpanded));
+  // Watched here, not in its rows: the pairing card shows once the forwards are read.
+  $effect(() => forwardedHostsStore.watch(serverId));
+  const forwarded = $derived(forwardedHostsStore.hostsFor(serverId));
+  const showsPairCode = $derived(hasPairing && canChangeNetwork);
   const networkDescription = $derived(
     info
       ? `Listening on ${info.host}:${info.port} · ${info.allowLan ? "reachable on your network" : "this computer only"}${canChangeNetwork ? "" : ". Change these from the host itself or from a paired device."}`
@@ -135,26 +147,33 @@
       <p class="text-workspace-chrome text-(--solus-text-secondary)">This host is on a cloud network. Install Tailscale on it, or use the Solus tunnel, to reach it from other devices.</p>
     {/if}
 
-    <SettingsRow label="Tailscale HTTPS" description="Use a secure tailnet address for this host." managed={info?.remoteAccess === 'off' ? remoteAccessLock : null}>
+    <SettingsRow label="Tailscale HTTPS" description="Use a secure tailnet address for this host." managed={info?.remoteAccess === 'off' ? remoteAccessLock : undefined}>
       {#snippet control()}
         <Switch checked={info?.tailscaleServe?.enabled ?? false} onclick={toggleTailscaleServe}
           disabled={!canChangeNetwork || info?.remoteAccess === 'off' || connections.refreshing || connections.tailscaleServeUpdating}
           size="default" aria-label="Tailscale HTTPS" />
       {/snippet}
+      {#snippet body()}
+        <div class="flex flex-col gap-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+            <label for="tailscale-port-{serverId}" class="text-chrome-dense text-(--solus-text-secondary)">HTTPS port</label>
+            <Input id="tailscale-port-{serverId}" type="number" min="1" max="65535" bind:value={servePort}
+              disabled={!canChangeNetwork || connections.tailscaleServeUpdating || info?.tailscaleServe?.enabled}
+              dictation={false}
+              class="h-8 w-24 text-workspace-chrome tabular-nums" />
+            {#if servePreview}
+              <code class="min-w-0 truncate font-mono text-chrome-dense text-(--solus-text-tertiary)">{servePreview}</code>
+            {/if}
+          </div>
+          {#if info?.tailscaleServe?.enabled}
+            <p class="text-chrome-dense text-(--solus-text-secondary)">Tailscale HTTPS: {tailscaleServeStateText(info.tailscaleServe.state)}.</p>
+          {/if}
+          {#if info?.tailscaleServe?.error || connections.tailscaleServeError}
+            <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{connections.tailscaleServeError ?? info?.tailscaleServe?.error}</p>
+          {/if}
+        </div>
+      {/snippet}
     </SettingsRow>
-    <label class="flex items-center gap-2 px-4 text-workspace-chrome text-(--solus-text-secondary)">
-      HTTPS port
-      <input type="number" min="1" max="65535" bind:value={servePort}
-        disabled={!canChangeNetwork || connections.tailscaleServeUpdating || info?.tailscaleServe?.enabled}
-        class="w-24 rounded-md border border-border bg-input px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50" />
-    </label>
-    {#if servePreview}<p class="px-4 text-workspace-chrome text-(--solus-text-secondary)">{servePreview}</p>{/if}
-    {#if info?.tailscaleServe?.enabled}
-      <p class="px-4 text-workspace-chrome text-(--solus-text-secondary)">Tailscale HTTPS: {tailscaleServeStateText(info.tailscaleServe.state)}.</p>
-    {/if}
-    {#if info?.tailscaleServe?.error || connections.tailscaleServeError}
-      <p role="alert" class="px-4 text-workspace-chrome text-(--solus-status-error)">{connections.tailscaleServeError ?? info?.tailscaleServe?.error}</p>
-    {/if}
 
     <SettingsRow
       label="Trust my local network"
@@ -195,9 +214,18 @@
       {/snippet}
     </SettingsRow>
   </SettingsSection>
+{/if}
 
-  {#if canChangeNetwork}
-    <SettingsSection label="Pairing">
+<!-- Every way a device or machine comes to this host, in one card. After the
+     network setting on purpose: a forward needs no open port (D4, D7). -->
+<SettingsSection
+  label="Pair and link"
+  description="Pair a device with a code, approve a machine that asks, or reach one over SSH. Link the machines you own from the host map."
+  visible={showsPairCode || showsApprovals || !!forwarded}
+>
+  <!-- Keyed so another host's lists are read afresh. -->
+  {#key serverId}
+    {#if showsPairCode}
       {#if pairingLocked}
         <div class="px-4 py-3.5"><ManagedSettingNote note={pairingLocked} /></div>
       {:else}
@@ -212,20 +240,13 @@
           <Switch checked={false} size="default" aria-label="Approve new devices" />
         {/snippet}
       </SettingsRow>
-    </SettingsSection>
-  {/if}
-{/if}
-
-{#if showsApprovals}
-  <!-- Keyed so another host's list is read afresh. -->
-  {#key serverId}
-    <PairApprovalsSection {serverId} />
-    <MachineLinksSection {serverId} />
+    {/if}
+    {#if showsApprovals}
+      <PairApprovalRows {serverId} />
+    {/if}
+    <ForwardedHostRows {serverId} />
   {/key}
-{/if}
-
-<!-- After the network setting on purpose: a forward needs no open port (D4, D7). -->
-<ForwardedHostsSection {serverId} />
+</SettingsSection>
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}
@@ -233,7 +254,7 @@
       No devices are connected to this host.
     </p>
   {:else}
-    {#each connections.sessions as session (session.id)}
+    {#each connectedPage.rows as session (session.id)}
       <div
         class="group flex items-center gap-3 px-4 py-2.5"
       >
@@ -262,6 +283,7 @@
         {/if}
       </div>
     {/each}
+    <ShowMoreRow hiddenCount={connectedPage.hiddenCount} expanded={connectedExpanded} noun="devices" onToggle={() => (connectedExpanded = !connectedExpanded)} />
   {/if}
 </SettingsSection>
 
@@ -276,7 +298,7 @@
         No devices are paired with this host.
       </p>
     {:else}
-      {#each connections.pairedDevices as device (device.deviceId)}
+      {#each pairedPage.rows as device (device.deviceId)}
         <div class="group flex items-center gap-3 px-4 py-2.5">
           <MonitorIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
           <div class="min-w-0 flex-1">
@@ -301,6 +323,7 @@
           {/if}
         </div>
       {/each}
+      <ShowMoreRow hiddenCount={pairedPage.hiddenCount} expanded={pairedExpanded} noun="devices" onToggle={() => (pairedExpanded = !pairedExpanded)} />
     {/if}
   </SettingsSection>
 {/if}

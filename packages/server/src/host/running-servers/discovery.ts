@@ -3,6 +3,7 @@ import { gitOutputPath, runAsync } from '../../git/exec'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { loadProjectConfig } from '../../project-config/project-config'
 import { resolveHomePath } from '../../platform/paths'
+import { runBounded } from '../../lib/concurrency'
 import type { RunningServer, ServerEndpoint } from '@solus/contracts/running-servers'
 import { listListeningSockets, localListenerAddress, type Listener } from './listeners'
 import { processFacts, readProcessTags, workingDirectories, type ProcessFacts } from './processes'
@@ -25,11 +26,11 @@ export interface DiscoveryDeps {
 }
 
 async function configuredUrls(paths: string[]): Promise<ConfiguredUrl[]> {
-  const entries = await Promise.all(paths.map(async (path) => {
+  const entries = await runBounded(paths.map((path) => async () => {
     const cwd = resolveHomePath(path)
     const config = await loadProjectConfig(cwd)
     return (config?.serverUrls ?? []).map((url) => ({ cwd, url }))
-  }))
+  }), 8)
   return entries.flat()
 }
 
@@ -149,11 +150,11 @@ export class ServerDiscovery {
 
   /** Resolve on the host: a session can start in a subfolder or a nested worktree. */
   async checkoutRoots(paths: string[]): Promise<{ path: string; root: string | null }[]> {
-    return Promise.all(paths.map(async (path) => {
+    return runBounded(paths.map((path) => async () => {
       const cwd = resolveHomePath(path)
       const top = await runAsync('git', ['rev-parse', '--show-toplevel'], cwd, { timeout: 5000 }).catch(() => null)
       return { path, root: top ? gitOutputPath(cwd, top) : null }
-    }))
+    }), 8)
   }
 
   async identityMatches(server: RunningServer): Promise<boolean> {

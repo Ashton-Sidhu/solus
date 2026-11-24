@@ -180,13 +180,31 @@ approves or denies the request, or until it expires.
 
 ## Link machines in Settings
 
-On desktop and web, open **Settings → Connections → Machine links**, or open a
-host's **Access** tab. On mobile, open **Settings → Environments** or a machine's
+On desktop and web, open **Settings → Hosts**. The **Machine links** section
+under the map lists the links. On mobile, open **Settings → Environments** or a machine's
 detail page. The links show the source machine, target machine, saved route,
 and access. The desktop and web fleet map shows the routes from this device.
 Mobile shows those routes in the environment list.
 
-Choose **Link machines…**, select one or more targets, then choose **Link**.
+On mobile, the **Linked from** section of a machine shows the state of each
+link with its color: Reachable, Expires in N days, Not answering, Failing,
+Expired, or Health unknown (a host that cannot give health). It also shows
+owner access, the expiry, the last time the link reached the machine, the last
+error, every address of the link (the pairing address first), and the date of
+the link. The phone reads link health every 30 seconds, only while the section
+is on screen and the app is in the foreground. A two-way link shows once. A
+one-way link has **Link back** when this phone is connected as owner to the
+target; it links the target to the source with the same flow as **Link
+machines**. A target that the phone has no environment for says **Known only
+through a link** and has **Connect**. When the links are not shown, the section
+says why: not connected, not the owner, reading, or a failed read (with
+**Retry**). The detail page of a machine lists each route with its state: In
+use, Connecting, Standby, Sign-in refused, Different server, Not answering, or
+Not in use.
+
+Choose **Link machines** above the map or in the Machine links section, or
+right-click a host on the map and choose **Link to other machines…**. Select one
+or more targets (or **Select all**), then choose **Link**.
 This approves owner access from the named source to each selected machine.
 Solus uses a local-owner connection to the target when it has one. Otherwise
 it can ask a known machine that already has an owner pairing to that target

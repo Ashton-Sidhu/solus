@@ -12,6 +12,7 @@ export function registerHostPairingHandlers(server: SolusServer, pairings: HostP
   }
   server.register('hostsPair', ([input], ctx) => { ownerOnly(ctx); return pairings.pair(hostPairRequestSchema.parse(input), ctx.abortSignal) })
   server.register('hostsListPaired', (_args, ctx) => { ownerOnly(ctx); return pairings.snapshot() })
+  server.register('hostsLinkHealth', (_args, ctx) => { ownerOnly(ctx); return pairings.health() })
   server.register('hostsUnlink', ([id], ctx) => {
     ownerOnly(ctx)
     const installationId = z.string().min(1).max(200).parse(id)

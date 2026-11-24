@@ -1,7 +1,7 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import { fly } from "svelte/transition";
-  import { Check as CheckIcon, PenLine as WriteIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, Paperclip, PenLine as WriteIcon, X } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -11,7 +11,9 @@
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import InterruptCard from "./InterruptCard.svelte";
   import { Textarea } from "../ui/textarea";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, hosts } from "../../contexts";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
+  import { attachmentUploads, uploadFileObjects } from "../input/lib/attachment-uploads.svelte";
   import {
     formatWaiting,
     inlineCodeParts,
@@ -55,6 +57,12 @@
   const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
   // A member who may only read the session reads the question but cannot answer it.
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
+  const serverId = $derived(runHost(sess?.run) ?? LOCAL_SERVER_ID);
+  const canAttach = $derived(
+    request.responseMode === "message" && !respond &&
+    hosts.get(serverId)?.capabilityRecord?.attachUpload === true &&
+    canDriveSession(serverId, sess?.id, "drive.prompt"),
+  );
   const agentName = $derived(provider === "codex" ? "Codex" : provider === "claude-code" ? "Claude" : "the agent");
   // Who asks, in the eyebrow: an MCP server by name, a teammate's turn (plan 004 F2), else the agent.
   const othersTurn = $derived(othersTurnLabel(request.turnAuthor, self));
@@ -65,13 +73,15 @@
   // The typed remark lives on the request (`request.remarks`), so it stays when
   // the card mounts again and goes back to the composer if the question closes
   // unanswered. The selections stay here: they mean nothing outside the card.
-  type QState = { selections: string[] };
+  type QState = { selections: string[]; files: File[] };
 
   let states = $state<Record<string, QState>>({});
   let currentIndex = $state(0);
   let responded = $state(false);
+  let isUploading = $state(false);
+  let attachmentError = $state("");
   // The host closed it unanswered (its run ended), or the answer was sent.
-  const closed = $derived(responded || !!request.expired);
+  const closed = $derived(responded || isUploading || !!request.expired);
   // Callback questions pause a turn. Async questions can remain open after it ends.
   let askedAt = $state(Date.now());
   let now = $state(Date.now());
@@ -80,11 +90,13 @@
     void request.questionId;
     const init: Record<string, QState> = {};
     for (const q of request.questions) {
-      init[questionKey(q)] = { selections: [] };
+      init[questionKey(q)] = { selections: [], files: [] };
     }
     states = init;
     currentIndex = 0;
     responded = false;
+    isUploading = false;
+    attachmentError = "";
     askedAt = Date.now();
   });
 
@@ -143,7 +155,7 @@
   function ensureState(q: QuestionItem): QState {
     const key = questionKey(q);
     if (!states[key]) {
-      states[key] = { selections: [] };
+      states[key] = { selections: [], files: [] };
     }
     return states[key];
   }
@@ -164,8 +176,8 @@
     return getSelections(q).includes(label);
   }
 
-  function answerFor(q: QuestionItem): string {
-    return formatAnswer(getSelections(q).join(", "), getRemark(q));
+  function answerFor(q: QuestionItem, paths?: string[]): string {
+    return formatAnswer(getSelections(q).join(", "), getRemark(q), paths);
   }
 
   function goPrev() {
@@ -196,18 +208,46 @@
     handleAction("accept");
   }
 
-  function handleAction(action: "accept" | "decline" | "cancel") {
+  async function handleAction(action: "accept" | "decline" | "cancel") {
     if (closed || !canDrive || !request) return;
-    responded = true;
+    const questionId = request.questionId;
+    const api = session.apiFor(tabId);
+    const ctx = session.ctxFor(tabId);
+    const remainsCurrent = () => request.questionId === questionId && !request.expired &&
+      canDrive && session.apiFor(tabId) === api && session.sessionFor(tabId)?.id === ctx.session.sessionId;
     const answers: Record<string, string> = {};
     if (isMcpRequest) {
       answers.__action = action;
     }
     if (action === "accept") {
-      for (const q of request.questions) {
-        answers[questionKey(q)] = answerFor(q);
+      try {
+        for (const q of request.questions) {
+          const files = states[questionKey(q)]?.files ?? [];
+          const paths: string[] = [];
+          for (const file of files) {
+            if (!canAttach || !remainsCurrent()) return;
+            isUploading = true;
+            attachmentError = "";
+            const [upload] = await uploadFileObjects(api, ctx, serverId, [file]);
+            if (!upload) throw new Error("Could not start the upload.");
+            const outcome = await attachmentUploads.landed(upload);
+            if (outcome.status === "failed") {
+              attachmentUploads.cancel(upload.id);
+              throw new Error(outcome.message);
+            }
+            paths.push(outcome.attachment.path);
+            if (!remainsCurrent()) return;
+          }
+          answers[questionKey(q)] = answerFor(q, paths);
+        }
+      } catch (error) {
+        if (remainsCurrent()) attachmentError = error instanceof Error ? error.message : "Could not upload the attachment.";
+        return;
+      } finally {
+        if (request.questionId === questionId) isUploading = false;
       }
     }
+    responded = true;
     sendAnswers(answers);
   }
 
@@ -421,6 +461,44 @@
               }}
             />
           </div>
+          {#if canAttach}
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="interrupt-pill is-text cursor-pointer focus-within:outline focus-within:outline-(--ring)">
+                <Paperclip size={14} />
+                Attach files
+                <input
+                  type="file"
+                  multiple
+                  aria-label="Attach files to answer"
+                  class="sr-only"
+                  disabled={closed}
+                  onchange={(event) => {
+                    const input = event.currentTarget;
+                    ensureState(currentQuestion).files.push(...Array.from(input.files ?? []));
+                    input.value = "";
+                    attachmentError = "";
+                  }}
+                />
+              </label>
+              {#each states[questionKey(currentQuestion)]?.files ?? [] as file, index}
+                <button
+                  type="button"
+                  class="interrupt-pill is-text"
+                  aria-label={`Remove ${file.name}`}
+                  disabled={closed}
+                  onclick={() => ensureState(currentQuestion).files.splice(index, 1)}
+                >
+                  {file.name}
+                  <X size={14} />
+                </button>
+              {/each}
+              {#if isUploading}
+                <span role="status" class="text-transcript-meta">Uploading…</span>
+              {:else if attachmentError}
+                <span role="alert" class="text-transcript-meta">{attachmentError}</span>
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
     {/key}

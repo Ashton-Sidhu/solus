@@ -31,6 +31,7 @@ import { uuidv4 } from "./uuid";
 import { writeFileAtomically } from "./atomic-file";
 
 export interface DraftComposerImageAttachment extends Omit<UploadChatImageAttachment, "dataUrl"> {
+  readonly uploadFailure?: string;
   readonly id: string;
   readonly previewUri: string;
   readonly uploading?: boolean;
@@ -43,6 +44,7 @@ export interface DraftComposerImageAttachment extends Omit<UploadChatImageAttach
 }
 
 export interface DraftComposerFileAttachment {
+  readonly uploadFailure?: string;
   readonly id: string;
   readonly type: "file";
   readonly name: string;
@@ -96,6 +98,7 @@ export function composerStripAttachments(
   uploadStatus: (attachment: DraftComposerAttachment) => AttachmentUploadStatus | undefined,
 ): ReadonlyArray<DraftComposerAttachment> {
   return attachments.filter((attachment) => {
+    if (attachment.uploadFailure !== undefined) return true;
     if (
       attachment.type === "image" ||
       imageMimeType(attachment) !== null ||

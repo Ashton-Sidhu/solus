@@ -234,6 +234,7 @@ export const RPC_PLANES = {
   hostsRemoveForwarded: 'collaboration',
   hostsPair: 'execution',
   hostsListPaired: 'execution',
+  hostsLinkHealth: 'execution',
   hostsUnlink: 'execution',
   hostsLinkedSessionPage: 'execution',
   hostsPairApprovals: 'execution',

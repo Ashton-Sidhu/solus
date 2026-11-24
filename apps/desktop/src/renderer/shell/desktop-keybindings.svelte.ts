@@ -289,10 +289,6 @@ export function installDesktopKeybindings(
         runHost(session.activeSession?.run) === LOCAL_SERVER_ID,
     },
   );
-  useKeybinding("global.show-shortcuts", () => {
-    ui.shortcutsActiveScopes = keybindings.activeScopes();
-    ui.shortcutsModalOpen = true;
-  });
   // Desktop-only: on web the browser owns these combos (and its own zoom), so
   // the disabled registration lets the events fall through untouched.
   const zoomAvailable = localApi.setZoomFactor !== undefined;

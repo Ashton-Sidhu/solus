@@ -672,8 +672,8 @@
             <span class="shrink-0">/</span>
             <span class="truncate text-foreground" aria-current="page">{openCodebaseLabel}</span>
           </p>
-        {:else}
-          <p class="truncate text-workspace-chrome text-muted-foreground">Settings{#if !openHostLabel} / {activeTabMeta.label}{/if}</p>
+        {:else if !openHostLabel}
+          <p class="truncate text-workspace-chrome text-muted-foreground">Settings / {activeTabMeta.label}</p>
         {/if}
       {#if openHostLabel}
         <Breadcrumb.Root class="min-w-0">

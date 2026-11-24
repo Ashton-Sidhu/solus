@@ -64,6 +64,7 @@ export function isQuestionOptionSelected(
 export function pendingInputAnswers(
   questions: readonly { readonly id: string }[],
   drafts: Readonly<Record<string, PendingUserInputDraftAnswer>>,
+  attachmentPaths?: Readonly<Record<string, readonly string[]>>,
 ): Record<string, string> {
   return Object.fromEntries(
     questions.map((question) => [
@@ -71,6 +72,7 @@ export function pendingInputAnswers(
       formatAnswer(
         drafts[question.id]?.selectedOptionValues?.join(", ") ?? "",
         drafts[question.id]?.customAnswer,
+        attachmentPaths?.[question.id],
       ),
     ]),
   );

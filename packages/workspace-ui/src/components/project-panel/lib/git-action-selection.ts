@@ -242,7 +242,7 @@ function pullRequestPrimary(status: GitState): GitPrimaryAction {
   if ((status.targetAheadCount ?? 0) > 0) {
     return {
       kind: 'run',
-      label: status.upstreamRef && status.aheadCount === 0 ? 'Open pull request' : 'Push and open PR',
+      label: status.upstreamRef && status.aheadCount === 0 ? 'Create pull request' : 'Push and open PR',
       action: 'create_pull_request',
     }
   }

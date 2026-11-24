@@ -1,5 +1,6 @@
 import type { AnswerState } from '@solus/client-core/host-catalog'
-import type { HostReadiness } from '@solus/client-core/host-readiness'
+import type { HostReadiness, HostReadinessAction, HostReadinessCopy } from '@solus/client-core/host-readiness'
+import type { LinkedOnlyMachine } from '@solus/client-core/host-linking'
 import type { RouteKind } from '@solus/contracts/host-routes'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
@@ -48,6 +49,13 @@ export interface FleetMachine {
   address: string | null
   hasUpdate: boolean
   needsSetup: boolean
+  /**
+   * Why a host that does not answer does not, in the words every client uses
+   * (`hostReadinessCopy`): "Needs pairing", "Different server", "Not running",
+   * "No address", "Offline", with the one action for it. Null while it answers,
+   * and while its cloud lifecycle says it (stopped, starting).
+   */
+  problem: HostReadinessCopy | null
 }
 
 export interface FleetMachineInput {
@@ -70,6 +78,8 @@ export interface FleetMachineInput {
   load: { cpu: number | null; memory: number | null; latencyMs: number | null } | null
   hasUpdate: boolean
   needsSetup: boolean
+  /** The readiness words of the host (`hostReadinessCopy`). */
+  readinessCopy?: HostReadinessCopy
 }
 
 export function fleetMachine(input: FleetMachineInput): FleetMachine {
@@ -94,6 +104,7 @@ export function fleetMachine(input: FleetMachineInput): FleetMachine {
     address: input.address ?? null,
     hasUpdate: input.hasUpdate,
     needsSetup: input.needsSetup,
+    problem: input.readiness !== 'ready' && (state === 'unreachable' || state === 'reconnecting' || state === 'checking') ? input.readinessCopy ?? null : null,
   }
 }
 
@@ -348,9 +359,10 @@ const UNMEASURED_MAP_WIDTH = 48
 /** A zone's place on the map, in percent of the map box. */
 export interface ZoneBox { x: number; y: number; w: number; h: number }
 
-/** What one row of a zone with room shows: a host, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
+/** What one row of a zone with room shows: a host, a machine known only through a link, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
 export type ZoneSlot =
   | { kind: 'host'; machine: FleetMachine }
+  | { kind: 'linked'; machine: LinkedOnlyMachine }
   | { kind: 'found'; machine: FoundMachine }
   | { kind: 'add'; way: Extract<AddWay, 'cloud' | 'pair'> }
   | { kind: 'empty' }
@@ -397,10 +409,14 @@ export interface MapLayout {
  * empty zone says what it is for. A zone whose hosts are not read yet says so in
  * place of room to grow: what it would offer depends on the answer.
  */
-function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
+function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], linked: readonly LinkedOnlyMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
   const slots: ZoneSlot[] = hosts.map((machine) => ({ kind: 'host', machine }))
+  // A machine that your machines link to is yours: it shows beside them until it is added here.
+  if (zone.id === 'own') {
+    for (const machine of linked.slice(0, Math.max(0, zone.cardCapacity - slots.length))) slots.push({ kind: 'linked', machine })
+  }
   if (answer !== 'ready') return [...slots, { kind: 'unread', state: answer }]
-  for (const machine of found.filter((machine) => machine.zone === zone.id).slice(0, zone.cardCapacity - hosts.length)) {
+  for (const machine of found.filter((machine) => machine.zone === zone.id).slice(0, Math.max(0, zone.cardCapacity - slots.length))) {
     slots.push({ kind: 'found', machine })
   }
   if (zone.id === 'cloud' && slots.length < zone.cardCapacity) slots.push({ kind: 'add', way: 'cloud' })
@@ -416,7 +432,7 @@ function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: reado
  * shows tiles. The zones of a side stack, and each stack is centered on this
  * device, so the links spread evenly above and below it.
  */
-export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED): MapLayout {
+export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED, linked: readonly LinkedOnlyMachine[] = []): MapLayout {
   const across = (rem: number) => (rem / (mapWidth > 0 ? mapWidth : UNMEASURED_MAP_WIDTH)) * 100
   const down = (rem: number) => (rem / MAP_HEIGHT) * 100
   const zoneWidth = Math.min(ZONE_WIDTH.share, across(ZONE_WIDTH.most))
@@ -431,7 +447,7 @@ export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[]
   const stacked = ZONES.map((zone) => {
     const hosts = byZone[zone.id]
     const isFull = isZoneFull(zone, hosts.length)
-    const slots = isFull ? [] : zoneSlots(zone, hosts, found, answers[zone.id])
+    const slots = isFull ? [] : zoneSlots(zone, hosts, linked, found, answers[zone.id])
     const rowCount = isFull ? zone.cardCapacity : slots.length
     const moreFound = found.filter((machine) => machine.zone === zone.id).length - slots.filter((slot) => slot.kind === 'found').length
     return { zone, hosts, isFull, slots, moreFound, height: ZONE_HEADER + rowCount * CARD_HEIGHT + (rowCount - 1) * CARD_GAP + ZONE_FOOT }
@@ -546,6 +562,8 @@ export interface AttentionRow {
   /** What is wrong, or the first names of the hosts the row stands for. */
   note: string
   serverIds: string[]
+  /** The fix of a host that does not answer: retry, start, or pair again (`hostReadinessCopy`). Rows of several hosts retry. */
+  fix: HostReadinessAction | null
 }
 
 const ATTENTION_NOTE = {
@@ -566,7 +584,14 @@ export function attentionRows(machines: readonly FleetMachine[], maxSingleRows =
     return kind ? [{ machine, kind }] : []
   })
   if (listed.length <= maxSingleRows) {
-    return listed.map(({ machine, kind }) => ({ kind, title: machine.label, note: ATTENTION_NOTE[kind], serverIds: [machine.serverId] }))
+    return listed.map(({ machine, kind }) => ({
+      kind,
+      title: machine.label,
+      // A host that does not answer says why in the words every client uses: "Needs pairing", "Not running".
+      note: kind === 'unreachable' && machine.problem ? machine.problem.label : ATTENTION_NOTE[kind],
+      serverIds: [machine.serverId],
+      fix: kind === 'unreachable' ? machine.problem?.action ?? 'retry' : null,
+    }))
   }
   const order: AttentionKind[] = ['unreachable', 'reconnecting', 'signin', 'update']
   return order.flatMap((kind) => {
@@ -578,6 +603,7 @@ export function attentionRows(machines: readonly FleetMachine[], maxSingleRows =
       title: `${hosts.length} ${hosts.length === 1 ? 'host' : 'hosts'}`,
       note: hosts.length > 3 ? `${names}, and ${hosts.length - 3} more` : names,
       serverIds: hosts.map((machine) => machine.serverId),
+      fix: kind === 'unreachable' ? 'retry' : null,
     }]
   })
 }

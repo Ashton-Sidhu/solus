@@ -1,4 +1,5 @@
 import { hostQueryScope } from "../state/host-query-scope";
+import { pullRequestListPagesFamily, pullRequestListPagesKey } from "./pr-list-cache";
 import { labelPr, moveIssue, prFilesViewed, reviewPr, runPrAction, setPrFilesViewed, updateIssue } from "./source-control-actions";
 import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
@@ -18,6 +19,7 @@ const host = vi.hoisted(() => ({
   // The host's spelling of the project remote differs from `baseRepo` on purpose.
   prRepository: vi.fn(async (_ctx: { projectRoot: string }) => ({ host: "github.com", owner: "Team", repo: "App" })),
   prGetDetail: vi.fn(),
+  prUpdateLifecycle: vi.fn(),
   prGetOverview: vi.fn(),
   prGetStack: vi.fn(),
   prEnableStackAutoMerge: vi.fn(),
@@ -675,6 +677,76 @@ it("uses the selected host and pins the native stack heads for mobile auto-merge
     } });
     expect(cancelled._tag).toBe("Success");
     expect(host.prDisableStackAutoMerge).toHaveBeenLastCalledWith({ repo, number: 8 }, 10);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("continues an issue scope from the same host task snapshot", async () => {
+  const task = (number: number) => ({
+    id: `github:${number}`, kind: "issue", providerId: "github",
+    title: `Crash ${number}`, url: `https://github.com/team/app/issues/${number}`,
+    state: { name: "Open", category: "open" },
+    updatedAt: 1700000000000, labels: [],
+  });
+  host.tasksSearch.mockClear().mockResolvedValueOnce([task(2), task(1), task(3)]);
+  const registry = AtomRegistry.make();
+  const target = { environmentId, input: { state: "open" as const, query: "Crash", limit: 2 } };
+  try {
+    const first = await executeAtomQuery(registry, solusIssueList(target));
+    if (first._tag !== "Success") throw new Error("Cannot read the first page");
+    expect(first.value.entries.map(({ key }) => key)).toEqual(["3", "2"]);
+    expect(Object.keys(first.value.nextCursors)).toHaveLength(1);
+    const next = await executeAtomQuery(registry, solusIssueList({
+      ...target, input: { ...target.input, cursors: first.value.nextCursors },
+    }));
+    expect(next).toMatchObject({ value: { entries: [{ key: "1" }], nextCursors: {} } });
+    expect(host.tasksSearch).toHaveBeenCalledTimes(1);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("uses the host lifecycle reply to remove a closed PR from the held open list", async () => {
+  const registry = AtomRegistry.make();
+  const target = { environmentId, input: { state: "open" as const } };
+  const openPr = {
+    ...pr, number: 7, title: "Example", url: "https://github.com/team/app/pull/7",
+    state: "open", draft: false, headRef: "topic", baseRef: "main",
+    updatedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  host.prListProjects.mockReset().mockResolvedValueOnce([
+    { projectRoot: "/repo", page: { items: [openPr], page: 1, hasMore: false } },
+  ]);
+  host.prGetDetail.mockResolvedValueOnce(pr);
+  host.prUpdateLifecycle.mockResolvedValueOnce({ ...openPr, state: "closed" });
+  try {
+    const first = await executeAtomQuery(registry, solusPrList(target));
+    expect(first).toMatchObject({ value: { entries: [{ number: pullRequest.number }] } });
+    const held = pullRequestListPagesFamily(pullRequestListPagesKey(target));
+    registry.mount(held);
+    expect(await runAtomCommand(registry, runPrAction, {
+      environmentId, input: { ...pullRequest, action: "close" },
+    }, quiet)).toMatchObject({ value: { state: "closed" } });
+    expect(registry.get(held)?.entries).toEqual([]);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("applies the T3 PR filters on the host before it chooses a page", async () => {
+  host.prListProjects.mockReset().mockResolvedValueOnce([]);
+  const registry = AtomRegistry.make();
+  try {
+    const input = {
+      state: "open" as const,
+      involvement: "reviewing" as const,
+      filters: { draft: "hide" as const, labels: [["needs review", "bug"]] },
+    };
+    expect((await executeAtomQuery(registry, solusPrList({ environmentId, input })))._tag).toBe("Success");
+    expect(host.prListProjects.mock.lastCall?.[2]).toEqual({
+      state: "open", query: 'review-involves:@me draft:false label:"needs review","bug"',
+    });
   } finally {
     registry.dispose();
   }

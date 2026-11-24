@@ -12,7 +12,7 @@ export function isVideoAttachment(attachment: Pick<Attachment, 'type' | 'name' |
  * there is none: a streamed upload names only the file until its bytes land.
  * A desktop that attached a file on its own host has the absolute path only.
  */
-export function videoAttachmentPath(attachment: Pick<Attachment, 'path' | 'hostPath'>): string | null {
+export function videoAttachmentPath(attachment: Pick<Attachment, 'hostPath'> & Partial<Pick<Attachment, 'path'>>): string | null {
   if (attachment.hostPath) return attachment.hostPath
-  return isAbsoluteHostPath(attachment.path) ? attachment.path : null
+  return attachment.path && isAbsoluteHostPath(attachment.path) ? attachment.path : null
 }

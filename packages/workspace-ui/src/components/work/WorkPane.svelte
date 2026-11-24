@@ -324,7 +324,7 @@
           <!-- Lazy like the document shell: the artifact frame, its
                rail, and the header actions load when an artifact opens. -->
           {#await import("../artifact/ArtifactShell.svelte")}
-            <DocumentModalSkeleton inline title={work.title} />
+            <DocumentModalSkeleton title={work.title} />
           {:then artifactModule}
             {@const ArtifactShell = artifactModule.default}
             <ArtifactShell
@@ -347,10 +347,10 @@
             />
           {/await}
         {:else if !liveReady}
-          <DocumentModalSkeleton inline title={work.title} />
+          <DocumentModalSkeleton title={work.title} />
         {:else}
           {#await import("../document-modal/DocumentModal.svelte")}
-            <DocumentModalSkeleton inline title={work.title} />
+            <DocumentModalSkeleton title={work.title} />
           {:then documentModule}
             {@const DocumentModal = documentModule.default}
             <!-- workId is optional-chained on purpose: props compile to lazy
@@ -368,7 +368,6 @@
               onDirtyChange={(d) => draft?.setDirty(d)}
               onClose={handleClose}
               onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-              inline
               minimizeOutline={!pane.isLeading}
               onRename={viewerReadOnly ? undefined : handleRename}
               onDelete={canDelete ? handleDelete : undefined}
@@ -421,7 +420,7 @@
     onRetry={() => openWork?.retry()}
   />
 {:else}
-  <DocumentModalSkeleton inline title={workMetadata?.title} />
+  <DocumentModalSkeleton title={workMetadata?.title} />
 {/if}
 
 {#if !work && canOpenWorkspace}

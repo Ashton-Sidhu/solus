@@ -11,6 +11,7 @@ import {
   prFilesViewed,
   setPrFilesViewed,
 } from "../solus/source-control-actions";
+import { applyPrListReply, pullRequestListPagesFamily, pullRequestListPagesKey, pullRequestListPagesTargets } from "../solus/pr-list-cache";
 import { hostQueryScope } from "./host-query-scope";
 import {
   solusPrList,
@@ -24,10 +25,9 @@ import {
 import {
   createPullRequestEnvironmentAtoms,
   editHeldPullRequestListEntries,
-  patchPullRequestListEntries,
   pullRequestPendingEditsAtom,
 } from "@t3tools/client-runtime/state/pull-requests";
-import type { EnvironmentId, PullRequestListInput, PullRequestRef } from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestRef } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -41,28 +41,7 @@ import {
   type PullRequestStatsCache,
 } from "../features/pull-requests/pullRequestList";
 
-export const pullRequestListPagesKey = (target: {
-  readonly environmentId: EnvironmentId;
-  readonly input: PullRequestListInput;
-  readonly scope?: string;
-}) =>
-  JSON.stringify([
-    target.environmentId,
-    target.input,
-    target.scope ?? hostQueryScope(target.environmentId),
-  ]);
-
-// Which listing each pages atom holds, so an action's reply can reach the pages past its head.
-const pullRequestListPagesTargets = new WeakMap<
-  object,
-  readonly [EnvironmentId, PullRequestListInput]
->();
-/** The pages loaded past each listing's head, keyed by {@link pullRequestListPagesKey}. */
-export const pullRequestListPagesFamily = Atom.family((key: string) => {
-  const atom = Atom.make<PullRequestListPages | null>(null).pipe(Atom.setIdleTTL(5 * 60_000));
-  pullRequestListPagesTargets.set(atom, JSON.parse(key));
-  return atom;
-});
+export { pullRequestListPagesKey, pullRequestListPagesFamily } from "../solus/pr-list-cache";
 
 /** Diff stats each environment has answered so far, so rows keep them when they scroll away. */
 export const pullRequestListStatsFamily = Atom.family((_environmentId: string) =>
@@ -91,30 +70,14 @@ export const filesViewedReadsFamily = Atom.family((source: ReturnType<typeof prF
 const upstreamPullRequests = createPullRequestEnvironmentAtoms(connectionAtomRuntime, {
   // Rows on pages past each listing's head; the head itself is patched where it is cached.
   actionReply: (target, reply, registry) =>
-    Effect.sync(() => {
-      for (const atom of registry.getNodes().keys()) {
-        const listing =
-          typeof atom === "string" ? undefined : pullRequestListPagesTargets.get(atom);
-        if (listing === undefined || listing[0] !== target.environmentId) continue;
-        registry.update(atom as Atom.Writable<PullRequestListPages | null>, (pages) => {
-          if (pages === null) return pages;
-          const entries = patchPullRequestListEntries(
-            listing[1],
-            pages.entries,
-            target.input,
-            reply,
-            registry.get(pullRequestPendingEditsAtom(target.environmentId)),
-          );
-          return entries === "refresh" || entries === pages.entries ? pages : { ...pages, entries };
-        });
-      }
-    }),
+    Effect.sync(() => applyPrListReply(registry, target.environmentId, target.input, reply)),
   acceptedEdit: (target, edit, registry) =>
     Effect.sync(() => {
       for (const atom of registry.getNodes().keys()) {
         const listing =
           typeof atom === "string" ? undefined : pullRequestListPagesTargets.get(atom);
-        if (listing === undefined || listing[0] !== target.environmentId) continue;
+        if (listing === undefined || listing[0] !== target.environmentId ||
+          listing[2] !== hostQueryScope(target.environmentId)) continue;
         registry.update(atom as Atom.Writable<PullRequestListPages | null>, (pages) => {
           if (pages === null) return pages;
           const entries = editHeldPullRequestListEntries(

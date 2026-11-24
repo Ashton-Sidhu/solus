@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
-  import { portal } from "../portal";
 
   // Stands in for DocumentModal from the moment a document work opens until the
   // modal's own chunk (Tiptap and all) has loaded. Same contract as
@@ -10,8 +9,6 @@
   // place when the shell swaps in.
 
   interface Props {
-    /** Full-pane or floating modal with a backdrop. */
-    inline?: boolean;
     /** Known before the content is, so it stays real type rather than a ghost. */
     title?: string;
     /** The comment margin the real page reserves. "0px" where there are no
@@ -19,7 +16,7 @@
     railWidth?: string;
   }
 
-  let { inline = false, title, railWidth = "18.8125rem" }: Props = $props();
+  let { title, railWidth = "18.8125rem" }: Props = $props();
 
   // Fixed widths, not random ones: the placeholder must not reshuffle on a
   // re-render while the chunk is still in flight.
@@ -31,110 +28,92 @@
   const RAIL_TICKS = [70, 58, 62, 44, 66, 49];
 </script>
 
-{#snippet shellInner()}
-  <div
-    class="relative flex flex-col overflow-hidden bg-(--solus-container-bg) @container {inline
- ? 'h-full'
- : 'h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl border border-(--solus-tool-border) shadow-[shadow:var(--solus-popover-shadow)]'}"
-    role="status"
-    aria-label="Loading document"
+<div
+  class="relative flex h-full flex-col overflow-hidden bg-(--solus-container-bg) @container"
+  role="status"
+  aria-label="Loading document"
+>
+  <!-- Where you are stays real type; only the verbs on the right are ghosts.
+       Height and lead inset come off the same variables the real header uses,
+       so nothing below it shifts when the shell swaps in. -->
+  <header
+    class="workspace-titlebar flex shrink-0 items-center gap-2.5 h-(--solus-chrome-row-h,2.5rem) pl-[max(1.375rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <!-- Where you are stays real type; only the verbs on the right are ghosts.
-         Height and lead inset come off the same variables the real header uses,
-         so nothing below it shifts when the shell swaps in. -->
-    <header
-      class="workspace-titlebar flex shrink-0 items-center gap-2.5 {inline
- ? 'h-(--solus-chrome-row-h,2.5rem) pl-[max(1.375rem,var(--solus-chrome-lead-inset,0px))]'
- : 'h-(--solus-chrome-row-h,2.5rem) pl-[1.375rem]'}"
+    {#if title}
+      <span
+        class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
+      >
+        {title}
+      </span>
+    {:else}
+      <Skeleton class="h-3 w-40 rounded-sm" />
+    {/if}
+    <div class="min-w-4 flex-auto"></div>
+    <!-- One ghost per real control, in row order and at its real width and
+         radius: the Markdown verb, the Share glyph, and the ⋯ menu that
+         closes the row. -->
+    <div
+      class="flex shrink-0 items-center gap-1.5 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
+      aria-hidden="true"
     >
-      {#if title}
-        <span
-          class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
-        >
-          {title}
-        </span>
-      {:else}
-        <Skeleton class="h-3 w-40 rounded-sm" />
-      {/if}
-      <div class="min-w-4 flex-auto"></div>
-      <!-- One ghost per real control, in row order and at its real width and
-           radius: the Markdown verb, the Share glyph, and the ⋯ menu that
-           closes the row. -->
-      <div
-        class="flex shrink-0 items-center gap-1.5 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
-        aria-hidden="true"
-      >
-        <Skeleton class="h-6 w-[4.625rem] rounded-[0.375rem]" />
-        <Skeleton class="size-6 rounded-[0.375rem]" />
-        <Skeleton class="size-6 rounded-[0.375rem]" />
-      </div>
-    </header>
+      <Skeleton class="h-6 w-[4.625rem] rounded-[0.375rem]" />
+      <Skeleton class="size-6 rounded-[0.375rem]" />
+      <Skeleton class="size-6 rounded-[0.375rem]" />
+    </div>
+  </header>
 
-    <div class="flex min-h-0 flex-1">
-      <!-- Ghost outline ticks, folding at the same container width as the real rail. -->
-      <div
-        class="ml-3 shrink-0 grow-0 basis-22 pt-10 pr-3.5 pb-8 @max-[45rem]:hidden @min-[90rem]:basis-38"
-        aria-hidden="true"
-      >
-        <div class="flex flex-col gap-3">
-          {#each RAIL_TICKS as tick, i (i)}
-            <Skeleton
-              class="h-1.5 rounded-full opacity-60"
-              style="width:{tick}%;animation-delay:{i * 70}ms"
-            />
-          {/each}
-        </div>
+  <div class="flex min-h-0 flex-1">
+    <!-- Ghost outline ticks, folding at the same container width as the real rail. -->
+    <div
+      class="ml-3 shrink-0 grow-0 basis-22 pt-10 pr-3.5 pb-8 @max-[45rem]:hidden @min-[90rem]:basis-38"
+      aria-hidden="true"
+    >
+      <div class="flex flex-col gap-3">
+        {#each RAIL_TICKS as tick, i (i)}
+          <Skeleton
+            class="h-1.5 rounded-full opacity-60"
+            style="width:{tick}%;animation-delay:{i * 70}ms"
+          />
+        {/each}
       </div>
+    </div>
 
-      <div class="doc-skeleton-column flex min-w-0 flex-1 flex-col" style:--solus-doc-rail-w={railWidth}>
-        <!-- Nothing scrolls yet: a placeholder that can be scrolled away from
-             would leave the real document scrolled somewhere arbitrary. The
-             gutter is still reserved, like the real scroll region's. -->
-        <div class="min-h-0 flex-1 overflow-hidden [scrollbar-gutter:stable]">
-          <div class="doc-skeleton-page">
-            <div class="doc-skeleton-prose min-w-0 flex-1" aria-hidden="true">
-              <Skeleton class="rounded-lg" style="height:2.53em;width:58%" />
-              <!-- The byline the real h1 hangs off. -->
-              <div class="flex items-center gap-2" style="margin:0.42em 0 1.9em">
-                <Skeleton class="rounded-full opacity-55" style="height:0.72em;width:5.5em" />
-                <Skeleton class="rounded-full opacity-55" style="height:0.72em;width:4em" />
-              </div>
-              {#each SECTIONS as section, s (s)}
-                <Skeleton
-                  class="rounded-md"
-                  style="height:1.63em;width:{section.heading}%;margin:1.9em 0 0.55em"
-                />
-                <div class="flex flex-col" style="gap:1.02em">
-                  {#each section.lines as line, l (l)}
-                    <Skeleton
-                      class="rounded-sm opacity-80"
-                      style="height:0.7em;width:{line}%;animation-delay:{s * 90 + l * 60}ms"
-                    />
-                  {/each}
-                </div>
-              {/each}
+    <div class="doc-skeleton-column flex min-w-0 flex-1 flex-col" style:--solus-doc-rail-w={railWidth}>
+      <!-- Nothing scrolls yet: a placeholder that can be scrolled away from
+           would leave the real document scrolled somewhere arbitrary. The
+           gutter is still reserved, like the real scroll region's. -->
+      <div class="min-h-0 flex-1 overflow-hidden [scrollbar-gutter:stable]">
+        <div class="doc-skeleton-page">
+          <div class="doc-skeleton-prose min-w-0 flex-1" aria-hidden="true">
+            <Skeleton class="rounded-lg" style="height:2.53em;width:58%" />
+            <!-- The byline the real h1 hangs off. -->
+            <div class="flex items-center gap-2" style="margin:0.42em 0 1.9em">
+              <Skeleton class="rounded-full opacity-55" style="height:0.72em;width:5.5em" />
+              <Skeleton class="rounded-full opacity-55" style="height:0.72em;width:4em" />
             </div>
-            <!-- The comment margin, held open but left empty: the threads are
-                 the reader's, not ours to invent while the chunk loads. -->
-            <div class="doc-skeleton-rail" aria-hidden="true"></div>
+            {#each SECTIONS as section, s (s)}
+              <Skeleton
+                class="rounded-md"
+                style="height:1.63em;width:{section.heading}%;margin:1.9em 0 0.55em"
+              />
+              <div class="flex flex-col" style="gap:1.02em">
+                {#each section.lines as line, l (l)}
+                  <Skeleton
+                    class="rounded-sm opacity-80"
+                    style="height:0.7em;width:{line}%;animation-delay:{s * 90 + l * 60}ms"
+                  />
+                {/each}
+              </div>
+            {/each}
           </div>
+          <!-- The comment margin, held open but left empty: the threads are
+               the reader's, not ours to invent while the chunk loads. -->
+          <div class="doc-skeleton-rail" aria-hidden="true"></div>
         </div>
       </div>
     </div>
   </div>
-{/snippet}
-
-{#if inline}
-  {@render shellInner()}
-{:else}
-  <div
-    use:portal={document.body}
-    class="doc-skeleton-backdrop modal-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
-    role="presentation"
-  >
-    {@render shellInner()}
-  </div>
-{/if}
+</div>
 
 <style>
   /* The measure ladder and the comment margin, copied off the real doc column

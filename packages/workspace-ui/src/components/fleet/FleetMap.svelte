@@ -1,11 +1,13 @@
 <script lang="ts">
   import { ChevronRight, KeyRound, Laptop, Link2, Plus, RotateCw, Terminal } from "@lucide/svelte";
+  import type { LinkedOnlyMachine, MachineLinkTone, MachineLinkView } from "@solus/client-core/host-linking";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import FleetMapCard from "./FleetMapCard.svelte";
   import FleetTile from "./FleetTile.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
   import type { FoundMachine } from "./lib/discover";
+  import { machineLinkSummary, mapLinkLines } from "./lib/machine-link-map";
   import {
     CARD_HEIGHT,
     groupsOf,
@@ -34,7 +36,8 @@
    * your machines, for Solus Cloud, and for the hosts shared with you, and a link
    * to each host, or one link for a zone too full for cards.
    * Its only continuous motion is the approved light on busy links (D5), paused
-   * by `isLive`.
+   * by `isLive`. Machine links (D13) are lines between the cards: faint at rest,
+   * clear for the machine under the pointer.
    */
   interface Props {
     machines: FleetMachine[];
@@ -54,23 +57,43 @@
     onPointFound: (key: string | null) => void;
     /** Reads a zone's hosts again after its read failed. */
     onRetry: (zone: FleetZoneId) => void;
+    /** Every link between two machines (D13). */
+    links: MachineLinkView[];
+    /** The machines that links reach and that this device has no entry for. */
+    linked: LinkedOnlyMachine[];
+    /** The machine known only through a link that is under the pointer; null when the pointer leaves it. */
+    focusLinkedId: string | null;
+    onPointLinked: (installationId: string | null) => void;
+    /** Adds a machine known only through a link to this device. */
+    onConnectLinked: (machine: LinkedOnlyMachine) => void;
   }
 
-  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry }: Props = $props();
+  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry, links, linked, focusLinkedId, onPointLinked, onConnectLinked }: Props = $props();
 
   /** The map's own box, in px. Its height is `MAP_HEIGHT` rem, so the two give its width in rem. */
   let mapWidth = $state(0);
   let mapHeight = $state(0);
 
-  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers));
+  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers, linked));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
+  const linkLines = $derived(mapLinkLines(map, links, device?.installationId ?? null));
+  /** The machine whose links are clear: the host or the linked machine under the pointer. */
+  const focusInstallationId = $derived(focusLinkedId ?? machines.find((machine) => machine.serverId === focusId)?.installationId ?? null);
+  const linkColor = {
+    ok: "var(--solus-text-tertiary)",
+    warn: "var(--warning)",
+    bad: "var(--solus-status-error)",
+    unknown: "var(--hairline-strongest)",
+  } satisfies Record<MachineLinkTone, string>;
   const tunneled = $derived(map.zones.flatMap(({ zone, hosts }) => (zone.isViaTunnel ? hosts : [])));
   const hubPort = $derived({ x: map.hub.x + map.hub.w / 2, y: map.hub.y });
   const tunnelSummary = $derived(rollup(tunneled));
 
   const isZoneLit = (hosts: FleetMachine[]) => !focusId || hosts.some((machine) => machine.serverId === focusId);
   const isLit = (serverId: string) => !focusId || focusId === serverId;
-  const slotKey = (slot: ZoneSlot) => `${slot.kind}:${slot.kind === "host" ? slot.machine.serverId : slot.kind === "found" ? slot.machine.key : ""}`;
+  const slotKey = (slot: ZoneSlot) => `${slot.kind}:${slot.kind === "host" ? slot.machine.serverId : slot.kind === "found" ? slot.machine.key : slot.kind === "linked" ? slot.machine.installationId : ""}`;
+  /** At rest a link is faint; the links of the machine under the pointer are clear, and the others fade. */
+  const linkOpacity = (ends: [string, string]) => (!focusInstallationId ? 0.5 : ends.includes(focusInstallationId) ? 1 : 0.12);
   const addCards = {
     cloud: { title: "New machine", subtitle: "Ready in a minute" },
     pair: { title: "Pair a machine", subtitle: "With the code it shows" },
@@ -204,7 +227,30 @@
         {/each}
       {/if}
     {/each}
+    <!-- Machine links (D13): a line from the machine that holds the link to the one it reaches; dotted when it wants attention. -->
+    {#each linkLines as line (line.id)}
+      <path d={line.d} fill="none" vector-effect="non-scaling-stroke"
+        stroke-width={focusInstallationId && line.ends.includes(focusInstallationId) ? 1.75 : 1.25}
+        stroke-dasharray={line.tone === "ok" ? undefined : "2 3"}
+        style:stroke={linkColor[line.tone]}
+        style:opacity={linkOpacity(line.ends)} />
+    {/each}
   </svg>
+
+  <!-- Arrowheads: where a link reaches a machine. The map stretches its lines, so a head is drawn in the page, not in the line. -->
+  {#each linkLines as line (line.id)}
+    {#each line.arrows as arrow, index (index)}
+      <span
+        aria-hidden="true"
+        class="pointer-events-none absolute z-15 size-0 -translate-y-1/2 border-y-[3.5px] border-y-transparent {arrow.dir === 1 ? 'border-l-[6px] -translate-x-full' : 'border-r-[6px]'}"
+        style:left="{arrow.at.x}%"
+        style:top="{arrow.at.y}%"
+        style:border-left-color={arrow.dir === 1 ? linkColor[line.tone] : undefined}
+        style:border-right-color={arrow.dir === -1 ? linkColor[line.tone] : undefined}
+        style:opacity={linkOpacity(line.ends)}
+      ></span>
+    {/each}
+  {/each}
 
   <!-- Ports: where a link meets its card, or the edge of a full zone. -->
   {#each map.zones as { zone, hosts, isFull, rows, port } (zone.id)}
@@ -287,6 +333,7 @@
           machine={slot.machine}
           {at}
           width={map.cardWidth}
+          links={machineLinkSummary(links, slot.machine.installationId)}
           isDimmed={!machineMatches(slot.machine, query)}
           {onPoint}
           {onOpen}
@@ -294,6 +341,8 @@
         />
       {:else if slot.kind === "found"}
         {@render foundCard(slot.machine, at)}
+      {:else if slot.kind === "linked"}
+        {@render linkedCard(slot.machine, at)}
       {:else if slot.kind === "add"}
         {@render addCard(slot.way, at)}
       {:else if slot.kind === "unread"}
@@ -334,6 +383,30 @@
     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
       <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.name}</span>
       <span class="truncate text-chrome-dense">Found nearby</span>
+    </span>
+    <Plus size={13} class="shrink-0 group-hover:text-foreground" />
+  </button>
+{/snippet}
+
+<!-- A machine known only through a link: dashed, as it is not on this device yet. Selecting it connects this device. -->
+{#snippet linkedCard(machine: LinkedOnlyMachine, at: Point)}
+  <button
+    type="button"
+    onclick={() => onConnectLinked(machine)}
+    onmouseenter={() => onPointLinked(machine.installationId)}
+    onmouseleave={() => onPointLinked(null)}
+    onfocus={() => onPointLinked(machine.installationId)}
+    onblur={() => onPointLinked(null)}
+    class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none"
+    style:left="{at.x}%"
+    style:top="{at.y}%"
+    style:width="{map.cardWidth}%"
+    style:height="{CARD_HEIGHT}rem"
+  >
+    <span class="grid size-[30px] shrink-0 place-items-center"><Link2 size={13} /></span>
+    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.label}</span>
+      <span class="truncate text-chrome-dense">Linked from {machine.viaLabels.join(", ")}</span>
     </span>
     <Plus size={13} class="shrink-0 group-hover:text-foreground" />
   </button>

@@ -1,4 +1,4 @@
-import { RunningServers, RunningServersController, type RunningServersStoreState } from '@solus/client-core/running-servers'
+import { RunningServers, RunningServersController, type RunningServersScope, type RunningServersStoreState } from '@solus/client-core/running-servers'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
 import { SvelteMap } from 'svelte/reactivity'
@@ -37,8 +37,10 @@ export class RunningServersStore {
 
   inCheckout(path: string | null) { return this.#controller.inCheckout(path) }
   rows(path?: string | null) { return this.#controller.rows(path) }
+  rowsForScope(scope: RunningServersScope) { return this.#controller.rowsForScope(scope) }
   retry() { this.#controller.retry() }
   retainCheckout(path: string | null) { return this.#controller.retainCheckout(path) }
+  retainCheckouts(paths: readonly string[]) { return this.#controller.retainCheckouts(paths) }
   configuredUrls(path: string) { return this.#controller.configuredUrls(path) }
   configureUrls(path: string, urls: string[]) { return this.#controller.configureUrls(path, urls) }
 }

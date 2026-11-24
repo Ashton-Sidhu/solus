@@ -40,7 +40,9 @@ import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
 import { useProjects } from "../../state/entities";
 import { issueEnvironment, useIssueList } from "../../state/issues";
 import { useDebouncedValue } from "../../state/queries";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import { useHostQueryTargets } from "../../state/host-query-scope";
 import { useWorkspaceState } from "../../state/workspace";
 import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
 import { useSearchScrollRestoration } from "../layout/workspace/useSearchScrollRestoration";
@@ -168,7 +170,7 @@ export function IssuesScreen(
 
   const [pages, setPages] = useState<ReadonlyMap<EnvironmentId, HeldIssuePage>>(new Map());
   const held = holdIssuePages(list.answers, pages);
-  const loadPage = useAtomCommand(issueEnvironment.listPage, { reportFailure: false });
+  const scopedTargets = useHostQueryTargets(targets);
   const [loadingMore, setLoadingMore] = useState(false);
   const loading = useRef(false);
   const continuable = [...held].filter(([, page]) => Object.keys(page.nextCursors).length > 0);
@@ -179,10 +181,12 @@ export function IssuesScreen(
     setLoadingMore(true);
     const loaded = await Promise.all(
       continuable.map(async ([environmentId, page]) => {
-        const result = await loadPage({
-          environmentId,
+        const target = scopedTargets.find((target) => target.environmentId === environmentId);
+        if (!target) return [environmentId, page] as const;
+        const result = await executeAtomQuery(appAtomRegistry, issueEnvironment.list({
+          ...target,
           input: { ...listInput, cursors: page.nextCursors },
-        });
+        }), { refresh: retry, reportFailure: false });
         const failure = AsyncResult.isFailure(result) ? squashAtomCommandFailure(result) : null;
         return [
           environmentId,

@@ -27,6 +27,8 @@ export interface AttachmentUploadTokenRequest {
   mime: string
   /** Exact byte count. The upload route refuses a body of any other length. */
   size: number
+  /** Stage the bytes until the client keeps them for a prompt. */
+  pending?: boolean
 }
 
 export interface AttachmentUploadTokenResult {
@@ -35,6 +37,8 @@ export interface AttachmentUploadTokenResult {
   /** Where the file will be once the upload succeeds. */
   hostPath: string
   expiresAt: number
+  /** A URL that supports HEAD (verify), POST (keep) and DELETE (discard). */
+  pendingUrl?: string
 }
 
 export interface AssetCreateUrlRequest {
@@ -321,6 +325,7 @@ export const RPC_INVOKE_METHODS = [
   // The hosts the owner connected to themselves, while signed out (plans/031 D7)
   'hostsPair',
   'hostsListPaired',
+  'hostsLinkHealth',
   'hostsUnlink',
   'hostsLinkedSessionPage',
   // Approval requests from machines that ask to pair (docs/plans/add-machine-card.md)

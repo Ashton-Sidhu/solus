@@ -27,7 +27,6 @@ export interface WebPaletteDeps {
   projectPicker: ReturnType<typeof createProjectPicker>;
   composerSourceId: () => string | undefined;
   shareTarget: () => ShareDialogTarget | null;
-  showShortcuts: () => void;
 }
 
 /**
@@ -180,9 +179,8 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     id: "shortcuts",
     label: "Keyboard shortcuts",
     group: "General",
-    hint: comboHint("global.show-shortcuts"),
     keywords: ["keybindings", "keys"],
-    run: () => deps.showShortcuts(),
+    run: () => session.showSettings("keybindings", "palette"),
   },
   ];
 }

@@ -20,6 +20,7 @@ export function ThreadHeader(props: {
   readonly subtitle: string;
   readonly gitControls: ThreadGitControlsProps | (ThreadGitMenuProps & { readonly canOpenFiles: boolean });
   readonly onReturnToThread?: () => void;
+  readonly onOpenRunningServers?: () => void;
   readonly draft?: boolean;
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
@@ -54,6 +55,7 @@ export function ThreadNavigationHeader(props: {
   readonly subtitle: string;
   readonly draft?: boolean;
   readonly onReturnToThread?: () => void;
+  readonly onOpenRunningServers?: () => void;
   readonly actions?: AppBarAction[];
   readonly menus?: AppBarMenu[];
 }) {
@@ -75,7 +77,10 @@ export function ThreadNavigationHeader(props: {
             }
           : undefined
       }
-      actions={props.actions}
+      actions={props.onOpenRunningServers ? [
+        ...(props.actions ?? []),
+        { accessibilityLabel: gt("Running servers"), icon: "server.rack", onPress: props.onOpenRunningServers },
+      ] : props.actions}
       menus={props.menus}
       hideBottomBorder
     />

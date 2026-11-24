@@ -25,10 +25,14 @@ describe('path autocomplete stays shallow', () => {
     expect(matches?.map(match => match.path)).toEqual([join(fixture, 'Documents')])
   })
   test('existing external directories never include grandchildren', async () => {
-    const matches = await browseFileMatches(join(fixture, 'Documents'), workspace)
+    const matches = await browseFileMatches(join(fixture, 'Documents') + '/', workspace)
     expect(matches?.map(match => match.path)).toEqual([
       join(fixture, 'Documents', 'nested'), join(fixture, 'Documents', 'direct.txt'),
     ])
+  })
+  test('a folder name without its closing slash matches in the parent, not inside', async () => {
+    const matches = await browseFileMatches(join(fixture, 'Documents'), workspace)
+    expect(matches?.map(match => match.path)).toEqual([join(fixture, 'Documents')])
   })
   test('relative paths outside the workspace are shallow too', async () => {
     const matches = await browseFileMatches('../../Documents/dir', workspace)

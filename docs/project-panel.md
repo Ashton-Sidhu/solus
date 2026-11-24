@@ -40,7 +40,15 @@ When the working directory is not a repository, the Git section shows "This fold
 
 Select **Uncommitted** to see staged, unstaged, and untracked changes against HEAD. Select **Session** or a turn to see changes from the session snapshots. The line counts in the project panel stay on the checkout comparison. Reading either checkout comparison preserves the staging area.
 
-The linked pull request group starts with an Open row. Its menu has "In Solus", which opens the pull request pane, and "In browser", which opens the pull request on the code host. While the session watches the pull request, the group shows "Stop watching". The row stops the watch on the host that runs the session; a viewer who may not change the session's watches sees it disabled. When a row is narrow, the repository name of a pull request in another repository is cut first, then the title. The number always shows. The group heading and the other linked pull request rows use the same order.
+The linked pull request is one row of two lines, as in T3 Code. The first line has the status glyph and the title. Select the title to open the pull request pane. Point at the title to see its details: the full title and number, its state, `base ← head`, the repository of a pull request in another repository, and the size of the change. The caret beside the title opens a menu: **Open in Solus**, **Open in browser**, **Copy link**, and the review guide (**Generate review guide**, or **Review guide** and **Regenerate review guide** when there is one; a clock icon marks a guide written for an earlier commit).
+
+The second line has the number, the checks, the watch, and the next move:
+
+- The checks button shows the checks glyph and a count: "3 failed", "2 running", or no text when all passed. "Checking" shows while the checks of the current head are not known yet. Select it to see the checks: failed ones first, then running ones, with **Details** for each. The checks that passed fold behind **Show all**. **Open checks** opens the activity of the pull request pane.
+- While the session watches the pull request, an eye shows. Select it to stop the watch on the host that runs the session. A viewer who may not change the session's watches sees it disabled.
+- At the right is one short verb for the next move: **Fix** or **Resolve**, which open a new session draft for an agent, or **Merge**, **Auto-merge**, **Ready**, or **Update**, which run on the code host. Its tooltip gives the full action. Nothing shows there while the next step is someone else's.
+
+The other linked pull requests fold behind **Show N more**. Select one to show it in the two-line row.
 
 ## Repositories and folders
 

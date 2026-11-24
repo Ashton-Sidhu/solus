@@ -422,6 +422,9 @@ interval can leave a held, uncertain turn that the author must inspect.
   turn ends; its answer starts a new turn or steers an active one. The host
   saves the accepted answer and rebuilds one Q&A row from the provider reply
   when history loads. The delivery message does not appear as a user bubble.
+  You can dismiss an async question or attach a file to an answer in its
+  session. The file uploads to that session's host when you submit. The answer
+  includes the path the agent can open.
   Older single-question replies can be recovered from their saved question and
   confirmed delivery state; ambiguous older replies remain plain text.
   Codex question ids name the app-server that asked, so two seats never share

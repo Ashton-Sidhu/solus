@@ -7,6 +7,7 @@
     CloudUpload as CloudArrowUpIcon,
     GitCommitHorizontal as GitCommitIcon,
     Link as LinkIcon,
+    Plus as PlusIcon,
     FileDiff as FileDiffIcon,
     Search as MagnifyingGlassIcon,
     Send as PaperPlaneTiltIcon,
@@ -456,13 +457,6 @@
         ) ?? null)
       : null,
   );
-  /** Show the pull request after the shown one, around to the first. */
-  function cycleShownPr() {
-    if (!shownPr || cardPrs.length < 2) return;
-    const index = cardPrs.indexOf(shownPr);
-    chosenPrKey = cardPrs[(index + 1) % cardPrs.length]!.key;
-    requestInputFocus();
-  }
 
   // CI state colours the glyph. `checksPresentation` is the same reading the PRs
   // page shows, so the two surfaces can't disagree — including its refusal to
@@ -799,7 +793,7 @@
     </div>
   {/each}
   <!-- Once the session has a pull request, the column continues past the Git
-       rows: a divider, then what to do with the shown pull request. -->
+       rows with it: one row of two lines. -->
   {#if shownPr && isPanelItemShown(hiddenItems, "git.pullRequest")}
     <LinkedPullRequestRows
       pr={shownPr.pr}
@@ -810,8 +804,6 @@
       api={prApi}
       checks={checksFor(shownPr)}
       {active}
-      position={cardPrs.length > 1 ? { index: cardPrs.indexOf(shownPr), count: cardPrs.length } : null}
-      onCycle={cycleShownPr}
       onMerged={() => void loadOpenPrs()}
       onAgentDraft={openAgentDraft}
     />
@@ -819,10 +811,6 @@
   <!-- The session's other open pull requests, folded behind "Show N more",
        one row each. A row brings its pull request into the group. -->
   {#if otherPrRows.length && isPanelItemShown(hiddenItems, "git.otherPullRequests")}
-    <div
-      class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-      aria-hidden="true"
-    ></div>
     {#if otherPrsExpanded}
       {#each otherPrs as card, index (card.key)}
         <MenuRow
@@ -834,16 +822,18 @@
         />
       {/each}
     {/if}
-    <div class="flex items-center px-1.5 pt-0.5 text-chrome-dense text-(--solus-text-tertiary)">
+    <div class="flex items-center px-0.5 text-chrome-dense text-(--solus-text-tertiary)">
       <button
         type="button"
-        class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2"
+        class="flex min-h-7 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] px-1.5 text-left hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2"
         aria-expanded={otherPrsExpanded}
         onclick={() => {
           otherPrsExpanded = !otherPrsExpanded;
           requestInputFocus();
         }}
-        >{otherPrsExpanded ? "Show less" : `Show ${otherPrRows.length} more`}</button
+        ><PlusIcon size={14} class={otherPrsExpanded ? "rotate-45" : ""} />{otherPrsExpanded
+          ? "Show less"
+          : `Show ${otherPrRows.length} more`}</button
       >
     </div>
   {/if}

@@ -71,7 +71,6 @@ export const KEYBINDINGS = {
   'global.switch-worktree':   { combo: { alt: true, shift: true, code: 'KeyH' },          scope: 'global',             label: 'Switch worktree',          group: 'Git' },
   'global.continue-worktree': { combo: { alt: true, code: 'KeyW' },                       scope: 'global',             label: 'Continue in worktree',     group: 'Git' },
   'global.git-open-terminal': { combo: { alt: true, shift: true, code: 'KeyY' },          scope: 'global',             label: 'Open worktree in terminal', group: 'Git' },
-  'global.show-shortcuts':    { combo: { mod: true, code: 'Slash' },                      scope: 'global',             label: 'Keyboard shortcuts',       group: 'General' },
   'global.command-palette':   { combo: { mod: true, code: 'KeyK' },                       scope: 'global',             label: 'Command palette',          group: 'General' },
   'global.project-search':    { combo: { mod: true, shift: true, code: 'KeyF' },           scope: 'global',             label: 'Search in project',        group: 'Navigation' },
   'global.go-to-file':        { combo: { mod: true, code: 'KeyE' },                        scope: 'global',             label: 'Go to file',               group: 'Navigation' },
@@ -252,7 +251,6 @@ export const KEYBINDINGS = {
   'app-surface.toggle-manage':     { combo: { alt: true, code: 'KeyG' },                   scope: 'app-surface',        label: 'Switch between the app and Manage', group: 'App' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
-  'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },
 
   // ── Unassigned by default ──────────────────────────────────────────────────
   // Menus and pages that are only reachable by pointer or through the command

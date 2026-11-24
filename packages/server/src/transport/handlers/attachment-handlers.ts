@@ -1,12 +1,12 @@
 import { existsSync } from 'fs'
-import { link, open, unlink } from 'fs/promises'
+import { link, open, readdir, stat, unlink } from 'fs/promises'
 import { basename, dirname, isAbsolute, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, namedUploadPath, storeAttachment } from '../../data/assets/attachment-store'
+import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, attachmentsRoot, guestImageSignature, attachmentUploadPath, namedUploadPath, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -50,6 +50,7 @@ interface AttachmentUploadTokenPayload {
   expiresAt: number
   /** A guest's upload: the bytes must be the image type the token names (`assertGuestAttachment`). */
   fromGuest?: true
+  pending?: true
 }
 
 const attachmentUploadTokenPayloadSchema = z
@@ -60,6 +61,7 @@ const attachmentUploadTokenPayloadSchema = z
     mime: z.string(),
     expiresAt: z.number().int(),
     fromGuest: z.literal(true).optional(),
+    pending: z.literal(true).optional(),
   })
   .strict()
 
@@ -93,8 +95,12 @@ export async function createUploadToken(
   const expiresAt = (deps.now ?? Date.now()) + ATTACHMENT_UPLOAD_TOKEN_TTL_MS
   const payload: AttachmentUploadTokenPayload = { kind: 'upload', path: filePath, size: request.size, mime: request.mime, expiresAt }
   if (deps.fromGuest) payload.fromGuest = true
+  if (request.pending === true && !deps.keepName) payload.pending = true
   const token = signToken(payload, deps.secret ?? getAssetSigningSecret())
-  return { relativeUrl: `/api/uploads/${token}`, hostPath: filePath, expiresAt }
+  return {
+    relativeUrl: `/api/uploads/${token}`, hostPath: filePath, expiresAt,
+    ...(payload.pending && { pendingUrl: `/api/uploads/${token}/pending` }),
+  }
 }
 
 export function verifyAttachmentUploadToken(
@@ -123,7 +129,87 @@ export async function receiveAttachmentUpload(
   if (request.contentLength === undefined || !/^\d+$/.test(request.contentLength) || Number(request.contentLength) !== payload.size) {
     return new Response(`Content-Length must be ${payload.size}`, { status: 400 })
   }
-  return writeStreamedAttachment(payload, request.body)
+  if (!payload.pending) return writeStreamedAttachment(payload, request.body)
+  if (existsSync(payload.path)) return new Response(null, { status: 204 })
+  const path = pendingPath(payload)
+  if (pendingWrites.has(path)) return new Response(null, { status: 409 })
+  const pending = writeStreamedAttachment({ ...payload, path }, request.body)
+  pendingWrites.set(path, pending)
+  try {
+    const response = await pending
+    if (response.ok) schedulePendingExpiry(path, payload.expiresAt, options.now ?? Date.now())
+    return response
+  } finally {
+    if (pendingWrites.get(path) === pending) pendingWrites.delete(path)
+  }
+}
+
+const pendingPrefix = '.pending-upload-'
+const pendingWrites = new Map<string, Promise<Response>>()
+const pendingExpiry = new Map<string, ReturnType<typeof setTimeout>>()
+const pendingPath = (payload: AttachmentUploadTokenPayload) =>
+  join(dirname(payload.path), `${pendingPrefix}${payload.expiresAt}-${basename(payload.path)}`)
+
+function schedulePendingExpiry(path: string, expiry: number, now: number): void {
+  if (pendingExpiry.has(path)) return
+  const timer = setTimeout(() => {
+    pendingExpiry.delete(path)
+    void removePendingFile(path).catch(() => {})
+  }, Math.max(0, expiry - now))
+  timer.unref()
+  pendingExpiry.set(path, timer)
+}
+
+async function removePendingFile(path: string): Promise<void> {
+  clearTimeout(pendingExpiry.get(path))
+  pendingExpiry.delete(path)
+  try {
+    await unlink(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+async function recoverPendingUploads(directory: string, now: number): Promise<void> {
+  const files = await readdir(directory)
+  await Promise.all(files.map(async (leaf) => {
+    const expiry = leaf.match(/^\.{1,2}pending-upload-(\d+)-[\da-f]{24}-/)?.[1]
+    if (!expiry) return
+    const path = join(directory, leaf)
+    if (pendingWrites.has(path)) return
+    if (Number(expiry) <= now) await removePendingFile(path).catch(() => {})
+    else schedulePendingExpiry(path, Number(expiry), now)
+  }))
+}
+
+/** A pending capability can never remove a file that a prompt has kept. */
+export async function managePendingAttachment(
+  token: string,
+  method: 'HEAD' | 'POST' | 'DELETE',
+  options: { secret?: Buffer; now?: number } = {},
+): Promise<Response> {
+  const payload = verifyAttachmentUploadToken(token, options.secret ?? getAssetSigningSecret(), options.now)
+  if (!payload?.pending) return new Response(null, { status: 403 })
+  const pending = pendingPath(payload)
+  await pendingWrites.get(pending)?.catch(() => {})
+  if (method === 'DELETE') {
+    await removePendingFile(pending)
+    return new Response(null, { status: 204 })
+  }
+  if (method === 'POST') {
+    try {
+      await link(pending, payload.path)
+    } catch (error) {
+      if (!existsSync(payload.path)) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Response(null, { status: 404 })
+        throw error
+      }
+    }
+    await removePendingFile(pending)
+    return new Response(null, { status: 204 })
+  }
+  const size = await stat(pending).catch(() => stat(payload.path)).then((file) => file.size, () => null)
+  return new Response(null, { status: size === payload.size ? 204 : 404 })
 }
 
 async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, body: AsyncIterable<Uint8Array>): Promise<Response> {
@@ -171,6 +257,13 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
 }
 
 export function registerAttachmentHandlers(server: SolusServer, deps: AttachmentHandlerDeps = {}): void {
+  const root = deps.attachmentsDir ?? attachmentsRoot()
+  void readdir(root, { withFileTypes: true }).then(async (entries) => {
+    const now = Date.now()
+    for (const entry of entries) {
+      if (entry.isDirectory()) await recoverPendingUploads(join(root, entry.name), now).catch(() => {})
+    }
+  }).catch(() => {})
   server.register('attachUpload', async (args, handlerCtx) => {
     const [ctx, request] = args
     if (handlerCtx.principal.kind === 'guest') assertGuestAttachment(request.mime, dataUrlHead(request.dataUrl))

@@ -5,16 +5,19 @@ import { appAtomRegistry } from "./atom-registry";
 export function questionAttachmentDraftPrefix(
   environmentId: EnvironmentId,
   threadId: ThreadId,
+  accountScope?: string,
 ): string {
-  return `${environmentId}:question-${encodeURIComponent(JSON.stringify(threadId))}-`;
+  const threadKey = accountScope === undefined ? threadId : [threadId, accountScope];
+  return `${environmentId}:question-${encodeURIComponent(JSON.stringify(threadKey))}-`;
 }
 export function questionAttachmentDraftKey(
   environmentId: EnvironmentId,
   threadId: ThreadId,
   requestId: string,
   questionId: string,
+  accountScope?: string,
 ): string {
-  return `${questionAttachmentDraftPrefix(environmentId, threadId)}${encodeURIComponent(JSON.stringify([requestId, questionId]))}`;
+  return `${questionAttachmentDraftPrefix(environmentId, threadId, accountScope)}${encodeURIComponent(JSON.stringify([requestId, questionId]))}`;
 }
 export const questionAttachmentPreparationAtom = Atom.make<Record<string, number>>({}).pipe(
   Atom.keepAlive,

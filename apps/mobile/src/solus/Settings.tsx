@@ -18,6 +18,7 @@ import {
   workerModelChoices,
 } from "@solus-mobile/features/settings/worker-model-choices";
 import type { PersonalSettings } from "@solus/contracts/settings";
+import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import { RATE_LIMIT_CHOICES } from "./settings-labels";
 import { InstructionSettings } from "./SettingsPages";
 import { solus, useSolusWorkspace } from "./runtime";
@@ -37,7 +38,8 @@ export function SolusHosts() {
               key={env.environmentId}
               icon="desktopcomputer"
               label={env.environmentLabel}
-              value={[env.displayUrl, env.connectionState].filter(Boolean).join(" · ")}
+              value={[env.displayUrl, hostReadinessCopy(solus.connections.readiness(env.environmentId), env.environmentLabel).label]
+                .filter(Boolean).join(" · ")}
               onPress={() =>
                 navigation.navigate("SettingsEnvironmentDetail", {
                   environmentId: env.environmentId,

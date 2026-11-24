@@ -31,6 +31,7 @@
   import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
   import RunningServers from "./RunningServers.svelte";
   import ServerUrlsEditor from "./ServerUrlsEditor.svelte";
+  import { runningServerFolderPaths } from "@solus/client-core/running-servers";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
@@ -45,9 +46,19 @@
     type PanelMenuAnchor,
   } from "./lib/panel-items";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
-  import { codebaseOf, isDispatch, projectHome, projectRoot } from "../../contexts/workspace/run-location";
+  import {
+    codebaseOf,
+    isDispatch,
+    projectHome,
+    projectRoot,
+  } from "../../contexts/workspace/run-location";
   import { hasSessionStarted } from "../../lib/sessionUtils";
-  import { codebaseMembersOn, gitCardRepositories, gitRepositoriesDetail, showsRepositoryRows } from "./lib/git-repositories";
+  import {
+    codebaseMembersOn,
+    gitCardRepositories,
+    gitRepositoriesDetail,
+    showsRepositoryRows,
+  } from "./lib/git-repositories";
   import { useDraftRepositoryReads } from "./lib/git-repository-reads.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
@@ -190,7 +201,9 @@
   // only it needs stop with it.
   const hiddenItems = $derived(settings.projectPanelHiddenItems);
   const serversShown = $derived(isSectionShown(hiddenItems, "servers"));
-  const serverHostId = $derived(serverConnections.serverIdForApi(session.apiFor(sourceId)));
+  const serverHostId = $derived(
+    serverConnections.serverIdForApi(session.apiFor(sourceId)),
+  );
   const gitShown = $derived(isSectionShown(hiddenItems, "git"));
   const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
   const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
@@ -203,7 +216,9 @@
   const projectPath = $derived(projectRoot(panelRun));
   const projectServerId = $derived(projectHome(panelRun)?.serverId);
   const projectWebhooks = $derived(
-    projectPath && projectServerId ? webhooksStore.rowsForProject(projectServerId, projectPath) : [],
+    projectPath && projectServerId
+      ? webhooksStore.rowsForProject(projectServerId, projectPath)
+      : [],
   );
 
   const gitCtx = $derived(panelEnvironment.checkout);
@@ -211,11 +226,22 @@
   // The repositories of the Git card. The folders of a session exist on its
   // host once it has started. A draft whose working directory is no repository
   // lists the repositories of its codebase on the run host.
-  const hasStarted = $derived(!!panelSession && hasSessionStarted(panelSession));
-  const draftCodebaseId = $derived(!hasStarted && !panelEnvironment.repoRoot ? codebaseOf(panelRun) : null);
+  const hasStarted = $derived(
+    !!panelSession && hasSessionStarted(panelSession),
+  );
+  const serverCheckoutPaths = $derived(
+    runningServerFolderPaths(panelEnvironment.cwd, panelSession?.sessionFolders),
+  );
+  const draftCodebaseId = $derived(
+    !hasStarted && !panelEnvironment.repoRoot ? codebaseOf(panelRun) : null,
+  );
   useDraftRepositoryReads({
-    get active() { return active && open && gitShown; },
-    get codebaseId() { return draftCodebaseId; },
+    get active() {
+      return active && open && gitShown;
+    },
+    get codebaseId() {
+      return draftCodebaseId;
+    },
     codebases: codebasesStore,
   });
   const gitRepositories = $derived(
@@ -225,10 +251,18 @@
             path: gitCwd,
             repositoryPath: panelEnvironment.repoRoot,
             // A dispatch has its project home on a different host.
-            projectPath: isDispatch(panelRun) ? (panelEnvironment.repoRoot ?? gitCwd) : projectRoot(panelRun),
+            projectPath: isDispatch(panelRun)
+              ? (panelEnvironment.repoRoot ?? gitCwd)
+              : projectRoot(panelRun),
           },
-          sessionFolders: hasStarted && panelSession ? panelSession.sessionFolders : null,
-          members: draftCodebaseId ? codebaseMembersOn(codebasesStore.membersOf(draftCodebaseId), serverHostId) : [],
+          sessionFolders:
+            hasStarted && panelSession ? panelSession.sessionFolders : null,
+          members: draftCodebaseId
+            ? codebaseMembersOn(
+                codebasesStore.membersOf(draftCodebaseId),
+                serverHostId,
+              )
+            : [],
         })
       : [],
   );
@@ -252,7 +286,12 @@
     "orb.sync",
     () => {
       if (gitCtx)
-        void gitActionsFor(sourceId, session, environmentStore, pullRequests.projects).sync();
+        void gitActionsFor(
+          sourceId,
+          session,
+          environmentStore,
+          pullRequests.projects,
+        ).sync();
     },
     { enabled: () => focused },
   );
@@ -260,9 +299,12 @@
     "orb.commit-push",
     () => {
       if (gitCtx)
-        void gitActionsFor(sourceId, session, environmentStore, pullRequests.projects).run(
-          "commit_push",
-        );
+        void gitActionsFor(
+          sourceId,
+          session,
+          environmentStore,
+          pullRequests.projects,
+        ).run("commit_push");
     },
     { enabled: () => focused },
   );
@@ -289,7 +331,12 @@
     refreshState = "spinning";
     // The repository's setup (a remote added outside Solus) is read once per
     // checkout; a person's refresh reads it again.
-    if (gitCwd && gitCwd !== "~") void repositorySetupStore.refresh(session.apiFor(sourceId), serverHostId, gitCwd);
+    if (gitCwd && gitCwd !== "~")
+      void repositorySetupStore.refresh(
+        session.apiFor(sourceId),
+        serverHostId,
+        gitCwd,
+      );
     // Floor the spin at one full rotation so a fast refresh still reads.
     const [result] = await Promise.all([
       environmentStore.refreshEnvironment(session, {
@@ -317,17 +364,27 @@
 
   function openItemsMenuAt(event: MouseEvent) {
     // A text field keeps its own menu (spelling, paste).
-    if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("input, textarea, [contenteditable]")
+    )
+      return;
     event.preventDefault();
     itemsMenuAnchor = pointAnchor(event.clientX, event.clientY);
     itemsMenuOpen = true;
   }
 
   function openItemsMenuFromKeyboard(event: KeyboardEvent) {
-    if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
-    if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
+    if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey))
+      return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("input, textarea, [contenteditable]")
+    )
+      return;
     event.preventDefault();
-    itemsMenuAnchor = event.target instanceof HTMLElement ? event.target : customizeButton;
+    itemsMenuAnchor =
+      event.target instanceof HTMLElement ? event.target : customizeButton;
     itemsMenuOpen = true;
   }
 
@@ -350,7 +407,6 @@
     session.openFiles(sourceId);
     requestInputFocus();
   }
-
 </script>
 
 {#snippet environmentHeaderExtra()}
@@ -457,17 +513,25 @@
     {:else}
       <!-- Environment is hidden. The panel's controls and the window's drag
            band stay, in a bar with no card. -->
-      <div class="workspace-titlebar flex min-h-6 shrink-0 items-center justify-end px-1.5">
+      <div
+        class="workspace-titlebar flex min-h-6 shrink-0 items-center justify-end px-1.5"
+      >
         {@render environmentHeaderExtra()}
       </div>
     {/if}
     {#if allPanelItemsHidden(hiddenItems, shell.supportsNativeSettings)}
       <!-- Every section is hidden: say so, and give the way back. -->
-      <div class="flex flex-col items-start gap-2 px-1.5 text-(--solus-text-tertiary)">
+      <div
+        class="flex flex-col items-start gap-2 px-1.5 text-(--solus-text-tertiary)"
+      >
         <p class="m-0">The panel shows no sections.</p>
         <span class="flex gap-1.5">
-          <Button size="sm" variant="secondary" onclick={showAllItems}>Show all</Button>
-          <Button size="sm" variant="ghost" onclick={toggleItemsMenu}>Choose…</Button>
+          <Button size="sm" variant="secondary" onclick={showAllItems}
+            >Show all</Button
+          >
+          <Button size="sm" variant="ghost" onclick={toggleItemsMenu}
+            >Choose…</Button
+          >
         </span>
       </div>
     {/if}
@@ -478,18 +542,23 @@
     {#if gitShown && (gitCtx || showsRepositoryRows(gitRepositories) || (gitSetupShown && !isUnconfiguredCwd(gitCwd)))}
       <PanelSection
         title="Git"
-        headerDetail={gitRepositoriesDetail(gitRepositories)}
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <GitCard {sourceId} active={active && open} {hiddenItems} rows={gitRepositories} />
+        <GitCard
+          {sourceId}
+          active={active && open}
+          {hiddenItems}
+          rows={gitRepositories}
+        />
       </PanelSection>
     {/if}
     {#if serversShown && active && open}
       <RunningServers
         hostId={serverHostId}
-        checkoutPath={panelEnvironment.cwd ?? null}
+        checkoutPaths={serverCheckoutPaths}
+        sessionId={panelSession?.id}
         {initialRowCount}
         collapsed={collapsedSections.servers}
         onToggle={() => toggleSection("servers")}
@@ -533,9 +602,25 @@
       />
     {/if}
   </div>
-  <ProjectPanelItemsMenu bind:open={itemsMenuOpen} anchor={itemsMenuAnchor} onConfigureServerUrls={panelEnvironment.cwd ? () => { serverUrlsOpen = true; } : undefined} />
-  {#if serverUrlsOpen && panelEnvironment.cwd}
-    <ServerUrlsEditor hostId={serverHostId} checkoutPath={panelEnvironment.cwd} onClose={() => { serverUrlsOpen = false; }} />
+  <ProjectPanelItemsMenu
+    bind:open={itemsMenuOpen}
+    anchor={itemsMenuAnchor}
+    onConfigureServerUrls={serverCheckoutPaths.length > 0
+      ? () => {
+          serverUrlsOpen = true;
+        }
+      : undefined}
+  />
+  {#if serverUrlsOpen && serverCheckoutPaths.length > 0}
+    {#key serverHostId}
+      <ServerUrlsEditor
+        hostId={serverHostId}
+        checkoutPaths={serverCheckoutPaths}
+        onClose={() => {
+          serverUrlsOpen = false;
+        }}
+      />
+    {/key}
   {/if}
 </SidePanel>
 

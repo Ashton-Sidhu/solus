@@ -1,5 +1,5 @@
 import { HostPairingFollower } from '@solus/client-core/host-pairing-follower'
-import { canManageMachineLinks, connectThroughMachine, type LinkMachine } from '@solus/client-core/host-linking'
+import { canManageMachineLinks, connectThroughMachine, machineLinksHidden, type LinkMachine, type MachineLinksHidden } from '@solus/client-core/host-linking'
 import { forgetHostConnections, type HostConnectionOwner } from '@solus/client-core/forget-host'
 import type { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
@@ -23,6 +23,7 @@ import type { HostRoute } from '@solus/contracts/host-routes'
 import { solusApiId } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { HostRegistry } from './host-registry'
+import { LinkHealthReader } from './link-health'
 
 /** How long a `/health` read for a host's identity may take. */
 const HEALTH_TIMEOUT_MS = 5_000
@@ -149,6 +150,8 @@ export class HostConnections {
   private linkMachines: LinkMachine[] | null = null
   readonly machineLinksChanged = new Listeners()
   machineLinksRevision = (): number => this.linkRevision
+  /** The health of the links a screen shows; read only while one watches. */
+  readonly linkHealth = new LinkHealthReader({ machines: () => this.machineLinks() })
   private hiddenAt: number | null = null
   /** Introduces the hosts this phone owns to each other (docs/plans/host-reach.md §4). */
   private readonly introducer = new HostIntroducer(() => this.ownedHosts())
@@ -365,6 +368,23 @@ export class HostConnections {
           && connection.facts.value('serverInfo')?.principal === 'local-owner',
       }]
     })
+  }
+
+  /** Why the links that the host holds are not shown; null when `machineLinks()` has them. */
+  machineLinksHidden(hostId: string): MachineLinksHidden | null {
+    const connection = this.connections.get(hostId)
+    const isConnected = connection?.state.readiness === 'ready'
+    return machineLinksHidden({
+      isConnected,
+      info: isConnected ? connection.facts.value('serverInfo') ?? null : null,
+      hasSnapshot: !!connection?.pairings?.snapshot(),
+      hasReadFailed: connection?.pairings?.hasReadFailed() ?? false,
+    })
+  }
+
+  /** Reads the host's links again, after a read that failed. */
+  refreshMachineLinks(hostId: string): void {
+    void this.connections.get(hostId)?.pairings?.refresh()
   }
 
   async pairThroughKnownMachine(installationId: string): Promise<boolean> {

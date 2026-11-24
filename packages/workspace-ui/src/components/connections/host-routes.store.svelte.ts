@@ -1,4 +1,4 @@
-import { checkRouteToAdd, newRouteRefusalText, routeInUse, routeRows, withoutRoute, withRouteMoved, withUserRoute, type RouteHolder, type RouteRow, type RouteViewer } from '@solus/client-core/host-route-control'
+import { checkRouteToAdd, newRouteRefusalText, routeRows, routeState, routeStateText, withoutRoute, withRouteMoved, withUserRoute, type RouteHolder, type RouteRow, type RouteState, type RouteViewer } from '@solus/client-core/host-route-control'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID, type KnownHost } from '@solus/client-core/known-host'
 import { hostCatalog } from '@solus/client-core/host-catalog'
@@ -51,10 +51,20 @@ class HostRoutesStore {
     return !this.isLocal(serverId) && !!this.known(serverId) && this.known(serverId)?.uplink?.kind !== 'managed'
   }
 
-  /** The route the link is on while the host is connected; null while it is not. */
-  inUseFor(serverId: string): string | null {
-    const isReady = serversStore.readinessFor(serverId).readiness === 'ready'
-    return routeInUse(this.rowsFor(serverId), serverConnections.dialedUrl(serverId), isReady)
+  /**
+   * Every route of the host with what it does now (docs/plans/host-routes.md §12):
+   * in use, on standby, refused, blocked here, and so on. Read from the link; no
+   * route is dialed to find out. This host's own addresses have no state: this
+   * client does not dial them.
+   */
+  statesFor(serverId: string): Array<RouteRow & { state: RouteState | null; stateText: string | null }> {
+    if (this.isLocal(serverId)) return this.rowsFor(serverId).map((row) => ({ ...row, state: null, stateText: null }))
+    const dialed = serverConnections.dialedUrl(serverId)
+    const readiness = serversStore.readinessFor(serverId)
+    return this.rowsFor(serverId).map((row) => {
+      const state = routeState(row, dialed, readiness)
+      return { ...row, state, stateText: routeStateText(state, row) }
+    })
   }
 
   /** Checks a typed address and saves it. Answers why not, or null when it is saved. */

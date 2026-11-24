@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Paperclip as PaperclipIcon, X as XIcon } from '@lucide/svelte';
   import SessionChip from '../../pickers/SessionChip.svelte';
+  import { Button } from '../../ui/button';
   import type { QueueEdit } from './lib/queue-edit.svelte';
   import { requestInputFocus } from '../../../lib/inputFocus';
   import { formatComboText } from '../../../lib/keybindings/match';
@@ -31,19 +32,22 @@
       </div>
     {/if}
     {#if edit.error}<p role="alert" class="mt-1.5 text-transcript-meta text-(--destructive)">{edit.error}</p>{/if}
-    <div class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 text-transcript-meta">
+    <!-- One quiet meta row: the tools on the left at the transcript-meta rung,
+         and Save as the only filled control, so the next step reads at a glance. -->
+    <div class="mt-2 flex items-center gap-1 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-2 text-transcript-meta">
       <input bind:this={fileInput} type="file" multiple disabled={edit.busy} class="hidden"
         onchange={(event) => { void edit.add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-      <button type="button" disabled={edit.busy} onclick={() => fileInput?.click()}
-        class="flex cursor-pointer items-center gap-1 text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:opacity-40 pointer-coarse:min-h-11"><PaperclipIcon size={12} />Attach</button>
-      <SessionChip {tabId} bind:selection={edit.model} disabled={edit.busy} ariaLabel="Queued prompt model settings"
+      <Button variant="ghost" size="icon-xs" disabled={edit.busy} onclick={() => fileInput?.click()} aria-label="Attach files" title="Attach files"
+        class="-ml-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary) pointer-coarse:size-11"><PaperclipIcon size={14} /></Button>
+      <SessionChip {tabId} bind:selection={edit.model} disabled={edit.busy} ariaLabel="Model for this prompt"
+        class="h-6 gap-1 rounded-md border-0 px-1.5 text-transcript-meta [&>span:first-child_svg]:size-3.5 pointer-coarse:h-11"
         onSelectionChange={() => edit.markModelChanged()} onReturnFocus={() => editor?.focus()} />
-      <span class="text-(--solus-text-tertiary) pointer-coarse:hidden">{saveKey} to save · Esc to cancel</span>
       <span class="flex-1"></span>
-      <button type="button" disabled={edit.busy} onclick={close}
-        class="cursor-pointer text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11">Cancel</button>
-      <button type="button" disabled={edit.busy} onclick={save}
-        class="cursor-pointer font-medium text-(--solus-text-primary) transition-opacity duration-100 hover:opacity-80 focus-visible:underline focus-visible:outline-none disabled:opacity-40 pointer-coarse:min-h-11">{edit.busy ? 'Saving…' : 'Save'}</button>
+      <Button variant="ghost" size="xs" disabled={edit.busy} onclick={close}
+        class="text-transcript-meta text-(--solus-text-tertiary) hover:text-(--solus-text-primary) pointer-coarse:h-11">Cancel<span class="opacity-60 pointer-coarse:hidden">Esc</span></Button>
+      <Button size="xs" disabled={edit.busy} onclick={save} class="text-transcript-meta pointer-coarse:h-11">
+        {edit.busy ? 'Saving…' : 'Save'}<span class="opacity-70 pointer-coarse:hidden">{saveKey}</span>
+      </Button>
     </div>
   </div>
 </div>

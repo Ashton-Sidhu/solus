@@ -1,6 +1,7 @@
 <script lang="ts">
   /** The ways this client reaches a host, the first it tries at the top
-   *  (docs/plans/host-routes.md §12): which one is in use, and the controls to add
+   *  (docs/plans/host-routes.md §12): what each one does now (in use, standby,
+   *  refused, and so on), and the controls to add
    *  an address, change the order, and remove a route. */
   import { ArrowDown as ArrowDownIcon, ArrowUp as ArrowUpIcon, X as XIcon } from "@lucide/svelte";
   import { routeBlockText, routeKindLabel } from "@solus/client-core/host-route-control";
@@ -17,8 +18,7 @@
 
   const isLocal = $derived(hostRoutesStore.isLocal(serverId));
   const localStatus = $derived(hostRoutesStore.localRoutesStatus(serverId));
-  const rows = $derived(hostRoutesStore.rowsFor(serverId));
-  const inUse = $derived(hostRoutesStore.inUseFor(serverId));
+  const rows = $derived(hostRoutesStore.statesFor(serverId));
   const canChange = $derived(hostRoutesStore.canChange(serverId));
   let address = $state("");
   let isChecking = $state(false);
@@ -53,8 +53,15 @@
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-primary)">
             {routeKindLabel(row.kind)}
-            {#if row.url === inUse}
-              <span class="rounded bg-(--solus-surface-hover) px-1.5 text-chrome-dense text-(--solus-text-secondary)">In use</span>
+            {#if row.stateText && row.state !== "blocked"}
+              <span
+                class="rounded bg-(--solus-surface-hover) px-1.5 text-chrome-dense {row.state === 'in-use'
+                  ? 'text-(--success)'
+                  : row.state === 'refused' || row.state === 'different-server'
+                    ? 'text-(--solus-status-error)'
+                    : row.state === 'connecting' || row.state === 'not-answering'
+                      ? 'text-(--warning)'
+                      : 'text-(--solus-text-secondary)'}">{row.stateText}</span>
             {/if}
           </p>
           <p class="mt-0.5 truncate font-mono text-chrome-dense text-(--solus-text-tertiary)">

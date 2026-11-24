@@ -7,6 +7,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import {
   ATTACHMENT_UPLOAD_TOKEN_TTL_MS,
   createAttachmentUploadToken,
+  managePendingAttachment,
   receiveAttachmentUpload,
   writeAttachmentUpload,
 } from '@solus/server/transport/handlers/attachment-handlers'
@@ -287,6 +288,34 @@ describe('streamed attachment upload', () => {
 
     expect(again.status).toBe(204)
     expect(await readFile(hostPath)).toEqual(bytes)
+  })
+
+  test('pending attachments can be verified and discarded without deleting kept bytes', async () => {
+    const create = async () => {
+      const upload = await createAttachmentUploadToken(context('stream-session'), {
+        name: 'clip.mp4', mime: 'video/mp4', size: 5, pending: true,
+      }, { attachmentsDir: root, secret, now })
+      const token = upload.relativeUrl.slice('/api/uploads/'.length)
+      expect(upload.pendingUrl).toBe(`${upload.relativeUrl}/pending`)
+      const posted = await receiveAttachmentUpload(token, {
+        contentLength: '5', body: chunks(Buffer.from('video')),
+      }, { secret, now })
+      expect(posted.status).toBe(204)
+      expect(existsSync(upload.hostPath)).toBe(false)
+      return { ...upload, token }
+    }
+    const discarded = await create()
+    expect((await managePendingAttachment(discarded.token, 'HEAD', { secret, now })).status).toBe(204)
+    await managePendingAttachment(discarded.token, 'DELETE', { secret, now })
+    expect((await managePendingAttachment(discarded.token, 'HEAD', { secret, now })).status).toBe(404)
+    expect(await bucketFiles(discarded.hostPath)).toEqual([])
+
+    const kept = await create()
+    for (let retry = 0; retry < 2; retry++)
+      expect((await managePendingAttachment(kept.token, 'POST', { secret, now })).status).toBe(204)
+    await managePendingAttachment(kept.token, 'DELETE', { secret, now })
+    expect(await readFile(kept.hostPath, 'utf8')).toBe('video')
+    expect(await bucketFiles(kept.hostPath)).toEqual([basename(kept.hostPath)])
   })
 
   test('refuses a Content-Length other than the size in the token', async () => {

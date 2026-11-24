@@ -3,6 +3,7 @@ import type { MachineKind } from '@solus/contracts/uplink'
 import { newHealthNonce } from '@solus/contracts/host-identity'
 import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import { readHostHealth } from './host-http'
+import type { HostReadinessState } from './host-readiness'
 import { normalizeServerUrl } from './pairing'
 
 /**
@@ -53,6 +54,42 @@ export function routeRows(holder: RouteHolder, viewer: RouteViewer): RouteRow[] 
   if (holder.uplink?.kind === 'managed') return rows
   // The last route that this client can dial stays: without it the host cannot be reached from here.
   return rows.map((row) => ({ ...row, canRemove: !row.isLearned && rows.some((other) => other.url !== row.url && !other.block) }))
+}
+
+/**
+ * How one route of a host is doing, from what this client knows: the route it
+ * dials, the host's readiness, and whether the route is blocked here. It never
+ * dials a route to find out.
+ */
+export type RouteState = 'in-use' | 'connecting' | 'standby' | 'refused' | 'different-server' | 'not-answering' | 'not-in-use' | 'blocked'
+
+export function routeState(row: RouteRow, dialedUrl: string | null, readiness: HostReadinessState): RouteState {
+  if (row.block) return 'blocked'
+  const isDialed = row.url === dialedUrl
+  switch (readiness.readiness) {
+    case 'ready': return isDialed ? 'in-use' : 'standby'
+    case 'checking':
+    case 'reconnecting': return isDialed ? 'connecting' : 'not-in-use'
+    case 'refused':
+      if (!isDialed) return 'not-in-use'
+      return readiness.refusedReason === 'identity-mismatch' ? 'different-server' : 'refused'
+    case 'unreachable': return 'not-answering'
+    case 'gone': return 'not-in-use'
+  }
+}
+
+/** The words for a route's state; a blocked route says why. */
+export function routeStateText(state: RouteState, row: Pick<RouteRow, 'block'>): string {
+  switch (state) {
+    case 'in-use': return 'In use'
+    case 'connecting': return 'Connecting'
+    case 'standby': return 'Standby'
+    case 'refused': return 'Sign-in refused'
+    case 'different-server': return 'Different server'
+    case 'not-answering': return 'Not answering'
+    case 'not-in-use': return 'Not in use'
+    case 'blocked': return row.block ? routeBlockText(row.block) : 'Not used'
+  }
 }
 
 /** The route the link is on, for a host that is connected now. */

@@ -35,7 +35,6 @@ export type Scope =
   | 'task-picker'
   | 'project-search'
   | 'go-to-file'
-  | 'shortcuts-help'
   /** Settings blocks shortcuts from the workspace kept behind its dialog. */
   | 'settings-dialog'
   /** A capture from a snapshot plate, open at full size. Exclusive: while a

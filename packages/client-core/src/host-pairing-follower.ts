@@ -25,6 +25,7 @@ export class HostPairingFollower {
   private readonly failedPairings = new Map<string, number>()
   private readonly unsubscribe: () => void
   private current: HostPairingsSnapshot | null = null
+  private readFailed = false
   private generation = 0
   private readonly listeners = new Set<() => void>()
 
@@ -48,6 +49,8 @@ export class HostPairingFollower {
   }
 
   snapshot = (): HostPairingsSnapshot | null => this.current
+  /** The last read of the links failed; the next read that works clears it. */
+  hasReadFailed = (): boolean => this.readFailed
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
@@ -66,6 +69,10 @@ export class HostPairingFollower {
     this.dirty = true
     if (this.running) return this.running
     this.running = this.read().catch(() => {
+      if (!this.readFailed && !this.disposed) {
+        this.readFailed = true
+        for (const listener of this.listeners) listener()
+      }
       this.report('Could not update paired hosts. Solus will try again when the connection changes.')
     }).finally(() => {
       this.running = null
@@ -96,6 +103,7 @@ export class HostPairingFollower {
     const snapshot = await this.options.api.hostsListPaired()
     if (this.disposed || generation !== this.generation) return
     this.current = snapshot
+    this.readFailed = false
     for (const listener of this.listeners) listener()
     for (const installationId of snapshot.forgotten) {
       const saved = this.savedHost(installationId)

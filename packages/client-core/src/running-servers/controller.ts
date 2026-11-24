@@ -17,6 +17,7 @@ export interface RunningServersSource {
   api: ServerApi
   events: HostEventSubscriber
   ready: boolean
+  scope?: string
 }
 export interface RunningServersStoreState {
   status: StoreState['status']
@@ -27,6 +28,10 @@ export interface RunningServersStoreState {
 export interface RunningServersBinding {
   state: RunningServersStoreState
   createServer: (data: RunningServer, commands: RunningServersCommands) => RunningServers
+}
+export interface RunningServersScope {
+  checkoutPaths: readonly string[]
+  sessionId?: string
 }
 
 /** Shared by Svelte and React. Each host owns one instance, regardless of how
@@ -76,8 +81,28 @@ export class RunningServersController {
     return this.servers.filter((server) => server.matchesCheckout(path, path ? this.checkoutRoots.get(path) ?? undefined : undefined))
   }
   rows(path?: string | null): RunningServersRow[] {
+    return this.groupRows(path === undefined ? this.servers : this.inCheckout(path))
+  }
+
+  rowsForScope({ checkoutPaths, sessionId }: RunningServersScope) {
+    void this.state.revision
+    const resolvedPaths = checkoutPaths.filter((path) => this.checkoutRoots.has(path))
+    const sessionServers: RunningServers[] = []
+    const otherServers: RunningServers[] = []
+    for (const server of this.servers) {
+      const startedInSession = !!sessionId && server.startedBy.kind === 'agent' && server.startedBy.sessionId === sessionId
+      const matchesFolder = resolvedPaths.some((path) => server.matchesCheckout(path, this.checkoutRoots.get(path) ?? undefined))
+      if (startedInSession || matchesFolder) sessionServers.push(server)
+      else otherServers.push(server)
+    }
+    const sessionRows = this.groupRows(sessionServers)
+    const otherRows = this.groupRows(otherServers)
+    return { sessionRows, otherRows }
+  }
+
+  private groupRows(servers: readonly RunningServers[]): RunningServersRow[] {
     const groups = new Map<string | null, RunningServersRow[]>()
-    for (const server of path === undefined ? this.servers : this.inCheckout(path)) {
+    for (const server of servers) {
       const rows = groups.get(server.checkoutPath) ?? []
       rows.push(...server.rows)
       groups.set(server.checkoutPath, rows)
@@ -134,21 +159,33 @@ export class RunningServersController {
   }
 
   retainCheckout(path: string | null): () => void {
-    if (!path) return this.retain()
-    const isNewPath = !this.checkoutPaths.has(path)
+    return this.retainCheckouts(path ? [path] : [])
+  }
+
+  retainCheckouts(paths: readonly string[]): () => void {
+    const uniquePaths = new Set(paths)
+    let changed = false
     const wasHeld = this.holders > 0
-    this.checkoutPaths.set(path, (this.checkoutPaths.get(path) ?? 0) + 1)
-    const release = this.retain()
-    // The first holder's connect already watches this path.
-    if (isNewPath && wasHeld) this.queueRefresh()
-    return () => {
+    for (const path of uniquePaths) {
       const count = this.checkoutPaths.get(path) ?? 0
-      if (count > 1) this.checkoutPaths.set(path, count - 1)
-      else this.checkoutPaths.delete(path)
-      // A checkout's root does not change: the root read stays for the next holder.
+      this.checkoutPaths.set(path, count + 1)
+      if (!count) changed = true
+    }
+    const release = this.retain()
+    // The first holder's connect already watches all of these paths.
+    if (changed && wasHeld) this.queueRefresh()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      let changed = false
+      for (const path of uniquePaths) {
+        const count = this.checkoutPaths.get(path) ?? 0
+        if (count > 1) this.checkoutPaths.set(path, count - 1)
+        else changed = this.checkoutPaths.delete(path) || changed
+      }
       release()
-      // The last holder's leave stops the watch; nothing is left to narrow.
-      if (count <= 1 && this.holders > 0) this.queueRefresh()
+      if (changed && this.holders > 0) this.queueRefresh()
     }
   }
 
@@ -162,6 +199,8 @@ export class RunningServersController {
     const source = this.sourceOf()
     if (!source?.ready) throw new Error('This host is disconnected.')
     const config = await source.api.projectConfigLoad(path)
+    const current = this.sourceOf()
+    if (!current?.ready || current.api !== source.api || current.scope !== source.scope) throw new Error('The host connection changed.')
     await source.api.projectConfigSave(path, { ...config, version: 1, serverUrls: urls })
     await this.refresh()
   }
@@ -171,7 +210,7 @@ export class RunningServersController {
   private connect(): void {
     if (!this.holders) return
     const source = this.sourceOf()
-    if (this.source && source?.api === this.source.api && source?.events === this.source?.events && source?.ready === this.source?.ready) return
+    if (this.source && source?.api === this.source.api && source.events === this.source.events && source.ready === this.source.ready && source.scope === this.source.scope) return
     this.epoch++
     this.inFlight = false
     this.stopEvents?.()

@@ -183,6 +183,7 @@ export interface ThreadComposerProps {
   readonly onPickDraftFiles: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
+  readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   /** Present while the thread's queue is held. */
@@ -672,6 +673,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
             environmentId={props.environmentId}
             attachments={stripAttachments}
             pendingImageCount={pendingNativeImageCount}
+            onRetryHostAttachment={isSubmissionLocked ? undefined : props.onRetryHostAttachment}
             onRemove={isSubmissionLocked ? () => undefined : props.onRemoveDraftImage}
             onPressPreview={isSubmissionLocked ? undefined : onPressPreview}
             onPressVideo={isSubmissionLocked ? undefined : onPressVideo}

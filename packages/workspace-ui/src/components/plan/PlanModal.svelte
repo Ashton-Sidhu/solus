@@ -36,12 +36,11 @@
 
   interface Props {
     plan: Plan;
-    inline?: boolean;
     minimizeOutline?: boolean;
     onClose?: () => void;
   }
 
-  let { plan, inline = false, minimizeOutline = false, onClose }: Props = $props();
+  let { plan, minimizeOutline = false, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -174,7 +173,6 @@
   title="Review Plan"
   onOpenWorkspace={openWorkspacePage}
   content={plan.content}
-  {inline}
   {minimizeOutline}
   editorClass="plan-document-editor"
   rootClass="plan-shell"
@@ -191,7 +189,6 @@
   bind:tiptapEditor
   bind:scrollContainer
   rootTestId="plan-modal"
-  closeTestId="plan-modal-close"
   scrollAriaLabel="Plan document"
   placeholder="Start writing…"
 >

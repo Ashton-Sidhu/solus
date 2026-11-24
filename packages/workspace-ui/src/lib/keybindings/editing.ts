@@ -21,7 +21,7 @@ export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[
   { key: 'editors', label: 'Editors', scopes: ['file-editor', 'files-pane', 'plan-modal', 'document-modal'] },
   { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs', 'notifications'] },
   { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review'] },
-  { key: 'overlays', label: 'Overlays', scopes: ['command-palette', 'task-picker', 'go-to-file', 'project-search', 'shortcuts-help'] },
+  { key: 'overlays', label: 'Overlays', scopes: ['command-palette', 'task-picker', 'go-to-file', 'project-search'] },
 ]
 
 /** Per-scope labels: sub-headers inside a merged category, and the section
@@ -49,7 +49,6 @@ export const SCOPE_LABELS = {
   'task-picker': 'Search',
   'go-to-file': 'Go to file',
   'project-search': 'Project search',
-  'shortcuts-help': 'Keyboard shortcuts',
 } satisfies Partial<Record<Scope, string>>
 
 /** Every scope either surface lists, in category order. */

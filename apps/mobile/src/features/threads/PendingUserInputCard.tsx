@@ -42,6 +42,7 @@ export interface PendingUserInputCardProps {
   readonly workspaceRoot: string | null;
   readonly canOperateThread: boolean;
   readonly pendingUserInput: PendingUserInput;
+  readonly attachmentAccess?: { accountScope: string; canUpload: boolean } | undefined;
   readonly maxHeight: DerivedValue<number>;
   readonly collapsed: boolean;
   readonly onToggleCollapsed: () => void;
@@ -362,11 +363,20 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
               </View>
               {question.allowCustomAnswer !== false ? (
                 <QuestionAttachments
-                  key={`${props.pendingUserInput.requestId}:${question.id}`}
+                  key={JSON.stringify([
+                    props.attachmentAccess?.accountScope,
+                    props.environmentId,
+                    props.threadId,
+                    props.pendingUserInput.requestId,
+                    question.id,
+                  ])}
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                  attachmentAccess={props.attachmentAccess}
                   requestId={props.pendingUserInput.requestId}
                   question={question}
                   questions={props.pendingUserInput.questions}
-                  disabled={responseDisabled}
+                  disabled={!props.canOperateThread || responseDisabled}
                   value={draft?.customAnswer ?? ""}
                   onChangeText={(value) =>
                     props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)
@@ -380,6 +390,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       </ScrollView>
       <Button
         label={gt("Submit answers")}
+        loading={isResponding && props.answers !== null}
         fullWidth
         tone={props.answers ? "primary" : "secondary"}
         disabled={!props.canOperateThread || responseDisabled || props.answers === null}
@@ -389,7 +400,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         <Button
           label={gt("Dismiss without answering")}
           tone="text"
-          disabled={isResponding}
+          disabled={!props.canOperateThread || isResponding}
           onPress={() => void props.onDismiss()}
         />
       ) : null}

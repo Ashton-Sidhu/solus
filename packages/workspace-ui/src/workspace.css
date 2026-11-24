@@ -2868,27 +2868,10 @@ html.is-mac-workspace
   75%  { width: 1em; }
   100% { width: 0; }
 }
-/* ─── Plan modal motion ─── */
-@keyframes plan-modal-enter {
-  from { opacity: 0; transform: translate3d(0, 0.375rem, 0) scale(0.985); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0)   scale(1); }
-}
-@keyframes plan-backdrop-enter {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+/* ─── Document save motion ─── */
 @keyframes plan-save-pulse {
   0%, 100% { opacity: 0.4; transform: scale(0.92); }
   50%      { opacity: 1;   transform: scale(1); }
-}
-.doc-shell-root--floating {
-  /* `backwards`, not `both`: a retained end transform would pin the entire
-     document editor to a compositing layer and blur its text (see msg-in-up). */
-  animation: plan-modal-enter var(--duration-modal) var(--ease-modal) backwards;
-  transform-origin: center top;
-}
-.doc-shell-backdrop {
-  animation: plan-backdrop-enter var(--duration-modal) var(--ease-premium) both;
 }
 .doc-shell-save-dot {
   animation: plan-save-pulse 1.4s ease-in-out infinite;
@@ -2902,8 +2885,6 @@ html.is-mac-workspace
 
 /* ─── Reduced motion ─── */
 @media (prefers-reduced-motion: reduce) {
-  .doc-shell-root--floating,
-  .doc-shell-backdrop,
   .plan-comment-flash,
   .doc-shell-save-dot {
     animation: none !important;

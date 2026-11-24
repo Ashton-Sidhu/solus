@@ -48,6 +48,7 @@ export interface ConversationMeta {
   attachments: readonly UploadedAttachment[]
   pendingVideos: ConversationController['pendingVideos']
   pendingImages: ConversationController['pendingImages']
+  failedAttachments: ConversationController['failedAttachments']
   uploading: number
   /** The picked provider differs from the thread's: the next prompt hands off (plans/021). */
   handoffPending: boolean
@@ -245,6 +246,7 @@ export class ConversationStore {
       agentPlans: model.agentPlans.awaiting(),
       attachments: this.controller.attachments,
       pendingImages: this.controller.pendingImages,
+      failedAttachments: this.controller.failedAttachments,
       pendingVideos: this.controller.pendingVideos,
       uploading: this.controller.uploading,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),

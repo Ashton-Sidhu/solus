@@ -38,6 +38,7 @@ import {
 } from "../state/composer-attachment-uploads";
 
 export interface ComposerAttachmentStripProps {
+  readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly environmentId?: EnvironmentId;
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
   readonly onRemove: (imageId: string) => void;
@@ -55,6 +56,7 @@ export interface ComposerAttachmentStripProps {
 }
 
 type ComposerAttachmentThumbnailProps = {
+  readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly environmentId?: EnvironmentId;
   readonly attachment: DraftComposerAttachment;
   readonly size: number;
@@ -73,6 +75,11 @@ const noTransferSubscription = () => () => {};
 export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailProps) {
   const gt = useGT();
   const upload = useComposerAttachmentUploadState(props.environmentId, props.attachment.id);
+  const failure = props.attachment.uploadFailure ?? (upload?.status === "failed" ? upload.reason : undefined);
+  const retry = () => {
+    if (props.attachment.uploadFailure !== undefined) props.onRetryHostAttachment?.(props.attachment.id);
+    else if (props.environmentId) retryComposerAttachmentUpload(props.environmentId, props.attachment.id);
+  };
   const hostUploading = props.attachment.uploading === true;
   const hostProgress = useSyncExternalStore(
     hostUploading ? subscribeAttachmentTransfers : noTransferSubscription,
@@ -86,18 +93,18 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
   return (
     <View style={{ width: props.size, height: props.size }}>
       <ComposerAttachmentContent {...props} />
-      {upload?.status === "failed" ? (
+      {failure !== undefined ? (
         <View
           pointerEvents="none"
           className="absolute inset-0 border-2 border-danger-foreground"
           style={{ borderRadius: props.borderRadius }}
         />
       ) : null}
-      {hostUploading || (upload && upload.status !== "ready") ? (
+      {hostUploading || failure !== undefined || (upload && upload.status !== "ready") ? (
         <Pressable
-          accessibilityRole={upload?.status === "failed" ? "button" : "text"}
+          accessibilityRole={failure !== undefined ? "button" : "text"}
           accessibilityLabel={
-            upload?.status === "failed"
+            failure !== undefined
               ? gt("Retry uploading {name}", { name: props.attachment.name })
               : percent === undefined
                 ? gt("Uploading {name}", { name: props.attachment.name })
@@ -106,23 +113,20 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
                     percent: percent,
                   })
           }
-          accessibilityHint={upload?.status === "failed" ? upload.reason : undefined}
-          disabled={upload?.status !== "failed"}
-          onPress={() =>
-            props.environmentId &&
-            retryComposerAttachmentUpload(props.environmentId, props.attachment.id)
-          }
+          accessibilityHint={failure}
+          disabled={failure === undefined || (props.attachment.uploadFailure !== undefined && !props.onRetryHostAttachment)}
+          onPress={retry}
           className="absolute bottom-0.5 left-0.5 flex-row items-center gap-0.5 rounded-full bg-black/70 px-1 py-0.5"
         >
           <SymbolView
-            name={upload?.status === "failed" ? "arrow.clockwise" : "arrow.up"}
+            name={failure !== undefined ? "arrow.clockwise" : "arrow.up"}
             size={props.compact ? 8 : 10}
             tintColor="#ffffff"
             type="monochrome"
           />
           {!props.compact ? (
             <Text className="text-2xs text-white">
-              {upload?.status === "failed"
+              {failure !== undefined
                 ? gt("Retry")
                 : percent === undefined
                   ? gt("Uploading…")
@@ -357,7 +361,8 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                 borderRadius={radius}
                 onPressPreview={props.onPressPreview}
                 onPressVideo={props.onPressVideo}
-                onPressDocument={props.onPressDocument}
+                onPressDocument={attachment.uploadFailure === undefined ? props.onPressDocument : undefined}
+                onRetryHostAttachment={props.onRetryHostAttachment}
               />
               <Pressable
                 accessibilityRole="button"

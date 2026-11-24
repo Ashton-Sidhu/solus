@@ -151,8 +151,13 @@ function ThreadContent({
   route: ThreadRouteScreenProps;
 }) {
   const { binding, draft, header } = useThreadScreenData(session);
+  const navigation = useNavigation();
   const { layout } = useAdaptiveWorkspaceLayout();
   const gt = useGT();
+  const onOpenRunningServers = draft ? undefined : () => navigation.navigate("ThreadRunningServers", {
+    environmentId: session.hostId,
+    threadId: session.id,
+  });
   const environmentControl = draft ? (
     <DraftEnvironmentControl
       connectionState={draft.connectionState}
@@ -202,9 +207,9 @@ function ThreadContent({
             {...route.inspectorPresentation}
           />
         ) : !header.cwd || header.cwd === "~" || isChat(header.cwd) ? (
-          <ThreadNavigationHeader {...header} onReturnToThread={route.onReturnToThread} />
+          <ThreadNavigationHeader {...header} onReturnToThread={route.onReturnToThread} onOpenRunningServers={onOpenRunningServers} />
         ) : (
-          <ProjectThreadHeader {...header} onReturnToThread={route.onReturnToThread} />
+          <ProjectThreadHeader {...header} onReturnToThread={route.onReturnToThread} onOpenRunningServers={onOpenRunningServers} />
         )
       }
     />
@@ -212,7 +217,10 @@ function ThreadContent({
 }
 
 function ProjectThreadHeader(
-  props: ReturnType<typeof useThreadScreenData>["header"] & { onReturnToThread?: () => void },
+  props: ReturnType<typeof useThreadScreenData>["header"] & {
+    onReturnToThread?: () => void;
+    onOpenRunningServers?: () => void;
+  },
 ) {
   const navigation = useNavigation();
   const gitControls = useCheckoutGitControls(props.controller, props.cwd, props.draft);

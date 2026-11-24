@@ -106,3 +106,13 @@ it("keeps each chosen option of a question with more than one choice", () => {
   });
   expect(toggleQuestionOption(question, two, "API").selectedOptionValues).toEqual(["Web"]);
 });
+
+it("sends uploaded screenshots as part of the question they answer", () => {
+  const questions = [{ id: "screenshot" }, { id: "branch" }];
+  expect(pendingInputAnswers(questions, { branch: { customAnswer: "main" } }, {
+    screenshot: ["/host/uploads/screenshot.png"],
+  })).toEqual({
+    screenshot: "[Attached file: /host/uploads/screenshot.png]",
+    branch: "main",
+  });
+});

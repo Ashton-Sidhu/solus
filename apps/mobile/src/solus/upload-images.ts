@@ -7,10 +7,10 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { MessageAttachment } from "@solus-mobile/features/conversation/lib/message-attachments";
-import type { UploadedAttachment } from "@solus-mobile/features/conversation/lib/attachments";
+import type { PickedFile, UploadedAttachment } from "@solus-mobile/features/conversation/lib/attachments";
 import type { DraftComposerAttachment, DraftComposerImageAttachment, DraftComposerFileAttachment } from "../lib/composerImages";
 import type { FilePreviewItem } from "../components/ui/FilePreviewModal.types";
-import { videoMimeType } from "@solus/contracts/media-types";
+import { attachmentKind, videoMimeType } from "@solus/contracts/media-types";
 import { imageMimeType } from "@t3tools/shared/image";
 
 import type { QueueAttachment } from "@solus/contracts/session-queue";
@@ -110,6 +110,7 @@ export function composerUploadMedia(
   ready: readonly UploadedAttachment[],
   waiting: readonly DraftComposerImageAttachment[],
   waitingVideos: readonly DraftComposerFileAttachment[],
+  failed: readonly { id: string; file: PickedFile; reason: string }[] = [],
 ): DraftComposerAttachment[] {
   return [
     ...ready.flatMap((a): DraftComposerAttachment[] => {
@@ -131,5 +132,12 @@ export function composerUploadMedia(
     }),
     ...waiting.map((image) => ({ ...image, uploading: true })),
     ...waitingVideos.map((video) => ({ ...video, uploading: true })),
+    ...failed.map(({ id, file, reason }): DraftComposerAttachment => {
+      const kind = attachmentKind(file);
+      const fields = { id, name: file.name, mimeType: kind.mimeType, sizeBytes: file.size ?? 0, uploadFailure: reason };
+      return kind.type === "image"
+        ? { ...fields, type: "image", previewUri: file.uri }
+        : { ...fields, type: "file", fileUri: file.uri };
+    }),
   ];
 }

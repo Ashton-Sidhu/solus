@@ -1,13 +1,17 @@
 <script lang="ts">
-  import { ChevronRight, Laptop, Plus, RotateCw } from "@lucide/svelte";
+  import { ChevronRight, Laptop, Link2, Plus, RotateCw } from "@lucide/svelte";
+  import type { LinkedOnlyMachine, MachineLinkView } from "@solus/client-core/host-linking";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
+  import { machineLinkSummary } from "./lib/machine-link-map";
   import { isZoneFull, machineMatches, machinesByZone, rollup, tileFill, toneOf, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
 
   /** The map in a narrow pane (D4): the same routes as a tree, with this device
    *  at the top. A full zone is one row of small tiles that opens the zone. The
-   *  found machines (D7) are one row at the end, which opens the Add page. */
+   *  found machines (D7) are one row at the end, which opens the Add page. A
+   *  host names its machine links (D13), and a machine known only through a
+   *  link is a dashed row under your machines that connects this device. */
   interface Props {
     machines: FleetMachine[];
     colorMode: TileColorMode;
@@ -20,9 +24,12 @@
     onOpen: (serverId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
     onAddFound: () => void;
+    links: MachineLinkView[];
+    linked: LinkedOnlyMachine[];
+    onConnectLinked: (machine: LinkedOnlyMachine) => void;
   }
 
-  let { machines, colorMode, query, foundCount, answers, onRetry, onPoint, onOpen, onOpenZone, onAddFound }: Props = $props();
+  let { machines, colorMode, query, foundCount, answers, onRetry, onPoint, onOpen, onOpenZone, onAddFound, links, linked, onConnectLinked }: Props = $props();
 
   const byZone = $derived(machinesByZone(machines));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
@@ -38,7 +45,7 @@
     {#if device?.sessions}<HostStateIcon state="running" count={device.sessions} />{/if}
   </div>
   <ul>
-    {#each ZONES.filter((zone) => byZone[zone.id].length || answers[zone.id] !== "ready") as zone (zone.id)}
+    {#each ZONES.filter((zone) => byZone[zone.id].length || answers[zone.id] !== "ready" || (zone.id === "own" && linked.length)) as zone (zone.id)}
       {@const rows = byZone[zone.id]}
       <li class="relative flex flex-col gap-1.5 pt-3 pl-5 before:absolute before:top-0 before:bottom-0 before:left-[7px] before:w-px before:bg-(--success)/40 last:before:bottom-auto last:before:h-5">
         <span aria-hidden="true" class="absolute top-5 left-[7px] h-px w-3 bg-(--success)/40"></span>
@@ -65,6 +72,7 @@
         {:else}
           <ul class="flex flex-col gap-1.5">
             {#each rows as machine (machine.serverId)}
+              {@const linkSummary = machineLinkSummary(links, machine.installationId)}
               <li>
                 <button
                   type="button"
@@ -80,12 +88,40 @@
                   </FleetLoadRing>
                   <span class="flex min-w-0 flex-1 flex-col">
                     <span class="truncate text-[0.8125rem] font-medium">{machine.label}</span>
-                    <HostStateIcon state={machine.state} count={machine.state === "running" ? machine.sessions : undefined} size={12} />
+                    <span class="flex items-center gap-1.5">
+                      <HostStateIcon state={machine.state} label={machine.problem?.label} count={machine.state === "running" ? machine.sessions : undefined} size={12} />
+                      {#if linkSummary}
+                        <span
+                          role="img"
+                          aria-label="{linkSummary.count} machine {linkSummary.count === 1 ? 'link' : 'links'}: {linkSummary.text}"
+                          title={linkSummary.text}
+                          class="inline-flex items-center gap-0.5 text-chrome-dense tabular-nums {linkSummary.tone === 'bad' ? 'text-(--solus-status-error)' : linkSummary.tone === 'warn' ? 'text-(--warning)' : 'text-muted-foreground'}"
+                        ><Link2 size={11} />{linkSummary.count}</span>
+                      {/if}
+                    </span>
                   </span>
                   {#if machine.latencyMs !== null}<span class="shrink-0 text-[0.6875rem] text-muted-foreground tabular-nums">{machine.latencyMs} ms</span>{/if}
                 </button>
               </li>
             {/each}
+            {#if zone.id === "own"}
+              {#each linked as machine (machine.installationId)}
+                <li>
+                  <button
+                    type="button"
+                    onclick={() => onConnectLinked(machine)}
+                    class="flex w-full items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) py-2 pr-3 pl-2 text-left text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                  >
+                    <span class="grid size-[30px] shrink-0 place-items-center"><Link2 size={13} /></span>
+                    <span class="flex min-w-0 flex-1 flex-col">
+                      <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.label}</span>
+                      <span class="truncate text-chrome-dense">Linked from {machine.viaLabels.join(", ")}</span>
+                    </span>
+                    <Plus size={13} class="shrink-0" />
+                  </button>
+                </li>
+              {/each}
+            {/if}
           </ul>
         {/if}
         {#if answers[zone.id] === "loading"}

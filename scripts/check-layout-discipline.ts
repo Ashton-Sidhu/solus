@@ -43,9 +43,9 @@ const VIEWPORT_ANCHORED = [
   // and this module is only the arithmetic that clamps it to the window it is
   // pinned to.
   'document-shell/lib/selection-bubble.ts',
-  // A full-bleed modal shell: `100dvw` here means "cover the window", which is
-  // what the surface is for. Its narrow rungs already use `@container doc-shell`.
-  'plan/PlanModal.css',
+  // The resize handles of a modal that is fixed to the window. The modal's
+  // file declares that, not this one; the handles limit its size to the window.
+  'ui/modal-resize/',
 ]
 
 type Rule = 'spill' | 'viewport-unit' | 'window-read' | 'card-percent-width'

@@ -216,7 +216,11 @@
 
   function activate(checkout: ProjectRef) {
     open = false;
-    if (checkout.serverId === hostId && checkout.projectRoot === projectDir) return;
+    if (checkout.serverId === hostId && checkout.projectRoot === projectDir) {
+      // The folder of a codebase run: the project row takes the run out of the codebase.
+      if (codebaseId) onSelectCodebase?.({ codebaseId: null });
+      return;
+    }
     onSelect(checkout);
   }
 

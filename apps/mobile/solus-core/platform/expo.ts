@@ -109,6 +109,7 @@ export const expoPlatform: PlatformAdapters = {
   scanLocalNetwork,
   pullRequestCache: sqlitePullRequestCache(),
   attachmentIo: {
+    manageUpload: async (url, method) => (await fetch(url, { method })).status,
     readBase64: (uri) => readAsStringAsync(uri, { encoding: EncodingType.Base64 }),
     // Raw bytes, as the host's signed upload route expects; the length is the file's.
     uploadFile: async (url, uri, transfer) => (await uploadNativeAttachment(new File(uri), url, {

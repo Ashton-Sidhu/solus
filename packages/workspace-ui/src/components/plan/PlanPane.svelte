@@ -42,16 +42,16 @@
 {#if activePlan}
   {#key loadAttempt}
     {#await import("./PlanModal.svelte")}
-    <PlanModalSkeleton inline />
+    <PlanModalSkeleton />
   {:then planModule}
     {@const PlanModal = planModule.default}
-    <PlanModal plan={activePlan} inline minimizeOutline={!pane.isLeading} onClose={close} />
+    <PlanModal plan={activePlan} minimizeOutline={!pane.isLeading} onClose={close} />
   {:catch error}
       <RouteLoadError {error} compact onRetry={() => (loadAttempt += 1)} />
     {/await}
     {/key}
 {:else}
-  <PlanModalSkeleton inline />
+  <PlanModalSkeleton />
 {/if}
 <!-- After the content: the skeleton header is a window drag region, and a drag
      rect later in the DOM would re-cover this cluster's no-drag holes. -->

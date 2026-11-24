@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostReadinessCopy } from '@solus/client-core/host-readiness'
 import { serversStore, type ServerItem } from '../../contexts'
 import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte'
@@ -59,6 +60,7 @@ class FleetStore {
       ownerName: server.uplink?.ownerName,
       organizationName: organizationId ? organizationNames.get(organizationId) : undefined,
       readiness: server.readiness,
+      readinessCopy: hostReadinessCopy(serversStore.readinessFor(server.id), server.label),
       managedState: server.uplink?.managedState,
       routeKind: server.local ? null : routeKindInUse(server),
       address: server.local ? undefined : server.url,

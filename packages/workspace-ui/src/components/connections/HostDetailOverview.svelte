@@ -3,12 +3,17 @@
   /** Where a host stands (docs/plans/host-fleet.md D2): what runs on it, the
    *  machine, its readiness, and the one way to remove it that fits its kind.
    *  Each readiness row is a way into the tab that can change it. */
-  import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
-  import { isSessionBusyStatus } from "@solus/contracts/types";
-  import { getWorkspaceContext, managedHostsStore, serversStore, uplinkStore, type ServerItem } from "../../contexts";
+  import { Check as CheckIcon, Copy as CopyIcon, FolderGit2 as WorktreeIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
+  import { getSessionSidebarStore, getWorkspaceContext, managedHostsStore, serversStore, uplinkStore, type ServerItem } from "../../contexts";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
-  import { runHost } from "../../contexts/workspace/run-location";
-  import HostStateIcon from "../fleet/HostStateIcon.svelte";
+  import { liveActivityClock } from "../../lib/shared-clock";
+  import PresenceStack from "../presence/PresenceStack.svelte";
+  import { formatCompactElapsed } from "../project-panel/lib/rail-agents";
+  import SessionStatusGlyph from "../session/SessionStatusGlyph.svelte";
+  import TaskIcon from "../ui/TaskIcon.svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
+  import ProviderMark from "../ui/ProviderMark.svelte";
+  import { runningSessionRows } from "./lib/running-sessions";
   import { isManagedHost } from "../servers/lib/managed-host";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -31,9 +36,14 @@
   let isConfirmingRemove = $state(false);
 
   const workspace = getWorkspaceContext();
-  const running = $derived(
-    Object.values(workspace.sessions.byId).filter((session) => runHost(session.run) === host.id && isSessionBusyStatus(session.status)),
-  );
+  const sidebarStore = getSessionSidebarStore();
+  const running = $derived(runningSessionRows(workspace, sidebarStore, host.id));
+  // The elapsed time ticks only while a turn runs here.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (running.length === 0) return;
+    return liveActivityClock.subscribe((value) => { now = value; });
+  });
   const isManaged = $derived(isManagedHost(host.uplink));
   const principal = $derived(hosts.get(host.id).me.principal);
   const isShared = $derived(!isManaged && (principal === "org-member" || principal === "guest"));
@@ -87,8 +97,57 @@
       class="flex w-full items-center gap-3 overflow-hidden px-4 py-3 text-left hover:bg-(--wash-1)"
       onclick={() => void workspace.revealSession(session.id, host.id)}
     >
-      <span class="min-w-0 flex-1 truncate text-workspace-chrome">{session.title || "Untitled session"}</span>
-      <HostStateIcon state="running" />
+      <SessionStatusGlyph attention={session.attention} live={session.live} />
+      <span class="flex min-w-0 flex-1 flex-col gap-1">
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="min-w-0 truncate text-workspace-chrome">{session.title}</span>
+          {#if session.people.length > 0}
+            <PresenceStack people={session.people} size={16} max={3} activeUserId={session.activeUserId} />
+          {/if}
+        </span>
+        <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-chrome-dense text-muted-foreground">
+          {#if session.model}
+            <span class="flex shrink-0 items-center gap-1">
+              <ProviderMark mark={session.providerMark} size={11} transparent />
+              {session.model}
+              <span class="opacity-70">· {session.effort}</span>
+            </span>
+          {/if}
+          {#if session.branch}
+            <span class="flex min-w-0 items-center gap-1" title={session.isWorktree ? "Branch in a worktree" : "Branch"}>
+              {#if session.isWorktree}
+                <WorktreeIcon size={12} class="shrink-0" />
+              {:else}
+                <GitBranchIcon size={12} class="shrink-0" />
+              {/if}
+              <span class="truncate">{session.branch}</span>
+            </span>
+          {/if}
+          {#if session.pullRequest}
+            <span class="flex shrink-0 items-center gap-1" title="Pull request">
+              <GitPullRequestIcon size={12} class="shrink-0" />
+              #{session.pullRequest.number}{#if session.pullRequest.count > 1}&nbsp;+{session.pullRequest.count - 1}{/if}
+            </span>
+          {/if}
+          {#if session.task}
+            <span class="flex min-w-0 items-center gap-1" title="Task">
+              <TaskIcon size={12} class="shrink-0" />
+              <span class="truncate">{session.task}</span>
+            </span>
+          {/if}
+          {#if session.project}
+            <span class="min-w-0 truncate" title="Project">{session.project}</span>
+          {/if}
+        </span>
+      </span>
+      <span class="flex shrink-0 flex-col items-end gap-1 text-chrome-dense text-muted-foreground">
+        {#if session.state}
+          <span class="first-letter:uppercase @max-[30rem]/pane:hidden">{session.state}</span>
+        {/if}
+        {#if session.runStartedAt > 0}
+          <span class="font-mono tabular-nums" title="Time this turn has run">{formatCompactElapsed(now - session.runStartedAt)}</span>
+        {/if}
+      </span>
     </button>
   {:else}
     <p class="px-4 py-3.5 text-workspace-chrome text-muted-foreground">No sessions are running on this host.</p>

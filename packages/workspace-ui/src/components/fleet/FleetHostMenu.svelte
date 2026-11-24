@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { ArrowUpRight, Bot, CircleArrowUp, Plus, Power, RefreshCw, Trash2 } from "@lucide/svelte";
+  import { ArrowUpRight, Bot, CircleArrowUp, Link2, Plus, Power, RefreshCw, Trash2 } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
   import type { FleetMachine } from "./lib/fleet-model";
 
   /**
    * What a person can do with one host from the map (docs/plans/host-fleet.md
-   * D12): ask an agent about it, open it, start a session on it, and the one
-   * fix its state has. A card on the map keeps one job, which is to open the host.
+   * D12): ask an agent about it, open it, start a session on it, link it to
+   * other machines, and the one fix its state has. A card on the map keeps one job, which is to open the host.
    */
   interface Props {
     x: number;
@@ -15,6 +15,8 @@
     onAsk: () => void;
     onOpen: () => void;
     onNewSession: () => void;
+    /** Opens Link machines with this host as the machine that gets owner access. */
+    onLink: () => void;
     onRetry: () => void;
     onStart: () => void;
     onUpdate: () => void;
@@ -22,7 +24,7 @@
     onClose: () => void;
   }
 
-  let { x, y, machine, onAsk, onOpen, onNewSession, onRetry, onStart, onUpdate, onRemove, onClose }: Props = $props();
+  let { x, y, machine, onAsk, onOpen, onNewSession, onLink, onRetry, onStart, onUpdate, onRemove, onClose }: Props = $props();
 
   const answers = $derived(machine.state === "running" || machine.state === "idle");
   const canRetry = $derived(machine.state === "unreachable");
@@ -52,6 +54,10 @@
     <ContextMenu.Item disabled={!answers} onSelect={() => select(onNewSession)}>
       <Plus />
       New session
+    </ContextMenu.Item>
+    <ContextMenu.Item disabled={!answers} onSelect={() => select(onLink)}>
+      <Link2 />
+      Link to other machines…
     </ContextMenu.Item>
     {#if canRetry || canStart || machine.hasUpdate}
       <ContextMenu.Separator />

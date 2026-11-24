@@ -30,6 +30,25 @@ export interface HostPairing {
   clientConnect?: 'on-request'
 }
 
+/**
+ * How one machine link of this host is doing (docs/host-pairing.md, "Link health").
+ * `status` is read when the health is asked for: `reachable` when the machine answers
+ * as itself at the link's address, `unreachable` when it does not, and `expired` when
+ * this host holds no credential for it or the credential is past `expiresAt`. A
+ * reachable link can still have a `lastError`: the address answers, but the last use
+ * of the link failed.
+ */
+export interface HostLinkHealth {
+  installationId: string
+  status: 'reachable' | 'unreachable' | 'expired'
+  /** The last time the machine accepted this host's credential. */
+  lastReachedAt: number
+  /** Why the last use of the link failed; null after a use that worked. */
+  lastError: string | null
+  /** When the credential ends if nothing uses it. Each use after a day renews it. Null when expired. */
+  expiresAt: number | null
+}
+
 export interface HostPairingsSnapshot {
   hosts: HostPairing[]
   forgotten: string[]

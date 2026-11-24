@@ -1,4 +1,4 @@
-import { readdir, stat } from 'fs/promises'
+import { readdir } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { FileMatch } from '@solus/contracts/types'
 import { expandHome } from './host-path'
@@ -13,10 +13,12 @@ export async function browseFileMatches(query: string, cwd: string): Promise<Fil
 
   const root = resolve(expandHome(cwd))
   const target = query ? resolve(root, query.startsWith('~') ? expandHome(query) : query) : root
-  const isDirectory = await stat(target).then(value => value.isDirectory()).catch(() => false)
-  if (!isDirectory && (!query || query.endsWith(sep))) return []
-  const directory = isDirectory ? target : dirname(target)
-  const needle = isDirectory ? '' : basename(target).toLocaleLowerCase()
+  // A folder's contents show only after its closing slash. Until then the
+  // last segment is a name to match in its parent, so `~/solus` offers
+  // `solus/` and `solus-cloud/` instead of entering `~/solus`.
+  const entersFolder = !query || query === '~' || query.endsWith('/') || query.endsWith(sep)
+  const directory = entersFolder ? target : dirname(target)
+  const needle = entersFolder ? '' : basename(target).toLocaleLowerCase()
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
   return entries
     .filter(entry => !entry.name.startsWith('.') && entry.name.toLocaleLowerCase().includes(needle))

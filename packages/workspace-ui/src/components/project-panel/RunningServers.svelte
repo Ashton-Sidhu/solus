@@ -17,9 +17,10 @@
   import { requestInputFocus } from '../../lib/inputFocus';
   import { copyText, toasts } from '../../lib/toasts';
 
-  let { hostId, checkoutPath, initialRowCount, collapsed, onToggle, onResizePointerDown }: {
+  let { hostId, checkoutPaths, sessionId, initialRowCount, collapsed, onToggle, onResizePointerDown }: {
     hostId: string;
-    checkoutPath: string | null;
+    checkoutPaths: readonly string[];
+    sessionId?: string;
     initialRowCount: number;
     collapsed: boolean;
     onToggle: () => void;
@@ -29,7 +30,7 @@
   const host = $derived(hosts.get(hostId));
   const forwardingEnabled = $derived(hostSettingsStore.states.get(host.id)?.previewTunnelEnabled !== false);
   const store = $derived(runningServers.forHost(hostId));
-  let showAll = $state(false);
+  let showOther = $state(false);
   let busy = $state<string | null>(null);
   /** The one row action in flight or just confirmed, as `action:endpointId`. */
   let pendingAction = $state<string | null>(null);
@@ -37,13 +38,13 @@
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => () => clearTimeout(copiedTimer));
   let expanded = $state(false);
-  const checkoutRows = $derived(store.rows(checkoutPath));
-  const hostRows = $derived(store.rows());
-  const rows = $derived(showAll ? hostRows : checkoutRows);
-  const otherCheckoutCount = $derived(hostRows.length - checkoutRows.length);
+  const { sessionRows, otherRows } = $derived(store.rowsForScope({ checkoutPaths, sessionId }));
+  const isShowingOther = $derived(showOther && otherRows.length > 0);
+  const rows = $derived(isShowingOther ? otherRows : sessionRows);
+  const otherCheckoutCount = $derived(otherRows.length);
   const extraRowCount = $derived(rows.length - initialRowCount);
   const visibleRows = $derived(expanded ? rows : rows.slice(0, initialRowCount));
-  $effect(() => { if (host.me.may('host.use')) return store.retainCheckout(checkoutPath); });
+  $effect(() => { if (host.me.may('host.use')) return store.retainCheckouts(checkoutPaths); });
 
   async function external(server: RunningServers, endpoint: ServerEndpoint) {
     try { await server.openExternal(endpoint, { isLocalHost: host === hosts.device }); }
@@ -111,7 +112,7 @@
   </Tooltip.Root>
 {/snippet}
 
-{#if host.me.may('host.use') && rows.length > 0}
+{#if host.me.may('host.use') && (sessionRows.length > 0 || otherCheckoutCount > 0)}
 <PanelSection title="Running servers" {collapsed} {onToggle} {onResizePointerDown}>
 <section class="flex flex-col gap-0.5 px-1.5" aria-label="Running servers">
     {#each visibleRows as row (`${row.server.serverId}:${row.endpoint.endpointId}`)}
@@ -120,7 +121,8 @@
       {@const copied = copiedAction === `copy:${endpoint.endpointId}`}
       {@const agentMark = server.startedBy.kind === 'agent' && server.startedBy.sessionId ? providerMark(sessionListStore.listed(server.startedBy.sessionId)?.opensWith.provider) : null}
       {@const SourceIcon = server.startedBy.kind === 'agent' ? Bot : server.startedBy.kind === 'terminal' ? SquareTerminal : Globe}
-      {@const detail = [showAll && row.checkoutPath ? hostPathBaseName(row.checkoutPath) : null, forwarded ? `localhost:${forwarded.localPort}` : null].filter(Boolean).join(' · ')}
+      {@const folder = server.location.projectRoot ?? row.checkoutPath}
+      {@const detail = [folder ? hostPathBaseName(folder) : null, forwarded ? `localhost:${forwarded.localPort}` : null].filter(Boolean).join(' · ')}
       <div class="group flex items-center rounded-md hover:bg-(--solus-surface-hover)" data-active={copied || pendingAction?.endsWith(`:${endpoint.endpointId}`) || undefined}>
         <button type="button" title={`${endpoint.url}\n${server.sourceLabel} · ${server.process.name}${row.checkoutPath ? `\n${row.checkoutPath}` : ''}`} class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 focus-visible:outline-2"
           onclick={(event) => void ((forwardingEnabled || host === hosts.device) && (event.metaKey || event.ctrlKey || event.shiftKey) ? external(server, endpoint) : open(server, endpoint))}
@@ -151,7 +153,7 @@
           <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { expanded = !expanded; requestInputFocus(); }}>{expanded ? 'Show less' : `Show ${extraRowCount} more`}</button>
         {/if}
         {#if otherCheckoutCount > 0}
-          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { showAll = !showAll; expanded = false; requestInputFocus(); }}>{showAll ? 'Only this checkout' : `${otherCheckoutCount} in other checkouts`}</button>
+          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { showOther = !isShowingOther; expanded = false; requestInputFocus(); }}>{isShowingOther ? 'Session folders' : `${otherCheckoutCount} in other checkouts`}</button>
         {/if}
       </div>
     {/if}

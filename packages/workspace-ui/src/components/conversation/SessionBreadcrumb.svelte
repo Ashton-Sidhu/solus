@@ -1,5 +1,6 @@
 <script lang="ts">
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { CONVERSATION_BREADCRUMB_OFFSET } from "./lib/find";
   import {
     BAND_ACTION,
     BAND_SHARE,
@@ -427,11 +428,12 @@
 
 {#if task || draft}
   <!-- Scrim: the transcript dissolves into the background under the band rather
-       than being clipped by a hard edge. -->
+       than being clipped by a hard edge. It ends where the transcript starts, so
+       the first row is never faded when the transcript is at its top. -->
   {#if variant === "floating"}
     <div
-      class="pointer-events-none absolute inset-x-0 top-0 z-[2] h-24"
-      style="background:linear-gradient(to bottom, var(--background) 56%, transparent)"
+      class="pointer-events-none absolute inset-x-0 top-0 z-[2]"
+      style="height:{CONVERSATION_BREADCRUMB_OFFSET}px;background:linear-gradient(to bottom, var(--background) 60%, transparent)"
       aria-hidden="true"
     ></div>
   {/if}

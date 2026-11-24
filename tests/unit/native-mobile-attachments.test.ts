@@ -150,6 +150,32 @@ describe('native attachments', () => {
     expect(uploads).toHaveLength(0)
   })
 
+  test('verifies a staged file after a lost upload response and keeps it on send', async () => {
+    const operations: string[] = []
+    const attached = await uploadAttachment(clip, {
+      api: {
+        attachUpload: async () => { throw new Error('unused') },
+        attachUploadToken: async (_ctx, request) => {
+          expect(request.pending).toBe(true)
+          return { relativeUrl: '/api/uploads/clip', pendingUrl: '/api/uploads/clip/pending',
+            hostPath: '/h/clip.mov', expiresAt: 0 }
+        },
+      },
+      ctx: {} as IpcContext,
+      serverUrl: 'https://host.tunnel',
+      uuid: () => 'staged-clip',
+      stage: true,
+      io: {
+        readBase64: async () => { throw new Error('unused') },
+        uploadFile: async () => { throw new Error('Response lost') },
+        manageUpload: async (_url, method) => { operations.push(method); return 204 },
+      },
+    })
+    expect(operations).toEqual(['HEAD'])
+    expect(await attached.pending?.keep()).toMatchObject({ hostPath: '/h/clip.mov' })
+    expect(operations).toEqual(['HEAD', 'POST'])
+  })
+
   test('the prompt names files by host path; images ride as refs or inline', () => {
     const attachments: UploadedAttachment[] = [
       { id: '1', kind: 'file', name: 'spec.pdf', hostPath: '/h/spec.pdf', mimeType: 'application/pdf', size: 1, dataUrl: null },
@@ -283,6 +309,23 @@ describe('native send while an attachment uploads', () => {
     uploads[0]!.resolve('/h/first.jpg')
     await attaching
     expect(controller.attachments.map(file => file.name)).toEqual(files.map(file => file.name))
+  })
+
+  test('a failed photo stays in the composer and retry keeps its identity', async () => {
+    const { controller, uploads } = await uploadingConversation()
+    const attaching = controller.attach([photo])
+    const id = controller.pendingImages[0]!.id
+    await settle()
+    uploads[0]!.reject(new Error('Upload interrupted'))
+    await attaching
+    expect(controller.failedAttachments).toMatchObject([{ id, file: photo, reason: 'Upload interrupted' }])
+    const retrying = controller.retryAttachment(id)
+    expect(controller.pendingImages[0]?.id).toBe(id)
+    await settle()
+    uploads[1]!.resolve('/h/photo.jpg')
+    await retrying
+    expect(controller.failedAttachments).toEqual([])
+    expect(controller.attachments[0]).toMatchObject({ id, hostPath: '/h/photo.jpg' })
   })
 
   test('a new draft can close once its local save succeeds, before host delivery', async () => {

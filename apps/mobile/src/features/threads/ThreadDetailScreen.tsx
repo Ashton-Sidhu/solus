@@ -289,6 +289,7 @@ export interface ThreadDetailScreenProps {
   /** Some hosts accept typed feedback but require an explicit button for other approvals. */
   readonly approvalFeedbackOnly?: boolean;
   readonly activePendingUserInput: PendingUserInput | null;
+  readonly questionAttachmentAccess?: { accountScope: string; canUpload: boolean } | undefined;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
   readonly respondingUserInputId: RuntimeRequestId | null;
@@ -322,6 +323,7 @@ export interface ThreadDetailScreenProps {
   readonly onPickDraftFiles: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
+  readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopBackgroundWork?: () => void;
   readonly onStopThread: () => void;
@@ -1944,10 +1946,11 @@ function ThreadDetailBody(
                             workspaceRoot={props.threadCwd}
                             canOperateThread={props.mayAnswerRequests ?? props.canOperateThread}
                             pendingUserInput={props.activePendingUserInput}
+                            attachmentAccess={props.questionAttachmentAccess}
                             maxHeight={pendingUserInputMaxHeight}
                             collapsed={userInputCollapsed}
                             onToggleCollapsed={handleToggleUserInputCollapsed}
-                            onStopThread={props.onStopThread}
+                            onStopThread={props.canStopThread ? props.onStopThread : undefined}
                             cardProgress={userInputCardProgress}
                             cardCoverage={userInputCardCoverage}
                             onLayout={
@@ -2087,6 +2090,7 @@ function ThreadDetailBody(
                         onPickDraftFiles={props.onPickDraftFiles}
                         onNativePasteImages={props.onNativePasteImages}
                         onNativePasteText={props.onNativePasteText}
+                        onRetryHostAttachment={props.onRetryHostAttachment}
                         onRemoveDraftImage={props.onRemoveDraftImage}
                         onStopThread={props.onStopThread}
                         onResumeQueue={props.onResumeQueue}

@@ -37,7 +37,11 @@ vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: Children) => <span>{children}</span>,
 }));
 vi.mock("../../components/ui/ControlPill", () => ({ ControlPill: () => null }));
-vi.mock("../../components/ui/Button", () => ({ Button: () => null }));
+vi.mock("../../components/ui/Button", () => ({
+  Button: (props: { label: string; disabled?: boolean; onPress?: () => void }) => (
+    <button type="button" disabled={props.disabled} onClick={props.onPress}>{props.label}</button>
+  ),
+}));
 vi.mock("./QuestionAttachments", () => ({ QuestionAttachments: () => null }));
 vi.mock("../files/FileMarkdownPreview", () => ({
   useMarkdownPreviewStyles: () => ({ nativeTextStyle: {} }),
@@ -70,7 +74,10 @@ vi.mock("@react-navigation/native", () => ({
 
 import { PendingUserInputCard } from "./PendingUserInputCard";
 
-function setup(questionMarkdown: string) {
+function setup(questionMarkdown: string, options?: {
+  dismissible: boolean;
+  onDismiss: () => Promise<void>;
+}) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   harness.navigate = [];
   harness.openedUrls = [];
@@ -78,6 +85,7 @@ function setup(questionMarkdown: string) {
   const pendingUserInput = {
     requestId: "request-1" as RuntimeRequestId,
     responseCapability: "resumable",
+    dismissible: options?.dismissible,
     questions: [
       {
         id: "question-1",
@@ -109,17 +117,17 @@ function setup(questionMarkdown: string) {
         onSelectOption={() => {}}
         onChangeCustomAnswer={() => {}}
         onSubmit={async () => {}}
-        onDismiss={async () => {}}
+        onDismiss={options?.onDismiss ?? (async () => {})}
       />,
     ),
   );
   return {
-    async pressLink(label: string) {
-      const link = [...container.querySelectorAll("button")].find(
+    async pressButton(label: string) {
+      const button = [...container.querySelectorAll("button")].find(
         (button) => button.textContent === label,
       );
-      if (!link) throw new Error(`No link labelled ${label}`);
-      await act(async () => link.click());
+      if (!button) throw new Error(`No button labelled ${label}`);
+      await act(async () => button.click());
     },
     [Symbol.dispose]() {
       act(() => root.unmount());
@@ -130,7 +138,7 @@ function setup(questionMarkdown: string) {
 it("opens a workspace file link in a question in the thread's file viewer", async () => {
   using screen = setup("Should I update [probe.md](docs/probe.md:12)?");
 
-  await screen.pressLink("probe.md");
+  await screen.pressButton("probe.md");
 
   expect(harness.openedUrls).toEqual([]);
   expect(harness.navigate).toEqual([
@@ -139,4 +147,13 @@ it("opens a workspace file link in a question in the thread's file viewer", asyn
       { environmentId: "env-1", threadId: "thread-1", path: ["docs", "probe.md"], line: "12" },
     ],
   ]);
+});
+
+it("lets the user dismiss an async question with an empty draft", async () => {
+  const onDismiss = vi.fn(async () => {});
+  using screen = setup("Can you attach a screenshot?", { dismissible: true, onDismiss });
+
+  await screen.pressButton("Dismiss without answering");
+
+  expect(onDismiss).toHaveBeenCalledOnce();
 });

@@ -21,9 +21,8 @@ const markdownNewline: Command = (view) =>
 
 /** History plus CodeMirror's stock editing keys, minus `Mod-/`. That binding is
  *  `toggleComment`, which in a Markdown document wraps the line in `<!-- -->`.
- *  The composer is prose, and ⌘/ is the app's keyboard-shortcuts overlay
- *  (`global.show-shortcuts`) — CodeMirror does not check `defaultPrevented`, so
- *  leaving it bound fires both the overlay and the comment. */
+ *  The composer is prose, so a comment marker there is never what the user
+ *  meant. */
 export const composerBaseKeymap: readonly KeyBinding[] = [
   ...historyKeymap,
   ...defaultKeymap.filter((binding) => binding.key !== "Mod-/"),

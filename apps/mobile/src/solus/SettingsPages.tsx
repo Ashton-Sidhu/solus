@@ -26,6 +26,7 @@ import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
 import { HostAccessSection } from "./HostAccessSection";
+import { HostRoutesSection } from "./HostRoutesSection";
 import { LinkSeveralEnvironmentsAction } from "../features/connection/LinkSeveralEnvironments";
 import { LinkedEnvironmentsSection } from "../features/connection/LinkedEnvironmentsSection";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
@@ -356,6 +357,7 @@ export function SolusHostDetail({
           }
         />
       </SettingsSection>
+      <HostRoutesSection hostId={id} />
       <HostAccessSection
         hostId={id}
         isConnected={host?.connectionState === "connected"}

@@ -7,7 +7,7 @@ import { RunningServerTunnels } from '../../host/running-servers/tunnel'
 
 export function registerRunningServerHandlers(server: SolusServer, registry: RunningServerRegistry, isControlPort: (port: number) => boolean): RunningServerTunnels {
   const tunnels = new RunningServerTunnels(registry, isControlPort, effectivePreviewTunnelEnabled)
-  const pathsSchema = z.array(z.string().min(1).max(4096)).max(32)
+  const pathsSchema = z.array(z.string().min(1).max(4096)).max(512)
   function clientId(ctx: HandlerCtx): string {
     if (!ctx.clientId) throw new Error('Running server discovery requires a connected client')
     return ctx.clientId

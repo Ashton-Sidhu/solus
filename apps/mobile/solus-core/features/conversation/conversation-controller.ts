@@ -144,6 +144,7 @@ interface HistoryPreview {
 }
 
 interface InFlightUpload {
+  readonly id?: string
   readonly file?: PickedFile
   readonly abort?: AbortController
   cancelled?: boolean
@@ -153,6 +154,12 @@ interface InFlightUpload {
 }
 
 export class ConversationController {
+  private failedUploads = new Map<string, { file: PickedFile; reason: string }>()
+
+  get failedAttachments() {
+    return [...this.failedUploads].map(([id, failure]) => ({ id, ...failure }))
+  }
+
   private taskBinding: { taskId: string; hostId: string } | null = null
   bindTask(taskId: string, hostId: string): void {
     if (this.started) throw new Error('A started session keeps its task.')
@@ -948,6 +955,7 @@ export class ConversationController {
     if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return this.compact(prompt)
     const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
     if (authCommand) return this.auth.run(authCommand, this.run.workingDirectory)
+    for (const id of this.failedUploads.keys()) void this.retryAttachment(id)
     // The prompt takes the uploads still in flight: it shows now and goes when they land.
     const waiting = this.uploads
     const attachments = this.attachments
@@ -981,12 +989,32 @@ export class ConversationController {
     }
     try {
       await before
-      const ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
+      let ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
       if (!ready) {
         options.onUploadFailed?.()
         return
       }
       try {
+        const kept = [...ready]
+        ready = kept
+        for (const [index, file] of kept.entries()) {
+          if (!file.pending) continue
+          try {
+            kept[index] = await file.pending.keep()
+          } catch (error) {
+            if (file.localUri && !this.closed) {
+              const reason = error instanceof Error ? error.message : String(error)
+              this.failedUploads.set(file.id, {
+                file: { uri: file.localUri, name: file.name, mimeType: file.mimeType, size: file.size },
+                reason,
+              })
+              ready = kept.filter(attachment => attachment.id !== file.id)
+              void file.pending.discard().catch(() => {})
+            }
+            throw error
+          }
+        }
+        this.model.setOptimisticAttachments(clientPromptId, uploadedMessageAttachments(kept))
         await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
       } catch (error) {
         this.model.dropOptimisticUser(clientPromptId)
@@ -1087,17 +1115,29 @@ export class ConversationController {
       if (!upload.file) throw new Error('Wait for the host resource to finish attaching before changing the checkout.')
       return upload.file
     })
-    if (hostId === this.hostId) return { uploaded: this.attachments, picked }
-    const landed = this.attachments.map(file => {
+    picked.push(...this.failedAttachments.map(({ file }) => file))
+    const uploaded = hostId === this.hostId ? this.attachments.filter(file => !file.pending) : []
+    const landed = this.attachments.filter(file => !uploaded.includes(file)).map(file => {
       if (!file.localUri) throw new Error(`Remove ${file.name} before switching hosts. Its only copy is on this host.`)
       return { name: file.name, uri: file.localUri, size: file.size, mimeType: file.mimeType }
     })
-    return { uploaded: [], picked: [...landed, ...picked] }
+    return { uploaded, picked: [...landed, ...picked] }
   }
 
   /** Uploads picked files to the host now, so the prompt can name them. A
    *  prompt sent before they land takes them and waits for them. */
   async attach(files: readonly PickedFile[]): Promise<void> {
+    await this.attachFiles(files)
+  }
+
+  async retryAttachment(id: string): Promise<void> {
+    const failed = this.failedUploads.get(id)
+    if (!failed || !this.mayDrive || this.closed) return
+    this.failedUploads.delete(id)
+    await this.attachFiles([failed.file], id)
+  }
+
+  private async attachFiles(files: readonly PickedFile[], retryId?: string): Promise<void> {
     const io = this.deps.attachmentIo
     if (!io || files.length === 0) return
     const problem = attachmentSizeProblem(files)
@@ -1111,10 +1151,11 @@ export class ConversationController {
       const before = previous
       const landed = Promise.resolve().then(() => this.uploadOne(file, io, upload, before))
       const media = attachmentKind(file)
-      const upload: InFlightUpload = { file, landed, abort: new AbortController(), ...(media.type === 'image' && {
-        preview: { type: 'image', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, previewUri: file.uri },
+      const id = retryId ?? this.deps.uuid()
+      const upload: InFlightUpload = { id, file, landed, abort: new AbortController(), ...(media.type === 'image' && {
+        preview: { type: 'image', id, name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, previewUri: file.uri },
       }), ...(media.isVideo && {
-        video: { type: 'file', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, fileUri: file.uri },
+        video: { type: 'file', id, name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, fileUri: file.uri },
       }) }
       previous = landed
       return upload
@@ -1127,6 +1168,7 @@ export class ConversationController {
   /** One upload, in order. It joins the composer's attachments unless a sent
    *  prompt took it; then that prompt gets it from `landed`. */
   private async uploadOne(file: PickedFile, io: AttachmentIo, upload: InFlightUpload, before: Promise<unknown>): Promise<UploadedAttachment | null> {
+    let uploaded: UploadedAttachment | undefined
     try {
       if (upload.cancelled) {
         await before
@@ -1135,7 +1177,7 @@ export class ConversationController {
       const fact = this.deps.connection.facts.get('capabilities')
       const capabilities = fact.state === 'ready' ? fact.value : undefined
       const checkAccess = this.attachmentAccessCheck()
-      const uploaded = await uploadAttachment(file, {
+      uploaded = await uploadAttachment(file, {
         api: this.deps.connection.api,
         ctx: this.uploadContext(),
         serverUrl: this.deps.connection.transport.serverUrl,
@@ -1143,17 +1185,26 @@ export class ConversationController {
         hostId: this.hostId,
         signal: upload.abort?.signal,
         checkAccess,
+        stage: true,
         streamImages: hasHostCapability(capabilities, 'attachStreamUpload') && hasHostCapability(capabilities, 'promptImageRefs'),
-        uuid: () => upload.preview?.id ?? upload.video?.id ?? this.deps.uuid(),
+        uuid: () => upload.id!,
       })
       await before
-      if (upload.cancelled) return null
+      if (upload.cancelled) {
+        void uploaded.pending?.discard().catch(() => {})
+        return null
+      }
       checkAccess()
       if (this.uploads.includes(upload)) this.attachments = [...this.attachments, uploaded]
       return uploaded
     } catch (error) {
       await before
-      if (!upload.cancelled && !this.closed) this.model.addNotice(`${file.name} was not attached: ${error instanceof Error ? error.message : String(error)}`, 'error')
+      void uploaded?.pending?.discard().catch(() => {})
+      if (!upload.cancelled && !this.closed && upload.id) {
+        const reason = error instanceof Error ? error.message : String(error)
+        this.failedUploads.set(upload.id, { file, reason })
+        this.model.addNotice(`${file.name} was not attached: ${reason}`, 'error')
+      }
       return null
     } finally {
       this.uploads = this.uploads.filter((each) => each !== upload)
@@ -1216,14 +1267,16 @@ export class ConversationController {
     this.flush(true)
   }
 
-  /** Takes an attachment off the next prompt. The host keeps the upload. */
+  /** Takes an attachment off the next prompt and releases any staged bytes. */
   removeAttachment(id: string): void {
-    const pending = this.uploads.find(upload => (upload.preview?.id ?? upload.video?.id) === id)
+    this.failedUploads.delete(id)
+    const pending = this.uploads.find(upload => upload.id === id)
     if (pending) {
       pending.cancelled = true
       pending.abort?.abort()
       this.uploads = this.uploads.filter(upload => upload !== pending)
     }
+    void this.attachments.find(file => file.id === id)?.pending?.discard().catch(() => {})
     this.attachments = this.attachments.filter((attachment) => attachment.id !== id)
     this.flush(true)
   }
@@ -1337,16 +1390,18 @@ export class ConversationController {
     this.settleRun()
   }
 
-  async uploadQueueFiles(files: readonly PickedFile[]): Promise<QueueAttachment[]> {
+  async uploadPickedFiles(files: readonly PickedFile[]): Promise<(QueueAttachment & { hostPath: string })[]> {
     const io = this.deps.attachmentIo
     if (!io) throw new Error('File uploads are unavailable.')
     const problem = attachmentSizeProblem(files)
     if (problem) throw new Error(problem)
     const checkAccess = this.attachmentAccessCheck()
-    const result: QueueAttachment[] = []
+    const capabilities = this.deps.connection.facts.value('capabilities')
+    const streamImages = hasHostCapability(capabilities, 'attachStreamUpload') && hasHostCapability(capabilities, 'promptImageRefs')
+    const result: (QueueAttachment & { hostPath: string })[] = []
     for (const file of files) {
       const attachment = await uploadAttachment(file, { api: this.deps.connection.api, ctx: this.uploadContext(),
-        serverUrl: this.deps.connection.transport.serverUrl, hostId: this.hostId, io, checkAccess, uuid: this.deps.uuid })
+        serverUrl: this.deps.connection.transport.serverUrl, hostId: this.hostId, io, checkAccess, streamImages, uuid: this.deps.uuid })
       result.push({ id: attachment.id, type: attachment.kind, name: attachment.name, hostPath: attachment.hostPath,
         mimeType: attachment.mimeType, size: attachment.size })
     }
@@ -1490,6 +1545,8 @@ export class ConversationController {
     if (this.closed) return
     this.closed = true
     for (const upload of this.uploads) upload.abort?.abort()
+    for (const file of this.attachments) void file.pending?.discard().catch(() => {})
+    this.failedUploads.clear()
     clearTimeout(this.replayTimeout)
     this.watchReplay = null
     this.loadGeneration += 1

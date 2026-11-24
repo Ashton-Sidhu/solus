@@ -37,6 +37,7 @@ export function useSolusShellCachesRead(hostId?: string) {
 let loadError: string | null = null;
 const automationNames = new Map<string, ReadonlyMap<string, string>>();
 let automationRevision = 0;
+let codebaseRevision = 0;
 const rowActions = new Map<string, number>();
 export function noteSessionListAction(hostId: string) {
   rowActions.set(hostId, (rowActions.get(hostId) ?? 0) + 1);
@@ -245,6 +246,11 @@ export function startSolus() {
     solus.threadList.changes.subscribe(changed),
     // The project lists leave out each container root of a codebase, so the codebases are read for as long as the app runs.
     solus.codebases.watch(),
+    // A folder that becomes or stops being a container root changes the icon of its rows.
+    solus.codebases.changes.subscribe(() => {
+      codebaseRevision++;
+      changed();
+    }),
     watchAppLifecycle(solus.connections, refresh),
   ];
   void solus.load(() => {
@@ -283,7 +289,7 @@ export function startSolus() {
   };
 }
 
-const projectThreads = createSessionListProjection();
+const projectThreads = createSessionListProjection((hostId, path) => solus.codebases.isContainerRoot(hostId, path));
 
 function readHosts() {
   const environments = solus.registry.hosts().map((host): WorkspaceEnvironment & {supportsListControls: boolean} => {
@@ -391,6 +397,7 @@ let projected: {
   facts: ReturnType<typeof solus.threadList.facts>;
   projects: ReturnType<typeof readProjects>["projectPaths"];
   automationRevision: number;
+  codebaseRevision: number;
   awayHosts: string;
 } | undefined;
 
@@ -403,10 +410,10 @@ function readDirectory() {
   const away = solus.registry.hosts().filter((host) => solus.connections.readiness(host.id).away).map((host) => host.id);
   const awayKey = away.join(",");
   const keys = projected && solus.threadList.changedKeys(projected.facts);
-  const changes = projected && keys && projected.projects === workspace.projectPaths && projected.automationRevision === automationRevision && projected.awayHosts === awayKey
+  const changes = projected && keys && projected.projects === workspace.projectPaths && projected.automationRevision === automationRevision && projected.codebaseRevision === codebaseRevision && projected.awayHosts === awayKey
     ? solus.threads.changedPositions(projected.rows, keys) : undefined;
   const threads = projectThreads(rows, facts, automationNames, workspace.projectPaths, changes, new Set(away));
-  projected = { rows, facts, projects: workspace.projectPaths, automationRevision, awayHosts: awayKey };
+  projected = { rows, facts, projects: workspace.projectPaths, automationRevision, codebaseRevision, awayHosts: awayKey };
   if (directoryWorkspace === workspace && snapshot.threads === threads && snapshot.unread === facts.unread) return snapshot;
   directoryWorkspace = workspace;
   return { ...workspace, threads, unread: facts.unread };

@@ -119,11 +119,6 @@ export function gitCardRepositories(input: {
   return gitRepositoryRows({ working: input.working, folders })
 }
 
-/** The words beside the title of the card while it lists repositories: how many there are. */
-export function gitRepositoriesDetail(rows: readonly GitRepositoryRow[]): string | undefined {
-  return showsRepositoryRows(rows) ? `${rows.length} ${rows.length === 1 ? 'repository' : 'repositories'}` : undefined
-}
-
 /**
  * True when the card shows its repository rows. A session in one repository
  * has none: the card looks as it does for each session with one project. A

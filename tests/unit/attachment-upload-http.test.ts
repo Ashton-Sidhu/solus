@@ -61,5 +61,17 @@ describe('POST /api/uploads/:token', () => {
     const response = await fetch(url, { method: 'POST', body: bytes })
     expect(response.status).toBe(204)
     expect(readFileSync(hostPath)).toEqual(bytes)
+
+    const pending = await createAttachmentUploadToken(ctx, {
+      name: 'staged.mp4', mime: 'video/mp4', size: bytes.length, pending: true,
+    })
+    const origin = `http://127.0.0.1:${address.port}`
+    expect((await fetch(origin + pending.relativeUrl, { method: 'POST', body: bytes })).status).toBe(204)
+    expect(existsSync(pending.hostPath)).toBe(false)
+    const statusUrl = origin + pending.pendingUrl
+    expect((await fetch(statusUrl, { method: 'HEAD' })).status).toBe(204)
+    expect((await fetch(statusUrl, { method: 'POST' })).status).toBe(204)
+    expect((await fetch(statusUrl, { method: 'DELETE' })).status).toBe(204)
+    expect(readFileSync(pending.hostPath)).toEqual(bytes)
   })
 })

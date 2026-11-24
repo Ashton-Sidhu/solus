@@ -39,7 +39,6 @@
     onSave?: (content: string) => Promise<void> | void;
     onDirtyChange?: (dirty: boolean) => void;
     onClose?: () => void;
-    inline?: boolean;
     minimizeOutline?: boolean;
     /** Delete the work (closes the pane + offers undo). */
     onDelete?: () => void;
@@ -56,7 +55,7 @@
     live?: LiveEditorBinding | null;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace, live = null }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, minimizeOutline = false, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace, live = null }: DocumentModalProps = $props();
   // Live: the agent edit lock, a reader's role, or an older schema stops typing.
   const liveLocked = $derived(!!live && !live.live.canEdit);
 
@@ -284,7 +283,6 @@
   onRenameTitle={readOnly ? undefined : onRename}
   readOnly={readOnly || liveLocked}
   {live}
-  {inline}
   {minimizeOutline}
   editorClass="doc-document-editor"
   rootClass="doc-modal-shell"
@@ -303,7 +301,6 @@
   bind:tiptapEditor
   bind:scrollContainer
   rootTestId="document-modal"
-  closeTestId="document-modal-close"
   scrollAriaLabel="Document"
   placeholder="Start writing…"
 >

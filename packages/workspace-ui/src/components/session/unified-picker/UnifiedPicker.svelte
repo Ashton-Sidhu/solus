@@ -4,6 +4,7 @@
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import VirtualList from "../../ui/list-page/VirtualList.svelte";
+  import { ModalResizeHandles, ResizableModal } from "../../ui/modal-resize";
   import { Search as MagnifyingGlassIcon, X as CloseIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -99,6 +100,7 @@
   let selectedKey = $state<string | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
   let pickerEl = $state<HTMLDivElement | null>(null);
+  const resizable = new ResizableModal("session-picker");
   let listHeight = $state(0);
   let wasOpen = false;
   let scopeMenuOpen = $state(false);
@@ -812,8 +814,9 @@
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain modal-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
     <!-- `text-menu`, not the chrome rung, for the same reason the command
          palette holds it: this is a decision surface. -->
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards]" role="dialog" aria-label="Search" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} style={resizable.style} class="relative flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards]" role="dialog" aria-label="Search" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
+      <ModalResizeHandles modal={resizable} label="Resize session picker" />
     </div>
   </div>
 {/if}

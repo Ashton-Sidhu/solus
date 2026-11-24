@@ -98,21 +98,8 @@
     }
   }
 
-  @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
-    .plan-shell:not(.h-full) {
-      width: 100dvw !important;
-      max-width: none !important;
-      border-inline: none !important;
-      border-radius: 0 !important;
-    }
-  }
-
   /* ── Mobile ── */
   @media (max-width: 767px) {
-    .plan-shell .doc-shell-close {
-      width: 1.75rem;
-      height: 1.75rem;
-    }
     .plan-soft-pill__label {
       display: none;
     }

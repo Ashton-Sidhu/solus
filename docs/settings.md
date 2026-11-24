@@ -305,8 +305,13 @@ state, its kind, and its actions: **New session**, and for a Solus Cloud machine
   resource monitor shows machine load only. See
   [the plan](plans/resource-telemetry.md).
 - **Access**: how the host is reached and who reaches it. It has the host's Solus
-  Cloud section, its organizations, its network (remote connections, local network
-  trust, address), pairing, and the devices with access.
+  Cloud section, its organizations, its network (remote connections, Tailscale
+  HTTPS and its port, local network trust, address), one **Pair and link** card,
+  and the devices with access. The **Pair and link** card holds every way a device
+  or machine comes to the host: the pair code, approval requests, and machines
+  reached over SSH. Machine links are on the host map: **Link machines** links one
+  machine to several at once. A long
+  device list shows its first eight devices and **Show N more**.
 - **Git**, **AI providers**, and **Environment**.
 
 The Hosts **List** has an **Auto balance** section when you have two or more hosts

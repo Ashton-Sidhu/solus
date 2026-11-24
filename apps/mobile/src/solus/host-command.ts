@@ -18,7 +18,7 @@ const canWrite = Atom.family((permission: Permission) =>
 );
 const writes = createAtomCommandScheduler();
 
-export function hostCommand<I>(
+export function hostCommand<I, Result = void>(
   label: string,
   permission: Permission,
   write: (
@@ -26,7 +26,7 @@ export function hostCommand<I>(
     input: I,
     registry: AtomRegistry.AtomRegistry,
     check: () => void,
-  ) => Promise<void>,
+  ) => Promise<Result>,
 ) {
   return {
     label,

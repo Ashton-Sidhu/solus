@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Pressable, View } from "react-native";
+import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import { AppText } from "../components/ui/AppText";
 import { nearbyUrl } from "./discovery";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
@@ -34,9 +35,9 @@ export function NearbyHosts({
         <View key={env.environmentId} className="rounded-2xl bg-grouped-card px-4 py-3">
           <AppText>{env.environmentLabel}</AppText>
           <AppText accessibilityLiveRegion="polite" className="text-sm text-foreground-muted">
-            {env.connectionState === "connected"
-              ? "Paired · Connected"
-              : env.connectionError || "Paired · " + env.connectionState}
+            {(({ label, detail }) => ["Paired", label, detail].filter(Boolean).join(" · "))(
+              hostReadinessCopy(solus.connections.readiness(env.environmentId), env.environmentLabel),
+            )}
           </AppText>
         </View>
       ))}

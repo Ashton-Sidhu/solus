@@ -1,18 +1,19 @@
 <script lang="ts">
   import {
-    ArrowDownToLine as GitPullIcon,
+    ArrowUpRight as ArrowUpRightIcon,
     ChevronDown as CaretDownIcon,
-    ChevronRight as CaretRightIcon,
-    CircleAlert as WarningCircleIcon,
+    Eye as EyeIcon,
     EyeOff as EyeOffIcon,
-    Globe as GlobeIcon,
-    GitMerge as GitMergeIcon,
+    FileDiff as FileDiffIcon,
+    GitBranch as GitBranchIcon,
     Glasses as EyeglassesIcon,
-    Hammer as HammerIcon,
+    Globe as GlobeIcon,
+    History as HistoryIcon,
+    Link as LinkIcon,
+    LoaderCircle as SpinnerIcon,
     PanelRight as PanelRightIcon,
-    SquareArrowOutUpRight as OpenIcon,
+    RefreshCw as RefreshIcon,
   } from "@lucide/svelte";
-  import { GitPullRequestIcon } from "../ui/octicons";
   import { onDestroy, untrack } from "svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";
@@ -24,47 +25,28 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { notificationsStore } from "../../contexts/notifications/notifications.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { toasts } from "../../lib/toasts";
-  import {
-    isFailing,
-    orderedChecks,
-    type ChecksPresentation,
-  } from "../prs/lib/checks";
-  import {
-    armedAutoMergeLabel,
-    mergeReadiness,
-    type MergeAction,
-  } from "../pr-review/lib/merge-readiness";
-  import { CHECKS_ICON } from "../prs/lib/checks-icons";
+  import { copyText, toasts } from "../../lib/toasts";
+  import { isFailing, orderedChecks, type ChecksPresentation } from "../prs/lib/checks";
+  import { armedAutoMergeLabel, mergeReadiness } from "../pr-review/lib/merge-readiness";
+  import { prStatusGlyph, prStatusOf } from "../prs/lib/prs-list-view";
   import { buildPrChecksFixPrompt } from "../pr-review/lib/pr-input-drafts";
-  import { prReferenceParts } from "./lib/card-pull-requests";
+  import { nextMoveLabel, nextMoveOpensDraft } from "./lib/linked-pull-request-row";
   import { watchRefusal } from "../conversation/lib/pull-request-card";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import MenuRow, {
-    type ActionRowIcon,
-    type ActionRowItem,
-  } from "./MenuRow.svelte";
+  import * as TooltipUI from "../ui/tooltip";
+  import { PANEL_ROW_ICON_SIZE } from "./MenuRow.svelte";
+  import PullRequestChecksButton from "./PullRequestChecksButton.svelte";
 
-  const ACTION_ICON = {
-    merge: GitMergeIcon,
-    "enable-auto-merge": GitMergeIcon,
-    "mark-ready": GitPullRequestIcon,
-    "resolve-conflicts": WarningCircleIcon,
-    "fix-checks": HammerIcon,
-    "update-branch": GitPullIcon,
-  } satisfies Record<MergeAction["kind"], ActionRowIcon>;
-
-  // The branch's pull request, continued in the same column: the rows above end
-  // at "you have a pull request", and that row is the way into the pull
-  // request pane. These say what to do with it: the rail's own shortcuts, and
-  // last the move the shared readiness model chose — the same one the pull
-  // request page's status card offers.
+  // The session's pull request as one row of two lines (docs/project-panel.md):
+  // the title, which opens it, with a menu beside it; then its number, its
+  // checks, the watch, and the one next move. Everything else about it is in
+  // the title's details card, the checks popover, or the menu.
   interface Props {
     pr: PullRequest;
     ctx: IpcContext;
     serverId: string;
     api: HostApi;
-    /** The same checks reading the row above tints its glyph with. */
+    /** The same checks reading the other pull request rows tint their glyph with. */
     checks: ChecksPresentation | null;
     /** The owning tab and project panel are visible. */
     active: boolean;
@@ -74,11 +56,6 @@
     /** The session's link to this pull request while the session watches it;
      *  null when nothing watches it. */
     watchedLink?: SessionPullRequestLink | null;
-    /** Where this pull request stands among the session's, when it has
-     *  several; null when it is the only one. */
-    position?: { index: number; count: number } | null;
-    /** Show the next of the session's pull requests here. */
-    onCycle?: () => void;
     /** The pull request left this branch's open set — the rail must re-read it. */
     onMerged: () => void;
     /** Open a new session draft for this branch with the prompt filled in —
@@ -94,8 +71,6 @@
     active,
     otherRepository = null,
     watchedLink = null,
-    position = null,
-    onCycle,
     onMerged,
     onAgentDraft,
   }: Props = $props();
@@ -189,32 +164,37 @@
       ? `Open a checkout of ${otherRepository} to hand this to an agent.`
       : readiness?.note || undefined,
   );
-  const reference = $derived(prReferenceParts(pr.number, otherRepository));
   // Said in place of the blocker's headline: the host is already waiting on it.
   const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
 
-  /** Each row names the tab it stands for; the pull request row above opens
-   *  the pane where it was last left. */
+  /** Open the pull request pane on one tab: the guide, or the activity where
+   *  the checks are. */
   function openPr(tab: "activity" | "guide") {
     void session.prReview.openPullRequest(pr, { ctx, serverId, tab });
     requestInputFocus();
   }
 
-  // Open is a split row like the Git actions above: the row opens the pull
-  // request pane here, and its caret drops the choice of where to open it.
-  let openMenuOpen = $state(false);
-  let openRowEl = $state<HTMLElement | null>(null);
-  let openCaretEl = $state<HTMLButtonElement | null>(null);
+  // The title opens the pull request pane here; the caret beside it drops the
+  // other ways to open it and the review guide.
+  let menuOpen = $state(false);
+  let titleRowEl = $state<HTMLElement | null>(null);
+  let caretEl = $state<HTMLButtonElement | null>(null);
 
   function openInSolus() {
-    openMenuOpen = false;
+    menuOpen = false;
     void session.prReview.openPullRequest(pr, { ctx, serverId, via: "click" });
     requestInputFocus();
   }
 
   function openInBrowser() {
-    openMenuOpen = false;
+    menuOpen = false;
     void localApi.openExternal(pr.url);
+    requestInputFocus();
+  }
+
+  function copyLink() {
+    menuOpen = false;
+    void copyText(pr.url).then(() => toasts.success("Link copied"));
     requestInputFocus();
   }
 
@@ -405,226 +385,190 @@
     requestInputFocus();
   }
 
-  // The rail's row is a state until there is a move, and the move once there
-  // is one: a blocker nobody here can clear is reported with its note, and the
-  // same row runs the merge, the host action, or the agent handoff otherwise.
-  const primaryRow = $derived.by<ActionRowItem | null>(() => {
-    if (merged) {
-      return {
-        key: "pr-primary",
-        label: "Merged",
-        icon: GitMergeIcon,
-        phase: "success",
-        disabled: true,
-      };
-    }
-    if (!readiness || readiness.key === "merged" || readiness.key === "closed")
-      return null;
-    // Waiting on running checks is no move of its own: the checks row above
-    // already says they are running.
-    if (
-      readiness.key === "open" &&
-      !readiness.blocked &&
-      !primary &&
-      !armedLabel &&
-      checksSummary &&
-      checks?.state === "pending"
-    )
-      return null;
-    return {
-      key: "pr-primary",
-      label: refreshingBeforeMerge
-        ? "Updating pull request…"
+
+  // --- The second line -------------------------------------------------------
+  const status = $derived(prStatusGlyph(prStatusOf(pr)));
+  const StatusIcon = $derived(status.icon);
+
+  // The next move, as one short verb. It is absent while the next step is
+  // someone else's: a reviewer, the host, or CI.
+  const moveLabel = $derived(
+    merged
+      ? "Merged"
+      : refreshingBeforeMerge
+        ? "Updating…"
         : merging
           ? "Working…"
-          : (primary?.label ?? armedLabel ?? readiness.headline),
-      icon: primary
-        ? ACTION_ICON[primary.kind]
-        : armedLabel
-          ? GitMergeIcon
-          : WarningCircleIcon,
-      phase: merging ? "loading" : "idle",
-      danger: primary?.kind === "resolve-conflicts",
-      badge: primary?.kind === "resolve-conflicts" ? "Conflicts" : undefined,
-      disabled: !primary || merging,
-      tooltip: refreshingBeforeMerge
-        ? "Checking the latest code-host state before merging."
-        : blockerNote,
-    };
-  });
-
-  const stopWatchRow = $derived<ActionRowItem | null>(
-    watchedLink
-      ? {
-          key: "pr-stop-watch",
-          label: stoppingWatch ? "Stopping watch…" : "Stop watching",
-          icon: EyeOffIcon,
-          phase: stoppingWatch ? "loading" : "idle",
-          disabled: !canStopWatch || stoppingWatch,
-          tooltip: canStopWatch
-            ? "Stop waking the agent when checks fail or a reviewer comments."
-            : "Watching. You can't change this session's watches.",
-        }
-      : null,
+          : primary
+            ? nextMoveLabel(primary.kind)
+            : null,
+  );
+  const moveTooltip = $derived(
+    refreshingBeforeMerge
+      ? "Checking the latest code-host state before merging."
+      : [primary?.label, blockerNote].filter(Boolean).join(". ") || undefined,
   );
 
-  const rows = $derived.by<ActionRowItem[]>(() => {
-    const defs: ActionRowItem[] = [
-      {
-        key: "pr-open",
-        label: "Open",
-        icon: OpenIcon,
-        phase: "idle",
-        tooltip: "Open in Solus",
-      },
-      {
-        key: "pr-guide",
-        label:
-          guideRunning || requestingGuide
-            ? "Generating review guide…"
-            : hasGuide
-              ? "Review guide"
-              : "Generate review guide",
-        icon: EyeglassesIcon,
-        phase:
-          guideRunning || requestingGuide
-            ? "loading"
-            : guideMetadata?.current
-              ? "success"
-              : guideStatus === "failed"
-                ? "error"
-                : "idle",
-        // A guide written against an earlier head is still readable, so it is
-        // reported as out of date rather than withheld.
-        badge: guideMetadata && !guideMetadata.current ? "Outdated" : undefined,
-      },
-    ];
-    if (checks)
-      defs.push({
-        key: "pr-checks",
-        label: "Checks",
-        // The row's own glyph is the state, drawn once; the tooltip names it.
-        icon: CHECKS_ICON[checks.state],
-        phase: "idle",
-        tooltip: `${checks.label}. ${checks.tooltip}`,
-        iconTone:
-          checks.state === "failing"
-            ? "danger"
-            : checks.state === "passing"
-              ? "success"
-              : checks.state === "pending"
-                ? "running"
-                : undefined,
-      });
-    if (stopWatchRow) defs.push(stopWatchRow);
-    if (primaryRow) defs.push(primaryRow);
-    return defs;
-  });
+  function runNextMove() {
+    if (!primary || merging || merged) return;
+    if (primary.kind === "merge") void merge(primary.method);
+    else if (primary.kind === "enable-auto-merge") void enableAutoMerge(primary.method);
+    else if (primary.kind === "mark-ready") void markReady();
+    else if (primary.kind === "resolve-conflicts") resolveConflicts();
+    else if (primary.kind === "fix-checks")
+      onAgentDraft(buildPrChecksFixPrompt(pr, orderedChecks(checksSummary).filter(isFailing)));
+    else if (primary.kind === "update-branch") void updateBranch();
+  }
 
-  function activate(key: string) {
-    if (key === "pr-open") {
-      openInSolus();
-      return;
-    }
-    if (key === "pr-stop-watch") {
-      void stopWatch();
-      return;
-    }
-    // Nothing to read yet: the click produces the guide instead of opening an
-    // empty pane, and the pane follows when it is ready.
-    if (key === "pr-guide") {
-      if (hasGuide || guideRunning) openPr("guide");
-      else void generateGuide();
-    } else if (key === "pr-checks") openPr("activity");
-    else if (primary?.kind === "merge") void merge(primary.method);
-    else if (primary?.kind === "enable-auto-merge") void enableAutoMerge(primary.method);
-    else if (primary?.kind === "mark-ready") void markReady();
-    else if (primary?.kind === "resolve-conflicts") resolveConflicts();
-    else if (primary?.kind === "fix-checks")
-      onAgentDraft(
-        buildPrChecksFixPrompt(pr, orderedChecks(checksSummary).filter(isFailing)),
-      );
-    else if (primary?.kind === "update-branch") void updateBranch();
+  function openReviewGuide() {
+    menuOpen = false;
+    if (hasGuide || guideRunning) openPr("guide");
+    else void generateGuide();
+  }
+
+  function regenerateReviewGuide() {
+    menuOpen = false;
+    void generateGuide();
   }
 </script>
 
-
-<div
-  class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-  aria-hidden="true"
-></div>
-<!-- The card's own heading language one rung in: same shelf type, same uppercase
-     tertiary label, so the group reads as part of the Git card rather than a
-     second card wedged inside it. The number is a fact, not a control — the
-     pull request row above is the way in. -->
-<div
-  class="flex min-h-6 items-center justify-between gap-2 px-1.5 text-chrome-shelf"
->
-  <!-- The heading keeps its width; a long repository name is what gets cut. -->
-  <span
-    class="shrink-0 font-medium text-(--solus-text-tertiary) uppercase"
-    >Pull request</span
+<!-- Line one: the status glyph and the title, which opens the pull request.
+     Pointing at it shows what the row has no room for. -->
+<div bind:this={titleRowEl} class="flex items-stretch gap-px">
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button
+          {...tooltipProps}
+          type="button"
+          class="flex min-h-[1.875rem] min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-[0.4375rem] border-none bg-transparent px-2 py-1 text-left text-(--solus-text-primary) transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+          aria-label={`Open pull request #${pr.number}, ${pr.title}`}
+          onclick={openInSolus}
+        >
+          <span class="inline-flex shrink-0 {status.toneClass}"><StatusIcon size={PANEL_ROW_ICON_SIZE} /></span>
+          <span class="min-w-0 flex-1 truncate">{pr.title}</span>
+        </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content side="left" align="start" class="max-w-80 flex-col items-stretch gap-1.5 px-2.5 py-2 text-left font-normal">
+      <div class="flex min-w-0 items-baseline gap-1.5">
+        <span class="min-w-0 truncate font-medium">{pr.title}</span>
+        <span class="shrink-0 text-(--solus-text-tertiary)">#{pr.number}</span>
+      </div>
+      <div class="flex min-w-0 items-center gap-2 text-(--solus-text-secondary)">
+        <span class="inline-flex shrink-0 {status.toneClass}"><StatusIcon size={12} /></span>
+        <span class="min-w-0 truncate">{readiness?.headline ?? status.label}</span>
+      </div>
+      <div class="flex min-w-0 items-center gap-2 text-(--solus-text-secondary)">
+        <GitBranchIcon size={12} class="shrink-0" />
+        <span class="min-w-0 truncate">{pr.baseRef} ← {pr.headRef}</span>
+      </div>
+      {#if otherRepository}
+        <div class="flex min-w-0 items-center gap-2 text-(--solus-text-secondary)">
+          <GlobeIcon size={12} class="shrink-0" />
+          <span class="min-w-0 truncate">{otherRepository}</span>
+        </div>
+      {/if}
+      <div class="flex min-w-0 items-center gap-2 text-(--solus-text-secondary)">
+        <FileDiffIcon size={12} class="shrink-0" />
+        <span class="min-w-0 truncate tabular-nums"
+          >{#if pr.changedFiles !== null}{pr.changedFiles} {pr.changedFiles === 1 ? "file" : "files"}
+          {/if}<span class="text-(--solus-diff-added-text-vivid)">+{pr.additions}</span>
+          <span class="text-(--solus-diff-removed-text-vivid)">−{pr.deletions}</span></span
+        >
+      </div>
+      {#if armedLabel}
+        <div class="min-w-0 text-(--solus-text-secondary)">{armedLabel}</div>
+      {:else if blockerNote}
+        <div class="min-w-0 text-pretty text-(--solus-text-secondary)">{blockerNote}</div>
+      {/if}
+    </TooltipUI.Content>
+  </TooltipUI.Root>
+  <button
+    bind:this={caretEl}
+    type="button"
+    class="inline-flex w-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 ease-[ease] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none aria-expanded:bg-(--solus-surface-hover) aria-expanded:text-(--solus-text-primary)"
+    aria-label="More pull request actions"
+    title="More pull request actions"
+    aria-haspopup="menu"
+    aria-expanded={menuOpen}
+    onclick={() => (menuOpen = !menuOpen)}
   >
-  {#if position && onCycle}
-    <!-- With several pull requests the number is the way to the next one:
-         the count says there are more, the caret says where a click goes. -->
-    <button
-      type="button"
-      class="flex min-w-0 cursor-pointer items-center gap-1 overflow-hidden rounded-sm font-normal tabular-nums text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      aria-label={`Pull request ${otherRepository ?? ""}#${pr.number}, ${position.index + 1} of ${position.count}. Show the next linked pull request.`}
-      title="Show the next linked pull request"
-      onclick={onCycle}
-    >
-      <span class="flex min-w-0"
-        >{#if reference.repository}<span class="min-w-0 truncate">{reference.repository}</span
-          >{/if}<span class="shrink-0">{reference.number}</span></span
-      >
-      <span class="shrink-0 text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
-      <CaretRightIcon size={11} class="shrink-0" />
-    </button>
-  {:else}
-    <span
-      class="flex min-w-0 font-normal tabular-nums text-(--solus-text-tertiary)"
-      title={otherRepository ?? undefined}
-      >{#if reference.repository}<span class="min-w-0 truncate">{reference.repository}</span
-        >{/if}<span class="shrink-0">{reference.number}</span></span
-    >
+    <CaretDownIcon size={11} />
+  </button>
+</div>
+
+<!-- Line two: the facts on the left, the controls on the right. -->
+<div class="flex h-6 min-w-0 items-center gap-0.5 pr-0.5 pl-8 text-chrome-dense text-(--solus-text-tertiary)">
+  <span class="mr-0.5 shrink-0 tabular-nums">#{pr.number}</span>
+  {#if checks && checks.state !== "none"}
+    <PullRequestChecksButton {checks} summary={checksSummary} onOpenChecks={() => openPr("activity")} />
+  {/if}
+  {#if watchedLink}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button
+            {...tooltipProps}
+            type="button"
+            class="group/watch inline-flex h-[1.375rem] shrink-0 cursor-pointer items-center rounded-md border-none bg-transparent px-1.5 text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={`Stop watching #${pr.number}`}
+            disabled={!canStopWatch || stoppingWatch}
+            onclick={() => void stopWatch()}
+          >
+            {#if stoppingWatch}
+              <SpinnerIcon size={14} class="motion-safe:animate-spin" />
+            {:else}
+              <EyeIcon size={14} class={canStopWatch ? "group-hover/watch:hidden" : ""} />
+              {#if canStopWatch}<EyeOffIcon size={14} class="hidden group-hover/watch:block" />{/if}
+            {/if}
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={canStopWatch
+          ? "Watching: the agent wakes when checks fail or a reviewer comments. Click to stop."
+          : "Watching. You can't change this session's watches."}
+      />
+    </TooltipUI.Root>
+  {/if}
+  <span class="flex-1"></span>
+  {#if moveLabel}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button
+            {...tooltipProps}
+            type="button"
+            class="inline-flex h-[1.375rem] shrink-0 cursor-pointer items-center gap-1 rounded-md border-none bg-transparent px-1.5 font-medium transition-colors hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-default {merged
+              ? 'text-(--review)'
+              : primary && nextMoveOpensDraft(primary.kind)
+                ? 'text-(--solus-status-error)'
+                : 'text-(--solus-status-complete)'}"
+            disabled={!primary || merging || merged}
+            onclick={runNextMove}
+          >
+            {moveLabel}
+            {#if primary && nextMoveOpensDraft(primary.kind) && !merging}<ArrowUpRightIcon size={12} />{/if}
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={moveTooltip} />
+    </TooltipUI.Root>
   {/if}
 </div>
-{#each rows as row (row.key)}
-  {#if row.key === "pr-open"}
-    <!-- The Git actions' split row and caret, the same geometry and states. -->
-    <div bind:this={openRowEl} class="flex items-stretch gap-px">
-      <MenuRow item={row} split onActivate={() => activate(row.key)} />
-      <button
-        bind:this={openCaretEl}
-        type="button"
-        class="inline-flex w-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 ease-[ease] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none aria-expanded:bg-(--solus-surface-hover) aria-expanded:text-(--solus-text-primary)"
-        aria-label="More ways to open the pull request"
-        title="More ways to open the pull request"
-        aria-haspopup="menu"
-        aria-expanded={openMenuOpen}
-        onclick={() => (openMenuOpen = !openMenuOpen)}
-      >
-        <CaretDownIcon size={11} />
-      </button>
-    </div>
-  {:else}
-    <MenuRow item={row} onActivate={() => activate(row.key)} />
-  {/if}
-{/each}
-<DropdownMenu.Root bind:open={openMenuOpen}>
+
+<DropdownMenu.Root bind:open={menuOpen}>
   <DropdownMenu.Content
-    customAnchor={openRowEl}
+    customAnchor={titleRowEl}
     side="bottom"
-    align="start"
+    align="end"
     sideOffset={4}
-    alignOffset={0}
     collisionPadding={8}
     onInteractOutside={(event) => {
       // The caret is the menu's trigger — let its click toggle the menu rather
       // than closing here and immediately reopening.
-      if (openCaretEl?.contains(event.target as Node | null)) event.preventDefault();
+      if (caretEl?.contains(event.target as Node | null)) event.preventDefault();
     }}
     onCloseAutoFocus={(event) => {
       // No bits-ui trigger to return to; the prompt is the next natural stop.
@@ -634,11 +578,37 @@
   >
     <DropdownMenu.Item onSelect={openInSolus}>
       <PanelRightIcon />
-      <span class="min-w-0 flex-1 truncate">In Solus</span>
+      <span class="min-w-0 flex-1 truncate">Open in Solus</span>
     </DropdownMenu.Item>
     <DropdownMenu.Item disabled={!pr.url} onSelect={openInBrowser}>
       <GlobeIcon />
-      <span class="min-w-0 flex-1 truncate">In browser</span>
+      <span class="min-w-0 flex-1 truncate">Open in browser</span>
     </DropdownMenu.Item>
+    <DropdownMenu.Item disabled={!pr.url} onSelect={copyLink}>
+      <LinkIcon />
+      <span class="min-w-0 flex-1 truncate">Copy link</span>
+    </DropdownMenu.Item>
+    <DropdownMenu.Separator />
+    <DropdownMenu.Item disabled={requestingGuide} onSelect={openReviewGuide}>
+      <EyeglassesIcon />
+      <span class="min-w-0 flex-1 truncate"
+        >{guideRunning || requestingGuide
+          ? "Generating review guide…"
+          : hasGuide
+            ? "Review guide"
+            : "Generate review guide"}</span
+      >
+      {#if guideMetadata && !guideMetadata.current}
+        <span class="inline-flex text-(--solus-status-running)" title="Written for an earlier commit."
+          ><HistoryIcon /></span
+        >
+      {/if}
+    </DropdownMenu.Item>
+    {#if hasGuide && !guideRunning}
+      <DropdownMenu.Item disabled={requestingGuide} onSelect={regenerateReviewGuide}>
+        <RefreshIcon />
+        <span class="min-w-0 flex-1 truncate">Regenerate review guide</span>
+      </DropdownMenu.Item>
+    {/if}
   </DropdownMenu.Content>
 </DropdownMenu.Root>

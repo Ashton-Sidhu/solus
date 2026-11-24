@@ -18,11 +18,13 @@
     /** The sessions running, beside the running icon; or any count a summary gives. */
     count?: number;
     size?: number;
+    /** A more precise word for the state, such as "Needs pairing" for a host that is unreachable because it refuses this device. */
+    label?: string;
   }
 
-  let { state, count, size = 13 }: Props = $props();
+  let { state, count, size = 13, label: preciseLabel }: Props = $props();
 
-  const label = $derived(
+  const word = $derived(
     {
       running: "Sessions running",
       idle: "Idle",
@@ -34,8 +36,9 @@
       stopped: "Stopped",
       update: "Update available",
       signin: "Needs a sign-in",
-    }[state] + (count !== undefined ? `: ${count}` : ""),
+    }[state],
   );
+  const label = $derived((preciseLabel ?? word) + (count !== undefined ? `: ${count}` : ""));
 </script>
 
 <span

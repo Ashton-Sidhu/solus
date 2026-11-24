@@ -80,6 +80,13 @@ describe('video attachments', () => {
     expect(videoAttachmentPath({ path: '/Users/me/bug.mp4' })).toBe('/Users/me/bug.mp4')
   })
 
+  test('a saved attachment without a client path uses its host path when available', () => {
+    // WHY: a prompt image reference can omit path; opening its transcript must
+    // still allow the host file to be copied.
+    expect(videoAttachmentPath({ hostPath: '/srv/attachments/bug.mp4' })).toBe('/srv/attachments/bug.mp4')
+    expect(videoAttachmentPath({})).toBeNull()
+  })
+
   test('upload progress never reads 100% before the host answers', () => {
     expect(uploadProgressPercent(50, 100)).toBe(50)
     expect(uploadProgressPercent(100, 100)).toBe(99)

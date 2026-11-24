@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Bot } from "@lucide/svelte";
+  import { HOST_READINESS_ACTION_LABELS } from "@solus/client-core/host-readiness";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { Button } from "../ui/button";
   import HostStateIcon from "./HostStateIcon.svelte";
@@ -12,14 +13,18 @@
     machines: FleetMachine[];
     onOpen: (serverId: string) => void;
     onAsk: (row: AttentionRow) => void;
+    /** Pairs this device with a host that refuses it again. */
+    onPairAgain: (serverId: string) => void;
   }
 
-  let { machines, onOpen, onAsk }: Props = $props();
+  let { machines, onOpen, onAsk, onPairAgain }: Props = $props();
 
   const rows = $derived(attentionRows(machines));
 
   function act(row: AttentionRow) {
-    if (row.kind === "unreachable") fleetStore.retryHosts(row.serverIds);
+    if (row.fix === "pair-again") onPairAgain(row.serverIds[0]!);
+    else if (row.fix === "start") fleetStore.startHosts(row.serverIds);
+    else if (row.kind === "unreachable") fleetStore.retryHosts(row.serverIds);
     else if (row.kind === "update") fleetStore.updateHosts(row.serverIds);
     else onOpen(row.serverIds[0]!);
   }
@@ -35,7 +40,8 @@
       <!-- No button fixes a connection that drops again and again: the session is its fix. -->
       {#if row.kind !== "reconnecting"}
         <Button variant="ghost" size="sm" onclick={() => act(row)}>
-          {row.kind === "unreachable" ? (row.serverIds.length > 1 ? "Retry all" : "Retry")
+          {row.fix && row.fix !== "retry" ? HOST_READINESS_ACTION_LABELS[row.fix]
+            : row.kind === "unreachable" ? (row.serverIds.length > 1 ? "Retry all" : "Retry")
             : row.kind === "update" ? (row.serverIds.length > 1 ? "Update all" : "Update")
               : "Sign in"}
         </Button>

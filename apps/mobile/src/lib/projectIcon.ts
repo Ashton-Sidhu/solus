@@ -66,6 +66,7 @@ export function resolveProjectIconGlyph(
 
 const SYMBOL_BY_LUCIDE_NAME: Partial<Record<string, AppSymbolName>> = {
   "message-square-dashed": "text.bubble",
+  "folder-git-2": "folder",
 };
 
 export function resolveProjectIconSymbol(

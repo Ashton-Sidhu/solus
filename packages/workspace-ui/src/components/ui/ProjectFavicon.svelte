@@ -2,12 +2,14 @@
   import { untrack } from "svelte";
   import {
     Folder as FolderIcon,
+    FolderGit2 as CodebaseIcon,
     MessageCircle as ChatIcon,
   } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { isChat } from "@solus/contracts/chat";
   import {
     CHATS_GROUP_KEY,
+    codebasesStore,
     getSurfaceContext,
     projectsStore,
   } from "../../contexts";
@@ -37,6 +39,11 @@
   const projectRoot = $derived(checkout?.projectRoot ?? "");
   const hasRoot = $derived(isAbsoluteHostPath(projectRoot));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
+  // A container root is a codebase, never a project (docs/plans/codebases.md
+  // decision 14), so it wears the codebase icon, not a project's mark.
+  const isCodebase = $derived(
+    hasRoot && !!resolvedServerId && codebasesStore.isContainerRoot({ serverId: resolvedServerId, path: projectRoot }),
+  );
   // A project with no favicon wears its initials on its own colour, so
   // projects tell apart at a glance in every place that shows one.
   const projectName = $derived(hasRoot ? hostPathBaseName(projectRoot) : "");
@@ -53,7 +60,7 @@
     const key = requestKey;
     const faviconServerId = resolvedServerId;
     const root = projectRoot;
-    if (inChat || !hasRoot || !faviconServerId) {
+    if (inChat || isCodebase || !hasRoot || !faviconServerId) {
       source = { key, status: "ready", url: null };
       return;
     }
@@ -84,6 +91,8 @@
 >
   {#if inChat}
     <ChatIcon size="100%" class="text-(--solus-text-tertiary)" />
+  {:else if isCodebase}
+    <CodebaseIcon size="100%" class="text-(--solus-text-tertiary)" />
   {:else}
     {#if !hasRoot || (source.key === requestKey && source.status === "ready" && !source.url)}
       {#if initials}

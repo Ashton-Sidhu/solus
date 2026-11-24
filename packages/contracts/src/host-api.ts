@@ -1,4 +1,4 @@
-import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
+import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing, HostLinkHealth } from './host-pairing'
 import type { PairApprovalDecision, PairApprovalRequest } from './add-machine'
 import type { PersonHistoryEntry } from './person-history'
 import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
@@ -504,6 +504,8 @@ export interface SolusAPI {
   /** Explicit owner pairing, used by chat tools and the CLI. */
   hostsPair(request: HostPairRequest): Promise<HostListing>
   hostsListPaired(): Promise<HostPairingsSnapshot>
+  /** How each machine link of this host is doing now; it checks that each machine answers. Owner only. */
+  hostsLinkHealth(): Promise<HostLinkHealth[]>
   /** Remove this host's pairing to another machine. */
   hostsUnlink(installationId: string): Promise<{ removed: boolean }>
   /** Metadata and a page of read-only text from an explicitly paired machine. */

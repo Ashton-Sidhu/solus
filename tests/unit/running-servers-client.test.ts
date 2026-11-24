@@ -178,6 +178,36 @@ test('checkout filtering uses the host root instead of a subfolder prefix', asyn
   release()
 })
 
+test('a session watches all its folders together and can see its own servers outside them', async () => {
+  const s = setup()
+  const serverIn = (id: string, path: string, sessionId = 'other-session') => {
+    const server = runningServer(id)
+    server.location.worktreePath = path
+    server.startedBy = { kind: 'agent', sessionId }
+    return server
+  }
+  const scope = { checkoutPaths: ['/solus', '/task/cloud', '/task/cloud', '/plain'], sessionId: 'session-1' }
+  s.source.api.runningServersCheckoutRoots = async (paths) => paths.map((path) => ({ path, root: path === '/plain' ? null : path }))
+  const release = s.store.retainCheckouts(scope.checkoutPaths)
+  expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([['/solus', '/task/cloud', '/plain']])
+  const plain = serverIn('plain', '/plain')
+  plain.location.worktreePath = null
+  plain.process.workingDirectory = '/plain/subfolder'
+  await s.answer([
+    serverIn('cloud worktree', '/task/cloud'),
+    serverIn('cloud main', '/cloud'),
+    serverIn('started before attach', '/elsewhere', 'session-1'),
+    plain,
+  ])
+  const rows = s.store.rowsForScope(scope)
+  expect(rows.sessionRows.map(({ server }) => server.serverId)).toEqual(['cloud worktree', 'started before attach', 'plain'])
+  expect(rows.otherRows.map(({ server }) => server.serverId)).toEqual(['cloud main'])
+  const empty = s.store.rowsForScope({ checkoutPaths: ['/solus'], sessionId: 'unrelated' })
+  expect(empty.sessionRows).toHaveLength(0)
+  expect(empty.otherRows).toHaveLength(4)
+  release()
+})
+
 test('a host that disables the preview tunnel releases the desktop forward and its lease', async () => {
   const s = setup()
   s.source.api.runningServersWatch = async () => [runningServer()]

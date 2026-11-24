@@ -73,6 +73,7 @@ import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentCompo
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
 import { BrowserPreviewRouteScreen } from "./features/browser/BrowserPreviewRouteScreen";
+import { ThreadRunningServersSheet } from "./features/running-servers/ThreadRunningServersSheet";
 import { LocalPreviewRouteScreen } from "./features/browser/LocalPreviewRouteScreen";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
@@ -728,6 +729,10 @@ const RootStackConfig = createWorkspaceStackNavigator({
       screen: LocalPreviewRouteScreen,
       linking: "environments/:environmentId/local-preview",
       options: immersiveRoute({ fullWidth: true }),
+    }),
+    ThreadRunningServers: createNativeStackScreen({
+      screen: ThreadRunningServersSheet,
+      options: sheetRoute({ detent: 0.85, android: "fullScreen" }),
     }),
     ThreadReview: createNativeStackScreen({
       screen: ReviewSheet,

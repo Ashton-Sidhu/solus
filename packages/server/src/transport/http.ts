@@ -45,7 +45,7 @@ import { parseByteRange } from '../data/assets/byte-range'
 import { serveAssetToken } from '../data/assets/assets'
 import { getAssetSigningSecret } from '../admission/signed-token'
 import { readGithubMediaToken, serveGithubMedia } from '../providers/github/media'
-import { receiveAttachmentUpload } from './handlers/attachment-handlers'
+import { managePendingAttachment, receiveAttachmentUpload } from './handlers/attachment-handlers'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
 import { hostIdentity } from '../host/host-identity'
@@ -185,7 +185,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // WebSocket transport replaced direct IPC.
   const publicCors = cors({
     origin: '*',
-    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['authorization', 'content-type', 'if-match', 'if-none-match', 'idempotency-key', 'solus-organization'],
     exposeHeaders: ['etag', 'location', 'retry-after', 'x-request-id'],
     // A browser asks again only after this long, so a dial costs no preflight each time (instant-share-open.md).
@@ -557,6 +557,9 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     contentLength: c.req.header('content-length'),
     body: c.env.incoming,
   }))
+  app.get('/api/uploads/:token/pending', (c) => managePendingAttachment(c.req.param('token'), 'HEAD'))
+  app.post('/api/uploads/:token/pending', (c) => managePendingAttachment(c.req.param('token'), 'POST'))
+  app.delete('/api/uploads/:token/pending', (c) => managePendingAttachment(c.req.param('token'), 'DELETE'))
 
   app.post('/auth/refresh', (c) => {
     const refreshed = refreshSessionToken(readBearer(c))

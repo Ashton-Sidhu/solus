@@ -2,6 +2,7 @@
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { fade, fly } from "svelte/transition";
+  import { ModalResizeHandles, ResizableModal } from "../ui/modal-resize";
   import { expoOut } from "svelte/easing";
   import { Input } from "../ui/input";
   import { Button } from "../ui/button";
@@ -125,6 +126,7 @@
   /** File mode only: the name being saved, edited independently of the folder. */
   let nameDraft = $state("");
   let popoverEl: HTMLDivElement | null = $state(null);
+  const resizable = new ResizableModal("directory-picker");
   let pathInputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let listHeight = $state(0);
   /** Where a right-click or long-press opened the menu; `entry` null means the folder itself. */
@@ -557,7 +559,8 @@
     <div
       bind:this={popoverEl}
       id="directory-picker"
-      class="flex h-[clamp(28rem,65vh,43rem)] w-[clamp(42rem,72vw,64rem)] max-w-full origin-top overflow-hidden overscroll-contain
+      style={resizable.style}
+      class="relative flex h-[clamp(28rem,65vh,43rem)] w-[clamp(42rem,72vw,64rem)] max-w-full origin-top overflow-hidden overscroll-contain
         rounded-2xl bg-popover text-foreground
         shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
         dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]"
@@ -864,6 +867,7 @@
           </Button>
         </footer>
       </div>
+      <ModalResizeHandles modal={resizable} label="Resize folder picker" />
     </div>
   </div>
   {#if contextMenu}

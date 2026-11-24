@@ -2,10 +2,6 @@ import type { IpcContext } from "@solus/contracts/types";
 
 /** Transient desktop dialogs retain drafts and focus state across closes. */
 export class DesktopDialogs {
-  shortcutsModalOpen = $state(false);
-  shortcutsActiveScopes = $state<
-    import("@solus/workspace-ui/lib/keybindings/types").Scope[]
-  >([]);
   commandPaletteOpen = $state(false);
   portForwards = $state<{ preferredHostId: string } | null>(null);
   projectSearchOpen = $state(false);

@@ -110,7 +110,7 @@
     {#key routeLoadAttempt}
     {#await loadRoute("work", () => import("../work/WorkPane.svelte"))}
       <div class="relative h-full min-h-0 w-full">
-        <DocumentModalSkeleton inline />
+        <DocumentModalSkeleton />
         <PaneChrome onClose={actions.close} closeLabel="Close loading work" />
       </div>
     {:then { default: WorkPane }}
@@ -151,7 +151,7 @@
       {:else if ref.name === "reviewMode"}
         <PrReviewSkeleton />
       {:else if ref.name === "plan"}
-        <PlanModalSkeleton inline />
+        <PlanModalSkeleton />
       {:else if ref.name === "review"}
         <div class="relative h-full min-h-0 w-full">
           <ReviewLoadingSurface view={ref.params.view ?? "diff"} />

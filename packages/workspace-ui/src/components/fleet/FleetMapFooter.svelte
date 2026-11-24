@@ -1,21 +1,40 @@
 <script lang="ts">
   import { Link2 } from "@lucide/svelte";
+  import { HOST_READINESS_ACTION_LABELS } from "@solus/client-core/host-readiness";
+  import type { LinkedOnlyMachine } from "@solus/client-core/host-linking";
+  import { routeKindLabel, type RouteState } from "@solus/client-core/host-route-control";
+  import type { RouteKind } from "@solus/contracts/host-routes";
+  import { Button } from "../ui/button";
   import HostStateIcon from "./HostStateIcon.svelte";
   import type { FoundMachine } from "./lib/discover";
   import { routeHops, type FleetMachine, type TileColorMode } from "./lib/fleet-model";
+  import type { MachineLinkSummary } from "./lib/machine-link-map";
 
   /** Below the map, at one height, so pointing at a host never moves the page:
    *  the host under the pointer and its route, the found machine under it and
    *  how to add it (D7), or the legend. The height fits the host and its route,
    *  and a legend that wraps to two lines; the legend sits in its middle, so the
-   *  spare room is even above and below it. */
+   *  spare room is even above and below it. For a host it also gives why it does
+   *  not answer and the one fix, its machine links or why they are not shown, and
+   *  every other route with what it does now. */
   interface Props {
     machine: FleetMachine | null;
     found: FoundMachine | null;
+    /** The machine known only through a link that is under the pointer. */
+    linked: LinkedOnlyMachine | null;
     colorMode: TileColorMode;
+    /** The routes of `machine`, each with its state. */
+    routes: Array<{ url: string; kind: RouteKind; state: RouteState | null; stateText: string | null }>;
+    links: MachineLinkSummary | null;
+    /** Why the links of `machine` are not shown; null when they are, or when it has none to show. */
+    linksHidden: string | null;
+    /** Does the one action of the host's problem: retry, start, or pair again. */
+    onFix: (machine: FleetMachine) => void;
   }
 
-  let { machine, found, colorMode }: Props = $props();
+  let { machine, found, linked, colorMode, routes, links, linksHidden, onFix }: Props = $props();
+  /** The route in use is in the hops; the others follow it with their state. */
+  const otherRoutes = $derived(routes.filter((route) => route.state !== "in-use" && route.stateText));
 
   const hops = $derived(machine ? routeHops(machine) : []);
   const howToAdd = {
@@ -25,29 +44,48 @@
   } satisfies Record<FoundMachine["kind"], string>;
 </script>
 
-<div class="flex h-24 flex-col gap-2.5 border-t border-border/40 px-4 py-3.5 {machine || found ? 'justify-between' : 'justify-center'}" aria-live="polite">
+<div class="flex h-24 flex-col gap-2.5 border-t border-border/40 px-4 py-3.5 {machine || found || linked ? 'justify-between' : 'justify-center'}" aria-live="polite">
   {#if machine}
     <div class="flex items-start justify-between gap-4">
       <div class="flex min-w-0 flex-col gap-0.5">
         <p class="flex min-w-0 items-center gap-2">
           <span class="truncate text-workspace-chrome font-medium">{machine.label}</span>
-          <HostStateIcon state={machine.state} count={machine.state === "running" ? machine.sessions : undefined} />
+          <HostStateIcon state={machine.state} label={machine.problem?.label} count={machine.state === "running" ? machine.sessions : undefined} />
           {#if machine.needsSetup}<HostStateIcon state="signin" />{/if}
           {#if machine.hasUpdate}<HostStateIcon state="update" />{/if}
         </p>
         <p class="truncate text-chrome-dense text-muted-foreground tabular-nums">
-          {#if machine.cpu !== null}CPU {machine.cpu}%{/if}{#if machine.memory !== null} · memory {machine.memory}%{/if}{#if machine.latencyMs !== null} · {machine.latencyMs} ms{/if}
+          {#if machine.problem}{machine.problem.headline}{#if machine.problem.detail}. {machine.problem.detail}{/if}
+          {:else}{#if machine.cpu !== null}CPU {machine.cpu}%{/if}{#if machine.memory !== null} · memory {machine.memory}%{/if}{#if machine.latencyMs !== null} · {machine.latencyMs} ms{/if}{/if}
+          {#if links}<span class={links.tone === "bad" ? "text-(--solus-status-error)" : links.tone === "warn" ? "text-(--warning)" : ""}> · Links {links.text}</span>
+          {:else if linksHidden} · {linksHidden}{/if}
         </p>
       </div>
+      {#if machine.problem?.action}
+        <Button variant="outline" size="sm" class="shrink-0" onclick={() => onFix(machine)}>{HOST_READINESS_ACTION_LABELS[machine.problem.action]}</Button>
+      {/if}
     </div>
-    <ol class="flex min-w-0 items-center overflow-hidden font-mono text-[0.6875rem] whitespace-nowrap text-muted-foreground">
-      {#each hops as hop, index (index)}
-        <li class="flex min-w-0 items-center">
-          {#if index > 0}<span aria-hidden="true" class="mx-2 h-px w-5 shrink-0 bg-(--success)/60"></span>{/if}
-          <span class="truncate {index === hops.length - 1 ? 'text-foreground' : ''}">{hop}</span>
-        </li>
-      {/each}
-    </ol>
+    <div class="flex min-w-0 items-center gap-4 overflow-hidden font-mono text-[0.6875rem] whitespace-nowrap text-muted-foreground">
+      <ol class="flex min-w-0 shrink items-center overflow-hidden">
+        {#each hops as hop, index (index)}
+          <li class="flex min-w-0 items-center">
+            {#if index > 0}<span aria-hidden="true" class="mx-2 h-px w-5 shrink-0 bg-(--success)/60"></span>{/if}
+            <span class="truncate {index === hops.length - 1 ? 'text-foreground' : ''}">{hop}</span>
+          </li>
+        {/each}
+      </ol>
+      {#if otherRoutes.length}
+        <p class="min-w-0 truncate font-sans text-chrome-dense" title={otherRoutes.map((route) => `${routeKindLabel(route.kind)} ${route.url}: ${route.stateText}`).join("\n")}>
+          {#each otherRoutes as route, index (route.url)}{index ? " · " : ""}{routeKindLabel(route.kind)}: <span class={route.state === "refused" || route.state === "different-server" ? "text-(--solus-status-error)" : route.state === "connecting" || route.state === "not-answering" ? "text-(--warning)" : ""}>{route.stateText}</span>{/each}
+        </p>
+      {/if}
+    </div>
+  {:else if linked}
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <p class="truncate text-workspace-chrome font-medium">{linked.label}</p>
+      <p class="truncate font-mono text-chrome-dense text-muted-foreground">{linked.url ?? "No address"}</p>
+    </div>
+    <p class="truncate text-chrome-dense text-muted-foreground">Known only through a link from {linked.viaLabels.join(", ")}. Click it to connect this device to it.</p>
   {:else if found}
     <div class="flex min-w-0 flex-col gap-0.5">
       <p class="truncate text-workspace-chrome font-medium">{found.name}</p>
@@ -62,6 +100,7 @@
       <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--warning)"></span>Reconnecting</span>
       <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--solus-status-error)"></span>Unreachable</span>
       <span class="flex items-center gap-1.5"><Link2 size={12} class="text-(--success)" />Solus tunnel</span>
+      <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--solus-text-tertiary)"></span>Machine link</span>
       {#if colorMode === "status"}
         <span class="flex items-center gap-1.5"><span class="size-2 rounded-[2px] bg-(--success)/80"></span>Idle<span class="ml-1.5 size-2 rounded-[2px] bg-(--solus-status-running)/60"></span>Running</span>
       {:else if colorMode === "cpu"}

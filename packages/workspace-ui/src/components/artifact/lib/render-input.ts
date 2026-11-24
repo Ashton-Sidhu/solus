@@ -73,7 +73,6 @@ const RENDER_SHORTCUT_BINDINGS: ReadonlySet<BindingId> = new Set<BindingId>([
   "global.session-picker",
   "global.session-picker-j",
   "global.task-picker",
-  "global.show-shortcuts",
   "global.focus-input",
   "global.toggle-sidebar",
   "global.toggle-project-panel",

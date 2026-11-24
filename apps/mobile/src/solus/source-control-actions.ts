@@ -11,10 +11,14 @@ import type {
   PullRequestReviewPosition,
   PullRequestFilesViewedResult,
   PullRequestSetFilesViewedInput,
+  PullRequestSummary,
 } from "@t3tools/contracts";
 import { hostCommand } from "./host-command";
 import { hostQuery } from "./host-query";
 import { solus } from "./runtime";
+import { applyPrListReply } from "./pr-list-cache";
+import { githubPullRequestRow } from "./issue-pr-rows";
+import type { PullRequest } from "@solus/contracts/providers";
 import {
   sourceControlApi,
   readIssueRecord,
@@ -153,15 +157,24 @@ export const prReviewerChoices = hostQuery(async (id, input: PullRequestRef) => 
   };
 });
 
-function prCommand<I extends PullRequestRef>(
+function prCommand<I extends PullRequestRef, Reply = unknown>(
   label: string,
-  write: (source: Awaited<ReturnType<typeof prSource>>, input: I) => Promise<unknown>,
+  write: (source: Awaited<ReturnType<typeof prSource>>, input: I) => Promise<Reply>,
+  listReply?: (result: Reply) => PullRequest | void,
 ) {
   return hostCommand(label, "host.git.write", async (environmentId, input: I, registry, check) => {
     const source = await prSource(environmentId, input);
     check();
     try {
-      await write(source, input);
+      const result = await write(source, input);
+      if (listReply) {
+        const reply = listReply(result);
+        check();
+        const summary: PullRequestSummary | undefined = reply
+          ? githubPullRequestRow({ path: input.projectId, title: "" }, reply) : undefined;
+        applyPrListReply(registry, environmentId, input, summary);
+        return summary;
+      }
     } finally {
       const { projectId, repository, number, host } = input;
       const target = {
@@ -175,11 +188,10 @@ function prCommand<I extends PullRequestRef>(
     }
   });
 }
-export const runPrAction = prCommand<PullRequestActionInput>("pullRequests.runAction", async ({ api, ref, pr }, input) => {
+const writePrAction = async ({ api, ref, pr }: Awaited<ReturnType<typeof prSource>>, input: PullRequestActionInput) => {
   const { action, stackNumber, expectedHeadSha, mergeMethod: method } = input;
   if (action === "close" || action === "reopen" || action === "ready" || action === "draft") {
-    await api.prUpdateLifecycle(ref, action, expectedHeadSha ?? pr.headSha);
-    return;
+    return api.prUpdateLifecycle(ref, action, expectedHeadSha ?? pr.headSha);
   }
   if (action === "disable-auto-merge") {
     if (stackNumber === undefined) await api.prDisableAutoMerge(ref);
@@ -202,16 +214,20 @@ export const runPrAction = prCommand<PullRequestActionInput>("pullRequests.runAc
   else {
     const result = await api.prMerge(ref, method, expectedHeadSha);
     if (!result.merged) throw new Error(result.message ?? "The code host refused the merge.");
+    return result.detail;
   }
-});
+};
 
-export const editPr = prCommand<PullRequestUpdateInput>(
+export const runPrAction = prCommand("pullRequests.runAction", writePrAction, (reply) => reply);
+
+export const editPr = prCommand<PullRequestUpdateInput, PullRequest>(
   "pullRequests.update",
   ({ api, ref }, i) => {
     if (i.maintainerCanModify !== undefined)
       throw new Error("This host cannot change maintainer access.");
     return api.prUpdate(ref, { title: i.title, body: i.body });
   },
+  (reply) => reply,
 );
 export const labelPr = prCommand<PullRequestLabelChangeInput>(
   "pullRequests.setLabels",

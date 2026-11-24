@@ -12,12 +12,12 @@ export function questionKey(q: Pick<QuestionItem, 'id' | 'question'>): string {
   return q.id || q.question
 }
 
-/** One question's answer: the chosen option label(s), the free-text remark, or
- *  `choice — remark` when both were given. */
-export function formatAnswer(choice: string, comment?: string): string {
+/** One question's choice and remark, followed by host file paths for an async reply. */
+export function formatAnswer(choice: string, comment?: string, attachmentPaths: readonly string[] = []): string {
   const remark = (comment ?? '').trim()
-  if (choice && remark) return `${choice} — ${remark}`
-  return choice || remark
+  const text = choice && remark ? `${choice} — ${remark}` : choice || remark
+  if (attachmentPaths.length === 0) return text
+  return [text, ...attachmentPaths.map((path) => `[Attached file: ${path}]`)].filter(Boolean).join('\n')
 }
 
 /** The composer's draft with the remarks typed for a question that closed

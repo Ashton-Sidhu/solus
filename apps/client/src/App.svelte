@@ -215,10 +215,8 @@
   });
   serversStore.init();
 
-  let shortcutsModalOpen = $state(false);
   let commandPaletteOpen = $state(false);
   let hasMountedShareDialog = $state(false);
-  let shortcutsActiveScopes = $state<import("@solus/workspace-ui/lib/keybindings/types").Scope[]>([]);
 
   $effect(() => {
     if (sharesStore.dialog) hasMountedShareDialog = true;
@@ -525,11 +523,6 @@
     if (session.activeSession?.agentSessionId) return;
     window.dispatchEvent(new CustomEvent("solus:toggle-git-dropdown"));
   });
-  function showShortcuts() {
-    shortcutsActiveScopes = keybindings.activeScopes();
-    shortcutsModalOpen = true;
-  }
-  useKeybinding("global.show-shortcuts", showShortcuts);
   useKeybinding("global.command-palette", () => {
     commandPaletteOpen = true;
   });
@@ -553,7 +546,6 @@
     projectPicker,
     composerSourceId: () => composerSourceId,
     shareTarget: () => shareTarget,
-    showShortcuts,
   };
 
   function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
@@ -754,22 +746,6 @@
 >
   {#snippet children(HostOnboarding)}
     <HostOnboarding />
-  {/snippet}
-</LazyDialog>
-
-<LazyDialog
-  open={shortcutsModalOpen}
-  load={() => import("@solus/workspace-ui/components/KeyboardShortcutsModal.svelte")}
-  placeholder="Search shortcuts…"
-  centered
-  class="max-h-[70vh] w-[41.25rem]"
-  onclose={() => (shortcutsModalOpen = false)}
->
-  {#snippet children(KeyboardShortcutsModal)}
-    <KeyboardShortcutsModal
-      bind:open={shortcutsModalOpen}
-      activeScopes={shortcutsActiveScopes}
-    />
   {/snippet}
 </LazyDialog>
 
