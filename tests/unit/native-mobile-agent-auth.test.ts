@@ -33,7 +33,6 @@ async function open(provider: 'claude-code' | 'codex' = 'claude-code', history: 
   const controller = new ConversationController({ hostId: 'inst-a', record: {
     sessionId: 'thread-1', provider, projectPath: '/work/app', cwd: '/work/app', model: null, reasoningEffort: null, title: 'Fix it', customTitle: null,
   } }, {
-    executionPreferences: () => ({}),
     connection,
     outbox: new SendOutbox(() => outboxStorage),
     runSettings: async () => ({ defaultPermissionMode: 'auto' }),

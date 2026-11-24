@@ -86,7 +86,6 @@ test('a response fork saves a new session and loads only history through its che
       sessionId: targetSessionId, provider: 'codex', agentSessionId: targetSessionId,
       workingDirectory: '/test', projectPath: '/test', permissionMode: 'supervised',
     },
-    settings: { activeAgent: 'codex' },
   } as IpcContext
   await server.handle('prompt', [context, { prompt: 'Continue here' }], INTERNAL_HANDLER_CTX)
   expect(submitPrompt.mock.calls[0]?.[0].session).toMatchObject({

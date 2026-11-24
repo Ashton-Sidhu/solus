@@ -1,4 +1,5 @@
-import { enforce, hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
+import { MANAGED_SESSION_SETTING_KEYS } from '@solus/contracts/policy'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { childPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -6,6 +7,7 @@ import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
 import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '../agents/run-input'
+import { actingPreferences } from '../person-preferences'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { sessionSettings } from './session-settings'
@@ -186,7 +188,7 @@ export class PromptDispatch {
         if (oldest !== undefined) this.acceptedClientPromptIds.delete(oldest)
       }
     }
-    const input = runInputFromContext(ctx)
+    const input = runInputFromContext(ctx, actingPreferences(ctx.session.organizationId))
     if (origin?.forkPointId) input.forkPointId = origin.forkPointId
     const currentLineage = resolveSessionLineageById(proposedSessionId)?.active
     if (!input.forked && !input.agentSessionId && currentLineage?.providerSessionId) {
@@ -494,7 +496,7 @@ export class PromptDispatch {
     // No seat, no run: a creator whose seat is not connected fails the run with SEAT_REQUIRED.
     await this.rt.seatForTurn(req.actor, req.provider)
     // The captured preferences, with what the organization's policies lock now (plans/030 §6.6).
-    const lockedPreferences = req.executionPreferences && hostPolicies().forWork(req.organizationId).withLocks(req.executionPreferences, EXECUTION_SETTING_KEYS)
+    const lockedPreferences = req.executionPreferences && hostPolicies().forWork(req.organizationId).withLocks(req.executionPreferences, MANAGED_SESSION_SETTING_KEYS)
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -583,7 +585,7 @@ export class PromptDispatch {
     }
 
     let request: SessionRunRequest
-    const input = runInputFromContext(ctx)
+    const input = runInputFromContext(ctx, actingPreferences(ctx.session.organizationId))
     if (forkPointId) input.forkPointId = forkPointId
     const tools = selectAgentTools(
       solusToolbox.works,

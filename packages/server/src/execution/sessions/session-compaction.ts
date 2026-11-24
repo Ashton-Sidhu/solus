@@ -5,6 +5,7 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { resolveHomePath } from '../../platform/paths'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import { runInputFromContext } from '../agents/run-input'
+import { actingPreferences } from '../person-preferences'
 import type { SessionRuntime } from '../session-runtime'
 
 /** Resolve the current provider member, so a stale client cannot compact an old thread. */
@@ -12,7 +13,7 @@ function compactionTarget(rt: SessionRuntime, ctx: IpcContext) {
   const sessionId = ctx.session.sessionId
   const existing = rt.activeSessions.get(sessionId)
   const lineage = resolveSessionLineageById(sessionId)?.active
-  const input = existing?.runInput ?? runInputFromContext(ctx)
+  const input = existing?.runInput ?? runInputFromContext(ctx, actingPreferences(ctx.session.organizationId))
   const provider = existing?.backendId ?? lineage?.provider ?? input.provider
   if (provider !== 'codex') throw new Error('Manual compaction is only supported for Codex sessions.')
   const threadId = existing ? existing.agentSessionId : lineage ? lineage.providerSessionId : input.agentSessionId

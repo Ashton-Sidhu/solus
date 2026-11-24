@@ -28,10 +28,7 @@ export interface BackgroundSessionTitlePorts {
 const defaultPorts: BackgroundSessionTitlePorts = {
   read: getIndexedSession,
   save: setSessionGeneratedTitle,
-  generate: async (runtime, prompt, cwd, request) => generateSessionMetadata(runtime, prompt, cwd, {
-    sessionId: request.sessionId,
-    executionPreferences: request.preferences,
-  }, (provider) => runtime.seatForTurn(request.actor, provider), await organizationOfSession(request.sessionId)),
+  generate: async (runtime, prompt, cwd, request) => generateSessionMetadata(runtime, prompt, cwd, { sessionId: request.sessionId }, (provider) => runtime.seatForTurn(request.actor, provider), await organizationOfSession(request.sessionId), request.preferences),
   refresh: (sessionId) => emitSessionTasksChanged(ANY_ORGANIZATION, sessionId),
 }
 

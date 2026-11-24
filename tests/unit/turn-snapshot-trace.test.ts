@@ -68,7 +68,6 @@ function createRepo() {
 function recordOnlyCtx(sessionId: string): IpcContext {
   return {
     session: { sessionId, agentSessionId: null, workingDirectory: '', gitContext: null },
-    settings: {},
     statusBar: {},
   } as never
 }

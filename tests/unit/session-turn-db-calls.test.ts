@@ -140,8 +140,7 @@ function ctx(sessionId: string): IpcContext {
   return {
     session: { sessionId, provider: 'claude-code', agentSessionId: null, workingDirectory: dataDir, origin: 'user' },
     window: {},
-    settings: { activeAgent: 'claude-code' },
-    statusBar: { model: 'fixture-model', reasoningEffort: 'medium', permissionMode: 'full-access' },
+    statusBar: { activeAgent: 'claude-code', model: 'fixture-model', reasoningEffort: 'medium', permissionMode: 'full-access' },
   } as unknown as IpcContext
 }
 

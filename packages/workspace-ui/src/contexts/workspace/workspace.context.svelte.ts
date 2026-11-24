@@ -259,7 +259,6 @@ export class WorkspaceContext implements SurfaceContext {
     this.settings = settings
     // Background work captures the person's preferences when it is made (plans/018 §6).
     this.automationsStore.executionPreferences = () => settings.executionPreferences
-    this.tasksStore.executionPreferences = () => settings.executionPreferences
     this.shell = shell
     this.statusBar = statusBar
     this.agent = agent
@@ -414,7 +413,6 @@ export class WorkspaceContext implements SurfaceContext {
       hasDraft: (sourceId) => this.drafts.sessionDrafts.has(sourceId),
       defaultRunConfig: () => this.defaultRunConfig,
       activeOrganizationId: () => serversStore.activeOrganizationId,
-      settings: this.settings,
       statusBar: this.statusBar,
     })
     // An organization switch re-reads the record stores that cache by the
@@ -1224,7 +1222,7 @@ export class WorkspaceContext implements SurfaceContext {
       ? serverConnections.apiFor(serverId)
       : this.defaultHostApi()
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
-    const { agentSessionId } = await api.createHeadlessSession({ ...request, executionPreferences: this.settings.executionPreferences })
+    const { agentSessionId } = await api.createHeadlessSession(request)
     return agentSessionId
   }
 

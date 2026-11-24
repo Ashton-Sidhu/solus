@@ -1,8 +1,6 @@
 import { HostPolicies, type PolicyRefusal } from '@solus/contracts/host-policies'
 import {
-  MANAGED_SESSION_SETTING_KEYS,
   validatePolicyDocument,
-  type ManagedSessionSettingKey,
   type OrganizationPolicies,
   type PolicyRefusalCode,
   type PolicySet,
@@ -27,12 +25,6 @@ export class PolicyRefusedError extends Error {
 export function enforce(refusal: PolicyRefusal | null): void {
   if (refusal) throw new PolicyRefusedError(refusal.code, refusal.message)
 }
-
-/** The review keys travel in the request's settings; the rest of the manageable keys are execution preferences. */
-export const REVIEW_SETTING_KEYS = ['reviewAgent', 'reviewModel', 'reviewGuideInstructions'] as const satisfies readonly ManagedSessionSettingKey[]
-export const EXECUTION_SETTING_KEYS: readonly ManagedSessionSettingKey[] = MANAGED_SESSION_SETTING_KEYS.filter(
-  (key) => !REVIEW_SETTING_KEYS.some((reviewKey) => reviewKey === key),
-)
 
 export interface HostPolicyStoreDeps {
   /** The MDM policy this host read at start; null when none is installed. */

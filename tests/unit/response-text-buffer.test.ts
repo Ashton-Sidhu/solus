@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { ResponseTextBuffer, splitResponseText } from '@solus/server/execution/sessions/response-text-buffer'
-import { DEFAULT_PERSONAL_SETTINGS, executionPreferencesSchema } from '@solus/contracts/settings'
+import { DEFAULT_PERSONAL_SETTINGS, knownExecutionPreferences } from '@solus/contracts/settings'
 
 const chunk = (text: string, parentToolUseId?: string) => ({ type: 'text_chunk' as const, text, ...(parentToolUseId ? { parentToolUseId } : {}) })
 
 describe('response delivery', () => {
   test('defaults to paragraphs and lets a person keep buffered delivery', () => {
     expect(DEFAULT_PERSONAL_SETTINGS.responseStreamingMode).toBe('paragraph')
-    expect(executionPreferencesSchema.parse({ responseStreamingMode: 'buffered' }).responseStreamingMode).toBe('buffered')
+    expect(knownExecutionPreferences({ responseStreamingMode: 'buffered' }).preferences.responseStreamingMode).toBe('buffered')
   })
   test('delivers completed paragraphs and groups fast updates without losing their tail', () => {
     const buffer = new ResponseTextBuffer()

@@ -32,7 +32,7 @@ import { mayAnswerFor } from '../../execution/sessions/turn-organization'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
 import { chatFolderFor, projectsRootFor } from '../../workspace'
-import { parseExecutionPreferences } from '../../execution/agents/run-input'
+import { actingPreferences } from '../../execution/person-preferences'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { sessionStarterFromHostSchema } from '@solus/contracts/session-starter'
 import { recordingRetention } from '../../browser/recording-retention'
@@ -378,7 +378,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // Another host's session that starts this one; only shown, never trusted. A caller cannot claim another kind of starter.
     request.startedBy = request.startedBy === undefined ? undefined : sessionStarterFromHostSchema.parse(request.startedBy)
     request.cwd = request.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(randomUUID(), handlerCtx.principal) : resolveHomePath(request.cwd)
-    request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     request.imageAttachmentRefs = imageRefsSchema.parse(request.imageAttachmentRefs)
     // A new root, admitted as a prompt is, inside `createSession`: the admission names the session before its provider starts.
     request.sessionId ??= randomUUID()
@@ -389,7 +388,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // The codebase of the session that starts this one is saved here first, so the new session finds its folders.
     const { codebase, ...order } = request
     const codebaseId = await receiveSessionCodebase(codebase, handlerCtx)
-    return sessionRuntime.dispatch.createSession({ ...order, codebaseId, sourceSessionId: undefined, delegation: undefined }, handlerCtx.actor)
+    // The caller's own preferences, from this host's copy of them.
+    const executionPreferences = actingPreferences(request.organizationId)
+    return sessionRuntime.dispatch.createSession({ ...order, codebaseId, executionPreferences, sourceSessionId: undefined, delegation: undefined }, handlerCtx.actor)
   })
 
   server.register('promptHeadlessSession', async (args, handlerCtx) => {
@@ -632,7 +633,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 async function checkTurnPolicy(ctx: IpcContext): Promise<void> {
   const mode = z.enum(PERMISSION_MODES).optional().parse(ctx.session.permissionMode)
   const organizationId = ctx.session.sessionId ? await organizationOfSession(ctx.session.sessionId) : ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID
-  const provider = ctx.session.provider ?? ctx.settings.activeAgent
+  const provider = ctx.session.provider ?? ctx.statusBar.activeAgent
   // The model is checked where the provider starts: Auto routing chooses it later.
   enforce(hostPolicies().forWork(organizationId).runDenial({ mode: mode ?? 'plan', provider }))
 }

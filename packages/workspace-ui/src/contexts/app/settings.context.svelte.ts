@@ -13,7 +13,6 @@
 
 import { z } from 'zod'
 import { createAppContext } from './create-app-context'
-import type { SettingsCtx } from '@solus/contracts/types'
 import { setAnalyticsEnabled } from '../../lib/analytics'
 import { clampZoomFactor, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
 import {
@@ -45,7 +44,6 @@ import {
   type DeviceLayout,
   type DeviceLayoutKey,
 } from './device-settings.store.svelte'
-import { hostSettingsStore } from './host-settings.store.svelte'
 import {
   applyConversationWidth,
   applyFontSmoothing,
@@ -128,27 +126,9 @@ export class SettingsContext {
     return themeMode === 'dark' || (themeMode === 'system' && this._systemIsDark)
   }
 
-  /** The person's execution preferences, as every request that runs work for them carries them. */
+  /** The person's execution preferences: what each host keeps a copy of (docs/plans/host-preferences.md). */
   get executionPreferences(): ExecutionPreferences {
     return this.personal.executionPreferences
-  }
-
-  get ctx(): SettingsCtx {
-    return {
-      fallbackTerminal: this.fallbackTerminal,
-      activeAgent: this.activeAgent,
-      reviewAgent: this.reviewAgent,
-      reviewModel: this.reviewModel,
-      reviewReasoning: this.reviewReasoning,
-      reviewGuideInstructions: this.reviewGuideInstructions,
-      reviewWarmingEnabled: false,
-      executionPreferences: this.executionPreferences,
-    }
-  }
-
-  /** Review warming is the named host's setting for that project path. */
-  ctxForProject(serverId: string, projectPath: string): SettingsCtx {
-    return { ...this.ctx, reviewWarmingEnabled: hostSettingsStore.isReviewWarmingEnabled(serverId, projectPath) }
   }
 
   // ── Writes, by owner ──

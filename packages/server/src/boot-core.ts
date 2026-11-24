@@ -38,7 +38,7 @@ export type BootCoreOptions = Omit<BootOptions, 'sessionRuntime' | 'agentIdFromC
 }
 
 function agentIdFromContext(ctx?: IpcContext): AgentId {
-  return ctx?.session.provider ?? ctx?.settings.activeAgent ?? DEFAULT_AGENT_ID
+  return ctx?.session.provider ?? ctx?.statusBar.activeAgent ?? DEFAULT_AGENT_ID
 }
 
 /**

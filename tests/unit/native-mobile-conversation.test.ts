@@ -40,7 +40,6 @@ async function open(setup: Setup) {
   let nextId = 0
   const changes: Array<{ items: string[]; order: boolean; meta: boolean }> = []
   const controller = new ConversationController(setup.target ?? { hostId: 'inst-a', record: record() }, {
-    executionPreferences: () => ({ extraInstructions: 'Be brief.' }),
     connection,
     sessionCache: setup.sessionCache,
     outbox,
@@ -381,7 +380,8 @@ describe('native conversation: sending', () => {
     expect(conversationCalls(api)).toEqual(['watchSession', 'prompt'])
     const [ctx, options] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(ctx.session).toMatchObject({ sessionId: 'new-1', agentSessionId: null, provider: 'claude-code', workingDirectory: '/work/app', permissionMode: 'auto' })
-    expect(ctx.settings.executionPreferences.extraInstructions).toBe('Be brief.')
+    // The person's preferences are not in the context: the host reads its own copy of them.
+    expect(ctx).not.toHaveProperty('settings')
     expect(options).toMatchObject({ prompt: 'build it', clientPromptId: 'client-1' })
 
     transport.emitSession('new-1', { type: 'session_init', sessionId: 'provider-thread', model: 'm', skills: [] })
@@ -581,7 +581,6 @@ describe('native conversation: sending', () => {
     await first.controller.load()
     await first.controller.send('remember me')
     const restarted = new ConversationController({ hostId: 'inst-a', record: record() }, {
-      executionPreferences: () => ({}),
       connection: first.connection,
       outbox: first.outbox,
       runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),

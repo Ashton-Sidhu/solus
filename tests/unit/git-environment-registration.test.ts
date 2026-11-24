@@ -202,7 +202,6 @@ describe('Git environment registration', () => {
     const ctx = {
       session: { sessionId: 'session-one', projectPath: '/repo', workingDirectory: '/repo' },
       window: {},
-      settings: {},
       statusBar: {},
     } as IpcContext
     const workspace = {

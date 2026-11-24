@@ -76,7 +76,6 @@ function snapshot(index: number, traceId: string | undefined, filesChanged = 2):
 /** What the page passes: the turn's session, named by its Solus id alone. */
 const recordContext = {
   session: { sessionId: 'session-1', agentSessionId: null, workingDirectory: '', gitContext: null },
-  settings: {},
   statusBar: {},
 } as unknown as IpcContext
 

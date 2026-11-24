@@ -19,6 +19,7 @@ import type { OtelSettingsSnapshot, TextGenerationSettingsSnapshot } from '@solu
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { enrichAgentMetadata } from './session-handlers'
+import { setPersonPreferences } from '../../execution/person-preferences'
 
 export function registerSettingsHandlers(
   server: SolusServer,
@@ -33,6 +34,9 @@ export function registerSettingsHandlers(
   })
 
   server.register('configGet', () => getHostConfig())
+
+  // The caller's own preferences: this host's copy of them, which their work reads (docs/plans/host-preferences.md).
+  server.register('executionPreferencesSet', ([preferences]) => setPersonPreferences(preferences ?? {}))
 
   // The caller's own key (docs/plans/access-model.md §2.6), read and changed in their acting scope.
   server.register('typeSafeKeyStatus', () => typeSafeKeyStatus())

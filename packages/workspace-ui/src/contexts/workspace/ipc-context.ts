@@ -2,9 +2,8 @@ import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, Sess
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { sameHostPath } from '@solus/contracts/host-path'
-import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import { checkoutGit, checkoutPlace, codebaseOf, isDispatch, pendingClone, projectHome, refusesCodebase, runHost, workingPlace, worktreeBaseBranch, worktreeRepositories } from './run-location'
+import { checkoutGit, checkoutPlace, codebaseOf, isDispatch, pendingClone, projectHome, refusesCodebase, workingPlace, worktreeBaseBranch, worktreeRepositories } from './run-location'
 import { dispatchRepository } from '../../components/servers/run-on'
 
 export interface IpcContextBuilderDeps {
@@ -18,7 +17,6 @@ export interface IpcContextBuilderDeps {
   checkoutForRun?(run: RunConfig): GitCheckout | null
   /** The organization this window works in (organization-scope R11); null with none. */
   activeOrganizationId?(): string | null
-  settings: SettingsContext
   statusBar: StatusBarContext
 }
 
@@ -26,10 +24,8 @@ export class IpcContextBuilder {
   constructor(private deps: IpcContextBuilderDeps) {}
 
   forTab(tabId: string): IpcContext {
-    const session = this.sessionCtx(tabId)
     return {
-      session,
-      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), session.projectPath) ?? this.deps.settings.ctx,
+      session: this.sessionCtx(tabId),
       statusBar: this.deps.statusBar.ctxFor(tabId),
     }
   }
@@ -42,7 +38,6 @@ export class IpcContextBuilder {
       : this.projectPathOfDirectory(tabId, workingDirectory, base)
     return {
       session: { ...base, workingDirectory, projectPath },
-      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), projectPath) ?? this.deps.settings.ctx,
       statusBar: this.statusBarOf(tabId),
     }
   }
@@ -97,14 +92,8 @@ export class IpcContextBuilder {
         gitContext: null,
         worktreeRepositories: null,
       },
-      settings: this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }
-  }
-
-  /** The host a source's run is on: review warming is that host's per-project setting. */
-  private serverIdOf(sourceId: string): string {
-    return runHost(this.deps.runFor(sourceId) ?? this.deps.defaultRunConfig())
   }
 
   /** The window's organization rides every prompt (R11): the host assigns an

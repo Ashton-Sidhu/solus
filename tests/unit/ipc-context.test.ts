@@ -63,7 +63,6 @@ describe('IPC context', () => {
         location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
-      settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
 
@@ -80,7 +79,6 @@ describe('IPC context', () => {
       return new IpcContextBuilder({
         sessionFor: () => ({ id: 's1', agentSessionId: 'thread', status: 'idle', readOnlyReason: null, sessionFolders }),
         runFor: () => run, hasDraft: () => false, defaultRunConfig: () => run,
-        settings: { ctx: { activeAgent: 'codex' } },
         statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high'), ctxForRun: () => statusBar('model', 'high') },
       } as unknown as IpcContextBuilderDeps)
     }
@@ -121,21 +119,13 @@ describe('IPC context', () => {
         location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
-      settings: {
-        activeAgent: 'codex',
-        ctx: {
-          activeAgent: 'codex',
-          rateLimitBehavior: 'queue',
-          extraInstructions: '',
-        },
-      },
       statusBar: {
         ctx: primaryStatus,
         ctxFor: (tabId: string) => tabId === 'split-tab' ? splitStatus : primaryStatus,
       },
     } as unknown as IpcContextBuilderDeps
 
-    const runInput = runInputFromContext(new IpcContextBuilder(deps).forTab('split-tab'))
+    const runInput = runInputFromContext(new IpcContextBuilder(deps).forTab('split-tab'), {})
 
     expect(runInput.model).toBe('split-model')
     expect(runInput.reasoningEffort).toBe('low')
@@ -154,7 +144,6 @@ describe('IPC context', () => {
         location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
-      settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
     const builder = new IpcContextBuilder(deps)
@@ -179,7 +168,6 @@ describe('IPC context', () => {
         location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
-      settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
 
@@ -207,7 +195,6 @@ describe('IPC context', () => {
         permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
-      settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
 
@@ -238,7 +225,6 @@ describe('IPC context', () => {
       runFor: (sourceId: string) => sourceId === 'draft-1' ? claudeDraft : undefined,
       hasDraft: (sourceId: string) => sourceId === 'draft-1',
       defaultRunConfig: () => claudeDraft,
-      settings: { ctx: { activeAgent: 'codex' } },
       statusBar: {
         ctx: activeCodexStatus,
         ctxFor: () => activeCodexStatus,

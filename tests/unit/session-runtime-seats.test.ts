@@ -19,6 +19,8 @@ let SessionRuntime: typeof import('@solus/server/execution/session-runtime')['Se
 let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['SeatManager']
 
 beforeAll(async () => {
+  // A prompt reaches the host from a person's call, in that call's acting scope; here, the host's.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   ;({ SessionRuntime } = await import('@solus/server/execution/session-runtime'))
   ;({ SeatManager } = await import('@solus/server/execution/seats/seat-manager'))
   installTestIdentities()
@@ -90,8 +92,7 @@ function ctx(sessionId: string): IpcContext {
   return {
     session: { sessionId, provider: 'claude-code', agentSessionId: null, workingDirectory: projectDir, origin: 'user' },
     window: {},
-    settings: { activeAgent: 'claude-code' },
-    statusBar: { model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },
+    statusBar: { activeAgent: 'claude-code', model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },
   } as unknown as IpcContext
 }
 

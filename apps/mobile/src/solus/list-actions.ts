@@ -237,10 +237,7 @@ export const listActions = {
         const prompt = info?.firstMessage?.trim();
         if (!prompt) throw new Error("Could not find the opening prompt.");
         if (hostQueryScope(t.environmentId) !== scope) throw new Error("The connection changed.");
-        const result = await api.generateSessionMetadata(prompt, info?.cwd || t.projectId, {
-          sessionId: t.id,
-          executionPreferences: solus.personal.executionPreferences(),
-        });
+        const result = await api.generateSessionMetadata(prompt, info?.cwd || t.projectId, { sessionId: t.id });
         if (!result?.title) throw new Error("Could not generate a session title.");
         if (hostQueryScope(t.environmentId) !== scope) throw new Error("The connection changed.");
         await api.setSessionTitle(t.id, result.title, "generated", result.description);

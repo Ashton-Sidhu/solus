@@ -51,7 +51,6 @@ async function controllerFor(target: ConversationTarget, settings: RunSettings, 
   const storage = memoryKeyValueStore()
   const savedOptions: unknown[][] = []
   const controller = new ConversationController(target, {
-    executionPreferences: () => ({}),
     connection,
     outbox: new SendOutbox(() => storage),
     runSettings: async () => settings,

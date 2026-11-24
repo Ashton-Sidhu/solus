@@ -28,6 +28,8 @@ let db: DbModule
 let runtime: RuntimeModule
 
 beforeAll(async () => {
+  // A prompt reaches the host from a person's call, in that call's acting scope; here, the host's.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-observability-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
@@ -205,14 +207,6 @@ describe.serial('SessionRuntime observability hooks', () => {
           preferredModel: 'gpt-test', reasoningEffort: 'medium', contextWindow: null,
           fastMode: false, permissionMode: 'supervised', gitContext: null, worktreeBaseBranch: null,
           readOnlyReason: null,
-        },
-        settings: {
-          themeMode: 'system', isDark: false, voiceModeEnabled: false,
-          vadSilenceMs: 500, defaultEditor: null, fallbackTerminal: null, activeAgent: 'codex',
-          reviewAgent: null, reviewModel: null, reviewReasoning: null, reviewGuideInstructions: '',
-          reviewWarmingEnabled: false, rateLimitBehavior: 'ask',
-          fontFamily: 'system', fontSize: 14, codeFontFamily: 'system-mono', codeFontSize: 12,
-          extraInstructions: '',
         },
         statusBar: {
           workingDirectory: repository, activeAgent: 'codex', permissionMode: 'supervised', model: 'gpt-test',

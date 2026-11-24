@@ -141,7 +141,7 @@
     // the next launch reuses it rather than starting the fallback.
     void session
       .apiFor(tabId)
-      .openInTerminal(session.ctxFor(tabId))
+      .openInTerminal(session.ctxFor(tabId), theme.fallbackTerminal)
       .then((launched) => {
         if (!launched) toasts.error("Could not open the terminal. Check that the terminal and tmux are installed.");
         else if (localApi.getPlatform() === "linux") toasts.info("Command sent to the terminal. Switch to its window to continue.");

@@ -19,7 +19,7 @@ afterEach(() => {
 })
 
 function ctx(projectPath: string): IpcContext {
-  return { session: { projectPath, workingDirectory: projectPath }, settings: {}, statusBar: {} } as IpcContext
+  return { session: { projectPath, workingDirectory: projectPath }, statusBar: {} } as IpcContext
 }
 
 function link(repo: string): TaskLink {

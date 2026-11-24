@@ -3,7 +3,6 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import type { SessionStatus } from '@solus/contracts/types'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
 import { hosts } from '../hosts/hosts.svelte'
 import type {
@@ -72,8 +71,6 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
  * not exist yet cannot be a method on one.
  */
 export class TasksStore {
-  /** The person's execution preferences for task work (plans/018 §6); the workspace supplies them. */
-  executionPreferences: () => ExecutionPreferences = () => ({})
   private readonly checkedWorkerTitles = new Set<string>()
 
   /** Repair only the attempts on a task the person opened, two at a time. Each
@@ -82,8 +79,6 @@ export class TasksStore {
    *  asked again on a later page open. A title the task already shows costs no
    *  further read or write. */
   async repairWorkerTitles(taskId: string, links: TaskSessionLink[]): Promise<void> {
-    const preferences = this.executionPreferences()
-    if (preferences.autoRenameSessions === false) return
     const taskServerId = this.get(taskId).serverId
     const candidates = links.flatMap((link) => {
       const serverId = attemptServerId({ link, taskServerId })
@@ -96,7 +91,7 @@ export class TasksStore {
     for (let index = 0; index < candidates.length; index += 2) {
       await Promise.all(candidates.slice(index, index + 2).map(async ({ link, serverId }) => {
         try {
-          const title = await serverConnections.apiFor(serverId).ensureBackgroundSessionTitle(link.sessionId, preferences)
+          const title = await serverConnections.apiFor(serverId).ensureBackgroundSessionTitle(link.sessionId)
           if (!title || title === link.sessionTitle) return
           if (taskServerId && taskServerId !== serverId) {
             await serverConnections.apiFor(taskServerId).setSessionTitle(link.sessionId, title, 'generated', undefined, false)

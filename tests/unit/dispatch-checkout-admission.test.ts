@@ -157,8 +157,7 @@ async function harness(projectsFolder = 'projects') {
         fastMode: false, permissionMode: 'supervised', readOnlyReason: null,
         repository,
       },
-      settings: { activeAgent: 'codex' },
-      statusBar: { model: 'gpt-requested', reasoningEffort: 'medium', fastMode: false },
+      statusBar: { activeAgent: 'codex', model: 'gpt-requested', reasoningEffort: 'medium', fastMode: false },
     } as unknown as IpcContext
     return handlers.get(method)!([ctx, { prompt: 'Go.' }], { principal: ALICE, clientId: 'ws:laptop', deviceId: 'laptop-1' })
   }

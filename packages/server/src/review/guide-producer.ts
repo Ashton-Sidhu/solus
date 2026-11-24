@@ -1,4 +1,3 @@
-import { lockedReviewSettings } from './guide-warmer'
 import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { IpcContext, AgentId } from '@solus/contracts/types'
 import { reviewGuideKeyForTarget, type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewGuideTarget } from '@solus/contracts/review'
@@ -7,7 +6,7 @@ import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runReviewAgent } from './review-agent'
-import { contextPreferences } from '../execution/agents/run-input'
+import { actingPreferences } from '../execution/person-preferences'
 import { normalizeGuide } from './review-guide-tool'
 import { fingerprintReviewPatch, reviewedSessionId } from './review-target'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
@@ -179,6 +178,8 @@ async function produceGuide(
   const inlineDiff = patch.length <= MAX_INLINE_DIFF_CHARS ? patch : null
 
   if (patch) emit('analyzing')
+  // The requester's own review instructions and preferences, from this host's copy of them.
+  const preferences = actingPreferences(ctx.session.organizationId)
   const draft = patch
     ? await runReviewAgent(dispatcher, {
       organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
@@ -191,8 +192,8 @@ async function produceGuide(
       // The guide runs on the requester's own provider login, as their turns do.
       seat: await seatFor?.(agent) ?? undefined,
       reasoningEffort: opts.reasoningEffort ?? null,
-      reviewGuideInstructions: lockedReviewSettings(ctx).reviewGuideInstructions,
-      executionPreferences: contextPreferences(ctx),
+      reviewGuideInstructions: preferences.reviewGuideInstructions ?? '',
+      executionPreferences: preferences,
       requestInstructions: opts.instructions,
       inlineDiff,
       onProgress: emit,

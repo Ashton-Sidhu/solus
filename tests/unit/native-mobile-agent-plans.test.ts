@@ -60,7 +60,6 @@ describe('deciding another session\'s plan', () => {
     await transport.accept()
     const storage = memoryKeyValueStore()
     const controller = new ConversationController({ hostId: 'inst-a', record: { sessionId: 'lead', provider: 'claude-code', projectPath: '/w', cwd: '/w', model: null, reasoningEffort: null, title: null, customTitle: null } }, {
-      executionPreferences: () => ({}),
       connection, outbox: new SendOutbox(() => storage), runSettings: async () => DEFAULT_RUN_SETTINGS, organizationId: () => null, uuid: () => 'u', onChange: () => {},
     })
     await controller.load()

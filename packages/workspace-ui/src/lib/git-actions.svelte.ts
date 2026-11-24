@@ -247,10 +247,11 @@ export class GitActions {
     const ctx = this.target().ctx
     // Opening one attaches a terminal to the shared session, so what "Open in
     // terminal" resolves to has just changed for every surface that shows it.
-    void this.api().openWorktreeTerminal(ctx).then(launched => {
+    const fallbackTerminal = this.session.settings.fallbackTerminal
+    void this.api().openWorktreeTerminal(ctx, fallbackTerminal).then(launched => {
       if (!launched) toasts.error('Could not open the terminal. Check that the terminal and tmux are installed.')
       else if (localApi.getPlatform() === 'linux') toasts.info('Command sent to the terminal. Switch to its window to continue.')
-      void toolsStore.refreshResolvedTerminal(ctx.settings.fallbackTerminal)
+      void toolsStore.refreshResolvedTerminal(fallbackTerminal)
     }).catch(error => toasts.error(error instanceof Error ? error.message : 'Could not open the terminal.'))
     requestInputFocus()
   }

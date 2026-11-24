@@ -374,7 +374,7 @@ describe('PR guide content and storage', () => {
           }
         },
       }
-      const context = { session: { workingDirectory: directory, projectPath: directory }, settings: {} } as IpcContext
+      const context = { session: { workingDirectory: directory, projectPath: directory }, } as IpcContext
       const { authorGuide } = await import('@solus/server/review/guide-producer')
       const authored = await authorGuide(dispatcher, context, {
         agent, target: { ...target, baseSha, headSha },

@@ -169,7 +169,7 @@ export class SessionMetadata {
       hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
     )
     const metadata = await this.workspace.apiFor(tabId)
-      .generateSessionMetadata(userMessages[0].content, checkoutPlace(session.run).path, { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences })
+      .generateSessionMetadata(userMessages[0].content, checkoutPlace(session.run).path, { ...metadataContext, sessionId: session.id })
       .catch(() => null)
     if (!metadata) return
 
@@ -237,7 +237,7 @@ export class SessionMetadata {
       const metadata = await api.generateSessionMetadata(
         openingPrompt,
         workingDirectory,
-        { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences },
+        { ...metadataContext, sessionId: session.id },
       )
       if (!metadata) throw new Error("Couldn't generate a new session title.")
 

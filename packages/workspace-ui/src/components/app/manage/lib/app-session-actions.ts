@@ -1,7 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { AppSummary } from '@solus/contracts/apps'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { AgentId, HeadlessPromptRequest, HeadlessSessionRequest, ModelConfig } from '@solus/contracts/types'
 import { appsStore } from '../../../../contexts/apps/apps.store.svelte'
 
@@ -17,13 +16,12 @@ import { appsStore } from '../../../../contexts/apps/apps.store.svelte'
 export interface AppSessionRun {
   provider: AgentId
   modelConfig: ModelConfig
-  executionPreferences: ExecutionPreferences
 }
 
 /** The person's default agent, as a new tab takes it: a name this client does not know is Claude Code. */
-export function appSessionRun(activeAgent: string, defaultModelConfigFor: (provider: AgentId) => ModelConfig, executionPreferences: ExecutionPreferences): AppSessionRun {
+export function appSessionRun(activeAgent: string, defaultModelConfigFor: (provider: AgentId) => ModelConfig): AppSessionRun {
   const provider: AgentId = activeAgent === 'codex' || activeAgent === 'opencode' || activeAgent === 'replay' ? activeAgent : 'claude-code'
-  return { provider, modelConfig: defaultModelConfigFor(provider), executionPreferences }
+  return { provider, modelConfig: defaultModelConfigFor(provider) }
 }
 
 /** A reply into a session. A session that is working takes it after its turn ends. */
@@ -40,7 +38,6 @@ export function appSessionStart(app: Pick<AppSummary, 'name' | 'project'>, promp
     reasoningEffort: run.modelConfig.reasoningEffort,
     contextWindow: run.modelConfig.contextWindow,
     cwd: app.project ?? NEW_CHAT_DIRECTORY,
-    executionPreferences: run.executionPreferences,
   }
 }
 

@@ -81,7 +81,7 @@
 
   async function send(prompt: string) {
     if (isStartingNew || !selected) {
-      const run = appSessionRun(workspace.settings.activeAgent, (provider) => workspace.config.defaultModelConfigFor(provider), workspace.settings.executionPreferences);
+      const run = appSessionRun(workspace.settings.activeAgent, (provider) => workspace.config.defaultModelConfigFor(provider));
       const sessionId = await startAppSession(serverId, app, prompt, run);
       chosenSessionId = sessionId;
       isStartingNew = false;

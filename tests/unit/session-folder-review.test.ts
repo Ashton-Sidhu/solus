@@ -83,13 +83,13 @@ afterAll(() => {
 /** The context of the session's own checkout, as its tab sends it. */
 function sessionCtx(): IpcContext {
   // SAFETY: the handlers under test read only these fields of a context.
-  return { session: { sessionId: SESSION, agentSessionId: null, workingDirectory: at('app'), gitContext: null }, settings: {}, statusBar: {} } as never
+  return { session: { sessionId: SESSION, agentSessionId: null, workingDirectory: at('app'), gitContext: null }, statusBar: {} } as never
 }
 
 /** The context a client builds to aim a Git action at a session folder: the folder is its working directory. */
 function folderCtx(path: string): IpcContext {
   // SAFETY: as above.
-  return { session: { sessionId: SESSION, agentSessionId: null, workingDirectory: path, gitContext: null }, settings: {}, statusBar: {} } as never
+  return { session: { sessionId: SESSION, agentSessionId: null, workingDirectory: path, gitContext: null }, statusBar: {} } as never
 }
 
 const call = <T>(method: string, ...args: unknown[]): Promise<T> => handlers.get(method)!(args, { actor: HOST_ACTOR }) as Promise<T>
