@@ -26,8 +26,13 @@ export const solus = new SolusApp({
 export const nearby = new NearbyDiscovery(solus, expoPlatform.storage);
 let loaded = false;
 let shellCachesRead = false;
-export function useSolusShellCachesRead() {
-  return useSyncExternalStore(subscribe, () => shellCachesRead);
+const shellCacheRestores = new Map<string, Promise<void> | null>();
+export function useSolusShellCachesRead(hostId?: string) {
+  return useSyncExternalStore(subscribe, () =>
+    hostId === undefined
+      ? shellCachesRead
+      : loadError !== null || shellCacheRestores.get(hostId) === null,
+  );
 }
 let loadError: string | null = null;
 const automationNames = new Map<string, ReadonlyMap<string, string>>();
@@ -65,7 +70,6 @@ export function startSolus() {
   let localReady = false;
   let stopAgentAwareness: (() => void) | undefined;
   let scope = "";
-  const restores = new Map<string, Promise<void> | null>();
   const hosts = new Map<string, () => void>();
   function refresh() {
     if (loaded) void nearby.scan();
@@ -79,7 +83,7 @@ export function startSolus() {
     if (scope !== nextScope) {
       hosts.forEach(stop => stop());
       hosts.clear();
-      restores.clear();
+      shellCacheRestores.clear();
       rowActions.clear();
       scope = nextScope;
       appAtomRegistry.set(fileAccountScope, { key: scope, organizationId: solus.account.organizationId });
@@ -92,17 +96,17 @@ export function startSolus() {
         rowActions.delete(id);
       }
     }
-    for (const id of restores.keys()) {
-      if (!saved.some(host => host.id === id)) restores.delete(id);
+    for (const id of shellCacheRestores.keys()) {
+      if (!saved.some(host => host.id === id)) shellCacheRestores.delete(id);
     }
     for (const host of saved) {
-      if (!restores.has(host.id)) {
+      if (!shellCacheRestores.has(host.id)) {
         const pending = solus.threads.restore(host.id);
-        restores.set(host.id, pending);
+        shellCacheRestores.set(host.id, pending);
         void pending.finally(() => {
-          if (!active || restores.get(host.id) !== pending) return;
-          restores.set(host.id, null);
-          shellCachesRead = [...restores.values()].every(read => read === null);
+          if (!active || shellCacheRestores.get(host.id) !== pending) return;
+          shellCacheRestores.set(host.id, null);
+          shellCachesRead = [...shellCacheRestores.values()].every(read => read === null);
           changed();
         });
       }
@@ -228,7 +232,7 @@ export function startSolus() {
       });
       ready();
     }
-    shellCachesRead = [...restores.values()].every(read => read === null);
+    shellCachesRead = [...shellCacheRestores.values()].every(read => read === null);
     hostsChanged();
   }
   const memoryWarning = AppState.addEventListener("memoryWarning", () => solus.releaseRecentConversations());
@@ -275,6 +279,7 @@ export function startSolus() {
     stopAgentAwareness?.();
     stops.forEach((stop) => stop());
     hosts.forEach((stop) => stop());
+    shellCacheRestores.clear();
   };
 }
 

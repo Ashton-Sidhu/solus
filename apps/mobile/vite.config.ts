@@ -12,6 +12,7 @@ const reactTests = [
   "src/features/threads/NewTaskRouteScreen.test.tsx",
   "src/features/threads/ThreadHeader.test.tsx",
   "src/features/threads/ThreadRouteScreen.test.tsx",
+  "src/solus/use-thread-session.test.tsx",
   "src/features/threads/ProviderAgentTranscript.test.tsx",
   "src/features/layout/workspace/workspace-tabs-state.test.ts",
   "src/state/use-thread-pr.demand.test.tsx",

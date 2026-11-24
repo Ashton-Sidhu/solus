@@ -40,4 +40,6 @@ export async function rememberSession(hostId: string, sessionId: string, confirm
   return record;
 }
 
-export const linkedSessionRecord = hostQuery(rememberSession);
+// The directory owns remembered records. Release the query when its last reader
+// leaves so a later open can recover a record evicted from the directory.
+export const linkedSessionRecord = hostQuery(rememberSession, 30_000, 0);

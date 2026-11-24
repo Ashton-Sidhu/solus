@@ -28,7 +28,7 @@ The Files routes for drafts and sessions open the same T3 tree and preview scree
 
 Video links in a session use the same Solus host and file access rules as the Files preview. T3's iOS, Android, and inline video players request a fresh signed URL for playback.
 
-The thread route owns the screen host, header, draft layout, and inspector. Its loading and unavailable states use the T3 inspector header with the action for the current pane. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
+The thread route owns the screen host, header, draft layout, and inspector. Saved sessions use T3's loading rule and inspector fallback. A session from the phone cache opens through the same account-scoped watch as a session from the list. After the selected host's phone cache has been read, a direct link outside the list uses the scoped session record query. The fallback can retry that query or reconnect the host. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
 
 The composer follows T3's Stop rule. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. The local outbox can show a busy state while the host has yet to take the prompt.
 

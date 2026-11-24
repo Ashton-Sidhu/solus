@@ -13,8 +13,6 @@ import { useSavedMcpApp } from "@solus-mobile/features/threads/use-saved-mcp-app
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { AppBar } from "../../components/ui/AppBar";
-import { linkedSessionRecord } from "../../solus/session-record";
-import { useEnvironmentQuery } from "../../state/query";
 import { mobileHost } from "../../state/mobile-host";
 import { useThreadSession } from "../../solus/use-thread-session";
 import { solus } from "../../solus/runtime";
@@ -65,14 +63,10 @@ function McpAppFullscreen({
   threadId: ThreadId;
   itemId: TurnItemId;
 }) {
+  const gt = useGT();
   const navigation = useNavigation();
   const session = useThreadSession({ environmentId, threadId });
   const host = useAtomValue(mobileHost(environmentId));
-  const record = useEnvironmentQuery(
-    host && session.kind === "unavailable"
-      ? linkedSessionRecord({ environmentId, input: threadId })
-      : null,
-  );
   const request = useMemo(
     () => ({ sessionId: threadId, activityId: itemId.replace(/^activity:/, "") }),
     [threadId, itemId],
@@ -95,10 +89,12 @@ function McpAppFullscreen({
         <AppBar title={title} onClose={close} closeAccessibilityLabel="Exit full screen" />
         {!host ? (
           <Text className="m-6">Reconnect to the session to open this app.</Text>
-        ) : record.error ? (
+        ) : session.kind === "unavailable" ? (
           <View className="m-6">
-            <Text accessibilityRole="alert">{record.error}</Text>
-            <Button label="Try again" onPress={record.refresh} />
+            <Text accessibilityRole="alert">
+              {session.detail ?? gt("This session is unavailable on this host.")}
+            </Text>
+            {session.recovery ? <Button label={gt("Try again")} onPress={session.recovery.run} /> : null}
           </View>
         ) : app.phase === "error" ? (
           <View className="m-6">

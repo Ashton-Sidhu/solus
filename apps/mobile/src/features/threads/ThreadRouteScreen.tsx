@@ -120,9 +120,18 @@ function ThreadRouteContent(props: ThreadRouteScreenProps) {
               ) : (
                 <ThreadUnavailableScreen
                   detail={session.detail}
-                  actionLabel={session.hostId ? "Back to sessions" : "Connect an environment"}
+                  actionLabel={
+                    session.recovery?.kind === "reconnect"
+                      ? gt("Reconnect environment")
+                      : session.recovery?.kind === "retry"
+                        ? gt("Try again")
+                        : session.hostId
+                          ? gt("Back to sessions")
+                          : gt("Connect an environment")
+                  }
                   onAction={
-                    session.hostId ? goBack : () => navigation.navigate("SettingsEnvironmentNew")
+                    session.recovery?.run ??
+                    (session.hostId ? goBack : () => navigation.navigate("SettingsEnvironmentNew"))
                   }
                 />
               )}

@@ -22,8 +22,20 @@ const sessionDetails = Atom.family((scope: string) =>
   ),
 );
 
+const sessionCacheScopeAtom = Atom.make((get) => {
+  get.addFinalizer(solus.account.changes.subscribe(() => get.setSelf(solus.sessionCache.scope())));
+  return solus.sessionCache.scope();
+});
+
+const currentSessionDetails = Atom.family((hostId: string) =>
+  Atom.family((sessionId: string) =>
+    Atom.make((get) => get(sessionDetails(get(sessionCacheScopeAtom))(hostId)(sessionId)))
+      .pipe(Atom.setIdleTTL(0)),
+  ),
+);
+
 export function sessionDetailAtom(hostId: string, sessionId: string) {
-  return sessionDetails(solus.sessionCache.scope())(hostId)(sessionId);
+  return currentSessionDetails(hostId)(sessionId);
 }
 
 // A sheet reads the same watch as its conversation and releases it when the sheet closes.
