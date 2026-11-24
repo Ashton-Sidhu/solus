@@ -54,6 +54,12 @@
     children?: Snippet;
     /** Extra buttons for the hover action cluster, before Expand. */
     actions?: Snippet;
+    /** A header row above the frame, such as the artifact rail. It gets
+     *  `pill(content)`, which draws content in a pill of the frame's style,
+     *  and `controls(lead)`, the frame's own pill: `lead`, then the actions,
+     *  Widen, and Expand. The header then holds the controls, so no pill
+     *  floats over the render. */
+    header?: Snippet<[pill: Snippet<[Snippet]>, controls: Snippet<[Snippet]>]>;
     /** Shown in place of the default skeleton until the render loads. */
     loading?: Snippet;
     /** Let a pane render use all available height while transcript, task, and
@@ -97,6 +103,7 @@
     heightKey,
     children,
     actions,
+    header,
     loading,
     fillAvailable = false,
     expandable = true,
@@ -359,6 +366,79 @@
   );
 </script>
 
+{#snippet frameActions()}
+  {@render actions?.()}
+  {#if sideRoom > 0 && !expanded}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button
+            {...tooltipProps}
+            type="button"
+            class="artifact-action"
+            data-testid="artifact-widen"
+            aria-label={isWide ? "Fit to column" : "Widen"}
+            aria-pressed={isWide}
+            onclick={toggleWide}
+          >
+            {#if isWide}
+              <NarrowIcon size={14} />
+            {:else}
+              <WidenIcon size={14} />
+            {/if}
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={isWide ? "Fit to column" : "Widen"} />
+    </TooltipUI.Root>
+  {/if}
+  {#if expandable}
+    {#snippet expandButton(extra: import("svelte/elements").HTMLButtonAttributes)}
+      <button
+        {...extra}
+        class="artifact-action"
+        data-testid="artifact-expand"
+        title={tooltips ? undefined : expanded ? "Collapse · Esc" : "Expand"}
+        onclick={toggleExpand}
+        aria-label={expanded ? "Collapse artifact" : "Expand artifact"}
+      >
+        {#if expanded}
+          <ArrowsInIcon size={14} weight="bold" />
+        {:else}
+          <ArrowsOutIcon size={14} weight="bold" />
+        {/if}
+      </button>
+    {/snippet}
+    {#if tooltips}
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            {@render expandButton(tooltipProps)}
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={expanded ? "Collapse · Esc" : "Expand"} />
+      </TooltipUI.Root>
+    {:else}
+      {@render expandButton({})}
+    {/if}
+  {/if}
+{/snippet}
+
+{#snippet pill(content: Snippet)}
+  <div class="artifact-actions is-inline">{@render content()}</div>
+{/snippet}
+
+{#snippet controls(lead: Snippet)}
+  <div class="artifact-actions is-inline">
+    {@render lead()}
+    {@render frameActions()}
+  </div>
+{/snippet}
+
+{#if header}
+  {@render header(pill, controls)}
+{/if}
+
 {#if expanded}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -433,63 +513,11 @@
     <div class="artifact-placeholder" style={isApp ? undefined : `height:${contentHeight}px`}></div>
   {/if}
 
-  {#if (children || (frameSettled && !frameResult?.failed)) && (actions || expandable || sideRoom > 0)}
+  <!-- With a header, the controls are in its row. An expanded frame covers
+       that row, so it keeps them over the render. -->
+  {#if (!header || expanded) && (children || (frameSettled && !frameResult?.failed)) && (actions || expandable || sideRoom > 0)}
     <div class="artifact-actions">
-      {@render actions?.()}
-      {#if sideRoom > 0 && !expanded}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button
-                {...tooltipProps}
-                type="button"
-                class="artifact-action"
-                data-testid="artifact-widen"
-                aria-label={isWide ? "Fit to column" : "Widen"}
-                aria-pressed={isWide}
-                onclick={toggleWide}
-              >
-                {#if isWide}
-                  <NarrowIcon size={14} />
-                {:else}
-                  <WidenIcon size={14} />
-                {/if}
-              </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={isWide ? "Fit to column" : "Widen"} />
-        </TooltipUI.Root>
-      {/if}
-      {#if expandable}
-        {#snippet expandButton(extra: import("svelte/elements").HTMLButtonAttributes)}
-          <button
-            {...extra}
-            class="artifact-action"
-            data-testid="artifact-expand"
-            title={tooltips ? undefined : expanded ? "Collapse · Esc" : "Expand"}
-            onclick={toggleExpand}
-            aria-label={expanded ? "Collapse artifact" : "Expand artifact"}
-          >
-            {#if expanded}
-              <ArrowsInIcon size={14} weight="bold" />
-            {:else}
-              <ArrowsOutIcon size={14} weight="bold" />
-            {/if}
-          </button>
-        {/snippet}
-        {#if tooltips}
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                {@render expandButton(tooltipProps)}
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value={expanded ? "Collapse · Esc" : "Expand"} />
-          </TooltipUI.Root>
-        {:else}
-          {@render expandButton({})}
-        {/if}
-      {/if}
+      {@render frameActions()}
     </div>
   {/if}
 </div>
@@ -661,6 +689,18 @@
       transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  /* In a header row: always shown, in the flow, and with no blur, because
+     nothing is under it. */
+  .artifact-actions.is-inline {
+    position: static;
+    flex-shrink: 0;
+    align-items: center;
+    opacity: 1;
+    transform: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   /* `:global` so a caller's own action button, handed in through the `actions`
      snippet, wears the same chrome as the frame's Expand. */
   /* An action whose snippet rendered nothing leaves no empty pill. */
@@ -722,9 +762,14 @@
     }
   }
 
-  .artifact-actions :global(.artifact-action:hover) {
+  .artifact-actions :global(.artifact-action:hover:not(:disabled)) {
     background: var(--solus-surface-hover);
     color: var(--solus-accent);
+  }
+
+  .artifact-actions :global(.artifact-action:disabled) {
+    cursor: default;
+    opacity: 0.45;
   }
 
   .artifact-actions :global(.artifact-action.is-copied) {

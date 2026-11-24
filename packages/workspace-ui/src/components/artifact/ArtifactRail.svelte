@@ -1,5 +1,24 @@
+<script module lang="ts">
+  /** Where a render sits in its revision chain, and how to move along it. */
+  export interface ArtifactVersions {
+    number: number;
+    count: number;
+    isFirst: boolean;
+    isLatest: boolean;
+    showPrevious(): void;
+    showNext(): void;
+    showLatest(): void;
+  }
+</script>
+
 <script lang="ts">
-  import { PanelRightClose as OpenInSplitIcon } from "@lucide/svelte";
+  import type { Snippet } from "svelte";
+  import {
+    ChevronLeft,
+    ChevronRight,
+    LayoutTemplate as ArtifactIcon,
+    PanelRightClose as OpenInSplitIcon,
+  } from "@lucide/svelte";
   import { getSurfaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ShareButton from "../sharing/ShareButton.svelte";
@@ -9,8 +28,9 @@
   /**
    * The persisted work behind a render: named, shareable, linkable to a task
    * when there is one to name, and one click from a pane where it has the full
-   * works chrome (rename, history, export). Shown as the header of an artifact
-   * card, and of an HTML block once the reader has saved it as an artifact.
+   * works chrome (rename, history, export). It is the one header row of an
+   * artifact card, and of an HTML block once the reader has saved it as an
+   * artifact: the version controls and the frame's controls sit in it too.
    */
   interface Props {
     workId: string;
@@ -18,19 +38,48 @@
     contentVersion?: number;
     /** Where the conversation lives, for the Link control. */
     linkContext?: TaskLinkContext;
+    /** The revision chain this render is one version of. */
+    versions?: ArtifactVersions;
+    /** From `SandboxFrame`'s header: draws content in the frame's pill. */
+    pill?: Snippet<[Snippet]>;
+    /** From `SandboxFrame`'s header: the frame's own pill, starting with the
+     *  rail's actions. Without it, the rail's actions stand alone. */
+    controls?: Snippet<[Snippet]>;
   }
 
-  let { workId, title, contentVersion, linkContext }: Props = $props();
+  let { workId, title, contentVersion, linkContext, versions, pill, controls }: Props = $props();
 
   const session = getSurfaceContext();
   const shareServerId = $derived(session.worksStore.hostFor(workId));
 </script>
 
-<div class="artifact-rail" data-testid="artifact-rail">
-  <span class="artifact-rail__kicker shrink-0">Artifact</span>
-  <span class="artifact-rail__title min-w-0 truncate">{title}</span>
-  {#if contentVersion}<span class="shrink-0 tabular-nums">v{contentVersion}</span>{/if}
-  <span class="flex-1"></span>
+{#snippet versionControls()}
+  {#if versions && !versions.isLatest}
+    <button
+      type="button"
+      class="artifact-action is-labelled artifact-rail__action inline-flex h-6.5 shrink-0 cursor-pointer items-center rounded-md px-2 pointer-coarse:tap-area"
+      onclick={versions.showLatest}
+    >View latest</button>
+  {/if}
+  <button
+    type="button"
+    class="artifact-action artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md disabled:cursor-default disabled:opacity-45 pointer-coarse:tap-area"
+    aria-label="Previous version"
+    title="Previous version"
+    disabled={versions?.isFirst}
+    onclick={versions?.showPrevious}
+  ><ChevronLeft size={14} /></button>
+  <button
+    type="button"
+    class="artifact-action artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md disabled:cursor-default disabled:opacity-45 pointer-coarse:tap-area"
+    aria-label="Next version"
+    title="Next version"
+    disabled={versions?.isLatest}
+    onclick={versions?.showNext}
+  ><ChevronRight size={14} /></button>
+{/snippet}
+
+{#snippet workActions()}
   <TaskLinkControl
     target={{ kind: "work", targetScope: "", targetKey: workId }}
     {title}
@@ -39,16 +88,16 @@
     onlyWithTask
   />
   <!-- A scoped class would not reach the child, so the action's look is
-       restated as utilities. -->
+       restated as utilities. In the frame's pill, its style wins. -->
   <ShareButton
     serverId={shareServerId}
     resource={{ kind: "work", id: workId }}
     {title}
-    class="inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-12"
+    class="artifact-action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-12"
   />
   <button
     type="button"
-    class="artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md pointer-coarse:tap-area"
+    class="artifact-action artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md pointer-coarse:tap-area"
     data-testid="artifact-open-split"
     title="Open in split"
     aria-label="Open in split"
@@ -59,6 +108,22 @@
   >
     <OpenInSplitIcon size={14} />
   </button>
+{/snippet}
+
+<div class="artifact-rail" data-testid="artifact-rail">
+  <span class="inline-flex shrink-0 text-primary"><ArtifactIcon size={13} aria-hidden="true" /></span>
+  <span class="sr-only">Artifact</span>
+  <span class="artifact-rail__title min-w-0 truncate">{title}</span>
+  {#if versions}
+    <span class="shrink-0 tabular-nums">v{versions.number} of {versions.count}{versions.isLatest ? " · latest" : ""}</span>
+  {:else if contentVersion}
+    <span class="shrink-0 tabular-nums">v{contentVersion}</span>
+  {/if}
+  <span class="flex-1"></span>
+  {#if versions}
+    {#if pill}{@render pill(versionControls)}{:else}{@render versionControls()}{/if}
+  {/if}
+  {#if controls}{@render controls(workActions)}{:else}{@render workActions()}{/if}
 </div>
 
 <style>
@@ -70,12 +135,6 @@
     padding: 0 0.25rem;
     font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
-  }
-
-  .artifact-rail__kicker {
-    font-weight: 500;
-    text-transform: uppercase;
-    opacity: 0.7;
   }
 
   .artifact-rail__title {
@@ -94,7 +153,7 @@
       color var(--duration-quick) var(--ease-premium);
   }
 
-  .artifact-rail__action:hover {
+  .artifact-rail__action:hover:not(:disabled) {
     background: color-mix(in oklch, var(--foreground) 5%, transparent);
     color: var(--solus-text-primary);
   }

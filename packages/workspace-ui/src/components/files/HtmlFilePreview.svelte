@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { Check as CheckIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -40,12 +41,16 @@
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto p-4" data-testid="html-file-preview">
-  {#if saved}
-    <ArtifactRail workId={saved.workId} title={saved.title} />
-  {:else}
+  {#snippet rail(pill: Snippet<[Snippet]>, controls: Snippet<[Snippet]>)}
+    {#if saved}
+      <ArtifactRail workId={saved.workId} title={saved.title} {pill} {controls} />
+    {/if}
+  {/snippet}
+  {#if !saved}
     <span class="sr-only">{title}</span>
   {/if}
-  <SandboxFrame html={contents}>
+  <!-- Once saved, the rail is the frame's header, with the frame's controls in its row. -->
+  <SandboxFrame html={contents} header={saved ? rail : undefined}>
     {#snippet actions()}
       {#if !saved}
         <button

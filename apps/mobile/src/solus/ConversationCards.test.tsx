@@ -9,6 +9,8 @@ import { RequestPanels } from "./RequestCards";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
 import { ConversationCard } from "./ConversationCard";
+import { createArtifactGrouping } from "./artifact-groups";
+import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { BackgroundCommandRow } from "../features/threads/BackgroundCommandRow";
 
 vi.mock("../features/pull-requests/PullRequestMarkdown", () => ({
@@ -457,6 +459,66 @@ it("puts a saved artifact the person opens full screen into their history", asyn
   expect(host.recordOpen).not.toHaveBeenCalled();
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Snapshot"]')!.click());
   expect(host.recordOpen).toHaveBeenCalledWith("work:work");
+});
+
+it("shows the works of one turn as tabs over one render, and keeps the chosen tab, version, and fold when the row mounts again", async () => {
+  const { store, root, container } = await fixture();
+  const items: TranscriptItem[] = [
+    { kind: "user", id: "p", text: "draw", attachments: [], delivery: "sent", error: null },
+    { kind: "artifact", id: "plan-1", workId: "plan", title: "Plan", html: "<p>Plan one</p>" },
+    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "<p>Mock one</p>" },
+    { kind: "artifact", id: "plan-2", workId: "plan", title: "Plan", html: "<p>Plan two</p>" },
+  ];
+  for (const item of items) store.controller.model.items.set(item.id, item);
+  const group = createArtifactGrouping()(items.map((item) => item.id), (key) => store.controller.model.items.get(key)).get("plan-1")!;
+  const show = () => act(async () => root.render(<ConversationCard key="plan-1" store={store} id="plan-1" artifactGroup={group} />));
+  const press = (label: string) => act(async () => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+  const page = () => container.querySelector("[data-page]")?.getAttribute("data-page") ?? null;
+  await show();
+  // The agent wrote "Plan" last, so its newest revision of the turn shows.
+  expect(page()).toContain("<p>Plan two</p>");
+  expect(container.textContent).toContain("v2 of 2");
+  expect(container.textContent).not.toContain("earlier version");
+  await press("Mock, v1");
+  expect(page()).toContain("<p>Mock one</p>");
+  // One version: no arrows.
+  expect(container.querySelector('button[aria-label="Previous version"]')).toBeNull();
+  await press("Plan, v2");
+  await press("Previous version");
+  expect(page()).toContain("<p>Plan one</p>");
+  expect(container.textContent).toContain("v1 of 2");
+  // The row scrolls out and back.
+  await act(async () => root.render(null));
+  await show();
+  expect(page()).toContain("<p>Plan one</p>");
+  await press("Fold artifacts");
+  expect(page()).toBeNull();
+  expect(container.textContent).toContain("2 artifacts");
+  expect(container.textContent).toContain("2 new");
+  await act(async () => root.render(null));
+  await show();
+  expect(page()).toBeNull();
+  await press("2 artifacts, 2 new");
+  expect(page()).toContain("<p>Plan one</p>");
+});
+
+it("reads the saved version of a group member that has no HTML yet, and offers a retry when the read fails", async () => {
+  const { store, root, container } = await fixture();
+  const ensure = vi.spyOn(store.controller, "ensureArtifact").mockResolvedValue(undefined);
+  const items: TranscriptItem[] = [
+    { kind: "artifact", id: "plan", workId: "plan", title: "Plan", html: "<p>Plan</p>" },
+    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "", contentVersion: 3 },
+  ];
+  for (const item of items) store.controller.model.items.set(item.id, item);
+  const group = createArtifactGrouping()(["plan", "mock"], (key) => store.controller.model.items.get(key)).get("plan")!;
+  await act(async () => root.render(<ConversationCard store={store} id="plan" artifactGroup={group} />));
+  expect(ensure).toHaveBeenCalledWith("mock");
+  expect(container.textContent).toContain("v3 of 3");
+  store.controller.model.items.set("mock", { ...items[1]!, error: "The host is offline." } as TranscriptItem);
+  await act(async () => root.render(<ConversationCard key="again" store={store} id="plan" artifactGroup={group} />));
+  expect(container.textContent).toContain("The host is offline.");
+  await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!.click());
+  expect(ensure).toHaveBeenCalledTimes(2);
 });
 
 it("opens a session guide stop inline with the host patch for its numbered turn", async () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { getSurfaceContext } from "../../contexts";
@@ -9,7 +10,7 @@
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { downloadPayload } from "../work/lib/work-export";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
-  import ArtifactRail from "./ArtifactRail.svelte";
+  import ArtifactRail, { type ArtifactVersions } from "./ArtifactRail.svelte";
   import SandboxFrame from "./SandboxFrame.svelte";
   import { runHost } from "../../contexts/workspace/run-location";
 
@@ -39,6 +40,8 @@
     showRail?: boolean;
     /** Where the conversation lives, for the rail's Link control. */
     linkContext?: TaskLinkContext;
+    /** The revision chain the work is one version of, shown in the rail. */
+    versions?: ArtifactVersions;
     /** Let a pane render use all available height while transcript and task
      *  renders continue to size themselves to their content. */
     fillAvailable?: boolean;
@@ -56,6 +59,7 @@
     workRef,
     showRail = true,
     linkContext,
+    versions,
     fillAvailable = false,
     skipMotion,
     reloadKey = 0,
@@ -151,8 +155,15 @@
   class="artifact-root {skipMotion ? '' : 'animate-msg-in-side'}"
   class:fill-available={fillAvailable}
 >
-  {#if workRef && showRail}
-    <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
+  {#snippet rail(pill?: Snippet<[Snippet]>, controls?: Snippet<[Snippet]>)}
+    {#if workRef && showRail}
+      <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} {versions} {pill} {controls} />
+    {/if}
+  {/snippet}
+  <!-- The rail is the frame's header, with the frame's controls in its row.
+       With no frame, it stands alone. -->
+  {#if artifactError || (!(isRaster && artifactUrl) && frameHtml === undefined)}
+    {@render rail()}
   {/if}
   {#if artifactError}
     <div
@@ -185,7 +196,7 @@
   {:else if isRaster && artifactUrl}
     <!-- The one render that is not HTML. It reuses the frame's chrome
          (expand, overlay, action cluster) rather than growing a second one. -->
-    <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey}>
+    <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey} header={workRef && showRail ? rail : undefined}>
       <img
         class="artifact-img"
         src={artifactUrl}
@@ -236,6 +247,7 @@
       reloadKey={retryAttempt + reloadKey}
       lazy={!fillAvailable}
       expandable={!fillAvailable && !workRef}
+      header={workRef && showRail ? rail : undefined}
       onError={() => (renderError = "This artifact could not be rendered.")}
     />
   {:else}

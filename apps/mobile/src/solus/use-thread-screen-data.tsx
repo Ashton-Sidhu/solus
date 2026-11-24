@@ -72,11 +72,17 @@ function useFeed(store: ConversationStore, id: string) {
     return conversationFeed(
       store,
       id,
-      (key, superseded, liveAppOnly) =>
+      (key, superseded, liveAppOnly, artifactGroup) =>
         liveAppOnly ? (
           <ThreadMcpApp store={store} id={key} />
         ) : (
-          <ConversationCard key={key} store={store} id={key} superseded={superseded} />
+          <ConversationCard
+            key={key}
+            store={store}
+            id={key}
+            superseded={superseded}
+            artifactGroup={artifactGroup}
+          />
         ),
       (path, refresh) => resolveConversationImage(store, path, refresh).then((image) => image.uri),
       (key) => store.controller.readToolInput(key),

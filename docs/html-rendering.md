@@ -31,9 +31,11 @@ same or an older save timestamp do not add another preview. A stale completion
 removes only its own pending card. Preview completion does not recreate the saved
 work record: the works store owns its metadata and authoritative save timestamp.
 
-Version numbers describe the revisions in the loaded conversation, not the global
-work history. The label says Latest in conversation: a work can also be edited from
-another session. Works, task links, and Open in split continue to open the current
+A version number is the content version that the host saved, the same number
+that the frame, the pane, and the work's history show. A revision from an older
+host with no saved version shows its place in the loaded conversation. The
+arrows step only through the revisions in the loaded conversation, and the label
+says Latest in conversation: a work can also be edited from another session. Works, task links, and Open in split continue to open the current
 saved work. Selecting an older inline revision does not change the saved work.
 
 Fenced reply HTML uses an explicit info-string identity, for example
@@ -85,6 +87,13 @@ is the way back. The choice belongs to the conversation: it holds when the row
 scrolls away and back, and when the reader switches tabs. A pane too narrow for
 the gutters, or the Full conversation width, shows no Widen. An app frame and
 a render in a pane or a document do not have it.
+
+A render that has a work has one header row: the artifact rail. It shows the
+artifact icon, the title, and the version ("v2 of 3 · latest" in a chain of
+versions). At its end are two pills: the version controls (View latest,
+Previous, Next), and the controls of the work and the frame (Link, Share, Open
+in split, the frame's actions, Widen, and Expand). A render with no work keeps
+its controls in a pill over its top-right corner, shown on hover.
 
 An HTML block can show a local image by its absolute path (`src="/tmp/shot.png"`,
 a `file:` URL, or CSS `url()`). The client asks the session's host for each file

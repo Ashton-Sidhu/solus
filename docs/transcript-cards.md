@@ -200,8 +200,10 @@ permission", "Alice's turn asks to run a shell command") with the count and the
 clock at its right. The body's lead line is the question, or what the agent wants
 to do with a chip naming the worktree. No text on the card is bold. Options are
 soft rows with a hairline between them, inset to the text column as in Settings; the selected row takes the accent tint, an inset
-ring, and a check. The own-words field is a bar at full size (14px text, a 28px
-Send or Next action inside it, 36px on touch), and "Let Claude decide" is a text link under it.
+ring, and a check. The own-words field is one more row in the options' type: a pen
+in the radio column, 12px words on a soft fill, and no hairline until it has focus.
+The question ends in one row, as a permission does: Back as text at the left,
+"Let Claude decide" as text, and Send or Next as the filled pill.
 A secret request uses the same bar for its field, with Show and Save securely inside it; Decline is a text link under it. A focused bar darkens its hairline to `--solus-tx-focus-ring`; no field on a card takes the accent ring. A permission ends in
 one row: Deny as text, broader grants as quiet pills, the narrowest grant as the
 filled pill, and the scope of the pill under the pointer or focus written at the

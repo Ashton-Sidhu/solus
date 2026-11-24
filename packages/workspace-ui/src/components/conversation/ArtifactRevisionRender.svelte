@@ -1,5 +1,6 @@
 <script lang="ts">
   import ArtifactView from "../artifact/ArtifactView.svelte";
+  import type { ArtifactVersions } from "../artifact/ArtifactRail.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import type { ArtifactRevision } from "./lib/artifact-revisions";
@@ -12,7 +13,12 @@
    * page left on its host reads it when this mounts. `showRail` is false in an
    * artifact group, whose own line names the work and opens it in the pane.
    */
-  let { revision, showRail = true }: { revision: ArtifactRevision; showRail?: boolean } = $props();
+  let { revision, showRail = true, versions }: {
+    revision: ArtifactRevision;
+    showRail?: boolean;
+    /** The chain this revision is one version of, for the rail's controls. */
+    versions?: ArtifactVersions;
+  } = $props();
   const origin = getHtmlBlockOrigin();
   const surface = getSurfaceContext();
   // A saved render remembers its height under its work and version: that is
@@ -32,7 +38,7 @@
   {:else if pendingHtml}
     <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px"></div>
   {:else if revision.workRef}
-    <ArtifactView artifact={{ kind: "html", html: revision.html }} workRef={revision.workRef} {showRail} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
+    <ArtifactView artifact={{ kind: "html", html: revision.html }} workRef={revision.workRef} {showRail} {versions} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
   {:else}
     <HtmlBlock html={revision.html} />
   {/if}
