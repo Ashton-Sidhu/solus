@@ -139,8 +139,8 @@ the person the turn acts for. This is the same on a personal host and on an
 organization machine: a task tool never calls the Solus API. A task id is a
 task key (`github:<node id>` or `jira:<site>:<issue id>`).
 
-Tasks belong to no project. The task sources are the person's own: they reach
-the host with each prompt in the execution preferences (`taskSources`), so
+Tasks belong to no project. The task sources are the person's own: the host
+reads them from its copy of the person's execution preferences (`taskSources`), so
 the calling session's folder does not limit them.
 
 - `list_tasks` lists the tasks of the person's task sources, with their task
