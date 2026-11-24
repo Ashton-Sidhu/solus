@@ -188,7 +188,11 @@ describe('adding a machine over SSH', () => {
 
   test('a refused key asks the person for a password or passphrase', async () => {
     const { outcome } = await add({ installed: true, running: true, authFails: true })
-    expect(outcome).toEqual({ status: 'needs-auth', message: 'ada@box refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.' })
+    if (outcome.status !== 'needs-auth') throw new Error('Expected a request to authenticate')
+    expect(outcome.message).toContain('add the key to ssh-agent')
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      expect(outcome.message).toContain('sign in from a terminal with OpenSSH connection sharing enabled')
+    }
   })
 
   test('a refused password says so, and does not send the person to their SSH keys', async () => {

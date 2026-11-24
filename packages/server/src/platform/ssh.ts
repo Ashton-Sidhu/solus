@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { hostname, networkInterfaces, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { createServer } from 'node:net'
 import { reserveLoopbackPort, waitForHttpReady, type HelperProcess, type HelperSpawner } from '../devices/device-helpers'
 import type { DeviceCommandOptions, DeviceCommandResult, DeviceCommandRunner } from '../devices/device-process'
@@ -153,14 +153,21 @@ export interface SshClientDeps {
 const DEFAULT_REMOTE_COMMAND = 'sh -s --'
 const RUN_TIMEOUT_MS = 30_000
 const FORWARD_READY_MS = 20_000
+const CONFIG_TIMEOUT_MS = 5_000
+
+export function supportsSshControlMaster(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'darwin' || platform === 'linux'
+}
+
+export class SshForwardAuthError extends Error {}
 
 /** A loopback forward to a port on an SSH host. Only its captured PID is ever stopped. */
 export class SshForward {
   /** Resolves with the ssh exit code when the forward ends. */
   readonly exited: Promise<number | null>
 
-  constructor(private readonly process: HelperProcess, readonly localPort: number, readonly remotePort: number) {
-    this.exited = process.exited
+  constructor(private readonly process: HelperProcess, readonly localPort: number, readonly remotePort: number, cancel?: () => Promise<void>) {
+    this.exited = cancel ? process.exited.finally(cancel) : process.exited
   }
 
   /** Stop the ssh process this forward started. */
@@ -203,22 +210,65 @@ export class SshClient {
   async forward(target: SshTarget, remotePort: number, readyPath?: string, preferredLocalPort?: number, authSecret?: string): Promise<SshForward> {
     // A forward opened again keeps its port when it is still free, so the route a client saved stays the same.
     const localPort = preferredLocalPort && await isLoopbackPortFree(preferredLocalPort) ? preferredLocalPort : await (this.deps.reservePort ?? reserveLoopbackPort)()
-    const tunnel = ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`]
+    const spec = `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`
+    const tunnel = [
+      '-N', '-o', 'ExitOnForwardFailure=yes',
+      '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ControlPersist=no', '-L', spec,
+    ]
     // With `accept-new`, ssh never asks a host key question that askpass would answer with the secret.
     const connection = sshArgs(target, authSecret ? { batchMode: false, acceptNewHostKey: true, extra: ['-o', 'NumberOfPasswordPrompts=1', ...tunnel] } : { extra: tunnel })
     const askpass = authSecret ? await writeAskpassHelper(process.platform) : null
     const env = askpass ? { ...process.env, ...askpassEnv(process.platform, askpass.path, authSecret ?? '', process.env) } : process.env
-    const forward = new SshForward(this.deps.spawn('ssh', connection, env), localPort, remotePort)
+    const direct = this.deps.spawn('ssh', connection, env)
+    const forward = new SshForward(direct, localPort, remotePort)
     // The helper holds no secret, and ssh can run it until it signs in: it goes when ssh ends.
     if (askpass) void forward.exited.finally(() => rm(askpass.directory, { recursive: true, force: true }).catch(() => {}))
-    if (readyPath === undefined) return forward
-    let alive = true
-    void forward.exited.then(() => { alive = false })
-    if (!(await waitForHttpReady(`http://127.0.0.1:${localPort}${readyPath}`, FORWARD_READY_MS, this.deps.fetch ?? fetch, () => alive))) {
-      forward.close()
-      throw new Error('The SSH forward did not answer.')
+    if (readyPath === undefined || await this.forwardReady(forward, readyPath)) return forward
+    forward.close()
+    if (isSshAuthFailure(direct.stderrTail ?? '')) {
+      const master = await this.liveControlMaster(target).catch(() => null)
+      if (master) {
+        // A mux client with -N exits as soon as the master adds the forward.
+        // Hold a session so exited reports loss of the master. The master owns
+        // the listener, so closing the client must also cancel the forward.
+        const client = this.deps.spawn('ssh', [
+          ...master, '-o', 'ExitOnForwardFailure=yes', '-T', '-L', spec, '--', target.destination,
+          'sh -c \'exec cat >/dev/null\'',
+        ], process.env, { keepStdinOpen: true })
+        const sharedForward = new SshForward(client, localPort, remotePort, async () => {
+          await this.deps.run('ssh', [...master, '-O', 'cancel', '-L', spec, '--', target.destination], {
+            timeoutMs: CONFIG_TIMEOUT_MS,
+          }).catch(() => {})
+        })
+        if (await this.forwardReady(sharedForward, readyPath, client.exited)) return sharedForward
+        sharedForward.close()
+        await sharedForward.exited
+        throw new Error('The SSH forward through the shared connection did not answer.')
+      }
+      const hint = supportsSshControlMaster()
+        ? ' For a one-time code, sign in from a terminal with OpenSSH connection sharing enabled, then retry.'
+        : ''
+      throw new SshForwardAuthError(`The SSH host refused authentication.${hint}`)
     }
-    return forward
+    throw new Error('The SSH forward did not answer.')
+  }
+
+  /** Check only the socket from this target's own OpenSSH config. A lost master cannot trigger a new login. */
+  private async liveControlMaster(target: SshTarget): Promise<string[] | null> {
+    if (!supportsSshControlMaster()) return null
+    const options = { timeoutMs: CONFIG_TIMEOUT_MS }
+    const config = await this.deps.run('ssh', ['-G', ...sshArgs(target)], options)
+    const socket = /^controlpath[ \t]+(.+)$/m.exec(config.stdout)?.[1]?.trim()
+    if (config.code !== 0 || !socket || !isAbsolute(socket)) return null
+    const master = ['-F', 'none', '-o', 'BatchMode=yes', '-o', 'ControlMaster=no', '-o', 'ProxyCommand=exit 1', '-S', socket.replaceAll('%', '%%')]
+    const check = await this.deps.run('ssh', [...master, '-O', 'check', '--', target.destination], options)
+    return check.code === 0 ? master : null
+  }
+
+  private forwardReady(forward: SshForward, readyPath: string, exited = forward.exited): Promise<boolean> {
+    let alive = true
+    void exited.then(() => { alive = false })
+    return waitForHttpReady(`http://127.0.0.1:${forward.localPort}${readyPath}`, FORWARD_READY_MS, this.deps.fetch ?? fetch, () => alive)
   }
 
   /** Does the target resolve to this machine? Reads `ssh -G`; makes no connection. */

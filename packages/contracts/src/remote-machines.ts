@@ -86,7 +86,7 @@ export interface ForwardedHost {
   route: HostRoute
   identityKey: string
   state: ForwardedHostState
-  /** Why the forward is not open. In `needs-auth`, present only when SSH refused a secret. */
+  /** Why the forward is not open. May include the SSH authentication refusal. */
   error?: string
   /** Solus installed the service there, so removing the host stops it. */
   startedBySolus: boolean

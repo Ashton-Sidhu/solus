@@ -27,12 +27,14 @@ export function localEditorFileUrl(href: string): string | null {
 export function remoteEditorFileUrl(href: string): string | null {
   let url: URL
   try { url = new URL(href.trim()) } catch { return null }
-  if (url.username || url.password || url.port || url.search || url.hash) return null
+  if (url.username || url.password || url.port || url.hash) return null
   const scheme = url.protocol.slice(0, -1).toLowerCase()
   if (scheme === 'zed') {
-    return url.host === 'ssh' && /^\/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\/\S+/.test(url.pathname) ? href.trim() : null
+    return url.host === 'ssh' && !url.search && /^\/(?:(?:[A-Za-z0-9._-]|%2b)+@)?[A-Za-z0-9][A-Za-z0-9._-]*\//i.test(url.pathname)
+      ? href.trim() : null
   }
   if (scheme !== 'vscode' && scheme !== 'cursor') return null
-  return url.host === 'vscode-remote' && /^\/ssh-remote\+[A-Za-z0-9._%+-]+%40[A-Za-z0-9.-]+\/\S+/i.test(url.pathname)
+  return url.host === 'vscode-remote' && (!url.search || url.search === '?windowId=_blank')
+    && /^\/ssh-remote\+(?:(?:[A-Za-z0-9._-]|%2b)+%40)?[A-Za-z0-9][A-Za-z0-9._-]*\//i.test(url.pathname)
     ? href.trim() : null
 }

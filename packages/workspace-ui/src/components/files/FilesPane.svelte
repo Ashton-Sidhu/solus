@@ -55,6 +55,7 @@
   import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
   import { FileSymbols } from "./lib/file-symbols.svelte";
   import FilesTreeContextMenu from "./FilesTreeContextMenu.svelte";
+  import { fileOpenPath, fileOpenRoute, openFileAction } from "./lib/file-open-actions";
   import {
     addTreePath,
     canonicalTreePath,
@@ -98,6 +99,7 @@
   const canWriteFiles = $derived(hosts.get(serverId)?.me.may("host.files.write") ?? true);
 
   const session = getWorkspaceContext();
+  const openRoute = $derived(fileOpenRoute(serverId));
 
   function saveSelectedAsWork() {
     if (!selectedPath || selectedContents === null) return;
@@ -919,17 +921,28 @@
   </Resizable.PaneGroup>
 </div>
 
-{#if contextMenu && canWriteFiles}
+{#if contextMenu}
   {@const target = contextMenu}
-  <FilesTreeContextMenu
-    x={target.x}
-    y={target.y}
-    name={entryDisplayName(target.path)}
-    onCreate={(kind) => void startCreate(creationDirectoryFor(target.path, target.isFolder), kind)}
-    onRename={() => treeInstance?.startRenaming(target.path)}
-    onDelete={() => void deleteEntry(target.path)}
-    onClose={closeContextMenu}
-  />
+  {@const absolutePath = openRoute && fileOpenPath(openRoute, root || cwd, target.path, target.isFolder)}
+  {#if canWriteFiles || absolutePath}
+    <FilesTreeContextMenu
+      x={target.x}
+      y={target.y}
+      name={entryDisplayName(target.path)}
+      {openRoute}
+      {absolutePath}
+      isFolder={target.isFolder}
+      canWrite={canWriteFiles}
+      onOpen={(action) => void openFileAction(action, {
+        serverId, api, ctx, cwd: root || cwd, path: target.path, isFolder: target.isFolder,
+        fallbackTerminalId: session.settings.fallbackTerminal ?? undefined,
+      })}
+      onCreate={(kind) => void startCreate(creationDirectoryFor(target.path, target.isFolder), kind)}
+      onRename={() => treeInstance?.startRenaming(target.path)}
+      onDelete={() => void deleteEntry(target.path)}
+      onClose={closeContextMenu}
+    />
+  {/if}
 {/if}
 
 <style>

@@ -147,6 +147,7 @@ export const RPC_INVOKE_METHODS = [
   'saveFileDialog',
   'openExternal',
   'openInFileManager',
+  'openDesktopFile',
   'openInTerminal',
   'openWorktreeTerminal',
   'resolveTerminal',

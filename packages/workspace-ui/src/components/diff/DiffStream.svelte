@@ -101,7 +101,9 @@
     onDraftSave: (text: string) => void;
     onDraftCancel: () => void;
     onDraftValueChange: (value: string) => void;
-    canOpenInEditor: boolean;
+    canOpenFileActions: boolean;
+    onFileActions: (path: string, x: number, y: number) => void;
+    canOpenConfiguredEditor: boolean;
     onOpenInEditor: (path: string) => void;
     /** Promote a markdown file in the diff into a doc work. */
     onSaveAsWork?: (path: string) => void;
@@ -145,7 +147,9 @@
     onDraftSave,
     onDraftCancel,
     onDraftValueChange,
-    canOpenInEditor,
+    canOpenFileActions,
+    onFileActions,
+    canOpenConfiguredEditor,
     onOpenInEditor,
     onSaveAsWork,
     onLineRange,
@@ -315,6 +319,11 @@
   function buildHeaderPrefix(filePath: string): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "diff-file-header";
+    wrap.addEventListener("contextmenu", (event) => {
+      if (!canOpenFileActions) return;
+      event.preventDefault();
+      onFileActions(filePath, event.clientX, event.clientY);
+    });
     wrap.appendChild(buildCollapseButton(filePath));
     wrap.appendChild(buildTypeBadge(filePath));
 
@@ -367,12 +376,11 @@
     return button;
   }
 
-  function buildOpenInEditorButton(filePath: string): HTMLElement | null {
-    if (!canOpenInEditor) return null;
+  function buildOpenInEditorButton(filePath: string): HTMLElement {
     const button = document.createElement("button");
     button.type = "button";
-    // Labelled, not icon-only: this is the header's one escape hatch out of the
-    // review pane, so it names itself rather than hiding behind a tooltip.
+    button.setAttribute("aria-label", "Open in configured editor");
+    button.title = "Open in configured editor";
     button.className = "labelled-action-btn header-action-btn";
     button.innerHTML =
       `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 256 256">` +
@@ -382,6 +390,22 @@
       e.preventDefault();
       e.stopPropagation();
       onOpenInEditor(filePath);
+    });
+    return button;
+  }
+
+  function buildFileActionsButton(filePath: string): HTMLElement | null {
+    if (!canOpenFileActions) return null;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "labelled-action-btn header-action-btn";
+    button.textContent = "File actions";
+    button.setAttribute("aria-haspopup", "menu");
+    button.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const anchor = button.getBoundingClientRect();
+      onFileActions(filePath, anchor.left, anchor.bottom);
     });
     return button;
   }
@@ -461,7 +485,8 @@
     wrap.appendChild(buildCopyPathButton(filePath));
     const saveAsWorkBtn = buildSaveAsWorkButton(filePath);
     if (saveAsWorkBtn) wrap.appendChild(saveAsWorkBtn);
-    const openBtn = buildOpenInEditorButton(filePath);
+    if (canOpenConfiguredEditor) wrap.appendChild(buildOpenInEditorButton(filePath));
+    const openBtn = buildFileActionsButton(filePath);
     if (openBtn) wrap.appendChild(openBtn);
     return wrap;
   }
@@ -642,6 +667,8 @@
     void tokenHighlight;
     void loadDiffFiles;
     void commentingDisabled;
+    void canOpenFileActions;
+    void canOpenConfiguredEditor;
     if (!codeView) return;
     void setDiffWorkerPoolTheme(isDark);
     void setDiffWorkerPoolLineDiffType(tokenHighlight);

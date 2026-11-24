@@ -33,7 +33,6 @@
   import {
     getWorkspaceContext,
     getSettingsContext,
-    hosts,
     runtime,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -49,8 +48,9 @@
     InlineCommentDraft,
     setInlineCommentDraft,
   } from "./diff-comment-draft.store.svelte";
-  import { openInConfiguredEditor } from "../../lib/openExternalEditor";
-  import { REMOTE_EDITOR_IDS } from "../../lib/remote-editor-link";
+  import FileOpenMenuItems from "../files/FileOpenMenuItems.svelte";
+  import { fileOpenEditors, fileOpenPath, fileOpenRoute, openFileAction, type FileOpenAction } from "../files/lib/file-open-actions";
+  import * as ContextMenu from "../ui/context-menu";
   import {
     useKeybinding,
     useScope,
@@ -68,8 +68,6 @@
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import type { PaneId } from "../../contexts/workspace/routing/location";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { hostPolicy } from "@solus/client-core/host-policy";
-  import { supportsEditor } from "@solus/client-core/host-capabilities";
   import { worktreeDisplayName } from "../../lib/git-context";
   import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
   import { codeIntelStore } from "../code-intel/code-intel.store.svelte";
@@ -255,14 +253,11 @@
   const sess = $derived(session.sessionFor(tabId));
   const getApi = () => getApiProp?.() ?? session.apiFor(tabId);
   const editorServerId = $derived(serverConnections.serverIdForApi(getApi()));
-  const editorHostInfo = $derived(hosts.get(editorServerId)?.serverInfo);
-  const canOpenInEditor = $derived(
-    !!theme.defaultEditor &&
-      (hostPolicy.isClientMachine(editorServerId)
-        ? supportsEditor(hosts.get(editorServerId)?.capabilityRecord, theme.defaultEditor)
-        : REMOTE_EDITOR_IDS.some((id) => id === theme.defaultEditor) &&
-          editorHostInfo?.state === 'ready' && !!editorHostInfo.value.sshTarget),
-  );
+  const openRoute = $derived(fileOpenRoute(editorServerId));
+  const fileOpenRoot = $derived(worktreePath ?? projectPath ?? "");
+  const canOpenFileActions = $derived(!!openRoute && !!fileOpenPath(openRoute, fileOpenRoot, "."));
+  const canOpenConfiguredEditor = $derived(canOpenFileActions && !!openRoute && fileOpenEditors(openRoute, fileOpenRoot).some((editor) => editor.id === theme.defaultEditor));
+  let fileActions = $state<{ path: string; absolutePath: string; x: number; y: number; serverId: string; cwd: string } | null>(null);
 
   // The in-progress inline-comment draft. Owned here and shared down to
   // DiffStream (this panel's only consumer) via context, so the selection /
@@ -699,17 +694,25 @@
     void session.saveFileAsWork({ serverId: editorServerId, cwd: fileRoot, path });
   }
 
-  function openFileInEditor(path: string) {
-    const fileRoot = worktreePath ?? projectPath;
-    const api = getApi?.() ?? session.apiFor(tabId);
-    openInConfiguredEditor(getCtx?.() ?? session.ctxFor(tabId), {
-      api,
-      serverId: serverConnections.serverIdForApi(api),
-      filePaths: [path],
-      editorId: theme.defaultEditor,
-      fallbackTerminalId: theme.fallbackTerminal,
-      cwd: fileRoot,
+  function showFileActions(path: string, x: number, y: number) {
+    const absolutePath = openRoute && fileOpenPath(openRoute, fileOpenRoot, path);
+    if (!absolutePath) return;
+    fileActions = { path, absolutePath, x, y, serverId: editorServerId, cwd: fileOpenRoot };
+  }
+
+  function runFileAction(action: FileOpenAction, path: string) {
+    void openFileAction(action, {
+      path, serverId: editorServerId, cwd: fileOpenRoot, api: getApi(),
+      ctx: getCtx?.() ?? session.ctxFor(tabId),
+      fallbackTerminalId: theme.fallbackTerminal ?? undefined,
     });
+  }
+
+  function selectFileAction(action: FileOpenAction) {
+    const target = fileActions;
+    if (!target || target.serverId !== editorServerId || target.cwd !== fileOpenRoot) return;
+    fileActions = null;
+    runFileAction(action, target.path);
   }
 
   // The identifier the user asked about, until the card closes.
@@ -1214,6 +1217,15 @@
 
 </script>
 
+{#if fileActions && openRoute && fileActions.serverId === editorServerId && fileActions.cwd === fileOpenRoot}
+  <ContextMenu.Root onOpenChange={(open) => { if (!open) fileActions = null; }}>
+    <ContextMenu.PointTrigger x={fileActions.x} y={fileActions.y} />
+    <ContextMenu.Content class="min-w-44" onCloseAutoFocus={(event) => event.preventDefault()}>
+      <FileOpenMenuItems route={openRoute} path={fileActions.absolutePath} onSelect={selectFileAction} />
+    </ContextMenu.Content>
+  </ContextMenu.Root>
+{/if}
+
 <div
   class="relative flex h-full flex-col diff-panel-selectable"
   class:diff-panel-bordered={bordered && !embedded}
@@ -1424,8 +1436,10 @@
             draft.value = v;
             updateDiffCommentDraftValue(sess, v);
           }}
-          {canOpenInEditor}
-          onOpenInEditor={openFileInEditor}
+          {canOpenFileActions}
+          onFileActions={showFileActions}
+          {canOpenConfiguredEditor}
+          onOpenInEditor={(path) => { if (theme.defaultEditor) runFileAction({ editorId: theme.defaultEditor }, path); }}
           onSaveAsWork={saveFileAsWork}
           onLineRange={handleStreamLineRange}
           onLineSelect={handleStreamLineRange}

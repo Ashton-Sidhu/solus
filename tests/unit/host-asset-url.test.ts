@@ -59,6 +59,9 @@ describe('signed URLs for host media files', () => {
     await writeFile(outside, 'outside')
     await symlink(outside, join(projectRoot, 'link.md'))
     await expect(createFileDownloadUrl(ctx, { path: 'link.md' }, { scope: null, secret, now })).rejects.toThrow('outside')
+    const restricted = join(projectRoot, 'allowed')
+    await mkdir(restricted)
+    await expect(createFileDownloadUrl(ctx, { path: 'notes.md' }, { scope: restricted, secret, now })).rejects.toThrow('outside')
   })
 
   test('serves a PDF and seeks a video by byte range', async () => {

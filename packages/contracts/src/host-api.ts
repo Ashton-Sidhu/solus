@@ -264,6 +264,7 @@ export interface SolusAPI {
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   openInFileManager(path: string): Promise<boolean>
+  openDesktopFile(path: string, action: 'open' | 'reveal'): Promise<boolean>
   /** `fallbackTerminalId` is this device's choice, for a launch on the client's own machine. */
   openInTerminal(ctx: IpcContext, fallbackTerminalId: TerminalAppId | null): Promise<boolean>
   openWorktreeTerminal(ctx: IpcContext, fallbackTerminalId: TerminalAppId | null): Promise<boolean>
@@ -1610,6 +1611,7 @@ export interface GuestShortcut {
 }
 
 export interface NativeSolusAPI {
+  showLocalFileCopy(name: string, data: ArrayBuffer, action: import('./local-file-copy').LocalFileCopyAction): Promise<import('./local-file-copy').LocalFileCopyResult>
   serverForwardStart(request: NativeServerForwardRequest): Promise<NativeServerForward>
   serverForwardStop(forwardId: string): Promise<void>
   serverForwardList(): Promise<NativeServerForward[]>
