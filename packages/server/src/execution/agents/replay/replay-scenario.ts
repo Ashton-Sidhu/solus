@@ -39,6 +39,8 @@ const REPLAYABLE_EVENT_TYPES = [
   'context_compaction',
   'artifact_created',
   'status_card',
+  'user_message',
+  'agent_conversation_update',
 ] as const satisfies readonly NormalizedEvent['type'][]
 
 /** Whether a scenario may hold an event of this type. */
@@ -148,6 +150,12 @@ export function materializeEvent(event: NormalizedEvent, live: ReplayLive): Norm
   const materialized = replayEventSchema.parse(JSON.parse(text))
   if (materialized.type === 'status_card') {
     return { ...materialized, card: { ...materialized.card, id: `${live.turnKey}-${materialized.card.id}` } }
+  }
+  if (materialized.type === 'agent_conversation_update' && 'messageId' in materialized.update) {
+    const update = { ...materialized.update, messageId: `${live.turnKey}-${materialized.update.messageId}` }
+    if (update.phase === 'dispatched') update.dispatchedAt = Date.now()
+    if (update.phase === 'settled') update.settledAt = Date.now()
+    return { ...materialized, update }
   }
   return materialized
 }
