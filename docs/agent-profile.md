@@ -40,16 +40,21 @@ Settings → MCP. Import again to add what you installed since. An import never
 removes an entry: the profile is your list, and the computer only fills it.
 Sign-in and "Clear synced profile" do not read the computer.
 
-What the desktop pushes to a host, signed out, is this list, so an entry you
-removed on the page stays off every host. An empty profile is not pushed. Web
-and mobile have no computer to read; they add from skills.sh and by address.
+Signed out, your home host keeps this list for you (the desktop's own host, the
+host that served the web page, or the phone's first host; ADR 0007), so each
+client of that host shows the same list. What the desktop pushes to a host,
+signed out, is this list, so an entry you removed on the page stays off every
+host. An empty profile is not pushed. Web and mobile have no computer to read;
+they add from skills.sh and by address.
 
 ## Sync
 
 Signed in to Solus Cloud, your agent profile always syncs through your
 account, the same as your settings. There is no switch per device. The first
 time a client of yours signs in, it reads the account: an account with a
-profile is used as it is, and an empty one starts from this device's copy. Settings → Account & sync shows
+profile is used as it is, and an empty one starts from the list on screen, which is
+your home host's. A host that cannot read your account (it holds no token for you)
+gets your client's copy of the profile instead. Settings → Account & sync shows
 the sync status, the conflicts, and each host with its account link and what it
 holds of the profile; the Agent profile tab holds the content. Edits apply at
 once and are sent after a short pause.

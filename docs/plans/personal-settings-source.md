@@ -30,10 +30,12 @@ client is the source of personal settings.
    for Postgres. The person key is `ownerKeyOf` (the host owner's key never changes,
    plans/031 D1).
 2. **One owner on the host.** `execution/person-settings.ts` (it replaces
-   `person-preferences.ts`). It loads every settings row at boot, so the many
-   synchronous readers of `actingPreferences` stay synchronous, and it writes
-   through to the database. It reads, writes, and pulls the settings, and keeps the
-   agent profile document of a signed-out person.
+   `person-preferences.ts`) owns the settings. It loads every settings row at boot,
+   so the many synchronous readers of `actingPreferences` stay synchronous, and it
+   writes through to the database. It reads, writes, and pulls the settings.
+   `execution/seats/agent-profile-document.ts` keeps the agent profile list of a
+   signed-out person. The data layer (`data/personal-documents/`) tells
+   `personalDocument.changed` after each committed write.
 3. **The RPCs** (permission `host.connect`, so a guest has their own copy):
    - `personalSettingsGet() → HostPersonalSettings`: the caller's copy, its source,
      and `followsAccount`.
@@ -88,6 +90,22 @@ client is the source of personal settings.
 11. **Policy locks stay.** `actingPreferences` lays the locks of the work's
     organization over the host copy, as before. A patch of a locked key is stored
     (it is the person's own choice) and the lock wins when the work runs.
+
+## Where it is on each client
+
+- **client-core**: `HomeHostDocument` (`home-host-document.ts`) is the signed-out
+  source of one document: it reads the home host, sends each change, and keeps a
+  change that waits in storage. `PersonalSettingsHosts` (`host-personal-settings.ts`,
+  it replaces `HostPreferencesPublisher`) uses it for the settings and adds the
+  signed-in nudge. `agentProfileHomeHost` (`agent-profile-sync.ts`) uses it for the
+  agent profile. `personalSettingsHomeId` names the home host.
+- **Desktop and web**: `runtime-boot.ts` drives both. The personal store and the
+  agent profile store keep a cache and take the host's copy (`adoptHostCopy`).
+  `accountSyncStore.onSettingsCopyChanged` says when the source moved or the
+  account's copy changed. Settings → Account & sync names the home host.
+- **Mobile**: `features/settings/personal-document-hosts.ts` drives both;
+  `AccountSync.settingsCopyChanges` is the same signal. Account & sync names the
+  home host.
 
 ## Providers and connection modes
 
