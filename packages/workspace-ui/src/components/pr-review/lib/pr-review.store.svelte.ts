@@ -14,7 +14,7 @@ import type { FileDiffLoadedFiles, FileDiffMetadata } from '@pierre/diffs'
  *
  * The review pane and its popped-out diff are two panes over the *same* review,
  * so this cannot be component-local: two `ReviewDrafts` instances over one
- * `.solus/review-state/<key>.json` would silently diverge, and a comment
+ * host draft would silently diverge, and a comment
  * written in the diff would not exist for the review that submits it. The
  * threads and the interdiff are merely wasteful to fetch twice; the drafts are
  * wrong to own twice.
@@ -70,7 +70,8 @@ export class PrReviewState {
    */
   pendingJump = $state<{ path: string; line?: number; side: 'old' | 'new'; epoch: number } | null>(null)
 
-  readonly drafts: ReviewDrafts
+  #drafts = new Map<string, ReviewDrafts>()
+  #unavailableDrafts: ReviewDrafts
 
   #deps: PrReviewDeps
   #interdiffKey = ''
@@ -81,11 +82,32 @@ export class PrReviewState {
   constructor(number: number, deps: PrReviewDeps) {
     this.number = number
     this.#deps = deps
-    this.drafts = new ReviewDrafts({
+    this.#unavailableDrafts = new ReviewDrafts({
       getApi: deps.getApi,
-      getCtx: () => this.ctx,
-      getKey: () => this.guideKey,
+      getCtx: deps.fallbackCtx,
+      key: '',
     })
+  }
+
+  get drafts(): ReviewDrafts {
+    if (!this.pr) return this.#unavailableDrafts
+    const { host, owner, repo, number, headSha, baseSha } = this.pr
+    const viewer = this.#deps.draftViewerKey?.()
+    const key = JSON.stringify([host, owner, repo, number, headSha, baseSha])
+    const lookup = JSON.stringify([viewer, key])
+    const cached = this.#drafts.get(lookup)
+    if (cached) return cached
+    const api = untrack(this.#deps.getApi)
+    const context = untrack(this.#deps.fallbackCtx)
+    const drafts = new ReviewDrafts({
+      getApi: () => api,
+      getCtx: () => context,
+      key: `pr-${number}`,
+      pullRequest: { host, owner, repo, number, headSha, baseSha },
+      canWrite: () => this.#deps.draftViewerKey?.() === viewer,
+    })
+    this.#drafts.set(lookup, drafts)
+    return drafts
   }
 
   get api(): HostApi {
@@ -137,12 +159,6 @@ export class PrReviewState {
     this.commitDiffTruncated = false
     this.commitDiffLoading = false
     this.#commitDiffKey = ''
-  }
-
-  /** The deterministic review branch key also finds a cached guide before the
-   * checkout exists. Generating a new guide still requires `ensureCheckout`. */
-  get guideKey(): string {
-    return this.pr ? (this.checkout?.branch ?? `solus/pr-${this.pr.number}`).replace(/\//g, '__') : ''
   }
 
   get diffScope(): DiffScope {
@@ -202,10 +218,6 @@ export class PrReviewState {
       .catch(() => {
         if (`${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` === key) this.interdiff = null
       })
-  }
-
-  loadDrafts(): void {
-    void untrack(() => this.drafts.load())
   }
 
   requestJump(path: string, line?: number | null, side: 'old' | 'new' = 'new'): void {
@@ -417,6 +429,7 @@ export interface ReviewThreadSource {
 export interface PrReviewDeps {
   getApi: () => HostApi
   fallbackCtx: () => IpcContext
+  draftViewerKey?: () => string
   ctxForDirectory: (path: string) => IpcContext
   threadSource: (ctx: IpcContext, number: number) => ReviewThreadSource
   loadDiff: (request: import('@solus/contracts/providers').PrDiffRequest) => Promise<PrDiffSlice>

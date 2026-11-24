@@ -21,8 +21,10 @@ export function prLensSubject(api: HostApi, serverId: string, ctx: IpcContext, p
  *  comments to (sent with Submit review), and the patch the lines must be in. */
 export function prLensAdapter(review: PrReviewState, detail: PullRequest | null): LensPullRequestAdapter {
   return {
-    canComment: !!detail?.viewerPermissions.comment,
-    commentReason: detail
+    canComment: !!detail?.viewerPermissions.comment && review.drafts.ready,
+    commentReason: detail?.viewerPermissions.comment && !review.drafts.ready
+      ? "The review draft is unavailable."
+      : detail
       ? "You do not have permission to comment on this pull request."
       : "Loading the pull request…",
     patch: review.diffPatch,

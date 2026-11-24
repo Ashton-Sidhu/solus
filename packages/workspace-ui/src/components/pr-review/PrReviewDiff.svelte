@@ -66,7 +66,7 @@
     embedded
     hasHostHeaderRow={!headless}
     initialScope={review.diffScope}
-    commentingDisabled={!!review.commitScope}
+    commentingDisabled={!!review.commitScope || !review.drafts.ready}
     commitSha={review.commitScope?.sha ?? null}
     onClearCommitScope={clearCommitScope}
     patchOverride={review.commitScope

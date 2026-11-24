@@ -401,39 +401,40 @@
       </span>
       <article class="group/comment min-w-0 flex-1">
         <div class="flex min-h-6 items-center gap-2">
-          <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span class="truncate font-medium text-foreground">{event.comment.author}</span>
-          {#if event.comment.kind === "review"}
-            <span class="text-muted-foreground">reviewed</span>
-          {/if}
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                <span {...tooltipProps}
-            class="text-muted-foreground"
-          >{formatTimeAgoFromTimestamp(ts)}</span
-          >
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
-          </TooltipUI.Root>
-          <!-- A comment-only review is stored as `COMMENTED`; on a card
-               that is already a comment the badge says nothing. Only a
-               state that changes the review's standing gets one. -->
-          {#if event.comment.kind === "review" && event.comment.reviewState && event.comment.reviewState !== "COMMENTED"}
-            <span class="inline-flex">
-              <PrReviewStateBadge state={event.comment.reviewState} />
-            </span>
-          {/if}
-          <!-- How many inline threads the review was submitted with: the
-               nested list below is the detail, this is the count that stays
-               when the card folds. -->
-          {#if event.threads.length > 0}
-            <span class="text-muted-foreground tabular-nums">
-              {event.threads.length} {event.threads.length === 1 ? "thread" : "threads"}
-            </span>
-          {/if}
-          </span>
+          <h3 class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span class="truncate font-medium text-foreground">{event.comment.author}</span>
+            {#if event.comment.kind === "review"}
+              <span class="text-muted-foreground">reviewed</span>
+            {:else}
+              <span class="sr-only">commented</span>
+            {/if}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps} class="text-muted-foreground">
+                    {formatTimeAgoFromTimestamp(ts)}
+                  </span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
+            </TooltipUI.Root>
+            <!-- A comment-only review is stored as `COMMENTED`; on a card
+                 that is already a comment the badge says nothing. Only a
+                 state that changes the review's standing gets one. -->
+            {#if event.comment.kind === "review" && event.comment.reviewState && event.comment.reviewState !== "COMMENTED"}
+              <span class="inline-flex">
+                <PrReviewStateBadge state={event.comment.reviewState} />
+              </span>
+            {/if}
+            <!-- How many inline threads the review was submitted with: the
+                 nested list below is the detail, this is the count that stays
+                 when the card folds. -->
+            {#if event.threads.length > 0}
+              <span class="text-muted-foreground tabular-nums">
+                {event.threads.length} {event.threads.length === 1 ? "thread" : "threads"}
+              </span>
+            {/if}
+          </h3>
           <PrReactionPicker
             targetId={event.comment.id}
             reactions={event.comment.reactions}
@@ -471,6 +472,7 @@
             {#each event.threads as thread (thread.id)}
               <PrThreadCard
                 {thread}
+                headingTag="h4"
                 fullDiffHunk={threadDiffHunks.get(thread.id)}
                 bind:unfolded={
                   () => unfoldedThreads[thread.id] ?? false,

@@ -32,6 +32,7 @@
   // Diff tab renders the same objects) — the host only supplies the RPCs.
   let {
     thread,
+    headingTag = "h3",
     fullDiffHunk,
     unfolded = $bindable(false),
     onJump,
@@ -39,6 +40,7 @@
     onResolve,
   }: {
     thread: ReviewThread;
+    headingTag?: "h3" | "h4";
     /** Complete containing hunk from the PR patch, when it has loaded. */
     fullDiffHunk?: string;
     /** A resolved or outdated thread folds to one line (hiding its diff hunk
@@ -135,26 +137,28 @@
        prose line on the spine in the same voice as a commit row (the spine
        node carries its state), so a run of them reads as a list rather than a
        stack of cards. The row opens the full card. -->
-  <button
-    type="button"
-    class="group/resolved flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pt-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    onclick={() => (unfolded = true)}
-    aria-expanded="false"
-  >
-    <span class="min-w-0 flex-1 truncate">
-      <span class="font-medium text-foreground">{firstComment?.author}</span>
-      commented on
-      <span class="text-foreground">{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}</span>
-      {#if thread.isResolved}· resolved{/if}{#if thread.isOutdated} · outdated{/if}{#if firstComment}
-        · {formatTimeAgoFromTimestamp(new Date(firstComment.createdAt).getTime())}{/if}
-    </span>
-    <span
-      class="inline-flex shrink-0 items-center gap-1 text-xs opacity-0 transition-opacity group-hover/resolved:opacity-100 group-focus-visible/resolved:opacity-100 pointer-coarse:opacity-100"
+  <svelte:element this={headingTag}>
+    <button
+      type="button"
+      class="group/resolved flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pt-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      onclick={() => (unfolded = true)}
+      aria-expanded="false"
     >
-      Show thread
-      <CaretDownIcon size={12} weight="bold" />
-    </span>
-  </button>
+      <span class="min-w-0 flex-1 truncate">
+        <span class="font-medium text-foreground">{firstComment?.author}</span>
+        commented on
+        <span class="text-foreground">{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}</span>
+        {#if thread.isResolved}· resolved{/if}{#if thread.isOutdated} · outdated{/if}{#if firstComment}
+          · {formatTimeAgoFromTimestamp(new Date(firstComment.createdAt).getTime())}{/if}
+      </span>
+      <span
+        class="inline-flex shrink-0 items-center gap-1 text-xs opacity-0 transition-opacity group-hover/resolved:opacity-100 group-focus-visible/resolved:opacity-100 pointer-coarse:opacity-100"
+      >
+        Show thread
+        <CaretDownIcon size={12} weight="bold" />
+      </span>
+    </button>
+  </svelte:element>
 {:else}
 <!-- The same card as a thread in the Diff tab (DiffThreadComment), with the
      anchored file and hunk as its head. One header row carries the file, the
@@ -305,7 +309,9 @@
           />
           <div class="min-w-0">
             <div class="flex min-h-[18px] min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <span class="truncate font-semibold text-foreground">{comment.author}</span>
+              <svelte:element this={headingTag} class="truncate font-semibold text-foreground">
+                {comment.author}<span class="sr-only"> commented</span>
+              </svelte:element>
               <span class="min-w-0 flex-1 truncate">
                 {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
               </span>

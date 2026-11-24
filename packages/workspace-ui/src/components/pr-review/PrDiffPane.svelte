@@ -103,7 +103,7 @@
         onClose={close}
         embedded
         initialScope={review.diffScope}
-        commentingDisabled={!!review.commitScope}
+        commentingDisabled={!!review.commitScope || !review.drafts.ready}
         commitSha={review.commitScope?.sha ?? null}
         onClearCommitScope={() => {
           review.clearCommitScope();

@@ -74,7 +74,7 @@ export class SolusServer {
         // SAFETY: Runtime dispatch pairs this method with solusApiRequest's tuple; the handler validates it.
         const request = args[0] as Partial<SolusApiRequest> | undefined
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId, apiMethod: request?.method, apiRoute: request?.path?.split('?')[0] })
-      } else if (['vaultKeySave', 'typeSafeKeySet', 'atlassianConnectApiToken', 'hostsPair', 'hostsAddOverSsh', 'hostsUnlockForwarded', 'transcribeAudio', 'voiceStreamFeed', 'integrationUpdate', 'integrationConnectSubmit', 'mcpAppCallTool', 'appCall', 'appSecretSet', 'authRenew', 'accountPresent'].includes(method)) {
+      } else if (['vaultKeySave', 'typeSafeKeySet', 'atlassianConnectApiToken', 'hostsPair', 'hostsAddOverSsh', 'hostsUnlockForwarded', 'transcribeAudio', 'voiceStreamFeed', 'integrationUpdate', 'integrationConnectSubmit', 'mcpAppCallTool', 'appCall', 'appSecretSet', 'writeReviewState', 'authRenew', 'accountPresent'].includes(method)) {
         // These carry a secret (an API key, an OAuth client secret, an access token, an SSH password) or a large payload, such as a work's content; only the call is logged.
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {

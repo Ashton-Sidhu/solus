@@ -197,7 +197,11 @@ export interface ReviewState {
   version: 1
   key: string
   drafts: ReviewDraftComment[]
+  summary?: string
 }
+
+export type PrReviewDraftScope = Required<Pick<Extract<ReviewTarget, { kind: 'pr' }>,
+  'host' | 'owner' | 'repo' | 'number' | 'headSha' | 'baseSha'>>
 
 export interface ReviewDraftComment {
   id: string

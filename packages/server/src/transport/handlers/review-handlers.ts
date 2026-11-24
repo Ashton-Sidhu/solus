@@ -1,6 +1,6 @@
 import type { HandlerCtx, SolusServer } from '../server'
 import { readGuideByKey, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/review-context'
-import { readReviewState, writeReviewState } from '../../review/review-state'
+import { readPrReviewState, readReviewState, writePrReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../execution/agents/agent-runner'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { SeatResolver } from '../../execution/seats/seat-manager'
@@ -110,15 +110,17 @@ export function registerReviewHandlers(
     return repoRoot ? readGuideByKey(repoRoot, key) : null
   })
 
-  server.register('readReviewState', async (args) => {
-    const [ctx, key] = args
+  server.register('readReviewState', async (args, { actor }) => {
+    const [ctx, key, pullRequest] = args
+    if (pullRequest !== undefined) return readPrReviewState(actor, pullRequest, key)
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return null
     return readReviewState(repoRoot, key)
   })
 
-  server.register('writeReviewState', async (args) => {
-    const [ctx, state] = args
+  server.register('writeReviewState', async (args, { actor }) => {
+    const [ctx, state, pullRequest] = args
+    if (pullRequest !== undefined) return writePrReviewState(actor, pullRequest, state)
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return false
     return writeReviewState(repoRoot, state)

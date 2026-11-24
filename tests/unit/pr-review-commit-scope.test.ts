@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import type { HostApi } from '@solus/client-core/host-api'
+import type { PrReviewDraftScope, ReviewState } from '@solus/contracts/review'
+import type { IpcContext } from '@solus/contracts/types'
 import type { PrCommit, PrDiffRequest, PrDiffSlice, PrReviewTarget } from '@solus/contracts/providers'
 import type { PrReviewDeps } from '@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte'
 
@@ -117,4 +120,29 @@ describe('PR review commit scope', () => {
     expect(state.commitScope).toBeNull()
     expect(state.commitDiffPatch).toBeNull()
   })
+})
+
+
+test('a slow draft read for an earlier head cannot fill the current review', async () => {
+  const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
+  const oldRead = Promise.withResolvers<ReviewState>()
+  const api = {
+    readReviewState: async (_ctx: IpcContext, key: string, scope?: PrReviewDraftScope) =>
+      scope?.headSha === 'old-head' ? oldRead.promise : { version: 1, key, drafts: [], summary: 'Current feedback' },
+    writeReviewState: async () => true,
+  } satisfies Pick<HostApi, 'readReviewState' | 'writeReviewState'>
+  const state = new PrReviewState(7, {
+    ...makeDeps(async () => ({ patch: '', truncated: false, nextCursor: null })),
+    getApi: () => api as HostApi,
+  })
+
+  state.setTarget(target('old-head'))
+  const oldDrafts = state.drafts
+  const loading = oldDrafts.load()
+  state.setTarget(target('new-head'))
+  await state.drafts.load()
+  oldRead.resolve({ version: 1, key: 'old', drafts: [], summary: 'Earlier feedback' })
+  await loading
+  expect(oldDrafts.summary).toBe('Earlier feedback')
+  expect(state.drafts.summary).toBe('Current feedback')
 })

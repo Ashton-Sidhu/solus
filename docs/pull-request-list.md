@@ -18,6 +18,10 @@ A pull request that you opened is in Authored, also when it asks for your review
 
 The desktop and web header keeps the merge action in one place as the pane changes width. A narrow pane uses compact buttons and a view menu. Wider panes show action labels and view tabs, then add link shortcuts and line counts. The status rail shows merge readiness and check results. On mobile, the horizontal toolbar groups its utility buttons and the Overview tab carries the merge controls.
 
+The selected host saves pending line comments and the review summary for desktop and web. Open the same pull request and revision to continue the review after a reload or window close. Old line drafts saved without a revision remain in the project's legacy review-state files. Mobile saves pending reviews on the device and marks line comments from an earlier head as outdated. A successful submission clears the submitted text and comments. A failed submission keeps the draft.
+
+In Activity, use screen-reader heading navigation to move between pull request comments, reviews, and discussions. Short events such as commits and label changes remain ordinary timeline rows.
+
 ## Sort
 
 The default sort is **Merge readiness**:
