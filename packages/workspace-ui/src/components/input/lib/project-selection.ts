@@ -1,4 +1,5 @@
 import type { Place } from '@solus/contracts/types'
+import { hostKey } from '@solus/client-core/host-key'
 import { hostPathKey } from '@solus/contracts/host-path'
 import type { ProjectRef } from '../../../contexts/projects/project-catalog'
 import type { SessionEnvironmentStore } from '../../../contexts/git/session-environment.store.svelte'
@@ -83,7 +84,7 @@ export class CodebaseDecisions {
 }
 
 function placeKey(place: Place): string {
-  return `${place.serverId}\n${hostPathKey(place.path)}`
+  return hostKey(place.serverId, hostPathKey(place.path))
 }
 
 export const codebaseDecisions = new CodebaseDecisions()

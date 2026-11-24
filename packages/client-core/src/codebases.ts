@@ -1,5 +1,6 @@
 import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, hasEnoughRoots, isContainerScan, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseRoot } from '@solus/contracts/codebases'
 import { hostPathBaseName, hostPathKey, isInsideHostPath } from '@solus/contracts/host-path'
+import { hostKey } from './host-key'
 
 /**
  * The merge rule of codebases across hosts (docs/plans/codebases.md decision 6).
@@ -82,7 +83,7 @@ type RootPlace = Pick<CodebaseRoot, 'installationId' | 'path'>
 
 /** One key for every spelling of a root: its host and its path. */
 export function codebaseRootKey(root: RootPlace): string {
-  return `${root.installationId}\n${hostPathKey(root.path)}`
+  return hostKey(root.installationId, hostPathKey(root.path))
 }
 
 export function isSameRoot(a: RootPlace, b: RootPlace): boolean {
