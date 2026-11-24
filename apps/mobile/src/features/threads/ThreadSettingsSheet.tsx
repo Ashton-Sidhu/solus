@@ -310,6 +310,7 @@ type ThreadSettingsSessionProps = {
   readonly reportedModelSelection?: ModelSelection | null;
   readonly onSelectModel: (option: ModelOption) => void;
   readonly restoreSelection?: (selection: ModelSelection) => ModelSelection;
+  readonly isolateModelOptions?: boolean;
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
@@ -648,7 +649,9 @@ function ThreadSettingsSessionProvider(
       return;
     }
     if (pendingModel) {
-      rememberModelOptions(pendingModel.selection.instanceId, pendingModel.selection.model, next);
+      if (!props.isolateModelOptions) {
+        rememberModelOptions(pendingModel.selection.instanceId, pendingModel.selection.model, next);
+      }
       setPendingModel({
         ...pendingModel,
         selection: { ...pendingModel.selection, options: next },

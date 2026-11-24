@@ -1,4 +1,4 @@
-import { hostQueueMessage, hostQueuedRuns, hostQueueAttachments } from "./queue-messages";
+import { hostQueueMessage, beginHostQueuedRunEdit, hostQueueAttachments } from "./queue-messages";
 import { backgroundTasks } from "./session-work";
 import { sessionPromptText } from "./review-prompt";
 import { finishDraftSubmission } from "../features/threads/finish-draft-submission";
@@ -9,7 +9,6 @@ import { mobilePreferencesAtom } from "../state/preferences";
 import type { ComposerEditorHandle } from "../components/ComposerEditor";
 import {
   useQueuedRunEdit,
-  beginQueuedRunEdit,
   endQueuedRunEdit,
   queuedEditDraftKey,
   startQueuedRunEditSave,
@@ -41,6 +40,7 @@ import {
   pickComposerFiles,
   pastedComposerImages,
 } from "@solus-mobile/features/threads/composer-attachment-pickers";
+import { modelInstanceId, runOptionSelections } from "./model-picker-catalog";
 import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { RequestCards, RequestPanels } from "./RequestCards";
 import {
@@ -54,7 +54,7 @@ import { scopedThreadKey } from "../lib/scopedEntities";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { EnvironmentId, MessageId, RunId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { isSessionBusyStatus } from "@solus/contracts/types";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { conversationFeed } from "./conversation-feed";
@@ -197,6 +197,7 @@ export function useThreadScreenData({
   const draftTitle =
     placeName ?? (isChat(meta.run.workingDirectory) ? "No project" : meta.run.workingDirectory);
   const edit = useQueuedRunEdit(key);
+  const editedModel = edit?.hostModelSelection ?? edit?.hostInitialModel;
   const inputKey = draftKey ?? key;
   const composerKey = edit ? queuedEditDraftKey(key, edit.runId) : inputKey;
   const [savingEdit, setSavingEdit] = useState(false);
@@ -260,10 +261,17 @@ export function useThreadScreenData({
   const binding = {
     selectedThread: { ...shell, pendingBackgroundTasks: backgroundTasks(controller.model) },
     onStopBackgroundWork: () => void controller.stopBackgroundWork(),
+    composerModelSelection: editedModel
+      ? {
+          instanceId: modelInstanceId(editedModel.provider),
+          model: editedModel.modelConfig.modelId ?? "",
+          options: runOptionSelections(editedModel.modelConfig),
+        }
+      : undefined,
     modelDisplayName: modelLabel(
-      meta.run.provider,
-      meta.run.model,
-      meta.runOptions.agents?.find((agent) => agent.id === meta.run.provider),
+      editedModel?.provider ?? meta.run.provider,
+      editedModel ? (editedModel.modelConfig.modelId ?? "") : meta.run.model,
+      meta.runOptions.agents?.find((agent) => agent.id === (editedModel?.provider ?? meta.run.provider)),
     ),
     environmentId: EnvironmentId.make(hostId),
     projectWorkspaceRoot: meta.run.workingDirectory,
@@ -360,6 +368,7 @@ export function useThreadScreenData({
           queueId: edit.runId,
           revision: edit.hostRevision ?? 0,
           text: prompt,
+          selection: edit.hostModelSelection,
           ...(attachments && {
             attachments,
             attachmentContext: attachments
@@ -503,17 +512,7 @@ export function useThreadScreenData({
             (path, refresh) =>
               resolveConversationImage(store, path, refresh).then((image) => image.uri),
           );
-          beginQueuedRunEdit(
-            scopedThreadKey(message.environmentId, message.threadId),
-            {
-              runId: RunId.make(entry.queueId),
-              messageId: message.messageId,
-              originalText: pending.text,
-              hostRevision: pending.hostQueue.revision,
-              existingAttachments: pending.hostQueue.attachments,
-            },
-            hostQueuedRuns(store),
-          );
+          beginHostQueuedRunEdit(store, entry, pending);
         },
     dispatchingMessageId: null,
     serverConfig: null,

@@ -206,7 +206,12 @@ class Backend extends EventEmitter implements AgentBackend {
     this.complete(threadId, result)
   }
   /** A steer joins the open turn, which then answers it. */
-  async steerSession(threadId: string): Promise<RunHandle | null> { return this.handles.get(threadId) ?? null }
+  readonly steerOffers: string[] = []
+  acceptsSteers = true
+  async steerSession(threadId: string, options: { prompt: string }): Promise<RunHandle | null> {
+    this.steerOffers.push(options.prompt)
+    return this.acceptsSteers ? this.handles.get(threadId) ?? null : null
+  }
   loadSession(): Promise<never[]> { return Promise.resolve([]) }
   loadHistory(): Promise<never[]> { return Promise.resolve([]) }
   loadSessionSkills(): Promise<never[]> { return Promise.resolve([]) }
@@ -251,7 +256,7 @@ function reportRuns(backend: Backend, senderThreadId: string): string[] {
 /** Sessions with their turns open: targets solus-target (and solus-second), sender
  *  solus-sender. The orchestrator names them by session id; the fake provider
  *  runs them on threads thread-1 (and thread-3) and thread-2. */
-async function sessions(options: { secondTarget?: boolean; claude?: Backend } = {}) {
+async function sessions(options: { secondTarget?: boolean; claude?: Backend; claudeSender?: boolean } = {}) {
   const backend = new Backend()
   const backends = new Map<AgentId, Backend>([['codex', backend]])
   if (options.claude) backends.set('claude-code', options.claude)
@@ -269,7 +274,7 @@ async function sessions(options: { secondTarget?: boolean; claude?: Backend } = 
   })
   const open = async (sessionId: string, prompt: string) => {
     const lifecycle = await plane.runTurn({
-      target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+      target: { kind: 'new-session' }, sessionId, input: { ...input(), provider: sessionId === 'solus-sender' && options.claudeSender ? 'claude-code' : 'codex' }, tools: [],
       options: { prompt, promptSource: 'agent' },
     })
     await lifecycle.agentSessionId
@@ -659,11 +664,43 @@ describe('session orchestration', () => {
     }
   })
 
+  test.each([true, false])('Claude receives a child report once when steer acceptance is %s', async (acceptsSteers) => {
+    const claude = new Backend('claude-code', 'report-parent')
+    claude.acceptsSteers = acceptsSteers
+    const { backend, plane, orchestrator } = await sessions({ claude, claudeSender: true })
+    try {
+      const sent = await orchestrator.spawn('solus-sender', {
+        prompt: 'child task', provider: 'codex', modelId: 'gpt-test', reasoningEffort: 'medium', contextWindow: null, cwd: projectDir,
+      }, true)
+      await backend.started(2)
+      backend.complete('thread-2', 'child result')
+      await until(() => claude.steerOffers.length === 1)
+      expect(reportsIn(claude.steerOffers[0]!)).toEqual([
+        expect.objectContaining({ messageId: sent.exchangeId, reply: 'child result' }),
+      ])
+      if (acceptsSteers) {
+        await until(() => orchestrator.progressOf(sent.exchangeId)?.state === 'settled')
+        expect(plane.scheduler.requestQueue.get('solus-sender')).toBeUndefined()
+        expect(claude.requests).toHaveLength(1)
+      } else {
+        await until(() => orchestrator.progressOf(sent.exchangeId)?.state === 'reply_queued')
+        claude.complete('report-parent-1')
+        const report = await claude.run(isReportFor('report-parent-1'))
+        expect(reportsIn(report.prompt)).toHaveLength(1)
+        expect(claude.steerOffers).toHaveLength(1)
+      }
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('one turn that answers two messages from one sender is one report, naming both', async () => {
     // WHY: a parent that steers twice into one turn read the same reply twice,
     // once per message, in a live session.
     const { backend, plane, orchestrator, updates } = await sessions()
     try {
+      const queued = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'later work', delivery: 'queue', notify: false })
+      expect(queued.disposition).toBe('queued')
       const first = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part one', delivery: 'steer', notify: true })
       const second = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part two', delivery: 'steer', notify: true })
       expect([first.disposition, second.disposition]).toEqual(['steered', 'steered'])

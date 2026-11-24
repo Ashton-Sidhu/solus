@@ -1,4 +1,4 @@
-import { hostQueuedRuns, hostQueueMessage } from "../../solus/queue-messages";
+import { beginHostQueuedRunEdit, hostQueueMessage } from "../../solus/queue-messages";
 import { isUploadImage, uploadImagePreview } from "../../solus/upload-images";
 import { resolveConversationImage } from "../../solus/ConversationMedia";
 import { solus } from "../../solus/runtime";
@@ -174,23 +174,25 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const busyRef = useRef(false);
   const queuedRuns = meta
-    ? meta.queue.entries.map((entry) => {
-        const message = hostQueueMessage(
-          target.environmentId,
-          target.threadId,
-          entry,
-          (path, refresh) =>
-            resolveConversationImage(store!, path, refresh).then((source) => source.uri),
-        );
-        return {
-          run: { id: RunId.make(entry.queueId), freshContext: false },
-          text: entry.text,
-          messageId: message.messageId,
-          context: undefined,
-          message: null,
-          attachments: message.hostQueue.attachments,
-        };
-      })
+    ? meta.queue.entries
+        .filter((entry) => entry.kind !== "provider_switch")
+        .map((entry) => {
+          const message = hostQueueMessage(
+            target.environmentId,
+            target.threadId,
+            entry,
+            (path, refresh) =>
+              resolveConversationImage(store!, path, refresh).then((source) => source.uri),
+          );
+          return {
+            run: { id: RunId.make(entry.queueId), freshContext: false },
+            text: entry.text,
+            messageId: message.messageId,
+            context: undefined,
+            message: null,
+            attachments: message.hostQueue.attachments,
+          };
+        })
     : (upstream?.queuedRuns ?? []);
 
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
@@ -207,31 +209,40 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     if (busyRef.current) return;
     const index = queuedRuns.findIndex(({ run }) => run.id === runId);
     if (index < 0) return;
+    const hostEntry = meta?.queue.entries.find((entry) => entry.queueId === runId);
     if (action === "edit") {
       if (editBlockedReason !== null) return;
       const entry = queuedRuns[index]!;
       void Haptics.selectionAsync();
+      if (store) {
+        if (!hostEntry || !store.controller.mayDrive) return;
+        const message = hostQueueMessage(
+          target.environmentId,
+          target.threadId,
+          hostEntry,
+          (path, refresh) => resolveConversationImage(store, path, refresh).then((source) => source.uri),
+        );
+        beginHostQueuedRunEdit(store, hostEntry, message);
+        navigation.goBack();
+        return;
+      }
       beginQueuedRunEdit(
         threadKey,
         {
           runId,
           messageId: entry.messageId,
           originalText: entry.text,
-          hostRevision: meta?.queue.entries[index]?.revision ?? 0,
           existingAttachments: entry.attachments,
           ...(entry.context ? { context: entry.context } : {}),
         },
-        store
-          ? hostQueuedRuns(store)
-          : makeQueuedRunsAtom({
-              threadId: target.threadId,
-              snapshot: threadEnvironment.snapshotAtom(target.environmentId),
-              detailStatus: environmentThreadDetails.statusAtom(target),
-              runs: Atom.make(
-                (get) =>
-                  get(environmentThreadDetails.quietThreadAtom(target))?.projection.runs ?? null,
-              ),
-            }),
+        makeQueuedRunsAtom({
+          threadId: target.threadId,
+          snapshot: threadEnvironment.snapshotAtom(target.environmentId),
+          detailStatus: environmentThreadDetails.statusAtom(target),
+          runs: Atom.make(
+            (get) => get(environmentThreadDetails.quietThreadAtom(target))?.projection.runs ?? null,
+          ),
+        }),
       );
       navigation.goBack();
       return;
@@ -242,10 +253,11 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     void Haptics.selectionAsync();
     if (store && meta) {
       try {
+        if (!hostEntry) return;
         await store.controller.changeQueue({
           kind: action,
           queueId: runId,
-          revision: meta.queue.entries[index]?.revision ?? 0,
+          revision: hostEntry.revision ?? 0,
         });
       } catch (error) {
         Dialog.alert(gt("Queue"), String(error));

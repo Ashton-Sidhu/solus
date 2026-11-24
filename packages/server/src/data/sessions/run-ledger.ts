@@ -51,6 +51,7 @@ export const savedQueueEntrySchema = z.object({
   exchangeIds: z.array(z.string()).optional(),
   reportExchangeIds: z.array(z.string()).optional(),
   started: z.boolean().optional(),
+  hasEditedModel: z.boolean().optional(),
 })
 export type SavedQueueEntry = z.infer<typeof savedQueueEntrySchema>
 

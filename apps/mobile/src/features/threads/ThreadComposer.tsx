@@ -135,6 +135,7 @@ const NO_MACHINES: ReadonlyArray<ComposerEnvironmentCandidate> = [];
 
 export interface ThreadComposerProps {
   readonly modelDisplayName?: string | undefined;
+  readonly composerModelSelection?: ModelSelection;
   readonly isDraft?: boolean;
   readonly canOperateThread: boolean;
   readonly placeholder: string;
@@ -341,7 +342,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       serverConfig: props.serverConfig,
       states: uploadStates,
     });
-  const currentModelSelection = props.selectedThread.modelSelection;
+  const currentModelSelection = props.composerModelSelection ?? props.selectedThread.modelSelection;
   const modelUnavailable =
     props.connectionState === "connected" &&
     isModelSelectionUnavailable(
@@ -353,7 +354,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     if (!props.serverConfig) return null;
     return (
       props.serverConfig.providers.find(
-        (p) => p.instanceId === props.selectedThread.modelSelection.instanceId,
+        (p) => p.instanceId === currentModelSelection.instanceId,
       ) ?? null
     );
   })();

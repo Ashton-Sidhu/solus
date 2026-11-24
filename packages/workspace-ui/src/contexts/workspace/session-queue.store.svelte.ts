@@ -1,6 +1,6 @@
 import type { HostApi } from '@solus/client-core/host-api'
 import type { OutboundPrompt, Attachment, Session } from '@solus/contracts/types'
-import type { QueueAttachment, SessionQueueMutation } from '@solus/contracts/session-queue'
+import type { QueueAttachment, QueuedModelSelection, SessionQueueMutation } from '@solus/contracts/session-queue'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { readFileDataUrl } from '../../components/input/lib/attachment-upload'
@@ -63,11 +63,11 @@ export class SessionQueueController {
     return result
   }
 
-  async edit(tabId: string, prompt: OutboundPrompt, text: string, attachments: QueueAttachment[] | undefined): Promise<void> {
+  async edit(tabId: string, prompt: OutboundPrompt, text: string, attachments: QueueAttachment[] | undefined, selection?: QueuedModelSelection): Promise<void> {
     if (!prompt.queueId) throw new Error('The prompt is no longer queued.')
     const serverId = runHost(this.workspace.sessionFor(tabId)?.run) ?? ''
     const files: Attachment[] = attachments?.filter((item) => item.type !== 'image').map((item) => ({ ...item, path: item.hostPath ?? '' })) ?? []
-    await this.change(tabId, { kind: 'edit', queueId: prompt.queueId, revision: prompt.revision ?? 0, text,
+    await this.change(tabId, { kind: 'edit', queueId: prompt.queueId, revision: prompt.revision ?? 0, text, selection,
       attachments, attachmentContext: attachments === undefined ? undefined : files.map((file) =>
         attachments.find((item) => item.id === file.id)?.context ?? composeAttachmentContext([file], serverId)).join('\n'),
       imageRefs: attachments?.flatMap((item) => item.type === 'image' && item.hostPath && !item.dataUrl ? [{ hostPath: item.hostPath, mimeType: item.mimeType || 'image/png', name: item.name }] : []),

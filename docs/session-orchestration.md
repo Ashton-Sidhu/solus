@@ -66,7 +66,7 @@ or disconnecting a client leaves remote work running and does not invoke recover
   `model/rerouted`. When it differs from the requested model, the next line is
   `Requested model X; the provider reported running Y.` Then the outputs, one
   line each, and the child's last message.
-- Reports and notices that arrive while the parent is busy merge into its queued prompt. An idle parent can act on a report while other children still work. Nothing is
+- A running Claude parent can receive a child report at its next decision point. If Claude cannot accept it, it joins the parent's queue. Codex queues automatic reports while busy. Notices and reports that have to wait share one queued prompt. An idle parent can act on a report while other children still work. Nothing is
   lost while the parent itself is rate limited.
 - **One report per turn.** When one turn of the child answers several
   messages from the same parent (a steer joined the turn), the parent gets one
@@ -94,7 +94,7 @@ the same exchange during startup. Startup failures settle that exchange and
 reach the parent through the normal report path. A wait budget includes startup
 and does not cancel the child when it expires.
 
-Each result starts a follow-up turn or waits in the caller's existing queue. A bounded wait returns a report once; a
+A result can join an active Claude turn, start a follow-up turn, or wait in the caller's queue. A bounded wait returns a report once; a
 wait timeout leaves the work and async reporting active.
 
 Each request has its own exchange ID. When A asks B for work and B asks C to
@@ -316,12 +316,15 @@ its provider and model options.
 Desktop, web, and mobile expose Send now, Edit, Remove, and Resume. Send now
 shows only when the running turn can take a steer. The clients do not reorder
 the queue; the host `move` mutation stays for agents and older clients.
-Edits have a separate draft, so the main composer's text and files stay intact.
-Save checks the entry revision. If another client changed or started the entry,
+Edits have a separate draft for text, files, provider, model, reasoning effort,
+and speed. Save applies picked settings to that message and leaves its position
+in the queue. A text-only edit keeps the entry's options. Send now requires
+compatible settings on the running turn. Save checks the entry revision. If another client changed or started the entry,
 the host refuses the edit and the draft remains available. If the entry leaves
 the queue while its edit is open, the edit ends. A changed edit with text goes
 back to the composer when the composer is empty; otherwise a notice says that
-the edit was discarded. A changed attachment counts as a change.
+the edit was discarded. Attachment and model changes count as changes. When
+an edit returns to the composer, it carries its picked model settings.
 
 After a host restart, all saved entries are held. A started entry also shows
 that its result is uncertain. Each author resumes their own work with a fresh
@@ -377,7 +380,7 @@ The change uses three focused parts:
   memory only when the write succeeds. Active receipts and undelivered reports
   remain available. Closed receipts are removed after thirty days when the host
   loads them.
-- `ParentDelivery` merges reports for a busy caller. Queue entries save both the
+- `ParentDelivery` merges reports that wait in a caller's queue. Queue entries save both the
   report IDs and the incoming request IDs for the completion follow-up. Their
   text, IDs, and the reports' delivery state change in one transaction. A
   submission that fails on a known transient error is retried a bounded number

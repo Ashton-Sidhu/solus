@@ -1,10 +1,12 @@
 <script lang="ts">
   import { Paperclip as PaperclipIcon, X as XIcon } from '@lucide/svelte';
+  import SessionChip from '../../pickers/SessionChip.svelte';
   import type { QueueEdit } from './lib/queue-edit.svelte';
   import { requestInputFocus } from '../../../lib/inputFocus';
   import { formatComboText } from '../../../lib/keybindings/match';
   const saveKey = formatComboText({ mod: true, code: 'Enter' });
   let { tabId, edit, onClose }: { tabId: string; edit: QueueEdit; onClose: () => void } = $props();
+  let editor = $state<HTMLTextAreaElement | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
   async function save() { if (await edit.save()) close(); }
   function close() { onClose(); requestInputFocus({ tabId }); }
@@ -14,7 +16,7 @@
 <div class="flex justify-end">
   <div class="w-full max-w-[41.25rem] rounded-[0.875rem] bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] py-2 pr-3.5 pl-3 shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_18%,transparent)]" role="group" aria-label="Edit queued prompt">
     <!-- svelte-ignore a11y_autofocus -->
-    <textarea bind:value={edit.text} disabled={edit.busy} rows={3} autofocus aria-label="Queued prompt text"
+    <textarea bind:this={editor} bind:value={edit.text} disabled={edit.busy} rows={3} autofocus aria-label="Queued prompt text"
       class="block max-h-[12lh] w-full resize-none bg-transparent field-sizing-content text-transcript-card leading-(--text-transcript-card--line-height) text-(--solus-text-primary) outline-none"
       onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); close(); } if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); } }}></textarea>
     {#if edit.attachments?.length}
@@ -34,6 +36,8 @@
         onchange={(event) => { void edit.add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
       <button type="button" disabled={edit.busy} onclick={() => fileInput?.click()}
         class="flex cursor-pointer items-center gap-1 text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:opacity-40 pointer-coarse:min-h-11"><PaperclipIcon size={12} />Attach</button>
+      <SessionChip {tabId} bind:selection={edit.model} disabled={edit.busy} ariaLabel="Queued prompt model settings"
+        onSelectionChange={() => edit.markModelChanged()} onReturnFocus={() => editor?.focus()} />
       <span class="text-(--solus-text-tertiary) pointer-coarse:hidden">{saveKey} to save · Esc to cancel</span>
       <span class="flex-1"></span>
       <button type="button" disabled={edit.busy} onclick={close}

@@ -8,9 +8,9 @@ const log = createLogger('orchestration', 'parent-delivery.ts')
  * Everything the orchestrator puts in front of a parent's model: reports when a
  * child's turn ends and notices when a child needs a person or is blocked.
  *
- * An idle parent is woken at once. Items that arrive while the parent is busy
- * merge into the one prompt already waiting in its queue, so it wakes once for
- * all of them. A notice that goes stale before the parent reads it — the
+ * An idle parent is woken at once. The runtime can steer child reports into a
+ * busy Claude turn. Items that wait merge into one queued prompt, so it wakes
+ * once for all of them. A notice that goes stale before the parent reads it — the
  * question was answered, the limit ended — is taken out of that prompt again,
  * so a parent never acts on something that is already over. Delivery to one
  * parent is serialized, so a merge never races the prompt it merges into.

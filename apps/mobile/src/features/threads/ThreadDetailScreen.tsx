@@ -230,6 +230,7 @@ import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input"
 
 export interface ThreadDetailScreenProps {
   readonly modelDisplayName?: string | undefined;
+  readonly composerModelSelection?: EnvironmentThreadShell["modelSelection"];
   readonly header?: React.ReactNode;
   readonly requestPanels?: React.ReactNode;
   readonly composerCards?: React.ReactNode;
@@ -1972,9 +1973,10 @@ function ThreadDetailBody(
                     <>
                       <ThreadComposer
                         modelDisplayName={props.modelDisplayName}
+                        composerModelSelection={props.composerModelSelection}
                         isDraft={Boolean(props.draftMode)}
                         canOperateThread={props.canOperateThread}
-                        reportedModelSelection={reportedModelSelection}
+                        reportedModelSelection={props.queuedRunEdit ? null : reportedModelSelection}
                         editorRef={composerEditorRef}
                         placeholder={
                           props.activePendingApproval
