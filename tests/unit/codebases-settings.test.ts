@@ -12,6 +12,8 @@ import {
   hostMembersNote,
   memberPlace,
   NEW_CODEBASE,
+  rootDescription,
+  rootName,
   scanSummary,
   UNKNOWN_HOST_LABEL,
 } from '../../packages/workspace-ui/src/components/codebases/lib/codebase-view'
@@ -112,6 +114,22 @@ describe('the text of the Codebases page', () => {
       tone: 'error',
       text: 'build-server could not read its folders: The disk did not answer. This is its last answer.',
     })
+  })
+
+  // WHY: a folder row must say what the codebase gets from it. A Git root is
+  // itself the repository, so "no repository inside" would read as empty.
+  test('a folder row says what the folder is and what is inside it', () => {
+    expect(rootDescription('git', 0)).toBe('Git repository')
+    expect(rootDescription('git', 2)).toBe('Git repository · 2 repositories inside')
+    expect(rootDescription('plain', 0)).toBe('Folder · No repository inside')
+    expect(rootDescription('plain', 1)).toBe('Folder · 1 repository inside')
+    expect(rootDescription('missing', 0)).toBe('Not on the host')
+  })
+
+  // WHY: a root saved with no name must still show a name, not an empty row.
+  test('a folder with no saved name is named by its path', () => {
+    expect(rootName({ name: '', path: '/Users/me/solus' })).toBe('solus')
+    expect(rootName({ name: 'Shop', path: '/code/shop' })).toBe('Shop')
   })
 
   test('a scan says what the folder is and how many repositories are inside it', () => {

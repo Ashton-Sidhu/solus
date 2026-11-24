@@ -81,13 +81,12 @@ export function entryOpenLabel(entry: PickerEntry): string {
 
 /**
  * Whether the preview of a row has an action bar. A bar is for a row with more
- * than one thing to do: a task and its session have a status to set, and a
- * pull request opens here or in the browser. A row with one action has no
- * bar: ⏎ is that action, and the key hints say so.
+ * than one thing to do: a task and its session have a status to set. A row
+ * with one action has no bar: ⏎ is that action, and the key hints say so. A
+ * pull request has no bar either: the key hints offer its browser too.
  */
 export function hasActionBar(entry: PickerEntry | null): boolean {
-  if (!entry) return false
-  if (entry.kind === 'record') return entry.record.type === 'pullRequest'
+  if (!entry || entry.kind === 'record') return false
   return entry.kind !== 'conversation'
 }
 

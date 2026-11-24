@@ -3,6 +3,7 @@ import type { KnownHost } from './known-host'
 import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
+import { PAIR_APPROVAL_WAIT_MS, type PairApprovalStartRequest, type PairApprovalWaitRequest } from '@solus/contracts/add-machine'
 
 // Handshake decoding is forward-compatible: a field a newer server reshapes
 // (an unknown `os`, a structured error) degrades to "absent" instead of
@@ -102,6 +103,22 @@ export function parsePairLink(link: string): ParsedPairLink | null {
   }
 }
 
+/** What a person entered where a pairing code goes: a pair link, a 6-digit code, or neither. */
+export type PairSecret = { kind: 'link'; url: string; pairToken: string } | { kind: 'code'; code: string }
+
+/**
+ * Checks the shape of a pairing secret before it goes anywhere
+ * (docs/plans/add-machine-card.md rule 1). A code is 6 digits; spaces and a dash
+ * between them are allowed. Null for anything else, such as a password: the
+ * caller must then send nothing.
+ */
+export function classifyPairSecret(value: string): PairSecret | null {
+  const link = parsePairLink(value)
+  if (link) return { kind: 'link', ...link }
+  const compact = value.trim().replace(/[\s-]/g, '')
+  return /^\d{6}$/.test(compact) ? { kind: 'code', code: compact } : null
+}
+
 /**
  * A typed address becomes the URL the client dials. An explicit scheme is left
  * exactly as written — `https://solus.example.com` means the proxy on 443. A
@@ -144,8 +161,11 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     const body = serverErrorSchema.parse(await res.json().catch(() => ({})))
     throw new Error(body.error ?? `Pair failed (${res.status})`)
   }
+  return pairedServer(url, pairResponseSchema.parse(await res.json().catch(() => ({}))), input)
+}
 
-  const body = pairResponseSchema.parse(await res.json().catch(() => ({})))
+/** The host a pairing reply names, as this device keeps it. `/pair` and an approved request reply alike. */
+function pairedServer(url: string, body: z.infer<typeof pairResponseSchema>, input: Pick<PairServerInput, 'serverLabel' | 'reportedName' | 'onTailnet'>): PairServerResult {
   if (!body.sessionToken) throw new Error('Pair response did not include a session token')
   if (!body.installationId) throw new Error('Pair response did not include an installation id')
 
@@ -164,4 +184,82 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
   if (url.startsWith('https:')) server.tokenPairedOverHttps = true
 
   return { server, sessionToken: body.sessionToken, installationId: body.installationId }
+}
+
+export type RequestPairApprovalResult =
+  | { status: 'approved'; result: PairServerResult }
+  | { status: 'denied' } | { status: 'expired' } | { status: 'unavailable' }
+
+const approvalStartSchema = z.object({ requestId: z.string().min(1), expiresAt: z.number(), waitToken: z.string().min(1) })
+const approvalStatusSchema = z.object({ status: tolerantString }).catch({})
+/** One wait may take `PAIR_APPROVAL_WAIT_MS` on the host; past this the host is not answering. */
+const APPROVAL_CALL_TIMEOUT_MS = PAIR_APPROVAL_WAIT_MS + 15_000
+
+/**
+ * Asks a host to pair this device without a code (docs/plans/add-machine-card.md,
+ * "The approval request"). The caller makes `checkCode` with `formatCheckCode` and
+ * shows it; the host's owner sees the same code with the request and approves or
+ * denies it. `onWaiting` runs once the host holds the request. It waits until a
+ * result or until `signal` aborts, which throws.
+ */
+export async function requestPairApproval(input: Omit<PairServerInput, 'pairToken'> & { checkCode: string; signal?: AbortSignal; onWaiting?: (start: { expiresAt: number }) => void }): Promise<RequestPairApprovalResult> {
+  const url = normalizeServerUrl(input.url)
+  const host = urlHost(url)
+  const post = async (path: '/pair/request' | '/pair/request/wait', body: PairApprovalStartRequest | PairApprovalWaitRequest): Promise<Response> => {
+    // A manual time limit: React Native has no `AbortSignal.any` or `AbortSignal.timeout`.
+    const call = new AbortController()
+    const stop = () => call.abort()
+    const timer = setTimeout(stop, APPROVAL_CALL_TIMEOUT_MS)
+    input.signal?.addEventListener('abort', stop, { once: true })
+    let res: Response
+    try {
+      if (input.signal?.aborted) throw stoppedError()
+      res = await (input.fetchImpl ?? fetch)(`${url}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: call.signal,
+      })
+    } catch (error) {
+      if (input.signal?.aborted) throw stoppedError()
+      if (call.signal.aborted) throw new Error(`${host} did not answer the approval request in time.`)
+      throw new Error(`Could not reach ${host}: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', stop)
+    }
+    if (res.status === 429) throw new Error(`${host} refused the approval request: too many requests. Try again in a few minutes.`)
+    return res
+  }
+  const failure = async (res: Response): Promise<Error> => {
+    const body = serverErrorSchema.parse(await res.json().catch(() => ({})))
+    return new Error(body.error ?? `Approval request failed (${res.status})`)
+  }
+
+  const startRes = await post('/pair/request', { deviceLabel: input.deviceLabel.trim().slice(0, 64) || 'Unknown device', checkCode: input.checkCode, replacesSessionToken: input.replacesSessionToken })
+  // An older host, or one with pairing off, has no such route.
+  if (startRes.status === 404) return { status: 'unavailable' }
+  if (!startRes.ok) throw await failure(startRes)
+  const started = approvalStartSchema.safeParse(await startRes.json().catch(() => null))
+  if (!started.success) throw new Error(`${host} sent an approval request reply that Solus cannot read.`)
+  const { requestId, waitToken, expiresAt } = started.data
+  input.onWaiting?.({ expiresAt })
+
+  for (;;) {
+    const res = await post('/pair/request/wait', { requestId, waitToken })
+    if (res.status === 404) return { status: 'unavailable' }
+    if (!res.ok) throw await failure(res)
+    const body: unknown = await res.json().catch(() => null)
+    const { status } = approvalStatusSchema.parse(body)
+    if (status === 'pending') continue
+    if (status === 'denied' || status === 'expired') return { status }
+    if (status === 'approved') return { status: 'approved', result: pairedServer(url, pairResponseSchema.parse(body), input) }
+    throw new Error(`${host} sent an approval status that Solus cannot read.`)
+  }
+}
+
+function stoppedError(): Error {
+  const error = new Error('The approval request was stopped.')
+  error.name = 'AbortError'
+  return error
 }

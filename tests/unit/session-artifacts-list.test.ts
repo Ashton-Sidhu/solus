@@ -9,6 +9,8 @@ import {
   artifactTitle,
   artifactTooltip,
   fileRouteParams,
+  LINK_ROWS_INITIAL_COUNT,
+  shownLinkRowCount,
   workPagePreview,
 } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-list'
 import { newestAddedKey } from '@solus/workspace-ui/contexts/sessions/session-artifacts'
@@ -138,5 +140,20 @@ describe('the picture of a written work', () => {
     const paragraph = 'This report covers the mirror for readers and the repository for hosts, with every path from the root.'
     expect(workPagePreview('Mirror report', paragraph)).toEqual({ heading: 'Mirror report', paragraphs: [paragraph] })
     expect(workPagePreview('Empty', undefined)).toEqual({ heading: 'Empty', paragraphs: [] })
+  })
+})
+
+describe('shownLinkRowCount', () => {
+  test('a long card opens on its first window, so one card cannot push the others off the pane', () => {
+    expect(shownLinkRowCount(18, LINK_ROWS_INITIAL_COUNT, '')).toBe(LINK_ROWS_INITIAL_COUNT)
+  })
+
+  test('a short card shows every row', () => {
+    expect(shownLinkRowCount(3, LINK_ROWS_INITIAL_COUNT, '')).toBe(3)
+  })
+
+  test('a search shows every match, so a hit is never behind Show more', () => {
+    expect(shownLinkRowCount(18, LINK_ROWS_INITIAL_COUNT, 'stage')).toBe(18)
+    expect(shownLinkRowCount(18, LINK_ROWS_INITIAL_COUNT, '   ')).toBe(LINK_ROWS_INITIAL_COUNT)
   })
 })

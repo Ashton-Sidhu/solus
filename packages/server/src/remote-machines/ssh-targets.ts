@@ -119,7 +119,10 @@ export function sshConfigHostCandidates(entries: SshConfigEntry[] = readSshConfi
     const destination = entry.user ? `${entry.user}@${alias}` : alias
     const target = entry.port ? `${destination}:${entry.port}` : destination
     if (candidates.has(target)) continue
-    candidates.set(target, { target, label: entry.hostname ? `${alias} -> ${entry.hostname}` : alias, source: 'ssh-config' })
+    const candidate: SshTargetCandidate = { target, label: entry.hostname ? `${alias} -> ${entry.hostname}` : alias, source: 'ssh-config' }
+    // The resolved address lets a client match `10.10.1.10` to `solus-windows` (docs/plans/add-machine-card.md).
+    if (entry.hostname && entry.hostname !== alias) candidate.hostName = entry.hostname
+    candidates.set(target, candidate)
   }
   return [...candidates.values()]
 }

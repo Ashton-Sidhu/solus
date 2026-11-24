@@ -17,6 +17,8 @@ export interface SshTargetCandidate {
   target: string
   label: string
   source: 'ssh-config' | 'known-hosts'
+  /** The address SSH resolves the target to (`HostName`), when it differs from the target. */
+  hostName?: string
 }
 
 /** The account a new host links to: an enrollment ticket and the account plane that issued it. */

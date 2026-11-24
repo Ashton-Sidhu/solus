@@ -1,26 +1,30 @@
-<script lang="ts">
+<script lang="ts" generics="Item extends RecentItem">
   import { ChevronDown as CaretIcon, History as RecentIcon } from "@lucide/svelte";
-  import type { RecentArtifact } from "@solus/client-core/recent-artifacts";
+  import type { RecentItem } from "@solus/client-core/recent-artifacts";
   import { recentArtifactKey } from "@solus/client-core/recent-artifacts";
   import { messageTimestampClock } from "../../../lib/shared-clock";
   import * as Carousel from "../../ui/carousel";
   import RecentArtifactCard from "./RecentArtifactCard.svelte";
 
   /**
-   * The row at the top of the Threads surface (docs/plans/session-artifacts.md
-   * decision 17), as a section of its own with no card around it: the
-   * works, apps, files, and images of the session and the sessions it
-   * started, the ones the person opened first, then the latest made. Its
+   * A "Recently viewed" row, as a section of its own with no card around it:
+   * at the top of the Threads surface (docs/plans/session-artifacts.md
+   * decision 17) and of the Workspace page (docs/workspace-page.md). Its
    * label folds it; it scrolls sideways, and the arrows page through it.
    */
-  interface Props {
-    items: readonly RecentArtifact[];
-    serverId: string;
+  let {
+    items,
+    serverIdOf,
+    isDark,
+    onOpen,
+  }: {
+    items: readonly Item[];
+    /** The host that holds an item's files and pictures. */
+    serverIdOf: (item: Item) => string;
     /** Which still of an artifact the cards show. */
     isDark: boolean;
-    onOpen: (item: RecentArtifact) => void;
-  }
-  let { items, serverId, isDark, onOpen }: Props = $props();
+    onOpen: (item: Item) => void;
+  } = $props();
 
   let open = $state(true);
 
@@ -73,9 +77,9 @@
         <!-- Room on every side of each card for its hairline, hover ring, and focus outline (2px, offset 2px),
              which the scroller would otherwise clip: the content starts 4px in, and the last card keeps 4px after it. -->
         <Carousel.Content class="-ms-1.5 py-1.5">
-          {#each items as item (recentArtifactKey(item.owned.artifact))}
+          {#each items as item (recentArtifactKey(item.artifact))}
             <Carousel.Item class="basis-auto ps-2.5 last:pe-1">
-              <RecentArtifactCard {item} {serverId} {isDark} {now} onOpen={() => onOpen(item)} />
+              <RecentArtifactCard {item} serverId={serverIdOf(item)} {isDark} {now} onOpen={() => onOpen(item)} />
             </Carousel.Item>
           {/each}
         </Carousel.Content>

@@ -76,6 +76,16 @@ overlay remains for renders that have no work to open: images, HTML file
 previews, and artifact cards without a work reference. A snippet the reader
 rendered by hand keeps a Show source action as its way back.
 
+A render in a conversation also has Widen when the pane has room beside the
+reading column. Widen lets the frame grow into the gutters on both sides, and
+it keeps 104px clear at each pane edge. On the left, that space holds the
+message navigator and the reply's time and copy rail, which moves out beside
+the widened frame. Fit to column
+is the way back. The choice belongs to the conversation: it holds when the row
+scrolls away and back, and when the reader switches tabs. A pane too narrow for
+the gutters, or the Full conversation width, shows no Widen. An app frame and
+a render in a pane or a document do not have it.
+
 An HTML block can show a local image by its absolute path (`src="/tmp/shot.png"`,
 a `file:` URL, or CSS `url()`). The client asks the session's host for each file
 through a signed asset URL and writes it into the page as a `data:` URL before

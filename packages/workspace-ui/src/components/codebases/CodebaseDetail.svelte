@@ -5,7 +5,7 @@
    *  loading, stale, and error text. */
   import { onMount, tick, untrack } from "svelte";
   import { CODEBASE_ROOTS_MAX } from "@solus/contracts/codebases";
-  import { ArrowLeft as ArrowLeftIcon, Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
+  import { Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
   import { codebasesStore } from "../../contexts";
   import { codebaseRootKey, rootRefusalText } from "@solus/client-core/codebases";
   import { toasts } from "../../lib/toasts";
@@ -16,9 +16,11 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import McpConfirmPopover from "../settings/McpConfirmPopover.svelte";
-  import CodebaseRootPicker from "./CodebaseRootPicker.svelte";
+  import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import CodebaseRootRow from "./CodebaseRootRow.svelte";
-  import { codebaseSummary, countLabel, hostMembersNote, UNKNOWN_HOST_LABEL } from "./lib/codebase-view";
+  import { countLabel, hostMembersNote, UNKNOWN_HOST_LABEL } from "./lib/codebase-view";
   import { RootPickerState } from "./lib/root-picker.svelte";
 
   let { codebaseId, onClose }: { codebaseId: string; onClose: () => void } = $props();
@@ -34,10 +36,11 @@
     return untrack(() => codebasesStore.watchMembers(shownId));
   });
 
-  let backButtonEl = $state<HTMLElement | null>(null);
+  let pageEl = $state<HTMLElement | null>(null);
   let addButtonEl = $state<HTMLElement | null>(null);
   let deleteButtonEl = $state<HTMLElement | null>(null);
-  onMount(() => backButtonEl?.focus({ preventScroll: true }));
+  // The row that opened this page is gone: keep focus in the page, not on the body.
+  onMount(() => pageEl?.focus({ preventScroll: true }));
 
   let isBusy = $state(false);
   /** The name while the person edits it. Null: the field shows the saved name. */
@@ -45,6 +48,9 @@
   const name = $derived(nameDraft ?? codebase?.name ?? "");
   const isNameChanged = $derived(!!codebase && name.trim() !== "" && name.trim() !== codebase.name);
 
+  /** The folder browser is open on `picker.host`. */
+  let isBrowsing = $state(false);
+  /** A chosen folder is being read, then added. */
   let isAdding = $state(false);
   const picker = new RootPickerState(() => codebase?.roots ?? []);
 
@@ -65,9 +71,21 @@
     }
   }
 
+  /** Saves the draft. An empty or unchanged draft goes back to the saved name. */
   async function rename() {
-    if (!isNameChanged) return;
+    if (!isNameChanged) {
+      nameDraft = null;
+      return;
+    }
     if (await run(async () => void (await codebasesStore.rename(codebaseId, name)), "Could not rename the codebase.")) nameDraft = null;
+  }
+
+  function revertNameOnEscape(event: KeyboardEvent) {
+    if (event.key !== "Escape" || nameDraft === null) return;
+    // Escape undoes the edit first; a second Escape closes Settings.
+    event.preventDefault();
+    event.stopPropagation();
+    nameDraft = null;
   }
 
   async function focusAddButton() {
@@ -75,16 +93,30 @@
     addButtonEl?.focus();
   }
 
-  function closeAdding() {
-    isAdding = false;
-    picker.clear();
+  function browseOn(serverId: string) {
+    picker.chooseHost(serverId);
+    isBrowsing = true;
+  }
+
+  function closeBrowser() {
+    isBrowsing = false;
     void focusAddButton();
   }
 
-  async function addChosenFolder() {
-    const choice = picker.choice;
-    if (!choice) return;
-    if (await run(async () => void (await codebasesStore.addRoot(codebaseId, choice)), "Could not add the folder.")) closeAdding();
+  /** One step from the folder browser: the host reads the folder, and it is added when it can be. */
+  async function addFolder(path: string) {
+    isBrowsing = false;
+    isAdding = true;
+    try {
+      await picker.scanFolder(path);
+      const choice = picker.choice;
+      if (choice) await run(async () => void (await codebasesStore.addRoot(codebaseId, choice)), "Could not add the folder.");
+      else toasts.error(picker.problemText ?? "Could not add the folder.");
+    } finally {
+      isAdding = false;
+      picker.clear();
+      void focusAddButton();
+    }
   }
 
   function addSuggestion(serverId: string | null, path: string) {
@@ -112,41 +144,28 @@
     }
   }
 
-  function cancelAddingOnEscape(event: KeyboardEvent) {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
-    // Escape closes this form, not Settings.
-    event.preventDefault();
-    event.stopPropagation();
-    closeAdding();
-  }
 </script>
 
-<div class="flex flex-col gap-8">
-  <div class="flex flex-wrap items-center gap-3">
-    <Button bind:ref={backButtonEl} size="sm" variant="ghost" onclick={onClose}><ArrowLeftIcon size={14} /> Codebases</Button>
-    <h2 class="text-lg font-medium">{codebase?.name ?? "Codebase"}</h2>
-    {#if codebase}
-      <span class="text-sm text-muted-foreground">{codebaseSummary(codebase, (installationId) => codebasesStore.hostOf(installationId))}</span>
-    {/if}
-  </div>
-
+<!-- The settings header names this codebase, and its Codebases crumb goes back to the list. -->
+<div bind:this={pageEl} tabindex="-1" class="flex flex-col gap-8 outline-none">
   {#if !codebase}
     <p class="text-sm text-muted-foreground" role="status">
       {isListLoading ? "Loading the codebase…" : "This codebase does not exist. It can be deleted, or it is on a host that is not connected."}
     </p>
   {:else}
     <SettingsSection label="Codebase">
-      <SettingsRow label="Name" description="A short name for this set of folders.">
+      <SettingsRow label="Name" description="A short name for this set of folders. Press Enter to save it.">
         {#snippet control()}
           <Input
             bind:value={() => name, (next) => (nameDraft = next)}
-            class="h-7 w-56"
+            class="h-8 w-64 shadow-[inset_0_0_0_1px_var(--input)]"
             aria-label="Codebase name"
             maxlength={200}
-            disabled={isBusy}
+            submitOn="enter"
             onSubmit={() => void rename()}
+            onblur={() => void rename()}
+            onkeydown={revertNameOnEscape}
           />
-          <Button size="sm" variant="outline" disabled={isBusy || !isNameChanged} onclick={() => void rename()}>Rename</Button>
         {/snippet}
       </SettingsRow>
       <SettingsRow label="Delete this codebase" description="The codebase is deleted on each host. No file is deleted.">
@@ -189,30 +208,39 @@
             <RefreshIcon size={14} />
             {isRefreshing ? "Reading…" : "Refresh"}
           </Button>
-          <Button bind:ref={addButtonEl} size="sm" variant="outline" disabled={isBusy || isAdding || isFull} onclick={() => (isAdding = true)}>
-            <PlusIcon size={14} /> Add folder
-          </Button>
+          {#if picker.hosts.length > 1}
+            <!-- More than one host: the menu chooses the host, and the folder browser opens on it. -->
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <Button {...props} bind:ref={addButtonEl} size="sm" variant="outline" disabled={isBusy || isAdding || isFull}>
+                    <PlusIcon size={14} /> {isAdding ? "Adding…" : "Add folder"}
+                  </Button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(16rem,calc(100vw-2rem))]">
+                <DropdownMenu.Label class="text-chrome-dense text-muted-foreground">Add a folder on</DropdownMenu.Label>
+                {#each picker.hosts as host (host.serverId)}
+                  <DropdownMenu.Item onSelect={() => browseOn(host.serverId)}>{host.label}</DropdownMenu.Item>
+                {/each}
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+          {:else}
+            <Button
+              bind:ref={addButtonEl}
+              size="sm"
+              variant="outline"
+              disabled={isBusy || isAdding || isFull || !picker.host}
+              onclick={() => picker.host && browseOn(picker.host.serverId)}
+            >
+              <PlusIcon size={14} /> {isAdding ? "Adding…" : "Add folder"}
+            </Button>
+          {/if}
         </div>
       {/snippet}
 
       {#if isFull}
         <p class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText("limit")}</p>
-      {/if}
-
-      {#if isAdding}
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div
-          role="group"
-          aria-label="Add a folder"
-          class="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 dark:bg-card"
-          onkeydown={cancelAddingOnEscape}
-        >
-          <CodebaseRootPicker {picker} disabled={isBusy} />
-          <div class="flex items-center gap-2">
-            <Button size="sm" disabled={isBusy || !picker.choice} onclick={() => void addChosenFolder()}>Add folder</Button>
-            <Button size="sm" variant="ghost" disabled={isBusy} onclick={closeAdding}>Cancel</Button>
-          </div>
-        </div>
       {/if}
 
       {#if groups.length === 0}
@@ -253,3 +281,20 @@
     </SettingsSection>
   {/if}
 </div>
+
+{#if picker.host}
+  {@const host = picker.host}
+  {#key host.serverId}
+    <DirectoryPicker
+      bind:open={isBrowsing}
+      onClose={closeBrowser}
+      onSelect={(path) => void addFolder(path)}
+      title="Add a folder to {codebase?.name ?? 'the codebase'}"
+      actionLabel="Add this folder"
+      api={serverConnections.apiFor(host.serverId)}
+      serverId={host.serverId}
+      hostLabel={host.label}
+    />
+  {/key}
+{/if}
+

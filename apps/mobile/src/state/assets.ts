@@ -1,4 +1,5 @@
 import { attachmentUrl } from "../solus/attachment-resource";
+import { checkoutMediaAsset, signCheckoutAsset } from "../solus/checkout-files";
 import { mobileHost, fileAccountScope } from "./mobile-host";
 import { useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
@@ -14,6 +15,7 @@ import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runt
 import { msg, useMessages } from "gt-react-native";
 import { m } from "../i18n/messages";
 import type { AssetResource, EnvironmentId } from "@t3tools/contracts";
+import { videoMimeType } from "@t3tools/shared/video";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -35,6 +37,49 @@ export const assetEnvironment = createAssetEnvironmentAtoms(connectionAtomRuntim
 export { projectFaviconUrlAtom } from "./project-favicons";
 
 const revisionedAssetUrl = makeRevisionedAssetUrlFamily(assetEnvironment.createUrl);
+const noHost = Atom.make(null);
+const emptyHostVideoState = Atom.make<AssetUrlState | null>(null).pipe(
+  Atom.withLabel("host-video-state:none"),
+);
+
+function hostVideoPath(resource: AssetResource | null) {
+  if (resource?._tag !== "media-file" && resource?._tag !== "draft-workspace-file") return null;
+  if (!videoMimeType({ name: resource.path, mimeType: "" })) return null;
+  // Markdown resolves thread video links to paths on the host before building the resource.
+  return { cwd: resource._tag === "draft-workspace-file" ? resource.cwd : "~", path: resource.path };
+}
+
+const hostVideoState = Atom.family(
+  ({
+    environmentId,
+    ...input
+  }: {
+    environmentId: EnvironmentId;
+    cwd: string;
+    path: string;
+    revision?: string | null;
+  }) =>
+    Atom.make((get): AssetUrlState => {
+      const host = get(mobileHost(environmentId));
+      if (!host) return { _tag: "Failure", reason: "disconnected" };
+      if (!host.canReadFiles) return { _tag: "Failure", reason: "missing-file-access" };
+      const accountKey = get(fileAccountScope).key;
+      const signed = get(checkoutMediaAsset({ environmentId, accountKey, input }));
+      if (signed.waiting || signed._tag === "Initial") return { _tag: "Loading" };
+      if (signed._tag === "Failure") return { _tag: "Failure", reason: "failed" };
+      return { _tag: "Success", ...signed.value };
+    }).pipe(Atom.withLabel("host-video-state")),
+);
+
+export function useAssetConnectionAvailable(
+  environmentId: EnvironmentId | null,
+  resource: AssetResource | null,
+): boolean {
+  const isHostVideo = hostVideoPath(resource) !== null;
+  const host = useAtomValue(isHostVideo && environmentId ? mobileHost(environmentId) : noHost);
+  const connection = usePreparedConnection(isHostVideo ? null : environmentId);
+  return isHostVideo ? host !== null : connection._tag === "Some";
+}
 
 /**
  * Pass `revision` for a host file whose bytes can change under the same path; each new
@@ -45,11 +90,18 @@ export function useAssetUrlState(
   resource: AssetResource | null,
   revision?: string | null,
 ): AssetUrlState {
+  const video = hostVideoPath(resource);
+  const hostState = useAtomValue(
+    video && environmentId
+      ? hostVideoState({ environmentId, ...video, ...(revision === undefined ? {} : { revision }) })
+      : emptyHostVideoState,
+  );
+  const t3EnvironmentId = video ? null : environmentId;
   const fileAccessSession = useEnvironmentQuery(
-    environmentId === null ? null : environmentSession.sessionStateAtom(environmentId),
+    t3EnvironmentId === null ? null : environmentSession.sessionStateAtom(t3EnvironmentId),
   );
   const messages = useMessages();
-  const fileEnvironment = useEnvironmentPresentation(environmentId);
+  const fileEnvironment = useEnvironmentPresentation(t3EnvironmentId);
   const fileAccess = resolveFilesystemReadAccess(
     {
       isCatalogReady: fileEnvironment.isReady,
@@ -60,14 +112,14 @@ export function useAssetUrlState(
     messages,
   );
   const blocked = blockedAssetUrlState(resource, fileAccess);
-  const preparedConnection = usePreparedConnection(environmentId);
+  const preparedConnection = usePreparedConnection(t3EnvironmentId);
   const connectionPhase = fileEnvironment.presentation?.connection.phase ?? "available";
   const result = useAtomValue(
-    blocked !== null || environmentId === null || resource === null
+    blocked !== null || t3EnvironmentId === null || resource === null
       ? EMPTY_ASSET_URL_ATOM
       : revision === undefined
-        ? assetEnvironment.createUrl({ environmentId, input: { resource } })
-        : revisionedAssetUrl({ environmentId, input: { resource }, revision }),
+        ? assetEnvironment.createUrl({ environmentId: t3EnvironmentId, input: { resource } })
+        : revisionedAssetUrl({ environmentId: t3EnvironmentId, input: { resource }, revision }),
   );
   const shared =
     blocked ??
@@ -75,10 +127,13 @@ export function useAssetUrlState(
       result,
       preparedConnection._tag === "Some" ? preparedConnection.value.httpBaseUrl : null,
     );
-  return deriveAssetUrlState({
-    connectionPhase,
-    shared: shared._tag === "Failure" && result.waiting ? { _tag: "Loading" } : shared,
-  });
+  return (
+    hostState ??
+    deriveAssetUrlState({
+      connectionPhase,
+      shared: shared._tag === "Failure" && result.waiting ? { _tag: "Loading" } : shared,
+    })
+  );
 }
 
 export function useAssetUrl(
@@ -94,13 +149,16 @@ export function useRefreshAssetUrl(
   environmentId: EnvironmentId | null,
   resource: AssetResource | null,
 ): () => Promise<string | null> {
-  const connection = usePreparedConnection(environmentId);
+  const isHostVideo = hostVideoPath(resource) !== null;
+  const connection = usePreparedConnection(isHostVideo ? null : environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const createUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     refresh: true,
     reportFailure: false,
   });
   return async () => {
+    if (isHostVideo && environmentId && resource)
+      return refreshAssetUrl(environmentId, resource).catch(() => null);
     if (environmentId && resource?._tag === "attachment")
       return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);
     if (environmentId === null || resource === null || httpBaseUrl === null) return null;
@@ -123,6 +181,25 @@ export async function refreshAssetUrl(
 ): Promise<string | null> {
   if (resource._tag === "attachment")
     return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);
+  const video = hostVideoPath(resource);
+  if (video) {
+    const hostAtom = mobileHost(environmentId);
+    const release = appAtomRegistry.mount(hostAtom);
+    try {
+      const host = appAtomRegistry.get(hostAtom);
+      const scope = appAtomRegistry.get(fileAccountScope);
+      if (!host?.canReadFiles || signal?.aborted) return null;
+      const signed = await signCheckoutAsset(host.api, video, scope.organizationId, host.httpBaseUrl);
+      if (
+        signal?.aborted ||
+        appAtomRegistry.get(hostAtom) !== host ||
+        appAtomRegistry.get(fileAccountScope) !== scope
+      ) return null;
+      return signed.url;
+    } finally {
+      release();
+    }
+  }
   const connectionAtom = environmentSession.preparedConnectionValueAtom(environmentId);
   if (appAtomRegistry.get(connectionAtom)._tag === "None") return null;
   const atom = assetEnvironment.createUrl({ environmentId, input: { resource } });
@@ -200,7 +277,6 @@ const freshAssetUrlFamily = Atom.family((key: FreshAssetUrlKey) =>
 const noFreshAssetUrl = Atom.make(
   AsyncResult.initial<AuthorizedAssetUrl, AssetUrlUnavailableError>(),
 ).pipe(Atom.withLabel("fresh-asset-url:none"));
-const noAttachmentHost = Atom.make(null);
 const noSessionGeneration = Atom.make(0);
 
 /**
@@ -215,7 +291,7 @@ export function useFreshAssetUrl(
   const connection = usePreparedConnection(environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const host = useAtomValue(
-    resource?._tag === "attachment" && environmentId ? mobileHost(environmentId) : noAttachmentHost,
+    resource?._tag === "attachment" && environmentId ? mobileHost(environmentId) : noHost,
   );
   const account = useAtomValue(fileAccountScope);
   const atom =

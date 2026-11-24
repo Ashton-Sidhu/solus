@@ -1015,8 +1015,7 @@
       onReview={openReviewMode}
     />
   {/if}
-  <!-- Opening one PR by its URL is a page action, not a filter, so it sits
-       in the head row beside Refresh. -->
+  <!-- Opening a PR by URL is a page action in the head row. -->
   <PrUrlInspector onOpen={openPrUrl} />
 {/snippet}
 

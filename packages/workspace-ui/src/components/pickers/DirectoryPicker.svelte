@@ -110,6 +110,11 @@
   /** Host-resolved parent, needed to walk above aliases such as `~`. */
   let resolvedParentDirectory = $state<string | null>(null);
   let loading = $state(false);
+  /**
+   * No folder is listed yet: the host is still read on open, or a folder is
+   * loading. Before the host is read the list is not empty, only unknown.
+   */
+  const isLoadingFolder = $derived(!hostReady || loading);
   let loadError = $state<string | null>(null);
   let creating = $state(false);
   let reloadVersion = $state(0);
@@ -189,7 +194,7 @@
   const willCreate = $derived(
     !chooses &&
       !selectedTarget &&
-      !loading &&
+      !isLoadingFolder &&
       path.trim().length > 0 &&
       (leaf ? exactEntry === null : !!loadError),
   );
@@ -385,7 +390,7 @@
   }
 
   async function submit() {
-    if (loading || creating || !resolvedPath) return;
+    if (isLoadingFolder || creating || !resolvedPath) return;
     if (savingFile && !nameIsValid) return;
     if (!willCreate) {
       commit(resolvedPath);
@@ -569,10 +574,12 @@
            on one left edge. -->
       <DirectoryPlaces
         locations={sidebarLocations}
-        recents={recentProjects.slice(0, 6).map((project) => ({
-          label: project.folderName,
-          path: ensureDirectoryPath(project.path, hostPlatform),
-        }))}
+        recents={hostReady
+          ? recentProjects.slice(0, 6).map((project) => ({
+              label: project.folderName,
+              path: ensureDirectoryPath(project.path, hostPlatform),
+            }))
+          : []}
         activePath={path}
         onNavigate={navigateTo}
       />
@@ -642,7 +649,7 @@
               aria-label="Folder path"
               aria-autocomplete="list"
               aria-controls="directory-picker-list"
-              aria-expanded={!loading && !loadError}
+              aria-expanded={!isLoadingFolder && !loadError}
               aria-activedescendant={activeDescendant}
               oninput={(e) => setLeaf(e.currentTarget.value)}
             />
@@ -716,7 +723,7 @@
             />
           {/snippet}
 
-          {#if loading}
+          {#if isLoadingFolder}
             <div
               class="flex h-full flex-col items-center justify-center gap-2"
               role="status"
@@ -789,7 +796,7 @@
           <Button
             variant="ghost"
             class="-ml-2.5 shrink-0 gap-1.5 text-[0.8125rem] text-muted-foreground"
-            disabled={loading || !resolvedDirectory}
+            disabled={isLoadingFolder || !resolvedDirectory}
             onmousedown={(e) => e.preventDefault()}
             onclick={startNewFolder}
             title={`New folder (${formatComboText({ alt: true, code: "KeyN" })})`}
@@ -798,7 +805,7 @@
             <FolderPlusIcon size={14} />
             <span class="@max-[29rem]/picker:hidden">New folder</span>
           </Button>
-          {#if !loading && !loadError && rows.length > 0}
+          {#if !isLoadingFolder && !loadError && rows.length > 0}
             <span class="shrink-0 text-xs text-muted-foreground @max-[36rem]/picker:hidden">
               {entryCountLabel(rows.length, !!chooses)}
             </span>
@@ -837,7 +844,7 @@
             <Button
               variant="ghost"
               class="shrink-0 text-[0.8125rem] text-muted-foreground @max-[32rem]/picker:hidden"
-              disabled={loading || !resolvedDirectory}
+              disabled={isLoadingFolder || !resolvedDirectory}
               onclick={() => void openInFileManager()}
             >
               Open in {fileManagerName}
@@ -846,7 +853,7 @@
           <Button variant="ghost" class="shrink-0 text-[0.8125rem]" onclick={onClose}>Cancel</Button>
           <Button
             class="shrink-0 px-3.5 text-[0.8125rem]"
-            disabled={loading || creating || !resolvedPath || (savingFile && !nameIsValid)}
+            disabled={isLoadingFolder || creating || !resolvedPath || (savingFile && !nameIsValid)}
             onclick={() => void submit()}
           >
             {creating ? "Creating" : submitLabel}

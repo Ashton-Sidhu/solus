@@ -1,4 +1,4 @@
-import { pairHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
+import { addHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
 import { startSessionsAgentTool } from './start-sessions-tool'
 import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
@@ -137,7 +137,7 @@ export const solusToolbox = {
   },
   connections: {
     listHosts: listHostsAgentTool,
-    pairHost: pairHostAgentTool,
+    addHost: addHostAgentTool,
     removeHost: removeHostAgentTool,
     status: connectionStatusAgentTool,
     connectIntegration: connectIntegrationAgentTool,

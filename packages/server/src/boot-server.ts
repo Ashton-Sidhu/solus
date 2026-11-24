@@ -1,5 +1,7 @@
 import { HostPairings } from './host/host-pairings'
 import { registerHostPairingHandlers } from './transport/handlers/host-pairing-handlers'
+import { registerPairApprovalHandlers } from './transport/handlers/pair-approval-handlers'
+import { PairApprovals } from './admission/pair-approvals'
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
@@ -279,6 +281,8 @@ import { registerSkillsHandlers } from './transport/handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sessions-handlers'
 import { registerHostListHandlers } from './transport/handlers/host-list-handlers'
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
+import { registerPersonHistoryHandlers } from './transport/handlers/person-history-handlers'
+import { publishPersonHistoryChanges } from './transport/events/person-history-events'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
@@ -741,6 +745,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
     publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
+    publishPersonHistoryChanges(events, personConnections),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -1281,6 +1286,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : principal.kind === 'owner' ? ownerReach() : null
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
   registerHostPairingHandlers(server, hostPairings)
+  const pairApprovals = new PairApprovals()
+  domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
   registerSessionLineageHandlers(server, opts.sessionRuntime, remoteHosts, reachOf)
@@ -1447,6 +1454,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerPinnedSessionsHandlers(server)
   domainEventUnsubscribes.push(registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   registerSessionReadStateHandlers(server)
+  // A host is the person's home while they are signed out (docs/plans/person-state.md §3).
+  registerPersonHistoryHandlers(server, () => LOCAL_ORGANIZATION_ID)
   phaseDone('domain_handlers_registered')
   const updatesAllowed = () => hostPolicies().hostSetting('updates')?.value.mode !== 'off'
   const hostUpdates = new UpdateStatusService({
@@ -2016,6 +2025,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     deviceHub: devices.hubProxy,
     // No pairing door on a managed host or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
+    pairApprovals,
     enableTailscaleServe: async (port) => ({ url: (await enableServe(port)).url }),
     isApiMode: apiMode,
     verifyAccessToken: verifyHostAccessToken,

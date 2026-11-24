@@ -26,6 +26,7 @@ import {
 } from "../../lib/threadActivity";
 import { useMarkdownPreviewStyles } from "../files/FileMarkdownPreview";
 import type { LinkedThreadRouteParams } from "./linkedThreadRoute";
+import { BackgroundCommandRow } from "./BackgroundCommandRow";
 import { ReadOnlyComposerBar } from "./ReadOnlyComposerBar";
 import { ThreadInspectorHeader, type ThreadInspectorPresentation } from "./thread-inspector-header";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
@@ -139,6 +140,9 @@ function LinkedThreadEntry(props: { readonly entry: ThreadFeedEntry }) {
     return <SelectableMarkdownText markdown={entry.text} textStyle={styles.nativeTextStyle} />;
   }
   if (entry.type !== "message" || entry.message.text.trim() === "") return null;
+  if (entry.message.backgroundCommand) {
+    return <BackgroundCommandRow command={entry.message.backgroundCommand} />;
+  }
   return entry.message.role === "user" ? (
     <View className="max-w-[88%] self-end rounded-2xl bg-user-bubble px-3.5 py-2.5">
       <Text selectable className="text-sm text-user-bubble-foreground">

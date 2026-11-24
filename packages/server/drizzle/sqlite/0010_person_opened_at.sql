@@ -1,0 +1,2 @@
+ALTER TABLE `personal_resource_state` ADD `opened_at` integer;--> statement-breakpoint
+CREATE INDEX `personal_resource_state_opened` ON `personal_resource_state` (`organization_id`,`created_by`,`opened_at`) WHERE opened_at IS NOT NULL;

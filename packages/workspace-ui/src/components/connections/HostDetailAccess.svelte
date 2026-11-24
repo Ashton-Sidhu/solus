@@ -20,6 +20,8 @@
   import UplinkSection from "./UplinkSection.svelte";
   import OrganizationsSection from "./OrganizationsSection.svelte";
   import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
+  import PairApprovalsSection from "./PairApprovalsSection.svelte";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
   import type { RemoteAccessMode } from "@solus/contracts/host-api";
@@ -48,6 +50,8 @@
   const canChangeNetwork = $derived(info?.principal === "local-owner");
   // Only the host's owner may read and revoke its pairings (plans/033 §4.4).
   const showsPairedDevices = $derived(hasPairing && (info?.principal === "local-owner" || info?.principal === "remote-owner"));
+  // Only a principal with host.local.reach may list and decide approval requests.
+  const showsApprovals = $derived(hasPairing && info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.local.reach"));
   const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
   const networkDescription = $derived(
     info
@@ -206,6 +210,13 @@
       </SettingsRow>
     </SettingsSection>
   {/if}
+{/if}
+
+{#if showsApprovals}
+  <!-- Keyed so another host's list is read afresh. -->
+  {#key serverId}
+    <PairApprovalsSection {serverId} />
+  {/key}
 {/if}
 
 <!-- After the network setting on purpose: a forward needs no open port (D4, D7). -->

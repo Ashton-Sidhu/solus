@@ -1,48 +1,48 @@
-import type { AuthClientMetadata, AuthPairingLink } from "@t3tools/contracts";
+import type { PairApprovalRequest } from "@solus/contracts/add-machine";
 import { msg } from "gt-react-native";
 
 import { m } from "../../i18n/messages";
 
 export interface ConnectDeviceApprovalPrompt {
+  /** The host and the request, so two hosts' requests never share a prompt. */
   readonly pairingLinkId: string;
+  readonly requestId: string;
   readonly title: string;
   readonly message: string;
 }
 
-export function describeConnectDevice(device: AuthClientMetadata | undefined): string {
-  const { label, browser, os } = device ?? {};
-  if (label) return label;
-  if (browser && os) return m(msg("{browser} on {os}", { browser, os }));
-  return browser ?? os ?? m(msg("A new device"));
-}
-
-/** Requests waiting on approval that have not been shown yet, oldest first. */
-export function connectDeviceApprovalPrompts(input: {
-  readonly environmentLabel: string;
-  readonly pairingLinks: ReadonlyArray<AuthPairingLink>;
+/**
+ * Approval requests (docs/plans/add-machine-card.md) that have not been shown
+ * yet, oldest first. Solus asks for the same thing T3 Connect asks for: a
+ * machine wants to pair, and the person compares the check code first.
+ */
+export function pairApprovalPrompts(input: {
+  readonly hostId: string;
+  readonly hostLabel: string;
+  readonly approvals: ReadonlyArray<PairApprovalRequest>;
   readonly shownIds: ReadonlySet<string>;
+  readonly now: number;
 }): ReadonlyArray<ConnectDeviceApprovalPrompt> {
-  const waiting = input.pairingLinks.flatMap((link) =>
-    link.connectDeviceRequest !== undefined && !input.shownIds.has(link.id)
-      ? [{ link, ...link.connectDeviceRequest }]
-      : [],
-  );
-  return [...waiting]
-    .sort(
-      (left, right) =>
-        left.link.createdAt.epochMilliseconds - right.link.createdAt.epochMilliseconds,
+  // Hermes lacks toSorted: `filter` makes the copy that `sort` orders.
+  return input.approvals
+    .filter(
+      (request) =>
+        request.expiresAt > input.now &&
+        !input.shownIds.has(`${input.hostId}:${request.requestId}`),
     )
-    .map(({ link, verificationCode, client: device }) => ({
-      pairingLinkId: link.id,
-      title: m(msg("Approve this device?")),
+    .sort((left, right) => left.requestedAt - right.requestedAt)
+    .map((request) => ({
+      pairingLinkId: `${input.hostId}:${request.requestId}`,
+      requestId: request.requestId,
+      title: m(msg("Approve this machine?")),
       message: m(
         msg(
-          "{device} wants to connect to {environment} through {product}. It shows code {code}. Approve it only if that code matches.",
+          "{device} at {address} wants to pair with {host}. It shows check code {code}. Approve it only if that code matches.",
           {
-            device: describeConnectDevice(device),
-            environment: input.environmentLabel,
-            product: "T3 Connect",
-            code: verificationCode,
+            device: request.deviceLabel,
+            address: request.fromAddress,
+            host: input.hostLabel,
+            code: request.checkCode,
           },
         ),
       ),

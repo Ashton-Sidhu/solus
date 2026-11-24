@@ -1,12 +1,16 @@
-import { Radar, Unplug } from '@lucide/svelte'
+import { KeyRound, Radar, Unplug } from '@lucide/svelte'
 import type { Command } from '../command-palette/lib/commands'
 import { connectionsNav } from '../connections/connections-nav.svelte'
+import { pairCodeRequest } from '../connections/lib/pair-code-request.svelte'
+import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { discoverStore } from './discover.store.svelte'
 
 /**
  * The palette's way into the fleet (docs/plans/host-fleet.md D11), for desktop and
  * web alike: "Add machine" opens the Add page, and "Find hosts nearby" opens the
- * fleet and scans. `showHosts` opens Settings › Hosts in the shell that asks.
+ * fleet and scans. "Show pairing code" opens this device's host on its Access
+ * tab with a code made (docs/plans/add-machine-card.md). `showHosts` opens
+ * Settings › Hosts in the shell that asks.
  */
 export function fleetPaletteCommands(showHosts: () => void): Command[] {
   return [
@@ -31,6 +35,22 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
         connectionsNav.back()
         showHosts()
         void discoverStore.scan()
+      },
+    },
+    {
+      id: 'show-pairing-code',
+      label: 'Show pairing code',
+      group: 'Servers',
+      icon: KeyRound,
+      keywords: ['pair', 'code', 'pairing', 'access', 'connect device', 'add machine', 'link'],
+      run: () => {
+        // On web, the device is the host the page is served by.
+        const serverId = (hosts.device ?? hosts.runOn)?.id
+        if (serverId) {
+          pairCodeRequest.ask(serverId)
+          connectionsNav.open(serverId, 'access')
+        }
+        showHosts()
       },
     },
   ]

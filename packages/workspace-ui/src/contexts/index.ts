@@ -84,6 +84,7 @@ export { hosts, type Host } from './hosts/hosts.svelte'
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
+export { personHistoryStore } from './person-history/person-history.store.svelte'
 export { managedHostsStore } from './connections/managed-hosts.store.svelte'
 export {
   compareNearbyHosts,
@@ -106,6 +107,7 @@ export { accountStore } from './account/account.store.svelte'
 export { notificationHubStore } from './notifications/notification-hub.store.svelte'
 
 export { connectRequestStore } from './connections/connect-request.store.svelte'
+export { pairApprovalsStore } from './connections/pair-approvals.store.svelte'
 export type { ConnectRequest } from './connections/connect-request.store.svelte'
 /** Provider seats: a member's own Claude and Codex logins on a shared host. */
 export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.store.svelte'

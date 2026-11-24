@@ -222,10 +222,15 @@ remove the end to schedule it again.
 
 ## Remote host pairing
 
-`pair_host` pairs a remote Solus server from an owner chat session. It takes an
-address and a session-bound `secretRef` from `request_secret`, never a raw code.
+`add_host` adds a remote Solus server from an owner chat session. It takes the
+person's words for the machine (`hint`), its address (`url`) when known, and a
+`reason`; it takes no code and no label. It returns a host this host already
+reaches with no card. Otherwise it shows the Add machine card, which offers SSH
+from this host, an approval request, and a pairing code, and returns the host
+that the person added, or `declined`. No code or password goes through chat or
+the tool.
 `list_hosts` lists reachable and unavailable machines with connection status.
 `list_agent_targets` lists providers and models on one selected machine.
-`remove_host` forgets a pairing. Both Claude
-and Codex use the same tools. See [Pair hosts](host-pairing.md) for the CLI, client
+`remove_host` forgets a machine. Both Claude
+and Codex use the same tools. See [Add hosts](host-pairing.md) for the CLI, client
 credentials, access limits, and removal behavior.

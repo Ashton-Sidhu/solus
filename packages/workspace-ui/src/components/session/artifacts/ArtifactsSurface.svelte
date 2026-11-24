@@ -21,7 +21,6 @@
   import { getClientShellContext, getSessionEnvironmentStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
   import { sessionArtifactsStore } from "../../../contexts/sessions/session-artifacts.store.svelte";
   import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
-  import { artifactKey } from "../../../contexts/sessions/session-artifacts";
   import { PAGE_SECONDARY_BTN } from "../../../lib/page-chrome";
   import { sessionTitle } from "../../../lib/sessionUtils";
   import { liveActivityClock } from "../../../lib/shared-clock";
@@ -43,11 +42,11 @@
   import { agentFilterOptions } from "./lib/agent-filter";
   import AgentGroups from "./AgentGroups.svelte";
   import ArtifactCard from "./ArtifactCard.svelte";
-  import ArtifactRow from "./ArtifactRow.svelte";
   import ChangeKinds from "./ChangeKinds.svelte";
   import ChangeRepositories from "./ChangeRepositories.svelte";
   import ChangeTree from "./ChangeTree.svelte";
   import LineCounts from "./LineCounts.svelte";
+  import LinkedRows from "./LinkedRows.svelte";
   import RecentArtifactsRow from "./RecentArtifactsRow.svelte";
   import { highlightedArtifactKey } from "./lib/auto-open";
   import { changeKindShares, changesOfKind } from "./lib/change-kinds";
@@ -228,18 +227,6 @@
   }
 </script>
 
-{#snippet linkedRows(entries: OwnedArtifact[])}
-  {#each entries as entry (`${entry.ownerSessionId}:${artifactKey(entry.artifact)}`)}
-    <ArtifactRow
-      artifact={entry.artifact}
-      query={overview.query}
-      highlighted={artifactKey(entry.artifact) === highlightKey}
-      startedSessionTitle={entry.startedSessionTitle}
-      onOpen={() => openLinked(entry)}
-    />
-  {/each}
-{/snippet}
-
 <div class="flex h-full min-h-0 w-full flex-col bg-(--solus-container-bg)" data-testid="artifacts-surface">
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:w-0">
     <!-- The head: the session's name, then one quiet line for how it stands and where it works. -->
@@ -321,7 +308,7 @@
       <!-- What the session made, the latest viewed first, as a card of its own: the whole session's, whatever the scope. -->
       {#if overview.recent.length > 0}
         <div class="px-3.5 pt-4">
-          <RecentArtifactsRow items={overview.recent} {serverId} isDark={settings.isDark} onOpen={(item) => openLinked(item.owned)} />
+          <RecentArtifactsRow items={overview.recent} serverIdOf={() => serverId} isDark={settings.isDark} onOpen={(item) => openLinked(item.owned)} />
         </div>
       {/if}
       <!-- The agent filter: the whole tree, this session, or one session it started. It narrows the timeline and every card. -->
@@ -403,7 +390,7 @@
           <!-- One card for each kind of link the scope holds. -->
           {#each overview.linkCards as section (section.kind)}
             <ArtifactCard icon={LINK_ICONS[section.kind]} title={section.title} count={section.items.length}>
-              {@render linkedRows(section.items)}
+              <LinkedRows entries={section.items} query={overview.query} {highlightKey} onOpen={openLinked} />
             </ArtifactCard>
           {/each}
         </div>

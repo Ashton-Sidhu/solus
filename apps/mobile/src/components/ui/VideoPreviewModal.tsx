@@ -11,8 +11,7 @@ import { loadLocalAttachmentPreview } from "../../lib/localAttachmentPreview";
 import { usePreviewPresentation, videoPreviewKey } from "../../lib/previewPresentation";
 import { fullscreenVideoClosed, fullscreenVideoOpened } from "../../lib/videoAudioSession";
 import { mediaVideoPreviewUri, type VideoPreviewSource } from "../../lib/videoPreviewSource";
-import { refreshAssetUrl } from "../../state/assets";
-import { usePreparedConnection } from "../../state/session";
+import { refreshAssetUrl, useAssetConnectionAvailable } from "../../state/assets";
 import {
   acquireAudioSession,
   activateAudioSession,
@@ -46,18 +45,21 @@ function NativeVideoPreview(props: {
   const onRequestClose = useEffectEvent(props.onRequestClose);
   const environmentId =
     source.type === "media" && "environmentId" in source ? source.environmentId : null;
-  const preparedConnection = usePreparedConnection(environmentId);
+  const hasConnection = useAssetConnectionAvailable(
+    environmentId,
+    source.type === "media" && "resource" in source ? source.resource : null,
+  );
   const name = source.type === "media" ? source.name : source.attachment.name;
   // Mints a fresh URL for each presentation: AVKit retains the URL and offers no retry,
   // so a cached link that expired while the app was suspended would fail to play.
-  const resolvePlaybackUrl = useEffectEvent(async (): Promise<string> => {
+  const resolvePlaybackUrl = useEffectEvent(async (signal: AbortSignal): Promise<string> => {
     if (source.type !== "media") throw new Error(m(msg("Could not load this video.")));
     if (!("resource" in source)) return source.uri;
-    const url = await refreshAssetUrl(source.environmentId, source.resource).catch(() => null);
+    const url = await refreshAssetUrl(source.environmentId, source.resource, signal).catch(() => null);
     const playbackUrl = mediaVideoPreviewUri(source, url);
     if (playbackUrl !== null) return playbackUrl;
     throw new Error(
-      preparedConnection._tag === "None"
+      !hasConnection
         ? m(msg("Reconnect to this environment and open the video again."))
         : m(msg("Could not load this video. Check the connection and try again.")),
     );
@@ -102,7 +104,7 @@ function NativeVideoPreview(props: {
           ? await loadLocalAttachmentPreview(localAttachment, controller.signal)
           : null;
       if (localAttachment !== null && !file) return;
-      const uri = file?.uri ?? (await resolvePlaybackUrl());
+      const uri = file?.uri ?? (await resolvePlaybackUrl(controller.signal));
       if (controller.signal.aborted) {
         file?.dispose();
         return;

@@ -16,8 +16,7 @@ import {
   type MediaVideoPreviewSource,
   type VideoPreviewSource,
 } from "../../lib/videoPreviewSource";
-import { useAssetUrlState, useRefreshAssetUrl } from "../../state/assets";
-import { usePreparedConnection } from "../../state/session";
+import { useAssetConnectionAvailable, useAssetUrlState, useRefreshAssetUrl } from "../../state/assets";
 import { AppText } from "./AppText";
 import { MediaPreviewHeader } from "../MediaPreviewHeader";
 import { MediaVideoPlayer } from "../MediaVideoPlayer";
@@ -36,7 +35,7 @@ interface PlaybackState {
 function useMediaPlayback(source: MediaVideoPreviewSource): PlaybackState {
   const environmentId = "environmentId" in source ? source.environmentId : null;
   const resource = "resource" in source ? source.resource : null;
-  const connection = usePreparedConnection(environmentId);
+  const hasConnection = useAssetConnectionAvailable(environmentId, resource);
   const asset = useAssetUrlState(environmentId, resource);
   const gt = useGT();
   const refreshAssetUrl = useRefreshAssetUrl(environmentId, resource);
@@ -49,7 +48,7 @@ function useMediaPlayback(source: MediaVideoPreviewSource): PlaybackState {
     unavailable:
       uri === null &&
       environmentId !== null &&
-      (connection._tag === "None" || asset._tag === "Failure"),
+      (!hasConnection || asset._tag === "Failure"),
     unavailableDetail:
       asset._tag === "Failure" && asset.reason === "missing-file-access"
         ? gt("This connection cannot read host files. Pair again with a new link to view it.")

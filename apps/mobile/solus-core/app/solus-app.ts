@@ -36,6 +36,7 @@ import { Codebases } from '../features/codebases/codebases'
 import { NativeDevices } from '../features/devices/native-devices'
 import { NativeBrowser } from '../features/browser/native-browser'
 import { HostAccess } from '../features/settings/host-access'
+import { PairApprovals } from '../features/settings/pair-approvals'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
@@ -49,6 +50,7 @@ import { PullRequestActions } from '../features/prs/pull-request-actions'
 import { memoryPullRequestCacheDatabase, PullRequestCache, type PullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 import { rememberNewThreadTarget } from '../features/threads/new-thread-targets'
 import { ProjectFiles } from '../features/files/project-files'
+import { MobilePersonHistory } from '../features/history/person-history'
 import { removeKeysWithPrefix, type KeyValueStore, type SecretStore } from '../platform/ports'
 
 /**
@@ -157,6 +159,8 @@ export class SolusApp {
   readonly forwardedHosts: ForwardedHosts
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
+  /** The open approval requests of the hosts this phone may decide them on (docs/plans/add-machine-card.md). */
+  readonly pairApprovals: PairApprovals
   /** The codebases of the hosts of this phone (docs/plans/codebases.md §10). */
   readonly codebases: Codebases
   readonly devices: NativeDevices
@@ -171,6 +175,8 @@ export class SolusApp {
   readonly reviewDrafts: PullRequestReviewDrafts
   readonly pullRequestActions: PullRequestActions
   readonly files: ProjectFiles
+  /** When the person last opened each work, app, file, and image, from their home (docs/plans/person-state.md). */
+  readonly history: MobilePersonHistory
   private readonly readers = new Map<ConversationStore, number>()
   private readonly recent = new Map<ConversationStore, () => void>()
   private readonly conversations = new Map<string, ConversationStore>()
@@ -255,6 +261,11 @@ export class SolusApp {
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
+    this.pairApprovals = new PairApprovals({
+      readyConnections: () => this.connections.readyConnections(),
+      mayReach: (hostId) => this.connections.may(hostId, 'host.local.reach'),
+      onChange: (listener) => this.connections.changes.subscribe(listener),
+    })
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
     this.codebases = new Codebases({
@@ -292,6 +303,20 @@ export class SolusApp {
       startSession: (hostId, workingDirectory, prompt) => this.startSession(hostId, workingDirectory, prompt),
     })
     this.files = new ProjectFiles((hostId) => this.connections.connection(hostId), () => this.account.organizationId)
+    this.history = new MobilePersonHistory({
+      account: () => {
+        const organizationId = this.account.isSignedIn ? this.account.organizationId : null
+        return { signedIn: this.account.isSignedIn, solusApiId: organizationId ? this.connections.solusApi(organizationId)?.hostId ?? null : null }
+      },
+      // A phone has no default host of its own: the first host it keeps is the one its history stays on, signed out.
+      defaultHostId: () => this.registry.hosts()[0]?.id ?? null,
+      // The history never dials: a host is read once it is connected, and the Solus API once `followCloudSessions` dials it.
+      connection: (serverId) => this.connections.readyConnections().find((connection) => connection.hostId === serverId) ?? null,
+      onChange: (listener) => {
+        const stops = [this.registry.changes.subscribe(listener), this.connections.changes.subscribe(listener), this.account.changes.subscribe(listener)]
+        return () => { for (const stop of stops) stop() }
+      },
+    })
     this.outbox = new SendOutbox(() => storage)
     this.notifications = new NativeNotificationHub({
       registry: this.registry,
@@ -539,6 +564,7 @@ export class SolusApp {
     for (const store of this.conversations.values()) this.closeConversation(store)
     this.conversations.clear()
     this.accountSync.dispose()
+    this.history.dispose()
     this.connections.disposeAll()
   }
 
@@ -585,6 +611,7 @@ export class SolusApp {
     const account = this.account.syncAccount
     this.accountSync.followAccount(account)
     this.followCloudSessions()
+    this.history.chooseHome()
   }
 
   /**

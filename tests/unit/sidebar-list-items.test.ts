@@ -113,16 +113,19 @@ describe('the sidebar as one list', () => {
     }
   })
 
-  test('drafts lead, then the sessions, then each shelf under its header', () => {
+  test('pins lead, then drafts, then the sessions, then each shelf under its header', () => {
     // WHY: tasks have no place in the sidebar. Every row is one session, and a
     // session linked to a task names it on a chip; there is no Tasks section.
+    // Pins stay on top so a draft never pushes them down the list.
     const items = list({
       drafts: [draft('d1')],
+      pinned: [pin('p1')],
       sessions: [row('a1')],
       snoozed: [row('s1', 'snoozed')],
       completed: [row('c1', 'completed')],
     })
     expect(items.map((item) => item.key)).toEqual([
+      'pinned:local:p1',
       'draft:d1',
       'drafts-divider',
       'a1:card',

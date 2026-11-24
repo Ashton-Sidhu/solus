@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
+  import SettingsSectionSkeleton from "./SettingsSectionSkeleton.svelte";
 
   // Nav groups, sized like the real tab list so the rail doesn't jump width.
   const NAV_GROUPS = [
@@ -7,7 +8,6 @@
     { label: 7, items: [5, 4, 6, 4] },
     { label: 11, items: [4, 5] },
   ];
-  const ROW_WIDTHS = [72, 88, 61, 79];
 </script>
 
 <div
@@ -55,32 +55,7 @@
 
     <div class="flex-1 overflow-hidden px-[clamp(2rem,3cqi,3rem)]">
       <div class="mx-auto w-full max-w-4xl pt-8 pb-12">
-        <div class="flex flex-col gap-8">
-          {#each ROW_WIDTHS as width, i (i)}
-            <div class="flex flex-col gap-2.5">
-              <Skeleton class="ml-4 h-2.5 w-24 rounded-[0.1875rem] opacity-45" />
-              <div
-                class="flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background [&>*+*]:border-t [&>*+*]:border-border/50"
-              >
-                {#each [0, 1] as row (row)}
-                  <div class="flex items-center justify-between gap-4 px-4 py-3">
-                    <div class="flex min-w-0 flex-1 flex-col gap-2">
-                      <Skeleton
-                        class="h-2.5 rounded-[0.1875rem] opacity-70"
-                        style="width:{width / 3}%"
-                      />
-                      <Skeleton
-                        class="h-2 rounded-[0.1875rem] opacity-45"
-                        style="width:{width}%"
-                      />
-                    </div>
-                    <Skeleton class="h-6 w-11 shrink-0 rounded-full opacity-60" />
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/each}
-        </div>
+        <SettingsSectionSkeleton />
       </div>
     </div>
   </div>

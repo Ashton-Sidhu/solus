@@ -17,7 +17,7 @@ import { registerCapabilityHandlers } from '../handlers/capability-handlers'
 import { recordScopeOf, type RecordScope } from '../../admission/principal'
 import { getSessionRecord } from '../../data/sessions/session-records'
 import { readTranscript, readTranscriptPage } from '../../data/sessions/transcript-reads'
-import { readerMirrorScope } from '../../data/sessions/mirror-scope'
+import { personMirrorScope, readerMirrorScope } from '../../data/sessions/mirror-scope'
 import { turnDiffsOfPage } from '../../data/sessions/turn-diffs'
 import { resumeHistoryPage } from '../../data/sessions/history-blocks'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
@@ -31,6 +31,7 @@ import { organizationForNew } from '../../admission/principal'
 import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 import { getProvider } from '../../providers/registry'
 import { registerAuthHandlers } from '../handlers/auth-handlers'
+import { registerPersonHistoryHandlers } from '../handlers/person-history-handlers'
 
 /** The retained collaboration operations; record CRUD exists only on HTTP. */
 export function registerSolusApiHandlers(server: SolusServer, deps: {
@@ -45,6 +46,8 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   registerNotificationHubHandlers(server, { shares: deps.shares })
   registerWorkLiveHandlers(server, { live: deps.workLive, shares: deps.shares })
   registerAuthHandlers(server)
+  // A signed-in person's history is in their own scope, which each of their organization connections reaches (docs/plans/person-state.md §3).
+  registerPersonHistoryHandlers(server, (principal) => principal.kind === 'org-member' ? personMirrorScope(principal.userId) : null)
   registerCapabilityHandlers(server, async () => ({ headless: true, desktopHandlers: false, agents: { claude: false, codex: false }, dictation: false,
     platform: process.platform, version: appVersion(), projectCount: 0, agentAuth: { claude: false }, gitAuth: { github: false } }))
   server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))

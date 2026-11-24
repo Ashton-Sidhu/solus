@@ -151,3 +151,12 @@ export function fileRouteParams(artifact: FileArtifact, serverId: string, projec
   return { serverId, cwd: folder, path: name }
 }
 
+
+/** A long card shows a workable window first; the rest waits behind Show more. */
+export const LINK_ROWS_INITIAL_COUNT = 6
+export const LINK_ROWS_PAGE_COUNT = 12
+
+/** How many of a card's rows show: the window the person opened, or every match while they search. */
+export function shownLinkRowCount(total: number, opened: number, query: string): number {
+  return query.trim() ? total : Math.min(total, opened)
+}

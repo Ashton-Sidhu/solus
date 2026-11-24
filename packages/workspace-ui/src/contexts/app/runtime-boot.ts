@@ -18,6 +18,7 @@ import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
+import { pairApprovalsStore } from '../connections/pair-approvals.store.svelte'
 
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
 export function logConnectionReadError(operation: string, error: Parameters<typeof String>[0]): void {
@@ -146,6 +147,9 @@ export function initializeRuntime(
   // A host that dropped because it froze says so when it comes back.
   const stopStallToasts = startHostStallToasts()
 
+  // A machine that asks to pair with a host this client owns says so (docs/plans/add-machine-card.md).
+  const stopPairApprovals = pairApprovalsStore.start()
+
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
   return () => {
@@ -155,6 +159,7 @@ export function initializeRuntime(
     stopReadiness()
     stopUnreadRose()
     stopStallToasts()
+    stopPairApprovals()
   }
 }
 

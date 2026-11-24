@@ -227,6 +227,7 @@ export const KEYBINDINGS = {
 
   // ── Search (the unified picker) ────────────────────────────────────────────
   'task-picker.choose-project':   { combo: { alt: true, code: 'KeyA' },                    scope: 'task-picker',        label: 'Choose project scope',     group: 'Palette' },
+  'task-picker.open-in-browser':  { combo: { mod: true, code: 'Enter' },                   scope: 'task-picker',        label: 'Open pull request in browser', group: 'Palette' },
   'task-picker.row-actions':      { combo: { alt: true, code: 'Enter' },                   scope: 'task-picker',        label: 'Row actions',              group: 'Palette' },
   'task-picker.search-options':   { combo: { alt: true, code: 'KeyS' },                    scope: 'task-picker',        label: 'Sort and search options',  group: 'Palette' },
 

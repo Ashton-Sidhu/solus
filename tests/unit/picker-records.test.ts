@@ -347,7 +347,8 @@ describe('an empty list says why it is empty', () => {
 describe('the action bar of a preview', () => {
   test('is only for a row with more than one thing to do', () => {
     // WHY: a bar that holds one button says only what ⏎ already does. A task
-    // has a status to set, and a pull request opens here or in the browser.
+    // has a status to set. A pull request has no bar: the key hints say what ⏎
+    // does and offer the browser.
     const { entries } = build({
       query: 'release', sort: 'recency',
       tasks: [task('t1', 'Release blockers')],
@@ -355,7 +356,7 @@ describe('the action bar of a preview', () => {
       records: [work('w1', 'Release notes'), pullRequest(3, 'Fix release script'), project('p1', 'release-tools')],
     })
     const bars = Object.fromEntries(entries.map((entry) => [titleOf(entry), hasActionBar(entry)]))
-    expect(bars).toEqual({ 'task:t1': true, 'session:s1': false, 'work:w1': false, 'pr:local:/repo:3': true, 'project:p1': false })
+    expect(bars).toEqual({ 'task:t1': true, 'session:s1': false, 'work:w1': false, 'pr:local:/repo:3': false, 'project:p1': false })
     expect(hasActionBar(null)).toBe(false)
     // A row with no bar says what ⏎ does in the key hints.
     expect(Object.fromEntries(entries.map((entry) => [titleOf(entry), entryOpenLabel(entry)])))

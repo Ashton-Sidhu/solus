@@ -20,6 +20,8 @@ import { tmpdir } from 'os'
 import { z } from 'zod'
 import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, refreshSessionToken, revokeDevice, revokeSessionToken, verifyPairOpenAdminRequest, verifySessionToken } from '../admission/auth'
 import { createDoors, type Doors } from '../admission/doors'
+import type { PairApprovals } from '../admission/pair-approvals'
+import { normalizeCheckCode, pairApprovalStartRequestSchema, pairApprovalWaitRequestSchema, type PairApprovalStart, type PairApprovalWait } from '@solus/contracts/add-machine'
 import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
@@ -83,6 +85,8 @@ export interface HttpServerOptions {
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
   /** A managed machine (docs/plans/managed-hosts.md §1) and the workspace service alike: pairing does not exist, on either listener. */
   pairingDisabled?: boolean
+  /** The open approval requests (docs/plans/add-machine-card.md). Without them, `/pair/request` does not exist. */
+  pairApprovals?: PairApprovals
   /** Local CLI command, admitted with the same admin signature as `/pair/open`. */
   enableTailscaleServe?: (port: number) => Promise<{ url: string | null }>
   /** API mode (cloud-service-model.md §15): only a member's token or a host's delegated token is a credential; owners do not exist. */
@@ -167,6 +171,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const port = opts.port ?? 0
   const currentPort = () => opts.getPort?.() ?? port
   const pairRateLimiter = createTokenBucketRateLimiter(10, 60_000)
+  // A requester polls about twice a minute; this is far above that and far below guessing.
+  const approvalWaitRateLimiter = createTokenBucketRateLimiter(30, 60_000)
   let voiceTranscriptionActive = false
 
   const app = new Hono<Env>()
@@ -373,6 +379,37 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     log.info('pair_session_issued', { deviceLabel, trusted: !pairToken, replaced })
     return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() })
   })
+
+  // An approval request (docs/plans/add-machine-card.md): a machine asks to pair
+  // without a code, and an owner approves it. It has the exposure of `/pair`:
+  // absent with pairing disabled and over the tunnel, rate limited per address.
+  const pairApprovals = opts.pairApprovals
+  if (pairApprovals) {
+    app.post('/pair/request', async (c) => {
+      if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
+      const body = await readJson(c, pairApprovalStartRequestSchema)
+      const checkCode = body ? normalizeCheckCode(body.checkCode) : null
+      if (!body || !checkCode) return c.json({ error: 'Send a device label of 1 to 64 characters and a check code as XXXX-XXXX.' }, 400)
+      // Behind Tailscale Serve the socket is loopback; the owner must not read that as this machine.
+      const forwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+      const fromAddress = viaServe(c) ? `${forwardedFor || 'unknown'} (Tailscale Serve)` : clientIp(c)
+      const started = pairApprovals.start({ deviceLabel: body.deviceLabel, checkCode, fromAddress, replacesSessionToken: body.replacesSessionToken })
+      if (!started) return c.json({ error: 'Too many open approval requests. Try again later.' }, 429)
+      const { request, waitToken } = started
+      return c.json({ requestId: request.requestId, expiresAt: request.expiresAt, waitToken } satisfies PairApprovalStart)
+    })
+
+    app.post('/pair/request/wait', async (c) => {
+      if (!approvalWaitRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
+      const body = await readJson(c, pairApprovalWaitRequestSchema)
+      if (!body) return c.json({ error: 'Send the request id and its wait token.' }, 400)
+      const outcome = await pairApprovals.wait(body.requestId, body.waitToken, c.req.raw.signal)
+      const answer: PairApprovalWait = outcome.status === 'approved'
+        ? { status: 'approved', sessionToken: outcome.sessionToken, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() }
+        : outcome
+      return c.json(answer)
+    })
+  }
 
   app.post('/pair/open', async (c) => {
     if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)

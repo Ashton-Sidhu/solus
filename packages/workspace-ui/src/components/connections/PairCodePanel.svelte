@@ -17,6 +17,8 @@
   import { pairQrSvgPath } from "./lib/qrcode";
   import { bestPairEndpoint, pairLink, hostedPairLink } from "@solus/client-core/pairing";
   import { liveActivityClock } from "../../lib/shared-clock";
+  import { pairCodeRequest } from "./lib/pair-code-request.svelte";
+  import { untrack } from "svelte";
 
   interface Props {
     serverId: string;
@@ -26,6 +28,12 @@
 
   const connections = connectionsStore;
   let copiedField = $state<string | null>(null);
+
+  // A link from elsewhere ("Show the code on <name>", "Show pairing code") asks for a code here once.
+  $effect(() => {
+    if (pairCodeRequest.serverId !== serverId) return;
+    untrack(() => { if (pairCodeRequest.take(serverId)) void connections.generatePairToken(serverId); });
+  });
 
   const endpointIcon = {
     loopback: HouseIcon,

@@ -60,14 +60,21 @@ Add `--json` to get the result for a script.
 
 ## Pair a host over the local network
 
-When pairing from a local owner session, Solus checks the host's health before
-it sends the pairing request. The health check can pass while pairing fails.
+When pairing from a local owner session, Solus first checks the shape of the
+code. A code is 6 digits or a pair link that names the same address. Any other
+value, such as a password, is refused, and no request goes to the host. Solus
+then checks the host's health before it sends the pairing request. The health
+check can pass while pairing fails.
 
 | Pairing error | What to check |
 |---|---|
+| That is not a pairing code | Get a code with `solus pair` on that host, or with Settings → Connections → This computer → Access → Generate code there. A machine password is not a pairing code. If SSH reaches the machine, add it over SSH instead. |
+| The pairing link names a different server | Use the address from the link, or paste only the link. |
 | HTTP 401 | Run `solus pair` on the host and use the new code within five minutes. The link and code share one use. |
 | HTTP 429 | Wait before you try again. The host limits pairing requests. |
 | Request timed out or could not be sent | Check that the host is still online and that the address accepts pairing requests. |
+| The owner of that host denied the request, or it expired | Ask again, and approve it on that host within five minutes. Compare the check code on both screens. |
+| That host does not take approval requests | The host is older, or it does not take pairing requests. Use a pairing code. |
 | Other HTTP status or missing fields in the reply | Check that the address points to Solus. If a proxy serves the address, check that it forwards `POST /pair` and returns the Solus reply. |
 
 ## This device is offline

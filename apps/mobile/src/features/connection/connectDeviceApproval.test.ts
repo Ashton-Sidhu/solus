@@ -1,39 +1,57 @@
-import type { AuthPairingLink } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
+import type { PairApprovalRequest } from "@solus/contracts/add-machine";
 import { describe, expect, it } from "vite-plus/test";
 
-import { connectDeviceApprovalPrompts, createApprovalPromptQueue } from "./connectDeviceApproval";
+import { createApprovalPromptQueue, pairApprovalPrompts } from "./connectDeviceApproval";
 
-const link = (id: string, createdAtMs: number, request?: AuthPairingLink["connectDeviceRequest"]) =>
+const request = (requestId: string, requestedAt: number, expiresAt = requestedAt + 300_000) =>
   ({
-    id,
-    scopes: [],
-    subject: "cloud-connect",
-    createdAt: DateTime.makeUnsafe(createdAtMs),
-    expiresAt: DateTime.makeUnsafe(createdAtMs + 600_000),
-    ...(request ? { connectDeviceRequest: request } : {}),
-  }) as unknown as AuthPairingLink;
+    requestId,
+    checkCode: requestId === "older" ? "K7QM-2XFD" : "WXYZ-2345",
+    deviceLabel: requestId === "older" ? "Studio Mac" : "Laptop",
+    fromAddress: "10.0.0.7",
+    requestedAt,
+    expiresAt,
+  }) satisfies PairApprovalRequest;
 
-describe("connectDeviceApprovalPrompts", () => {
-  it("prompts once per waiting device, oldest first, and skips ordinary pairing links", () => {
-    const pairingLinks = [
-      link("newer", 2_000, { verificationCode: "WXYZ-2345" }),
-      link("plain", 500),
-      link("older", 1_000, {
-        verificationCode: "ABCD-EFGH",
-        client: { deviceType: "desktop", browser: "Chrome", os: "macOS" },
-      }),
-    ];
-
-    const prompts = connectDeviceApprovalPrompts({
-      environmentLabel: "Mac mini",
-      pairingLinks,
-      shownIds: new Set(["newer"]),
+describe("pairApprovalPrompts", () => {
+  // The person approves only when the codes match, so the prompt must show the code and name both machines.
+  it("prompts once per open request, oldest first, with the check code and both machines", () => {
+    const prompts = pairApprovalPrompts({
+      hostId: "mini",
+      hostLabel: "Mac mini",
+      approvals: [request("newer", 2_000), request("shown", 500), request("older", 1_000)],
+      shownIds: new Set(["mini:shown"]),
+      now: 3_000,
     });
 
-    expect(prompts.map((prompt) => prompt.pairingLinkId)).toEqual(["older"]);
-    expect(prompts[0]?.message).toContain("Chrome on macOS wants to connect to Mac mini");
-    expect(prompts[0]?.message).toContain("ABCD-EFGH");
+    expect(prompts.map((prompt) => prompt.pairingLinkId)).toEqual(["mini:older", "mini:newer"]);
+    expect(prompts[0]?.requestId).toBe("older");
+    expect(prompts[0]?.message).toContain("Studio Mac at 10.0.0.7 wants to pair with Mac mini");
+    expect(prompts[0]?.message).toContain("K7QM-2XFD");
+  });
+
+  it("does not prompt for a request that expired", () => {
+    const prompts = pairApprovalPrompts({
+      hostId: "mini",
+      hostLabel: "Mac mini",
+      approvals: [request("older", 1_000, 2_000)],
+      shownIds: new Set(),
+      now: 2_000,
+    });
+    expect(prompts).toEqual([]);
+  });
+
+  // Two hosts can hold requests with the same id; each host's prompt is its own.
+  it("keys a prompt by its host and its request", () => {
+    const shown = new Set(["mini:older"]);
+    const prompts = pairApprovalPrompts({
+      hostId: "studio",
+      hostLabel: "Studio",
+      approvals: [request("older", 1_000)],
+      shownIds: shown,
+      now: 1_500,
+    });
+    expect(prompts.map((prompt) => prompt.pairingLinkId)).toEqual(["studio:older"]);
   });
 });
 

@@ -2,7 +2,6 @@
   /** The form of a new codebase: a name and a first folder. The folder is
    *  scanned on its host before the codebase is made, so the person sees what
    *  it holds. */
-  import { ArrowLeft as ArrowLeftIcon } from "@lucide/svelte";
   import { codebasesStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -36,16 +35,13 @@
   }
 </script>
 
+<!-- The settings header names this form, and its Codebases crumb goes back to the list. -->
 <div class="flex flex-col gap-8">
-  <div class="flex flex-wrap items-center gap-3">
-    <Button size="sm" variant="ghost" onclick={onClose}><ArrowLeftIcon size={14} /> Codebases</Button>
-    <h2 class="text-lg font-medium">New codebase</h2>
-  </div>
 
   <SettingsSection label="Codebase">
     <SettingsRow label="Name" description="A short name for this set of folders.">
       {#snippet control()}
-        <Input bind:value={name} class="h-7 w-56" aria-label="Codebase name" maxlength={200} autofocus disabled={isBusy} onSubmit={() => void create()} />
+        <Input bind:value={name} class="h-7 w-56" aria-label="Codebase name" maxlength={200} autofocus disabled={isBusy} submitOn="enter" onSubmit={() => void create()} />
       {/snippet}
     </SettingsRow>
   </SettingsSection>

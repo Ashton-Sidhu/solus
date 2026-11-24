@@ -10,6 +10,18 @@ Where it lives: `packages/workspace-ui/src/components/workspace/`.
 tab, the filter, the sort, the keyboard cursor, and everything derived from
 them; `lib/workspace-items.ts` is the item model. Mobile has no Workspace page.
 
+## Recently viewed
+
+At the top of the page, above every tab's list, a "Recently viewed" row shows
+the works and apps the person opened last, newest open first, at most 12. It
+is the same row as the Threads surface's (`RecentArtifactsRow`), read from the
+person's history (`docs/plans/person-state.md`): an open on any of the person's
+devices, and from any surface (a link, the palette, a session's Threads),
+counts. Only what the page lists shows; a deleted work drops out. The row does
+not show until the person opened something, and it steps aside while a search
+or a filter is on, because those are about the list. Its label folds it.
+`WorkspaceRecentRow.svelte` draws it from `lib/workspace-recent.ts`.
+
 ## Four groups
 
 A tab strip under the page's crumb line names four groups. Each tab carries

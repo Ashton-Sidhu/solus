@@ -1,13 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionArtifact } from '@solus/contracts/session-artifacts'
 import { ownedArtifacts } from '@solus/client-core/session-overview'
-import {
-  ArtifactOpenLog,
-  recentArtifactKey,
-  recentArtifacts,
-  recentArtifactTimeLabel,
-  type ArtifactOpenStorage,
-} from '@solus/client-core/recent-artifacts'
+import { recentArtifactKey, recentArtifacts, recentArtifactTimeLabel } from '@solus/client-core/recent-artifacts'
 
 const work = (workId: string, linkedAt: number, extra: { pinned?: boolean; updatedAt?: number } = {}): SessionArtifact =>
   ({ kind: 'work', workId, title: workId, workType: 'doc', linkedAt, ...extra })
@@ -68,39 +62,5 @@ describe('the Threads row', () => {
     const [item] = recentArtifacts(ownedArtifacts({ own: [work('w', 0)], children: [] }, 's1'), () => 1_000)
     expect(recentArtifactTimeLabel(item!, 1_000 + 10 * 60_000)).toBe('Opened 10m ago')
     expect(recentArtifactTimeLabel(item!, 1_000)).toBe('Opened now')
-  })
-})
-
-describe('the open log', () => {
-  function memoryStorage(): ArtifactOpenStorage & { values: Map<string, string> } {
-    const values = new Map<string, string>()
-    return { values, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => void values.set(key, value) }
-  }
-
-  test('an open survives a restart of the client', () => {
-    // WHY: "recently opened" that forgets on every reload is not recent, it is this window's.
-    const storage = memoryStorage()
-    new ArtifactOpenLog(storage).record(work('w', 0), 1234)
-    expect(new ArtifactOpenLog(storage).openedAt(work('w', 0))).toBe(1234)
-    expect(new ArtifactOpenLog(storage).openedAt(work('other', 0))).toBeNull()
-  })
-
-  test('a damaged store reads as no opens, and a missing store still records for the run', () => {
-    const storage = memoryStorage()
-    storage.values.set('solus.artifactOpens', '{not json')
-    expect(new ArtifactOpenLog(storage).openedAt(work('w', 0))).toBeNull()
-    const log = new ArtifactOpenLog(null)
-    log.record(work('w', 0), 5)
-    expect(log.openedAt(work('w', 0))).toBe(5)
-  })
-
-  test('the log keeps the newest 200 opens', () => {
-    const storage = memoryStorage()
-    const log = new ArtifactOpenLog(storage)
-    for (let index = 0; index < 205; index++) log.record(work(`w${index}`, 0), index)
-    const reread = new ArtifactOpenLog(storage)
-    expect(reread.openedAt(work('w204', 0))).toBe(204)
-    expect(reread.openedAt(work('w4', 0))).toBeNull()
-    expect(reread.openedAt(work('w5', 0))).toBe(5)
   })
 })

@@ -6,6 +6,8 @@ interface Disclosure {
   showAllRows: boolean
   pickedId: string | null
   draft: string
+  /** A render the reader widened past the reading column. */
+  isWide: boolean
 }
 
 const contextKey = Symbol('transcript-disclosure')
@@ -17,7 +19,7 @@ export class TranscriptDisclosure {
   forKey(key: string): Disclosure {
     let value = this.entries.get(key)
     if (!value) {
-      const created: Disclosure = $state({ expanded: false, openedByUser: null, showAllRows: false, pickedId: null, draft: '' })
+      const created: Disclosure = $state({ expanded: false, openedByUser: null, showAllRows: false, pickedId: null, draft: '', isWide: false })
       value = created
       this.entries.set(key, value)
     }

@@ -219,6 +219,12 @@ export interface BackgroundWait {
   /** The command itself, set in the mono face after the label. Only when the
    *  provider stated no intent the label can say instead. */
   command: string
+  /** Set while the turn waits on other agent sessions: the transcript item
+   *  (`itemKey`) of the card the row scrolls to. */
+  agentCardKey?: string
+  /** How many of those sessions wait on a person. The first one's card is
+   *  `agentCardKey`. */
+  agentsNeedYou?: number
 }
 
 /**
@@ -235,8 +241,15 @@ export interface BackgroundWait {
 export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | null {
   // Another session's reply is the whole reason the turn is still open: the
   // host holds it running until the reply arrives, whatever else it said.
-  const peerWait = waitingOnLabel(agentsAwaitingReply(items))
-  if (peerWait) return { label: peerWait, command: '' }
+  const awaited = agentsAwaitingReply(items)
+  if (awaited) {
+    return {
+      label: waitingOnLabel(awaited),
+      command: '',
+      agentCardKey: awaited.firstItemKey,
+      ...(awaited.needYou > 0 && { agentsNeedYou: awaited.needYou }),
+    }
+  }
   const subagents: Message[] = []
   const commands: Message[] = []
   for (const item of items) {
@@ -287,7 +300,17 @@ export function settledBackgroundWait(items: GroupedItem[]): BackgroundWait {
   return {
     label: (wait?.label ?? 'Running in the background').replace(/…$/, ''),
     command: wait?.command ?? '',
+    ...(wait?.agentCardKey && { agentCardKey: wait.agentCardKey }),
+    ...(wait?.agentsNeedYou && { agentsNeedYou: wait.agentsNeedYou }),
   }
+}
+
+/** The line after an agent wait's label: what you can do now. A session that
+ *  waits on you is answered on its card; otherwise the parent is idle and takes
+ *  a new message at once. */
+export function agentWaitHint(wait: BackgroundWait): string {
+  if (!wait.agentsNeedYou) return 'You can keep chatting'
+  return wait.agentsNeedYou === 1 ? 'Answer on its card' : 'Answer on their cards'
 }
 
 /**

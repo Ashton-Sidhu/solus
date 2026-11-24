@@ -26,6 +26,22 @@ export function memberStateTint(state: CodebaseMemberState): ListTint {
   return state === 'missing' ? 'failure' : 'neutral'
 }
 
+/** The name of a root in its row: its own name, else its last path name. */
+export function rootName(root: { name: string; path: string }): string {
+  return root.name || hostPathBaseName(root.path) || root.path
+}
+
+/**
+ * What a root is, in one muted line after its name: its kind, and how many
+ * repositories its host found inside it. A plain folder with none says so,
+ * because then the codebase gets no repository from it.
+ */
+export function rootDescription(state: CodebaseMemberState, foundCount: number): string {
+  if (state === 'missing') return 'Not on the host'
+  if (foundCount > 0) return `${STATE_LABEL[state]} · ${countLabel(foundCount, 'repository', 'repositories')} inside`
+  return state === 'plain' ? 'Folder · No repository inside' : STATE_LABEL[state]
+}
+
 export function countLabel(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }

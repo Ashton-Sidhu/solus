@@ -1,4 +1,5 @@
 import { EMPTY_THREAD_HISTORY_META, applyHistoryPageMeta, type ThreadHistoryMeta } from "@t3tools/client-runtime/state/thread-history-merge"
+import { backgroundCommandWake, type BackgroundCommandWake } from '@solus/client-core/background-command-wake'
 import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-activity'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
@@ -31,7 +32,7 @@ export type { ToolItem } from './tool-item'
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
-  | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[] }
+  | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
   | { kind: 'assistant'; id: string; text: string; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
@@ -265,9 +266,14 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'user') {
+      const backgroundCommand = backgroundCommandWake(row.content)
       // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
-      if (this.agentCards.applyUserRow(row.content, row.timestamp)) return null
+      if (!backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
+      if (backgroundCommand) {
+        this.items.set(id, { kind: 'user', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+        return id
+      }
       const { text, files } = splitAttachedFiles(stripSessionReferenceContext(row.content))
       this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
@@ -552,7 +558,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind }]
+        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }) }]
         this.metaChanged = true
         return true
       case 'question_answered':
@@ -907,6 +913,11 @@ export class TranscriptModel {
         this.markDelivery(event.clientPromptId, 'sent')
         return
       }
+    }
+    const backgroundCommand = event.via === 'background-command' ? backgroundCommandWake(event.text) : null
+    if (backgroundCommand) {
+      this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+      return
     }
     const { text, files } = splitAttachedFiles(event.text)
     const attachments = [...promptImageAttachments(event.imageAttachments, event.imageAttachmentRefs), ...files]

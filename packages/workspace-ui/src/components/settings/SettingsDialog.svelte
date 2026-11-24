@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { settingsSectionLoaders } from "./lib/settings-section-loaders";
+  import { settingsSection } from "./lib/settings-section-loaders";
   import { Dialog } from "bits-ui";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -9,9 +9,11 @@
   import { toastSurface } from "../ui/sonner/toast-surface.svelte";
 
   const session = getWorkspaceContext();
-  const page = import("./SettingsPage.svelte");
-  // Load the first section in parallel with the frame. The section shows its own load error.
-  void settingsSectionLoaders[untrack(() => session.settingsTab)]().catch(() => {});
+  // Load the first section beside the frame, and keep the page skeleton until both are ready.
+  // The section is then cached and renders at once, with no section skeleton between.
+  // The section shows its own load error.
+  const firstSection = Promise.resolve(settingsSection(untrack(() => session.settingsTab))).catch(() => {});
+  const page = Promise.all([import("./SettingsPage.svelte"), firstSection]).then(([loaded]) => loaded);
   let content = $state<HTMLDivElement | null>(null);
   let open = $state(true);
   useScope("settings-dialog", { exclusive: true, pre: true });

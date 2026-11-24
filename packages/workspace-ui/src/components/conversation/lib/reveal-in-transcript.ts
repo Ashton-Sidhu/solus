@@ -34,3 +34,14 @@ export function revealInTranscript(element: HTMLElement): void {
   const headroom = Math.max(0, card.top - view.top)
   scroller.scrollBy({ top: Math.min(hidden, headroom), behavior: 'smooth' })
 }
+
+/** Scroll to the item `itemKey` (`turns.ts`) of the turn that holds `from`,
+ *  and move focus to its first control, so a keyboard reader lands on it. */
+export function revealTurnItem(from: HTMLElement, itemKey: string): void {
+  const turn = from.closest('[data-slot="transcript-turn"]')
+  const item = turn?.querySelector<HTMLElement>(`[data-item-key="${CSS.escape(itemKey)}"]`)
+  if (!item) return
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  item.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'instant' : 'smooth' })
+  item.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus({ preventScroll: true })
+}

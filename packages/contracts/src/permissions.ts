@@ -65,6 +65,8 @@ const PERMISSION_OF_METHOD = {
   // The owner's own list; the handler also refuses anyone but the host owner.
   hostsPair: 'host.local.reach',
   hostsListPaired: 'host.local.reach',
+  hostsPairApprovals: 'host.local.reach',
+  hostsPairApprovalDecide: 'host.local.reach',
   hostsPairClient: 'host.local.reach',
   hostsForget: 'host.local.reach',
   hostListRead: 'host.admin',
@@ -143,6 +145,9 @@ const PERMISSION_OF_METHOD = {
   listAttention: 'host.connect',
   presenceSnapshot: 'host.connect',
   presenceSetFocus: 'host.connect',
+  // A person's own history: the caller reads and writes only their own entries.
+  personHistoryRecord: 'host.connect',
+  personHistoryList: 'host.connect',
   // What the composer offers: the agents here and the models they run.
   start: 'host.agents.read',
   modelProfilesStatus: 'host.models.read',

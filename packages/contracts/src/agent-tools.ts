@@ -81,7 +81,7 @@ export const SOLUS_TOOL_GROUPS = [
   ] },
   { id: 'connections', label: 'Connections', tools: [
     'list_hosts',
-    'pair_host',
+    'add_host',
     'remove_host',
     'connection_status',
     'connect_integration',

@@ -16,6 +16,7 @@
   import {
     getClientShellContext,
     getSurfaceContext,
+    personHistoryStore,
     runtime,
     presenceStore,
     projectsStore,
@@ -57,6 +58,7 @@
   import { buildWorkspaceItems, isHtmlArtifact } from "./lib/workspace-items";
   import { buildWorkspaceAppItems, type WorkspaceAppItem } from "./lib/workspace-apps";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
+  import WorkspaceRecentRow from "./WorkspaceRecentRow.svelte";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
 
   /** The route names the tab a link opens on (`/folio/apps`); the cloud console mounts the page with no route. */
@@ -738,6 +740,11 @@
           tabindex="-1"
           onscroll={handleLedgerScroll}
         >
+          <!-- What the person opened last, above every tab's list; a search is about the list, so it steps aside. -->
+          {#if !ledger.searching}
+            <WorkspaceRecentRow history={personHistoryStore.entries()} works={allItems} apps={appItems} workHostOf={(workId) => session.worksStore.hostFor(workId)}
+              machineIdOf={(serverId) => personHistoryStore.machineIdOf(serverId)} isDark={session.settings.isDark} onOpenWork={(item) => void openItem(item)} onOpenApp={openApp} />
+          {/if}
           {#if ledger.tab === "apps"}
             <WorkspaceAppsTab {ledger} onOpen={openApp} onManage={manageApp} />
           {:else if loading}

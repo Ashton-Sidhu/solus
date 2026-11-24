@@ -1,6 +1,9 @@
 import { hostCatalog } from "@solus/client-core/host-catalog"
 import type { AddWay } from "../fleet/lib/fleet-model"
 
+/** The tabs of one host's page. */
+export type HostPageTab = "overview" | "resources" | "access" | "git" | "providers" | "environment"
+
 /**
  * Where the Connections page is: the fleet, one host's page, or the Add page
  * (docs/plans/host-fleet.md D8). Held outside the
@@ -31,7 +34,7 @@ class ConnectionsNav {
     return this.hostId !== null || this.isAdding
   }
 
-  open(hostId: string, tab = "overview"): void {
+  open(hostId: string, tab: HostPageTab = "overview"): void {
     this.tab = tab
     this.isAdding = false
     this.hostId = hostId

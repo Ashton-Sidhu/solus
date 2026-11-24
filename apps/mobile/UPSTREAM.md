@@ -26,11 +26,17 @@ Session loading was compared with T3 Code revision `0591d32888dbd2f2f25915c245e6
 
 The Files routes for drafts and sessions open the same T3 tree and preview screens. The tablet file navigator uses the same file queries. The Solus adapter in `src/solus/checkout-files.ts` supplies directory entries, indexed search results, file contents, and signed preview URLs for the selected host and account.
 
+Video links in a session use the same Solus host and file access rules as the Files preview. T3's iOS, Android, and inline video players request a fresh signed URL for playback.
+
 The thread route owns the screen host, header, draft layout, and inspector. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
+
+The composer follows T3's Stop rule. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. The local outbox can show a busy state while the host has yet to take the prompt.
 
 Session navigation now uses the T3 opening hold and queued-creation check. The selected Solus host supplies one account-scoped read and watch to that hold and the screen. Home uses T3's visibility subscription. Home, the tablet sidebar, and arrangement controls share the result of T3's multi-environment shell release rules. The only change to the upstream release algorithm is its TypeScript snapshot type parameter.
 
 The conversation adapter translates messages and ordinary tools into T3 turn items. Solus cards enter at their row position. T3's `buildThreadFeed` handles history and streamed row updates with the same restart cache. Media URLs, tool details, host permissions, and the host replay cursor remain Solus operations. Earlier pages use T3's history metadata and retry state.
+
+Solus background command notices mark the start of a turn in the T3 feed. Live notices use the host's origin tag. Saved history uses the same text parser as desktop and web. The compact row opens to show the command and the available output in the thread and in read-only history.
 
 Successful workspace image reads use T3's viewed-image row. The Solus adapter supplies the file path, and the Solus host signs the preview URL.
 

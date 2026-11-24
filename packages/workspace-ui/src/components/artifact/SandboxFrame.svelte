@@ -3,6 +3,8 @@
   import {
     Maximize as ArrowsOutIcon,
     Minimize as ArrowsInIcon,
+    FoldHorizontal as NarrowIcon,
+    UnfoldHorizontal as WidenIcon,
   } from "@lucide/svelte";
   import { getSettingsContext, getSurfaceContext, hasSurfaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -16,7 +18,10 @@
     lastReportedHeight,
     rememberReportedHeight,
     holdFrameHeight,
+    renderKeyOf,
   } from "./lib/artifact-view";
+  import { getHtmlBlockOrigin } from "../conversation/lib/html-block-origin";
+  import { getTranscriptDisclosure } from "../conversation/lib/transcript-disclosure.svelte";
   import { scrollContainerOf } from "../../lib/scroll-container";
   import { isMac } from "../../lib/keybindings/match";
   import {
@@ -163,6 +168,24 @@
     if (!hasHeight && !isApp && html !== undefined && frameEl) return holdFrameHeight(frameEl);
   });
   let expanded = $state(false);
+
+  // In a conversation a render can grow past the reading column into the
+  // pane's gutters. The choice belongs to the conversation, so it survives
+  // the row unmounting as the reader scrolls past it.
+  const origin = getHtmlBlockOrigin();
+  const disclosures = getTranscriptDisclosure();
+  const widthKey = $derived(heightKey ?? html);
+  const wideChoice = $derived(
+    origin && widthKey !== undefined && !isApp && !fillAvailable ? disclosures.forKey(`wide:${renderKeyOf(widthKey)}`) : null,
+  );
+  const sideRoom = $derived(wideChoice ? (origin?.().sideRoom ?? 0) : 0);
+  const isWide = $derived(sideRoom > 0 && !!wideChoice?.isWide && !expanded);
+
+  function toggleWide() {
+    if (wideChoice) wideChoice.isWide = !wideChoice.isWide;
+    requestInputFocus();
+  }
+
   let isNearViewport = $state(untrack(() => !lazy));
   // Inline content width, captured the moment we expand. Fullscreen pins the
   // iframe to this width and scales the whole render up with a CSS transform, so
@@ -356,6 +379,9 @@
   class:expanded
   class:is-app={isApp}
   class:fill-available={fillAvailable}
+  class:is-wide={isWide}
+  style:width={isWide ? `calc(100% + ${2 * sideRoom}px)` : undefined}
+  style:margin-inline={isWide ? `-${sideRoom}px` : undefined}
   data-testid="artifact-view"
   bind:this={frameEl}
 >
@@ -407,9 +433,33 @@
     <div class="artifact-placeholder" style={isApp ? undefined : `height:${contentHeight}px`}></div>
   {/if}
 
-  {#if (children || (frameSettled && !frameResult?.failed)) && (actions || expandable)}
+  {#if (children || (frameSettled && !frameResult?.failed)) && (actions || expandable || sideRoom > 0)}
     <div class="artifact-actions">
       {@render actions?.()}
+      {#if sideRoom > 0 && !expanded}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button
+                {...tooltipProps}
+                type="button"
+                class="artifact-action"
+                data-testid="artifact-widen"
+                aria-label={isWide ? "Fit to column" : "Widen"}
+                aria-pressed={isWide}
+                onclick={toggleWide}
+              >
+                {#if isWide}
+                  <NarrowIcon size={14} />
+                {:else}
+                  <WidenIcon size={14} />
+                {/if}
+              </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={isWide ? "Fit to column" : "Widen"} />
+        </TooltipUI.Root>
+      {/if}
       {#if expandable}
         {#snippet expandButton(extra: import("svelte/elements").HTMLButtonAttributes)}
           <button
@@ -456,6 +506,11 @@
        conversation. A radius here would clip content drawn at the corners. */
     border: 0;
     background: transparent;
+  }
+
+  /* Widened past the reading column; the width and margins are inline. */
+  .artifact-frame.is-wide {
+    max-width: none;
   }
 
   /* In a flex column (the artifact pane), the frame and its iframe grow to
@@ -589,7 +644,16 @@
     top: 0.5rem;
     right: 0.5rem;
     display: inline-flex;
-    gap: 0.375rem;
+    /* One pill: the cluster carries the border and the fill, and each action
+       is a glyph inside it. */
+    gap: 0.125rem;
+    padding: 0.125rem;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid
+      color-mix(in srgb, var(--solus-tool-border) 40%, transparent);
+    background: color-mix(in srgb, var(--solus-container-bg) 80%, transparent);
+    backdrop-filter: blur(0.375rem);
+    -webkit-backdrop-filter: blur(0.375rem);
     opacity: 0;
     transform: translateY(-0.1875rem) scale(0.96);
     transition:
@@ -599,27 +663,28 @@
 
   /* `:global` so a caller's own action button, handed in through the `actions`
      snippet, wears the same chrome as the frame's Expand. */
-  /* Quiet at rest: no shadow, a faint border, and a muted glyph, so the
-     cluster sits over a render's own header without competing with it. */
+  /* An action whose snippet rendered nothing leaves no empty pill. */
+  .artifact-actions:not(:has(> *)) {
+    display: none;
+  }
+
+  /* Quiet at rest: no shadow, no border, and a muted glyph, so the pill sits
+     over a render's own header without competing with it. */
   .artifact-actions :global(.artifact-action) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
+    width: 1.5rem;
+    height: 1.5rem;
     border-radius: 0.375rem;
-    border: 0.0625rem solid
-      color-mix(in srgb, var(--solus-tool-border) 40%, transparent);
-    background: color-mix(in srgb, var(--solus-container-bg) 80%, transparent);
-    backdrop-filter: blur(0.375rem);
-    -webkit-backdrop-filter: blur(0.375rem);
+    border: 0;
+    background: transparent;
     color: var(--muted-foreground);
     cursor: pointer;
     text-decoration: none;
     transition:
       background 0.16s ease,
       color 0.16s ease,
-      border-color 0.16s ease,
       transform 0.12s ease;
   }
 
@@ -659,7 +724,6 @@
 
   .artifact-actions :global(.artifact-action:hover) {
     background: var(--solus-surface-hover);
-    border-color: var(--solus-accent-border-medium);
     color: var(--solus-accent);
   }
 
@@ -669,7 +733,6 @@
       var(--solus-accent-soft) 70%,
       var(--solus-container-bg)
     );
-    border-color: var(--solus-accent-border-medium);
     color: var(--solus-accent);
   }
 
@@ -679,7 +742,7 @@
 
   .artifact-actions :global(.artifact-action:focus-visible) {
     outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
+    outline-offset: -0.125rem;
   }
 
   @media (prefers-reduced-motion: reduce) {

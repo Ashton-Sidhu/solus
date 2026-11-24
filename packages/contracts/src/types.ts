@@ -3,6 +3,7 @@ import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
 import type { WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
+import type { AddMachineAsk } from './add-machine'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
@@ -799,8 +800,11 @@ export interface QuestionRequest {
   questions: QuestionItem[]
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
-  /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6). */
-  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret'
+  /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
+   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; it is answered with `hostLinkAnswer` (docs/plans/add-machine-card.md). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'
+  /** `host-link` only: what the agent asks to add. */
+  hostLink?: AddMachineAsk
   message?: string
   url?: string
   serverName?: string
@@ -2119,7 +2123,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret'; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'; hostLink?: AddMachineAsk; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */

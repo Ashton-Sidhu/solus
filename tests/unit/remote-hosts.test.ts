@@ -188,7 +188,7 @@ describe('local reach: introduced hosts (§4)', () => {
 
     const found = await hosts.find(NO_ACCOUNT, 'Windows')
     if ('error' in found) throw new Error(found.error)
-    expect(hosts.connect(found)).toEqual({ error: expect.stringContaining('Pair it here with pair_host') })
+    expect(hosts.connect(found)).toEqual({ error: expect.stringContaining('Add it here with add_host') })
     // The list is the owner's: a member's turn does not see it.
     expect(await hosts.list(MEMBER)).toEqual({ error: expect.stringContaining('reaches no other host') })
   })

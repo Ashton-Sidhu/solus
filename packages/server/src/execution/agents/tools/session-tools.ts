@@ -17,7 +17,7 @@ import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { toolMayRead } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnOrder } from '../../orchestration/session-orchestrator'
-import type { ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
+import type { ListedRemoteHost, ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
@@ -412,9 +412,16 @@ function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
 }
 
 async function listHostsTool(_args: Record<string, never>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const request = deps.ctx?.sessionId ? reachRequestOf(deps.ctx.sessionId) : null
-  if (!request) return { ok: false, text: 'Only a session with host access can list its remote hosts.' }
-  return { ok: true, text: JSON.stringify({ hosts: remoteHosts ? await remoteHosts.summaries(request) : [] }, null, 2) }
+  const hosts = deps.ctx?.sessionId ? await listedRemoteHosts(deps.ctx.sessionId) : null
+  if (!hosts) return { ok: false, text: 'Only a session with host access can list its remote hosts.' }
+  return { ok: true, text: JSON.stringify({ hosts }, null, 2) }
+}
+
+/** The hosts `list_hosts` shows a session, with their status; null when its person reaches none from here. */
+export async function listedRemoteHosts(sessionId: string): Promise<ListedRemoteHost[] | null> {
+  const request = reachRequestOf(sessionId)
+  if (!request) return null
+  return remoteHosts ? remoteHosts.summaries(request) : []
 }
 
 /** The connection to one of the owner's other hosts, by id or name. */
@@ -731,7 +738,7 @@ function sessionAgentTool(
 }
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
-export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines on your host list and account, with ids, routes, and connection status (not-paired: use pair_host). Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
+export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines on your host list and account, with ids, routes, and connection status (not-paired: use add_host). Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)

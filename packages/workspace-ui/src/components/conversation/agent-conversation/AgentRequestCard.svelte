@@ -7,6 +7,7 @@
   import PermissionCard from "../PermissionCard.svelte";
   import QuestionCard from "../QuestionCard.svelte";
   import SecretRequestCard from "../SecretRequestCard.svelte";
+  import AddMachineCard from "../AddMachineCard.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import { toasts } from "../../../lib/toasts";
 
@@ -46,6 +47,15 @@
       {tabId}
       request={request.question}
       answer={(questionId, values) => api.secretRequestAnswer(ref.sessionId, questionId, values).catch(answerRefused)}
+    />
+  {/key}
+{:else if request.kind === "question" && request.question.kind === "host-link"}
+  <!-- The other session's add_host card: the work runs on this tab's host, and the outcome answers that session. -->
+  {#key request.question.questionId}
+    <AddMachineCard
+      {tabId}
+      request={request.question}
+      answer={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
     />
   {/key}
 {:else if request.kind === "question"}

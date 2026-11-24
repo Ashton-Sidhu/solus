@@ -50,6 +50,13 @@
       "when": 1795460462765,
       "tag": "0006_codebases",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795498910757,
+      "tag": "0007_person_opened_at",
+      "breakpoints": true
     }
   ]
 }

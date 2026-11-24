@@ -19,8 +19,8 @@ import {
 } from '@solus/client-core/session-overview'
 import { childRows, digestTurnCosts, mergedFileChanges, scopedNodes, treeOwnedArtifacts, treeTimeline, type AgentScope, type TreeSessionRow } from '@solus/client-core/session-tree'
 import type { TimelineTurn, TurnCost } from '@solus/client-core/turn-timeline'
-import { recentArtifacts, type RecentArtifact } from '@solus/client-core/recent-artifacts'
-import { artifactOpensStore } from '../../../contexts/sessions/artifact-opens.store.svelte'
+import { recentArtifactKey, recentArtifacts, type RecentArtifact } from '@solus/client-core/recent-artifacts'
+import { personHistoryStore } from '../../../contexts/person-history/person-history.store.svelte'
 import { sessionArtifactsStore } from '../../../contexts/sessions/session-artifacts.store.svelte'
 import { sessionTreeStore } from '../../../contexts/sessions/session-tree.store.svelte'
 import { projectRoot, workingPlace } from '../../../contexts/workspace/run-location'
@@ -295,7 +295,7 @@ export class SessionOverview {
   readonly linkCards: LinkSection[] = $derived.by(() => linkSections(this.linked))
 
   /** The works, apps, files, and images to show first: the latest opened, then the latest made. */
-  readonly recent: RecentArtifact[] = $derived.by(() => recentArtifacts(this.allOwned, (artifact) => artifactOpensStore.openedAt(artifact)))
+  readonly recent: RecentArtifact[] = $derived.by(() => recentArtifacts(this.allOwned, (artifact) => personHistoryStore.openedAt(recentArtifactKey(artifact))))
 
   // ─── The whole ───
 

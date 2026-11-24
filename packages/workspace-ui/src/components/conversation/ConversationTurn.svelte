@@ -158,6 +158,7 @@
       <div
         class="turn-item"
         data-body-kind={itemIdx < body.length ? item.kind : undefined}
+        data-item-key={itemKey(item)}
         hidden={folds && !live && !expanded}
         class:is-open={itemIdx < body.length && !live && expanded}
       >

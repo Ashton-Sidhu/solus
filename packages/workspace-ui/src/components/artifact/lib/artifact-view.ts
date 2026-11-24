@@ -50,8 +50,9 @@ function saveHeightsSoon(): void {
 }
 
 /** FNV-1a and the length: markup can be megabytes, and storage wants a short key.
- *  A collision only costs one render its first-paint height. */
-function heightKeyOf(text: string): string {
+ *  A collision only costs one render its first-paint height. The same key
+ *  remembers the reader's width choice for a render in a conversation. */
+export function renderKeyOf(text: string): string {
   // A frame asks again on every height it reports. The same string object
   // hashes once: the map lookup reuses the hash the engine keeps on the string.
   const known = hashedKeys.get(text);
@@ -71,12 +72,12 @@ const HASHED_KEY_LIMIT = 64;
 const hashedKeys = new Map<string, string>();
 
 export function lastReportedHeight(html: string): number | undefined {
-  return storedHeights().get(heightKeyOf(html));
+  return storedHeights().get(renderKeyOf(html));
 }
 
 export function rememberReportedHeight(html: string, height: number): void {
   const heights = storedHeights();
-  const key = heightKeyOf(html);
+  const key = renderKeyOf(html);
   const isUnchanged = heights.get(key) === height;
   // Re-inserting marks the render recently shown, so eviction takes the oldest.
   heights.delete(key);

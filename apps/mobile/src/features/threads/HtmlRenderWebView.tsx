@@ -320,9 +320,12 @@ export function ThreadHtmlRender(props: {
 export function InlineHtmlRender({
   html,
   title,
+  onOpen,
 }: {
   readonly html: string;
   readonly title: string;
+  /** The person opened the page full screen. */
+  readonly onOpen?: () => void;
 }) {
   const gt = useGT();
   const [height, setHeight] = useState(120);
@@ -349,17 +352,18 @@ export function InlineHtmlRender({
       />
     );
   return (
-    <InlinePreviewFrame title={title} expandedContent={() => page(false)}>
+    <InlinePreviewFrame title={title} expandedContent={() => page(false)} onOpen={onOpen}>
       <View style={{ height }}>{page(true)}</View>
     </InlinePreviewFrame>
   );
 }
 
-export function InlinePreviewFrame({ title, heading, children, expandedContent }: {
+export function InlinePreviewFrame({ title, heading, children, expandedContent, onOpen }: {
   readonly title: string;
   readonly children: ReactNode;
   readonly heading?: ReactNode;
   readonly expandedContent: () => ReactNode;
+  readonly onOpen?: () => void;
 }) {
   const gt = useGT();
   const [expanded, setExpanded] = useState(false);
@@ -372,7 +376,10 @@ export function InlinePreviewFrame({ title, heading, children, expandedContent }
           accessibilityLabel={gt("Open {title}", { title })}
           hitSlop={8}
           className="h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/80"
-          onPress={() => setExpanded(true)}
+          onPress={() => {
+            setExpanded(true);
+            onOpen?.();
+          }}
         >
           <SymbolView
             name="arrow.up.left.and.arrow.down.right"
