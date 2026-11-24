@@ -6,6 +6,7 @@ import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProvid
 import { parseUserKey } from '@solus/contracts/user'
 import type { AgentAuthFlows } from '../../execution/seats/agent-auth'
 import type { AgentProfileManager, AgentProfileTarget } from '../../execution/seats/agent-profile'
+import { actingAgentProfileDocument, patchActingAgentProfileDocument } from '../../execution/seats/agent-profile-document'
 import type { SeatConnector } from '../../execution/seats/seat-connect'
 import { isHostOwner, type Principal } from '../../admission/principal'
 import type { SeatStore } from '../../execution/seats/seat-manager'
@@ -97,6 +98,9 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   server.register('agentProfilePull', (_args, ctx) => deps.profiles.pull(profileTargetOf(ctx.principal)))
 
   server.register('agentProfileStatus', (_args, ctx) => deps.profiles.status(profileTargetOf(ctx.principal)))
+  // A signed-out person's profile list, which this host keeps for them (docs/plans/personal-settings-source.md).
+  server.register('agentProfileDocumentGet', () => actingAgentProfileDocument())
+  server.register('agentProfileDocumentPatch', ([change]) => patchActingAgentProfileDocument(change))
 }
 
 /** Whose agent profile a principal edits here; null for a guest, a runner, or the host itself. */

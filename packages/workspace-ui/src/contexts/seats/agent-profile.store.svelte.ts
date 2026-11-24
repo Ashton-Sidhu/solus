@@ -138,10 +138,22 @@ export class AgentProfileStore {
     }
   }
 
-  /** Ask a host to read the profile from the account: after this client's own write, and once per run when sync is on. */
+  /**
+   * Ask a host to read the profile from the account: after this client's own
+   * write, and once per run when sync is on. A host that cannot (it holds no
+   * token for the person, or the cloud does not answer) gets this client's copy
+   * of the account's profile instead (ADR 0007 decision 5).
+   */
   async pull(serverId: string): Promise<void> {
     await this.run(serverId, async () => {
-      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfilePull())
+      const api = serverConnections.apiFor(serverId)
+      try {
+        this.statuses.set(serverId, await api.agentProfilePull())
+      } catch (error) {
+        // An empty copy is not pushed: it would remove what the host holds.
+        if (!this.local || this.local.entryCount === 0) throw error
+        this.statuses.set(serverId, await api.agentProfileApply({ profile: this.local.storedEntries, skipped: [] }))
+      }
     })
   }
 

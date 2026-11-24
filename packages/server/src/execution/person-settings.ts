@@ -64,7 +64,6 @@ export interface PersonSettingsAccount {
 const copies = new Map<string, Copy>()
 /** The last write of each person, so two writes reach the database in the order they were made. */
 const writes = new Map<string, Promise<void>>()
-const changeListeners = new Set<(personKey: string) => void>()
 let account: PersonSettingsAccount | null = null
 let now: () => number = Date.now
 
@@ -91,12 +90,6 @@ function isPersonalSettingKey(key: string): key is PersonalSettingKey {
 /** Installed by the server with its account reads; null forgets it (tests). */
 export function usePersonSettingsAccount(next: PersonSettingsAccount | null): void {
   account = next
-}
-
-/** Hear each change to one person's copy, so only that person's connections hear it. */
-export function onPersonSettingsChanged(listener: (personKey: string) => void): () => void {
-  changeListeners.add(listener)
-  return () => { changeListeners.delete(listener) }
 }
 
 /** Reads every person's copy from the database. Called once at boot, before the first request. */
@@ -153,7 +146,6 @@ function store(personKey: string, copy: Copy): Promise<void> {
   })
   writes.set(personKey, settled)
   void settled.then(() => { if (writes.get(personKey) === settled) writes.delete(personKey) })
-  for (const listener of changeListeners) listener(personKey)
   return write
 }
 

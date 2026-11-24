@@ -428,6 +428,8 @@ export const RPC_INVOKE_METHODS = [
   'agentProfileApply',
   'agentProfilePull',
   'agentProfileStatus',
+  'agentProfileDocumentGet',
+  'agentProfileDocumentPatch',
   // The host's copy of a person's settings (docs/plans/personal-settings-source.md)
   'personalSettingsGet',
   'personalSettingsPatch',

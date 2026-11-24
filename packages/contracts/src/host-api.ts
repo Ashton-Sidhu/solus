@@ -112,7 +112,7 @@ import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopR
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundChangeRequest, IntegrationFoundChangeResult, IntegrationDiscoverRequest, IntegrationFoundListRequest, IntegrationDiscovery, IntegrationFoundTestRequest, IntegrationFoundTestResult, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
-import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
+import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileDocumentPatch, AgentProfileStatus, HostAgentProfileDocument } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
 import type { User } from './user'
@@ -793,6 +793,14 @@ export interface SolusAPI {
   agentProfilePull(): Promise<AgentProfileStatus>
   /** The caller's profile on this host: where it came from, when, and what it holds. */
   agentProfileStatus(): Promise<AgentProfileStatus>
+  /** This host's copy of the caller's agent profile list while they are signed out (docs/plans/personal-settings-source.md). */
+  agentProfileDocumentGet(): Promise<HostAgentProfileDocument>
+  /**
+   * Changes that copy. An entry this host cannot read is left out, never a refusal;
+   * a copy over the size bound is refused. `personalDocument.changed` tells the
+   * caller's other clients.
+   */
+  agentProfileDocumentPatch(change: AgentProfileDocumentPatch): Promise<HostAgentProfileDocument>
   /**
    * This host's copy of the caller's settings (docs/plans/personal-settings-source.md):
    * the source of a signed-out person's settings, and the copy of a signed-in

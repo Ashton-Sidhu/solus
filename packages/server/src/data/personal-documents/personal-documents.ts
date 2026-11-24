@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { PERSONAL_DOCUMENT_KINDS, type PersonalDocumentKind, type PersonalSettingsSource } from '@solus/contracts/settings'
-import { getDatabase } from '../../db/database'
+import { afterDatabaseCommit, getDatabase } from '../../db/database'
 import { personalDocuments } from './schema'
 
 /**
@@ -37,6 +37,21 @@ const rowSchema = z.object({
   updatedAt: row.updated_at,
 }))
 
+/** Whose document changed, so only that person's connections hear it. */
+export interface PersonalDocumentChange {
+  scope: string
+  personKey: string
+  kind: PersonalDocumentKind
+}
+
+const changeListeners = new Set<(change: PersonalDocumentChange) => void>()
+
+/** Hear each committed write of one person's document. */
+export function onPersonalDocumentChanged(listener: (change: PersonalDocumentChange) => void): () => void {
+  changeListeners.add(listener)
+  return () => { changeListeners.delete(listener) }
+}
+
 const COLUMNS = sql`person_key, kind, content, source, account_revision, updated_at`
 
 /** Every person's document of one kind in `scope`. */
@@ -67,4 +82,8 @@ export async function writePersonalDocument(scope: string, row: PersonalDocument
       account_revision = excluded.account_revision,
       updated_at = excluded.updated_at
   `)
+  const change: PersonalDocumentChange = { scope, personKey: row.personKey, kind: row.kind }
+  void afterDatabaseCommit(async () => {
+    for (const listener of changeListeners) listener(change)
+  })
 }

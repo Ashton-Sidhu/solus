@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostPersonalSettings, PersonalSettingsPatch } from '@solus/contracts/settings'
-import { followPersonalSettingsHosts } from '../../apps/mobile/solus-core/features/settings/personal-settings-hosts'
+import type { AgentProfile, AgentProfileDocumentPatch } from '@solus/contracts/agent-profile'
+import { followPersonalDocumentHosts } from '../../apps/mobile/solus-core/features/settings/personal-document-hosts'
+import { AgentProfileLocalStore } from '../../apps/mobile/solus-core/features/settings/agent-profile-local'
 import { PersonalSettingsStore } from '../../apps/mobile/solus-core/features/settings/personal-settings'
 import { Listeners } from '../../apps/mobile/solus-core/lib/listeners'
 import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
@@ -13,16 +15,24 @@ import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports
 function phoneHost(hostId: string, copy: Partial<HostPersonalSettings> = {}) {
   const state: HostPersonalSettings = { settings: {}, source: 'host', followsAccount: false, accountRevision: null, updatedAt: null, ...copy }
   const patches: PersonalSettingsPatch[] = []
+  const profile: { entries: AgentProfile } = { entries: {} }
   const handlers = new Set<(payload: { kind: 'settings' | 'agent-profile' }) => void>()
   return {
     state,
     patches,
+    profile,
     changedHere: () => { for (const handler of handlers) handler({ kind: 'settings' }) },
     connection: {
       hostId,
       api: {
         personalSettingsGet: async () => structuredClone(state),
         personalSettingsChanged: async () => structuredClone(state),
+        agentProfileDocumentGet: async () => ({ entries: structuredClone(profile.entries), updatedAt: 1 }),
+        agentProfileDocumentPatch: async (change: AgentProfileDocumentPatch) => {
+          for (const key of change.reset) delete profile.entries[key]
+          Object.assign(profile.entries, structuredClone(change.set))
+          return { entries: structuredClone(profile.entries), updatedAt: 2 }
+        },
         personalSettingsPatch: async (change: PersonalSettingsPatch) => {
           patches.push(structuredClone(change))
           for (const key of change.reset) delete state.settings[key]
@@ -45,10 +55,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 function phone(hosts: ReturnType<typeof phoneHost>[]) {
   const storage = memoryKeyValueStore()
   const personal = new PersonalSettingsStore(storage)
+  const agentProfile = new AgentProfileLocalStore(storage)
   const connectionChanges = new Listeners()
   const settingsCopyChanges = new Listeners()
-  const stop = followPersonalSettingsHosts({
+  const stop = followPersonalDocumentHosts({
     personal,
+    agentProfile,
     // SAFETY: the wiring reads only `hostId`, `api`, and `events.subscribe` of a connection; each is given here.
     readyConnections: () => hosts.map((host) => host.connection) as never,
     connectionChanges,
@@ -56,7 +68,7 @@ function phone(hosts: ReturnType<typeof phoneHost>[]) {
     settingsCopyChanges,
     storage,
   })
-  return { personal, connectionChanges, settingsCopyChanges, stop }
+  return { personal, agentProfile, connectionChanges, settingsCopyChanges, stop }
 }
 
 describe('the phone and the source of the settings', () => {
@@ -94,6 +106,27 @@ describe('the phone and the source of the settings', () => {
     expect(personal.homeHostId()).toBeNull()
     expect(tokenless.state.settings).toEqual({ themeMode: 'dark' })
     expect(tokenless.patches.at(-1)?.reset).toEqual(['fontSize'])
+    stop()
+  })
+
+  test('signed out, the agent profile list is the first host’s too', async () => {
+    // WHY: ADR 0007 decision 6: the agent profile follows the same rule as the settings.
+    const deploy = { 'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' } } as const satisfies AgentProfile
+    const first = phoneHost('first')
+    first.profile.entries = structuredClone(deploy)
+    const { agentProfile, stop } = phone([first])
+    await settle()
+    expect(agentProfile.entries()).toEqual(deploy)
+
+    agentProfile.removeKeys(['skill:deploy'])
+    await settle()
+    expect(first.profile.entries).toEqual({})
+
+    first.profile.entries = structuredClone(deploy)
+    first.changedHere()
+    await settle()
+    // The settings event names its kind: an agent profile change is read by the profile only.
+    expect(agentProfile.entries()).toEqual({})
     stop()
   })
 })

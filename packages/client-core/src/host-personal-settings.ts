@@ -3,12 +3,12 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import {
   PERSONAL_SETTING_KEYS,
   PERSONAL_SETTING_SCHEMAS,
-  type HostPersonalSettings,
   type PersonalSettingKey,
   type PersonalSettingsDocument,
   type PersonalSettingsPatch,
 } from '@solus/contracts/settings'
 import type { DocumentSyncStorage } from './document-sync'
+import { HomeHostDocument } from './home-host-document'
 import { isSolusApiId } from '@solus/contracts/uplink'
 
 /**
@@ -55,12 +55,10 @@ export function personalSettingsHomeId(choice: { deviceHostId: string | null; de
   return choice.defaultServerId && !isSolusApiId(choice.defaultServerId) ? choice.defaultServerId : null
 }
 
-const pendingKey = (hostId: string) => `solus.personal-settings.pending.v1:${hostId}`
-
 // SAFETY: `PERSONAL_SETTING_KEYS` is derived from the exhaustive owner table and is never empty.
 const keySchema = z.enum(PERSONAL_SETTING_KEYS as [PersonalSettingKey, ...PersonalSettingKey[]])
 
-/** A stored pending change, key by key: a value that no longer passes its schema is dropped. */
+/** A stored waiting change, key by key: a value that no longer passes its schema is dropped. */
 const pendingSchema = z.object({
   set: z.looseObject({}).transform((stored) => {
     const set: PersonalSettingsDocument = {}
@@ -84,14 +82,6 @@ function ordered(document: PersonalSettingsDocument): PersonalSettingsDocument {
   return result
 }
 
-/** `pending` laid over `copy`: what the person sees while their changes wait. */
-function withPending(copy: PersonalSettingsDocument, pending: PersonalSettingsPatch): PersonalSettingsDocument {
-  const result = structuredClone(copy)
-  for (const key of pending.reset) delete result[key]
-  Object.assign(result, structuredClone(pending.set))
-  return result
-}
-
 /** The change that makes a host's copy equal to `desired`. */
 function changeTo(current: PersonalSettingsDocument, desired: PersonalSettingsDocument): PersonalSettingsPatch {
   const reset = PERSONAL_SETTING_KEYS.filter((key) => Object.hasOwn(current, key) && !Object.hasOwn(desired, key))
@@ -101,14 +91,28 @@ function changeTo(current: PersonalSettingsDocument, desired: PersonalSettingsDo
 export class PersonalSettingsHosts {
   /** Signed in: hostId → the account copy this client last saw on that host (or wrote there). */
   private readonly accountCopies = new Map<string, string>()
-  /** Signed out: the home host whose copy is on screen, once it was read. */
-  private readHomeId: string | null = null
-  private isSending = false
-  private sendAgain = false
+  /** Signed out: the home host is the source. */
+  private readonly home: HomeHostDocument<PersonalSettingsDocument, PersonalSettingKey>
   private isNudging = false
   private nudgeAgain = false
 
-  constructor(private readonly ports: PersonalSettingsHostsPorts) {}
+  constructor(private readonly ports: PersonalSettingsHostsPorts) {
+    this.home = new HomeHostDocument<PersonalSettingsDocument, PersonalSettingKey>({
+      homeHostId: () => this.homeHostId,
+      callsFor: (hostId) => {
+        const host = ports.readyHosts().find((candidate) => candidate.hostId === hostId)
+        return host ? {
+          get: async () => (await host.api.personalSettingsGet()).settings,
+          patch: async (change) => (await host.api.personalSettingsPatch(change)).settings.settings,
+        } : null
+      },
+      document: () => ports.document(),
+      adopt: (settings) => ports.adoptHostCopy(settings),
+      storage: ports.storage,
+      storageKey: (hostId) => `solus.personal-settings.pending.v1:${hostId}`,
+      pendingSchema,
+    }, () => ({}))
+  }
 
   /** The home host of a signed-out person; null signed in. */
   get homeHostId(): string | null {
@@ -127,39 +131,22 @@ export class PersonalSettingsHosts {
       if (!ready.some((host) => host.hostId === hostId)) this.accountCopies.delete(hostId)
     }
     if (this.ports.isSignedIn()) {
-      this.readHomeId = null
+      this.home.forget()
       void this.nudge()
       return
     }
     this.accountCopies.clear()
-    const home = this.readyHome()
-    if (!home) {
-      this.readHomeId = null
-      return
-    }
-    if (this.readHomeId === home.hostId) return
-    this.readHomeId = home.hostId
-    void this.syncHome()
+    this.home.refresh()
   }
 
   /** Signed out: the person changed settings here. They go to the home host, now or when it is back. */
   recordLocalChange(change: PersonalSettingsPatch): void {
-    const homeId = this.homeHostId
-    if (!homeId) return
-    const pending = this.pending(homeId)
-    for (const key of Object.keys(change.set)) pending.reset = pending.reset.filter((candidate) => candidate !== key)
-    Object.assign(pending.set, structuredClone(change.set))
-    for (const key of change.reset) {
-      delete pending.set[key]
-      if (!pending.reset.includes(key)) pending.reset.push(key)
-    }
-    this.storePending(homeId, pending)
-    void this.syncHome()
+    this.home.recordLocalChange(change)
   }
 
   /** A host said that the person's copy there changed (`personalDocument.changed`). */
   hostChanged(hostId: string): void {
-    if (!this.ports.isSignedIn() && hostId === this.homeHostId) void this.syncHome()
+    this.home.hostChanged(hostId)
   }
 
   /**
@@ -170,75 +157,8 @@ export class PersonalSettingsHosts {
    */
   accountChanged(): void {
     this.accountCopies.clear()
-    this.readHomeId = null
+    this.home.forget()
     this.refresh()
-  }
-
-  // ── Signed out: the home host ──
-
-  private readyHome(): PersonalSettingsHost | null {
-    const homeId = this.homeHostId
-    return homeId ? this.ports.readyHosts().find((host) => host.hostId === homeId) ?? null : null
-  }
-
-  /** Sends what waits, then shows the home host's copy. One at a time; a call during one runs once after it. */
-  private async syncHome(): Promise<void> {
-    if (this.isSending) {
-      this.sendAgain = true
-      return
-    }
-    const home = this.readyHome()
-    if (!home) return
-    this.isSending = true
-    try {
-      const pending = this.pending(home.hostId)
-      const hasPending = Object.keys(pending.set).length > 0 || pending.reset.length > 0
-      const copy = hasPending ? (await home.api.personalSettingsPatch(pending)).settings : await home.api.personalSettingsGet()
-      if (hasPending) this.dropSent(home.hostId, pending)
-      // Signed in or moved home while the call ran: the copy is no longer the one on screen.
-      if (this.ports.isSignedIn() || this.homeHostId !== home.hostId) return
-      this.adopt(copy, this.pending(home.hostId))
-    } catch {
-      // An older host, or a connection that dropped: the next refresh reads again, and what waits stays.
-      this.readHomeId = null
-    } finally {
-      this.isSending = false
-      if (this.sendAgain) {
-        this.sendAgain = false
-        void this.syncHome()
-      }
-    }
-  }
-
-  private adopt(copy: HostPersonalSettings, pending: PersonalSettingsPatch): void {
-    const next = withPending(copy.settings, pending)
-    if (!same(ordered(next), ordered(this.ports.document()))) this.ports.adoptHostCopy(next)
-  }
-
-  /** The keys sent that the person has not changed again since stop waiting. */
-  private dropSent(hostId: string, sent: PersonalSettingsPatch): void {
-    const now = this.pending(hostId)
-    for (const [key, value] of Object.entries(sent.set)) {
-      if (Object.hasOwn(now.set, key) && same(now.set[key as PersonalSettingKey], value)) delete now.set[key as PersonalSettingKey]
-    }
-    now.reset = now.reset.filter((key) => !sent.reset.includes(key))
-    this.storePending(hostId, now)
-  }
-
-  private pending(hostId: string): PersonalSettingsPatch {
-    const raw = this.ports.storage.getItem(pendingKey(hostId))
-    if (!raw) return { set: {}, reset: [] }
-    try {
-      const parsed = pendingSchema.safeParse(JSON.parse(raw))
-      return parsed.success ? parsed.data : { set: {}, reset: [] }
-    } catch {
-      return { set: {}, reset: [] }
-    }
-  }
-
-  private storePending(hostId: string, pending: PersonalSettingsPatch): void {
-    if (Object.keys(pending.set).length === 0 && pending.reset.length === 0) this.ports.storage.removeItem(pendingKey(hostId))
-    else this.ports.storage.setItem(pendingKey(hostId), JSON.stringify(pending))
   }
 
   // ── Signed in: every ready host ──

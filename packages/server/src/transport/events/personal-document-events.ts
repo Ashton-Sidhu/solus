@@ -1,4 +1,4 @@
-import { onPersonSettingsChanged } from '../../execution/person-settings'
+import { onPersonalDocumentChanged } from '../../data/personal-documents/personal-documents'
 import type { HostEventPublisher } from './host-event-publisher'
 import type { PersonConnections } from './person-connections'
 
@@ -9,8 +9,8 @@ import type { PersonConnections } from './person-connections'
  * Answers the unsubscribe.
  */
 export function publishPersonalDocumentChanges(events: HostEventPublisher, connections: PersonConnections): () => void {
-  return onPersonSettingsChanged((personKey) => {
-    const recipients = connections.of(personKey)
-    if (recipients.length) void events.publish(recipients, 'personalDocument.changed', { kind: 'settings' })
+  return onPersonalDocumentChanged((change) => {
+    const recipients = connections.of(change.personKey)
+    if (recipients.length) void events.publish(recipients, 'personalDocument.changed', { kind: change.kind })
   })
 }

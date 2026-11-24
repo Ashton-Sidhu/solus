@@ -212,9 +212,22 @@ export class AccountSync {
     await this.run(hostId, (api) => api.agentProfileStatus())
   }
 
-  /** Asks a host to read the profile from the account now. */
+  /**
+   * Asks a host to read the profile from the account now. A host that cannot (it
+   * holds no token for the person, or the cloud does not answer) gets this
+   * device's copy of the account's profile instead (ADR 0007 decision 5). An
+   * empty copy is not pushed: it would remove what the host holds.
+   */
   async pull(hostId: string): Promise<void> {
-    await this.run(hostId, (api) => api.agentProfilePull())
+    await this.run(hostId, async (api) => {
+      try {
+        return await api.agentProfilePull()
+      } catch (error) {
+        const entries = this.local.document()
+        if (Object.keys(entries).length === 0) throw error
+        return api.agentProfileApply({ profile: entries, skipped: [] })
+      }
+    })
   }
 
   /** Every connected host pulls; one that cannot keeps its last answer and its error. */

@@ -40,7 +40,7 @@ import { PairApprovals } from '../features/settings/pair-approvals'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
-import { followPersonalSettingsHosts } from '../features/settings/personal-settings-hosts'
+import { followPersonalDocumentHosts } from '../features/settings/personal-document-hosts'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
@@ -258,10 +258,11 @@ export class SolusApp {
       clock: timerClock,
     }, () => this.reachableHosts())
     this.account.changes.subscribe(() => this.followAccount())
-    // A person's settings on their hosts (docs/plans/personal-settings-source.md): signed out, the
-    // phone's first host is their source; signed in, every host takes the account's copy.
-    followPersonalSettingsHosts({
+    // A person's settings and agent profile on their hosts (docs/plans/personal-settings-source.md):
+    // signed out, the phone's first host is their source; signed in, the account is.
+    followPersonalDocumentHosts({
       personal: this.personal,
+      agentProfile: this.agentProfile,
       readyConnections: () => this.connections.readyConnections(),
       connectionChanges: this.connections.changes,
       defaultHostId: () => this.registry.hosts()[0]?.id ?? null,

@@ -11,10 +11,11 @@ import {
 
 /**
  * This client's copy of the person's agent profile (plans/020-agent-profile.md
- * §3): one record per account, and an anonymous one while signed out. It is
- * the source of truth on this client; the account document is its optional
- * replica, moved by `AgentProfileSyncStore`. The Settings page edits it, and
- * on the desktop "Copy now" pushes it. Nothing here talks to a host.
+ * §3, ADR 0007): one record per account, and an anonymous one while signed out.
+ * The source is not here: signed in, it is the account (`AccountSyncStore`
+ * moves it); signed out, it is the home host (`agentProfileHomeHost`,
+ * `runtime-boot.ts`). The record is the cache of the copy on screen. The
+ * Settings page edits it, and "Copy now" pushes it to a host's seats.
  */
 export class AgentProfileLocalStore {
   /** Every entry, by key. Mutated one key at a time. */
@@ -30,6 +31,18 @@ export class AgentProfileLocalStore {
   /** The entries as a plain document: the seed a first sync offers, the push a copy sends. */
   get storedEntries(): AgentProfile {
     return $state.snapshot(this.entries)
+  }
+
+  /** Signed in: the account is the source of what shows. */
+  get isSignedIn(): boolean {
+    return this.accountKey !== ANONYMOUS_AGENT_PROFILE
+  }
+
+  /** Signed out: the home host's list replaces the one on screen. It is never sent back. */
+  adoptHostCopy(entries: AgentProfile): void {
+    if (this.isSignedIn) return
+    applyChange(this.entries, agentProfileChangeBetween(this.storedEntries, entries))
+    this.persist()
   }
 
   get entryCount(): number {

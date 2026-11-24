@@ -267,3 +267,23 @@ describe("a signed-in person's settings come from the account", () => {
     expect(as('person-bob', () => settingsModule.actingPreferences(undefined)).extraInstructions).toBe('From the client.')
   })
 })
+
+describe("a signed-out person's agent profile list on a host", () => {
+  test('the host keeps it for that person only, across a restart, and leaves out an entry it cannot read', async () => {
+    // WHY: ADR 0007 decision 6. The agent profile follows the settings' rule; a newer client never makes a call fail.
+    const documents = await import('@solus/server/execution/seats/agent-profile-document')
+    const deploy = { kind: 'skill' as const, name: 'deploy', source: 'acme/skills', skillId: 'deploy' }
+    const written = await as('person-a', () => documents.patchActingAgentProfileDocument({
+      // SAFETY: a newer client's entry kind, which this host's types do not name.
+      set: { 'skill:deploy': deploy, 'widget:new': { kind: 'widget' } as never },
+      reset: [],
+    }))
+    expect(written.entries).toEqual({ 'skill:deploy': deploy })
+    await restartOn('host-a')
+    expect((await as('person-a', () => documents.actingAgentProfileDocument())).entries).toEqual({ 'skill:deploy': deploy })
+    expect((await as('person-b', () => documents.actingAgentProfileDocument())).entries).toEqual({})
+    await as('person-a', () => documents.patchActingAgentProfileDocument({ set: {}, reset: ['skill:deploy'] }))
+    expect((await as('person-a', () => documents.actingAgentProfileDocument())).entries).toEqual({})
+  })
+})
+

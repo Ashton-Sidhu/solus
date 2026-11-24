@@ -17,6 +17,8 @@ import type { RunLocation } from '@solus/contracts/types'
 import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { PersonalSettingsHosts, personalSettingsHomeId } from '@solus/client-core/host-personal-settings'
+import { agentProfileHomeHost } from '@solus/client-core/agent-profile-sync'
+import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { accountSyncStore } from '../account/account-sync.store.svelte'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
@@ -125,18 +127,31 @@ export function initializeRuntime(
   // A person's settings on their hosts (docs/plans/personal-settings-source.md): signed out, the
   // home host is their source; signed in, every host takes the account's copy.
   const personal = session.settings.personal
+  const homeHostId = () => personalSettingsHomeId({ deviceHostId: serverConnections.deviceHostId(), defaultServerId: serverConnections.defaultServerId() })
   const personalHosts = new PersonalSettingsHosts({
     readyHosts: () => serverConnections.serverIds()
       .filter((serverId) => serverConnections.readinessFor(serverId).readiness === 'ready')
       .map((serverId) => ({ hostId: serverId, api: serverConnections.apiFor(serverId) })),
-    homeHostId: () => personalSettingsHomeId({ deviceHostId: serverConnections.deviceHostId(), defaultServerId: serverConnections.defaultServerId() }),
+    homeHostId,
     isSignedIn: () => personal.isSignedIn,
     document: () => personal.storedDocument,
     adoptHostCopy: (settings) => personal.adoptHostCopy(settings),
     storage: localStorage,
   })
+  // The agent profile list follows the same rule (ADR 0007 decision 6); signed in, its hosts pull it (`agentProfileStore`).
+  const profile = agentProfileLocalStore
+  const isReady = (serverId: string) => serverConnections.readinessFor(serverId).readiness === 'ready'
+  const profileHome = agentProfileHomeHost({
+    homeHostId: () => profile.isSignedIn ? null : homeHostId(),
+    apiFor: (serverId) => isReady(serverId) ? serverConnections.apiFor(serverId) : null,
+    document: () => profile.storedEntries,
+    adopt: (entries) => profile.adoptHostCopy(entries),
+    storage: localStorage,
+  })
+  const stopProfileChanges = profile.onLocalChange((change) => { if (!profile.isSignedIn) profileHome.recordLocalChange(change) })
   const refreshPersonalHosts = () => {
     personalHosts.refresh()
+    profileHome.refresh()
     personal.homeHostId = personalHosts.homeHostId
   }
   const stopPersonalHosts = serverConnections.onReadinessChange(refreshPersonalHosts)
@@ -147,10 +162,13 @@ export function initializeRuntime(
   })
   const stopPersonalAccount = accountSyncStore.onSettingsCopyChanged(() => {
     personalHosts.accountChanged()
+    profileHome.forget()
+    profileHome.refresh()
     personal.homeHostId = personalHosts.homeHostId
   })
   const stopPersonalHostEvents = subscribeAllHosts('personalDocument.changed', (serverId, payload) => {
     if (payload.kind === 'settings') personalHosts.hostChanged(serverId)
+    else profileHome.hostChanged(serverId)
   })
   refreshPersonalHosts()
 
@@ -195,6 +213,7 @@ export function initializeRuntime(
     stopPersonalChanges()
     stopPersonalAccount()
     stopPersonalHostEvents()
+    stopProfileChanges()
     stopReadiness()
     stopUnreadRose()
     stopStallToasts()
