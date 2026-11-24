@@ -1,4 +1,5 @@
 import { isChat } from '@solus/contracts/chat'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { AgentTool } from './tools/agent-tool'
 
 /**
@@ -93,6 +94,32 @@ const VISUALS_INSTRUCTIONS = `## Showing visuals
 
 Show trends, comparisons, and flows as a chart or diagram, even unasked. For a visual in the conversation, write a self-contained HTML page with inline CSS and any JavaScript it needs. Pass the HTML or file path to render_artifact with preview: true. Check the screenshot and console output, then fix any problems. To show the live page, write it in a \`\`\`html fence in your reply, or call render_artifact without preview when the user needs a saved work. Use the Solus theme and layout rules in the tool description. The preview runs on the host and is visible only to you. Do not scaffold a project or start a server for the preview.`
 
+/** One folder on this host in the `<codebase>` block. */
+export interface CodebaseBlockFolder {
+  name: string
+  path: string
+  state: 'git' | 'plain'
+}
+
+/** One folder of the codebase on a different host. This host cannot read what the folder is. */
+export interface CodebaseBlockRemoteFolder {
+  name: string
+  path: string
+  /** The label of the host, or its installation id when this host does not know the label. */
+  host: string
+}
+
+/** What the `<codebase>` block of a session says (docs/plans/codebases.md §6). */
+export interface CodebaseBlock {
+  /** The name of the session's codebase. Null for a session that has only attached folders. */
+  name: string | null
+  workingDirectory: CodebaseBlockFolder
+  /** The folders of the session on this host besides its working directory. */
+  folders: CodebaseBlockFolder[]
+  /** The roots of the codebase on other hosts. Empty for a session with no codebase. */
+  otherHosts: CodebaseBlockRemoteFolder[]
+}
+
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'
   model: string
@@ -100,6 +127,92 @@ export interface AgentRuntime {
   /** The run's working directory: a chat gets the chat block. */
   workingDirectory?: string
   delegationInstructions?: string
+  /** The folders the session works in; absent for a session with one working directory. */
+  codebase?: CodebaseBlock
+}
+
+/** The longest name of a codebase or of a folder in the block, in characters. */
+const CODEBASE_NAME_MAX = 64
+/** The largest `<codebase>` block, in bytes of UTF-8. */
+export const CODEBASE_BLOCK_MAX_BYTES = 3_600
+/** Bytes kept for the line that counts the folders left out. */
+const LEFT_OUT_LINE_RESERVE = 64
+
+/** Control characters and the Unicode line and paragraph separators: each can start a new line in a prompt. */
+const LINE_BREAKING = /[\p{Cc}\u2028\u2029]/u
+
+/**
+ * A name from the disk or from a person, safe inside the block: no control
+ * character, no line separator, no `<`, `>`, backtick, or double quotation
+ * mark (the name of the codebase is an attribute value), and not longer than
+ * `CODEBASE_NAME_MAX`.
+ */
+function blockName(name: string): string {
+  return [...name.replaceAll(/[\p{Cc}\u2028\u2029<>`"]/gu, '').trim()].slice(0, CODEBASE_NAME_MAX).join('').trim()
+}
+
+/** A path can be written in the block only as it is: one that can add a line or close the block is left out. */
+function isBlockSafePath(path: string): boolean {
+  return path.length > 0 && !LINE_BREAKING.test(path) && !path.includes('<') && !path.includes('>')
+}
+
+function comparePaths(a: { path: string }, b: { path: string }): number {
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+}
+
+/**
+ * The `<codebase>` block: the folders of the session on this host, with the
+ * working directory first, then the folders of its codebase on other hosts.
+ * The order is stable, so an unchanged list gives the same text. The block is
+ * not larger than `CODEBASE_BLOCK_MAX_BYTES`: the folders that do not fit, and
+ * the folders whose path is not safe to write, are counted in its last line.
+ */
+export function codebaseBlock(block: CodebaseBlock | undefined, tools: { attachFolder: boolean; startSessions: boolean }): string {
+  // A session with one working directory has no block.
+  if (!block) return ''
+  const name = block.name === null ? '' : blockName(block.name)
+  const open = name ? `<codebase name="${name}">` : '<codebase>'
+  const intro = 'This work covers several folders. Each Git repository has its own history: run Git inside the repository you change, and commit each one separately.'
+  const otherHostsHeading = tools.startSessions
+    ? 'On other hosts (to change one, start a session there with start_sessions, with its host and path as cwd):'
+    : 'On other hosts:'
+  const attachLine = tools.attachFolder ? 'To work in a folder that is not listed, call attach_folder first.' : ''
+  const close = '</codebase>'
+
+  const folderName = (folder: { name: string; path: string }): string => blockName(folder.name) || blockName(hostPathBaseName(folder.path)) || 'folder'
+  const localLine = (folder: CodebaseBlockFolder): string => `- ${folderName(folder)} (${folder.state === 'git' ? 'Git repository' : 'folder'}): ${folder.path}`
+  const local = [block.workingDirectory, ...block.folders.toSorted(comparePaths)]
+  const remote = block.otherHosts.toSorted((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : comparePaths(a, b)))
+  const candidates: { section: 'local' | 'remote'; path: string; line: string }[] = [
+    ...local.map((folder) => ({ section: 'local' as const, path: folder.path, line: localLine(folder) })),
+    ...remote.map((folder) => ({ section: 'remote' as const, path: folder.path, line: `- ${folderName(folder)}: ${folder.path} on ${blockName(folder.host) || 'another host'}` })),
+  ]
+
+  const size = (text: string): number => Buffer.byteLength(text, 'utf8') + 1
+  let bytes = size(open) + size(intro) + size('On this host:') + (attachLine ? size(attachLine) : 0) + size(close) + LEFT_OUT_LINE_RESERVE
+  const localLines: string[] = []
+  const remoteLines: string[] = []
+  let leftOut = 0
+  let isFull = false
+  for (const candidate of candidates) {
+    if (!isBlockSafePath(candidate.path)) { leftOut++; continue }
+    // The first line of the other hosts also costs the heading of that part.
+    const heading = candidate.section === 'remote' && remoteLines.length === 0 ? size(otherHostsHeading) : 0
+    // After the first folder that does not fit, no later folder is written: the list keeps its order.
+    if (isFull || bytes + heading + size(candidate.line) > CODEBASE_BLOCK_MAX_BYTES) { isFull = true; leftOut++; continue }
+    bytes += heading + size(candidate.line)
+    ;(candidate.section === 'local' ? localLines : remoteLines).push(candidate.line)
+  }
+  return [
+    open,
+    intro,
+    'On this host:',
+    ...localLines,
+    ...(remoteLines.length ? [otherHostsHeading, ...remoteLines] : []),
+    attachLine,
+    leftOut > 0 && `(${leftOut} more ${leftOut === 1 ? 'folder is' : 'folders are'} not listed.)`,
+    close,
+  ].filter(Boolean).join('\n')
 }
 
 /** One first-turn note after a session sync changed the run host's paths. */
@@ -152,6 +265,7 @@ You can embed images and videos in your response with Markdown and absolute file
   return [
     runtimeInfo,
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
+    codebaseBlock(runtime.codebase, { attachFolder: has('attach_folder'), startSessions: has('start_sessions') }),
     has('start_sessions') && [
       ORCHESTRATION_INSTRUCTIONS,
       delegationInstructions && `User instructions for delegation:\n${delegationInstructions}`,

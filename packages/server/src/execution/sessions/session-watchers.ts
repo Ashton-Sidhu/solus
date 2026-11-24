@@ -53,6 +53,8 @@ export class SessionWatchers {
     if (!clients.has(clientId)) {
       clients.add(clientId)
       this.rt.emit('watchers-changed', sessionId)
+      // A client must know the session folders before a `git_context` names one of them.
+      this.rt.sessionFolders.replayTo(sessionId, clientId)
     }
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
     const pendingQuestions = pendingAsyncQuestions(sessionId).map(({ questionId, questions, responseMode }) => ({ questionId, questions, responseMode }))

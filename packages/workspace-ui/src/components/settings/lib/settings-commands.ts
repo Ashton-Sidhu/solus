@@ -1,9 +1,10 @@
-import { Building2, FileSearch, RefreshCw, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
+import { Building2, FileSearch, FolderGit2, RefreshCw, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
 import { EMPTY_WEBHOOKS_VIEW, serializeWebhooksView } from '../../webhooks/lib/webhooks-view'
 import { mcpPageRequest } from './mcp-page-request.svelte'
+import { codebasesPageRequest } from '../../codebases/lib/codebases-page-request.svelte'
 
 /**
  * Palette entries for the settings pages that have an owner of their own
@@ -51,6 +52,28 @@ export function webhookCommands(shell: { showSettings(tab: SettingsTab, via: Via
     icon: Webhook,
     keywords: ['webhook', 'hook', 'create', 'sender', 'trigger'],
     run: () => shell.showSettings('webhooks', 'palette', serializeWebhooksView({ ...EMPTY_WEBHOOKS_VIEW, open: { kind: 'new', serverId: null } })),
+  }]
+}
+
+/** Palette entries for codebases (docs/plans/codebases.md §9), shared by desktop and web. */
+export function codebaseCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
+  return [{
+    id: 'open-codebases',
+    label: 'Open codebases',
+    group: 'General',
+    icon: FolderGit2,
+    keywords: ['codebase', 'folders', 'repositories', 'multi-repo', 'workspace'],
+    run: () => shell.showSettings('codebases', 'palette'),
+  }, {
+    id: 'new-codebase',
+    label: 'New codebase',
+    group: 'General',
+    icon: FolderGit2,
+    keywords: ['codebase', 'create', 'folders', 'repositories', 'multi-repo', 'workspace'],
+    run: () => {
+      codebasesPageRequest.askNew()
+      shell.showSettings('codebases', 'palette')
+    },
   }]
 }
 

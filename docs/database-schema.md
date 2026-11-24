@@ -129,6 +129,53 @@ app is an edge of `resource_links` with `target_kind = 'app'`. A row of
 `app_calls` whose caller is `workflow` with no step is one execution of a
 run's function. The commands delete an app's rows in every table with the app.
 
+## Codebases
+
+A codebase (docs/plans/codebases.md) is a named set of folders, on one or
+more hosts, that one piece of work covers. Each host keeps the full record of
+each codebase. `packages/server/src/data/codebases/` owns `codebases`, a
+ported record. `packages/server/src/git/task-folder-store.ts` owns
+`task_folders`, a host table (`db/host-tables.ts`), so it is in `solus.db`
+only and has no Postgres migration.
+
+| Table | Key | Holds |
+|---|---|---|
+| `codebases` | `id` | One codebase: `organization_id` (`local` or an organization id, never changed), `created_by` (who saved the first copy on this host), `name`, `roots` (`CodebaseRoot[]` as JSON: the installation id of a host, an absolute path there, a name), `updated_at` (epoch milliseconds, as the writer of the copy set it), `deleted_at` (set on a deleted codebase) |
+| `task_folders` | `root` | One task folder, the folder that a worktree session of more than one repository works in: `real_root` (the root after links are resolved), `codebase_id` (null for a session with no codebase), `session_id` (the session that the folder was made for; null until the creation ends), `anchor` (the folder that `root` stands in for), `primary_path` (the working directory of the session in `root`), `primary_repository_path` (the member that `primary_path` stands in for), `primary_is_worktree` (0 when that member is a folder with no repository), `branch`, `repositories` (`TaskFolderRepository[]` as JSON), `created_at` |
+
+`session_records` has two columns for the folders of a session:
+
+| Column | Holds |
+|---|---|
+| `codebase_id` | The codebase of the session. Null for a session with no codebase. |
+| `attached_folders` | The folders attached to the session besides its working directory: `SessionAttachedFolder[]` as JSON (`{ path, source }`). The default is `[]`. |
+
+- A row of `codebases` holds roots only. A host reads the members of a
+  codebase from its disk each time, and stores none.
+- A save replaces the stored copy only when the incoming `updated_at` is
+  newer (`saveCodebase`). A save never changes the copy that it stores, so
+  two hosts that have the same `updated_at` have the same record.
+- A delete sets `deleted_at` and keeps the row (a tombstone), so the delete
+  moves to each host that has an older copy. A list read leaves a deleted row
+  out unless the caller asks for it.
+- A read of `codebases` names its scope (`scopeClause`). A write names one
+  organization, and a save that names a different organization than the row
+  has changes nothing.
+- The record of a task folder is written before the first checkout. A
+  creation that the host did not finish thus leaves a row with no
+  `session_id`, and the start of the host finds it and removes the folder.
+- `task_folders_by_real_root` serves `findTaskFolderContaining`: a path that
+  a process reports has its links resolved, so the reader compares a path
+  with `root` and with `real_root`.
+- `task_folders` has no person column. The sessions that work in a task
+  folder carry the owner.
+- Only `SessionFolders` writes the two columns of `session_records`
+  (`setSessionRecordFolders`, and the fields of the session start).
+
+The migrations are `0008_codebases.sql` (SQLite) and `0006_codebases.sql`
+(Postgres) for `codebases` and the two columns, and `0009_task_folders.sql`
+(SQLite) for `task_folders`.
+
 ## Relationships
 
 One table, `resource_links` (`data/links/schema.ts`), holds every edge from a

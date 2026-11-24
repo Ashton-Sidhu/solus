@@ -1,5 +1,7 @@
 import { CheckoutStore } from './checkout.store.svelte'
 import { isChat } from '@solus/contracts/chat'
+import type { SessionFolder } from '@solus/contracts/codebases'
+import { sameHostPath } from '@solus/contracts/host-path'
 import { createAppContext } from '../app/create-app-context'
 import { parseBranchRefs, gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type RunLocation, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
@@ -8,7 +10,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { hosts } from '../hosts/hosts.svelte'
-import { adoptGit, checkoutGit, isDispatch, pendingClone, projectHome, projectRoot, samePlace, startsWorktree, workingPlace, worktreeBaseBranch } from '../workspace/run-location'
+import { adoptGit, checkoutGit, isDispatch, pendingClone, projectHome, projectRoot, runHost, samePlace, startsWorktree, workingPlace, worktreeBaseBranch } from '../workspace/run-location'
 
 export type GitRefreshLevel = 'status' | 'details' | 'full'
 
@@ -114,6 +116,14 @@ export interface SessionEnvironment {
   status: GitState | null | undefined
 }
 
+/** A session folder as a Git view names it: where the session works, and the repository of that place. */
+export type SessionFolderPlace = Pick<SessionFolder, 'path' | 'repositoryPath'>
+
+/** The session folder of `session` at `cwd`, or undefined: the working directory of a session is not one. */
+function sessionFolderAt(session: Session | undefined, cwd: string): SessionFolder | undefined {
+  return session?.sessionFolders.find((folder) => sameHostPath(folder.path, cwd))
+}
+
 /** The folder a run's project is known by. A dispatched run's project is its
  *  home folder, not the clone it works in; any other run's is its repository. */
 export function environmentProjectKey(environment: SessionEnvironment, run?: RunConfig | null): string {
@@ -206,6 +216,33 @@ export class SessionEnvironmentStore {
     const cwd = place.path
     const status = this.statusFor(place.serverId, cwd)
     const checkout = this.checkouts.resolve(place.serverId, cwd, gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout)
+    return this.project(cwd, checkout, status, wantsWorktree, baseBranch)
+  }
+
+  /**
+   * The environment of one session folder of a run (docs/plans/codebases.md
+   * §8), or of the run itself when `folder` is null. A session folder has its
+   * own checkout and status, read by its path on the run host. It never asks
+   * for a new worktree: only the working directory of a run starts one. A
+   * folder whose path is not its repository is a worktree in a task folder.
+   */
+  environmentIn(run: RunConfig | null | undefined, folder: SessionFolderPlace | null | undefined): SessionEnvironment {
+    if (!folder) return this.environmentFor(run)
+    if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
+    const serverId = runHost(run ?? this.workspace.defaultRunConfig)
+    const status = this.statusFor(serverId, folder.path)
+    const isWorktree = !sameHostPath(folder.path, folder.repositoryPath)
+    const detected = gitCheckoutFromState(status, isWorktree ? folder.path : undefined, isWorktree ? folder.repositoryPath : undefined)
+    return this.project(folder.path, this.checkouts.resolve(serverId, folder.path, detected), status, false, null)
+  }
+
+  private project(
+    cwd: string,
+    checkout: GitCheckout | null,
+    status: GitState | null | undefined,
+    wantsWorktree: boolean,
+    baseBranch: string | null,
+  ): SessionEnvironment {
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
 
@@ -257,6 +294,10 @@ export class SessionEnvironmentStore {
    * session is registered on the same host, directory, and checkout, the host's
    * watcher already keeps that status live, so the source takes it instead of
    * reading it again.
+   *
+   * A `cwd` that is a session folder of the source is not where its run works.
+   * Its answer goes to the status cache only: nothing lands on the run, and the
+   * host registers nothing (the host watches the folders of a session itself).
    */
   async refreshEnvironment(
     workspace: SessionEnvironmentWorkspace,
@@ -283,6 +324,9 @@ export class SessionEnvironmentStore {
     if (!api || !serverId) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no host binding.' }
     }
+
+    const folder = sessionFolderAt(workspace.sessionFor(sourceId), cwd)
+    if (folder) return this.refreshSessionFolder(serverId, folder, level)
 
     const attachedCheckout = checkoutGit(run)
     const worktreePath = attachedCheckout?.worktreePath
@@ -379,6 +423,21 @@ export class SessionEnvironmentStore {
       registration: true,
       ok: detailsOutcome.ok && refsOutcome.ok,
       error,
+    }
+  }
+
+  /** Read one session folder again, after a Git action there or when a person
+   *  asks. Its branch picker reads the refs of its repository when it opens. */
+  private async refreshSessionFolder(serverId: string, folder: SessionFolderPlace, level: GitRefreshLevel): Promise<GitRefreshResult> {
+    const withDetails = level !== 'status'
+    const outcome = await this.refreshStatusForHost(serverId, folder.path, { force: true, details: withDetails, bypassCache: withDetails })
+    return {
+      status: outcome.ok,
+      details: outcome.ok,
+      refs: outcome.ok,
+      registration: false,
+      ok: outcome.ok,
+      error: outcome.ok ? undefined : gitFailure('Couldn’t read the working tree', outcome.error),
     }
   }
 

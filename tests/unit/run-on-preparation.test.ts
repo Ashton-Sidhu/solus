@@ -148,7 +148,6 @@ function cloneRunHarness() {
     agentSessionId: null,
     messages: [],
     outboundPrompts: [],
-    additionalDirs: [],
     permissionQueue: [],
     questionQueue: [],
     prompt: { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [] },

@@ -33,12 +33,15 @@ import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { createLogger } from '../../../logger'
 import { recordOtelDuration } from '../../../otel'
 import { resolveHomePath } from '../../../platform/paths'
+import { listTaskFolders } from '../../../git/task-folder-store'
 import { beginTurnCheckpoint, endTurnCheckpoint } from '../../../git/turn-checkpoints'
+import { sameHostPath } from '@solus/contracts/host-path'
 import type { AgentBackend, RunHandle } from '../agent-backend'
 import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
 import type { ThreadImportRequest, ThreadImportResult } from '../thread-import'
 import { importClaudeThread } from './claude-thread-import'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
+import type { SessionFolderGate } from '../session-folder-gate'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER, providerModelsFor } from '@solus/contracts/types'
 import type {
   AgentId,
@@ -255,6 +258,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     return this.commandDiscovery.get({ cwd, model, seat, configDir })
   }
 
+  useSessionFolders(folders: SessionFolderGate): void {
+    this.permissions.folders = folders
+  }
+
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     this.readReportedModels()
     // A person's custom model keeps its own profile, applied with the provider instance.
@@ -269,7 +276,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const uiMode = request.permissionMode
     const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
     const ceiling = hostPolicies().forWork(request.organizationId).ceiling()?.value ?? null
-    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended, ceiling)
+    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended, ceiling, sessionState?.sessionId)
     const onElicitation = this.permissions.createOnElicitation(sessionRef, request.unattended)
 
     let _resolveRun!: () => void
@@ -312,7 +319,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     this.pendingRuns.push(handle)
     void (async () => {
       const checkpointTarget = request.persistence === 'session' && sessionState
-        ? { sessionId: sessionState.sessionId, workTree }
+        ? { sessionId: sessionState.sessionId, workTree, folders: () => this.permissions.folders?.checkpointTargets(sessionState.sessionId) ?? [] }
         : null
       const resumeSessionAt = conversation.kind === 'fork'
         ? conversation.pointId ?? (conversation.excludeLatestTurn && sessionId
@@ -339,7 +346,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         systemPromptAppend: [
           request.systemPrompt,
           runtimeInstructions(
-            { harness: 'Claude Code', model, reasoningEffort: reasoningEffort ?? 'default', workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions },
+            { harness: 'Claude Code', model, reasoningEffort: reasoningEffort ?? 'default', workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions, codebase: request.codebase },
             request.tools,
             request.integrationInstructions,
           ),
@@ -705,7 +712,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         collect(await scanPlansInDir(mainDir, encodedPath, cwd))
 
         const worktreePrefix = encodedPath + SOLUS_WORKTREE_ENCODED_MARKER
-        const worktreeDirs = (await readdir(projectsRoot)).filter((d: string) => d.startsWith(worktreePrefix))
+        // The folder of a task folder session is not below its project: the record of the task folder names the project.
+        const taskFolderDirs = new Set(listTaskFolders()
+          .filter((taskFolder) => sameHostPath(taskFolder.primaryRepositoryPath, cwd))
+          .map((taskFolder) => encodePathAsFolder(taskFolder.primaryPath)))
+        const worktreeDirs = (await readdir(projectsRoot)).filter((d: string) => d.startsWith(worktreePrefix) || taskFolderDirs.has(d))
         const tasks = worktreeDirs.map((wt) => async () => {
           collect(await scanPlansInDir(join(projectsRoot, wt), wt, cwd))
         })

@@ -367,7 +367,6 @@ function _materializeTabs(
         currentTurnStartedAt: snapTab.currentTurnStartedAt ?? null,
         startedAt: snapTab.startedAt ?? null,
         lastSentAt: snapTab.lastSentAt ?? null,
-        additionalDirs: [...snapTab.additionalDirs],
         run,
         // Only a composer carries these; a started session's task comes from its
         // session link. Restoring them is what keeps a composer under the task

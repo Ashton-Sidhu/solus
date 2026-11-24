@@ -244,6 +244,38 @@ export const projects = defineTable('projects', {
 })
 
 /**
+ * One task folder on this host (docs/plans/codebases.md §7): the folder that a
+ * worktree session of several repositories works in. `git/task-folder-store.ts`
+ * owns it. The row is written before the first checkout, so an interrupted
+ * creation is found. `real_root` is `root` after links are resolved: a lookup
+ * accepts either spelling. `repositories` is the JSON list of
+ * `TaskFolderRepository`. Two sessions can share one row.
+ *
+ * `session_id` is the session that the folder was made for, written when the
+ * creation ends. A session that moves into a new task folder names it in its
+ * own record only at its next turn, so this column is what keeps the folder
+ * across a restart of the host in between.
+ */
+export const taskFolders = defineTable('task_folders', {
+  root: text({ primaryKey: true }),
+  real_root: text({ notNull: true }),
+  /** Null for a session with no codebase. */
+  codebase_id: text(),
+  /** Null until the creation ends. */
+  session_id: text(),
+  anchor: text({ notNull: true }),
+  primary_path: text({ notNull: true }),
+  primary_repository_path: text({ notNull: true }),
+  primary_is_worktree: integer({ notNull: true }),
+  branch: text({ notNull: true }),
+  repositories: json({ notNull: true }),
+  created_at: bigint({ notNull: true }),
+}, {
+  // `findTaskFolderContaining`: a path that a process reports has its links resolved.
+  indexes: [{ name: 'task_folders_by_real_root', columns: ['real_root'] }],
+})
+
+/**
  * The one folder name a member's things on this host live under
  * (`host/member-folders.ts`): fixed the first time it is known and kept
  * through a rename.
@@ -482,7 +514,7 @@ export const HOST_TABLES = [
   transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases,
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
-  kv, projects, memberFolder, automations, automationRuns, browserProfiles,
+  kv, projects, taskFolders, memberFolder, automations, automationRuns, browserProfiles,
   integration, integrationConnection, integrationServerFacts, mcpTask, integrationResourceWatch, notificationPrObservations, savedMetricsQueries, turnFlags,
   sessionStorage, sessionStorageTurns,
 ] as const

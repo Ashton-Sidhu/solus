@@ -14,7 +14,8 @@ import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { BranchRef } from '@solus/contracts/git-types'
 import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
-import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText, worktreeProjectRoot } from '@solus/contracts/types'
+import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
+import { isTaskFolderPath, type CodebaseMember, type SessionFolder } from '@solus/contracts/codebases'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
@@ -25,6 +26,8 @@ import {
   implementationMode,
   implementPlanPrompt,
   revisePlanPrompt,
+  runProjectRoot,
+  sessionFolderContext,
   DEFAULT_RUN_SETTINGS,
   type ConversationRun,
   type RunSettings,
@@ -85,7 +88,7 @@ export interface ConversationTarget {
   hostId: string
   /** A saved session to open, or a new one to start in `workingDirectory`.
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
-  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role' | 'execution'> & Partial<Pick<SessionRecord, 'organizationId'>>
+  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role' | 'execution'> & Partial<Pick<SessionRecord, 'organizationId' | 'projectRoot' | 'codebaseId'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string; attachments?: readonly UploadedAttachment[] }
   /** The host this saved session was open on before the person chose this
    *  one to run its next turn (docs/plans/portable-sessions.md §10). */
@@ -124,6 +127,9 @@ export interface ConversationDeps {
   cloudHistory?: Pick<CloudHistory, 'read' | 'isCopy' | 'readOlder'>
   onChange(changes: { items: string[]; order: boolean; meta: boolean }): void
 }
+
+/** The events that change what the run or the queue of a conversation shows: its listeners are told at once. */
+const RUN_CHANGING_EVENTS: ReadonlySet<WireNormalizedEvent['type']> = new Set(['session_queue', 'provider_switch_applied', 'activity', 'session_codebase'])
 
 /** The outbox queue of one conversation. Forgetting a host removes every
  *  queue under `conversationOutboxPrefix(hostId)`. */
@@ -351,7 +357,7 @@ export class ConversationController {
       if (key !== 'machine') return
       const info = connection.facts.value('machine')
       if (!info) return
-      this.agents = info.agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+      this.agents = info.agents.map((agent) => agentForProject(agent, this.agentProject))
       if (!this.run.agentSessionId) {
         if (!this.modelPicked) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
         this.settleRun()
@@ -440,6 +446,55 @@ export class ConversationController {
     return this.canRoute && !isChat(this.run.workingDirectory)
   }
 
+  /** The folder that names the project's agent settings. The path of a task
+   *  folder names no project, so its session gives the root of its record. */
+  private get agentProject(): string {
+    return (isTaskFolderPath(this.run.workingDirectory) && this.run.projectRoot) || this.projectPath || this.run.workingDirectory
+  }
+
+  /** The project folder of the run: its checkout's repository, or the member that a task folder stands in for. */
+  get projectRoot(): string {
+    return runProjectRoot(this.run)
+  }
+
+  /** The person chose the codebase of the new session, "No codebase" included. */
+  isCodebasePicked = false
+
+  /** The new session starts with this codebase, or with none when null
+   *  (docs/plans/codebases.md decision 5). */
+  chooseCodebase(codebaseId: string | null): void {
+    if (!this.canRoute) return
+    this.isCodebasePicked = true
+    // "No codebase" also tells the host to make none for the session (decision 13).
+    this.run.noCodebase = codebaseId === null
+    this.startWithCodebase(codebaseId)
+    this.flush(true)
+  }
+
+  /** The codebase that the folder of the project gives the new session: the
+   *  only one that holds it. A choice of the person stays. */
+  followFolderCodebase(codebaseId: string | null): void {
+    if (!this.canRoute || this.isCodebasePicked || (this.run.codebaseId ?? null) === codebaseId) return
+    this.startWithCodebase(codebaseId)
+    this.flush(true)
+  }
+
+  /** A different codebase has different members, so the repository choice of
+   *  the new worktree starts again. */
+  private startWithCodebase(codebaseId: string | null): void {
+    if ((this.run.codebaseId ?? null) === codebaseId) return
+    this.run.codebaseId = codebaseId
+    this.run.worktreeRepositories = null
+  }
+
+  /** The members that get a worktree with the new worktree session, as member
+   *  paths. Null is the default set, which the host chooses. */
+  chooseWorktreeRepositories(repositories: readonly string[] | null): void {
+    if (!this.canChooseStart) return
+    this.run.worktreeRepositories = repositories
+    this.flush(true)
+  }
+
   /** The new session starts in a new worktree from `baseBranch`, or in the
    *  project's checkout when null. As in T3, both start from the project
    *  folder: a worktree another branch pick named is left. */
@@ -488,7 +543,7 @@ export class ConversationController {
   }
 
   /** The folder a new session was opened for. */
-  private get projectDirectory(): string {
+  get projectDirectory(): string {
     return this.target.newSession?.workingDirectory ?? this.run.workingDirectory
   }
 
@@ -497,7 +552,7 @@ export class ConversationController {
   private projectCheckoutContext() {
     const ctx = this.context()
     const project = this.projectDirectory
-    return { ...ctx, session: { ...ctx.session, workingDirectory: project, projectPath: worktreeProjectRoot(project) } }
+    return { ...ctx, session: { ...ctx.session, workingDirectory: project, projectPath: runProjectRoot({ workingDirectory: project, projectRoot: this.run.projectRoot }) } }
   }
 
   /** The project's branches, the bases a new worktree can start from. No
@@ -563,6 +618,7 @@ export class ConversationController {
         void this.suggestions.refresh()
         void this.mcpTasks.refresh()
         void this.resourceWatches.refresh()
+        void this.refreshSessionFolders()
         void this.drainOutbox()
         return
       }
@@ -601,6 +657,8 @@ export class ConversationController {
       if (!model) return
       receivedHistory = true
       this.keepUnsentPrompts(model)
+      // The folders are not in the history: the list shows until the host answers again.
+      model.sessionFolders = this.model.sessionFolders
       this.model = model
       // The host's own history replaces a copy from the cloud.
       if (!this.awaitsHostCopy && model !== this.carried) {
@@ -636,6 +694,7 @@ export class ConversationController {
         void this.suggestions.refresh()
         void this.mcpTasks.refresh()
         void this.resourceWatches.refresh()
+        void this.refreshSessionFolders()
       }
       this.flush(true)
       if (this.started && !this.openedOnHost) {
@@ -688,7 +747,7 @@ export class ConversationController {
     replaceModelProfiles(status.profiles)
     const agents = await hostAgents(connection)
     if (!agents || this.closed) return
-    this.agents = agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+    this.agents = agents.map((agent) => agentForProject(agent, this.agentProject))
     this.flush(true)
   }
 
@@ -701,7 +760,7 @@ export class ConversationController {
     ])
     if (generation !== this.loadGeneration || this.closed) return
     if (agents) {
-      this.agents = agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+      this.agents = agents.map((agent) => agentForProject(agent, this.agentProject))
       if (!this.target.record && !this.modelPicked && !this.run.agentSessionId) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
     }
     // An older host does not report the key; unknown is not missing, as on desktop.
@@ -1451,6 +1510,7 @@ export class ConversationController {
       void this.nameSession(event.sessionId)
     }
     if (event.type === 'error' && event.kind === 'auth') this.offerSignInAgain()
+    this.followSessionCodebase(event)
     // The provider changed its own mode (Claude leaving plan mode): the next prompt keeps it.
     if (event.type === 'permission_mode_changed') this.run.permissionMode = event.permissionMode
     if (event.type === 'session_queue') {
@@ -1474,8 +1534,15 @@ export class ConversationController {
     }
     this.model.apply(event)
     this.run.status = this.model.status
-    this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied' || event.type === 'activity')
+    this.flush(RUN_CHANGING_EVENTS.has(event.type))
     if (event.type === 'status_card') this.followStatusCard(event.card)
+  }
+
+  /** The host gave the session a codebase, or made one (docs/plans/codebases.md decision 13): the next prompt names it. */
+  private followSessionCodebase(event: WireNormalizedEvent): void {
+    if (event.type !== 'session_codebase') return
+    this.run.codebaseId = event.codebaseId
+    this.run.noCodebase = false
   }
 
   /** A sync card that ends makes this host current; a refused prompt's card says the session diverged. */
@@ -1625,6 +1692,7 @@ export class ConversationController {
         this.started = true
         // The worktree is made once, by the prompt that started the session.
         this.run.worktreeBaseBranch = null
+        this.run.worktreeRepositories = null
         // The first prompt starts the thread on the provider it carried.
         this.threadProvider ??= ctx.session.provider
         this.model.markDelivery(record.clientPromptId, result.disposition === 'queued' ? 'queued' : 'sent')
@@ -1703,6 +1771,70 @@ export class ConversationController {
     return { ...ctx, session: { ...ctx.session, draftId: ctx.session.sessionId, sessionId: '' } }
   }
 
+  /** The folders the session works in besides its working directory (`session_folders`). */
+  get sessionFolders(): readonly SessionFolder[] {
+    return this.model.sessionFolders
+  }
+
+  /** The session works in a task folder: each repository of it is the session's own worktree (docs/plans/codebases.md §7). */
+  get worksInTaskFolder(): boolean {
+    return isTaskFolderPath(this.run.workingDirectory)
+  }
+
+  /** Read the folders again. The event gives each later change. An older host has no folders. */
+  async refreshSessionFolders(): Promise<void> {
+    if (!this.started) return
+    const sessionId = this.run.sessionId
+    try {
+      this.applySessionFolders(sessionId, await this.deps.connection.api.sessionFolders(sessionId))
+    } catch {
+      // The list stays as the last event gave it.
+    }
+  }
+
+  /** A person attaches a folder: no card (docs/plans/codebases.md §6). An observed folder becomes a granted one. */
+  async attachFolder(path: string): Promise<void> {
+    await this.changeSessionFolders((api, sessionId) => api.sessionAttachFolder(sessionId, path))
+  }
+
+  async detachFolder(path: string): Promise<void> {
+    await this.changeSessionFolders((api, sessionId) => api.sessionDetachFolder(sessionId, path))
+  }
+
+  /** A worktree of one more repository, on the branch of the session. The host accepts only a path from `worktreeCandidates`. */
+  async addRepositoryWorktree(repositoryPath: string): Promise<void> {
+    await this.changeSessionFolders((api, sessionId) => api.sessionAddRepositoryWorktree(sessionId, repositoryPath))
+  }
+
+  /** The repositories that can get a worktree in the task folder of the session. Empty for a session that is not in one. */
+  worktreeCandidates(): Promise<CodebaseMember[]> {
+    return this.deps.connection.api.sessionWorktreeCandidates(this.run.sessionId)
+  }
+
+  /** "Track with Git" for a plain session folder. The host then sends the folders again with the state `git`. */
+  async trackFolderWithGit(path: string): Promise<void> {
+    if (!this.mayDrive) throw new Error('You cannot change this session.')
+    await this.deps.connection.api.gitInitRepository(path)
+    await this.refreshSessionFolders()
+  }
+
+  private async changeSessionFolders(change: (api: SolusAPI, sessionId: string) => Promise<SessionFolder[]>): Promise<void> {
+    if (!this.started || !this.mayDrive) throw new Error('You cannot change the folders of this session.')
+    const sessionId = this.run.sessionId
+    this.applySessionFolders(sessionId, await change(this.deps.connection.api, sessionId))
+  }
+
+  private applySessionFolders(sessionId: string, folders: SessionFolder[]): void {
+    if (this.closed || this.run.sessionId !== sessionId) return
+    this.model.sessionFolders = folders
+    this.flush(true)
+  }
+
+  /** The context of a Git call about one session folder. */
+  folderContext(folder: Pick<SessionFolder, 'path' | 'repositoryPath'>) {
+    return sessionFolderContext(this.context(), folder)
+  }
+
   readTurnDiff = (index: number) => this.deps.connection.api.diff(this.context(), { scope: { kind: 'turn', index } })
 
   context() {
@@ -1760,6 +1892,8 @@ function initialRun(target: ConversationTarget, organizationId: string | null, u
       workingDirectory: record.cwd ?? record.projectPath,
       ...savedSessionModel(record.provider, record.model, record.reasoningEffort),
       title: record.customTitle ?? record.title,
+      projectRoot: record.projectRoot ?? null,
+      codebaseId: record.codebaseId ?? null,
     }
   }
   return {

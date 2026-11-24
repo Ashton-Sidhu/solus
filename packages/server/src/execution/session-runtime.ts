@@ -46,6 +46,8 @@ import { SessionWatchers } from './sessions/session-watchers'
 import { SessionHistory } from './sessions/session-history'
 import { ProviderHandoffs } from './sessions/provider-handoffs'
 import { SessionCheckouts } from './sessions/session-checkouts'
+import { SessionFolders } from './sessions/session-folders'
+import { SessionTaskFolders } from './sessions/session-task-folders'
 import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
 import { TurnStops } from './sessions/turn-stops'
@@ -210,6 +212,10 @@ export class SessionRuntime extends EventEmitter {
   readonly history = new SessionHistory(this)
   readonly handoffs: ProviderHandoffs
   readonly sessionCheckouts: SessionCheckouts
+  /** The folders of each session besides its working directory (docs/plans/codebases.md §6). */
+  readonly sessionFolders: SessionFolders
+  /** The task folder of each worktree session of several repositories (docs/plans/codebases.md §7). */
+  readonly taskFolders: SessionTaskFolders
   readonly dispatch = new PromptDispatch(this)
   /** What the session's open MCP Apps report to the agent; each turn carries it. */
   readonly appModelContexts = new AppModelContexts()
@@ -264,6 +270,9 @@ export class SessionRuntime extends EventEmitter {
       this.providerEvents.wire(backend)
     }
     this.sessionCheckouts = new SessionCheckouts(this)
+    this.sessionFolders = new SessionFolders(this)
+    this.taskFolders = new SessionTaskFolders(this)
+    for (const backend of this.backends.values()) backend.useSessionFolders?.(this.sessionFolders)
   }
 
   /**

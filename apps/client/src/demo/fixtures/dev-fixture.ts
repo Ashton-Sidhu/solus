@@ -67,8 +67,8 @@ export const devFixtures: DemoFixtures = {
             newWorktree: null,
           },
           project: { serverId: LOCAL_SERVER_ID, path: DEMO_PROJECT },
+          codebaseId: null,
         },
-        additionalDirs: [],
         modelConfig: {
           modelId: 'claude-sonnet-5',
           reasoningEffort: 'high',
@@ -99,8 +99,8 @@ export const devFixtures: DemoFixtures = {
             newWorktree: null,
           },
           project: { serverId: LOCAL_SERVER_ID, path: DEMO_PROJECT },
+          codebaseId: null,
         },
-        additionalDirs: [],
         modelConfig: {
           modelId: 'claude-sonnet-5',
           reasoningEffort: 'high',

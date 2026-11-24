@@ -5,12 +5,15 @@ import { captureServerEvent } from '../../analytics'
 import { startRun, credentialScopedAgentTools, type PendingStart, type StartedRun } from './run-lifecycle'
 export type { PendingStart } from './run-lifecycle'
 import { existsSync } from 'node:fs'
+import { basename } from 'node:path'
+import { isTaskFolderPath, type TaskFolder } from '@solus/contracts/codebases'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { installedRoutingProviders, routeModelPrompt } from '../agents/model-routing'
 import { forkedFrom } from './thread-activity'
 import { createLogger } from '../../logger'
 import { computeGitState } from '../../git/git-helpers'
 import { warmFinder } from '../../files/file-finder'
+import { resolveHomePath } from '../../platform/paths'
 import { recordProjectUse } from '../../project-config/projects-manifest'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
 import { unattendedModelInputFor, providerConversationFor } from '../agents/run-input'
@@ -48,6 +51,9 @@ import { progressPercent, progressThrottle, type DispatchCheckoutPathOf, type Pr
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
 import { taskSystemContext, logNewSessionPrompt } from './run-task-context'
+import { taskFolderStages, type CreateSessionTaskFolder, type CreatedSessionTaskFolder, type TaskFolderTurn } from './session-task-folders'
+import type { SessionFoldersTurn } from './session-folders'
+import type { TaskFolderPlan } from '../../git/task-folder-plan'
 
 const log = createLogger('SessionRuntime', 'run-launcher.ts')
 
@@ -60,6 +66,47 @@ class WorkLocallyRequest extends Error {
 /** One change to a setup step. */
 interface SetupStepUpdate extends Pick<StatusCardStep, 'percent' | 'detail'> {
   status: StatusCardStepStatus
+}
+
+/** What the setup of a turn gives the creation of its task folder. */
+interface TaskFolderSetup extends Pick<CreateSessionTaskFolder, 'actor' | 'naming' | 'baseBranch' | 'signal'> {
+  onStage: (stage: string, update: SetupStepUpdate) => void
+  /** Add one line to the output of the setup card. */
+  note: (line: string) => void
+}
+
+/** What the worktree setup of a turn gives the creation of its worktree. */
+interface WorktreeSetup extends TaskFolderSetup, Pick<TaskFolderTurn, 'codebaseId' | 'projectFolder' | 'repositories'> {}
+
+/** What the worktree setup of a turn made. */
+interface MadeWorktree {
+  /** The task folder, or null for one worktree inside its repository. */
+  taskFolder: TaskFolder | null
+  /** The checkout of the working directory. Null for a task folder whose working member is a plain folder. */
+  gitContext: GitCheckout | null
+}
+
+/** A step of a setup card that did not start, or that did not end. */
+function isOpenStep(step: StatusCardStep | undefined): boolean {
+  return step?.status === 'pending' || step?.status === 'active'
+}
+
+/** The branch and the place of what a setup made, for its card and its log. */
+function madeWorktreeFacts({ taskFolder, gitContext }: MadeWorktree) {
+  return {
+    branch: taskFolder?.branch ?? gitContext?.branch,
+    worktreePath: taskFolder?.primaryPath ?? gitContext?.worktreePath,
+    taskFolder: taskFolder?.root,
+  }
+}
+
+/**
+ * The folder that stands in for a plain working member (docs/plans/codebases.md
+ * §7): the member has no checkout, so its session works there. Null for each
+ * other session, and for a turn that names that folder already.
+ */
+function standInDirectory(taskFolder: TaskFolder | null, projectPath: string | undefined): string | null {
+  return taskFolder && !taskFolder.primaryIsWorktree && !isTaskFolderPath(projectPath) ? taskFolder.primaryPath : null
 }
 
 /**
@@ -241,6 +288,105 @@ export class RunLauncher {
       else this.rt.turnStops.end(sessionId, turn)
     }
     void handle.runPromise.then(settle, settle)
+  }
+
+  /**
+   * Make the task folder of a new worktree session (docs/plans/codebases.md
+   * §7), as one step of the dispatch. `note` gets a line of the setup card
+   * for each repository whose files are checked out. Stop rolls the creation
+   * back in the module, so nothing of it stays.
+   */
+  private makeTaskFolder(sessionId: string, plan: TaskFolderPlan, options: TaskFolderSetup): Promise<CreatedSessionTaskFolder> {
+    const repositories = [
+      ...(plan.workingMemberIsRepository ? [{ path: plan.workingMember, name: basename(plan.workingMember) }] : []),
+      ...plan.repositories,
+    ]
+    return dispatchStep(
+      'task_folder_create',
+      { projectPath: plan.workingMember, baseBranch: options.baseBranch ?? '', repositoryCount: repositories.length, fn: 'createTaskFolder', file: 'run-launcher.ts' },
+      async (annotate) => {
+        options.note(`Task folder: ${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}`)
+        const created = await this.rt.taskFolders.create(sessionId, plan, {
+          actor: options.actor,
+          naming: options.naming,
+          baseBranch: options.baseBranch,
+          signal: options.signal,
+          onRepository: taskFolderStages(repositories, options.onStage, (name, count) => options.note(`Worktree ${count} of ${repositories.length}: ${name}`)),
+        })
+        annotate({ branch: created.taskFolder.branch, root: created.taskFolder.root })
+        return created
+      },
+    )
+  }
+
+  /**
+   * The worktree of a new worktree session. A worktree session of several
+   * repositories, or of a plain folder, works in a task folder
+   * (docs/plans/codebases.md §7). Each other session gets one worktree inside
+   * its repository, as before. A plan that cannot be made is the error of the
+   * setup, with its reason.
+   */
+  private async makeWorktree(sessionId: string, setup: WorktreeSetup): Promise<MadeWorktree> {
+    const { projectFolder, baseBranch } = setup
+    const plan = await this.rt.taskFolders.plan(sessionId, { codebaseId: setup.codebaseId, projectFolder, repositories: setup.repositories, actor: setup.actor })
+    if (plan) {
+      const { taskFolder, checkout } = await this.makeTaskFolder(sessionId, plan, setup)
+      return { taskFolder, gitContext: checkout && this.rt.checkouts.attach(taskFolder.primaryPath, checkout) }
+    }
+    const gitContext = await dispatchStep(
+      'worktree_create',
+      {
+        projectPath: projectFolder,
+        baseBranch: baseBranch ?? '',
+        fn: 'createWorktree',
+        file: 'run-launcher.ts',
+      },
+      async (annotate) => {
+        // `createWorktree` records its own git commands under this step
+        // through the ambient context — it takes no telemetry argument.
+        // It starts on a temporary branch; `nameWorktreeBranch` names it
+        // while the agent works, so the prompt never waits on a model.
+        const created = await this.rt.checkouts.create(projectFolder, baseBranch ?? undefined, {
+          signal: setup.signal,
+          naming: setup.naming,
+          onStage: setup.onStage,
+        })
+        annotate({ branch: created.branch ?? '', targetBranch: created.targetBranch, worktreePath: created.worktreePath ?? '' })
+        return created
+      },
+    )
+    return { taskFolder: null, gitContext }
+  }
+
+  /** Tell the clients where the session works after its setup, and name the new branch beside the turn. */
+  private announceMadeWorktree(sessionId: string, made: MadeWorktree, projectFolder: string, prompt: string, actor: Actor | undefined, preferences: SessionRunInput['executionPreferences']): void {
+    const { taskFolder, gitContext } = made
+    if (gitContext) {
+      this.rt.publish(sessionId, { type: 'git_context', cwd: gitContext.worktreePath ?? projectFolder, gitContext })
+      void this.rt.sessionCheckouts.nameWorktreeBranch(sessionId, gitContext, prompt, actor, preferences)
+    } else if (taskFolder) {
+      // A plain working member has no checkout to name by: the task folder names its branch.
+      void this.rt.taskFolders.nameBranch(sessionId, taskFolder.root, prompt, actor, preferences)
+    }
+  }
+
+  /**
+   * The folders of the session besides its working directory, read from its
+   * codebase and its record now. Answers the paths that the provider gets for
+   * this turn: the granted folders, and for a worktree session also its
+   * project root (`projectRoot`), as before.
+   */
+  private async providerDirectoriesFor(sessionId: string, turn: SessionFoldersTurn, projectRoot: string | null): Promise<string[]> {
+    await dispatchStep(
+      'session_folders',
+      { cwd: turn.workingDirectory, fn: 'SessionFolders.resolve', file: 'run-launcher.ts' },
+      async (annotate) => {
+        const folders = await this.rt.sessionFolders.resolve(sessionId, turn)
+        annotate({ folderCount: folders.length })
+      },
+    )
+    const granted = this.rt.sessionFolders.grantedPaths(sessionId)
+    return projectRoot ? [...new Set([...granted, resolveHomePath(projectRoot)])] : granted
   }
 
   private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: TurnStop, releaseLaunch: () => void): Promise<StartedRun> {
@@ -481,7 +627,7 @@ export class RunLauncher {
           worktreeBaseBranch = repositoryRun.repository.baseBranch ?? checkout?.targetBranch ?? await getDefaultBranch(path)
         }
         // The client moves the run to the folder it reads here.
-        if (checkout) this.rt.publish(sessionId, { type: 'git_context', gitContext: checkout })
+        if (checkout) this.rt.publish(sessionId, { type: 'git_context', cwd: path, gitContext: checkout })
         setupOutput.push(`Repository ready at ${path}`)
         log.info('repository_prepared', { sessionId, path })
         setStep('repository', { status: 'done' })
@@ -540,8 +686,14 @@ export class RunLauncher {
       if (existingSession) existingSession.gitContext = statusGitCtx ?? undefined
     }
 
+    const turnActor = request.actor ?? HOST_ACTOR
+    // A session that works in a task folder continues there: no later turn makes a second one.
+    let taskFolder: TaskFolder | null = this.rt.taskFolders.ofTurn(sessionId, effectiveGitCtx?.worktreePath ?? resolvedProjectPath, resolvedProjectPath)
+    let madeTaskFolder = false
+    let isCodebaseSettled = false
+
     const baseBranch = worktreeBaseBranch
-    if (baseBranch && !effectiveGitCtx?.worktreePath && resolvedProjectPath) {
+    if (baseBranch && !effectiveGitCtx?.worktreePath && !taskFolder && resolvedProjectPath) {
       const setupController = new AbortController()
       this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
       this.pendingSetupControllers.set(sessionId, setupController)
@@ -568,45 +720,57 @@ export class RunLauncher {
         setStep(stage, update)
         if (!isProgress || mayPublishCheckout()) publishSetupCard()
       }
+      // The command of a layout reports no stage: the steps that are still open did no work.
+      const skipOpenSteps = (): void => {
+        for (const step of WORKTREE_SETUP_STEPS) {
+          if (isOpenStep(stepFor(step.id))) setStep(step.id, { status: 'skipped' })
+        }
+      }
       try {
-        const gitContext: GitCheckout = await dispatchStep(
-          'worktree_create',
-          {
-            projectPath: resolvedProjectPath ?? '',
-            baseBranch,
-            fn: 'createWorktree',
-            file: 'run-launcher.ts',
-          },
-          async (annotate) => {
-            // `createWorktree` records its own git commands under this step
-            // through the ambient context — it takes no telemetry argument.
-            // It starts on a temporary branch; `nameWorktreeBranch` names it
-            // while the agent works, so the prompt never waits on a model.
-            const created = await this.rt.checkouts.create(resolvedProjectPath, baseBranch, {
-              signal: setupController.signal,
-              naming: input.executionPreferences?.worktreeBranchNaming,
-              onStage,
-            })
-            annotate({ branch: created.branch ?? '', targetBranch: created.targetBranch, worktreePath: created.worktreePath ?? '' })
-            return created
-          },
-        )
-        if (existingSession) existingSession.gitContext = gitContext
-        effectiveGitCtx = gitContext
-        createdWorktreePath = gitContext.worktreePath
+        // The codebase of the session is known before the plan: the first worktree session of a folder gets its task folder (decision 13).
+        await this.rt.sessionFolders.settleCodebase(sessionId, {
+          workingDirectory: resolvedProjectPath,
+          repositoryRoot: effectiveGitCtx?.repoRoot,
+          codebaseId: input.codebaseId,
+          noCodebase: input.noCodebase,
+          actor: turnActor,
+        })
+        isCodebaseSettled = true
+        const made = await this.makeWorktree(sessionId, {
+          codebaseId: input.codebaseId,
+          projectFolder: resolvedProjectPath,
+          repositories: input.worktreeRepositories ?? null,
+          actor: turnActor,
+          naming: input.executionPreferences?.worktreeBranchNaming,
+          baseBranch,
+          signal: setupController.signal,
+          onStage,
+          note: (line) => { if (stagesOpen) setupOutput.push(line) },
+        })
+        const { gitContext } = made
+        if (made.taskFolder) {
+          taskFolder = made.taskFolder
+          madeTaskFolder = true
+          skipOpenSteps()
+        }
+        if (gitContext) {
+          if (existingSession) existingSession.gitContext = gitContext
+          effectiveGitCtx = gitContext
+          createdWorktreePath = gitContext.worktreePath
+        }
         // A dispatch's copied files go into its new worktree too: the checkout
         // it was made from may be a person's own, which never gets them.
         const copiedFiles = repositoryRun?.repository.files ?? []
-        if (copiedFiles.length > 0 && gitContext.worktreePath) {
+        if (copiedFiles.length > 0 && gitContext?.worktreePath) {
           const written = await writeMissingCopiedFiles(gitContext.worktreePath, copiedFiles)
           setupOutput.push(`Copied ${written} of ${copiedFiles.length} files from .worktreeinclude`)
         }
         stagesOpen = false
-        setupOutput.push(`Branch: ${gitContext.branch}`, `Worktree: ${gitContext.worktreePath}`)
-        log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
+        const facts = madeWorktreeFacts(made)
+        setupOutput.push(`Branch: ${facts.branch}`, facts.taskFolder ? `Task folder: ${facts.taskFolder}` : `Worktree: ${facts.worktreePath}`)
+        log.info('worktree_created', { sessionId, ...facts })
         captureServerEvent('worktree_created', {})
-        this.rt.publish(sessionId, { type: 'git_context', gitContext })
-        void this.rt.sessionCheckouts.nameWorktreeBranch(sessionId, gitContext, options.prompt, request.actor, input.executionPreferences)
+        this.announceMadeWorktree(sessionId, made, resolvedProjectPath, options.prompt, request.actor, input.executionPreferences)
         // Worktree done → the agent step, which links the workspace first.
         setStep('agent', { status: 'active' })
         publishSetupCard()
@@ -651,6 +815,9 @@ export class RunLauncher {
       }
     }
 
+    // A worktree or the working folder of a task folder that was deleted outside Solus comes back on the next turn.
+    if (taskFolder && !madeTaskFolder) await this.rt.taskFolders.restore(sessionId, taskFolder, turnActor)
+
     if (createdWorktreePath) {
       // A worktree made just now is clean and its checkout is known. Its status
       // reaches clients after the agent starts.
@@ -667,7 +834,7 @@ export class RunLauncher {
       effectiveGitCtx = current.checkout
     }
     const useWorktree = !!effectiveGitCtx?.worktreePath
-    const effectiveCwd = useWorktree ? effectiveGitCtx!.worktreePath! : resolvedProjectPath
+    const effectiveCwd = useWorktree ? effectiveGitCtx!.worktreePath! : standInDirectory(taskFolder, resolvedProjectPath) ?? resolvedProjectPath
     // A session restored without its git context still points at its worktree
     // path. A provider spawned there fails with an unrelated error (Claude
     // reports a libc mismatch), so say what is really missing.
@@ -702,9 +869,14 @@ export class RunLauncher {
       publishSetupCard()
     }
 
-    const effectiveAdditionalDirs = useWorktree && resolvedProjectPath
-      ? [...new Set([...(input.additionalDirs || []), resolvedProjectPath])]
-      : input.additionalDirs
+    const providerDirectories = await this.providerDirectoriesFor(sessionId, {
+      workingDirectory: effectiveCwd,
+      repositoryRoot: effectiveGitCtx?.repoRoot,
+      codebaseId: input.codebaseId,
+      noCodebase: input.noCodebase,
+      isCodebaseSettled,
+      actor: turnActor,
+    }, useWorktree && resolvedProjectPath ? resolvedProjectPath : null)
 
     // The provider switch (`handOffForPrompt`) only moves the lineage; the
     // handoff transcript is assembled now, for the prompt that asked for it. It's
@@ -749,7 +921,6 @@ export class RunLauncher {
       provider,
       workingDirectory: effectiveCwd,
       projectPath: resolvedProjectPath,
-      additionalDirs: effectiveAdditionalDirs,
       gitContext: effectiveGitCtx,
       agentSessionId,
       forked: pendingHandoff ? false : input.forked,
@@ -936,7 +1107,7 @@ export class RunLauncher {
         cwd: effectiveCwd ?? '',
         reasoningEffort: effectiveInput.reasoningEffort ?? '',
         permissionMode: effectiveInput.permissionMode ?? '',
-        additionalDirs: (effectiveAdditionalDirs ?? []).join(', '),
+        additionalDirectories: providerDirectories.join(', '),
         systemPromptChars: systemPrompt.length,
         isResume: !!effectiveInput.agentSessionId,
         isFork: !!effectiveInput.forked,
@@ -961,7 +1132,9 @@ export class RunLauncher {
         persistence: 'session',
         service: SPAN_SERVICES.sessions,
         conversation: providerConversationFor(effectiveInput),
-        additionalDirectories: effectiveAdditionalDirs,
+        additionalDirectories: providerDirectories,
+        // Read here, at the spawn: a folder attached while the launch waited is in the block.
+        codebase: this.rt.sessionFolders.promptFolders(sessionId),
         imageAttachments: promptImages,
         contextWindow: effectiveInput.contextWindow,
         fastMode: effectiveInput.fastMode,

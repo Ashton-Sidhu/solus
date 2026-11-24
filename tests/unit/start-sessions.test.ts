@@ -50,6 +50,7 @@ beforeAll(async () => {
   tools.setSessionController({
     listAgentTargets: async () => targets,
     permissionModeFor: () => 'supervised',
+    codebaseIdFor: async (sessionId) => sessionId === 'parent-codex' ? 'codebase-shop' : null,
     getSessionInfo: async sessionId => ({ sessionId, provider: sessionId.endsWith('codex') ? 'codex' : 'claude-code', model: sessionId.endsWith('codex') ? 'codex-chosen' : 'claude-code-chosen', reasoningEffort: 'high', cwd: directory, slug: null, firstMessage: null, lastTimestamp: '', size: 0, projectPath: directory }),
     liveStatus: () => 'running', pendingInputEvents: () => [], loadSessionTail: async () => [],
     loadPlanContent: async () => null, listPlans: async () => [], invalidatePlanCaches: () => {},
@@ -89,6 +90,18 @@ test('every session in one call starts at the same time, and each result names i
   expect(starts.map((started) => started.order.prompt)).toEqual(['Build the ledger', 'Build the ingest', 'Build the invoices'])
   expect(result.text).toContain('Started 3 of 3 sessions')
   expect(reloaded(result.text)).toEqual([0, 1, 2].map((item) => ({ sessionId: `child-${item}`, messageId: `exchange-${item}`, provider: 'codex', item })))
+})
+
+test('each session gets the codebase of the session that starts it', async () => {
+  // WHY: docs/plans/codebases.md decision 5. A child works on the same piece of
+  // work as its sender, so it must get the same folders; a sender with one
+  // working directory must not give its children a codebase.
+  await start.execute({ sessions: [{ prompt: 'Change the API' }, { prompt: 'Research', independent: true }] }, context('codex'))
+  expect(starts.map((started) => started.order.codebaseId)).toEqual(['codebase-shop', 'codebase-shop'])
+
+  starts.length = 0
+  await start.execute({ sessions: [{ prompt: 'Change the API' }] }, context('claude-code'))
+  expect(starts.map((started) => started.order.codebaseId)).toEqual([null])
 })
 
 test('one bad entry starts no session, and names the entry to correct', async () => {

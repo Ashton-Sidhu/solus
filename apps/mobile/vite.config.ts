@@ -119,6 +119,10 @@ export default defineConfig({
       },
     },
   ],
+  // Vite refuses to serve a file below a `.git` folder by default, and a Solus worktree is in
+  // `<repository>/.git/solus/worktrees`: each test of the `react` project then fails to load its
+  // setup file. The other entries are Vite's defaults.
+  server: { fs: { deny: [".env", ".env.*", "*.{crt,pem}"] } },
   test: {
     hookTimeout: 60_000,
     testTimeout: 60_000,

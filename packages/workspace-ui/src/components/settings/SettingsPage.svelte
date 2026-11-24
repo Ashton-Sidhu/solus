@@ -29,6 +29,7 @@
     Plug as PlugIcon,
     Blocks as McpIcon,
     Webhook as WebhookIcon,
+    FolderGit2 as CodebasesIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -54,7 +55,8 @@
     hostSearchWords as hostSearch,
     organizationSearchWords as organizationSearch,
     policySearchWords as policySearch,
-    webhooksSearchWords as webhooksSearch
+    webhooksSearchWords as webhooksSearch,
+    codebasesSearchWords as codebasesSearch
   } from "./lib/settings-search-data";
   import { dataMatches, wordsMatch, settingsPageMatches, settingsPageQuery } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
@@ -222,6 +224,13 @@
       group: "Code",
     },
     {
+      id: "codebases",
+      label: "Codebases",
+      description: "Named sets of folders, on one or more hosts, that one session works in.",
+      icon: CodebasesIcon,
+      group: "Code",
+    },
+    {
       id: "review",
       label: "Review companion",
       description: "How review guides are made, and by which agent.",
@@ -300,6 +309,7 @@
     telemetry: analyticsSearch,
     host: hostSearch,
     webhooks: webhooksSearch,
+    codebases: codebasesSearch,
   };
 
   const tabs = $derived(

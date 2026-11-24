@@ -14,7 +14,8 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 import { type Task } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
-import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath } from '@solus/contracts/types'
+import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath, sessionProjectRoot } from '@solus/contracts/types'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { loadSessionTranscript } from './session-transcript'
@@ -37,7 +38,7 @@ import type { SessionEnvironmentWorkspace } from '../git/session-environment.sto
 import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
 import type { OpenTarget } from './routing/location'
 import type { SessionDraft } from './session-draft.svelte'
-import { adoptGit, checkoutGit, checkoutPlace, chooseStart, dispatchTo, folderLocation, projectHome, runHost, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, chooseStart, codebaseOf, dispatchTo, folderLocation, projectHome, runHost, startsWorktree, workInStandIn, workingPlace } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionOpeningWorkspace = Pick<WorkspaceContext,
@@ -162,6 +163,13 @@ function applyDescribedFacts(session: Session, meta: SessionMeta, run: Partial<R
   session.parentSessionId = parentSessionIdOf(meta)
   session.organizationId = meta.organizationId ?? null
   Object.assign(session.run, run)
+  adoptRecordCodebase(session, meta)
+}
+
+/** The codebase of a session is a fact of its record (docs/plans/codebases.md
+ *  decision 5): the run names it for the views and for each later turn. */
+function adoptRecordCodebase(session: Session | undefined, meta: SessionMeta): void {
+  if (session) session.run.location = chooseCodebase(session.run.location, meta.codebaseId ?? null)
 }
 
 export class SessionOpening {
@@ -228,7 +236,6 @@ export class SessionOpening {
       // alias: this fork and its source remain separate sessions.
       forkedFromSessionId: null,
       messages: copiedMessages,
-      additionalDirs: [...sourceSession.additionalDirs],
       // A fork runs where its source does until the person picks another
       // host in Run on; that host syncs the source first (plan §10).
       run: {
@@ -457,7 +464,8 @@ export class SessionOpening {
     const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
     // The same request the click's prefetch made, so the read below takes it.
     const firstPage = this.firstPageRequest({ ...meta, provider })
-    const workingDirectory = worktreeProjectRoot(defaultDir)
+    // The folder of the session's project: the record names it for a session in a task folder.
+    const workingDirectory = sessionProjectRoot({ cwd: defaultDir, projectRoot: meta.projectRoot })
     const title = sessionTitleOf(meta)
 
     const hadActiveTab = !!this.workspace.activeTab
@@ -538,6 +546,7 @@ export class SessionOpening {
       }
     }
     this.workspace.adoptSessionId(tabId, resumedSessionId)
+    adoptRecordCodebase(this.workspace.sessionFor(tabId), meta)
     if (!background && !intoTabId) this.workspace.revealConversation()
     // A host that is behind gets ready before the person sends (portable-sessions §10).
     sessionListStore.noteSessionMeta(selectedServerId, meta)
@@ -574,7 +583,6 @@ export class SessionOpening {
 
     // Transcript display does not wait for git or task metadata. Each background
     // result checks that this tab still owns the session before applying it.
-    const worktreePath = isSolusWorktreePath(defaultDir) ? defaultDir : undefined
     const resumingSession = this.workspace.sessionFor(tabId)
     // Re-read the tab's session before applying anything: a concurrent resume
     // could have taken over this tab while our IPC was in flight.
@@ -588,7 +596,15 @@ export class SessionOpening {
       const identityPending = api.gitIdentity
         ? api.gitIdentity(defaultDir).catch(() => null)
         : Promise.resolve(null)
+      // The working directory of a task folder is a worktree only when its working member is a repository.
+      const taskFolderPending = isTaskFolderPath(defaultDir) ? api.taskFolderOf(defaultDir).catch(() => null) : Promise.resolve(null)
       void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
+      // The host sends the folders of a session when the list changes, at a
+      // turn start. A session that is opened between turns reads them.
+      void api.sessionFolders(resumedSessionId).then((folders) => {
+        const opened = currentResumeTarget()
+        if (opened) opened.sessionFolders = folders
+      }).catch(() => null)
       const transcriptLoad = loadSessionTranscript(this.workspace, {
         sessionId: resumedSessionId,
         loadPath: firstPage.projectPath,
@@ -634,9 +650,14 @@ export class SessionOpening {
         if (transcript.endsInRefusedLogin) this.workspace.offerSignInAgain(session.id, session)
 
         void (async () => {
-          const identity = await identityPending
+          const [identity, taskFolder] = await Promise.all([identityPending, taskFolderPending])
           const restoredSession = currentResumeTarget()
           if (!restoredSession) return
+          // A plain working member has no checkout: its session works through the member, and nothing is missing.
+          const standsInForPlainMember = !!taskFolder && !taskFolder.primaryIsWorktree
+          const worktreePath = isSolusWorktreePath(defaultDir) && !standsInForPlainMember ? defaultDir : undefined
+          // Its files are in the folder that stands in for the member: reads use that folder, and the project stays the member.
+          if (taskFolder && standsInForPlainMember) restoredSession.run.location = workInStandIn(restoredSession.run.location, taskFolder.primaryPath)
           this.workspace.lifecycle.recomputeChangedFiles(tabId)
           const gitContext = gitCheckoutFromState(identity, worktreePath)
           restoredSession.run.location = adoptGit(restoredSession.run.location, workingPlace(restoredSession.run), gitContext)
@@ -677,6 +698,26 @@ export class SessionOpening {
     if (intoTabId) requestInputFocus({ tabId })
     track('session_resumed', {})
     return tabId
+  }
+
+  /**
+   * The worktree setup of a session ended, and its run has no checkout: its
+   * working folder has no repository. A codebase session of such a folder
+   * works in the folder of a task folder that stands in for it
+   * (docs/plans/codebases.md §7). No `git_context` event names that folder, so
+   * the record of the session does: the run moves there, and the project
+   * stays the folder that it stands in for.
+   */
+  async settleStandIn(sessionId: string): Promise<void> {
+    const session = this.workspace.sessions.byId[sessionId]
+    if (!session || !startsWorktree(session.run) || checkoutGit(session.run) || !codebaseOf(session.run)) return
+    const api = serverConnections.apiFor(runHost(session.run))
+    const record = (await api.describeSession(sessionId).catch(() => null))?.meta
+    if (!record?.cwd || !isTaskFolderPath(record.cwd)) return
+    const taskFolder = await api.taskFolderOf(record.cwd).catch(() => null)
+    // The session can end, or get a checkout, while the host answers.
+    if (!taskFolder || taskFolder.primaryIsWorktree || this.workspace.sessions.byId[sessionId] !== session || checkoutGit(session.run)) return
+    session.run.location = workInStandIn(session.run.location, taskFolder.primaryPath)
   }
 
   /**

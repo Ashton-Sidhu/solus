@@ -21,25 +21,50 @@ export const DIGEST_TEXT_LENGTH = 240
 /** The most files a change summary lists. Its totals still count every file. */
 export const SESSION_CHANGE_SUMMARY_FILES = 500
 
-/**
- * What a session changed, from its base to its last turn checkpoint. Only the
- * session's own writes: another session's writes in a checkout they share stay
- * out. The patch stays in git, in that checkout.
- */
-export interface SessionChangeSummary {
-  /** Largest change first, at most SESSION_CHANGE_SUMMARY_FILES. */
-  files: ChangedFileStat[]
-  /** Totals of the whole change, also past the file limit. */
+/** The counts of one change. */
+export interface ChangeCounts {
   filesChanged: number
   additions: number
   deletions: number
 }
 
-/** The totals of one turn's checkpoint. */
-export interface DigestTurnChanges {
-  filesChanged: number
-  additions: number
-  deletions: number
+/** The totals of a change, with its largest files. */
+export interface SessionChangeTotals extends ChangeCounts {
+  /** Largest change first, at most SESSION_CHANGE_SUMMARY_FILES. */
+  files: ChangedFileStat[]
+}
+
+/** One repository of a session's change (docs/plans/codebases.md §8). */
+export interface ChangedRepository {
+  /** The repository: the session folder's `repositoryPath` (the member, not its worktree), or the
+   *  repository root of the working directory. It stays the same when the session moves to a worktree. */
+  repositoryPath: string
+  name: string
+}
+
+/** What a session changed in one repository. Each file path is relative to that repository. */
+export type SessionRepositoryChanges = ChangedRepository & SessionChangeTotals
+
+/**
+ * What a session changed, from its base to its last turn checkpoint, over all
+ * its repositories. Only the session's own writes: another session's writes in
+ * a checkout they share stay out. The patch stays in git, in each checkout.
+ *
+ * `files` lists the files of all the repositories. A file of the working
+ * directory's repository is relative to that repository. A file of a session
+ * folder has the folder's path from the working directory in front
+ * (`api/src/main.ts`, `../web/src/app.ts`), so two repositories never name one
+ * file the same.
+ */
+export interface SessionChangeSummary extends SessionChangeTotals {
+  /** The change of each repository. Present only when more than one repository has changes. */
+  repositories?: SessionRepositoryChanges[]
+}
+
+/** The totals of one turn's checkpoint, over all the repositories the turn changed. */
+export interface DigestTurnChanges extends ChangeCounts {
+  /** The totals for each repository. Present only when the turn changed more than one. */
+  repositories?: (ChangedRepository & ChangeCounts)[]
 }
 
 export interface DigestTurn {
@@ -146,6 +171,11 @@ export function digestLine(text: string): string {
 }
 
 const changeCountsSchema = z.object({ filesChanged: z.number(), additions: z.number(), deletions: z.number() })
+const changeTotalsSchema = changeCountsSchema.extend({
+  files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number(), status: z.enum(['A', 'M', 'D', 'R']) })),
+})
+/** What names the repository of one entry of a change. */
+const changedRepository = { repositoryPath: z.string(), name: z.string() }
 
 /** A digest as it is stored and copied between hosts: every reader parses it with this. */
 export const sessionDigestSchema = z.object({
@@ -158,11 +188,13 @@ export const sessionDigestSchema = z.object({
     outcome: z.enum(['completed', 'failed', 'interrupted', 'dead']).optional(),
     prompt: z.string(),
     toolCalls: z.array(z.tuple([z.number(), z.number()])),
-    changes: changeCountsSchema.nullable(),
+    changes: changeCountsSchema.extend({
+      repositories: z.array(changeCountsSchema.extend(changedRepository)).optional(),
+    }).nullable(),
     costUsd: z.number().nonnegative().optional(),
   })),
-  changes: changeCountsSchema.extend({
-    files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number(), status: z.enum(['A', 'M', 'D', 'R']) })),
+  changes: changeTotalsSchema.extend({
+    repositories: z.array(changeTotalsSchema.extend(changedRepository)).optional(),
   }).nullable(),
   subagents: z.array(z.object({
     id: z.string(),

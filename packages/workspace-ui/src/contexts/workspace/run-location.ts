@@ -11,9 +11,34 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
  * for a tab, `draft.moveTo(next)` for a draft, which reads the new checkout.
  * Code outside this module does not reach into `location.checkout` or
  * `location.project`.
+ *
+ * The codebase of a run (docs/plans/codebases.md) follows its project home. A
+ * command that keeps the project home keeps the codebase: a start choice, a
+ * Git answer, a clone, a clone that landed, a change of the host of the tasks,
+ * and `openFolder` with `keepProject`. `openFolder` to a different project
+ * home clears the codebase, because the new folder is different work; a caller
+ * that opens a root of the same codebase passes `keepCodebase`. A new session
+ * inherits the codebase of the session it was opened from, but a new chat has
+ * none. The repositories chosen for a new worktree are member paths on the run
+ * host, so they stay only while the checkout folder and the codebase stay:
+ * `openFolder` and `chooseCodebase` set them back to the default.
+ *
+ * The host gives a run with no codebase the codebase of its folder, or makes
+ * one (decision 13). "No codebase" is the person's choice against that
+ * (`refuseCodebase`). It follows the codebase: it stays where the codebase
+ * stays, and a run that gets a codebase has it no longer.
+ *
+ * A location saved before the codebase fields existed has neither field. The
+ * answers read a field that is not there as null.
  */
 
 type Located = Pick<RunConfig, 'location'>
+
+/** A request for a new worktree as a caller names it. Left out, the repositories are the default set. */
+interface NewWorktreeRequest {
+  baseBranch: string | null
+  repositories?: string[] | null
+}
 
 // ── Answers ──────────────────────────────────────────────────────────────
 
@@ -105,6 +130,24 @@ export function worktreeBaseBranch(run: Located | null | undefined): string | nu
   return checkout.start.kind === 'new-worktree' ? checkout.start.baseBranch : null
 }
 
+/** The id of the codebase the run starts with, or null for a run with one working directory. */
+export function codebaseOf(run: Located | null | undefined): string | null {
+  return run?.location.codebaseId ?? null
+}
+
+/** The person chose "No codebase": the host gives the session of this run none. */
+export function refusesCodebase(run: Located | null | undefined): boolean {
+  return run?.location.noCodebase === true
+}
+
+/** The member paths of the codebase that get a worktree when the run starts a
+ *  new worktree in a folder. Null is the default set, which the host chooses;
+ *  it is also the answer for a run that starts no new worktree and for a clone. */
+export function worktreeRepositories(run: Located | null | undefined): string[] | null {
+  const checkout = run?.location.checkout
+  return checkout?.kind === 'folder' ? checkout.newWorktree?.repositories ?? null : null
+}
+
 export function samePlace(a: Place, b: Place): boolean {
   return a.serverId === b.serverId && a.path === b.path
 }
@@ -118,12 +161,14 @@ export function samePlace(a: Place, b: Place): boolean {
  */
 export function folderLocation(
   place: Place,
-  opts: { git?: GitCheckout | null; newWorktree?: FolderCheckout['newWorktree']; project?: Place } = {},
+  opts: { git?: GitCheckout | null; newWorktree?: NewWorktreeRequest | null; project?: Place } & Partial<CodebaseChoice> = {},
 ): RunLocation {
   const git = opts.git ?? null
+  const newWorktree = opts.newWorktree ? { baseBranch: opts.newWorktree.baseBranch, repositories: opts.newWorktree.repositories ?? null } : null
   return {
-    checkout: { kind: 'folder', serverId: place.serverId, path: place.path, git, newWorktree: opts.newWorktree ?? null },
+    checkout: { kind: 'folder', serverId: place.serverId, path: place.path, git, newWorktree },
     project: opts.project ?? projectOf(place, git),
+    ...(opts.noCodebase ? { codebaseId: null, noCodebase: true as const } : { codebaseId: opts.codebaseId ?? null }),
   }
 }
 
@@ -138,14 +183,15 @@ export function folderLocation(
  */
 export function inheritedLocation(location: RunLocation, opts: { freshTask?: boolean } = {}): RunLocation {
   const { checkout, project } = location
-  if (checkout.kind === 'clone') return folderLocation(project, { project })
+  const codebase = codebaseChoiceOf(location)
+  if (checkout.kind === 'clone') return folderLocation(project, { project, ...codebase })
   if (isChat(checkout.path)) return folderLocation({ serverId: checkout.serverId, path: NEW_CHAT_DIRECTORY })
   if (opts.freshTask) {
     const root = checkout.git?.repoRoot ?? (checkout.path !== '~' ? checkout.path : null)
-    if (root) return folderLocation({ serverId: checkout.serverId, path: root }, { project })
-    return folderLocation({ serverId: checkout.serverId, path: checkout.path }, { project })
+    if (root) return folderLocation({ serverId: checkout.serverId, path: root }, { project, ...codebase })
+    return folderLocation({ serverId: checkout.serverId, path: checkout.path }, { project, ...codebase })
   }
-  return folderLocation({ serverId: checkout.serverId, path: checkout.path }, { git: checkout.git ? { ...checkout.git } : null, project })
+  return folderLocation({ serverId: checkout.serverId, path: checkout.path }, { git: checkout.git ? { ...checkout.git } : null, project, ...codebase })
 }
 
 /** The same location with each host id passed through `remap`: a restored run
@@ -154,6 +200,7 @@ export function remapHosts(location: RunLocation, remap: (serverId: string) => s
   return {
     checkout: { ...location.checkout, serverId: remap(location.checkout.serverId) },
     project: { ...location.project, serverId: remap(location.project.serverId) },
+    ...codebaseChoiceOf(location),
   }
 }
 
@@ -166,19 +213,26 @@ export function remapHosts(location: RunLocation, remap: (serverId: string) => s
  *
  * The folder becomes the project, unless `keepProject` says the project stays
  * home (a dispatch into a folder the person picked over there). A request for a
- * new worktree survives with its base branch dropped: wanting isolation is a
- * preference about the work, and the base branch named a branch in the old folder.
+ * new worktree survives with its base branch and its repositories dropped:
+ * wanting isolation is a preference about the work, and the base branch and the
+ * repositories named things in the old folder.
+ *
+ * The codebase stays when the project home stays (`keepProject`, or the folder
+ * is the project home the run has) and when `keepCodebase` says the folder is
+ * a root of the same codebase. A different project home has no codebase.
  */
 export function openFolder(
   location: RunLocation,
   place: Place,
-  opts: { git?: GitCheckout | null; keepProject?: boolean } = {},
+  opts: { git?: GitCheckout | null; keepProject?: boolean; keepCodebase?: boolean } = {},
 ): RunLocation {
-  return folderLocation(place, {
+  const next = folderLocation(place, {
     git: opts.git,
     newWorktree: locationStartsWorktree(location) ? { baseBranch: null } : null,
     project: opts.keepProject ? location.project : undefined,
   })
+  const keepsCodebase = opts.keepCodebase || samePlace(next.project, location.project)
+  return keepsCodebase ? { ...next, ...codebaseChoiceOf(location) } : next
 }
 
 /**
@@ -199,6 +253,7 @@ export function dispatchTo(location: RunLocation, serverId: string, repoKey: str
       start: locationStartsWorktree(location) ? { kind: 'new-worktree', baseBranch: null } : { kind: 'default-branch' },
     },
     project: location.project,
+    ...codebaseChoiceOf(location),
   }
 }
 
@@ -261,9 +316,53 @@ function chooseFolderStart(checkout: FolderCheckout, choice: StartChoice): Folde
         ...checkout,
         path: choice.git.repoRoot ?? root,
         git: choice.git,
-        newWorktree: checkout.newWorktree ? { baseBranch: null } : null,
+        newWorktree: checkout.newWorktree ? { baseBranch: null, repositories: checkout.newWorktree.repositories ?? null } : null,
       }
   }
+}
+
+/**
+ * Start with the codebase `codebaseId`, or with none. The checkout and the
+ * project home stay. The repositories chosen for a new worktree were members
+ * of the codebase the run had, so a different codebase sets them back to the
+ * default.
+ */
+export function chooseCodebase(location: RunLocation, codebaseId: string | null): RunLocation {
+  if ((location.codebaseId ?? null) === codebaseId) return location
+  const { checkout } = location
+  const reset = checkout.kind === 'folder' && checkout.newWorktree
+    ? { ...checkout, newWorktree: { baseBranch: checkout.newWorktree.baseBranch, repositories: null } }
+    : checkout
+  // A run that has a codebase does not refuse one.
+  const { noCodebase: _refused, ...kept } = location
+  return { ...(codebaseId ? kept : location), checkout: reset, codebaseId }
+}
+
+/**
+ * The person chose "No codebase" (`refuses` true), or took that choice back.
+ * The host gives a session with no codebase the codebase of its folder, or
+ * makes one (docs/plans/codebases.md decision 13). A run that refuses gets
+ * none. The run has no codebase after each of the two.
+ */
+export function refuseCodebase(location: RunLocation, refuses = true): RunLocation {
+  const cleared = chooseCodebase(location, null)
+  if ((cleared.noCodebase === true) === refuses) return cleared
+  const { noCodebase: _refused, ...allowed } = cleared
+  return refuses ? { ...cleared, noCodebase: true } : allowed
+}
+
+/**
+ * Choose the members of the codebase that get a worktree: their paths on the
+ * run host, or null for the default set. The choice is part of a request for a
+ * new worktree in a folder, so a run that starts none, and a clone, do not
+ * change. A clone gets its worktrees on a host where nothing can be read yet.
+ */
+export function chooseWorktreeRepositories(location: RunLocation, paths: string[] | null): RunLocation {
+  const { checkout } = location
+  if (checkout.kind !== 'folder' || !checkout.newWorktree) return location
+  const current = checkout.newWorktree.repositories ?? null
+  if (current === paths || (current && paths && current.length === paths.length && current.every((path, index) => path === paths[index]))) return location
+  return { ...location, checkout: { ...checkout, newWorktree: { baseBranch: checkout.newWorktree.baseBranch, repositories: paths ? [...paths] : null } } }
 }
 
 /**
@@ -271,17 +370,25 @@ function chooseFolderStart(checkout: FolderCheckout, choice: StartChoice): Folde
  * for a place the run has left, on another host or at another path, is dropped:
  * the read began before the run moved. `newWorktree` is the request as the
  * reader resolved it, with the base branch the host named; omitted, the run
- * keeps the request it has.
+ * keeps the request it has. The repositories of the request are the run's own
+ * choice, so a Git answer never changes them. A folder that is not a
+ * repository has no branch for the host to name: the base branch that the
+ * person named for it stays.
  */
 export function adoptGit(
   location: RunLocation,
   place: Place,
   git: GitCheckout | null,
-  newWorktree?: FolderCheckout['newWorktree'],
+  request?: { baseBranch: string | null } | null,
 ): RunLocation {
   const { checkout, project } = location
   if (checkout.kind !== 'folder' || !samePlace(place, workingPlaceOf(location))) return location
-  newWorktree = newWorktree === undefined ? checkout.newWorktree : newWorktree
+  const newWorktree = request === undefined
+    ? checkout.newWorktree
+    : request && {
+        baseBranch: request.baseBranch ?? (git ? null : checkout.newWorktree?.baseBranch ?? null),
+        repositories: checkout.newWorktree?.repositories ?? null,
+      }
   // A folder that is its own project is named by Git's root once Git answers.
   // A dispatch's project is the home checkout, which this answer does not describe.
   const ownsProject = project.serverId === checkout.serverId
@@ -293,9 +400,24 @@ export function adoptGit(
     && !checkout.newWorktree === !newWorktree
     && samePlace(nextProject, project)) return location
   return {
+    ...location,
     checkout: { ...checkout, git, newWorktree },
     project: nextProject,
   }
+}
+
+/**
+ * Work in the folder of a task folder that stands in for a folder with no
+ * repository (docs/plans/codebases.md §7). Such a session has no checkout, so
+ * no Git answer moves its run. Files and Git are read in the stand-in, and the
+ * project home stays the folder that it stands in for, with its codebase. The
+ * task folder is the new worktree that the run asked for, so the request ends.
+ */
+export function workInStandIn(location: RunLocation, standInPath: string): RunLocation {
+  const { checkout } = location
+  if (checkout.kind !== 'folder') return location
+  const moved = openFolder(location, { serverId: checkout.serverId, path: standInPath }, { keepProject: true })
+  return chooseStart(moved, { kind: 'checkout' })
 }
 
 /** File the run's tasks on `serverId`, its folder unchanged: a task in the
@@ -332,19 +454,27 @@ export function landClone(location: RunLocation, path: string): RunLocation {
         serverId: checkout.serverId,
         path,
         git: null,
-        newWorktree: start.kind === 'new-worktree' ? { baseBranch: null } : null,
+        newWorktree: start.kind === 'new-worktree' ? { baseBranch: null, repositories: null } : null,
       }
-  return { checkout: folder, project }
+  return { ...location, checkout: folder, project }
 }
 
 // ── Internals ────────────────────────────────────────────────────────────
+
+/** The codebase fields of a location: the codebase, and the choice of the person to have none. */
+type CodebaseChoice = Pick<RunLocation, 'codebaseId' | 'noCodebase'>
+
+function codebaseChoiceOf(location: RunLocation): CodebaseChoice {
+  return location.noCodebase ? { codebaseId: null, noCodebase: true } : { codebaseId: location.codebaseId ?? null }
+}
 
 /** Ask for a new worktree. One is made from the project root and its target
  *  branch, so a run inside a selected worktree moves back to the root first;
  *  with no branch to fork from there is nothing to change. */
 function withNewWorktree(checkout: FolderCheckout, root: string, baseBranch: string | undefined): FolderCheckout | null {
+  const repositories = checkout.newWorktree?.repositories ?? null
   if (!checkout.git?.worktreePath) {
-    return { ...checkout, newWorktree: { baseBranch: baseBranch ?? checkout.git?.targetBranch ?? null } }
+    return { ...checkout, newWorktree: { baseBranch: baseBranch ?? checkout.git?.targetBranch ?? null, repositories } }
   }
   const base = baseBranch ?? checkout.git.targetBranch
   if (!base) return null
@@ -352,7 +482,7 @@ function withNewWorktree(checkout: FolderCheckout, root: string, baseBranch: str
     ...checkout,
     path: root,
     git: { repoRoot: root, branch: base, targetBranch: base },
-    newWorktree: { baseBranch: base },
+    newWorktree: { baseBranch: base, repositories },
   }
 }
 

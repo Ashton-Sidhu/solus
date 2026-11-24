@@ -30,6 +30,7 @@ vi.mock("../../solus/use-thread-screen-data", () => ({
     header: { title: "Thread", projectName: "project", cwd: "/repo/worktree", draft: state.draft },
   }),
 }));
+vi.mock("../../solus/DraftWorkspaceControls", () => ({ DraftWorkspaceControls: () => null }));
 vi.mock("../../solus/CheckoutGit", () => ({
   useCheckoutGitControls: () => ({ environmentId: "host", threadId: "session" }),
 }));

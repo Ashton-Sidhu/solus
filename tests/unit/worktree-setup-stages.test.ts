@@ -241,7 +241,7 @@ async function hostFor(projectPath: string) {
   })
   const input: SessionRunInput = {
     provider: 'claude-code', agentSessionId: null, forked: false, workingDirectory: projectPath, projectPath,
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: 'main', contextWindow: null,
+    gitContext: null, worktreeBaseBranch: 'main', contextWindow: null,
     model: 'claude-opus-5', preferredModel: 'claude-opus-5', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }

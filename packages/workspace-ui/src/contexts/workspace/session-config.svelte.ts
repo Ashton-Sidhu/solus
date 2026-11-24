@@ -399,9 +399,10 @@ export class SessionConfigController {
     // way there is nothing here to point somewhere else: entering a worktree is
     // a new piece of work, so it opens a draft for that checkout and leaves the
     // running session where it is. The draft names the project root while its
-    // Git context carries the selected worktree.
+    // Git context carries the selected worktree. The host names the repository
+    // of a worktree in a task folder, whose path does not.
     if (!owner) {
-      this.deps.openSessionDraft(projectRoot, false, restored)
+      this.deps.openSessionDraft(restored?.repoRoot ?? projectRoot, false, restored)
       this.deps.refreshGitRefs(contextRun, projectRoot, repoCtx)
       return
     }
@@ -503,7 +504,6 @@ export class SessionConfigController {
     owner.session.agentSessionId = null
     owner.session.run.provider = null
     owner.session.threadProvider = null
-    owner.session.additionalDirs = []
     owner.session.readOnlyReason = null
     owner.session.pluginCommands = { global: [], project: [] }
     api.resetSession(this.deps.ctx(owner.id))
@@ -553,18 +553,6 @@ export class SessionConfigController {
         this.sessionStartTargetResolutions.delete(key)
       }
     }
-  }
-
-  addDirectory(dir: string): void {
-    const session = this.deps.registry.activeSession
-    if (!session) return
-    if (!session.additionalDirs.includes(dir)) session.additionalDirs.push(dir)
-  }
-
-  removeDirectory(dir: string): void {
-    const session = this.deps.registry.activeSession
-    if (!session) return
-    session.additionalDirs = session.additionalDirs.filter((d) => d !== dir)
   }
 
   /** Pin the model new sessions start on for one agent. Stored per agent, so the

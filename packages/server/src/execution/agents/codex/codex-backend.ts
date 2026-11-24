@@ -44,6 +44,7 @@ import { importCodexThread } from './codex-thread-import'
 import { codexThreadFiles } from './codex-thread-files'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import { type AgentRunRequest, type AgentRunSessionState } from '../agent-runner'
+import type { SessionFolderGate } from '../session-folder-gate'
 import type {
   AgentId,
   AgentMetadata,
@@ -94,6 +95,7 @@ import type {
 import {
   CodexPermissionResponder,
   codexQuestionId,
+  approvalPaths,
   autoApprovalResponse,
   denialResponse,
   normalizeMcpElicitationRequest,
@@ -367,6 +369,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }),
   })
   private fileChangesByItem = new Map<string, unknown[]>()
+  /** The folders of each Solus session (docs/plans/codebases.md §6). Null where no runtime gave them. */
+  private sessionFolders: SessionFolderGate | null = null
   private fileChangeTurnByItem = new Map<string, string>()
   private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
   private planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: 60_000, maxEntries: 64 })
@@ -590,6 +594,38 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return this.permissions as CodexPermissionResponder
   }
 
+  useSessionFolders(folders: SessionFolderGate): void {
+    this.sessionFolders = folders
+    // "Allow for session" on a request that names its paths also makes their folders session folders.
+    this.permissionResponder().onAcceptedForSession = (req) => {
+      const handle = req.sessionId ? this.activeRuns.get(req.sessionId) : undefined
+      const paths = handle?.sessionId ? this.approvalPathsOf(req.method, req.params, handle) : null
+      if (handle?.sessionId && paths) folders.attachAllowed(handle.sessionId, paths)
+    }
+  }
+
+  /**
+   * True when an approval request needs no card: each path it names is in a
+   * granted folder of the session. Codex gets new writable roots only at the
+   * next turn, so a write in a folder that was attached in this turn asks.
+   * Only the modes that ask nothing for a write in a writable root accept it.
+   * In `supervised` each write asks, also in the working directory, so its
+   * card stays.
+   */
+  private writesInSessionFolders(handle: CodexRunHandle | undefined, method: string, params: any): boolean {
+    const folders = this.sessionFolders
+    const sessionId = handle?.sessionId
+    if (!handle || !folders || !sessionId || (handle.permissionMode !== 'accept-edits' && handle.permissionMode !== 'auto')) return false
+    const paths = this.approvalPathsOf(method, params, handle)
+    return !!paths && paths.every((path) => folders.grantedFolderOf(sessionId, path) !== null)
+  }
+
+  /** The paths that an approval request of a run names, or null (`approvalPaths`). */
+  private approvalPathsOf(method: string, params: any, handle: CodexRunHandle): string[] | null {
+    const itemId = optionalString(params?.itemId)
+    return approvalPaths(method, params, itemId ? this.fileChangesByItem.get(itemId) : undefined, resolveHomePath(handle.cwd))
+  }
+
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const conversation = request.conversation ?? { kind: 'start' }
     if (request.operation === 'compact') {
@@ -636,7 +672,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       interrupted: false,
       normalizer: new CodexTurnNormalizer({ planMode: request.permissionMode === 'plan' }),
       checkpoint: request.persistence === 'session' && request.operation !== 'compact' && sessionState
-        ? { sessionId: sessionState.sessionId, workTree: request.cwd }
+        ? { sessionId: sessionState.sessionId, workTree: request.cwd, folders: () => this.sessionFolders?.checkpointTargets(sessionState.sessionId) ?? [] }
         : null,
       cwd: resolveHomePath(request.cwd),
       userMessagePreview: request.prompt.slice(0, 80),
@@ -665,7 +701,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
       const developerInstructions = [
         request.systemPrompt?.trim(),
-        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions }, tools, request.integrationInstructions),
+        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd, delegationInstructions: request.delegationInstructions, codebase: request.codebase }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
       const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
       const config = { ...THREAD_CONFIG, [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '' }
@@ -721,7 +757,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           this.dynamicToolsUnavailable = true
           threadConfig.developerInstructions = [
             request.systemPrompt?.trim(),
-            runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, []),
+            runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd, codebase: request.codebase }, []),
           ].filter(Boolean).join('\n\n')
           response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
         }
@@ -790,7 +826,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         cwd: resolveHomePath(request.cwd),
         approvalPolicy: approvalPolicyFor(request.permissionMode),
         approvalsReviewer: approvalsReviewerFor(request.permissionMode),
-        sandboxPolicy: sandboxPolicyFor(request.permissionMode),
+        // Sent at each turn start, so a folder attached in the last turn is writable in this one.
+        sandboxPolicy: sandboxPolicyFor(request.permissionMode, (request.additionalDirectories ?? []).map(resolveHomePath)),
         model,
         serviceTier: request.fastMode ? 'fast' : null,
         summary,
@@ -1689,6 +1726,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (handle?.permissionMode === 'plan') {
       log.info('permission_declined_plan_mode', { method: msg.method })
       client.respond(msg.id, denialResponse(msg.method))
+      return
+    }
+
+    if (this.writesInSessionFolders(handle, msg.method, params)) {
+      log.info('permission_session_folder_approved', { sessionId: handle?.sessionId, method: msg.method })
+      client.respond(msg.id, autoApprovalResponse(msg.method, params))
       return
     }
 

@@ -15,6 +15,7 @@ import type {
 } from '@solus/contracts/types'
 import type { ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
+import type { SessionFolderGate } from './session-folder-gate'
 import type { TurnSeat } from '../seats/seat-manager'
 import type { ThreadFile } from '../../sync/sessions/session-archive-writer'
 import type { ThreadImportRequest, ThreadImportResult } from './thread-import'
@@ -107,6 +108,8 @@ export interface AgentBackend extends EventEmitter {
   /** Whether work the agent left running outlives its turn's end. Absent when
    *  a provider's background tasks end with its run (Claude). */
   hasBackgroundTasks?(sessionId: string): boolean
+  /** Give the backend the folders of each session, for a provider that asks for a path outside its working directory. */
+  useSessionFolders?(folders: SessionFolderGate): void
   isSessionRunning(sessionId: string): boolean
   getSessionHandle(sessionId: string): RunHandle | undefined
   /** Runs that haven't received session_init yet (pre-session_init window). */

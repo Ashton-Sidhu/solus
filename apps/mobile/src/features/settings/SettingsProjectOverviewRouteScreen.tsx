@@ -40,7 +40,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
-import { ProjectRepositoriesSection } from "./ProjectRepositoriesSection";
+import { ProjectCodebases } from "../../solus/ProjectCodebases";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 import { leaveSettingsPage } from "./settings-navigation";
@@ -444,17 +444,12 @@ function ProjectOverviewContent(props: {
         const environment = props.environments.find(
           (entry) => entry.environmentId === member.environmentId,
         )?.label;
+        // Solus: the folder list of a project comes from the codebases that hold its folder.
         return (
-          <ProjectRepositoriesSection
+          <ProjectCodebases
             key={`${member.environmentId}:${member.id}`}
-            member={member}
-            title={
-              props.members.length === 1
-                ? gt("Repositories")
-                : gt("Repositories · {environment}", {
-                    environment: environment ?? gt("Environment"),
-                  })
-            }
+            project={member}
+            hostLabel={props.members.length === 1 ? undefined : (environment ?? gt("Environment"))}
           />
         );
       })}

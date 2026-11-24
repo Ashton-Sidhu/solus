@@ -5,12 +5,12 @@ import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import { searchText } from '@solus/contracts/search-query'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
-import type { AgentId, ReasoningEffort, SessionMeta, SessionStarter } from '@solus/contracts/types'
+import type { AgentId, ReasoningEffort, SessionMeta, SessionRecordUpsert, SessionStarter } from '@solus/contracts/types'
 import { placeOfFolder } from '@solus/contracts/chat'
+import { TASK_FOLDER_ROOT_NAME } from '@solus/contracts/codebases'
 import {
   encodePathAsFolder,
-  SOLUS_WORKTREE_ENCODED_MARKER,
-  worktreeProjectRoot,
+  isEncodedSolusWorktreeFolder,
 } from '@solus/contracts/types'
 import { readSessionHeadMeta } from '../execution/agents/claude/claude-session-helpers'
 import { scanPlanFile } from '../execution/agents/claude/claude-plan-helpers'
@@ -31,6 +31,7 @@ import {
   upsertOwnSessionRecord,
 } from '../data/sessions/session-records'
 import { resolveRepositoryKey } from '../git/git-helpers'
+import { projectRootOfPath } from '../git/task-folder-store'
 import { withUserScope } from '../vault/acting-scope'
 import { getDb, withTx } from '.'
 import { readTailRecordBatches, type IndexedMessage } from './session-file-reader'
@@ -101,12 +102,13 @@ const projectRootRowSchema = z.object({ project_root: z.string(), count: z.numbe
 
 type SessionRow = z.infer<typeof sessionRowSchema>
 
-/** The git-root that groups a repo with all its worktrees. Pure path op:
- *  Solus worktrees collapse to their originating project; everything else is
+/** The git-root that groups a repo with all its worktrees. It reads no Git:
+ *  Solus worktrees collapse to their originating project, a task folder
+ *  collapses to the member that the session works in, and everything else is
  *  its own root. (Sub-directory cwds aren't lifted to the repo root here — the
  *  simple rule the whole index shares so a repo and its worktrees agree.) */
 function projectRootFor(cwd: string | null): string | null {
-  return cwd ? worktreeProjectRoot(cwd) : null
+  return cwd ? projectRootOfPath(cwd) : null
 }
 
 /** The repository of a session's project (docs/plans/project-model.md §1). The
@@ -390,7 +392,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
   }
 
   const projectPath = relative(PROJECTS_ROOT, filePath).split(/[\\/]/)[0] || basename(dirname(filePath))
-  const isWorktree = projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER)
+  const isWorktree = isEncodedSolusWorktreeFolder(projectPath)
   let lastIndexedOffset = readOffset
 
   for await (const records of readTailRecordBatches(filePath, readOffset, fileStat.size)) {
@@ -659,6 +661,23 @@ const SESSION_SELECT = `
 `
 
 /** The index row of a session's active thread. A thread id reads its own row. */
+/**
+ * Each session that this host knows to work in a task folder
+ * (docs/plans/codebases.md §7), with that working directory: from the lineage
+ * of each session, and from each indexed thread. A task folder that no entry
+ * names has no session.
+ */
+export function indexedTaskFolderDirectories(): { sessionId: string; cwd: string }[] {
+  const inTaskFolder = `%${TASK_FOLDER_ROOT_NAME}%`
+  const rows = z.array(z.object({ session_id: z.string(), cwd: z.string() }))
+  const lineage = rows.parse(getDb().prepare('SELECT session_id, cwd FROM session_lineage_members WHERE cwd LIKE ?').all(inTaskFolder))
+  const threads = rows.parse(getDb().prepare('SELECT session_id, cwd FROM transcript_index WHERE cwd LIKE ?').all(inTaskFolder))
+  return [
+    ...lineage.map((row) => ({ sessionId: row.session_id, cwd: row.cwd })),
+    ...threads.map((row) => ({ sessionId: sessionIdOfThread(row.session_id), cwd: row.cwd })),
+  ]
+}
+
 export function getIndexedSession(sessionId: string): SessionMeta | null {
   const row = sessionRowSchema.nullish().parse(
     getDb().prepare(`SELECT ${SESSION_SELECT} FROM transcript_index WHERE session_id = ?`).get(activeThreadOf(sessionId) ?? sessionId),
@@ -697,6 +716,8 @@ export function persistIndexedSessionStart(
   delegation?: SessionDelegationStart,
   startedBy?: SessionStarter,
   onRecorded?: () => void,
+  /** The codebase and the attached folders the session has before its record exists (docs/plans/codebases.md §6). */
+  folders: Pick<SessionRecordUpsert, 'codebaseId' | 'attachedFolders'> = {},
 ): void {
   const parent = delegationRowValues(delegation)
   // The host made this folder for the session, so the folder decides the place (session-starter.md §3.1).
@@ -731,7 +752,7 @@ export function persistIndexedSessionStart(
     cwd,
     projectPath,
     projectRootFor(cwd),
-    projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER) ? 1 : 0,
+    isEncodedSolusWorktreeFolder(projectPath) ? 1 : 0,
     firstMessage,
     Date.now(),
     knownModel,
@@ -758,7 +779,7 @@ export function persistIndexedSessionStart(
     parentSessionId: parentSessionId ?? undefined,
     rootSessionId: rootSessionId ?? undefined,
     cwd,
-    isWorktree: projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER),
+    isWorktree: isEncodedSolusWorktreeFolder(projectPath),
     branch: branch ?? undefined,
     projectRoot: projectRoot ?? undefined,
     delegation: messageId !== null && depth !== null && createdAt !== null && (intent === 'delegate' || intent === 'fire_and_forget')
@@ -766,6 +787,7 @@ export function persistIndexedSessionStart(
       : undefined,
     place,
     startedBy,
+    ...folders,
   }).then((record) => {
     onRecorded?.()
     // The record owns the session's name. The index row keeps a copy for

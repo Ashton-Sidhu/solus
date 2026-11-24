@@ -6,6 +6,7 @@ import { useRef, useCallback, useState } from "react";
 import { Alert } from "react-native";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { HostApi } from "@solus/client-core/host-api";
+import type { DiffRequest } from "@solus/contracts/git-types";
 import { type GitActionRequestInput } from "@t3tools/client-runtime/state/vcs";
 import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import { useListened } from "@solus-mobile/app/app-context";
@@ -13,29 +14,68 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { uuidv4 } from "../lib/uuid";
 import { useHostSettingsRead } from "./use-host-settings-read";
 import { useSettingsAction } from "./SettingsFeedback";
-import { checkoutActions, checkoutStatus } from "./checkout-git";
+import { sameHostPath } from "@solus/contracts/host-path";
+import {
+  gitRepositoryRouteParams,
+  type GitRepositoryRouteParams,
+} from "../state/thread-git-target";
+import {
+  checkoutActions,
+  checkoutGitTarget,
+  checkoutStatus,
+  type CheckoutGitTarget,
+} from "./checkout-git";
 import { solus } from "./runtime";
+import { useSessionFolders } from "./use-session-controller";
 
 type GitTarget = { environmentId: string; threadId: string };
 
-export function useCheckoutGit(controller: ConversationController, cwd: string) {
-  const navigation = useNavigation();
+/**
+ * The Git state of one folder on a host, read for the folder's own path. Each
+ * session folder has its own branch and its own changes. `includeDetails`
+ * adds the line totals and the pull request, which need a scan of the
+ * worktree: a list of repositories reads without them.
+ */
+export function useFolderGitStatus(hostId: string, cwd: string, includeDetails = true) {
   const read = useCallback(
     async (api: HostApi) => {
       const [repo, state] = await Promise.all([
         api.gitRepositoryStatus(cwd),
-        api.gitRefreshState(cwd, { includeDetails: true }),
+        api.gitRefreshState(cwd, { includeDetails }),
       ]);
       return checkoutStatus(repo, state);
     },
-    [cwd],
+    [cwd, includeDetails],
   );
-  const { api, data, refresh, error, isRefreshing } = useHostSettingsRead(
-    controller.hostId,
-    read,
-    "git.checkoutChanged",
-  );
+  return useHostSettingsRead(hostId, read, "git.checkoutChanged");
+}
+
+export function useCheckoutGitTarget(
+  controller: ConversationController,
+  params: GitTarget & GitRepositoryRouteParams,
+): CheckoutGitTarget {
+  const folders = useSessionFolders(params);
+  return checkoutGitTarget(controller.run.workingDirectory, folders, params);
+}
+
+export function useCheckoutGit(
+  controller: ConversationController,
+  cwd: string,
+  target?: Pick<CheckoutGitTarget, "repository" | "folder">,
+) {
+  const navigation = useNavigation();
+  const repository = target?.repository;
+  const folder = target?.folder;
+  const { api, data, refresh, error, isRefreshing } = useFolderGitStatus(controller.hostId, cwd);
   const action = useSettingsAction(refresh);
+  // The session still works in the folder of this sheet: its working directory, or a session folder that is still attached.
+  const isCurrent = () =>
+    repository === undefined
+      ? controller.run.workingDirectory === cwd
+      : folder !== undefined &&
+        controller.sessionFolders.some((each) => sameHostPath(each.path, folder.path));
+  // A Git call about a session folder names the folder. The session id stays the session's.
+  const context = () => (folder ? controller.folderContext(folder) : controller.context());
   const mayWriteGit = useListened(solus.connections.changes, () =>
     solus.connections.may(controller.hostId, "host.git.write"),
   );
@@ -47,7 +87,7 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
         !api ||
         !controller.mayDrive ||
         !solus.connections.may(controller.hostId, "host.git.write") ||
-        controller.run.workingDirectory !== cwd
+        !isCurrent()
       )
         throw new Error("This checkout is no longer available.");
       if (
@@ -57,19 +97,19 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
         throw new Error("The current branch changed. Open the Git action again.");
       const createBeforeAction = input.featureBranch && !input.action.startsWith("commit");
       if (createBeforeAction) {
-        const branches = await api.worktreeBranches(controller.context(), { skipFetch: true });
+        const branches = await api.worktreeBranches(context(), { skipFetch: true });
         if (scope !== hostQueryScope(controller.hostId)) throw new Error("The connection changed.");
         const name = resolveAutoFeatureBranchName(
           branches.filter((branch) => !branch.remoteOnly).map((branch) => branch.name),
         );
-        if (controller.canChooseStart) {
+        if (controller.canChooseStart && !folder) {
           const error = await controller.chooseCheckoutBranch(
             { name, remoteOnly: false },
             { create: true, cwd },
           );
           if (error) throw new Error(error);
         } else {
-          const result = await api.gitCheckoutBranch(controller.context(), name, {
+          const result = await api.gitCheckoutBranch(context(), name, {
             create: true,
             remoteOnly: false,
           });
@@ -80,7 +120,7 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
           throw new Error("The checkout changed.");
       }
       if (scope !== hostQueryScope(controller.hostId)) throw new Error("The connection changed.");
-      await api.gitRunAction(controller.context(), {
+      await api.gitRunAction(context(), {
         actionId: uuidv4(),
         action: checkoutActions[input.action],
         createFeatureBranch: !createBeforeAction && input.featureBranch,
@@ -100,6 +140,7 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
       includesCommit: String(input.action.startsWith("commit")),
       ...(input.commitMessage && { commitMessage: input.commitMessage }),
       ...(input.filePaths && { selectedPaths: [...input.filePaths] }),
+      ...gitRepositoryRouteParams(repository),
     });
   const pull = () =>
     action.run(async () => {
@@ -107,10 +148,10 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
         !api ||
         !controller.mayDrive ||
         !solus.connections.may(controller.hostId, "host.git.write") ||
-        controller.run.workingDirectory !== cwd
+        !isCurrent()
       )
         throw new Error("This checkout is no longer available.");
-      const result = await api.gitSync(controller.context());
+      const result = await api.gitSync(context());
       if (!result.success) throw new Error(result.error ?? "Could not sync the checkout.");
     });
   return {
@@ -122,7 +163,7 @@ export function useCheckoutGit(controller: ConversationController, cwd: string) 
     perform,
     confirm,
     pull,
-    canWrite: !!api && mayWriteGit && controller.mayDrive,
+    canWrite: !!api && mayWriteGit && controller.mayDrive && (repository === undefined || !!folder),
   };
 }
 
@@ -136,10 +177,13 @@ export function useCheckoutGitControls(
   const canOpenFiles = useListened(solus.connections.changes, () =>
     solus.connections.may(environmentId, "host.files.read"),
   );
+  const folders = useSessionFolders({ environmentId, threadId: controller.run.sessionId });
   return {
     environmentId,
     threadId: controller.run.sessionId,
     hasThread: !draft,
+    // A working directory that is no repository still has the repositories of its session folders to review.
+    tracksRepositories: folders.some((folder) => folder.state === "git"),
     currentBranch: git.status?.refName ?? null,
     gitStatus: git.status,
     gitOperationLabel: git.busy ? "Working…" : null,
@@ -202,23 +246,25 @@ function useCheckoutBranches(controller: ConversationController) {
   return { git, branches, switching, checkout };
 }
 
-export function useCheckoutCommit(controller: ConversationController) {
-  const cwd = controller.run.workingDirectory;
-  const git = useCheckoutGit(controller, cwd);
+export function useCheckoutCommit(controller: ConversationController, target?: CheckoutGitTarget) {
+  const cwd = target?.cwd ?? controller.run.workingDirectory;
+  const git = useCheckoutGit(controller, cwd, target);
+  // The session's own context, with the repository that the diff reads (docs/plans/codebases.md §8).
+  const repositoryPath = target?.folder?.path;
   const files = useHostSettingsRead(
     controller.hostId,
     useCallback(
       async (api: HostApi) => {
-        const stats = await api.diffStats(controller.context(), {
-          scope: { kind: "working-tree" },
-        });
+        const request: DiffRequest = { scope: { kind: "working-tree" } };
+        if (repositoryPath !== undefined) request.repositoryPath = repositoryPath;
+        const stats = await api.diffStats(controller.context(), request);
         return stats.map((file) => ({
           path: file.path,
           insertions: file.additions,
           deletions: file.deletions,
         }));
       },
-      [controller, cwd],
+      [controller, cwd, repositoryPath],
     ),
   );
   return { git, files };

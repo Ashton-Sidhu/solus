@@ -1,7 +1,8 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
 import { patchFileChunks } from "./pierre-diff/patch-files";
-import { isAbsoluteHostPath, joinHostPath, relativeHostPath } from "@solus/contracts/host-path";
+import { hostPathSegments, isAbsoluteHostPath, joinHostPath, relativeHostPath } from "@solus/contracts/host-path";
+import { locateSessionFile, normalizeHostPath } from "./session-paths";
 
 const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;
 
@@ -23,9 +24,34 @@ export function projectRelativePath(path: string, projectPath?: string | null): 
   return (projectPath && relativeHostPath(projectPath, path)) || path;
 }
 
-function addStringPath(paths: Set<string>, value: string | undefined, projectPath?: string): void {
+/** The folders that the changed files of one session are named from. */
+export interface ChangedFileRoots {
+  /** A path under the project is written from it. */
+  projectPath?: string;
+  /** With `sessionFolders`: the directory that a file of a session folder is named from. */
+  workingDirectory?: string;
+  /** The folders the session works in besides its working directory (docs/plans/codebases.md §8). */
+  sessionFolders?: readonly { path: string }[];
+}
+
+/**
+ * A changed path as the reader knows it. A file of a session folder is named
+ * as the session names it (`lib/session-paths.ts`): its path from the longest
+ * session folder that holds it, with that folder's path from the working
+ * directory in front, so two repositories never name one file the same. Each
+ * other path is written from the project.
+ */
+export function changedFilePath(path: string, roots: ChangedFileRoots = {}): string {
+  if (roots.workingDirectory && roots.sessionFolders?.length) {
+    const file = locateSessionFile(path, roots.workingDirectory, roots.sessionFolders);
+    if (file.folder) return file.sessionPath;
+  }
+  return projectRelativePath(path, roots.projectPath);
+}
+
+function addStringPath(paths: Set<string>, value: string | undefined, roots: ChangedFileRoots): void {
   if (!value?.trim()) return;
-  paths.add(projectRelativePath(value.trim(), projectPath));
+  paths.add(changedFilePath(value.trim(), roots));
 }
 
 const changedPathSchema = z.object({
@@ -43,40 +69,40 @@ const changedFileToolInputSchema = changedPathSchema.extend({
 type ChangedPath = z.infer<typeof changedPathSchema>;
 type ChangedFileToolInput = z.infer<typeof changedFileToolInputSchema>;
 
-function addPathsFromChange(paths: Set<string>, change: ChangedPath, projectPath?: string): void {
-  addStringPath(paths, change.path, projectPath);
-  addStringPath(paths, change.filePath, projectPath);
-  addStringPath(paths, change.file_path, projectPath);
-  addStringPath(paths, change.filename, projectPath);
-  addStringPath(paths, change.file, projectPath);
+function addPathsFromChange(paths: Set<string>, change: ChangedPath, roots: ChangedFileRoots): void {
+  addStringPath(paths, change.path, roots);
+  addStringPath(paths, change.filePath, roots);
+  addStringPath(paths, change.file_path, roots);
+  addStringPath(paths, change.filename, roots);
+  addStringPath(paths, change.file, roots);
 }
 
-function addPathsFromParsed(paths: Set<string>, parsed: ChangedFileToolInput, projectPath?: string): void {
-  addPathsFromChange(paths, parsed, projectPath);
-  for (const change of parsed.changes ?? []) addPathsFromChange(paths, change, projectPath);
+function addPathsFromParsed(paths: Set<string>, parsed: ChangedFileToolInput, roots: ChangedFileRoots): void {
+  addPathsFromChange(paths, parsed, roots);
+  for (const change of parsed.changes ?? []) addPathsFromChange(paths, change, roots);
 }
 
-function addPathsFromText(paths: Set<string>, input: string, projectPath?: string): void {
+function addPathsFromText(paths: Set<string>, input: string, roots: ChangedFileRoots): void {
   for (const match of input.matchAll(/"file_path"\s*:\s*"([^"]+)"/g)) {
-    addStringPath(paths, match[1], projectPath);
+    addStringPath(paths, match[1], roots);
   }
   for (const match of input.matchAll(/"filePath"\s*:\s*"([^"]+)"/g)) {
-    addStringPath(paths, match[1], projectPath);
+    addStringPath(paths, match[1], roots);
   }
   for (const match of input.matchAll(/"path"\s*:\s*"([^"]+)"/g)) {
-    addStringPath(paths, match[1], projectPath);
+    addStringPath(paths, match[1], roots);
   }
   for (const match of input.matchAll(/"filename"\s*:\s*"([^"]+)"/g)) {
-    addStringPath(paths, match[1], projectPath);
+    addStringPath(paths, match[1], roots);
   }
   // Command output can be large and is seldom a patch: split and parse it only
   // when it has a `diff --git` line.
   if (input.includes("diff --git")) {
-    for (const file of patchFileChunks(input)) addStringPath(paths, file.path, projectPath);
+    for (const file of patchFileChunks(input)) addStringPath(paths, file.path, roots);
   }
 }
 
-function collectMessagePaths(paths: Set<string>, m: Message, projectPath?: string): void {
+function collectMessagePaths(paths: Set<string>, m: Message, roots: ChangedFileRoots): void {
   if (
     m.role !== "tool" ||
     m.toolStatus !== "completed" ||
@@ -88,26 +114,26 @@ function collectMessagePaths(paths: Set<string>, m: Message, projectPath?: strin
   if (m.toolInput) {
     try {
       const parsed = changedFileToolInputSchema.safeParse(JSON.parse(m.toolInput));
-      if (parsed.success) addPathsFromParsed(paths, parsed.data, projectPath);
-      else addPathsFromText(paths, m.toolInput, projectPath);
+      if (parsed.success) addPathsFromParsed(paths, parsed.data, roots);
+      else addPathsFromText(paths, m.toolInput, roots);
     } catch {
-      addPathsFromText(paths, m.toolInput, projectPath);
+      addPathsFromText(paths, m.toolInput, roots);
     }
   }
 
   if (m.toolName === "exec_command" && m.content && !isGitCommand(m.toolInput)) {
-    addPathsFromText(paths, m.content, projectPath);
+    addPathsFromText(paths, m.content, roots);
   }
 }
 
 export function extractChangedFilePaths(
   messages: readonly Message[],
-  opts: { projectPath?: string } = {},
+  roots: ChangedFileRoots = {},
 ): string[] {
   const paths = new Set<string>();
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    collectMessagePaths(paths, messages[i], opts.projectPath);
+    collectMessagePaths(paths, messages[i], roots);
   }
 
   return [...paths];
@@ -120,16 +146,22 @@ export function extractChangedFilePaths(
  */
 export function extractChangedFilePathsFromMessage(
   message: Message,
-  opts: { projectPath?: string } = {},
+  roots: ChangedFileRoots = {},
 ): string[] {
   const paths = new Set<string>();
-  collectMessagePaths(paths, message, opts.projectPath);
+  collectMessagePaths(paths, message, roots);
   return [...paths];
 }
 
+/**
+ * Each path from `cwd`, as an absolute path. A file of a session folder beside
+ * the working directory is named with `..` in front (`../api/src/a.ts`): the
+ * answer is the real path of the file, with no `..` in it.
+ */
 export function toAbsoluteFilePaths(filePaths: readonly string[], cwd?: string): string[] {
   return filePaths.map((path) => {
     if (!cwd || isAbsoluteHostPath(path) || path.startsWith("~")) return path;
-    return joinHostPath(cwd, path);
+    const joined = joinHostPath(cwd, path);
+    return hostPathSegments(path).some((name) => name === ".." || name === ".") ? normalizeHostPath(joined) : joined;
   });
 }

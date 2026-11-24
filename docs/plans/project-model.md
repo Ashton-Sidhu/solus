@@ -15,6 +15,11 @@ that every client uses to list projects.
   projects.
 - A path alone does not identify a project. Always resolve a folder through
   its host (`projectsStore.projectKeyFor(serverId, path)`).
+- A project stays one folder on one host. A named set of folders, on one or
+  more hosts, that one piece of work covers is a **codebase**
+  (`docs/plans/codebases.md`). A codebase does not replace a project and does
+  not change a project key: a session has one project, and its codebase gives
+  it more folders.
 
 ## §2 Where projects are recorded
 

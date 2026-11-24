@@ -1,8 +1,10 @@
 import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, SessionCtx, StatusBarCtx } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
+import { sameHostPath } from '@solus/contracts/host-path'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import { checkoutGit, checkoutPlace, isDispatch, pendingClone, runHost, worktreeBaseBranch } from './run-location'
+import { checkoutGit, checkoutPlace, codebaseOf, isDispatch, pendingClone, projectHome, refusesCodebase, runHost, workingPlace, worktreeBaseBranch, worktreeRepositories } from './run-location'
 import { dispatchRepository } from '../../components/servers/run-on'
 
 export interface IpcContextBuilderDeps {
@@ -32,13 +34,31 @@ export class IpcContextBuilder {
     }
   }
 
-  forDirectory(tabId: string, workingDirectory: string): IpcContext {
+  /** `checkout` is the checkout of the directory, when the caller has it: it names the repository. */
+  forDirectory(tabId: string, workingDirectory: string, checkout?: GitCheckout | null): IpcContext {
     const base = this.sessionCtx(tabId)
+    const projectPath = isTaskFolderPath(workingDirectory) && checkout?.repoRoot
+      ? checkout.repoRoot
+      : this.projectPathOfDirectory(tabId, workingDirectory, base)
     return {
-      session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
-      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
+      session: { ...base, workingDirectory, projectPath },
+      settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), projectPath) ?? this.deps.settings.ctx,
       statusBar: this.statusBarOf(tabId),
     }
+  }
+
+  /**
+   * The project folder of a directory that a caller names for a source. The
+   * path of a place in a task folder does not name its project
+   * (docs/plans/codebases.md §7), so the source says it: the working place of
+   * its run has the project of the run, and a session folder has its repository.
+   */
+  private projectPathOfDirectory(sourceId: string, directory: string, base: SessionCtx): string {
+    if (!isTaskFolderPath(directory)) return worktreeProjectRoot(directory)
+    const run = this.deps.runFor(sourceId)
+    if (run && sameHostPath(workingPlace(run).path, directory)) return base.projectPath
+    const folder = this.deps.sessionFor(sourceId)?.sessionFolders.find((each) => sameHostPath(each.path, directory))
+    return folder?.repositoryPath ?? directory
   }
 
   /** The status of the source's own run, so the model always belongs to the
@@ -52,7 +72,7 @@ export class IpcContextBuilder {
 
   /** Context for project/environment operations that do not require a chat tab. */
   forEnvironment(tabId: string, workingDirectory: string, gitContext: GitCheckout | null): IpcContext {
-    const context = this.forDirectory(tabId, workingDirectory)
+    const context = this.forDirectory(tabId, workingDirectory, gitContext)
     context.session.gitContext = gitContext ? { ...gitContext } : null
     return context
   }
@@ -73,8 +93,9 @@ export class IpcContextBuilder {
         handoffFrom: undefined,
         workingDirectory: '',
         projectPath: '',
-        additionalDirs: [],
+        codebaseId: null,
         gitContext: null,
+        worktreeRepositories: null,
       },
       settings: this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
@@ -122,8 +143,8 @@ export class IpcContextBuilder {
       handoffFrom: session?.handoffFrom,
       status: session ? session.status : 'idle',
       workingDirectory,
-      projectPath: worktreeProjectRoot(workingDirectory),
-      additionalDirs: session ? [...session.additionalDirs] : [],
+      projectPath: projectPathOf(run, workingDirectory, gitContext),
+      ...codebaseFieldsOf(run),
       preferredModel: modelConfig.modelId,
       reasoningEffort: modelConfig.reasoningEffort,
       contextWindow: modelConfig.contextWindow,
@@ -131,6 +152,7 @@ export class IpcContextBuilder {
       permissionMode: run.permissionMode,
       gitContext: gitContext ? { ...gitContext } : null,
       worktreeBaseBranch: worktreeBaseBranch(run),
+      worktreeRepositories: worktreeRepositories(run),
       readOnlyReason: session ? session.readOnlyReason : null,
       title: session?.title ?? null,
       organizationId: this.windowOrganizationId(),
@@ -150,4 +172,21 @@ export class IpcContextBuilder {
     if (!session && sourceId && this.deps.hasDraft(sourceId)) context.draftId = sourceId
     return context
   }
+}
+
+/**
+ * The project folder of a run on its run host. A folder in a task folder does
+ * not name its project (docs/plans/codebases.md §7): the checkout names its
+ * repository, and without one the project home of the run is the member that
+ * the folder stands in for. A dispatch has its project home on a different
+ * host, so its folder is all that it has.
+ */
+/** The codebase that a prompt names, or the choice of the person to have none: the host then makes none (docs/plans/codebases.md decision 13). */
+function codebaseFieldsOf(run: RunConfig): Pick<SessionCtx, 'codebaseId' | 'noCodebase'> {
+  return refusesCodebase(run) ? { codebaseId: null, noCodebase: true } : { codebaseId: codebaseOf(run) }
+}
+
+function projectPathOf(run: RunConfig, workingDirectory: string, gitContext: GitCheckout | null): string {
+  if (!isTaskFolderPath(workingDirectory)) return worktreeProjectRoot(workingDirectory)
+  return gitContext?.repoRoot ?? (isDispatch(run) ? workingDirectory : projectHome(run).path)
 }

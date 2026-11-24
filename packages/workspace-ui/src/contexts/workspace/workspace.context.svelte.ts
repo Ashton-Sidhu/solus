@@ -378,6 +378,7 @@ export class WorkspaceContext implements SurfaceContext {
       addChangedFilesFromMessage: (sessionId, message) => this.lifecycle.addChangedFilesFromMessage(sessionId, message),
       refreshTurnSnapshots: (sessionId) => { void this.lifecycle.refreshTurnSnapshots(sessionId) },
       setGitStatus: (serverId, cwd, status) => this.environment.set(serverId, cwd, status),
+      onWorktreeSetupDone: (sessionId) => { void this.opening.settleStandIn(sessionId) },
       playNotificationIfHidden: (sessionId, trigger) => {
         void notificationsStore.playSound(sessionId, this.sessions.byId[sessionId]?.agentSessionId ?? null, trigger)
       },
@@ -2212,6 +2213,12 @@ export class WorkspaceContext implements SurfaceContext {
   /** Open the review pane on the change itself. Diff is the primary reading
    *  view; the map and guide stay one tab away. */
   showDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, filePath?: string): void {
+    // A turn and a file are as the session names them. In a session with more
+    // than one repository, the repository and its own turn index come first.
+    if ((scope.kind === 'turn' || filePath) && this.sessionFor(sourceTabId)?.sessionFolders.some((folder) => folder.state === 'git')) {
+      this.showRepositoryDiff(sourceTabId, null, scope, filePath)
+      return
+    }
     const params: RouteParams['review'] = {
       sourceTabId,
       view: 'diff',
@@ -2221,19 +2228,34 @@ export class WorkspaceContext implements SurfaceContext {
     this.router.navigate({ name: 'review', params })
   }
 
+  /**
+   * Open the review pane of a tab on one repository of its session, with the
+   * repository picker on it (docs/plans/codebases.md §9). `repositoryPath` is
+   * the `path` or the `repositoryPath` of a `git` session folder; each other
+   * path is the working directory, and null is the repository of `filePath`.
+   * `scope` and `filePath` are as the session names them: a turn of the
+   * working directory's list, and a path from the working directory. No scope
+   * opens the Changes review.
+   */
+  showRepositoryDiff(sourceTabId: string, repositoryPath: string | null, scope?: DiffScope, filePath?: string): void {
+    void import('../../components/diff/lib/repository-diff').then(({ openRepositoryDiff }) =>
+      openRepositoryDiff(this, sourceTabId, repositoryPath, scope, filePath))
+  }
+
   /** `sourceId` is a tab or a draft: the file tree follows its run, so browsing
    *  from a draft opens the project that draft will run in. The route keeps the
    *  resolved target, not this temporary owner, so starting the draft cannot
-   *  reload the pane. */
-  openFiles(sourceId: string): void {
+   *  reload the pane. `folderPath` opens a session folder of the run, on the
+   *  same host, in place of its working directory. */
+  openFiles(sourceId: string, folderPath?: string): void {
     const run = this.runFor(sourceId)
-    const environment = this.environment.environmentFor(run)
-    if (!environment.cwd || environment.cwd === '~') return
+    const cwd = folderPath ?? this.environment.environmentFor(run).cwd
+    if (!cwd || cwd === '~') return
     this.router.navigate({
       name: 'files',
       params: {
         serverId: this.serverIdForRun(run),
-        cwd: environment.cwd,
+        cwd,
       },
     })
   }

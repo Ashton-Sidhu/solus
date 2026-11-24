@@ -32,6 +32,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'settings', params: { tab: 'sessions' } },
   { name: 'settings', params: { tab: 'providers', projectCwd: '/repo/app' } },
   { name: 'settings', params: { tab: 'webhooks', webhooks: 'q=ci&project=%2Frepo%2Fapp&open=w1&on=host-a' } },
+  { name: 'settings', params: { tab: 'codebases' } },
+  { name: 'settings', params: { tab: 'codebases', codebase: '6f1c1b6e-8d0a-4c57-9d5b-2a8f2d1c9e11' } },
   { name: 'folio', params: {} },
   { name: 'folio', params: { tab: 'apps' } },
   { name: 'notifications', params: {} as Record<string, never> },

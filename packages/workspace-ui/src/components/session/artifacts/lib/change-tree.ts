@@ -1,12 +1,13 @@
 import type { ChangedFileStat } from '@solus/contracts/git-types'
 import type { OverviewChange } from '@solus/client-core/session-overview'
+import type { SummaryRepository } from '../../../conversation/lib/change-repositories'
 import { buildDiffSummaryTree, type DiffFolderNode, type DiffTree } from '../../../conversation/lib/diff-summary-tree'
 
 /**
  * The Changes card's rows (docs/plans/session-artifacts.md): the changed files
  * as the directory tree the conversation's changed-files card draws.
  */
-export function changeTree(changes: readonly OverviewChange[]): DiffTree {
+export function changeTree(changes: readonly OverviewChange[], repositories: readonly SummaryRepository[] = []): DiffTree {
   const stats = changes.flatMap((change): ChangedFileStat[] =>
     change.additions === null || change.deletions === null || change.status === null
       ? []
@@ -14,7 +15,7 @@ export function changeTree(changes: readonly OverviewChange[]): DiffTree {
   )
   // By path, as a directory listing reads: the tree is for finding a file, not for ranking it.
   const paths = changes.map((change) => change.path).sort((a, b) => a.localeCompare(b))
-  return buildDiffSummaryTree(paths, stats)
+  return buildDiffSummaryTree(paths, stats, repositories)
 }
 
 /** Every folder of a tree, so a small tree can start with all of them open. */

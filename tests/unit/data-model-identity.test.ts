@@ -45,6 +45,7 @@ const NO_CREATOR: Record<string, string> = {
   host_list: "the hosts the host's owner connected to themselves (plans/031 D7); the owner is the host's user",
   host_device: "the devices this host paired or the owner revoked (plans/033 §4.4); the owner is the host's user",
   projects: "the host's manifest of the folders on this machine",
+  task_folders: "the host's record of the folders that worktree sessions of several repositories work in; the sessions that use one carry the owner",
   outbox_ops: 'queue of record operations awaiting delivery',
   delivery_queue: 'queue to the Solus API; the delivering person is `user_id`',
   runner_delivery_cursors: 'delivery cursor per host and delivering person (`user_id`)',

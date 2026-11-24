@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path, { basename, isAbsolute, relative, sep } from 'node:path'
-import { worktreeProjectRoot, type ProjectEntry } from '@solus/contracts/types'
+import type { ProjectEntry } from '@solus/contracts/types'
+import { projectRootOfPath } from '../git/task-folder-store'
 import { isChat } from '@solus/contracts/chat'
 
 /** A folder as the manifest records it. Its repository is read from Git when
@@ -76,7 +77,7 @@ async function readManifest(): Promise<ManifestProject[]> {
 
 /** No folder, a chat, or a host/member projects root: folders that hold
  *  projects and chats are never projects of their own. */
-function isOutsideProjects(cwd: string): boolean {
+export function isOutsideProjects(cwd: string): boolean {
   if (!cwd || cwd === '~' || isChat(cwd)) return true
   const folder = path.resolve(cwd)
   const projectsRoot = path.resolve(setupProjectsRoot())
@@ -107,13 +108,13 @@ function holds(projectPath: string, folder: string): boolean {
 
 /**
  * A session started in this folder: move the last use of the listed project
- * that is the folder or holds it (a worktree or a subfolder; §3). A folder
+ * that is the folder or holds it (a worktree, a task folder, or a subfolder; §3). A folder
  * that is not listed stays off the list. Reads the stored paths, not Git, so a
  * launch never waits on a git process.
  */
 export function recordProjectUse(cwd: string): void {
   if (isOutsideProjects(cwd)) return
-  const folder = worktreeProjectRoot(cwd)
+  const folder = projectRootOfPath(cwd)
   const rows = z.array(projectRowSchema.pick({ key: true, path: true })).parse(getDb().prepare('SELECT key, path FROM projects').all())
   const project = rows
     .filter((row) => holds(row.path, folder))

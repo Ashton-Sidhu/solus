@@ -68,10 +68,19 @@ export type DiffScope =
 
 export type DiffRequest = {
   scope: DiffScope
+  /**
+   * The repository to read, in a session with several (docs/plans/codebases.md
+   * §8): the `path` or the `repositoryPath` of a `git` session folder, or the
+   * working directory of the session. The host refuses any other path. Absent:
+   * the checkout of the context.
+   */
+  repositoryPath?: string
 }
 
 export interface DiffFileContentsRequest {
   scope: DiffScope
+  /** The repository to read, as in `DiffRequest`. */
+  repositoryPath?: string
   /** Post-image path from the parsed patch. */
   path: string
   /** Pre-image path for renamed files; defaults to `path`. */
@@ -158,7 +167,9 @@ export interface TurnSnapshot {
   userMessagePreview: string
   /** The Insights trace of the turn this snapshot closes. The snapshot index
    *  counts snapshots, not turns — a turn that skips its snapshot does not
-   *  advance it — so this is the only exact join to a turn. Absent on
+   *  advance it — so this is the only exact join to a turn. Each repository
+   *  of a session counts its own snapshots, so it is also the only join
+   *  between the snapshots of one turn in different repositories. Absent on
    *  snapshots written before it was recorded. */
   traceId?: string
   filesChanged: number

@@ -129,6 +129,8 @@ export interface HostEventMap {
    *  Clients that show a source it names read `tasksSources` again. */
   'tasks.sourcesChanged': { sourceKeys: string[] }
   'workspaceProjects.changed': Record<string, never>
+  /** A codebase was saved or deleted on this host. Clients read `codebaseList` again. */
+  'codebases.changed': Record<string, never>
   /** This host's project list changed: a folder was added, untracked or
    *  deleted, or its last use moved. Clients read `listProjects` again. */
   'projects.changed': Record<string, never>
@@ -312,6 +314,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'tasks.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
   'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
+  'codebases.changed': { owner: 'codebases', category: 'invalidation', recovery: 'reload', description: 'A codebase was saved or deleted on this host.' },
   'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository, or a list of it must be read again.' },

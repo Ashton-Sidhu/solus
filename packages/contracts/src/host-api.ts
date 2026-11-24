@@ -27,6 +27,7 @@ import type { SessionMergeBackPrompt, SessionTree } from './session-digest'
 import type { SessionChange, SessionChanged } from './session-state'
 import type { ListMySessionsResponse, SessionTurnDiff } from './session-repositories'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
+import type { Codebase, CodebaseFolderScan, CodebaseListOptions, CodebaseMember, SessionFolder, TaskFolder } from './codebases'
 import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewGuideTarget, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
@@ -374,6 +375,32 @@ export interface SolusAPI {
   workspaceProjectAdd(request: WorkspaceProjectAddRequest): Promise<WorkspaceProject>
   workspaceProjectRemove(projectId: string): Promise<void>
   workspaceProjectUpdate(projectId: string, patch: WorkspaceProjectPatch): Promise<WorkspaceProject>
+  /** The codebases this host keeps (docs/plans/codebases.md). Deleted ones are left out unless `includeDeleted` is true. */
+  codebaseList(options?: CodebaseListOptions): Promise<Codebase[]>
+  /**
+   * Save a copy of a codebase. Answers the copy the host keeps: the one with the newer `updatedAt`.
+   * A delete is a save of the tombstone (`deletedAt` set, a newer `updatedAt`), so each host gets the same copy.
+   */
+  codebaseSave(codebase: Codebase): Promise<Codebase>
+  /** The folders a codebase covers on this host, read from its disk. Roots on other hosts are not read. */
+  codebaseMembers(codebaseId: string): Promise<CodebaseMember[]>
+  /** What one folder on this host holds, before it is in a codebase. */
+  codebaseScanFolder(path: string): Promise<CodebaseFolderScan>
+  /** The folders a session works in besides its working directory. A session with no live turn answers from its record. */
+  sessionFolders(sessionId: string): Promise<SessionFolder[]>
+  /** A person attaches a folder on this host to a session. Answers the new list. */
+  sessionAttachFolder(sessionId: string, path: string): Promise<SessionFolder[]>
+  /** Remove an attached folder from a session. A folder that comes from the codebase of the session stays. Answers the new list. */
+  sessionDetachFolder(sessionId: string, path: string): Promise<SessionFolder[]>
+  /** The task folder that is, or holds, `path` on this host (docs/plans/codebases.md §7). Null for every other path. */
+  taskFolderOf(path: string): Promise<TaskFolder | null>
+  /**
+   * Give a repository of the session's codebase its worktree in the task folder of the session, on the branch of the session.
+   * Answers the new list of session folders. Refused for a session that is not in a task folder.
+   */
+  sessionAddRepositoryWorktree(sessionId: string, repositoryPath: string): Promise<SessionFolder[]>
+  /** The `git` members of the session's codebase on this host that have no worktree in its task folder. Empty for a session that is not in a task folder. */
+  sessionWorktreeCandidates(sessionId: string): Promise<CodebaseMember[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
   loadSessionSubagent(request: SessionSubagentRequest): Promise<SessionHistoryPage>
   loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
@@ -1283,11 +1310,12 @@ export interface SolusAPI {
   diff(ctx: IpcContext, request: DiffRequest): Promise<DiffResult | null>
   diffFileContents(ctx: IpcContext, request: DiffFileContentsRequest): Promise<DiffFileContentsResult | null>
   diffStats(ctx: IpcContext, request: DiffRequest): Promise<ChangedFileStat[]>
-  /** `diffStats` for several scopes of one checkout in one call, answered in
-   *  request order: the turn cards of a conversation ask together. At most
-   *  `DIFF_STATS_BATCH_LIMIT` requests. */
+  /** `diffStats` for several scopes in one call, answered in request order:
+   *  the turn cards of a conversation ask together. Each request can name its
+   *  repository. At most `DIFF_STATS_BATCH_LIMIT` requests. */
   diffStatsBatch(ctx: IpcContext, requests: DiffRequest[]): Promise<ChangedFileStat[][]>
-  listTurnSnapshots(ctx: IpcContext): Promise<TurnSnapshot[]>
+  /** `repositoryPath` names one repository of the session, as in `DiffRequest`. Absent: the checkout of the context. */
+  listTurnSnapshots(ctx: IpcContext, repositoryPath?: string): Promise<TurnSnapshot[]>
   gitRunAction(ctx: IpcContext, request: GitActionRequest): Promise<GitActionResult>
   gitDiscard(ctx: IpcContext): Promise<GitDiscardResult>
   gitSync(ctx: IpcContext): Promise<GitSyncResult>

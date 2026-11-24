@@ -5,10 +5,13 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
+    codebasesStore,
     getWorkspaceContext,
     getSessionEnvironmentStore,
     serversStore,
   } from "../../contexts";
+  import { memberAt, membersOnHost } from "../../contexts/codebases/host-members";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
   import { projectDirLabel } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
   import { homeGitDetails, worktreeDisplayName } from "../../lib/git-context";
@@ -22,7 +25,14 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import type { ProjectRef } from "../../contexts";
   import { worktreeBlockedReason } from "../servers/run-on";
-  import { aimRunAtCheckout } from "./lib/project-selection";
+  import {
+    aimRunAtCheckout,
+    aimRunAtCodebase,
+    codebaseDecisions,
+    type CodebaseSelection,
+  } from "./lib/project-selection";
+  import { useCodebaseStart } from "./lib/codebase-start.svelte";
+  import { worktreeRepositoryChoice } from "./lib/worktree-repositories";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
@@ -37,15 +47,19 @@
     checkoutGit,
     checkoutPlace,
     chooseStart,
+    chooseWorktreeRepositories,
     cloneBaseBranch,
+    codebaseOf,
     isDispatch,
     pendingClone,
     projectHome,
     projectRoot,
+    refusesCodebase,
     runHost,
     startsWorktree,
     workingPlace,
     worktreeBaseBranch,
+    worktreeRepositories,
   } from "../../contexts/workspace/run-location";
   interface Props {
     active: boolean;
@@ -111,12 +125,60 @@
   );
 
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
+
+  // The codebase of the run (docs/plans/codebases.md §9, "Start").
+  const codebaseId = $derived(codebaseOf(run));
+  useCodebaseStart({
+    get sourceId() { return source; },
+    get run() { return run; },
+    get isStarted() { return !!sess && hasSessionStarted(sess); },
+    get projectFolder() { return workingFolder; },
+    store: codebasesStore,
+    decisions: codebaseDecisions,
+    applyLocation: (next) => applyLocation(next),
+    get needsBaseBranch() { return active && isPlainFolder && startsNewWorktree && !newWorktreeBase; },
+    openStartControl: () => { gitInitialView = "worktrees"; gitOpen = true; },
+  });
   const worktreeForced = $derived(isDispatch(run) && startsWorktree(run));
   // Only a *pending* worktree changes where the next session starts. Choosing a
   // new worktree from an existing one re-anchors the draft to the project root;
   // creation still follows the normal origin/default-branch path.
   const startsNewWorktree = $derived(env.pending || worktreeForced);
   const pendingDispatch = $derived(pendingClone(run));
+  // The host that holds the folder is the one asked; a path alone names no
+  // machine. A clone not yet made reads the checkout it copies.
+  const gitServerId = $derived(checkoutPlace(run ?? session.defaultRunConfig).serverId);
+  const newWorktreeBase = $derived(worktreeBaseBranch(run));
+
+  // What the host of the run read about the codebase: the working folder can
+  // be a folder with no repository, and a new worktree covers the repositories.
+  const workingFolder = $derived(gitHome.projectRoot ?? projectDir);
+  // A draft in a folder that is in no codebase and holds repositories: the
+  // host makes the codebase at the first prompt (decision 13). Its members are
+  // those of the scan, so the start control works before the record exists.
+  const newCodebase = $derived(
+    !codebaseId && !pendingDispatch && !refusesCodebase(run) && !(sess && hasSessionStarted(sess))
+      ? codebasesStore.newCodebaseAt(gitServerId, workingFolder)
+      : null,
+  );
+  const codebaseMembers = $derived(
+    codebaseId ? membersOnHost(codebasesStore.membersOf(codebaseId), gitServerId).members : (newCodebase?.members ?? []),
+  );
+  // A folder of the codebase with no repository has no branch. Its new
+  // worktree is a task folder that holds links to its files.
+  const isPlainFolder = $derived(
+    !hasGitRepository && !pendingDispatch && memberAt(codebaseMembers, workingFolder)?.state === "plain",
+  );
+  const repositoryChoice = $derived(
+    (codebaseId || newCodebase) && !pendingDispatch
+      ? worktreeRepositoryChoice(codebaseMembers, workingFolder, worktreeRepositories(run))
+      : null,
+  );
+  const showsStartControl = $derived(hasGitRepository || isPlainFolder);
+  // After "New worktree", the start control stays open for what a codebase
+  // adds: the repositories, and the base branch of a folder with no repository.
+  const hasWorktreeOptions = $derived(isPlainFolder || (repositoryChoice?.rows.length ?? 0) > 0);
+
   const selectedDispatchWorktree = $derived(
     pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start : null,
   );
@@ -130,7 +192,9 @@
         ? startsWorktree(run)
           ? "New worktree"
           : dispatchCheckoutBranch
-        : (env.branch ?? env.name)),
+        : isPlainFolder && !env.pending
+          ? "This folder"
+          : (env.branch ?? env.name)),
   );
   const branchLabel = $derived(
     pendingDispatch ? displayBranch : env.pending ? env.name : displayBranch,
@@ -149,6 +213,12 @@
           ? startsWorktree(run)
             ? "Creates a new worktree on the selected host"
             : `Works on ${env.targetBranch ?? "the default branch"} on the selected host`
+          : isPlainFolder
+            ? startsNewWorktree
+              ? newWorktreeBase
+                ? `Starts in a task folder, with worktrees from ${newWorktreeBase}`
+                : "Name a base branch for the new worktree"
+              : "Working in this folder directly"
           : startsNewWorktree
             ? `Branches into its own worktree from ${gitHome.baseBranch}`
             : `Working in ${displayBranch} directly`,
@@ -158,14 +228,10 @@
     checkoutGit(run)?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  // The host that holds the folder is the one asked; a path alone names no
-  // machine. A clone not yet made reads the checkout it copies.
-  const gitServerId = $derived(checkoutPlace(run ?? session.defaultRunConfig).serverId);
   const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
   const worktrees = $derived(
     environmentStore.refsFor(gitServerId, gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
-  const newWorktreeBase = $derived(worktreeBaseBranch(run));
 
   let gitOpen = $state(false);
   let branchTooltipOpen = $state(false);
@@ -175,7 +241,7 @@
   $effect(() => {
     if (isPinned) return;
     const handler = (event: Event) => {
-      if (!active || !hasGitRepository) return;
+      if (!active || !showsStartControl) return;
       if (gitOpen) {
         gitOpen = false;
       } else {
@@ -194,7 +260,7 @@
   });
 
   $effect(() => {
-    if (!hasGitRepository) gitOpen = false;
+    if (!showsStartControl) gitOpen = false;
   });
 
   // A chat draws no strip (docs/plans/projectless-chat.md): its project list
@@ -303,7 +369,26 @@
     if (startsWorktree(current) !== worktree) {
       applyLocation(chooseStart(current.location, worktree ? { kind: "new-worktree" } : { kind: "checkout" }));
     }
-    requestInputFocus(focusTarget);
+    if (!(worktree && hasWorktreeOptions)) requestInputFocus(focusTarget);
+  }
+
+  /** Start with a codebase, or with none. A root on another host moves the run there. */
+  function selectCodebase(selection: CodebaseSelection) {
+    void aimRunAtCodebase(session, environmentStore, source, selection).then(
+      () => requestInputFocus(focusTarget),
+      () => {},
+    );
+  }
+
+  function chooseRepositories(paths: string[]) {
+    const current = run ?? session.defaultRunConfig;
+    applyLocation(chooseWorktreeRepositories(current.location, paths));
+  }
+
+  /** The base branch of a new worktree for a folder with no repository. */
+  function chooseBaseBranch(branch: string) {
+    const current = run ?? session.defaultRunConfig;
+    applyLocation(chooseStart(current.location, { kind: "new-worktree", baseBranch: branch }));
   }
 
   /** A project with no remote to copy opens on another host through a folder
@@ -404,6 +489,7 @@
     projectDir={gitHome.projectRoot ?? projectDir}
     label={projectLabel}
     onSelect={selectProject}
+    onSelectCodebase={selectCodebase}
     onBrowse={browseProjects}
     onNewProject={newProject}
     onDismiss={() => {
@@ -443,7 +529,7 @@
     />
   {/if}
 
-  {#if hasGitRepository}
+  {#if showsStartControl}
     <TooltipUI.Root
       bind:open={getBranchTooltipOpen, setBranchTooltipOpen}
       disabled={gitOpen}
@@ -487,7 +573,7 @@
 </div>
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->
-{#if hasGitRepository}
+{#if showsStartControl}
   <GitDropdown
     bind:open={gitOpen}
     side="top"
@@ -504,8 +590,12 @@
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
     {startsNewWorktree}
-    worktreeBlockedNote={worktreeBlockedReason(gitHome.canToggleWorktree)}
+    worktreeBlockedNote={isPlainFolder ? null : worktreeBlockedReason(gitHome.canToggleWorktree)}
     onSelectStartIn={selectStartIn}
+    worktreeRepositories={repositoryChoice}
+    onChooseWorktreeRepositories={chooseRepositories}
+    plainFolder={isPlainFolder ? { baseBranch: newWorktreeBase } : null}
+    onChooseBaseBranch={chooseBaseBranch}
     onDismiss={() => requestInputFocus(focusTarget)}
   />
 {/if}

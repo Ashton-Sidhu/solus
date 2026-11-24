@@ -25,8 +25,25 @@ interface DirectoryPickerRequest {
    *  (RunOnPicker) does not know which kind it is scoped to. */
   requesterId?: string
   serverId?: string
-  intent?: PickerIntent | 'add-project'
+  intent?: PickerIntent | 'add-project' | 'choose-folder'
   onProjectAdded?: (project: ProjectRef) => void
+  /** With `choose-folder`: what the browser asks for, and where the answer goes. */
+  folderChoice?: DirectoryFolderChoice
+}
+
+/**
+ * A folder that a surface asks for on the run host of a tab, for a use of its
+ * own (the Repositories section attaches it to the session). No tab moves, and
+ * no project is recorded.
+ */
+export interface DirectoryFolderChoice {
+  title: string
+  action: string
+  onChosen: (path: string, serverId: string) => void
+}
+
+function folderChoiceOf(request: DirectoryPickerRequest | undefined): DirectoryFolderChoice | undefined {
+  return request?.intent === 'choose-folder' ? request.folderChoice : undefined
 }
 
 /**
@@ -56,17 +73,21 @@ export function createProjectPicker(session: WorkspaceContext) {
    *  recorded as a project so pages can scope to it, and no tab is retargeted. */
   let directoryPickerForAddProject = $state(false)
   let directoryPickerOnProjectAdded = $state<((project: ProjectRef) => void) | undefined>(undefined)
+  /** A surface borrows the browser for a folder of its own: nothing is retargeted. */
+  let directoryPickerFolderChoice = $state<DirectoryFolderChoice | undefined>(undefined)
 
   const directoryPickerCreatesTab = $derived(
     directoryPickerNewTab || (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   )
   const directoryPickerTitle = $derived.by(() => {
     if (directoryPickerForOpenProject) return openProjectStore.browseTitle
+    if (directoryPickerFolderChoice) return directoryPickerFolderChoice.title
     if (directoryPickerForAddProject) return 'Open a project'
     return directoryPickerCreatesTab ? 'Open project in a new tab' : 'Change project folder'
   })
   const directoryPickerAction = $derived.by(() => {
     if (directoryPickerForOpenProject) return openProjectStore.browseAction
+    if (directoryPickerFolderChoice) return directoryPickerFolderChoice.action
     if (directoryPickerForAddProject) return 'Open'
     return directoryPickerCreatesTab ? 'Open in new tab' : 'Choose'
   })
@@ -114,16 +135,18 @@ export function createProjectPicker(session: WorkspaceContext) {
       directoryPickerDraftId = detail?.draftId ?? requesterDraftId
       const targetTabId = detail?.tabId ?? (requesterDraftId ? undefined : requesterId)
       const tab = targetTabId ? session.tabs[targetTabId] : null
-      const opensInNewTab = tab?.sessionId != null
+      const requestedIntent = detail?.intent ?? 'open-project'
+      // A folder choice starts in the tab's folder and browses its host; the tab stays where it is.
+      directoryPickerFolderChoice = folderChoiceOf(detail)
+      const opensInNewTab = directoryPickerFolderChoice ? false : tab?.sessionId != null
       directoryPickerNewTab = opensInNewTab
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId
       directoryPickerServerIdOverride = detail?.serverId
       // Adding a project retargets nothing, so it keeps the plain open-project
       // run intent and states itself with its own flag.
-      const requestedIntent = detail?.intent ?? 'open-project'
       directoryPickerForAddProject = requestedIntent === 'add-project'
       directoryPickerOnProjectAdded = detail?.onProjectAdded
-      directoryPickerIntent = requestedIntent === 'add-project' ? 'open-project' : requestedIntent
+      directoryPickerIntent = requestedIntent === 'dispatch' ? 'dispatch' : 'open-project'
       directoryPickerForOpenProject = false
       directoryPickerOpen = true
     }
@@ -142,6 +165,17 @@ export function createProjectPicker(session: WorkspaceContext) {
 
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false
+    const folderChoice = directoryPickerFolderChoice
+    if (folderChoice) {
+      // Read the browsed host before the request is cleared.
+      const chosenServerId = directoryPickerServerId
+      directoryPickerFolderChoice = undefined
+      directoryPickerTargetTabId = undefined
+      directoryPickerServerIdOverride = undefined
+      directoryPickerDraftId = undefined
+      folderChoice.onChosen(dir, chosenServerId)
+      return
+    }
     projectsStore.invalidateRecentProjects()
     if (directoryPickerForOpenProject) {
       await finishBrowsedOpenProject(dir)
@@ -219,6 +253,7 @@ export function createProjectPicker(session: WorkspaceContext) {
     directoryPickerIntent = 'open-project'
     directoryPickerForAddProject = false
     directoryPickerOnProjectAdded = undefined
+    directoryPickerFolderChoice = undefined
     // Cancelling a browse that the Open project flow started returns to that
     // flow, on the step it left — not to an empty screen.
     if (directoryPickerForOpenProject) {
@@ -338,6 +373,7 @@ export function createProjectPicker(session: WorkspaceContext) {
   function browseForOpenProject() {
     if (!openProjectStore.serverId) return
     directoryPickerForOpenProject = true
+    directoryPickerFolderChoice = undefined
     directoryPickerForAddProject = false
     directoryPickerOnProjectAdded = undefined
     directoryPickerNewTab = false

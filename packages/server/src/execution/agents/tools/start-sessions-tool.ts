@@ -149,6 +149,14 @@ interface Caller {
   reasoningEffort: ReasoningEffort | undefined
   permissionMode: PermissionMode | undefined
   workerModel: PersonalSettings['workerModel']
+  /** The codebase of the calling session: each session it starts gets it. */
+  codebaseId: string | null
+}
+
+/** The codebase of the calling session. Null for a caller with one working directory, and before the caller has a session. */
+async function codebaseOfCaller(sessionId: string | undefined): Promise<string | null> {
+  if (!sessionId) return null
+  return await getSessionController()?.codebaseIdFor?.(sessionId) ?? null
 }
 
 async function callerOf(deps: SessionToolDeps): Promise<Caller> {
@@ -164,6 +172,7 @@ async function callerOf(deps: SessionToolDeps): Promise<Caller> {
     reasoningEffort: runsOnProvider ? info?.reasoningEffort : undefined,
     workerModel: sessionSettings(sessionId)?.preferences?.workerModel ?? null,
     permissionMode: sessionId ? controller?.permissionModeFor?.(sessionId) : undefined,
+    codebaseId: await codebaseOfCaller(sessionId),
   }
 }
 
@@ -222,6 +231,7 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
     modelId: runner.modelId,
     reasoningEffort: runner.reasoningEffort,
     contextWindow: runner.contextWindow,
+    codebaseId: caller.codebaseId,
   }
   const attachError = await attachTo(order, session.attachments, deps)
   if (attachError) return { error: attachError }

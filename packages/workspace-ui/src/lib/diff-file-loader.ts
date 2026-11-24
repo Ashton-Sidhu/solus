@@ -3,7 +3,7 @@ import type {
   FileDiffMetadata,
 } from '@pierre/diffs'
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { DiffScope, IpcContext } from '@solus/contracts/types'
+import type { DiffFileContentsRequest, DiffScope, IpcContext } from '@solus/contracts/types'
 
 type DiffFileApi = Pick<SolusAPI, 'diffFileContents'>
 
@@ -17,14 +17,18 @@ export async function loadDiffFiles(
   ctx: IpcContext,
   scope: DiffScope,
   fileDiff: FileDiffMetadata,
+  /** The session folder whose repository holds the file. Absent is the working directory. */
+  repositoryPath?: string,
 ): Promise<FileDiffLoadedFiles> {
-  const result = await api.diffFileContents(ctx, {
+  const request: DiffFileContentsRequest = {
     scope: { ...scope },
     path: fileDiff.name,
     previousPath: fileDiff.prevName,
     expectedOldObjectId: fileDiff.prevObjectId,
     expectedNewObjectId: fileDiff.newObjectId,
-  })
+  }
+  if (repositoryPath) request.repositoryPath = repositoryPath
+  const result = await api.diffFileContents(ctx, request)
   if (!result?.newFile) {
     throw new Error(`Full contents are unavailable for ${fileDiff.name}`)
   }

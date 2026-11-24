@@ -50,6 +50,10 @@
     ariaLabel?: string;
     /** Primary half of a split row: stretches so the caret can sit beside it. */
     split?: boolean;
+    /** For a row that shows rows below it: true while they show. The row then
+     *  has `aria-expanded` and keeps the wash of an open control of the panel.
+     *  Unset for a row that opens nothing in place. */
+    expanded?: boolean;
     /** Renders the idle icon in place of `item.icon`, for an icon that needs
      *  more than a size — a project's favicon needs its root and host. */
     iconSnippet?: Snippet;
@@ -59,7 +63,7 @@
       event: MouseEvent & { currentTarget: HTMLButtonElement },
     ) => void;
   }
-  let { item, ariaLabel, split = false, iconSnippet, onInspect, onActivate }: Props = $props();
+  let { item, ariaLabel, split = false, expanded, iconSnippet, onInspect, onActivate }: Props = $props();
   const hasTrailing = $derived(!!(item.diffStat?.insertions || item.diffStat?.deletions || item.badgeIcon || item.badge || item.hint));
 </script>
 
@@ -76,6 +80,7 @@
         class:is-loading={item.phase === "loading"}
         class:has-badge-prefix={!!item.badge && !!item.badgePrefix}
         aria-label={ariaLabel}
+        aria-expanded={expanded}
         disabled={item.disabled}
         onclick={onActivate}
         onmouseenter={() => { if (!item.disabled) onInspect?.(); }}
@@ -156,7 +161,9 @@
     flex: 1;
     min-width: 0;
   }
-  .menu-row:hover {
+  /* An open row keeps the hover wash, as an open caret of the panel does. */
+  .menu-row:hover,
+  .menu-row[aria-expanded="true"] {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
@@ -184,7 +191,8 @@
     color: var(--solus-text-secondary);
     transition: color 0.15s ease;
   }
-  .menu-row:hover .menu-icon {
+  .menu-row:hover .menu-icon,
+  .menu-row[aria-expanded="true"] .menu-icon {
     color: var(--solus-text-primary);
   }
   /* A tone is a fact, so it survives hover — the hover rule above would

@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ProjectConfig } from '@solus/contracts/types'
-import { worktreeProjectRoot } from '@solus/contracts/types'
 import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
 import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema } from '@solus/contracts/device-types'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
+import { worktreeProjectRoot } from '@solus/contracts/types'
 import { git, gitOutputPath } from '../git/exec'
 
 /**
@@ -41,6 +43,11 @@ const projectConfigInputSchema = z.object({
   // A malformed override is dropped, not fatal: the rest of the file still applies.
   worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
   deviceRuns: z.array(deviceRunProfileSchema).max(MAX_DEVICE_RUN_PROFILES).optional().catch(undefined),
+  ignoreRepositories: z.array(z.string().min(1).max(4096)).max(512).optional().catch(undefined),
+  worktreeLayout: z.object({
+    create: z.string().trim().min(1).max(4096),
+    remove: z.string().trim().min(1).max(4096).optional(),
+  }).optional().catch(undefined),
 })
 
 type ProjectConfigInput = z.infer<typeof projectConfigInputSchema>
@@ -48,6 +55,10 @@ type ProjectConfigInput = z.infer<typeof projectConfigInputSchema>
 /**
  * The repository a working directory belongs to, with the Solus worktree
  * segment stripped, so every worktree of a repo reads and writes one config.
+ * The path of a worktree in a task folder does not name its repository, so
+ * Git answers for it. A folder of a task folder that is in no worktree stands
+ * in for a plain member through links, so it answers itself, and its config
+ * file is the linked one of the member.
  *
  * Memoized: the toplevel for a cwd is stable for the process lifetime, and this
  * sync git spawn would otherwise block the main process on every config call.
@@ -57,13 +68,25 @@ export function resolveProjectRoot(cwd: string): string {
   if (cached) return cached
   let root: string
   try {
-    root = worktreeProjectRoot(gitOutputPath(cwd, git(['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 })))
+    const checkoutRoot = gitOutputPath(cwd, git(['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 }))
+    root = isTaskFolderPath(checkoutRoot) ? repositoryOfWorktree(checkoutRoot) : worktreeProjectRoot(checkoutRoot)
   } catch {
     // Not a repository — the directory is its own project.
     root = cwd
   }
   rootByCwd.set(cwd, root)
   return root
+}
+
+/**
+ * The repository that a linked worktree at `checkoutRoot` is a checkout of:
+ * the folder of the Git directory that its worktrees share. A checkout that
+ * is not a linked worktree of a repository (a submodule in a worktree)
+ * answers itself.
+ */
+function repositoryOfWorktree(checkoutRoot: string): string {
+  const sharedGitDirectory = gitOutputPath(checkoutRoot, git(['rev-parse', '--git-common-dir'], checkoutRoot, { timeout: 5_000 }))
+  return basename(sharedGitDirectory) === '.git' ? dirname(sharedGitDirectory) : checkoutRoot
 }
 
 /** Stable key for a project, used to co-locate per-host data such as the
@@ -86,6 +109,8 @@ function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   }
   if (raw.serverUrls) config.serverUrls = [...new Set(raw.serverUrls)]
   if (raw.deviceRuns?.length) config.deviceRuns = raw.deviceRuns
+  if (raw.ignoreRepositories?.length) config.ignoreRepositories = [...new Set(raw.ignoreRepositories)]
+  if (raw.worktreeLayout) config.worktreeLayout = raw.worktreeLayout
   return config
 }
 
@@ -101,6 +126,30 @@ function parseConfig(text: string): ProjectConfig | null {
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | null> {
   const path = projectConfigPath(cwd)
   return existsSync(path) ? parseConfig(readFileSync(path, 'utf-8')) : null
+}
+
+/**
+ * The `ignoreRepositories` of the config file in `folder` itself
+ * (docs/plans/codebases.md §5). A root of a codebase can be a folder with no
+ * repository, so this reads `<folder>/.solus/config.json` and does not ask Git
+ * for the repository that holds the folder.
+ */
+export async function readIgnoredRepositories(folder: string): Promise<string[]> {
+  return (await readFolderConfig(folder))?.ignoreRepositories ?? []
+}
+
+/**
+ * The `worktreeLayout` commands of the config file in `folder` itself
+ * (docs/plans/codebases.md §7), or null. The working member of a task folder
+ * can be a folder with no repository, so this does not ask Git either.
+ */
+export async function readWorktreeLayout(folder: string): Promise<NonNullable<ProjectConfig['worktreeLayout']> | null> {
+  return (await readFolderConfig(folder))?.worktreeLayout ?? null
+}
+
+async function readFolderConfig(folder: string): Promise<ProjectConfig | null> {
+  const text = await readFile(join(folder, PROJECT_CONFIG_DIR, PROJECT_CONFIG_FILE), 'utf-8').catch(() => null)
+  return text === null ? null : parseConfig(text)
 }
 
 export async function saveProjectConfig(cwd: string, config: ProjectConfig): Promise<ProjectConfig> {

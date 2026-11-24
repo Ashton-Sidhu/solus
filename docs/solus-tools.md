@@ -106,6 +106,16 @@ status, and branch follow. It can also remove the worktree the session leaves. A
 target branch, every checkout of its repository, and, on request, its branches.
 See
 [Agent worktrees](worktree-names.md#agent-worktrees).
+`attach_folder` adds a folder on the host to the folders the calling session
+works in. A path in a Git repository attaches the root of the repository. In
+the modes Full access and Auto the folder is attached immediately. In the
+other modes a card asks the person, one time for each folder. A folder of the
+session's codebase needs no card. In a session that works in a task folder,
+a repository of the codebase gives the session its worktree of that
+repository. For a folder of the codebase on a different host, the tool tells
+the agent to start a session there. The tool is in the Sessions group, so
+you can turn it off in Settings → Tools. See
+[Codebases](codebases.md#attach-a-folder-in-a-running-session).
 
 The Sessions group holds `link`, `list_links`,
 `unlink`, and `watch_pull_request`. `link` attaches a work,

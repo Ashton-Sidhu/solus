@@ -119,6 +119,7 @@ export class SessionApiOperations {
         publication: session.publication, size: session.size,
         cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
         place: session.place, startedBy: session.startedBy,
+        codebaseId: session.codebaseId, attachedFolders: session.attachedFolders,
         state: session.state ?? null,
         view: session.view ?? null,
         listed: session.listed ?? true,
@@ -286,8 +287,9 @@ export class SessionApiOperations {
     if (query.projectPath !== undefined) {
       const normalized = trimTrailingSeparators(query.projectPath)
       const encoded = encodePathAsFolder(normalized)
+      // A session in a task folder has no path below its project: its record names the project (`project_root`).
       filters.push(query.includeWorktrees === 'true' && !isSolusWorktreePath(normalized)
-        ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
+        ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'} OR (is_worktree = 1 AND project_root = ${normalized}))`
         : sql`project_path = ${encoded}`)
     }
     if (query.chats === 'true') filters.push(sql`session_records.place = 'chat'`)

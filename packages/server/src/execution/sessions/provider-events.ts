@@ -224,6 +224,7 @@ export class ProviderEvents {
                 log.warn('fork_lineage_notify_failed', { sessionId: initSessionId, error: String(error) })
               })
             } : undefined,
+            this.rt.sessionFolders.recordFields(initSessionId),
           )
         }
         if (existingSession) {
@@ -277,6 +278,7 @@ export class ProviderEvents {
       const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
       if (sessionId && event.type !== 'rate_limit') {
         turnActivity.observe(sessionId, event)
+        this.rt.sessionFolders.observe(sessionId, event)
         this.rt.sessionEmitter.onEvent(sessionId, event)
       }
       const session = sessionId ? this.rt.activeSessions.get(sessionId) : undefined
@@ -393,6 +395,8 @@ export class ProviderEvents {
         if (event.type === 'task_complete') {
           const handle = backend.getSessionHandle(agentSessionId)
           if (handle) handle.resultText = event.result
+          // Before the actor of the run is forgotten: a folder that the turn wrote outside its folders is shown for review.
+          void this.rt.sessionFolders.attachObserved(session.sessionId)
           this.rt.activeRunRequests.delete(session.sessionId)
           // The agent is done, but the SDK query stays open while its background
           // tasks run and emits exit only once they settle. Work the agent waits

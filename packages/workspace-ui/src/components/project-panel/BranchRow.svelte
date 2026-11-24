@@ -19,12 +19,19 @@
     type WorktreeEntry,
   } from "@solus/contracts/types";
   import { checkoutPlace, chooseStart, cloneBaseBranch, pendingClone, runHost, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
+  import type { SessionFolderPlace } from "../../contexts/git/session-environment.store.svelte";
+  import { sameHostPath } from "@solus/contracts/host-path";
+  import { checkoutFolderBranch, TASK_FOLDER_BRANCH_NOTE } from "./lib/repository-actions";
 
   interface Props {
     /** The tab or draft whose run this row describes — see `ProjectPanel`. */
     sourceId: string;
+    /** A session folder that this row describes, in place of the working
+     *  directory of the run. Its branch changes in place: the session does
+     *  not move (docs/plans/codebases.md §8). */
+    folder?: SessionFolderPlace | null;
   }
-  let { sourceId }: Props = $props();
+  let { sourceId, folder = null }: Props = $props();
 
   let branchPickerOpen = $state(false);
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
@@ -32,13 +39,15 @@
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const sectionRun = $derived(session.runFor(sourceId));
-  const canSwitch = $derived(hosts.get(runHost(sectionRun))?.me.may("host.git.write") ?? true);
-  const env = $derived(environmentStore.environmentFor(sectionRun));
+  // One branch name covers each worktree of a task folder, so such a worktree keeps its branch.
+  const isTaskFolderWorktree = $derived(!!folder && !sameHostPath(folder.path, folder.repositoryPath));
+  const canSwitch = $derived(!isTaskFolderWorktree && (hosts.get(runHost(sectionRun))?.me.may("host.git.write") ?? true));
+  const env = $derived(environmentStore.environmentIn(sectionRun, folder));
   const status = $derived(env.status);
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
-  const pendingDispatch = $derived(pendingClone(sectionRun));
+  const pendingDispatch = $derived(folder ? null : pendingClone(sectionRun));
   const selectedDispatchWorktree = $derived(
     pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start : null,
   );
@@ -57,6 +66,7 @@
       (pendingDispatch ? null : currentBranch),
   );
   const branchRepoRoot = $derived(
+    folder?.repositoryPath ??
     env.checkout?.repoRoot ??
       checkoutPlace(sectionRun)?.path ??
       status?.repoRoot ??
@@ -75,6 +85,10 @@
 
   async function selectBranch(branch: string, options?: { create?: boolean }) {
     if (pendingDispatch) return;
+    if (folder) {
+      await switchFolderBranch(folder, branch, options);
+      return;
+    }
     const entry = worktrees.find((worktree) => worktree.branch === branch);
     if (entry) {
       selectWorktree(entry);
@@ -86,7 +100,28 @@
     else requestInputFocus();
   }
 
+  /** Check out a branch in a session folder. The host tells each session that
+   *  has the folder; nothing is written to the run of this tab. */
+  async function switchFolderBranch(target: SessionFolderPlace, branch: string, options?: { create?: boolean }) {
+    const serverId = runHost(sectionRun);
+    const error = await checkoutFolderBranch(
+      session.apiFor(sourceId),
+      session.ctxForEnvironment(target.path, env.checkout, sourceId),
+      branch,
+      options,
+    );
+    if (error) toasts.error("Couldn't switch branch", { description: error });
+    else if (serverId) void environmentStore.refresh(serverId, target.path, { force: true, details: true });
+    requestInputFocus();
+  }
+
   function selectWorktree(worktree: WorktreeEntry) {
+    // A session folder is one place: a branch that a different worktree has stays there.
+    if (folder) {
+      toasts.info(`${worktree.branch} is checked out in a different worktree`);
+      requestInputFocus();
+      return;
+    }
     const targetBranch = env.targetBranch;
     const draft = destinationDraft();
     if (pendingDispatch) {
@@ -147,8 +182,8 @@
       class="split-caret"
       class:is-open={branchPickerOpen}
       type="button"
-      aria-label={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
-      title={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
+      aria-label={pendingDispatch ? "Select a remote worktree" : folder ? "Switch branch" : "Switch branch or worktree"}
+      title={isTaskFolderWorktree ? TASK_FOLDER_BRANCH_NOTE : pendingDispatch ? "Select a remote worktree" : folder ? "Switch branch" : "Switch branch or worktree"}
       disabled={!currentBranch || !canSwitch}
       onclick={() => (branchPickerOpen = !branchPickerOpen)}
     >
@@ -162,7 +197,7 @@
       matchTriggerWidth
       triggerEl={branchTriggerEl?.parentElement ?? branchTriggerEl}
       displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? dispatchStartLabel : currentBranch)}
-      selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch(sectionRun) ?? currentBranch}
+      selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (folder ? null : worktreeBaseBranch(sectionRun)) ?? currentBranch}
       workingDirectory={branchRepoRoot}
       run={sectionRun}
       onSelectBranch={selectBranch}

@@ -46,7 +46,7 @@ async function runAction(push: 'pushed' | 'skipped') {
     serverIdFor: () => 'host-a',
   }
   const environmentStore = {
-    environmentFor: () => ({ cwd: '/repo', checkout: { branch: 'feature/x', targetBranch: 'main' } }),
+    environmentIn: () => ({ cwd: '/repo', checkout: { branch: 'feature/x', targetBranch: 'main' } }),
     refreshEnvironment: async () => null,
     statusFor: () => null,
   }

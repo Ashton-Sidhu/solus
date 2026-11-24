@@ -26,6 +26,7 @@ export const settingsSectionLoaders = {
   'skills': () => import('../SettingsTabSkills.svelte'),
   'devices': () => import('../../devices/DeviceSettings.svelte'),
   'webhooks': () => import('../../webhooks/SettingsTabWebhooks.svelte'),
+  'codebases': () => import('../../codebases/SettingsTabCodebases.svelte'),
   'keybindings': () => import('../SettingsTabKeybindings.svelte'),
   projects: () => import('../SettingsTabProviders.svelte'),
 }

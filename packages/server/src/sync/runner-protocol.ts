@@ -4,6 +4,7 @@ import { shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { activitySchema } from '@solus/contracts/activity'
 import { sessionPlaceSchema, sessionStarterSchema } from '@solus/contracts/session-starter'
+import { sessionAttachedFolderSchema } from '@solus/contracts/codebases'
 
 /**
  * What a host sends its organization's Solus API, and what comes back
@@ -60,6 +61,8 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
   }).nullable().optional(),
   place: sessionPlaceSchema.nullable().optional(),
   startedBy: sessionStarterSchema.nullable().optional(),
+  codebaseId: z.string().max(200).nullable().optional(),
+  attachedFolders: z.array(sessionAttachedFolderSchema).max(512).optional(),
   admissionId: z.string().min(1).max(256).optional(),
   privateToOwner: z.boolean().optional(),
 })

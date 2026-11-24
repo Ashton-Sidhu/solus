@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import { CodexAppServerClient } from './codex-agent'
 import type { CodexPendingServerRequest } from './codex-event-normalizer'
@@ -102,6 +103,8 @@ interface PendingEntry {
  */
 export class CodexPermissionResponder implements PermissionResponder {
   private pending = new Map<string, PendingEntry>()
+  /** A person accepted a request for the session. The backend attaches the folders that the request names. */
+  onAcceptedForSession: ((req: CodexPendingServerRequest) => void) | null = null
 
   add(questionId: string, req: CodexPendingServerRequest, client: CodexAppServerClient): void {
     this.pending.set(questionId, { req, client })
@@ -139,11 +142,13 @@ export class CodexPermissionResponder implements PermissionResponder {
         permissions: isAllowDecision(normalized) ? grantedRequestedPermissions(req.params?.permissions) : {},
         scope: normalized === 'acceptForSession' ? 'session' : 'turn',
       })
+      if (normalized === 'acceptForSession') this.onAcceptedForSession?.(req)
       return true
     }
 
     const normalized = normalizeDecision(decision)
     client.respond(req.id, commandOrFileApprovalResponse(normalized, req.params))
+    if (normalized === 'acceptForSession') this.onAcceptedForSession?.(req)
     return true
   }
 
@@ -243,6 +248,43 @@ export function permissionOptions(method: string, params: any): PermissionOption
     { id: 'accept', label: 'Allow', kind: 'allow' },
     { id: 'decline', label: 'Deny', kind: 'deny' },
   ]
+}
+
+const approvalPathsSchema = z.object({
+  grantRoot: z.string().nullish(),
+  permissions: z.object({
+    network: z.object({ enabled: z.boolean().nullish() }).nullish(),
+    fileSystem: z.object({
+      read: z.array(z.string()).nullish(),
+      write: z.array(z.string()).nullish(),
+      entries: z.array(z.unknown()).nullish(),
+    }).nullish(),
+  }).nullish(),
+})
+const fileChangePathSchema = z.object({ path: z.string().min(1) })
+
+/**
+ * The absolute paths that an approval request names, or null when it does not
+ * name its paths. A patch names each file it changes (`changes`, which Codex
+ * sent with the item) and the root it asks for. A permissions request names
+ * the folders it wants. A command names no path. A request that also wants
+ * network access, or that gives its folders in a shape Solus does not read,
+ * is not only about these paths, so the answer is null.
+ */
+export function approvalPaths(method: string, params: any, changes: readonly unknown[] | undefined, cwd: string): string[] | null {
+  const parsed = approvalPathsSchema.safeParse(params)
+  if (!parsed.success) return null
+  let named: string[] = []
+  if (method === 'item/fileChange/requestApproval') {
+    const files = z.array(fileChangePathSchema).safeParse(changes ?? [])
+    if (!files.success) return null
+    named = [...(parsed.data.grantRoot ? [parsed.data.grantRoot] : []), ...files.data.map((file) => file.path)]
+  } else if (method === 'item/permissions/requestApproval') {
+    const { network, fileSystem } = parsed.data.permissions ?? {}
+    if (network?.enabled || fileSystem?.entries?.length) return null
+    named = [...(fileSystem?.read ?? []), ...(fileSystem?.write ?? [])]
+  }
+  return named.length ? named.map((path) => resolve(cwd, path)) : null
 }
 
 export function autoApprovalResponse(method: string, params: any): ApprovalResponse {

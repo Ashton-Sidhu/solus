@@ -17,6 +17,7 @@ function demoSessionRecord(meta: SessionMeta, store: DemoStore): SessionRecord {
     cwd: meta.cwd || null, slug: meta.slug, isWorktree: meta.isWorktree ?? false,
     branch: meta.branch ?? null, projectRoot: meta.projectRoot ?? null, delegation: null,
     place: meta.place ?? null, startedBy: meta.startedBy ?? null,
+    codebaseId: meta.codebaseId ?? null, attachedFolders: [],
     pullRequests: store.sessionPullRequests(meta.sessionId),
   }
 }

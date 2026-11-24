@@ -98,5 +98,7 @@ function recordFacts(record: SessionRecord): SessionRecordUpsert {
     delegation: record.delegation,
     place: record.place,
     startedBy: record.startedBy,
+    codebaseId: record.codebaseId,
+    attachedFolders: record.attachedFolders,
   }
 }

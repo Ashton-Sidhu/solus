@@ -70,6 +70,45 @@ describe('IPC context', () => {
     expect(new IpcContextBuilder(deps).sessionCtx('draft').origin).toBe('dispatch')
   })
 
+  test('a session in a task folder names its project from data, because its path does not', () => {
+    // WHY: `<data>/solus-task-folders/<name>/…` has no repository in its path. A context that took the project from
+    // the path sent the task folder as the project, so the host read no project config and filed nothing under it.
+    const taskFolder = '/data/solus-task-folders/fix-login-0a1b2c3d'
+    const model = { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
+    const builderFor = (location: RunConfig['location'], sessionFolders: unknown[] = []) => {
+      const run = { location, permissionMode: 'full-access', provider: 'codex', modelConfig: model }
+      return new IpcContextBuilder({
+        sessionFor: () => ({ id: 's1', agentSessionId: 'thread', status: 'idle', readOnlyReason: null, sessionFolders }),
+        runFor: () => run, hasDraft: () => false, defaultRunConfig: () => run,
+        settings: { ctx: { activeAgent: 'codex' } },
+        statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high'), ctxForRun: () => statusBar('model', 'high') },
+      } as unknown as IpcContextBuilderDeps)
+    }
+
+    // The checkout of a worktree names its repository.
+    const worktree = { repoRoot: '/work/shop/api', worktreePath: `${taskFolder}/api`, branch: 'solus/fix-login', targetBranch: 'main' }
+    const live = builderFor(folderLocation({ serverId: 'host', path: '/work/shop/api' }, { git: worktree }))
+    expect(live.sessionCtx('tab')).toMatchObject({ workingDirectory: '/work/shop/api', projectPath: '/work/shop/api' })
+    expect(live.forDirectory('tab', `${taskFolder}/api`).session.projectPath).toBe('/work/shop/api')
+
+    // A run that was pointed at the task folder itself: the checkout, else the project home of the run.
+    const pointed = builderFor(folderLocation({ serverId: 'host', path: `${taskFolder}/api` }, { git: worktree }))
+    expect(pointed.sessionCtx('tab').projectPath).toBe('/work/shop/api')
+    const plain = builderFor(folderLocation({ serverId: 'host', path: taskFolder }, { project: { serverId: 'host', path: '/work/shop' } }))
+    expect(plain.sessionCtx('tab').projectPath).toBe('/work/shop')
+    expect(plain.forDirectory('tab', taskFolder).session.projectPath).toBe('/work/shop')
+
+    // A session folder is the worktree of its repository.
+    const folders = [{ path: `${taskFolder}/web`, name: 'web', state: 'git', repositoryPath: '/work/shop/web', source: 'codebase', granted: true }]
+    const withFolders = builderFor(folderLocation({ serverId: 'host', path: '/work/shop' }), folders)
+    expect(withFolders.forDirectory('tab', `${taskFolder}/web`).session.projectPath).toBe('/work/shop/web')
+    // A caller that has the checkout of a directory gives it: the checkout names the repository.
+    const elsewhere = { repoRoot: '/work/libs/ui', worktreePath: `${taskFolder}/libs/ui`, branch: 'solus/fix-login', targetBranch: 'main' }
+    expect(withFolders.forEnvironment('tab', elsewhere.worktreePath, elsewhere).session.projectPath).toBe('/work/libs/ui')
+    // A worktree inside its repository still names it by its path.
+    expect(withFolders.forDirectory('tab', '/work/shop/api/.git/solus/worktrees/fix').session.projectPath).toBe('/work/shop/api')
+  })
+
   test("a split tab runs with its own status bar's model and reasoning", () => {
     const primaryStatus = statusBar('primary-model', 'high')
     const splitStatus = statusBar('split-model', 'low', true)

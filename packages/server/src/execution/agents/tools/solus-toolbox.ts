@@ -70,6 +70,7 @@ import {
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool } from './config-tools'
+import { attachFolderAgentTool } from './folder-tools'
 import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
 import { checkoutStatusAgentTool, moveCheckoutAgentTool } from './worktree-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
@@ -191,6 +192,7 @@ export const solusToolbox = {
     backgroundWait: backgroundWaitAgentTool,
     checkoutStatus: checkoutStatusAgentTool,
     moveCheckout: moveCheckoutAgentTool,
+    attachFolder: attachFolderAgentTool,
   },
   projects: {
     create: createProjectAgentTool,

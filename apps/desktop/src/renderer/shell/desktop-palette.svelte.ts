@@ -1,6 +1,7 @@
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
-import { mcpCommands, settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+import { codebaseCommands, mcpCommands, settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+import { repositoryCommands } from "@solus/workspace-ui/components/project-panel/lib/repository-commands";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { GitPullRequestIcon } from "@solus/workspace-ui/components/ui/octicons";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
@@ -517,6 +518,8 @@ export function createDesktopPalette(
     commands.push(...settingsOwnerCommands(session));
     commands.push(sidebarViewCommand(settings));
     commands.push(...webhookCommands(session));
+    commands.push(...codebaseCommands(session));
+    commands.push(...repositoryCommands(session));
     commands.push(...mcpCommands(session));
 
     commands.push({

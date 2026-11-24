@@ -74,6 +74,17 @@ export async function addLocalProject(environmentId: EnvironmentId, path: string
   return lookup();
 }
 
+/** Add a folder on a host to a codebase. The host scans it, and the resolved path is the new root. */
+export async function addCodebaseFolder(
+  environmentId: EnvironmentId,
+  codebaseId: string,
+  path: string,
+) {
+  if (!solus.connections.may(environmentId, "host.use"))
+    throw new Error("This connection cannot change codebases on this host.");
+  await solus.codebases.addRoot(codebaseId, { hostId: environmentId, path });
+}
+
 export async function cloneProject(environmentId: EnvironmentId, cloneUrl: string, path: string) {
   const api = projectApi(environmentId);
   const existing = findExistingAddProject({

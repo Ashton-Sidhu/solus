@@ -22,11 +22,15 @@
     view,
     guideState,
     showGuide = true,
+    showLens = true,
     lensState = "absent",
     onSelect,
   }: {
     view: ReviewView;
     showGuide?: boolean;
+    /** False while the review reads a session folder: the lens reads the
+     *  checkout of the working directory. */
+    showLens?: boolean;
     /** `absent` offers generation, `generating` reports it, `unread` marks a
      *  guide that became ready on another tab, `ready` is the quiet state. */
     guideState: "absent" | "generating" | "unread" | "ready";
@@ -42,7 +46,9 @@
     { id: "diff", label: "Diff" },
   ];
 
-  const tabs = $derived(showGuide ? TABS : TABS.filter((tab) => tab.id !== "guide"));
+  const tabs = $derived(
+    TABS.filter((tab) => (tab.id !== "guide" || showGuide) && (tab.id !== "lens" || showLens)),
+  );
 
   const guideHint = $derived(
     guideState === "absent"

@@ -51,20 +51,22 @@ export function activityLine(activity: Activity, self: UserId | null): ActivityL
 }
 
 /**
- * A fork, a move into a worktree, an agent switch, or a plan accepted into a
- * fresh agent session is a statement about the thread itself: it opens a turn
+ * A fork, a move into a worktree, an agent switch, a plan accepted into a
+ * fresh agent session, or a codebase that the host made for the session is a
+ * statement about the thread itself: it opens a turn
  * rather than sitting in one, and every reader sees it, the one who did it too.
  */
 export function dividesThread(activity: Activity): boolean {
   return dividerPredicate(activity) !== null
 }
 
-/** The words before a divider's title (a session, a branch, a plan, an agent). */
+/** The words before a divider's title (a session, a branch, a plan, an agent, a codebase). */
 function dividerPredicate(activity: Activity): string | null {
   switch (activity.kind) {
     case 'forked': return activity.midRun ? 'forked mid-run from' : 'forked from'
     case 'moved_to_worktree': return activity.projectFolder ? 'continued in the project folder on' : 'continued in worktree'
     case 'agent_switched': return 'continued with'
+    case 'codebase_formed': return 'made the codebase'
     case 'plan_decided': return activity.newSessionId ? 'started a new session implementing' : null
     default: return null
   }

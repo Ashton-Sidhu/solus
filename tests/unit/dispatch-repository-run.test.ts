@@ -128,7 +128,7 @@ async function hostFor(cloneExitCode?: number, projectsFolder = 'projects') {
     provider: 'codex', agentSessionId: null, forked: false,
     // The client's own folder: the host has no such path.
     workingDirectory: '/Users/someone/solus', projectPath: '/Users/someone/solus',
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
+    gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }

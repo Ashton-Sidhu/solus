@@ -93,13 +93,20 @@ export class SessionDigests {
     })
   }
 
-  /** A turn's checkpoint: what the session changed so far, and what this turn changed. */
+  /**
+   * A turn's checkpoint: what the session changed so far, and what this turn
+   * changed. One checkpoint holds all the repositories of the session
+   * (`turn-checkpoints.ts`), so it replaces the summary as a whole.
+   */
   checkpointed({ sessionId, changes, turn }: TurnCheckpointed): void {
     this.enqueue(sessionId, (live) => {
       live.digest.changes = changes
       // The checkpoint is the turn's that started last before it was taken.
       const owner = live.digest.turns.findLast((candidate) => candidate.startedAt <= turn.endedAt)
-      if (owner) owner.changes = { filesChanged: turn.filesChanged, additions: turn.additions, deletions: turn.deletions }
+      if (owner) {
+        owner.changes = { filesChanged: turn.filesChanged, additions: turn.additions, deletions: turn.deletions }
+        if (turn.repositories) owner.changes.repositories = turn.repositories
+      }
       return 'now'
     })
   }

@@ -112,11 +112,13 @@ const endedRowSchema = z.object({ repository: z.string(), number: z.number(), wa
  * Link a pull request to a session. Idempotent: linking a linked pull request
  * changes nothing and returns false.
  *
- * A session holds one `branch` row, and it follows the branch: a new branch
- * discovery replaces the session's branch rows whose pull request has ended
- * (merged, closed, or gone), as a thread's detected pull request does in T3
- * Code. A branch row that is still open stays; so does every explicit row and
- * every tombstone. A replaced row's watch goes with it, in the same transaction.
+ * A session holds one `branch` row for each repository it works in, and the
+ * row follows the branch: a new branch discovery replaces the session's branch
+ * rows of that repository whose pull request has ended (merged, closed, or
+ * gone), as a thread's detected pull request does in T3 Code. A branch row
+ * that is still open stays; so does every explicit row, every tombstone, and
+ * the branch row of a different repository (docs/plans/codebases.md §8). A
+ * replaced row's watch goes with it, in the same transaction.
  */
 export async function linkSessionPullRequest(sessionId: string, input: SessionPullRequestInput): Promise<boolean> {
   const identity = pullRequestIdentityOf(input.url)
@@ -150,7 +152,7 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
       const ended = endedRowSchema.array().parse(await db.all(sql`
         SELECT resource_links.repository, resource_links.number, resource_links.watch_id FROM ${resourceLinks} ${OBSERVATION_JOIN}
         WHERE ${SESSION_PR} AND resource_links.source_id = ${sessionId} AND resource_links.source = 'branch' AND resource_links.status = 'active'
-          AND o.state IN ('merged', 'closed', 'missing')
+          AND resource_links.repository = ${identity.repository} AND o.state IN ('merged', 'closed', 'missing')
       `))
       for (const row of ended) {
         await db.run(sql`DELETE FROM ${resourceLinks} WHERE ${SESSION_PR} AND resource_links.source_id = ${sessionId}

@@ -28,4 +28,23 @@ describe('Codex permission modes', () => {
       plan: ['never', 'user', 'readOnly'],
     })
   })
+
+  test('the session folders are writable roots only where the sandbox has a workspace', () => {
+    // WHY: docs/plans/codebases.md §6. A session works in several folders. In
+    // the workspace sandbox Codex refuses a write outside its roots, so the
+    // session folders must be roots there. A read-only mode must not get a
+    // writable folder, and full access has no sandbox to give roots to.
+    const roots = ['/Users/me/shop/web', '/Users/me/libs/ui']
+    const policies = Object.fromEntries(PERMISSION_MODES.map((mode) => [mode, codex.sandboxPolicyFor(mode, roots)]))
+
+    expect(policies).toEqual({
+      supervised: { type: 'readOnly', networkAccess: false },
+      'accept-edits': { type: 'workspaceWrite', writableRoots: roots, networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+      auto: { type: 'workspaceWrite', writableRoots: roots, networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+      'full-access': { type: 'dangerFullAccess' },
+      plan: { type: 'readOnly', networkAccess: true },
+    })
+    // A session with one working directory keeps the policy it had.
+    expect(codex.sandboxPolicyFor('auto')).toEqual({ type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false })
+  })
 })

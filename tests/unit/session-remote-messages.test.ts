@@ -7,6 +7,7 @@ import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { HeadlessPromptRequest, HeadlessSessionRequest, IpcContext, NormalizedEvent, PromptImageRef, SessionMeta, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
+import type { Codebase } from '@solus/contracts/codebases'
 import type { RemoteHost } from '@solus/server/execution/orchestration/remote-hosts'
 import type { OrchestratedRuntime, RemoteTarget } from '@solus/server/execution/orchestration/session-orchestrator'
 
@@ -86,6 +87,7 @@ function orchestrator() {
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
     turnEnding: async () => ({}), taskIdFor: async () => undefined,
     turnOrganization: async (sessionId) => sessionId === 'org-parent' ? 'org-a' : undefined,
+    codebase: async (codebaseId) => codebaseId === SHOP.id ? SHOP : null,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise); return promise },
@@ -99,7 +101,13 @@ function orchestrator() {
   return Object.assign(orchestration, { settled, prompted })
 }
 
-const ORDER = { provider: 'codex' as const, modelId: 'model-on-b', reasoningEffort: 'medium' as const, contextWindow: null, cwd: '~/app', taskId: null }
+const ORDER = { provider: 'codex' as const, modelId: 'model-on-b', reasoningEffort: 'medium' as const, contextWindow: null, cwd: '~/app', taskId: null, codebaseId: null }
+
+/** The codebase of the sender: one root on each host. */
+const SHOP: Codebase = {
+  id: 'codebase-shop', name: 'shop', updatedAt: 2_000, deletedAt: null,
+  roots: [{ installationId: 'install-a', path: '/Users/me/shop', name: '' }, { installationId: 'install-b', path: '/srv/infra', name: 'infra' }],
+}
 
 describe('files sent with a message', () => {
   test('go to this host\'s attachment store as a copy taken when the message was sent', async () => {
@@ -145,6 +153,21 @@ describe('messages to a session on another host', () => {
     expect(await resolvePromptImages({ imageAttachmentRefs: request.imageAttachmentRefs }, b.store)).toEqual([
       { mimeType: 'image/png', dataUrl: `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}` },
     ])
+  })
+
+  test('start_sessions sends the record of the sender\'s codebase, so host B can find the folders of the child', async () => {
+    // WHY: docs/plans/codebases.md §6. Host B has no copy of a codebase that a
+    // person made on host A. Without the record, the child there has only its
+    // working directory and does not know the other folders of the work.
+    const b = hostB()
+    const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
+    const orchestration = orchestrator()
+
+    await orchestration.spawn('parent', { ...ORDER, prompt: 'Change the infrastructure.', codebaseId: SHOP.id }, true, 0, undefined, target)
+    await orchestration.spawn('parent', { ...ORDER, prompt: 'No codebase.' }, true, 0, undefined, target)
+    await orchestration.settled()
+
+    expect(b.started.map((request) => request.codebase)).toEqual([SHOP, undefined])
   })
 
   test('start_sessions names the parent\'s organization, so host B admits the child as a prompt in it', async () => {

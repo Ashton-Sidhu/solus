@@ -36,6 +36,14 @@ export const PROJECT_PANEL_SECTIONS = [
       { id: "git.setup", label: "Repository setup" },
     ],
   },
+  {
+    id: "repositories",
+    label: "Repositories",
+    rows: [
+      { id: "repositories.folders", label: "Folders of this session" },
+      { id: "repositories.otherHosts", label: "Folders on other hosts" },
+    ],
+  },
   { id: "servers", label: "Running servers", rows: [] },
   {
     id: "goal",
@@ -109,6 +117,16 @@ export function allPanelItemsHidden(hidden: readonly string[], showDesktopSectio
 export function shownRowCount(hidden: readonly string[], section: PanelSection): number {
   const rows: readonly { id: string }[] = section.rows
   return rows.filter((row) => !hidden.includes(row.id)).length
+}
+
+/**
+ * True for a session that the Repositories section has rows for: one with a
+ * codebase, or one that works in a folder besides its working directory
+ * (docs/plans/codebases.md §9). A session with one working directory and no
+ * codebase has the Git section only.
+ */
+export function hasRepositoriesToShow(codebaseId: string | null, sessionFolderCount: number): boolean {
+  return !!codebaseId || sessionFolderCount > 0
 }
 
 /** What the panel's menu opens beside: a control, or a pointer position. */

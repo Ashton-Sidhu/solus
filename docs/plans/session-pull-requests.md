@@ -64,13 +64,16 @@ The Completed shelf is the name of the place in the list.
    never writes over a row. An explicit link (`created`, `agent`, `manual`)
    claims a `branch` row and revives a `dismissed` row. An explicit link does
    not write over another explicit link.
-   **A session holds one `branch` row, and it follows the branch**
-   (2026-10-22, after T3 Code's `branchPullRequest`, one detected pull request
-   per thread beside its explicit links). A new `branch` discovery deletes the
-   session's `branch` rows whose pull request has ended (merged, closed, or
-   gone) and stops their watches, so a session whose agent opens the next pull
-   request on its branch shows that one, not a growing list of found rows. A
-   `branch` row still open stays, as do explicit rows and tombstones. T3 Code
+   **A session holds one `branch` row for each repository it works in, and
+   the row follows the branch** (2026-10-22, after T3 Code's
+   `branchPullRequest`, one detected pull request per thread beside its
+   explicit links; one for each repository since a session can have session
+   folders, `docs/plans/codebases.md` §8). A new `branch` discovery deletes the
+   session's `branch` rows of the same repository whose pull request has ended
+   (merged, closed, or gone) and stops their watches, so a session whose agent
+   opens the next pull request on its branch shows that one, not a growing list
+   of found rows. A `branch` row still open stays, as do explicit rows,
+   tombstones, and the `branch` row of a different repository. T3 Code
    keeps the detected pull request in its own field; Solus keeps it in the
    same table with its source, so the task reads, the observation write, and
    the chips consume one shape.
@@ -126,7 +129,7 @@ The Completed shelf is the name of the place in the list.
 
 | Writer | Source |
 |---|---|
-| PR sync, for each live session whose branch is the pull request's branch, in its own worktree or on the shared checkout | `branch` |
+| PR sync, for each live session whose branch is the pull request's branch, in its own worktree or on the shared checkout, and in each session folder that the session changed or that is its worktree | `branch` |
 | The pull request list, when the asking session's branch is a listed branch | `branch` |
 | Create pull request in Solus | `created` |
 | The agent tool `link` with `kind=pr` and no `task_id`, from any session | `agent` |
@@ -145,6 +148,20 @@ branch keeps its old branch until its next turn. Before PR sync writes a
 `branch` row it reads the live checkouts again and writes only when the
 session's branch is still the one it looked up (`linkBranchOwners`), so a
 stale lookup can only miss a link, never make a wrong one.
+
+**Session folders** (`docs/plans/codebases.md` §8). A session can work in
+more repositories than its working directory, and its agent can open a pull
+request in any of them. The session index holds one branch for a session: that
+of its working directory. The branch of each `git` session folder comes from
+the checkout service, which watches the folder (`sessionFolderCheckouts`). A
+codebase can cover many repositories, so only two kinds of folder are looked
+up: a folder that a turn of the session changed (its checkpoints say so), and
+a worktree that a task folder made for the session. A folder that the session
+only reads is never asked about on the code host. The lookup has the same
+triggers as each other branch: a turn end of the session, never a clock. The
+folders are known for a session whose folders this server process resolved (a
+turn, or a client that opened the session), so after a restart a folder is
+looked up again at the next turn end of its session.
 
 **A branch name alone does not match** (2026-10-27). GitHub matches
 `headRefName` in every fork, so a session on `main` in a fork of a busy

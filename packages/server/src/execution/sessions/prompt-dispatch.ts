@@ -20,6 +20,9 @@ import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganization
 import { TurnRefusedError } from './turn-refusal'
 import { memberUsers, WorkspacePreparingError } from '../../host/member-users'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
+import { attachmentsRoot } from '../../data/assets/attachment-store'
+import { isInsideRoot } from '../../paths'
+import { attachablePromptPaths } from './prompt-paths'
 
 const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
 
@@ -88,6 +91,32 @@ export class PromptDispatch {
   admission: TurnOrganizationDeps | null = null
 
   constructor(private readonly rt: SessionRuntime) {}
+
+  /**
+   * The prompt trigger of the attach rule (docs/plans/codebases.md §6). In the
+   * modes that ask nothing (`full-access`, `auto`), a folder that the prompt
+   * names outside the folders of the session is attached before the launch,
+   * and so is the folder of a file that the person pointed at with an `@`
+   * mention or an attachment (`attachablePromptPaths`). In the other modes
+   * the agent asks with `attach_folder`. A path that names nothing on this
+   * host is ignored, and no failure here stops the prompt.
+   */
+  private async attachNamedFolders(sessionId: string, input: SessionRunInput, prompt: string, actor: Actor | undefined): Promise<void> {
+    if (input.permissionMode !== 'full-access' && input.permissionMode !== 'auto') return
+    const uploads = attachmentsRoot()
+    // A file that a client uploaded is in the attachment store of the host, which is not a folder of the work.
+    for (const path of await attachablePromptPaths(prompt, (resolved) => isInsideRoot(uploads, resolved))) {
+      try {
+        const outcome = await this.rt.sessionFolders.requestAttach(sessionId, path, 'attached', actor ?? HOST_ACTOR, {
+          mode: input.permissionMode,
+          workingDirectory: input.workingDirectory,
+        })
+        if (outcome.kind === 'attached') log.info('prompt_folder_attached', { sessionId, path: outcome.folder })
+      } catch (error) {
+        log.warn('prompt_folder_attach_failed', { sessionId, path, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  }
 
   /**
    * The one turn admission (organization-scope §3; organization-vms §1, §4): a
@@ -162,6 +191,7 @@ export class PromptDispatch {
       : { kind: 'new-session' }
     let lifecycle: SessionRunLifecycle
     try {
+      await this.attachNamedFolders(sessionId, input, options.prompt, origin?.actor)
       lifecycle = await this.rt.runTurn({
         input,
         target,
@@ -231,7 +261,6 @@ export class PromptDispatch {
         forked: false,
         workingDirectory: cwd,
         projectPath: cwd,
-        additionalDirs: [],
         gitContext: null,
         worktreeBaseBranch: null,
         contextWindow: defaultContextWindowFor(provider, meta.model),
@@ -274,6 +303,7 @@ export class PromptDispatch {
     const { input } = await this.unattendedRunInput(sessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.rt.seatForTurn(actor, input.provider)
+    await this.attachNamedFolders(sessionId, input, prompt, actor)
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'session', sessionId },
@@ -344,7 +374,7 @@ export class PromptDispatch {
       forked: false,
       workingDirectory: req.cwd,
       projectPath: req.cwd,
-      additionalDirs: [],
+      codebaseId: req.codebaseId,
       gitContext: null,
       worktreeBaseBranch: req.worktreeBaseBranch ?? null,
       contextWindow: req.contextWindow,
@@ -365,6 +395,7 @@ export class PromptDispatch {
           createdAt: req.delegation.createdAt,
         }
       : undefined
+    await this.attachNamedFolders(sessionId, input, req.prompt, runActor)
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
@@ -437,7 +468,6 @@ export class PromptDispatch {
       forked: false,
       workingDirectory: req.cwd,
       projectPath: req.cwd,
-      additionalDirs: [],
       gitContext: req.gitContext ?? null,
       worktreeBaseBranch: null,
       reasoningEffort: req.reasoningEffort,

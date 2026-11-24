@@ -3,6 +3,8 @@ import { AddProjectLocalFolderScreen } from "./AddProjectScreen";
 
 type AddProjectLocalRouteParams = {
   readonly environmentId?: string | string[];
+  /** Solus: the codebase that gets the folder as a root. Without it, the folder becomes a project. */
+  readonly codebaseId?: string | string[];
 };
 
 export function AddProjectLocalRoute({

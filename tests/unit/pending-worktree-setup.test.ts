@@ -62,6 +62,7 @@ function draftSession(newWorktree: { baseBranch: string | null } | null = { base
     outboundPrompts: [],
     permissionQueue: [],
     questionQueue: [],
+    sessionFolders: [],
     run: { location: runLocation.folderLocation({ serverId: 'local', path: '/code/solus' }, { newWorktree }) },
     task: { kind: 'none' },
   } as unknown as Session
@@ -113,7 +114,7 @@ describe('the worktree card at Send', () => {
     })
     const input: SessionRunInput = {
       provider: 'codex', agentSessionId: null, forked: false, workingDirectory: repository, projectPath: repository,
-      additionalDirs: [], gitContext: null, worktreeBaseBranch: 'main', contextWindow: null,
+      gitContext: null, worktreeBaseBranch: 'main', contextWindow: null,
       model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
       permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
     }
@@ -165,7 +166,7 @@ describe('the worktree card at Send', () => {
     session.run.location = runLocation.dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus')
     const reducer = await reducerFor(session)
     const checkout = '/srv/projects/.solus-dispatch/device/github.com/solus-sh/solus'
-    reducer.apply('session-1', { type: 'git_context', gitContext: { repoRoot: checkout, branch: 'main', targetBranch: 'main' } })
+    reducer.apply('session-1', { type: 'git_context', cwd: checkout, gitContext: { repoRoot: checkout, branch: 'main', targetBranch: 'main' } })
     expect(runLocation.pendingClone(session.run)).toBeNull()
     expect(runLocation.runHost(session.run)).toBe('studio')
     expect(runLocation.workingPlace(session.run)).toEqual({ serverId: 'studio', path: checkout })

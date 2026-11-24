@@ -2,7 +2,8 @@ import { cutText } from '@solus/contracts/text-cut'
 import type { SessionRuntime } from '../session-runtime'
 import { HOST_ACTOR, type AgentVia } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
-import { ANY_ORGANIZATION } from '../../admission/principal'
+import { ANY_ORGANIZATION, recordScopeOf } from '../../admission/principal'
+import { getCodebase } from '../../data/codebases/codebases'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { codeHostFor, pullRequestForHead, pushHeadFor } from '../../prs/code-host'
 import { lastTurnEnding } from './exchange-reports'
@@ -38,6 +39,10 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     cancelQueuedPrompt: (sessionId, queueId) => sessionRuntime.scheduler.cancelQueued(sessionId, queueId),
     turnEnding: (provider, sessionId, projectScope) => lastTurnEnding((limit) => sessionRuntime.history.loadSession(provider, sessionId, projectScope, limit)),
     turnOrganization: (sessionId) => sessionRuntime.turnOrganization(sessionId),
+    codebase: (codebaseId, senderSessionId) => {
+      const actor = (senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined) ?? HOST_ACTOR
+      return getCodebase(recordScopeOf(actor.principal), codebaseId)
+    },
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
     emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),
     invalidatePlanCaches: (sessionId) => sessionRuntime.history.invalidatePlanCaches(sessionId),

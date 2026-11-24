@@ -122,6 +122,20 @@ describe('a session and its pull requests', () => {
     expect(await sessionPrs.sessionKnowsPullRequest('session-1', REPOSITORY, 7)).toBe(false)
   })
 
+  test('a branch discovery in one repository keeps the ended branch row of a different repository', async () => {
+    // WHY: a session with several repositories has a branch in each of them
+    // (docs/plans/codebases.md §8). The merged pull request of one repository
+    // is still that repository's result when the agent opens a pull request in
+    // a different one: only a new pull request in the same repository replaces it.
+    const OTHER_URL = 'https://github.com/Acme/Web/pull/3'
+    await sessionPrs.linkSessionPullRequest('session-1', { url: URL_7, source: 'branch', by: SYSTEM })
+    // SAFETY: the store reads only these fields of a pull request.
+    await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, 7, { title: 'PR', state: 'merged', draft: false, updatedAt: '2026-09-30T10:00:00Z' } as never)
+
+    expect(await sessionPrs.linkSessionPullRequest('session-1', { url: OTHER_URL, source: 'branch', by: SYSTEM })).toBe(true)
+    expect((await linksOf('session-1')).map((link) => [link.repository, link.number]).sort()).toEqual([['github.com/acme/solus', 7], ['github.com/acme/web', 3]])
+  })
+
   test('one pull request can belong to two sessions, and an observation reaches both', async () => {
     await sessionPrs.linkSessionPullRequest('session-1', { url: URL_7, source: 'branch', by: SYSTEM })
     await sessionPrs.linkSessionPullRequest('session-2', { url: URL_7, source: 'manual', by: PERSON })

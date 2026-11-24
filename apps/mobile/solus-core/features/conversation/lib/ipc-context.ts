@@ -1,5 +1,6 @@
 import type { AgentId, IpcContext, PermissionMode, ReasoningEffort, SessionStatus } from '@solus/contracts/types'
-import { worktreeProjectRoot } from '@solus/contracts/types'
+import { sessionProjectRoot } from '@solus/contracts/types'
+import type { SessionFolder } from '@solus/contracts/codebases'
 import type { ExecutionPreferences, PersonalSettings } from '@solus/contracts/settings'
 
 /**
@@ -27,6 +28,19 @@ export interface ConversationRun {
   organizationId: string | null
   /** The new session starts in a new worktree from this branch; null works in the project folder. Only the prompt that starts it says so. */
   worktreeBaseBranch?: string | null
+  /** The project folder of a session whose working directory is in a task folder, from its record. The path of a task folder does not name its project (docs/plans/codebases.md §7). */
+  projectRoot?: string | null
+  /** The codebase the session starts with, or has. Null for a session with no codebase. */
+  codebaseId?: string | null
+  /** The person chose "No codebase": the host makes none and takes none for the session (docs/plans/codebases.md decision 13). */
+  noCodebase?: boolean
+  /** The member paths that get a worktree with a new worktree session. Null is the default set of the host. Only the prompt that starts the session says so. */
+  worktreeRepositories?: readonly string[] | null
+}
+
+/** The project folder of a run: the root that its record names for a task folder, else the root that its working directory names. */
+export function runProjectRoot(run: Pick<ConversationRun, 'workingDirectory' | 'projectRoot'>): string {
+  return sessionProjectRoot({ cwd: run.workingDirectory, projectRoot: run.projectRoot })
 }
 
 /** The person's settings a new run starts from (plans/018: personal, not the host's). */
@@ -47,8 +61,9 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       agentSessionId: run.agentSessionId,
       status: run.status,
       workingDirectory: run.workingDirectory,
-      projectPath: worktreeProjectRoot(run.workingDirectory),
-      additionalDirs: [],
+      projectPath: runProjectRoot(run),
+      codebaseId: run.codebaseId ?? null,
+      ...(run.noCodebase && !run.codebaseId && { noCodebase: true as const }),
       preferredModel: run.preferredModel,
       reasoningEffort: run.reasoningEffort,
       contextWindow: run.contextWindow,
@@ -56,6 +71,8 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       permissionMode: run.permissionMode,
       gitContext: null,
       worktreeBaseBranch: run.worktreeBaseBranch ?? null,
+      // The host reads the choice only when it makes the worktree.
+      worktreeRepositories: run.worktreeBaseBranch && run.worktreeRepositories ? [...run.worktreeRepositories] : null,
       readOnlyReason: null,
       title: run.title,
       organizationId: run.organizationId ?? undefined,
@@ -82,6 +99,21 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       fastMode: run.fastMode,
       contextWindows: run.contextWindow ? [run.contextWindow] : [],
     },
+  }
+}
+
+/**
+ * The context of a Git call about one session folder (docs/plans/codebases.md
+ * §8). The session stays the same. The working directory is the folder, and
+ * the checkout is the folder's own: with no `gitContext`, the host reads it
+ * from the folder, as it does for each call of this app. The host does not
+ * bind the session to the folder.
+ */
+export function sessionFolderContext(context: IpcContext, folder: Pick<SessionFolder, 'path' | 'repositoryPath'>): IpcContext {
+  return {
+    ...context,
+    session: { ...context.session, workingDirectory: folder.path, projectPath: folder.repositoryPath, gitContext: null },
+    statusBar: { ...context.statusBar, workingDirectory: folder.path },
   }
 }
 

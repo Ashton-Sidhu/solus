@@ -25,7 +25,8 @@ mock.module('@solus/server/data/sessions/session-lineage', () => ({
 }))
 
 type Snapshots = typeof import('@solus/server/git/session-snapshots')
-type Handler = (args: unknown[]) => unknown
+/** A handler, with the context of its caller as the server gives it. */
+type Handler = (args: unknown[], ctx: { actor: null }) => unknown
 let snapshots: Snapshots
 const handlers = new Map<string, Handler>()
 
@@ -118,15 +119,15 @@ describe('git diff handlers for a session with no tab', () => {
     lineageCwd = cwd
     await threeTurnsWithAGap(cwd, baseSha)
 
-    const listed = await handlers.get('listTurnSnapshots')!([recordOnlyCtx('solus-session')])
+    const listed = await handlers.get('listTurnSnapshots')!([recordOnlyCtx('solus-session')], { actor: null })
     expect(listed).toEqual(expect.arrayContaining([expect.objectContaining({ traceId: 'trace-3', index: 1 })]))
 
-    const stats = await handlers.get('diffStats')!([recordOnlyCtx('solus-session'), { scope: { kind: 'turn', index: 1 } }])
+    const stats = await handlers.get('diffStats')!([recordOnlyCtx('solus-session'), { scope: { kind: 'turn', index: 1 } }], { actor: null })
     expect(stats).toEqual([{ path: 'b.txt', additions: 2, deletions: 0, status: 'M' }])
   })
 
   test('a session with no lineage reads nothing rather than another checkout', async () => {
-    const listed = await handlers.get('listTurnSnapshots')!([recordOnlyCtx('unknown-session')])
+    const listed = await handlers.get('listTurnSnapshots')!([recordOnlyCtx('unknown-session')], { actor: null })
     expect(listed).toEqual([])
   })
 })

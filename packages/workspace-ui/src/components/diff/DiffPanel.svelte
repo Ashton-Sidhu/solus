@@ -78,6 +78,13 @@
   import type { CodeSymbolAvailability, CodeSymbolLookup } from "../code-intel/lib/symbol-card";
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { joinHostPath } from "@solus/contracts/host-path";
+  import { diffRepositoryTurns } from "./diff-repository-turns.store.svelte";
+  import {
+    commentsOfRepository,
+    diffFileOfSessionPath,
+    sessionPathOfDiffFile,
+    type DiffRepository,
+  } from "./lib/diff-repositories";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -105,6 +112,9 @@
     initialScope = { kind: "session" },
     reviewScope = null,
     onSelectScope,
+    repositories = [],
+    repository = null,
+    onSelectRepository,
     initialFilePath,
     navigationRequestId,
     embedded = false,
@@ -153,6 +163,12 @@
      *  (a turn too) goes back to it and returns here as a new `initialScope`. */
     reviewScope?: ReviewScopeKind | null;
     onSelectScope?: (scope: DiffScope | undefined) => void;
+    /** The repositories of the session, for the band's repository picker.
+     *  Empty where the host fixes the checkout. */
+    repositories?: DiffRepository[];
+    /** The repository this panel reads. The host owns the choice. */
+    repository?: DiffRepository | null;
+    onSelectRepository?: (path: string) => Promise<void>;
     initialFilePath?: string;
     navigationRequestId?: number;
     /** Hosted as a content tab inside another surface (PR review). Hides the
@@ -254,11 +270,17 @@
   const draft = new InlineCommentDraft();
   setInlineCommentDraft(draft);
 
+  /** The session folder a request names. Undefined for the working directory. */
+  const repositoryPath = $derived(
+    repository && !repository.isWorkingDirectory ? repository.path : undefined,
+  );
+
   const diffState = new DiffState({
     session,
     getTabId: () => tabId,
     getCtx: () => getCtx?.() ?? session.ctxFor(tabId),
     getApi,
+    getRepositoryPath: () => repositoryPath,
   });
   const diff = $derived(diffState.diff);
   const loadError = $derived(diffState.loadError);
@@ -306,9 +328,27 @@
     }
   });
 
-  const turns = $derived(
+  // Each repository counts its own turn snapshots, so each has its own list.
+  const workingDirectoryTurns = $derived(
     session.lifecycle.turnSnapshots[session.tabs[tabId]?.sessionId ?? ""] ?? [],
   );
+  const folderTurns = $derived(
+    repositoryPath
+      ? diffRepositoryTurns.turnsFor(session.tabs[tabId]?.sessionId ?? "", repositoryPath)
+      : undefined,
+  );
+  const turns = $derived(repositoryPath ? (folderTurns ?? []) : workingDirectoryTurns);
+  function refreshRepositoryTurns() {
+    if (!sess || !repositoryPath) return;
+    void diffRepositoryTurns.refresh(getApi(), session.ctxFor(tabId), sess.id, repositoryPath);
+  }
+  // A session folder's list is read when the panel moves to it, and again each
+  // time the working directory's list is read: that is at each checkpoint.
+  $effect(() => {
+    void workingDirectoryTurns;
+    void repositoryPath;
+    untrack(refreshRepositoryTurns);
+  });
   let selectedScope = $state<DiffScope>({ kind: "session" });
   const selectedTurnIndex = $derived(
     selectedScope.kind === "turn" ? selectedScope.index : null,
@@ -317,12 +357,16 @@
   const startsNewFeedbackSession = $derived(
     isWorkingTreeScope || feedbackToNewSession,
   );
+  // The repository is part of the key: a change of repository is a new change
+  // to read, as a change of scope is.
   const initialScopeKey = $derived(
-    initialScope.kind === "turn"
-      ? `turn:${initialScope.index}`
-      : initialScope.kind === "pr"
-        ? `pr:${initialScope.baseSha}`
-        : initialScope.kind,
+    `${repositoryPath ?? ""}\n${
+      initialScope.kind === "turn"
+        ? `turn:${initialScope.index}`
+        : initialScope.kind === "pr"
+          ? `pr:${initialScope.baseSha}`
+          : initialScope.kind
+    }`,
   );
 
   let panelWidth = $state(0);
@@ -439,13 +483,15 @@
   });
 
   // Refresh when the snapshot list grows (a new turn was just snapshotted).
-  let prevTurnCount = untrack(() => turns.length);
+  // A move to a different repository, and the first list of a session folder,
+  // are a different list and not a new turn: the move loads its own diff.
+  let seenTurns = untrack(() => ({ repositoryPath, count: turns.length, known: !repositoryPath || !!folderTurns }));
   $effect(() => {
-    const count = turns.length;
-    if (count !== prevTurnCount) {
-      prevTurnCount = count;
-      void startLoad();
-    }
+    const next = { repositoryPath, count: turns.length, known: !repositoryPath || !!folderTurns };
+    const previous = seenTurns;
+    seenTurns = next;
+    if (next.repositoryPath !== previous.repositoryPath || !previous.known) return;
+    if (next.count !== previous.count) void startLoad();
   });
 
   // Live mid-turn refresh: changedFiles is recomputed each time a Write/Edit
@@ -469,6 +515,7 @@
   async function handleManualRefresh() {
     if (manualRefreshing) return;
     manualRefreshing = true;
+    refreshRepositoryTurns();
     const startedAt = performance.now();
     if (patchOverride !== null) diffState.setPatch(selectedScope, patchOverride);
     else await diffState.refresh(selectedScope, { silent: true });
@@ -525,9 +572,13 @@
     if (selectedKinds !== null && !selectedKinds.includes(changedFileKind(path))) showAllFiles = true;
   }
 
-  const diffComments = $derived(
+  // Queued comments belong to the session, and each names its file from the
+  // working directory. The stream and the tree get the comments of the
+  // repository on screen, with the paths its diff uses.
+  const sessionComments = $derived(
     externalComments ?? (sess?.diffComments?.slice() ?? []),
   );
+  const diffComments = $derived(commentsOfRepository(sessionComments, repository, repositories));
   // Split view needs room for two columns; below the tree-open threshold the
   // panel can't fit them without squashing, so fall back to unified while
   // narrow. The user's stored preference is untouched and resumes when widened.
@@ -560,7 +611,7 @@
       ? "Uncommitted"
       : isWorktree
         ? displayedWorktreeBranch
-        : (checkoutGit(sess?.run)?.branch ?? worktreeBranch),
+        : ((repositoryPath ? null : checkoutGit(sess?.run)?.branch) ?? worktreeBranch),
   );
   const reviewChangedFiles = $derived(toChangedFileSummaries(allFiles));
 
@@ -800,7 +851,7 @@
 
     const newComment: DiffComment = {
       id: uuid(),
-      filePath: file,
+      filePath: sessionPathOfDiffFile(repository, repositories, file),
       startLine: range.startLine,
       endLine: range.endLine,
       side: range.side,
@@ -848,15 +899,24 @@
     toasts.undo("Comment deleted", () => restoreDiffComment(sess, comment, index));
   }
 
-  function navigateToComment(c: DiffComment) {
+  /** `comment` names its file as the session does: the popover lists the
+   *  comments of each repository, and one in a different repository moves the
+   *  picker there first. */
+  async function navigateToComment(comment: DiffComment) {
+    const file = diffFileOfSessionPath(repositories, comment.filePath);
     draft.range = {
-      startLine: c.startLine,
-      endLine: c.endLine,
-      side: c.side,
+      startLine: comment.startLine,
+      endLine: comment.endLine,
+      side: comment.side,
     };
+    if (file.repository && file.repository.path !== repository?.path && onSelectRepository) {
+      await onSelectRepository(file.repository.path);
+      navigateTo(file.path, comment.endLine, comment.side);
+      return;
+    }
     showDiffView();
-    revealFilteredFile(c.filePath);
-    void tick().then(() => streamRef?.scrollToLine(c.filePath, c.endLine, c.side));
+    revealFilteredFile(file.path);
+    void tick().then(() => streamRef?.scrollToLine(file.path, comment.endLine, comment.side));
   }
 
   // Only line-anchored threads can be scrolled to; outdated ones (line === null)
@@ -985,7 +1045,7 @@
     const sent = startsNewFeedbackSession
       ? await session.submitDiffFeedbackToNewSession({
           generalComment: general,
-          filePath: draft.filePath,
+          filePath: draft.filePath && sessionPathOfDiffFile(repository, repositories, draft.filePath),
           diffText: diffState.patch,
           branchContext,
           sourceTabId: tabId,
@@ -1038,7 +1098,8 @@
     const next =
       ((idx === -1 ? 0 : idx + dir) + diffComments.length) %
       diffComments.length;
-    navigateToComment(diffComments[next]);
+    const comment = diffComments[next];
+    void navigateToComment({ ...comment, filePath: sessionPathOfDiffFile(repository, repositories, comment.filePath) });
   }
 
   function startCommentOnCurrentLine() {
@@ -1180,6 +1241,9 @@
       baseLabel={targetBranch}
       {reviewScope}
       onSelectScope={onSelectScope ? selectHostScope : undefined}
+      {repositories}
+      {repository}
+      {onSelectRepository}
       turns={patchOverride === null ? turns : []}
       {selectedTurnIndex}
       diffStyle={effectiveDiffStyle}
@@ -1194,7 +1258,7 @@
       refreshing={manualRefreshing}
       {guide}
       onOpenFile={(path) => void openFileFromMap(toTreeDisplayPath(path))}
-      commentsCount={diffComments.length + navigableThreads.length}
+      commentsCount={sessionComments.length + navigableThreads.length}
       commentsOpen={commentsPopoverOpen}
       onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
       commentsAnchorRef={(el) => (commentsAnchorEl = el)}
@@ -1380,7 +1444,7 @@
 
   <DiffCommentsPopover
     open={commentsPopoverOpen}
-    comments={diffComments}
+    comments={sessionComments}
     threads={navigableThreads}
     anchor={commentsAnchorEl}
     onClose={() => (commentsPopoverOpen = false)}
@@ -1404,7 +1468,7 @@
       <DiffActionBar
         {tabId}
         pendingInlineDraft={pendingFormHasContent}
-        filePath={draft.filePath}
+        filePath={draft.filePath && sessionPathOfDiffFile(repository, repositories, draft.filePath)}
         diffText={diffState.patch}
         {branchContext}
         feedbackToNewSession={startsNewFeedbackSession}

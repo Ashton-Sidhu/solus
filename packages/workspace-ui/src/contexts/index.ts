@@ -53,6 +53,17 @@ export { getPullRequestsContext } from './prs/pull-requests.context.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
 export { getOtelSettingsStore } from './projects/otel-settings.store.svelte'
 
+/** Codebases: the named sets of folders, on one or more hosts, that one piece of work covers (docs/plans/codebases.md). */
+export { codebasesStore } from './codebases/codebases.store.svelte'
+export type {
+  CodebaseHost,
+  CodebaseHostMembers,
+  CodebaseHostPresence,
+  CodebaseHostStatus,
+  CodebaseRootChoice,
+  CodebaseRootMembers,
+} from './codebases/codebases.store.svelte'
+
 /** Shared project identity helpers. */
 export {
   normalizeProjectRoot,

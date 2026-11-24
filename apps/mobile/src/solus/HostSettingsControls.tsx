@@ -1,6 +1,6 @@
 import { resourceAllows } from "@solus/contracts/permissions";
 import { Note, useSettingsAction } from "./SettingsFeedback";
-import { useCallback } from "react";
+import { Fragment, useCallback } from "react";
 import { Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { HostApi } from "@solus/client-core/host-api";
@@ -19,6 +19,7 @@ import { ListChoiceRow } from "../components/ui/ListChoiceRow";
 import { useSettingsEnvironmentMenu } from "../features/settings/components/SettingsEnvironmentFilterHeader";
 import { useSolusSettingsFilter } from "../features/settings/settings-environment-filter";
 import { SettingsPage, TextSetting } from "./SettingsPages";
+import { ProjectCodebases } from "./ProjectCodebases";
 import { solus } from "./runtime";
 import { useHostSettingsRead } from "./use-host-settings-read";
 
@@ -267,12 +268,18 @@ export function ProjectSettings() {
         </Note>
       )}
       {selectedProjects.map((p) => (
-        <CheckoutSettings
-          key={p.environmentId + p.id}
-          path={p.workspaceRoot}
-          hostId={p.environmentId}
-          label={p.title}
-        />
+        <Fragment key={p.environmentId + p.id}>
+          <CheckoutSettings path={p.workspaceRoot} hostId={p.environmentId} label={p.title} />
+          <ProjectCodebases
+            project={p}
+            hostLabel={
+              selectedProjects.length > 1
+                ? scopedTargets.find((host) => host.environmentId === p.environmentId)
+                    ?.environmentLabel
+                : undefined
+            }
+          />
+        </Fragment>
       ))}
     </SettingsPage>
   );

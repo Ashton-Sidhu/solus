@@ -4,6 +4,7 @@ import { type ExecutionPreferences } from '@solus/contracts/settings'
 import { setSessionBranch } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { GitCheckout } from '@solus/contracts/types'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { type Actor } from '../../admission/actor'
 import type { SessionRuntime, SessionRunRequest } from '../session-runtime'
 
@@ -38,7 +39,7 @@ export class SessionCheckouts {
           if (session.runInput) session.runInput.gitContext = gitContext ?? null
         }
         if (gitContext?.branch) setSessionBranch(sessionId, gitContext.branch)
-        if (gitContext) rt.publish(sessionId, { type: 'git_context', gitContext })
+        if (gitContext) rt.publish(sessionId, { type: 'git_context', cwd, gitContext })
       }
     })
     rt.checkouts.onStatus((cwd, state) => {
@@ -56,6 +57,11 @@ export class SessionCheckouts {
   async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined, preferences?: ExecutionPreferences): Promise<void> {
     if (!checkout.worktreePath) return
     this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
+    // The branch of a task folder gets one name in each of its repositories, or in none (docs/plans/codebases.md §7).
+    if (isTaskFolderPath(checkout.worktreePath)) {
+      await this.rt.taskFolders.nameBranch(sessionId, checkout.worktreePath, prompt, actor, preferences)
+      return
+    }
     await this.rt.checkouts.name(checkout.worktreePath, prompt, this.rt, (provider) => this.rt.seatForTurn(actor, provider), preferences, await organizationOfSession(sessionId))
   }
 
@@ -75,7 +81,7 @@ export class SessionCheckouts {
   moveSessionCheckout(sessionId: string, directory: string, checkout: GitCheckout): void {
     this.setSessionGitEnvironment(sessionId, directory, checkout)
     this.movedCheckouts.add(sessionId)
-    this.rt.publish(sessionId, { type: 'git_context', gitContext: this.getGitContext(sessionId) ?? checkout })
+    this.rt.publish(sessionId, { type: 'git_context', cwd: this.sessionCheckoutPaths.get(sessionId) ?? directory, gitContext: this.getGitContext(sessionId) ?? checkout })
   }
 
   /** The session's next turn waits for `finish`; null releases it. */

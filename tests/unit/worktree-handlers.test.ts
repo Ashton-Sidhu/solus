@@ -51,18 +51,20 @@ describe('a branch switch that the host answers with another worktree', () => {
     git(repo, ['branch', 'other-work'])
     git(repo, ['worktree', 'add', other, '-b', 'fix'])
     const bound: Array<[string, string]> = []
-    const handlers = new Map<string, (args: unknown[]) => Promise<GitCheckoutBranchResult>>()
-    const server = { register: (method: string, run: (args: unknown[]) => Promise<GitCheckoutBranchResult>) => { handlers.set(method, run) } }
+    const handlers = new Map<string, (args: unknown[], ctx: unknown) => Promise<GitCheckoutBranchResult>>()
+    const server = { register: (method: string, run: (args: unknown[], ctx: unknown) => Promise<GitCheckoutBranchResult>) => { handlers.set(method, run) } }
     const checkoutOf = (cwd: string): GitCheckout => cwd === other
       ? { branch: 'fix', targetBranch: 'main', repoRoot: repo, worktreePath: other }
       : { branch: git(cwd, ['branch', '--show-current']), targetBranch: 'main', repoRoot: repo }
     const sessionRuntime = {
       checkouts: { refresh: async (cwd: string) => ({ checkout: checkoutOf(cwd) }) },
-      sessionCheckouts: { setSessionGitEnvironment: (sessionId: string, cwd: string) => { bound.push([sessionId, cwd]) } },
+      sessionCheckouts: { sessionCheckoutPaths: new Map<string, string>(), setSessionGitEnvironment: (sessionId: string, cwd: string) => { bound.push([sessionId, cwd]) } },
+      // The session on screen has no folder besides its working directory.
+      sessionFolders: { read: async () => [] },
     }
-    // SAFETY: the handler under test reads only `checkouts.refresh` and `setSessionGitEnvironment`.
+    // SAFETY: the handler under test reads only `checkouts.refresh`, the session's checkout path and folders, and `setSessionGitEnvironment`.
     registerWorktreeHandlers(server as unknown as Server, { sessionRuntime } as unknown as Deps)
-    const checkout = (branch: string) => handlers.get('gitCheckoutBranch')!([contextFor({ sessionId: 'on-screen', workingDirectory: repo }), branch, undefined])
+    const checkout = (branch: string) => handlers.get('gitCheckoutBranch')!([contextFor({ sessionId: 'on-screen', workingDirectory: repo }), branch, undefined], { actor: null })
     return { repo, other, bound, checkout, head: () => git(repo, ['branch', '--show-current']) }
   }
 

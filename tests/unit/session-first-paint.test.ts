@@ -5,7 +5,7 @@ import * as runLocation from '@solus/workspace-ui/contexts/workspace/run-locatio
 // Run the production resume sequence with deferred host responses. This checks
 // display timing without constructing every workspace store or a provider.
 const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/session-opening.ts', import.meta.url), 'utf8')
-const start = source.indexOf('    const worktreePath =', source.indexOf('  async resumeSession('))
+const start = source.indexOf('    const resumingSession =', source.indexOf('  async resumeSession('))
 // The body ends at the method's closing brace: the last one before the next
 // member of SessionOpening.
 const nextMember = source.slice(start).search(/\n  (?:\/\*\*|(?:private |async )*\w+\()/)
@@ -22,7 +22,8 @@ test('messages display while git identity and task binding are still pending', a
   let registered = false
   const context = {
     sessionFor: () => selected,
-    apiFor: () => ({ gitIdentity: () => identity }),
+    // A session that is opened between turns reads its folders from the host (docs/plans/codebases.md §9).
+    apiFor: () => ({ gitIdentity: () => identity, sessionFolders: async () => [] }),
     ctxFor: () => ({}), runFor: () => first.run,
     tasksStore: { ensureSessionBinding: () => new Promise(() => {}) },
     eventReducer: { rebuildAgentConversations() {} },
@@ -35,11 +36,11 @@ test('messages display while git identity and task binding are still pending', a
   }
   const transcript = { messages: [{ content: 'ready' }], progress: null, truncated: false, before: null, planIds: [] }
   const execute = new Function('context', 'transcript', 'runLocation', `
-    const { projectHome, adoptGit, workingPlace } = runLocation;
+    const { projectHome, adoptGit, workingPlace, workInStandIn } = runLocation;
     const defaultDir = '/repo', workingDirectory = '/repo', tabId = 'tab',
       resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
-    const isSolusWorktreePath = () => false, gitCheckoutFromState = () => null;
+    const isSolusWorktreePath = () => false, isTaskFolderPath = () => false, gitCheckoutFromState = () => null;
     const loadSessionTranscript = async () => transcript;
     const requestConversationScrollToBottom = () => {}, track = () => {};
     ${compiled}

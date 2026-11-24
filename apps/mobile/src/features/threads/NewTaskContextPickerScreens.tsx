@@ -1,6 +1,11 @@
 import { prepareDraftCheckout, type DraftAttachmentSource } from "../../solus/draft-checkout";
 import { StackActions, type StaticScreenProps } from "@react-navigation/native";
-import { useSessionController } from "../../solus/use-session-controller";
+import { useSessionController, useSessionStore } from "../../solus/use-session-controller";
+import { useDraftStart } from "../../solus/use-draft-start";
+import type { WorktreeRepositoryOption } from "../../solus/session-repositories";
+import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
+import type { WorktreeRepositorySelection } from "@t3tools/client-runtime/state/thread-repositories";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { solus, useSolusWorkspace } from "../../solus/runtime";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
@@ -487,19 +492,65 @@ function FlowBranchPicker() {
   );
 }
 
-export function NewTaskRepositoriesPickerRouteScreen() {
+export function NewTaskRepositoriesPickerRouteScreen({
+  route,
+}: StaticScreenProps<{ environmentId: string; threadId: string } | undefined>) {
+  return route.params ? <HostRepositoriesPicker {...route.params} /> : <FlowRepositoriesPicker />;
+}
+
+/** The checklist of a Solus draft: the choice is the start of its run, which the first prompt sends. */
+function HostRepositoriesPicker(props: { environmentId: string; threadId: string }) {
   const gt = useGT();
+  const store = useSessionStore(props);
+  return store ? (
+    <DraftRepositoriesPicker store={store} />
+  ) : (
+    <EmptyState title={gt("Session unavailable")} detail={gt("Open the draft again.")} />
+  );
+}
+
+function DraftRepositoriesPicker(props: { store: ConversationStore }) {
+  const { choices, selection } = useDraftStart(props.store);
+  return (
+    <RepositoriesPickerScreen
+      choices={choices.choices}
+      selection={selection}
+      onChange={(repositoryPaths) =>
+        props.store.controller.chooseWorktreeRepositories(repositoryPaths)
+      }
+    />
+  );
+}
+
+function FlowRepositoriesPicker() {
   const flow = useNewTaskFlow();
+  return (
+    <RepositoriesPickerScreen
+      choices={flow.worktreeRepositoryChoices}
+      selection={flow.worktreeRepositorySelection}
+      onChange={flow.setWorktreeRepositories}
+    />
+  );
+}
+
+function RepositoriesPickerScreen(props: {
+  /** The `git` members of the codebase besides the folder of the project; null while the host reads them. */
+  readonly choices: ReadonlyArray<WorktreeRepositoryOption> | null;
+  readonly selection: WorktreeRepositorySelection;
+  readonly onChange: (repositoryPaths: ReadonlyArray<string>) => void;
+}) {
+  const gt = useGT();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const choices = flow.worktreeRepositoryChoices;
-  const selection = flow.worktreeRepositorySelection;
+  const { choices, selection } = props;
   const selected = new Set(selection.selected);
+  // A submodule and a repository with no commit cannot get a worktree: the host leaves them out.
+  const available = (choices ?? []).filter((choice) => choice.unavailable === undefined);
   const toggle = (repositoryPath: string) => {
     if (choices === null) return;
     void Haptics.selectionAsync();
-    flow.setWorktreeRepositories(
-      choices.flatMap((choice) =>
+    props.onChange(
+      available.flatMap((choice) =>
         (choice.repositoryPath === repositoryPath) !== selected.has(choice.repositoryPath)
           ? [choice.repositoryPath]
           : [],
@@ -518,16 +569,14 @@ export function NewTaskRepositoriesPickerRouteScreen() {
           <Button
             label={gt("Select all")}
             size="compact"
-            disabled={selected.size === choices.length}
-            onPress={() =>
-              flow.setWorktreeRepositories(choices.map((choice) => choice.repositoryPath))
-            }
+            disabled={selected.size === available.length}
+            onPress={() => props.onChange(available.map((choice) => choice.repositoryPath))}
           />
           <Button
             label={gt("Select none")}
             size="compact"
             disabled={!selection.needsChoice && selected.size === 0}
-            onPress={() => flow.setWorktreeRepositories([])}
+            onPress={() => props.onChange([])}
           />
         </View>
       </View>
@@ -542,7 +591,7 @@ export function NewTaskRepositoriesPickerRouteScreen() {
             <Text className="text-center text-sm text-foreground-muted">
               {choices === null
                 ? gt("Loading repositories…")
-                : gt("This project tracks no repositories")}
+                : gt("This codebase has no other repositories on this host")}
             </Text>
           </View>
         ) : (
@@ -567,12 +616,17 @@ export function NewTaskRepositoriesPickerRouteScreen() {
                 role="checkbox"
                 isFirst={index === 0}
                 isLast={index === choices.length - 1}
+                disabled={item.unavailable !== undefined}
                 onPress={() => toggle(item.repositoryPath)}
                 selected={selected.has(item.repositoryPath)}
                 subtitle={
-                  item.relativePath !== undefined && item.relativePath !== item.name
-                    ? item.relativePath
-                    : undefined
+                  item.unavailable === "submodule"
+                    ? gt("Submodule: it comes with the worktree of its parent repository")
+                    : item.unavailable === "no-commit"
+                      ? gt("No commit: a repository needs a commit to get a worktree")
+                      : item.relativePath !== undefined && item.relativePath !== item.name
+                        ? item.relativePath
+                        : undefined
                 }
                 title={item.name}
               />

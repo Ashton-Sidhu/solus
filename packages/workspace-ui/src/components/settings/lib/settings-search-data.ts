@@ -288,6 +288,9 @@ export const policySearchWords = ["policy", "managed", "mdm", "lock", "permissio
 /** Search words, read by the settings page to find this page from any other. */
 export const webhooksSearchWords = ["webhook", "hook", "github", "sender", "delivery", "deliveries", "url", "trigger", "event", "organization", "admin"];
 
+/** Search words, read by the settings page to find the Codebases page from any other. */
+export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root"];
+
 export const sourceControlSettings: SettingItem[] = [
   { id: "github", ...settingsDefinitions["source-control.github"], keywords: [] },
   { id: "writing", ...settingsDefinitions["source-control.commit-and-pull-request-writing"], keywords: ["commit message", "pr description", "merge request", ...Object.values(sourceControlWritingOptions).flatMap((option) => [option.label, option.description])] },

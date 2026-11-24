@@ -51,6 +51,8 @@ function setup() {
     sessionEmitter: { onEvent: () => {}, recordTerminal: () => {} },
     rateLimitPark: { currentRateLimitEvent: () => null },
     handoffs: { handoffCarry: { settle: () => {} } },
+    // The provider events give each event to the session folders, and attach the folders of a turn at its end.
+    sessionFolders: { observe: () => {}, attachObserved: async () => {} },
     scheduler: { hasReadyQueuedRequest: () => false, processQueueForSession: (sessionId: string) => queueRuns.push(sessionId) },
     flushPendingSession: () => {},
     emitError: (sessionId: string) => errors.push(sessionId),

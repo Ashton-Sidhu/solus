@@ -36,6 +36,7 @@
   import { reviewLensStore, type LensSubject } from "./review-lens.store.svelte";
   import { lensTabState } from "./lib/lens-surface";
   import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
+  import { ReviewRepository } from "./lib/review-repository.svelte";
 
   /**
    * The review pane: one surface for reading a local change, with the map, the
@@ -137,6 +138,33 @@
     if (next !== view) onSelectView(next);
   }
 
+  // ── The repository ────────────────────────────────────────────────────────
+  // A session with session folders has more than one repository to read. The
+  // guide and the lens describe the working directory's checkout, so they are
+  // not offered while the review reads a session folder.
+  const repository = new ReviewRepository({
+    workspace: session,
+    getTabId: () => sourceTabId,
+    isFixedCheckout: () => !!target || !!checkoutRepoRoot,
+    getScope: () => scope,
+    selectScope: (next) => onSelectScope(next),
+    statusOf: (path) => environmentStore.statusFor(getServerId(), path),
+  });
+  const folderCheckout = $derived(repository.folderCheckout);
+  $effect(() => repository.leaveMissingFolder());
+  // A guide or a lens that opens while the picker is on a session folder puts
+  // the picker back on the working directory, which is the checkout they read.
+  $effect(() => {
+    if ((view !== "guide" && view !== "lens") || !folderCheckout) return;
+    const workingDirectory = repository.repositories[0];
+    if (workingDirectory) void untrack(() => repository.select(workingDirectory.path));
+  });
+
+  async function selectRepository(path: string) {
+    if (view === "guide" || view === "lens") selectView("diff");
+    await repository.select(path);
+  }
+
   // Guides use their own comparison, which can start at the session base.
   // Keep the context for both the guide's patch and its staleness check.
   let reviewContext = $state<ReviewContext | null>(null);
@@ -180,10 +208,12 @@
       : null,
   );
   const sessionScope = $derived(scope?.kind === "session" || scope?.kind === "turn");
+  /** The guide reads the checkout of the working directory only. */
+  const hasGuide = $derived(!sessionScope && !folderCheckout);
 
   // ── The guide ─────────────────────────────────────────────────────────────
   const guideIdentity = $derived.by((): ReviewGuideIdentity | null => {
-    if (sessionScope) return null;
+    if (!hasGuide) return null;
     if (target?.kind === "pr") {
       return prGuideIdentity(checkoutRepoRoot ?? environment.repoRoot ?? environment.cwd, target);
     }
@@ -353,7 +383,9 @@
   // for the same change does not read the lens again.
   const lensTarget = $derived<ReviewTarget | null>(
     target ??
-      (sessionScope
+      (folderCheckout
+        ? null
+        : sessionScope
         ? sourceSession?.agentSessionId
           ? { kind: "session", sessionId: sourceSession.id }
           : null
@@ -410,7 +442,9 @@
   useKeybinding("review-pane.next-view", () => cycleView(1));
   useKeybinding("review-pane.prev-view", () => cycleView(-1));
 
-  const viewOrder = $derived<ReviewView[]>(sessionScope ? ["map", "lens", "diff"] : ["map", "guide", "lens", "diff"]);
+  const viewOrder = $derived<ReviewView[]>(
+    folderCheckout ? ["map", "diff"] : hasGuide ? ["map", "guide", "lens", "diff"] : ["map", "lens", "diff"],
+  );
   function cycleView(direction: 1 | -1) {
     const index = viewOrder.indexOf(view);
     const next = (index + direction + viewOrder.length) % viewOrder.length;
@@ -419,14 +453,14 @@
 </script>
 
 {#snippet viewTabs()}
-  <ReviewViewTabs showGuide={!sessionScope} {view} {guideState} {lensState} onSelect={selectView} />
+  <ReviewViewTabs showGuide={hasGuide} showLens={!folderCheckout} {view} {guideState} {lensState} onSelect={selectView} />
 {/snippet}
 
 {#snippet mapView(files: FileDiffMetadata[])}
   <DiffHeatMap
     {files}
     onOpenFile={(path) => diffPanelRef?.openFileFromMap(path)}
-    repoRoot={checkoutRepoRoot ?? environment.worktreePath ?? environment.repoRoot ?? environment.cwd}
+    repoRoot={checkoutRepoRoot ?? folderCheckout?.path ?? environment.worktreePath ?? environment.repoRoot ?? environment.cwd}
     loadRepoFiles={loadRepoFilesForMap}
   />
 {/snippet}
@@ -471,17 +505,21 @@
     {paneId}
     {getCtx}
     {getApi}
-    projectPath={checkoutRepoRoot ?? checkoutPlace(sourceSession?.run)?.path ?? environment.cwd}
-    worktreePath={checkoutRepoRoot ?? checkoutGit(sourceSession?.run)?.worktreePath ??
+    projectPath={checkoutRepoRoot ?? folderCheckout?.path ?? checkoutPlace(sourceSession?.run)?.path ?? environment.cwd}
+    worktreePath={checkoutRepoRoot ?? folderCheckout?.path ?? checkoutGit(sourceSession?.run)?.worktreePath ??
       environment.worktreePath ??
       environment.cwd}
-    worktreeBranch={targetLabel ?? checkoutGit(sourceSession?.run)?.branch ??
+    worktreeBranch={targetLabel ?? folderCheckout?.branch ?? checkoutGit(sourceSession?.run)?.branch ??
       environment.branch ??
       ""}
-    targetBranch={targetPullRequest?.baseSha?.slice(0, 7) ?? checkoutGit(sourceSession?.run)?.targetBranch ??
+    targetBranch={targetPullRequest?.baseSha?.slice(0, 7) ?? folderCheckout?.targetBranch ??
+      checkoutGit(sourceSession?.run)?.targetBranch ??
       environment.targetBranch ??
       "HEAD"}
-    isWorktree={!targetPullRequest && environment.isolated}
+    isWorktree={folderCheckout ? folderCheckout.isWorktree : !targetPullRequest && environment.isolated}
+    repositories={repository.repositories}
+    repository={repository.chosen}
+    onSelectRepository={selectRepository}
     reviewLabel={targetLabel}
     {onClose}
     initialScope={diffScope}
@@ -492,12 +530,12 @@
     bind:view={() => view, selectView}
     {viewTabs}
     {mapView}
-    guideView={sessionScope ? undefined : guideView}
-    {lensView}
+    guideView={hasGuide ? guideView : undefined}
+    lensView={folderCheckout ? undefined : lensView}
     {bordered}
     {onToggleMaximize}
     {maximized}
-    guide={sessionScope ? undefined : guideHeaderActions}
+    guide={hasGuide ? guideHeaderActions : undefined}
     feedbackToNewSession={target?.kind === "pr"}
     feedbackSessionTarget={targetPullRequest && checkoutRepoRoot
       ? {

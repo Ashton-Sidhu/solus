@@ -350,8 +350,9 @@
             <DiffSummaryCard
               {tabId}
               changedFiles={sessionChangedFiles}
-              onOpenDiff={(filePath) => {
-                session.showDiff(tabId, { kind: "session" }, filePath);
+              onOpenDiff={(filePath, repositoryPath) => {
+                if (repositoryPath) session.showRepositoryDiff(tabId, repositoryPath, { kind: "session" });
+                else session.showDiff(tabId, { kind: "session" }, filePath);
                 reviewFilesOpen = false;
               }}
               onOpenFile={(filePath) => {

@@ -93,3 +93,23 @@ export function chatFolderFor(chatId: string, principal: Principal | undefined, 
   const user = memberUsers()?.userOf(principal.userId) ?? null
   return makeChatFolder(projectsRootFor(principal, hostRoot), chatId, user && { uid: user.uid })
 }
+
+/** Where the task folders of one person go. */
+export interface TaskFolderBase {
+  /** The folder that holds `solus-task-folders`. Never a Git repository. */
+  baseFolder: string
+  /** On a host where each member is their own user: the user that makes the folder. */
+  member: ProcessUser | null
+}
+
+/**
+ * The folder that holds the task folders of one person, by the rule of a chat
+ * (docs/plans/codebases.md §7): the host's data folder, which is never a Git
+ * repository; a member of the organization gets their own member folder, and
+ * on a host where each member is their own user, that user makes the folder.
+ */
+export function taskFolderBaseFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): TaskFolderBase {
+  if (principal?.kind !== 'org-member') return { baseFolder: solusDir(), member: null }
+  const user = memberUsers()?.userOf(principal.userId) ?? null
+  return { baseFolder: projectsRootFor(principal, hostRoot), member: user && { uid: user.uid } }
+}

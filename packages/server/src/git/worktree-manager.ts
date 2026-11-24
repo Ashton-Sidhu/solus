@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto'
 import { existsSync, realpathSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { isSolusWorktreePath, worktreeProjectRoot, type BranchRef, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
@@ -164,6 +165,10 @@ export interface CreateWorktreeOptions {
   /** A branch the caller names, used as it is: an existing branch to check
    *  out, or a new one made at the start point. Naming does not apply. */
   branch?: { name: string; exists: boolean }
+  /** Where the worktree goes. Without one it goes to the repository's own
+   *  place for Solus worktrees. A task folder names the place
+   *  (docs/plans/codebases.md §7). */
+  worktreePath?: string
 }
 
 /** The linked worktree that currently holds `branch`, excluding `projectPath`
@@ -415,7 +420,7 @@ export async function createWorktree(
     runAsync('git', ['config', '--get', 'checkout.workers'], projectPath).then(() => [], () => ['-c', 'checkout.workers=0']),
   ])
   const branch = await worktreeBranch(projectPath, options, namer)
-  const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
+  const worktreePath = options.worktreePath ?? worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
   const checkoutStartedAt = Date.now()
@@ -554,9 +559,21 @@ async function worktreeBranch(projectPath: string, options: CreateWorktreeOption
  * no `solus/<x>` can exist. Then the name is flattened to `solus-<x>`.
  */
 async function availableBranchName(cwd: string, branch: string): Promise<string> {
+  return freeBranchName(await localBranchNames(cwd), branch)
+}
+
+/** The local branches of a repository. */
+export async function localBranchNames(cwd: string): Promise<string[]> {
   // Full refnames: `:short` turns ambiguous names into `heads/<name>`.
-  const branches = (await runAsync('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/'], cwd))
+  return (await runAsync('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/'], cwd))
     .split('\n').filter(Boolean).map((ref) => ref.slice('refs/heads/'.length))
+}
+
+/**
+ * `availableBranchName` against a given list of branches. A task folder gives
+ * the branches of all its repositories, so one name is free in each of them.
+ */
+export function freeBranchName(branches: readonly string[], branch: string): string {
   const blocks = (existing: string, candidate: string) =>
     existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`)
   const base = branches.some((existing) => branch.startsWith(`${existing}/`)) ? branch.replace(/\//g, '-') : branch
@@ -756,7 +773,10 @@ export async function restoreWorktree(worktreePath: string): Promise<GitCheckout
     const branch = await getWorkingBranch(worktreePath)
     if (!branch) return null
 
-    const projectPath = worktreeProjectRoot(worktreePath)
+    // The path of a worktree in a task folder does not name its repository: Git does.
+    const projectPath = isTaskFolderPath(worktreePath)
+      ? path.dirname(gitOutputPath(worktreePath, await runAsync('git', ['rev-parse', '--git-common-dir'], worktreePath)))
+      : worktreeProjectRoot(worktreePath)
     const targetBranch = await getDefaultBranchLocal(projectPath)
     log.info('worktree_restored', { branch, worktreePath })
     return { branch, targetBranch, worktreePath, repoRoot: projectPath }
@@ -775,9 +795,20 @@ export async function restoreWorktree(worktreePath: string): Promise<GitCheckout
  *  branch and path, not git's output, which goes to the log. */
 export async function recreateMissingWorktree(checkout: GitCheckout): Promise<GitCheckout> {
   const { repoRoot, branch, worktreePath } = checkout
-  if (!worktreePath || !branch || !isSolusWorktreePath(worktreePath) || !existsSync(repoRoot)) {
+  // A task folder puts back its own worktrees (`restoreTaskFolder`): this function makes only a worktree inside its repository.
+  if (!worktreePath || !branch || !isSolusWorktreePath(worktreePath) || isTaskFolderPath(worktreePath) || !existsSync(repoRoot)) {
     throw new Error(`The working directory ${worktreePath ?? repoRoot} no longer exists. Its worktree was probably removed; start a new session.`)
   }
+  await checkOutMissingWorktree(repoRoot, branch, worktreePath)
+  return checkout
+}
+
+/**
+ * The checkout of `recreateMissingWorktree`, for a caller that already knows
+ * that `worktreePath` is a place of its own: a worktree of a task folder is
+ * not inside its repository.
+ */
+export async function checkOutMissingWorktree(repoRoot: string, branch: string, worktreePath: string): Promise<void> {
   const gitOrFail = (args: string[]) => runAsync('git', args, repoRoot).catch((error: Error) => {
     log.error('worktree_recreate_failed', { worktreePath, branch, error: error.message })
     throw new Error(`Could not recreate the worktree for branch '${branch}' at ${worktreePath}.`)
@@ -800,7 +831,6 @@ export async function recreateMissingWorktree(checkout: GitCheckout): Promise<Gi
     await gitOrFail(['worktree', 'add', '--no-track', '-b', branch, worktreePath, baseRef])
   }
   log.info('worktree_recreated', { worktreePath, branch, baseRef })
-  return checkout
 }
 
 export function listBranches(projectPath: string, options: { remoteOnly?: boolean } = {}): string[] {

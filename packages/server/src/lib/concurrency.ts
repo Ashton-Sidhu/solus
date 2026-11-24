@@ -13,3 +13,21 @@ export async function runBounded<T>(tasks: (() => Promise<T>)[], concurrency: nu
   await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()))
   return results
 }
+
+const pendingByKey = new Map<string, Promise<void>>()
+
+/**
+ * Run the commands of one key one at a time, in the order of the calls. A
+ * command that fails does not stop the next one.
+ */
+export async function runOneAtATime<T>(key: string, command: () => Promise<T>): Promise<T> {
+  const before = pendingByKey.get(key) ?? Promise.resolve()
+  const result = before.then(command)
+  const settled = result.then(() => {}, () => {})
+  pendingByKey.set(key, settled)
+  try {
+    return await result
+  } finally {
+    if (pendingByKey.get(key) === settled) pendingByKey.delete(key)
+  }
+}

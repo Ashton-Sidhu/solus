@@ -261,5 +261,7 @@ function cloudRecord(item: CloudEntry): CloudSessionRecord {
     delegation: null,
     place: null,
     startedBy: null,
+    codebaseId: null,
+    attachedFolders: [],
   }
 }

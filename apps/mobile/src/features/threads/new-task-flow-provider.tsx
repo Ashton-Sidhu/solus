@@ -109,11 +109,15 @@ import {
 import { usePrepareTriage } from "../triage/usePrepareTriage";
 import { useEnvironmentShellReadiness } from "../../state/shell";
 import { useWorktreeRepositoryChoices } from "../../state/use-worktree-repository-choices";
+import { type WorktreeRepositorySelection } from "@t3tools/client-runtime/state/thread-repositories";
+import { useListened } from "@solus-mobile/app/app-context";
+import { readProjectCodebases } from "../../solus/codebase-folders";
+import { solus } from "../../solus/runtime";
 import {
-  resolveWorktreeRepositorySelection,
-  type WorktreeRepositoryChoice,
-  type WorktreeRepositorySelection,
-} from "@t3tools/client-runtime/state/thread-repositories";
+  draftCodebase,
+  resolveWorktreeRepositories,
+  type WorktreeRepositoryOption,
+} from "../../solus/session-repositories";
 import { useConnectionsReady, useWorkspaceEnvironments } from "../../state/workspace";
 
 type WorkspaceMode = "local" | "worktree";
@@ -151,8 +155,8 @@ type NewTaskFlowContextValue = {
   readonly isGitRepoKnown: boolean;
   /** The project tracks a Git folder, so a worktree is possible without a Git project folder. */
   readonly tracksGitRepositories: boolean;
-  /** The project's tracked Git folders; null while they load. */
-  readonly worktreeRepositoryChoices: ReadonlyArray<WorktreeRepositoryChoice> | null;
+  /** The `git` members of the project's codebase on its host; null while they load. */
+  readonly worktreeRepositoryChoices: ReadonlyArray<WorktreeRepositoryOption> | null;
   readonly worktreeRepositorySelection: WorktreeRepositorySelection;
   readonly setWorktreeRepositories: (repositoryPaths: ReadonlyArray<string>) => void;
   readonly canChooseWorkspace: boolean;
@@ -396,8 +400,33 @@ export function NewTaskFlowProvider(
   });
   const knownIsGitRepo = projectGitStatus.data?.isRepo ?? projectBranches.data?.isRepo ?? null;
   const isGitRepo = knownIsGitRepo ?? true;
-  const { choices: worktreeRepositoryChoices, tracksGitRepositories } =
-    useWorktreeRepositoryChoices(props.active === false ? null : selectedProject);
+  // The folder of the project gives the codebase of this flow: the only codebase that holds it.
+  // A Solus draft is a session of its own, and its controls let the person choose (`DraftWorkspaceControls`).
+  const projectCodebaseId = useListened(solus.codebases.changes, () =>
+    selectedProject === null
+      ? null
+      : draftCodebase({
+          codebases: readProjectCodebases(
+            selectedProject.environmentId,
+            selectedProject.workspaceRoot,
+          ).sections.map((section) => section.codebase),
+          isPicked: false,
+          codebaseId: null,
+        }).codebaseId,
+  );
+  const {
+    choices: worktreeRepositoryChoices,
+    repositories: worktreeRepositories,
+    tracksGitRepositories,
+  } = useWorktreeRepositoryChoices(
+    props.active === false || selectedProject === null
+      ? null
+      : {
+          environmentId: selectedProject.environmentId,
+          workspaceRoot: selectedProject.workspaceRoot,
+          codebaseId: projectCodebaseId,
+        },
+  );
   const projectSettings = projectDefaults.projectSettings;
   const canChooseWorkspace = !isScratchDraft;
   const defaultWorkspaceMode: WorkspaceMode = projectDefaults.defaultWorkspaceMode;
@@ -441,8 +470,8 @@ export function NewTaskFlowProvider(
   // value keeps tracking the server setting when the config loads late.
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
   const draftRepositories = workspaceSelection.repositories;
-  const worktreeRepositorySelection = resolveWorktreeRepositorySelection(
-    { choices: worktreeRepositoryChoices, chosen: draftRepositories },
+  const worktreeRepositorySelection = resolveWorktreeRepositories(
+    { repositories: worktreeRepositories, chosen: draftRepositories ?? null },
     messages,
   );
   const startFromOrigin =
@@ -771,9 +800,9 @@ export function NewTaskFlowProvider(
   };
 
   const worktreeCreation = (chosen: ReadonlyArray<string> | undefined) => {
-    const repositories = resolveWorktreeRepositorySelection({
-      choices: worktreeRepositoryChoices,
-      chosen,
+    const repositories = resolveWorktreeRepositories({
+      repositories: worktreeRepositories,
+      chosen: chosen ?? null,
     }).strategyRepositories;
     return {
       ...(repositories === undefined

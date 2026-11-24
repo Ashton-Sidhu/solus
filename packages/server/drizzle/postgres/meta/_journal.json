@@ -43,6 +43,13 @@
       "when": 1795415974562,
       "tag": "0005_session_executions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795460462765,
+      "tag": "0006_codebases",
+      "breakpoints": true
     }
   ]
 }

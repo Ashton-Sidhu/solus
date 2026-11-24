@@ -16,6 +16,7 @@ import Icon from "@iconify/svelte";
   import { Switch } from "../../ui/switch";
   import GithubConnectionRequired from "../../prs/GithubConnectionRequired.svelte";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
+  import type { SessionFolderPlace } from "../../../contexts/git/session-environment.store.svelte";
   import { portal } from "../../portal";
   import {
     publishFailureMessage,
@@ -27,16 +28,18 @@ import Icon from "@iconify/svelte";
   interface Props {
     /** The tab or draft whose project this dialog publishes — see `GitSection`. */
     sourceId: string;
+    /** A session folder to publish, in place of the working directory of the run. */
+    folder?: SessionFolderPlace | null;
     onClose: () => void;
   }
-  let { sourceId, onClose }: Props = $props();
+  let { sourceId, folder = null, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
   const api = $derived(session.apiFor(sourceId));
   const serverId = $derived(serverConnections.serverIdForApi(api));
   const env = $derived(
-    environmentStore.environmentFor(session.runFor(sourceId)),
+    environmentStore.environmentIn(session.runFor(sourceId), folder),
   );
   const cwd = $derived(env.cwd);
   const ctx = $derived(

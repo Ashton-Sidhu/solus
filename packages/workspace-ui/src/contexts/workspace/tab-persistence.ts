@@ -38,7 +38,6 @@ export interface PersistedTab {
    *  (`RunHostChanges.persistedLocation`); until then the host that has the
    *  conversation is. */
   location: RunLocation
-  additionalDirs: string[]
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean

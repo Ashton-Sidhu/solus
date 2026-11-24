@@ -82,6 +82,8 @@ export function setRemoteHosts(hosts: RemoteHosts | null): void {
 export interface SessionController {
   listAgentTargets?(): Promise<AgentTarget[]>
   permissionModeFor?(sessionId: string): PermissionMode | undefined
+  /** The codebase of a session, which a session it starts gets too (docs/plans/codebases.md decision 5). */
+  codebaseIdFor?(sessionId: string): Promise<string | null>
   /** What the session's current turn may reach on other hosts; null when its person reaches none from here (a guest). */
   reachRequestFor?(sessionId: string): ReachRequest | null
   /** The Solus APIs of the organizations the session's current turn may read, as its person. */

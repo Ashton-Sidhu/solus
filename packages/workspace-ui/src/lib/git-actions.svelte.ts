@@ -6,6 +6,7 @@ import type {
   IpcContext,
 } from '@solus/contracts/types'
 import type { WorkspaceContext, SessionEnvironmentStore } from '../contexts'
+import type { SessionFolderPlace } from '../contexts/git/session-environment.store.svelte'
 import { toolsStore } from '../contexts/app/tools.store.svelte'
 import { hosts } from '../contexts/hosts/hosts.svelte'
 import { toasts } from './toasts'
@@ -53,10 +54,13 @@ export class GitActions {
     private sourceId: string,
     private environmentStore: SessionEnvironmentStore,
     private pullRequests: PrsStore,
+    /** A session folder that the actions work in, in place of the working
+     *  directory of the run (docs/plans/codebases.md §8). */
+    private folder: SessionFolderPlace | null = null,
   ) {}
 
   private target() {
-    const environment = this.environmentStore.environmentFor(this.session.runFor(this.sourceId))
+    const environment = this.environmentStore.environmentIn(this.session.runFor(this.sourceId), this.folder)
     return {
       cwd: environment.cwd,
       gitContext: environment.checkout,
@@ -254,20 +258,29 @@ export class GitActions {
 
 const actions = new Map<string, GitActions>()
 
+/** One set of actions for the run of a source, and one for each session folder of it. */
+function actionsKey(sourceId: string, folder: SessionFolderPlace | null): string {
+  return folder ? `${sourceId}\n${folder.path}` : sourceId
+}
+
 export function gitActionsFor(
   sourceId: string,
   session: WorkspaceContext,
   environmentStore: SessionEnvironmentStore,
   pullRequests: PrsStore,
+  folder: SessionFolderPlace | null = null,
 ): GitActions {
-  let existing = actions.get(sourceId)
+  const key = actionsKey(sourceId, folder)
+  let existing = actions.get(key)
   if (!existing) {
-    existing = new GitActions(session, sourceId, environmentStore, pullRequests)
-    actions.set(sourceId, existing)
+    existing = new GitActions(session, sourceId, environmentStore, pullRequests, folder ? { path: folder.path, repositoryPath: folder.repositoryPath } : null)
+    actions.set(key, existing)
   }
   return existing
 }
 
 export function disposeGitActions(sourceId: string): void {
-  actions.delete(sourceId)
+  for (const key of actions.keys()) {
+    if (key === sourceId || key.startsWith(`${sourceId}\n`)) actions.delete(key)
+  }
 }

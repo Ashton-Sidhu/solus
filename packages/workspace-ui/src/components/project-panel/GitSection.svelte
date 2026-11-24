@@ -68,6 +68,7 @@
   } from "../../contexts/prs/session-pull-requests.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
   import LinkedPullRequestRows from "./LinkedPullRequestRows.svelte";
+  import type { SessionFolderPlace } from "../../contexts/git/session-environment.store.svelte";
   import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
 
   interface Props {
@@ -77,8 +78,15 @@
     active: boolean;
     /** The person's hidden panel items. A hidden row unmounts. */
     hiddenItems: readonly string[];
+    /** A session folder that this section works in, in place of the working
+     *  directory of the run: the Repositories section shows one for each
+     *  folder (docs/plans/codebases.md §8). Each action is aimed at the
+     *  folder, and no result moves the run of the tab. */
+    folder?: SessionFolderPlace | null;
+    /** Open the changes of this section's checkout. The default is the review of the run. */
+    onOpenChanges?: () => void;
   }
-  let { sourceId, active, hiddenItems }: Props = $props();
+  let { sourceId, active, hiddenItems, folder = null, onOpenChanges }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
@@ -87,7 +95,7 @@
   const prApi = $derived(session.apiFor(sourceId));
   const prServerId = $derived(serverConnections.serverIdForApi(prApi));
   const env = $derived(
-    environmentStore.environmentFor(session.runFor(sourceId)),
+    environmentStore.environmentIn(session.runFor(sourceId), folder),
   );
   const detailCwd = $derived(env.cwd);
   const detailServerId = $derived(prServerId);
@@ -99,7 +107,7 @@
     status?.uncommittedChanges.fileCount ?? 0,
   );
   const changes = $derived(changesRow(status));
-  const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects));
+  const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects, folder));
   // "Discard changes…" arms in place rather than opening a dialog — the row
   // swaps to a confirm label, which is what the ellipsis promises.
   let confirmingDiscard = $state(false);
@@ -233,7 +241,8 @@
         // change's size, and repeating it here reads as a second,
         // different number.
         phase: commitPhase,
-        hint: comboHint("orb.commit-push"),
+        // The shortcut commits in the working directory of the run.
+        hint: folder ? undefined : comboHint("orb.commit-push"),
         disabled: !canGit || actions.running || commitPrimary.kind !== "run",
         tooltip:
           commitPrimary.kind === "disabled" ? commitPrimary.reason : undefined,
@@ -254,7 +263,7 @@
       phase: "idle",
       tooltip: changes.tooltip,
       disabled: !env.repoRoot,
-      run: () => openReviewView("diff"),
+      run: () => (onOpenChanges ? onOpenChanges() : openReviewView("diff")),
     });
     // An open PR is reported by the pull request section below the rows, so
     // the row shows only while there is a pull request to create, a remote to
@@ -408,7 +417,10 @@
   // request of another repository is read through that repository, and the
   // card names the repository beside its number.
   const sessionId = $derived(session.sessionFor(sourceId)?.id ?? null);
-  const sessionLinks = $derived(sessionPullRequestsStore.linksFor(sessionId));
+  // The section of the working directory lists each pull request that the
+  // session links. The section of a session folder shows the pull request of
+  // its own branch only.
+  const sessionLinks = $derived(folder ? [] : sessionPullRequestsStore.linksFor(sessionId));
   const cardPrs = $derived(
     cardPullRequests({
       branchPr: activePr,
@@ -646,11 +658,12 @@
   let lastReviewFailureAt = 0;
 
   $effect(() => {
-    if (active) return showBranchReviewGuide(sourceId);
+    if (active && !folder) return showBranchReviewGuide(sourceId);
   });
 
   $effect(() => {
     if (
+      folder ||
       reviewStatus?.status !== "failed" ||
       reviewStatus.updatedAt === lastReviewFailureAt
     )
@@ -684,8 +697,9 @@
         return;
       }
 
-      const currentEnvironment = environmentStore.environmentFor(
+      const currentEnvironment = environmentStore.environmentIn(
         session.runFor(sourceId),
+        folder,
       );
       const prompt = mergeConflictDraft(currentEnvironment.status);
       if (!prompt) {
@@ -750,7 +764,7 @@
 
 <div class="menu-list">
   {#if isPanelItemShown(hiddenItems, "git.branch")}
-    <BranchRow {sourceId} />
+    <BranchRow {sourceId} {folder} />
   {/if}
   {#each actionDefs.filter((def) => isGitActionRowShown(hiddenItems, def.key)) as def (def.key)}
     <div class="row-wrap">
@@ -877,7 +891,7 @@
             closeRowMenu();
             void actions.sync();
           },
-          trail: comboHint("orb.sync"),
+          trail: folder ? undefined : comboHint("orb.sync"),
           disabled: !canGit || actions.syncing || model.sync.disabled,
           title: model.sync.reason,
         },
@@ -944,12 +958,13 @@
     {session}
     {environmentStore}
     {actions}
+    {folder}
     onClose={closeCommitComposer}
   />
 {/if}
 
 {#if publishDialogOpen}
-  <PublishRepositoryDialog {sourceId} onClose={closePublishDialog} />
+  <PublishRepositoryDialog {sourceId} {folder} onClose={closePublishDialog} />
 {/if}
 
 <style>

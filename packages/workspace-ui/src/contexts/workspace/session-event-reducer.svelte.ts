@@ -1,8 +1,9 @@
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
-import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, EnrichedError, GitState, Message, Session, StatusCardState, ThreadGoal, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
+import { sameHostPath } from '@solus/contracts/host-path'
 import { uuid } from '@solus/contracts/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
@@ -16,7 +17,7 @@ import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
 import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
-import { hostReportedSetup, settleSetupCard } from '@solus/contracts/setup-card'
+import { hostReportedSetup, isWorktreeSetupCard, settleSetupCard } from '@solus/contracts/setup-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
 import type { UserId } from '@solus/contracts/user'
@@ -25,7 +26,7 @@ import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
-import { adoptGit, checkoutGit, checkoutPlace, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
 import { mcpAppLiveToolName } from '@solus/contracts/mcp-apps'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
@@ -47,6 +48,8 @@ export interface SessionEventReducerDeps {
   addChangedFilesFromMessage(sessionId: string, message: Message): void
   refreshTurnSnapshots(sessionId: string): void
   setGitStatus(serverId: string, cwd: string, status: GitState | null): void
+  /** The worktree setup of a session ended: a run with no checkout finds the folder it works in. */
+  onWorktreeSetupDone?(sessionId: string): void
   playNotificationIfHidden(sessionId: string, trigger: NotificationSoundTrigger): void
   closePlanModal(): void
   onTurnSettled(sessionId: string, cwd: string | null): void
@@ -139,11 +142,12 @@ export class SessionEventReducer {
     // holds it at its place, so appending it here would draw it twice.
     if (session.historyTruncated && activity.at < (session.messages[0]?.timestamp ?? -Infinity)) return
     const message: Message = { id: `activity:${activity.id}`, role: 'system', content: '', timestamp: activity.at, activity }
-    // A fork, and a provider switch made at send, are recorded as the prompt
-    // dispatches, after that prompt's bubble is on screen: each goes before the
-    // prompt, where a reload puts it.
+    // A fork, a provider switch made at send, and a codebase that the host
+    // made at the turn start are recorded as the prompt dispatches, after that
+    // prompt's bubble is on screen: each goes before the prompt, where a
+    // reload puts it.
     const last = session.messages.length - 1
-    const precedesPrompt = activity.kind === 'forked' || activity.kind === 'agent_switched'
+    const precedesPrompt = activity.kind === 'forked' || activity.kind === 'agent_switched' || activity.kind === 'codebase_formed'
     if (precedesPrompt && session.messages[last]?.role === 'user') session.messages.splice(last, 0, message)
     else session.messages.push(message)
   }
@@ -256,13 +260,20 @@ export class SessionEventReducer {
     if (isVisible) this.deps.publishSessionViewed(sessionId)
   }
 
+  /** A worktree of a repository names itself with `git_context`. The task
+   *  folder of a folder with no repository has no checkout to name, so the end
+   *  of its setup is said here. */
+  private noteWorktreeSetup(sessionId: string, card: StatusCardState): void {
+    if (card.status === 'done' && isWorktreeSetupCard(card)) this.deps.onWorktreeSetupDone?.(sessionId)
+  }
+
   apply(sessionId: string, event: WireNormalizedEvent): void {
     const session = this.deps.sessions.byId[sessionId]
     if (!session) return
 
     // Stop marks the session interrupted before the run exits, so the exit's
     // `background_work` (the work ended with the run) comes after; it must land.
-    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared', 'activity', 'background_work'].includes(event.type)) {
+    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'session_folders', 'session_codebase', 'goal_updated', 'goal_cleared', 'activity', 'background_work'].includes(event.type)) {
       return
     }
 
@@ -815,9 +826,24 @@ export class SessionEventReducer {
 
       case 'status_card':
         session.statusCard = mergeRemoteDispatchProgress(session.statusCard, event.card)
+        this.noteWorktreeSetup(sessionId, event.card)
+        break
+
+      case 'session_folders':
+        // One property changes: the tab state is never replaced.
+        session.sessionFolders = event.folders
+        break
+
+      case 'session_codebase':
+        // The host gave the session a codebase. The run names it from now on, so the next prompt names it too.
+        session.run.location = chooseCodebase(session.run.location, event.codebaseId)
         break
 
       case 'git_context': {
+        // The checkout of a session folder is not where the run works: the run
+        // location is the working place only. The host sends the session
+        // folders before it sends a `git_context` for one of them.
+        if (session.sessionFolders.some((folder) => sameHostPath(folder.path, event.cwd))) break
         // The host made the clone Send asked for: the run works in it from now on.
         const clonedPath = pendingClone(session.run) ? event.gitContext.worktreePath ?? event.gitContext.repoRoot : undefined
         if (clonedPath) session.run.location = landClone(session.run.location, clonedPath)

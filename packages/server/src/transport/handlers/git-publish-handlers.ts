@@ -2,6 +2,7 @@ import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { z } from 'zod'
 import { projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '@solus/contracts/types'
 import type { SolusServer } from '../server'
+import type { SessionFolders } from '../../execution/sessions/session-folders'
 import { createLogger } from '../../logger'
 import { computeGitRepositoryStatus, initRepository } from '../../git/git-init'
 import { publishRepositoryToGithub } from '../../git/github-publish'
@@ -20,20 +21,22 @@ const githubPublishRequestSchema = z.object({
 }).strict()
 
 /** Initialize Git and Publish to GitHub — GitHub only, run on the selected host. */
-export function registerGitPublishHandlers(server: SolusServer): void {
+export function registerGitPublishHandlers(server: SolusServer, deps: { sessionFolders: Pick<SessionFolders, 'folderChanged'> }): void {
   server.register('gitRepositoryStatus', async (args, handlerCtx): Promise<GitRepositoryStatus> => {
     const [cwd] = args
     assertPathInScope('gitRepositoryStatus', handlerCtx.principal, cwd)
     return computeGitRepositoryStatus(cwd)
   })
 
-  server.register('gitInitRepository', async (args): Promise<GitInitRepositoryResult> => {
+  server.register('gitInitRepository', async (args, handlerCtx): Promise<GitInitRepositoryResult> => {
     const [cwd] = args
     if (!cwd || cwd === '~') throw new Error('No folder is open for this session.')
     const status = await computeGitRepositoryStatus(cwd)
     if (status.isRepository) throw new Error('This folder is already a Git repository.')
     const result = await initRepository(cwd)
     log.info('git_repository_initialized', { cwd, defaultBranch: result.defaultBranch })
+    // "Track with Git" on a plain session folder: each session that has it sees a `git` folder now.
+    await deps.sessionFolders.folderChanged(cwd, handlerCtx.actor)
     return result
   })
 

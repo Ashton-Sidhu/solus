@@ -23,12 +23,14 @@ import { recentArtifacts, type RecentArtifact } from '@solus/client-core/recent-
 import { artifactOpensStore } from '../../../contexts/sessions/artifact-opens.store.svelte'
 import { sessionArtifactsStore } from '../../../contexts/sessions/session-artifacts.store.svelte'
 import { sessionTreeStore } from '../../../contexts/sessions/session-tree.store.svelte'
-import { projectRoot } from '../../../contexts/workspace/run-location'
+import { projectRoot, workingPlace } from '../../../contexts/workspace/run-location'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { extractChangedFilePaths } from '../../../lib/changedFiles'
 import { agentConversationMeta } from '../../conversation/agent-conversation/agent-conversation-meta.store.svelte'
 import { hostLabelFor } from '../../conversation/agent-conversation/lib/agent-conversation'
 import { diffSummaryStore, type DiffSummaryScope } from '../../conversation/diff-summary.store.svelte'
+import { repositoryChanges, sessionFolderFiles, summaryRepositories, type RepositoryChange, type SummaryRepository } from '../../conversation/lib/change-repositories'
+import { diffRepositories } from '../../diff/lib/diff-repositories'
 import { runIsLive } from '../../conversation/lib/turns'
 import { railAgentList, type RailAgentRow } from '../../project-panel/lib/rail-agents'
 import { artifactMatchesQuery } from './lib/artifact-list'
@@ -215,13 +217,37 @@ export class SessionOverview {
     if (this.scopeSnapshot) return []
     return extractChangedFilePaths(turnMessages(session.messages, this.activity, this.scopeIndex), {
       projectPath: projectRoot(session.run) ?? undefined,
+      workingDirectory: workingPlace(session.run).path,
+      sessionFolders: session.sessionFolders,
     })
   })
 
-  /** This session's own files: from git while its conversation is open, else from its digest. A turn of a digest has totals, not files. */
+  /**
+   * The repositories of a session that works in more than one, as its change
+   * names files in them (docs/plans/codebases.md §8). Empty for a session with
+   * one repository, and for a session whose conversation is not open here.
+   */
+  readonly fileRepositories: SummaryRepository[] = $derived.by(() => summaryRepositories(diffRepositories(this.session)))
+
+  /**
+   * This session's own files: from git while its conversation is open, else
+   * from its digest. A turn of a digest has totals, not files. Git here counts
+   * the working directory, so the session folders' files of the whole session
+   * come from the digest also while the conversation is open.
+   */
   private readonly ownStats: readonly ChangedFileStat[] = $derived.by(() => {
-    if (this.session) return this.changeScope ? diffSummaryStore.statsFor(this.sessionId(), this.changeScope) : []
-    return this.scope ? [] : this.ownNode?.digest?.changes?.files ?? []
+    if (!this.session) return this.scope ? [] : this.ownNode?.digest?.changes?.files ?? []
+    if (!this.changeScope) return []
+    const stats = diffSummaryStore.statsFor(this.sessionId(), this.changeScope)
+    const folderFiles = this.changeScope.kind === 'session' ? sessionFolderFiles(this.ownNode?.digest?.changes, this.fileRepositories) : []
+    return folderFiles.length > 0 ? [...stats, ...folderFiles] : stats
+  })
+
+  /** The share of each repository in this session's own change, when more than one holds it: the session's, or the selected turn's. */
+  readonly changeRepositories: RepositoryChange[] = $derived.by(() => {
+    if (!this.isOwnFocus) return []
+    const turn = this.scope
+    return repositoryChanges(this.ownNode?.digest, turn ? { from: turn.startedAt, until: turn.nextStartedAt } : null)
   })
 
   /** The session each changed path belongs to: this one first, then the started session that changed it first. */

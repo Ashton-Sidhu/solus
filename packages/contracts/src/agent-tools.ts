@@ -141,6 +141,7 @@ export const SOLUS_TOOL_GROUPS = [
     'background_wait',
     'checkout_status',
     'move_checkout',
+    'attach_folder',
   ] },
   { id: 'projects', label: 'Projects', tools: [
     'create_project',

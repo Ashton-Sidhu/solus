@@ -17,7 +17,9 @@
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
   import ReviewPanelOverflowMenu from "./ReviewPanelOverflowMenu.svelte";
+  import ReviewRepositoryPicker from "./ReviewRepositoryPicker.svelte";
   import ReviewScopePicker from "./ReviewScopePicker.svelte";
+  import { hasRepositoryChoice, type DiffRepository } from "./lib/diff-repositories";
   import type { DiffScope } from "@solus/contracts/types";
   import {
     reviewScopeLabel,
@@ -57,6 +59,9 @@
     baseLabel,
     reviewScope = null,
     onSelectScope,
+    repositories = [],
+    repository = null,
+    onSelectRepository,
     turns,
     selectedTurnIndex,
     diffStyle,
@@ -95,6 +100,11 @@
      *  as a pull request, so the band has no picker. */
     reviewScope?: ReviewScopeKind | null;
     onSelectScope?: (scope: DiffScope | undefined) => void;
+    /** The repositories of the session. The picker shows only when there is
+     *  more than one. */
+    repositories?: DiffRepository[];
+    repository?: DiffRepository | null;
+    onSelectRepository?: (path: string) => void;
     /** Empty where turns are not a scope this panel can take — a panel
      *  embedded in a surface that owns the scope itself. */
     turns: TurnSnapshot[];
@@ -208,6 +218,12 @@
       </TooltipUI.Trigger>
       <TooltipUI.Content value={commentsOpen ? "Hide comments" : "Show all comments"} />
     </TooltipUI.Root>
+  {/if}
+
+  {#if repository && onSelectRepository && hasRepositoryChoice(repositories)}
+    <!-- Which repository, before which change of it: the scope, the turns and
+         the summary beside this control all belong to the repository it names. -->
+    <ReviewRepositoryPicker {repositories} {repository} onSelect={onSelectRepository} />
   {/if}
 
   {#if reviewScope && onSelectScope}

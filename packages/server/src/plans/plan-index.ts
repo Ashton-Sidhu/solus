@@ -1,6 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
-import { worktreeProjectRoot, type AgentId, type PlanDescriptor, type PlanRevisionSummary } from '@solus/contracts/types'
+import type { AgentId, PlanDescriptor, PlanRevisionSummary } from '@solus/contracts/types'
+import { projectRootOfPath } from '../git/task-folder-store'
 import { getDatabase, type Db } from '../db/database'
 import type { RecordScope } from '../admission/principal'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
@@ -81,7 +82,7 @@ async function insertPlan(db: Db, organizationId: string, input: IndexedPlanInpu
       timestamp, title, excerpt, plan_file_path, content, derived_status, session_available, organization_id
     ) VALUES (
       ${input.provider}, ${input.sessionId}, ${input.threadId}, ${input.planToolUseId}, ${input.projectPath}, ${input.cwd},
-      ${worktreeProjectRoot(input.cwd)}, ${input.timestamp}, ${input.title}, ${input.excerpt},
+      ${projectRootOfPath(input.cwd)}, ${input.timestamp}, ${input.title}, ${input.excerpt},
       ${input.planFilePath ?? null}, ${input.content}, ${input.derivedStatus}, 1, ${organizationId}
     )
     ON CONFLICT(provider, session_id, plan_tool_use_id) DO UPDATE SET
@@ -221,7 +222,7 @@ export async function listIndexedPlans(
 ): Promise<PlanDescriptor[]> {
   const scopedProjectPath = allProjects ? undefined : projectPath ?? process.cwd()
   const projectFilter: SQL = scopedProjectPath
-    ? sql`AND indexed_plans.project_root = ${worktreeProjectRoot(scopedProjectPath)}`
+    ? sql`AND indexed_plans.project_root = ${projectRootOfPath(scopedProjectPath)}`
     : sql``
   const rows = indexedPlanRowSchema.array().parse(await getDatabase().all(sql`
     SELECT

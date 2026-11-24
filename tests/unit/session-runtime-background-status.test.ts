@@ -131,7 +131,7 @@ const SESSION_ID = 'solus-background-status'
 function input(): SessionRunInput {
   return {
     provider: 'claude-code', agentSessionId: null, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
+    gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'claude-test', preferredModel: 'claude-test', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'ask', extraInstructions: '',
   }

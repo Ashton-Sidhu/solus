@@ -54,7 +54,7 @@ export function makeSession(
     pendingGoalObjective: null,
     statusCard: null,
     sessionChangedFiles: [],
-    additionalDirs: [],
+    sessionFolders: [],
     readOnlyReason: null,
     organizationId: null,
     loadingHistory: false,

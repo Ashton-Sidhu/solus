@@ -119,7 +119,7 @@ afterAll(async () => {
 function input(provider: AgentId): SessionRunInput {
   return {
     provider, agentSessionId: null, forked: false, workingDirectory: dataDir, projectPath: dataDir,
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
+    gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'model-test', preferredModel: 'model-test', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'full-access', rateLimitBehavior: 'ask', extraInstructions: '',
   }

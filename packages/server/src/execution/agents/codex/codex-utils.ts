@@ -889,11 +889,17 @@ export function approvalsReviewerFor(mode: PermissionMode): ApprovalsReviewer {
   return mode === 'auto' ? 'auto_review' : 'user'
 }
 
-export function sandboxPolicyFor(mode: PermissionMode): SandboxPolicy {
+/**
+ * `writableRoots` are the session folders the turn may write besides its
+ * working directory, as resolved absolute paths. Only the `workspaceWrite`
+ * policy has roots: a read-only policy writes nowhere, and full access writes
+ * everywhere.
+ */
+export function sandboxPolicyFor(mode: PermissionMode, writableRoots: readonly string[] = []): SandboxPolicy {
   switch (mode) {
     case 'supervised': return { type: 'readOnly', networkAccess: false }
     case 'accept-edits':
-    case 'auto': return { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+    case 'auto': return { type: 'workspaceWrite', writableRoots: [...writableRoots], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
     case 'full-access': return { type: 'dangerFullAccess' }
     case 'plan': return { type: 'readOnly', networkAccess: true }
   }

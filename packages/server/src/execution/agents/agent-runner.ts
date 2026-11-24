@@ -3,6 +3,7 @@ import type { ProviderRuntime } from '../seats/provider-runtime'
 import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
 import type { AgentBackend, RunHandle } from './agent-backend'
 import type { AgentTool } from './tools/agent-tool'
+import type { CodebaseBlock } from './runtime-instructions'
 import type { IntegrationInstruction } from '../../integrations/integration-tools'
 import type { RunCliSkip } from '../../integrations/cli-skips'
 import { assertUniqueAgentTools } from './tools/agent-tool'
@@ -63,6 +64,8 @@ export interface AgentRunRequest {
   /** A manual Codex context compaction uses the normal run and Stop lifecycle. */
   operation?: 'compact'
   additionalDirectories?: string[]
+  /** The folders the session works in, for the `<codebase>` block of the instructions. */
+  codebase?: CodebaseBlock
   imageAttachments?: PromptOptions['imageAttachments']
   contextWindow?: number | null
   fastMode?: boolean

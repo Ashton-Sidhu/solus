@@ -262,6 +262,7 @@ describe('settings import graph', () => {
     expect(reached.has('packages/workspace-ui/src/components/connections/ConnectionsPanel.svelte')).toBe(false)
     expect(reached.has('packages/workspace-ui/src/components/devices/DeviceSettings.svelte')).toBe(false)
     expect(reached.has('packages/workspace-ui/src/components/webhooks/SettingsTabWebhooks.svelte')).toBe(false)
+    expect(reached.has('packages/workspace-ui/src/components/codebases/SettingsTabCodebases.svelte')).toBe(false)
     expect(DEFERRED_PACKAGES.filter((name) => graph.packages.has(name))).toEqual([])
     expect(reached.has('packages/workspace-ui/src/components/settings/lib/settings-search-data.ts')).toBe(true)
   })

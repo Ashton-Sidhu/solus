@@ -8,7 +8,9 @@
     Laptop as LaptopIcon,
     Smartphone as SmartphoneIcon,
   } from "@lucide/svelte";
+  import { untrack } from "svelte";
   import {
+    codebasesStore,
     getSessionEnvironmentStore,
     getPullRequestsContext,
     getWorkspaceContext,
@@ -34,7 +36,8 @@
   import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { checkoutPlace, codebaseOf, runHost } from "../../contexts/workspace/run-location";
+  import { projectRowTrailing } from "./lib/project-row";
   import {
     ENVIRONMENT_VIEWS,
     ENVIRONMENT_VIEW_LABELS,
@@ -89,6 +92,20 @@
   // on the host this tab talks to.
   const runServer = $derived(host ?? serversStore.hostFor(detailServerId));
   const runHostLabel = $derived(runServer?.label);
+
+  // The row also names the codebase of the run. The list of codebases is
+  // current while the row shows one.
+  const codebaseId = $derived(codebaseOf(sectionRun));
+  $effect(() => {
+    if (active && projectShown && codebaseId) return untrack(() => codebasesStore.watch());
+  });
+  const projectTrailing = $derived(
+    projectRowTrailing({
+      codebaseName: (codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : null) ?? null,
+      hostLabel: runHostLabel,
+      isLocalHost: !!runServer?.local,
+    }),
+  );
 
   // The project row's caret opens a menu of the places that can show the
   // folder: the files pane here, and the host's file manager. The file manager opens on
@@ -174,13 +191,14 @@
           key: "project",
           label: projectDirLabel(projectRoot),
           icon: FolderIcon,
-          badge: runServer?.local ? undefined : runHostLabel,
+          badge: projectTrailing.badge,
+          badgePrefix: projectTrailing.badgePrefix,
           badgeIcon: runServer?.local ? LaptopIcon : undefined,
           hint: comboHint("global.toggle-files"),
           phase: "idle",
           // A new chat has no folder until its first prompt, so no files yet.
           disabled: hasNoFolder || !onOpenFiles,
-          tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
+          tooltip: projectTrailing.tooltip,
         }}
         onActivate={() => onOpenFiles?.()}
       >

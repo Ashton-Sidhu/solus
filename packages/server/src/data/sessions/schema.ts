@@ -70,6 +70,10 @@ export const session = defineTable('session_records', {
   last_prompt_at: bigint(),
   /** The execution preferences the session's last run carried (`ExecutionPreferences`; plans/018 §6). Person-derived but shared on purpose. */
   execution_preferences: json(),
+  /** The codebase of the session (docs/plans/codebases.md decision 5). Null for a session with no codebase. */
+  codebase_id: text(),
+  /** The folders attached to the session besides its working directory: `SessionAttachedFolder[]` as JSON. */
+  attached_folders: json({ notNull: true, default: '[]' }),
 }, {
   indexes: [
     { name: 'session_api_page', columns: ['organization_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },

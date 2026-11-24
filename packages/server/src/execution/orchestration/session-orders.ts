@@ -16,6 +16,7 @@
 
 import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/activity'
 import type { ExchangeOutcome, OrchestrationItem } from '@solus/contracts/session-exchange'
+import type { Codebase } from '@solus/contracts/codebases'
 import type { AgentId, GitCheckout, NormalizedEvent, PermissionMode, PromptDelivery, PromptImageRef, ReasoningEffort, SessionMeta, SessionStarterFromHost } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import type { TurnEnding } from './exchange-reports'
@@ -60,6 +61,8 @@ export interface CreateSessionOrder {
   contextWindow: number | null
   cwd: string
   worktreeBaseBranch?: string | null
+  /** The codebase the new session starts with: a child gets the codebase of its sender (docs/plans/codebases.md decision 5). */
+  codebaseId: string | null
   exchangeIds?: string[]
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
   imageAttachmentRefs?: PromptImageRef[]
@@ -112,6 +115,8 @@ export interface OrchestratedRuntime {
   turnEnding(provider: AgentId, sessionId: string, projectScope: string | undefined): Promise<TurnEnding>
   /** The organization a session works in; undefined for Local work. */
   turnOrganization(sessionId: string): Promise<string | undefined>
+  /** The record of a codebase as the person of `senderSessionId` reads it, to send with a session that starts on a different host. */
+  codebase(codebaseId: string, senderSessionId: string | undefined): Promise<Codebase | null>
   /** The task a session works on. */
   taskIdFor(sessionId: string): Promise<string | undefined>
   emit(sessionId: string, event: NormalizedEvent): void

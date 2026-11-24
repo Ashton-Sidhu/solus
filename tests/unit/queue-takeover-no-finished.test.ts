@@ -81,6 +81,8 @@ describe('a turn a queued prompt takes over', () => {
       sessionEmitter: { onEvent: () => {}, recordTerminal: () => {} },
       rateLimitPark: { currentRateLimitEvent: () => null },
       handoffs: { handoffCarry: { settle: () => {} } },
+      // The provider events give each event to the session folders, and attach the folders of a turn at its end.
+      sessionFolders: { observe: () => {}, attachObserved: async () => {} },
       scheduler: { hasReadyQueuedRequest: () => queue.ready, processQueueForSession: (sessionId: string) => queueRuns.push(sessionId) },
       flushPendingSession: () => {},
       emitError: () => {},

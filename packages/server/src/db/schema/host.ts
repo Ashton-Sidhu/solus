@@ -22,6 +22,7 @@ export const kv = host.kv.sqlite
 export const host_list = host.hostList.sqlite
 export const host_device = host.hostDevice.sqlite
 export const projects = host.projects.sqlite
+export const task_folders = host.taskFolders.sqlite
 export const member_folder = host.memberFolder.sqlite
 export const automations = host.automations.sqlite
 export const automation_runs = host.automationRuns.sqlite

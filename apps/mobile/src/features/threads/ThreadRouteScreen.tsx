@@ -5,6 +5,8 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { useEffect, type ReactNode } from "react";
+import { View } from "react-native";
+import { DraftWorkspaceControls } from "../../solus/DraftWorkspaceControls";
 import { AppProvider } from "@solus-mobile/app/app-context";
 import { useGT } from "gt-react-native";
 import { solus } from "../../solus/runtime";
@@ -150,8 +152,15 @@ function ThreadContent({
               interactionLocked: draft.disabled,
               sendBlockedReason: null,
               content: draftHeroContent({ ...draft, environmentControl }),
-              controls: (height) =>
-                height < SHORT_DRAFT_VIEWPORT_HEIGHT ? environmentControl : null,
+              // T3's draft controls: the context pickers when the hero has no room, then the workspace row.
+              controls: (height) => (
+                <View className="pb-1">
+                  {height < SHORT_DRAFT_VIEWPORT_HEIGHT ? environmentControl : null}
+                  {draft.scratch ? null : (
+                    <DraftWorkspaceControls store={session.store} disabled={draft.disabled} />
+                  )}
+                </View>
+              ),
             }
           : undefined
       }

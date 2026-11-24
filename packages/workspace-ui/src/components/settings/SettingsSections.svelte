@@ -284,6 +284,14 @@
   {:catch}
     {@render loadError()}
   {/await}
+{:else if session.settingsTab === "codebases"}
+  {#await settingsSectionLoaders["codebases"]()}
+    {@render loading()}
+  {:then { default: SettingsTabCodebases }}
+    <SettingsTabCodebases />
+  {:catch}
+    {@render loadError()}
+  {/await}
 {:else if session.settingsTab === "keybindings"}
   {#await settingsSectionLoaders["keybindings"]()}
     {@render loading()}

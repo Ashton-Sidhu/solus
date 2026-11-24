@@ -20,12 +20,14 @@
     self: UserId | null;
     /** Inside a divider: the chip shows the first name only. */
     short?: boolean;
-    /** A divider's emphasised end: the source session, the branch, the plan, the agent. */
+    /** A divider's emphasised name: the source session, the branch, the plan, the agent, the codebase. */
     title?: string;
+    /** The words after the title, when the sentence does not end at the name. */
+    tail?: string;
     /** An agent switch's target model as the reader's picker has it now, for the switch still open. */
     targetModel?: string | null;
   }
-  let { activity, self, short = false, title, targetModel = null }: Props = $props();
+  let { activity, self, short = false, title, tail, targetModel = null }: Props = $props();
 
   const line = $derived(activityLine(activity, self));
   /** An agent switch whose two models are known reads as `from → to`. */
@@ -60,5 +62,5 @@
         class="inline-flex min-w-0 items-center gap-1 text-(--solus-accent)"
         >{@render agentGlyph(models.toProvider)}<span class="truncate">{models.to}</span></span
       ></span
-    >{:else}{#if short}<span class="truncate">{line.predicate}</span>{:else}{line.predicate}{/if}{#if title}{" "}<span class="inline-block max-w-50 truncate align-bottom text-(--solus-accent)">{title}</span>{/if}{/if}</span
+    >{:else}{#if short}<span class="truncate">{line.predicate}</span>{:else}{line.predicate}{/if}{#if title}{" "}<span class="inline-block max-w-50 truncate align-bottom text-(--solus-accent)">{title}</span>{/if}{#if tail}{" "}{#if short}<span class="truncate">{tail}</span>{:else}{tail}{/if}{/if}{/if}</span
 >

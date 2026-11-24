@@ -122,7 +122,7 @@ describe('each way a session starts names its starter on the run', () => {
   }
   const ctx = (sessionId: string, agentSessionId: string | null) => ({
     session: {
-      sessionId, provider: 'codex', agentSessionId, status: 'idle', workingDirectory: '/repo', projectPath: '/repo', additionalDirs: [],
+      sessionId, provider: 'codex', agentSessionId, status: 'idle', workingDirectory: '/repo', projectPath: '/repo', 
       gitContext: null, worktreeBaseBranch: null, preferredModel: 'gpt-5.5', reasoningEffort: 'medium', contextWindow: null,
       fastMode: false, permissionMode: 'supervised', readOnlyReason: null,
     },

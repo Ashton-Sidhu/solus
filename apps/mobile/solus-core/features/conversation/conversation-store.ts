@@ -3,6 +3,7 @@ import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
 import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-read'
+import type { SessionFolder } from '@solus/contracts/codebases'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
 import type { UploadedAttachment } from './lib/attachments'
@@ -55,8 +56,10 @@ export interface ConversationMeta {
   showsHostConversation: boolean
   /** The run host answered that it has no copy of the session. */
   hostHasNoCopy: boolean
+  /** The folders the session works in besides its working directory (docs/plans/codebases.md §6). */
+  sessionFolders: readonly SessionFolder[]
   /** What the next prompt runs with. */
-  run: { workingDirectory: string; title: ConversationController['run']['title']; provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null }
+  run: { workingDirectory: string; title: ConversationController['run']['title']; provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null; projectRoot: string; projectDirectory: string; codebaseId: string | null; isCodebasePicked: boolean; worktreeRepositories: readonly string[] | null }
   /** What the next prompt may choose: Auto before the host starts the
    *  session, and the permission modes the agent's host reports. */
   runOptions: {
@@ -243,6 +246,7 @@ export class ConversationStore {
       cloudRead: this.controller.cloudRead,
       showsHostConversation: this.controller.showsHostConversation,
       hostHasNoCopy: this.controller.hostHasNoCopy,
+      sessionFolders: model.sessionFolders,
       run: {
         workingDirectory: this.controller.run.workingDirectory,
         title: this.controller.run.title,
@@ -254,6 +258,11 @@ export class ConversationStore {
         worktreeBaseBranch: this.controller.run.worktreeBaseBranch ?? null,
         checkoutBranch: this.controller.checkoutBranch,
         checkoutWorktree: this.controller.checkoutWorktree,
+        projectRoot: this.controller.projectRoot,
+        projectDirectory: this.controller.projectDirectory,
+        codebaseId: this.controller.run.codebaseId ?? null,
+        isCodebasePicked: this.controller.isCodebasePicked,
+        worktreeRepositories: this.controller.run.worktreeRepositories ?? null,
       },
       runOptions: {
         canRoute: this.controller.canRoute,

@@ -143,7 +143,7 @@ describe('durable session exchanges', () => {
       revision: 0, kind: 'prompt' as const, held: false, reportExchangeIds: ['child'],
       input: { provider: 'codex' as const, agentSessionId: 'thread-A', workingDirectory: '/tmp/project', projectPath: '/tmp/project',
         model: 'gpt-6-astra', preferredModel: null, permissionMode: 'supervised' as const, reasoningEffort: 'medium' as const,
-        contextWindow: null, fastMode: false, extraInstructions: '', forked: false, additionalDirs: [],
+        contextWindow: null, fastMode: false, extraInstructions: '', forked: false, 
         rateLimitBehavior: 'ask' as const, worktreeBaseBranch: null },
       options: { prompt: 'Child result' } }
     // The second row repeats the queue id, so the queue write fails after the

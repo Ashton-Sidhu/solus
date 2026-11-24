@@ -1,6 +1,9 @@
 <script lang="ts">
   import {
+    ArrowLeft as BackIcon,
     Check as CheckIcon,
+    ChevronRight as StepIcon,
+    FolderGit2 as CodebaseIcon,
     Layers as LayersIcon,
     FolderOpen as FolderOpenIcon,
     MessageCircle as ChatIcon,
@@ -8,12 +11,13 @@
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
+    codebasesStore,
     serversStore,
     projectsStore,
     type ProjectRef,
   } from "../../contexts";
   import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
-  import type { RunConfig } from "@solus/contracts/types";
+  import type { Place, RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import * as Popover from "../ui/popover";
@@ -27,7 +31,19 @@
     projectChipOptions,
     type ProjectChipOption,
   } from "./lib/project-chip-options";
-  import { projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
+  import { untrack } from "svelte";
+  import {
+    NEW_CODEBASE_HINT,
+    chipAtRest,
+    chipHint,
+    codebaseChipOptions,
+    codebaseChoiceStep,
+    marksProjectRow,
+    newCodebaseOption,
+    type CodebaseChipOption,
+  } from "./lib/codebase-choice";
+  import { membersOnHost } from "../../contexts/codebases/host-members";
+  import { codebaseOf, isDispatch, projectHome, projectRoot, refusesCodebase, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** Where the next session will run. Read for its host, never written here. */
@@ -54,6 +70,12 @@
     anchorSide?: "top" | "bottom";
     /** Settings scope offers All projects and does not edit the project catalog. */
     onAllProjects?: () => void;
+    /** Start with a codebase, or with none (`codebaseId` null). With `root`,
+     *  the run also opens that folder: the first root of the codebase on the
+     *  run host, or a root on another host.
+     *  `isNew` chooses the codebase that the host makes at the first prompt.
+     *  Unset where the chip does not choose a run (the settings scope). */
+    onSelectCodebase?: (choice: { codebaseId: string | null; root?: Place; isNew?: true }) => void;
   }
   let {
     run,
@@ -67,6 +89,7 @@
     anchor = null,
     anchorSide = "bottom",
     onAllProjects,
+    onSelectCodebase,
   }: Props = $props();
 
   // The host the project lives on, and the host the run is headed for. They
@@ -93,10 +116,66 @@
     );
   });
 
+  // The codebases of this client (docs/plans/codebases.md §9, "Start"). A
+  // dispatch has no folder on its run host yet, so no codebase holds it there.
+  const codebaseId = $derived(codebaseOf(run));
+  const projectOnRunHost = $derived(
+    projectDir && projectDir !== "~" && !inChat && !isDispatch(run) ? projectDir : null,
+  );
+  /** The repositories that a codebase covers on the run host, or null when that host did not read them. */
+  function repositoryCountOf(id: string): number | null {
+    const read = membersOnHost(codebasesStore.membersOf(id), selectedHostId);
+    return read.isRead ? read.members.filter((member) => member.state === "git").length : null;
+  }
+  const codebases = $derived(
+    onSelectCodebase
+      ? codebaseChipOptions(
+          codebasesStore.codebases,
+          { serverId: selectedHostId, projectPath: projectOnRunHost, codebaseId },
+          (installationId) => codebasesStore.hostOf(installationId),
+          repositoryCountOf,
+        )
+      : [],
+  );
+  // The codebase that the host makes for this folder at the first prompt
+  // (decision 13). It has no record yet, so it is a row of its own.
+  const newCodebase = $derived(
+    onSelectCodebase && projectOnRunHost && !codebaseId
+      ? newCodebaseOption(codebasesStore.newCodebaseAt(selectedHostId, projectOnRunHost), refusesCodebase(run))
+      : null,
+  );
+  const currentCodebase = $derived(onSelectCodebase && codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
+  // The one choice: a run that has a codebase shows the codebase, and each
+  // other run shows the project. The list marks the same one row.
+  const chip = $derived(
+    chipAtRest(label, currentCodebase, {
+      holding: onSelectCodebase && projectOnRunHost ? codebasesStore.codebasesOfFolder(selectedHostId, projectOnRunHost) : [],
+      newCodebase,
+      refuses: refusesCodebase(run),
+    }),
+  );
+  const hint = $derived(chipHint(chip, { folder: label, host: serversStore.hostFor(hostId)?.label ?? hostId }));
+  // "No codebase" takes away the codebase of the run, and the one that the host would make.
+  const offersNoCodebase = $derived(!!codebaseId || !!newCodebase?.willForm);
+  // The second step of a codebase with no folder on the run host: the folders
+  // on the hosts that have one. The run moves to the host of the choice.
+  let codebaseStep = $state<CodebaseChipOption | null>(null);
+  const stepRoots = $derived(
+    codebaseStep
+      ? codebaseStep.otherHosts.flatMap((host) =>
+          host.roots.map((root) => ({ ...root, hostLabel: host.label, isReady: host.isReady })),
+        )
+      : [],
+  );
+
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
   const shownProjects = $derived(projects.filter((project) => matchesSearch(`${project.label} ${project.key}`, query)));
+  const shownCodebases = $derived(codebases.filter((codebase) => matchesSearch(`codebase ${codebase.name}`, query)));
+  const shownStepRoots = $derived(stepRoots.filter((root) => matchesSearch(`${root.name} ${root.path} ${root.hostLabel}`, query)));
+  const showsNewCodebase = $derived(!!newCodebase && matchesSearch(`codebase new ${newCodebase.name}`, query));
+  const showsNoCodebase = $derived(offersNoCodebase && matchesSearch("no codebase", query));
   let commandEl = $state<HTMLDivElement | null>(null);
 
   // The chip is no longer the only way in, so the list loads off the open state
@@ -105,7 +184,16 @@
     if (!open) return;
     tooltipOpen = false;
     query = "";
+    codebaseStep = null;
     void projectsStore.loadRecentProjects(hostId);
+    // A row says how many repositories its codebase covers on the run host.
+    if (onSelectCodebase) {
+      untrack(() => {
+        for (const codebase of codebases) {
+          if (codebase.roots.length > 0) void codebasesStore.refreshMembers(codebase.id);
+        }
+      });
+    }
   });
 
   function handleCloseAutoFocus(event: Event) {
@@ -135,7 +223,7 @@
 
   function removeProject(project: ProjectChipOption) {
     void projectsStore.removeProject(project.key);
-    commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
+    focusSearch();
   }
 
   /** Open the shared project dialog on its home screen. */
@@ -147,6 +235,50 @@
   function browse() {
     open = false;
     onBrowse?.();
+  }
+
+  /** The run gets the codebase. Its folder stays, or the first root on the run host opens. No folder on the run host is a second step. */
+  function chooseCodebaseOption(option: CodebaseChipOption) {
+    const step = codebaseChoiceStep(option);
+    if (step.kind === "none") return;
+    if (step.kind === "hosts") {
+      codebaseStep = option;
+      query = "";
+      focusSearch();
+      return;
+    }
+    open = false;
+    if (step.kind === "keep") {
+      if (!option.isCurrent) onSelectCodebase?.({ codebaseId: option.id });
+      return;
+    }
+    onSelectCodebase?.({ codebaseId: option.id, root: step.root });
+  }
+
+  function openCodebaseRoot(option: CodebaseChipOption, root: Place) {
+    open = false;
+    onSelectCodebase?.({ codebaseId: option.id, root: { serverId: root.serverId, path: root.path } });
+  }
+
+  function leaveCodebaseStep() {
+    codebaseStep = null;
+    query = "";
+    focusSearch();
+  }
+
+  function clearCodebase() {
+    open = false;
+    onSelectCodebase?.({ codebaseId: null });
+  }
+
+  /** The person takes back "No codebase": the host makes the codebase at the first prompt. */
+  function chooseNewCodebase() {
+    open = false;
+    if (!newCodebase?.willForm) onSelectCodebase?.({ codebaseId: null, isNew: true });
+  }
+
+  function focusSearch() {
+    commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
   }
 
   /** Drop the project: the draft becomes a new chat on the host it is headed for. */
@@ -181,24 +313,42 @@
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
               variant="ghost"
-              class="group relative h-auto min-w-0 max-w-40 shrink gap-1.5 overflow-hidden rounded-lg px-2 py-1 text-workspace-chrome font-medium transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+              class="group relative h-auto min-w-0 {chip.note ? 'max-w-60' : 'max-w-40'} shrink gap-1.5 overflow-hidden rounded-lg px-2 py-1 text-workspace-chrome font-medium transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >
-              <ProjectFavicon
-                projectKey={inChat ? projectDir : currentKey}
-                class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+              <!-- One name: the codebase of the run with the codebase icon, else the project. -->
+              {#if chip.kind === "codebase"}
+                <CodebaseIcon
+                  size={16}
+                  class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
-              />
-              <span class="truncate">{label}</span>
+                />
+              {:else}
+                <ProjectFavicon
+                  projectKey={inChat ? projectDir : currentKey}
+                  class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+ ? 'opacity-100'
+ : 'opacity-70'}"
+                />
+              {/if}
+              <span class="truncate">{chip.name}</span>
+              {#if chip.note}
+                <!-- The note gives way before the project name does. -->
+                <span class="min-w-0 shrink-[4] truncate font-normal text-(--solus-text-tertiary)">{chip.note}</span>
+              {/if}
             </Button>
             {/if}
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
           value={{
-            label: onAllProjects ? "Choose the settings project" : "Change the project for this chat",
+            label: onAllProjects
+              ? "Choose the settings project"
+              : hint
+                ? `Change the project for this chat. ${hint}`
+                : "Change the project for this chat",
             shortcut: comboHint("global.select-project"),
           }}
         />
@@ -223,13 +373,39 @@
     <!-- The rows filter themselves (`matchesSearch`): the command's own filter
          moves row DOM nodes behind the keyed list. -->
     <Command.Root bind:ref={commandEl} shouldFilter={false}>
-      <MenuSearch bind:value={query} placeholder="Search projects" />
+      <MenuSearch bind:value={query} placeholder={codebaseStep ? "Search folders" : "Search projects"} />
       <Command.List class="max-h-[256px] overflow-y-auto p-1.5">
         <Command.Empty
           class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)"
         >
-          No projects match
+          {codebaseStep ? "No folders match" : "No projects match"}
         </Command.Empty>
+        {#if codebaseStep}
+          {@const stepCodebase = codebaseStep}
+          <!-- The second step of a codebase with no folder on the run host: the run moves to a host that has one. -->
+          {#if matchesSearch("back projects", query)}
+            <Command.Item value="back projects" onSelect={leaveCodebaseStep}>
+              <BackIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+              <span class="min-w-0 flex-1 truncate">Back to projects</span>
+            </Command.Item>
+          {/if}
+          {#if shownStepRoots.length > 0}
+            <Command.Group heading="{stepCodebase.name} has no folder on this host. Run on:">
+              {#each shownStepRoots as root (`${root.serverId}\n${root.path}`)}
+                <Command.Item
+                  value="{root.name} {root.path} {root.serverId}"
+                  disabled={!root.isReady}
+                  onSelect={() => openCodebaseRoot(stepCodebase, root)}
+                  class="menu-item-stagger"
+                >
+                  <FolderOpenIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                  <span class="min-w-0 flex-1 truncate" title={root.path}>{root.name}</span>
+                  <span class="max-w-32 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{root.isReady ? root.hostLabel : `${root.hostLabel} · offline`}</span>
+                </Command.Item>
+              {/each}
+            </Command.Group>
+          {/if}
+        {:else}
         {#if onAllProjects && matchesSearch("All projects", query)}
           <Command.Item value="All projects" data-menu-current={!projectDir ? "" : undefined} onSelect={() => { open = false; onAllProjects?.(); }}>
             <LayersIcon size={14} class="shrink-0" />
@@ -241,7 +417,7 @@
         {#if shownProjects.length > 0}
         <Command.Group heading="Projects">
           {#each shownProjects as project (project.key)}
-            {@const isCurrent = project.key === currentKey}
+            {@const isCurrent = marksProjectRow(chip, project.key, currentKey)}
             <Command.Item
               value="{project.label} {project.key}"
               onSelect={() => activate(project.checkout)}
@@ -269,6 +445,56 @@
         </Command.Group>
         {/if}
 
+        {#if onSelectCodebase && (shownCodebases.length > 0 || showsNewCodebase || showsNoCodebase)}
+        <!-- A codebase is a set of folders that one piece of work covers. A
+             choice sets the codebase of the run. The folder of the run stays
+             when the codebase holds it; else its first folder on the run host
+             opens. -->
+        <Command.Group heading="Codebases">
+          {#if newCodebase && showsNewCodebase}
+            <Command.Item
+              value="codebase new {newCodebase.name}"
+              title={NEW_CODEBASE_HINT}
+              aria-label="{newCodebase.name}: {NEW_CODEBASE_HINT}"
+              onSelect={chooseNewCodebase}
+              class="menu-item-stagger"
+            >
+              <!-- No mark: the run is in the project until the host makes the codebase. -->
+              <CodebaseIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+              <span class="min-w-0 flex-1 truncate">{newCodebase.name}</span>
+              <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{newCodebase.note}</span>
+            </Command.Item>
+          {/if}
+          {#each shownCodebases as codebase (codebase.id)}
+            {@const step = codebaseChoiceStep(codebase)}
+            <Command.Item
+              value="codebase {codebase.name} {codebase.id}"
+              disabled={step.kind === "none"}
+              onSelect={() => chooseCodebaseOption(codebase)}
+              data-menu-current={codebase.isCurrent ? "" : undefined}
+              class="menu-item-stagger"
+            >
+              <CodebaseIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+              <span class="min-w-0 flex-1 truncate">{codebase.name}</span>
+              {#if codebase.note}
+                <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{codebase.note}</span>
+              {/if}
+              {#if codebase.isCurrent}
+                <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
+              {:else if step.kind === "hosts"}
+                <StepIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+              {/if}
+            </Command.Item>
+          {/each}
+          {#if showsNoCodebase}
+            <Command.Item value="no codebase" onSelect={clearCodebase} class="menu-item-stagger">
+              <CodebaseIcon size={13} class="shrink-0 text-(--solus-text-tertiary) opacity-50" />
+              <span class="min-w-0 flex-1 truncate">No codebase</span>
+            </Command.Item>
+          {/if}
+        </Command.Group>
+        {/if}
+
         {#if !onAllProjects}
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
@@ -290,6 +516,7 @@
             <ChatIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Switch to chat</span>
           </Command.Item>
+        {/if}
         {/if}
         {/if}
       </Command.List>

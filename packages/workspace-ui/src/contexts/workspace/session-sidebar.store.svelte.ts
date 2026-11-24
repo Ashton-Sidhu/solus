@@ -1379,8 +1379,9 @@ export class SessionSidebarStore {
   /** One linked session: a mounted one as its tab states it, any other from
    *  its link and the status feed. */
   private linkedSessionChild(record: Task, link: TaskSessionLink, linkServerId: string | null): SidebarSessionChild {
-    // The folder of the session's own project: a task names no folder.
-    const projectKey = link.checkoutPath ? worktreeProjectRoot(link.checkoutPath) : undefined
+    // The folder of the session's own project: a task names no folder. The host
+    // names it, because the path of a checkout in a task folder does not.
+    const projectKey = link.projectRoot ?? (link.checkoutPath ? worktreeProjectRoot(link.checkoutPath) : undefined)
     const tabId = this.tabIdBySessionId.get(link.sessionId)
     if (tabId) {
       const child = this.liveChildFor(tabId)

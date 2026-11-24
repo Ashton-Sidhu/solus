@@ -60,6 +60,48 @@ mapping is in `claude-agent.ts`; the Codex mapping is in `codex-utils.ts`.
   orchestrated plan implementation) run in `full-access`. Reviews and lenses
   run in `plan`. A shared prompt from another person runs in `supervised`.
 
+## Attach a folder
+
+A session can get a folder besides its working directory in the middle of a
+turn: a session folder (`docs/plans/codebases.md` decision 8 and §6;
+[Codebases](../codebases.md)). The mode decides whether a person is asked.
+Solus asks with its own question card, because the folder is not a tool call
+of the provider.
+
+| Mode | A member of the session's codebase | A folder that is not a member |
+|---|---|---|
+| `full-access` | No card | No card |
+| `auto` | No card | No card |
+| `supervised` | No card | Card |
+| `accept-edits` | No card | Card |
+| `plan` | No card | Card |
+
+- One card is for one folder in one session. Its choices are "Allow for this
+  session", "Allow and add to the codebase" (only when the session has a
+  codebase), and "Do not allow". A refused folder is not asked again in the
+  turn.
+- A folder that a person attaches needs no card.
+- After the attach, a call in the folder follows the mode, as in the working
+  directory. Claude gets a new folder at its next turn. In the turn of the
+  attach, Solus allows a call there with no card only when the mode asks
+  nothing for that call in the working directory: a read in each mode, and an
+  edit in `accept-edits`, `auto`, and `full-access`
+  (`isUnaskedInSessionFolder`). A request that matched an ask rule of the
+  person always shows its card.
+- Codex gets its writable roots at a turn start. In the turn of the attach,
+  Solus accepts a write approval with no card only in `accept-edits` and
+  `auto`, and only when each path of the request is in a granted session
+  folder. `supervised` asks for each write, also in the working directory.
+- "Allow for Session" on a Claude request for a path outside the folders of
+  the session, and an approval for the session on a Codex request that names
+  its paths, also attach the folder of each path.
+- The prompt trigger (a folder that the prompt names) attaches only in
+  `full-access` and `auto`.
+- `attach_folder` has `requiresApproval: false`: the attach rule decides, not
+  the approval gate of the provider.
+
+The rule is in `packages/server/src/execution/sessions/session-folder-attach.ts`.
+
 ## Known limits
 
 - Claude Code refuses `bypassPermissions` when it runs as root. A host that

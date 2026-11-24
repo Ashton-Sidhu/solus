@@ -19,6 +19,7 @@
     SessionEnvironmentStore,
   } from "../../../contexts";
   import type { GitActions } from "../../../lib/git-actions.svelte";
+  import type { SessionFolderPlace } from "../../../contexts/git/session-environment.store.svelte";
   import type { GitAction } from "@solus/contracts/types";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
   import { portal } from "../../portal";
@@ -34,13 +35,15 @@
     session: WorkspaceContext;
     environmentStore: SessionEnvironmentStore;
     actions: GitActions;
+    /** A session folder to commit in, in place of the working directory of the run. */
+    folder?: SessionFolderPlace | null;
     onClose: () => void;
   }
-  let { sourceId, action, session, environmentStore, actions, onClose }: Props =
+  let { sourceId, action, session, environmentStore, actions, folder = null, onClose }: Props =
     $props();
 
   const env = $derived(
-    environmentStore.environmentFor(session.runFor(sourceId)),
+    environmentStore.environmentIn(session.runFor(sourceId), folder),
   );
   const api = $derived(session.apiFor(sourceId));
 

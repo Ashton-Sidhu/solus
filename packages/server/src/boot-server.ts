@@ -259,6 +259,7 @@ import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryServ
 import { registerGoogleHandlers } from './transport/handlers/google-handlers'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
+import { liveCheckouts, sessionFolderCheckouts } from './prs/pr-sync-interest'
 import { PrWatcher } from './prs/pr-watcher'
 import { SessionWake } from './execution/sessions/session-wake'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
@@ -280,6 +281,8 @@ import { registerHostListHandlers } from './transport/handlers/host-list-handler
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
+import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
+import { onCodebasesChanged } from './data/codebases/codebases'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
 import { onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
@@ -322,6 +325,7 @@ import { interruptOwnSessionExecutions } from './data/sessions/session-execution
 import { SessionDigests } from './execution/sessions/session-digests'
 import { emitSessionDigestChanged, onSessionDigestChanged, readSessionDigests, writeSessionDigest } from './data/sessions/session-digests'
 import { onTurnCheckpointed } from './git/turn-checkpoints'
+import { setFolderToolHost } from './execution/agents/tools/folder-tools'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 import { installToolAccess } from './admission/workspace-tool-authority'
@@ -630,6 +634,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   rmSync(hostSecretFilesFolder(), { recursive: true, force: true })
   // Every member folder on this host — projects, seats, homes, dispatch checkouts — is named after its member.
   useMemberFolders(new MemberFolders({ db: getDb(), roots: () => [setupProjectsRoot(), join(seats.seatsRoot, 'claude'), join(seats.seatsRoot, 'codex'), join(seats.seatsRoot, 'home')] }))
+  // A task folder that no session names is a creation the previous process did not finish. A new creation waits for this.
+  void withHostScope(() => opts.sessionRuntime.taskFolders.sweepUnnamed())
   // A record this host left `running` names a turn the previous process never settled.
   const interruptSweep = markOwnRunningSessionRecordsInterrupted().catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
@@ -776,6 +782,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onSessionArtifactsChanged((sessionId) => events.broadcast('session.artifactsChanged', { sessionId })),
     onSessionDigestChanged((sessionId) => events.broadcast('session.digestChanged', { sessionId })),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
+    onCodebasesChanged(() => events.broadcast('codebases.changed', {})),
     onProjectsChanged(() => events.broadcast('projects.changed', {})),
     onTurnRowWritten((change) => events.broadcast('metrics.turnsChanged', change)),
     onOutboxChanged(() => events.broadcast('outbox.changed', {})),
@@ -791,6 +798,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publish: (change) => events.broadcast('pr.changed', change),
     isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
     observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
+    // The branch of a session folder can name a pull request too (docs/plans/codebases.md §8).
+    liveCheckouts: (now, ofLiveTasks) => liveCheckouts(now, ofLiveTasks, sessionFolderCheckouts(
+      opts.sessionRuntime.sessionFolders.gitFolders().map(({ sessionId, folder }) => ({
+        sessionId, path: folder.path, repositoryPath: folder.repositoryPath, branch: opts.sessionRuntime.checkouts.get(folder.path)?.checkout?.branch ?? null,
+      })),
+    )),
   })
   prSync.start()
   // Work outside a turn wakes its session as the person it works for: a
@@ -849,8 +862,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     continueSession: async (sessionId, prompt) => { await opts.sessionRuntime.dispatch.promptSession(sessionId, prompt, 'queue', { sender: { kind: 'agent', sessionId } }) },
     recordActivity: (subject, actor, kind) => opts.sessionRuntime.recordActivity(subject, actor, kind),
     nameWorktreeBranch: (...args) => sessionCheckouts.nameWorktreeBranch(...args),
+    taskFolders: opts.sessionRuntime.taskFolders,
   })
   setWorktreeMover(worktreeMover, (sessionId) => opts.sessionRuntime.actorOfSession(sessionId))
+  setFolderToolHost(opts.sessionRuntime.sessionFolders, (sessionId) => opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
   const worktreeOffers = new WorktreeOffers({
     mover: worktreeMover,
     recordActivity: (sessionId, actor, kind) => opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, kind),
@@ -904,7 +919,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   domainEventUnsubscribes.push(onTurnCheckpointed((checkpoint) => sessionDigests.checkpointed(checkpoint)))
   domainEventUnsubscribes.push(opts.sessionRuntime.sessionEmitter.onTurnCost((cost) => sessionDigests.costed(cost)))
   registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
-  registerGitPublishHandlers(server)
+  registerGitPublishHandlers(server, { sessionFolders: opts.sessionRuntime.sessionFolders })
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
   registerFilesystemHandlers(server)
@@ -1290,6 +1305,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   setSessionController({
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
+    codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
     // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
     // their personal delegation and the introduced hosts; a member only through the
     // organization they work in here; anyone else not at all.
@@ -1368,6 +1384,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
+  registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
   // Any host can own tasks (and their works), so the owner-side appliers
@@ -1506,6 +1523,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setProjectToolHost({
     create: (request, caller) => server.handle('setupCreateProject', [request], caller),
     clone: (request, caller) => server.handle('setupCloneProject', [request], caller),
+    adopt: (sessionId, path, addToCodebase) => {
+      return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
+    },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
   opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout

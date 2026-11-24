@@ -121,7 +121,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       status: 'idle',
       workingDirectory: cwd,
       projectPath: cwd,
-      additionalDirs: [],
       preferredModel: null,
       reasoningEffort: 'medium',
       contextWindow: null,

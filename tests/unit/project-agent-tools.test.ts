@@ -35,6 +35,9 @@ describe('agent project tools use the admitted project service', () => {
   let failClone: boolean
   let cloneSignal: AbortSignal | undefined
   let context: AgentToolContext
+  /** Each folder the tools gave the calling session, with the choice for its codebase. */
+  let adopted: { sessionId: string; path: string; addToCodebase: boolean }[]
+  let failAdopt: boolean
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'solus-project-tools-'))
@@ -42,6 +45,8 @@ describe('agent project tools use the admitted project service', () => {
     cloneCommands = []
     failClone = false
     cloneSignal = undefined
+    adopted = []
+    failAdopt = false
     context = { provider: 'codex', cwd: root, sessionId: () => 'session-1', abortSignal: new AbortController().signal,
       parentToolUseId: () => undefined, emit: () => {} }
     const server = new SolusServer()
@@ -67,6 +72,12 @@ describe('agent project tools use the admitted project service', () => {
     setProjectToolHost({
       create: (request, caller) => server.handle('setupCreateProject', [request], caller),
       clone: (request, caller) => server.handle('setupCloneProject', [request], caller),
+      // `SessionFolders.adoptCreated` in the host (tests/unit/session-folder-attach.test.ts): a root is added when the session has a codebase.
+      adopt: async (sessionId, path, addToCodebase) => {
+        if (failAdopt) throw new Error('The session record is locked.')
+        adopted.push({ sessionId, path, addToCodebase })
+        return { addedToCodebase: addToCodebase }
+      },
     })
   })
 
@@ -78,13 +89,49 @@ describe('agent project tools use the admitted project service', () => {
   const run = (tool: AgentTool, input: Parameters<AgentTool['execute']>[0], principal = owner) =>
     withWorkspaceToolAuthority(principal, () => tool.execute(input, context))
 
-  test('creation makes a registered Git repository without changing the session folder', async () => {
+  test('creation makes a registered Git repository, and the calling session gets the folder', async () => {
     const result = await run(createProjectAgentTool, { name: 'My Website' })
     expect(result.ok).toBe(true)
-    expect(JSON.parse(result.text)).toEqual({ path: join(root, 'My-Website'), projectKey: `local:${join(root, 'My-Website')}` })
-    expect(existsSync(join(root, 'My-Website', '.git'))).toBe(true)
-    expect(registered).toEqual([join(root, 'My-Website')])
+    const path = join(root, 'My-Website')
+    expect(JSON.parse(result.text)).toEqual({ path, projectKey: `local:${path}`, sessionFolder: true, addedToCodebase: true })
+    expect(existsSync(join(path, '.git'))).toBe(true)
+    expect(registered).toEqual([path])
+    // WHY: the agent works in the new folder in the same session (docs/plans/codebases.md decision 11).
+    // The working directory of the session does not move.
+    expect(adopted).toEqual([{ sessionId: 'session-1', path, addToCodebase: true }])
     expect(context.cwd).toBe(root)
+  })
+
+  test('add_to_codebase false gives the session the folder and leaves the codebase', async () => {
+    const created = await run(createProjectAgentTool, { name: 'scratch', add_to_codebase: false })
+    expect(JSON.parse(created.text)).toMatchObject({ sessionFolder: true, addedToCodebase: false })
+    const cloned = await run(cloneProjectAgentTool, { clone_url: 'https://github.com/example/site.git', add_to_codebase: false })
+    expect(JSON.parse(cloned.text)).toMatchObject({ sessionFolder: true, addedToCodebase: false })
+    expect(adopted).toEqual([
+      { sessionId: 'session-1', path: join(root, 'scratch'), addToCodebase: false },
+      { sessionId: 'session-1', path: join(root, 'site'), addToCodebase: false },
+    ])
+    // The option is for Solus: the project service does not get it.
+    expect(cloneCommands[0]).not.toContain('add_to_codebase')
+  })
+
+  test('a project that the session cannot get is still made, and the result says why', async () => {
+    failAdopt = true
+    const result = await run(createProjectAgentTool, { name: 'site' })
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(result.text)).toEqual({
+      path: join(root, 'site'), projectKey: `local:${join(root, 'site')}`,
+      sessionFolder: false, addedToCodebase: false, sessionFolderError: 'The session record is locked.',
+    })
+    expect(registered).toEqual([join(root, 'site')])
+  })
+
+  test('the descriptions do not send the agent to a new session', () => {
+    // WHY: the folder is a folder of this session now. A new session for it is wasted work.
+    for (const tool of [createProjectAgentTool, cloneProjectAgentTool]) {
+      expect(tool.description).not.toContain('start_sessions')
+      expect(tool.description).toContain('folder of this session')
+    }
   })
 
   test('creation keeps existing files and reports the conflict', async () => {
@@ -117,8 +164,11 @@ describe('agent project tools use the admitted project service', () => {
   test('cloning registers in the same call and forwards cancellation to Git', async () => {
     const result = await run(cloneProjectAgentTool, { clone_url: 'https://github.com/example/site.git', name: 'website', protocol: 'https' })
     expect(result.ok).toBe(true)
-    expect(JSON.parse(result.text)).toEqual({ path: join(root, 'website'), projectKey: `local:${join(root, 'website')}`, auth: 'anonymous' })
+    expect(JSON.parse(result.text)).toEqual({
+      path: join(root, 'website'), projectKey: `local:${join(root, 'website')}`, auth: 'anonymous', sessionFolder: true, addedToCodebase: true,
+    })
     expect(registered).toEqual([join(root, 'website')])
+    expect(adopted).toEqual([{ sessionId: 'session-1', path: join(root, 'website'), addToCodebase: true }])
     expect(cloneCommands[0]).toContain('https://github.com/example/site.git')
     expect(cloneSignal).toBe(context.abortSignal)
   })

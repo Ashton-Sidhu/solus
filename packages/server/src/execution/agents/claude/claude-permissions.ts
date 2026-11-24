@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { CanUseTool, ElicitationResult, OnElicitation, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import type { NormalizedEvent, PermissionMode, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../codex/codex-permissions'
+import type { SessionFolderGate } from '../session-folder-gate'
 
 const log = createLogger('Permissions', 'permissions.ts')
 
@@ -52,6 +53,22 @@ function uiModeOf(sdkMode: string): PermissionMode {
   return Object.entries(SDK_TO_UI_PERMISSION_MODE).find(([mode]) => mode === sdkMode)?.[1] ?? 'full-access'
 }
 
+/** The tools that only read files. No mode asks for them inside the folders of a session. */
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'])
+/** The tools that change one file. Mode `accept-edits` asks nothing for them inside the folders of a session. */
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/**
+ * True when the mode asks nothing for this call in a folder that the session
+ * works in. A session folder that was attached in the middle of a turn gets
+ * the same answer as the working directory: the mode still decides each edit
+ * (docs/plans/codebases.md decision 8).
+ */
+export function isUnaskedInSessionFolder(toolName: string, mode: PermissionMode | undefined): boolean {
+  if (READ_TOOLS.has(toolName) || mode === 'auto' || mode === 'full-access') return true
+  return mode === 'accept-edits' && EDIT_TOOLS.has(toolName)
+}
+
 const ALLOW_ONCE: PermissionOption = { id: 'allow', label: 'Allow Once', kind: 'allow' }
 const ALLOW_SESSION: PermissionOption = { id: 'allow-session', label: 'Allow for Session', kind: 'allow' }
 const DENY: PermissionOption = { id: 'deny', label: 'Deny', kind: 'deny' }
@@ -69,6 +86,22 @@ interface PendingPermission {
   toolName: string
   sessionId: string | null
   sessionUpdates: PermissionUpdate[] | null
+  blocked?: BlockedPath
+}
+
+/** The path outside the directories of a query that caused a request, with the Solus session it belongs to. */
+interface BlockedPath {
+  sessionId: string
+  path: string
+}
+
+/**
+ * The blocked path of a request that the session folders can answer. A
+ * person's own ask rule forces the card, so such a request has none.
+ */
+function blockedPathOf(solusSessionId: string | undefined, options: Parameters<CanUseTool>[2]): BlockedPath | undefined {
+  if (!solusSessionId || !options.blockedPath || options.matchedAskRule) return undefined
+  return { sessionId: solusSessionId, path: options.blockedPath }
 }
 
 /**
@@ -88,6 +121,8 @@ export class PermissionManager {
    */
   private currentSessionId: string | null = null
   public onPermissionEvent: ((sessionId: string | null, event: NormalizedEvent) => void) | null = null
+  /** The folders of each Solus session (docs/plans/codebases.md §6). Null where no runtime gave them. */
+  public folders: SessionFolderGate | null = null
 
   setCurrentSessionId(sessionId: string): void {
     this.currentSessionId = sessionId
@@ -96,8 +131,9 @@ export class PermissionManager {
 
   /** Build a canUseTool callback bound to a specific run.
    * `sessionRef` is a mutable holder so the closure always reads the
-   * up-to-date sessionId (updated by the backend after session_init). */
-  createCanUseTool(sessionRef: { current: string | null }, unattended = false, ceiling: PermissionMode | null = null): CanUseTool {
+   * up-to-date sessionId (updated by the backend after session_init).
+   * `solusSessionId` names the session whose folders answer a blocked path. */
+  createCanUseTool(sessionRef: { current: string | null }, unattended = false, ceiling: PermissionMode | null = null, solusSessionId?: string): CanUseTool {
     return async (toolName, input: any, options) => {
       const sessionId = sessionRef.current
       // EnterPlanMode is denied too: nobody can approve the resulting plan, so a
@@ -171,6 +207,13 @@ export class PermissionManager {
         })
       }
 
+      const blocked = blockedPathOf(solusSessionId, options)
+      // No wait for a request with no blocked path: its card shows as before.
+      const folder = blocked ? await this.sessionFolderFor(toolName, blocked) : null
+      if (folder) {
+        return { behavior: 'allow', updatedInput: input, updatedPermissions: [{ type: 'addDirectories', directories: [folder], destination: 'session' }] }
+      }
+
       const questionId = `perm-${crypto.randomUUID()}`
       const sessionUpdates = sessionPermissionUpdates(toolName, options.suggestions, ceiling)
       log.info('permission_prompt_shown', { questionId, toolName })
@@ -188,9 +231,26 @@ export class PermissionManager {
       })
 
       return new Promise((resolve) => {
-        this.pendingPermissions.set(questionId, { resolve, input, toolName, sessionId, sessionUpdates })
+        this.pendingPermissions.set(questionId, { resolve, input, toolName, sessionId, sessionUpdates, blocked })
       })
     }
+  }
+
+  /**
+   * The session folder that lets a blocked call run with no card, or null.
+   * A granted folder holds the path: the query does not know a folder that was
+   * attached after its start, and the mode decides as in the working
+   * directory. No folder holds the path: in `auto` the attach rule adds one.
+   */
+  private async sessionFolderFor(toolName: string, blocked: BlockedPath): Promise<string | null> {
+    if (!this.folders) return null
+    const mode = this.folders.modeOf(blocked.sessionId)
+    const granted = this.folders.grantedFolderOf(blocked.sessionId, blocked.path)
+    let folder: string | null = null
+    if (granted) folder = isUnaskedInSessionFolder(toolName, mode) ? granted : null
+    else if (mode === 'auto') folder = await this.folders.attachUnasked(blocked.sessionId, blocked.path)
+    if (folder) log.info('permission_session_folder_allowed', { sessionId: blocked.sessionId, toolName, folder })
+    return folder
   }
 
   /** Build an onElicitation callback bound to a specific run. An MCP server's
@@ -251,6 +311,8 @@ export class PermissionManager {
         ? { ...pending.input, plan: updatedPlan }
         : pending.input
     const updatedPermissions = decision === 'allow-session' ? pending.sessionUpdates : null
+    // "Allow for Session" on a path outside the folders of the session also makes its folder a session folder.
+    if (decision === 'allow-session' && pending.blocked) this.folders?.attachAllowed(pending.blocked.sessionId, [pending.blocked.path])
     pending.resolve(updatedPermissions
       ? { behavior: 'allow', updatedInput, updatedPermissions }
       : { behavior: 'allow', updatedInput })

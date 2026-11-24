@@ -214,6 +214,10 @@ const PERMISSION_OF_METHOD = {
   setWorktreeIncluded: 'host.files.write',
   searchProjectContents: 'host.files.read',
   listDirectory: 'host.files.read',
+  // Reads the folders below a path on the host's disk, as a directory listing does.
+  codebaseScanFolder: 'host.files.read',
+  // The record of a task folder names host paths: its repositories and their worktrees.
+  taskFolderOf: 'host.files.read',
   readProjectFile: 'host.files.read',
   listProjectFiles: 'host.files.read',
   createDirectory: 'host.files.write',
@@ -230,6 +234,8 @@ const PERMISSION_OF_METHOD = {
   logVoiceTranscription: HOST_USE, codeIntelSymbolAt: HOST_USE, codeIntelReferences: HOST_USE,
   codeIntelDocs: HOST_USE, codeIntelStatus: HOST_USE, codeIntelReindex: HOST_USE, workspaceProjectList: HOST_USE,
   workspaceProjectAdd: HOST_USE, generateSessionMetadata: HOST_USE, trackRecentProject: HOST_USE,
+  // A codebase is a record of the host (docs/plans/codebases.md decision 6): each person who uses the host reads and changes it.
+  codebaseList: HOST_USE, codebaseSave: HOST_USE, codebaseMembers: HOST_USE,
   listPlans: HOST_USE, detectEditors: HOST_USE, openInEditor: HOST_USE, getPluginCommands: HOST_USE,
   continueInWorktree: HOST_USE, decideWorktreeOffer: HOST_USE, projectConfigLoad: HOST_USE,
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
@@ -443,6 +449,10 @@ export const RESOURCE_ACTION_OF_METHOD = {
   sessionLineageHistory: 'read.transcript',
   sessionMergeBackPrompt: 'read.transcript',
   stopSessionSubagent: 'drive.prompt',
+  // The folders a session works in are host paths that its agent gets: a person who may prompt the session reads and changes them.
+  sessionFolders: 'drive.prompt', sessionAttachFolder: 'drive.prompt', sessionDetachFolder: 'drive.prompt',
+  // A new worktree in the task folder of a session changes where its agent works.
+  sessionAddRepositoryWorktree: 'drive.prompt', sessionWorktreeCandidates: 'drive.prompt',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // An app's linked session: the app is its host owner's, and the edge is the session's.

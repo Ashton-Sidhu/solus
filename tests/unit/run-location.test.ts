@@ -5,8 +5,11 @@ import {
   adoptGit,
   checkoutGit,
   checkoutPlace,
+  chooseCodebase,
   chooseStart,
+  chooseWorktreeRepositories,
   cloneBaseBranch,
+  codebaseOf,
   dispatchTo,
   folderLocation,
   inheritedLocation,
@@ -20,6 +23,8 @@ import {
   runHost,
   startsWorktree,
   workingPlace,
+  worktreeBaseBranch,
+  worktreeRepositories,
 } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const main: GitCheckout = { repoRoot: '/Users/me/solus', branch: 'main', targetBranch: 'main' }
@@ -50,7 +55,7 @@ describe('opening a folder on another host', () => {
     const isolated = chooseStart(local(), { kind: 'new-worktree' })
     const next = run(openFolder(isolated, { serverId: 'omarchy', path: '/home/me/solus' }))
     expect(startsWorktree(next)).toBe(true)
-    expect(next.location.checkout.kind === 'folder' && next.location.checkout.newWorktree).toEqual({ baseBranch: null })
+    expect(next.location.checkout.kind === 'folder' && next.location.checkout.newWorktree).toEqual({ baseBranch: null, repositories: null })
   })
 
   test('a folder picked for a dispatch keeps the project, and its tasks, home', () => {
@@ -192,4 +197,126 @@ test('a restored run renames both of its hosts', () => {
   const restored = run(remapHosts(dispatched, (id) => `${id}-2`))
   expect(runHost(restored)).toBe('omarchy-2')
   expect(projectHome(restored).serverId).toBe('mac-2')
+})
+
+// docs/plans/codebases.md §4: a run can start with a codebase, and a new
+// worktree session can isolate some of its repositories. The codebase follows
+// the project home of the run.
+describe('the codebase of a run', () => {
+  const withCodebase = () => chooseCodebase(local(), 'codebase-shop')
+
+  test('a run has no codebase until one is chosen, and the choice changes nothing else', () => {
+    expect(codebaseOf(run(local()))).toBeNull()
+    expect(codebaseOf(null)).toBeNull()
+    const chosen = run(withCodebase())
+    expect(codebaseOf(chosen)).toBe('codebase-shop')
+    expect(workingPlace(chosen)).toEqual(workingPlace(run(local())))
+    expect(projectHome(chosen)).toEqual(projectHome(run(local())))
+    expect(codebaseOf(run(chooseCodebase(withCodebase(), null)))).toBeNull()
+  })
+
+  test('the same choice again keeps the same location', () => {
+    // WHY: a caller assigns the result to the run, and a new object wakes each effect that reads it.
+    const chosen = withCodebase()
+    expect(chooseCodebase(chosen, 'codebase-shop')).toBe(chosen)
+  })
+
+  test('a different project home has no codebase', () => {
+    // WHY: the codebase names the work of the folder the run left. A session
+    // in a different project must not get the folders of that work.
+    const moved = run(openFolder(withCodebase(), { serverId: 'mac', path: '/Users/me/other' }))
+    expect(codebaseOf(moved)).toBeNull()
+  })
+
+  test('a root of the same codebase keeps it when the caller says so', () => {
+    const moved = run(openFolder(withCodebase(), { serverId: 'mac', path: '/Users/me/shop-web' }, { keepCodebase: true }))
+    expect(codebaseOf(moved)).toBe('codebase-shop')
+    expect(workingPlace(moved).path).toBe('/Users/me/shop-web')
+  })
+
+  test('a folder on a different host for the same project keeps the codebase', () => {
+    const dispatched = run(openFolder(withCodebase(), { serverId: 'omarchy', path: '/home/me/solus' }, { keepProject: true }))
+    expect(codebaseOf(dispatched)).toBe('codebase-shop')
+  })
+
+  test('start choices, Git answers, a clone, and its landing keep the codebase', () => {
+    const chosen = withCodebase()
+    expect(codebaseOf(run(chooseStart(chosen, { kind: 'new-worktree' })))).toBe('codebase-shop')
+    expect(codebaseOf(run(chooseStart(chosen, { kind: 'worktree', path: '/tmp/wt-fix', branch: 'fix' })))).toBe('codebase-shop')
+    const place = workingPlace(run(chosen))
+    expect(codebaseOf(run(adoptGit(chosen, place, { ...main, branch: 'next' })))).toBe('codebase-shop')
+    const clone = dispatchTo(chosen, 'omarchy', 'github.com/acme/solus')
+    expect(codebaseOf(run(clone))).toBe('codebase-shop')
+    expect(codebaseOf(run(landClone(clone, '/home/me/clones/solus')))).toBe('codebase-shop')
+    expect(codebaseOf(run(remapHosts(chosen, (id) => `${id}-2`)))).toBe('codebase-shop')
+  })
+
+  test('a new session inherits the codebase, but a new chat has none', () => {
+    // Decision 5: a session records the codebase it started with, and the next session of the same work starts with it.
+    expect(codebaseOf(run(inheritedLocation(withCodebase())))).toBe('codebase-shop')
+    expect(codebaseOf(run(inheritedLocation(withCodebase(), { freshTask: true })))).toBe('codebase-shop')
+    const chat = chooseCodebase(folderLocation({ serverId: 'mac', path: '/Users/me/.solus/solus-chats/abc' }), 'codebase-shop')
+    expect(codebaseOf(run(inheritedLocation(chat)))).toBeNull()
+  })
+
+  test('a location saved before the codebase fields existed reads as no codebase and the default repositories', () => {
+    // WHY: Solus drops no saved draft for this change; the answers read a field that is not there as null.
+    const saved = JSON.parse(JSON.stringify(chooseStart(local(), { kind: 'new-worktree' })))
+    delete saved.codebaseId
+    delete saved.checkout.newWorktree.repositories
+    expect(codebaseOf(run(saved))).toBeNull()
+    expect(worktreeRepositories(run(saved))).toBeNull()
+    expect(codebaseOf(run(remapHosts(saved, (id) => id)))).toBeNull()
+  })
+})
+
+describe('the repositories of a new worktree', () => {
+  const isolated = () => chooseStart(chooseCodebase(local(), 'codebase-shop'), { kind: 'new-worktree' })
+  const chosen = () => chooseWorktreeRepositories(isolated(), ['/Users/me/shop/api', '/Users/me/shop/web'])
+
+  test('the default set is null, and a choice is kept with the base branch', () => {
+    expect(worktreeRepositories(run(isolated()))).toBeNull()
+    expect(worktreeRepositories(run(chosen()))).toEqual(['/Users/me/shop/api', '/Users/me/shop/web'])
+    expect(worktreeBaseBranch(run(chosen()))).toBe('main')
+    expect(worktreeRepositories(run(chooseWorktreeRepositories(chosen(), null)))).toBeNull()
+  })
+
+  test('a run that starts no new worktree has no repositories to choose', () => {
+    const inFolder = chooseCodebase(local(), 'codebase-shop')
+    expect(chooseWorktreeRepositories(inFolder, ['/Users/me/shop/api'])).toBe(inFolder)
+    expect(worktreeRepositories(run(inFolder))).toBeNull()
+    // A clone gets its worktrees on a host where nothing can be read before Send.
+    const clone = dispatchTo(isolated(), 'omarchy', 'github.com/acme/solus')
+    expect(chooseWorktreeRepositories(clone, ['/Users/me/shop/api'])).toBe(clone)
+    expect(worktreeRepositories(run(clone))).toBeNull()
+  })
+
+  test('the same choice again keeps the same location', () => {
+    const location = chosen()
+    expect(chooseWorktreeRepositories(location, ['/Users/me/shop/api', '/Users/me/shop/web'])).toBe(location)
+  })
+
+  test('a Git answer and a different base branch keep the choice', () => {
+    // WHY: Git answers after the person chose. An answer that set the choice back to the default would isolate the wrong repositories.
+    const location = chosen()
+    const answered = adoptGit(location, workingPlace(run(location)), { ...main, branch: 'next' }, { baseBranch: 'develop' })
+    expect(worktreeRepositories(run(answered))).toEqual(['/Users/me/shop/api', '/Users/me/shop/web'])
+    expect(worktreeBaseBranch(run(answered))).toBe('develop')
+    const rebased = chooseStart(location, { kind: 'new-worktree', baseBranch: 'release' })
+    expect(worktreeRepositories(run(rebased))).toEqual(['/Users/me/shop/api', '/Users/me/shop/web'])
+  })
+
+  test('work in the checkout itself drops the choice with the request', () => {
+    expect(worktreeRepositories(run(chooseStart(chosen(), { kind: 'checkout' })))).toBeNull()
+  })
+
+  test('a different folder or a different codebase sets the choice back to the default', () => {
+    // WHY: the paths name members of the old codebase on the old run host.
+    const moved = run(openFolder(chosen(), { serverId: 'omarchy', path: '/home/me/solus' }, { keepProject: true }))
+    expect(startsWorktree(moved)).toBe(true)
+    expect(worktreeRepositories(moved)).toBeNull()
+    const other = run(chooseCodebase(chosen(), 'codebase-tools'))
+    expect(startsWorktree(other)).toBe(true)
+    expect(worktreeRepositories(other)).toBeNull()
+  })
 })

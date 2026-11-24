@@ -111,6 +111,15 @@ vi.mock("../../state/workspace", () => ({
 }));
 vi.mock("../../state/shell", () => ({ useEnvironmentShellReadiness: () => ({}) }));
 vi.mock("../../lib/clock", () => ({ useNowMinuteMs: () => 0 }));
+// The Solus runtime loads React Native. These projects are in no codebase.
+vi.mock("../../solus/runtime", () => ({
+  solus: { codebases: { changes: { subscribe: () => () => {} } } },
+  useSolusWorkspace: () => ({ hostsById: {} }),
+}));
+vi.mock("../../solus/codebase-folders", () => ({
+  codebaseFolders: {},
+  readProjectCodebases: () => ({ status: "ready", sections: [] }),
+}));
 
 import { NewTaskFlowProvider, useNewTaskFlow } from "./new-task-flow-provider";
 

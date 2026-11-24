@@ -11,7 +11,7 @@ import { SheetIntro } from "../../../components/ui/SheetIntro";
 import type { GitRepositoryRouteParams } from "../../../state/thread-git-target";
 import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { useCheckoutGit } from "../../../solus/CheckoutGit";
+import { useCheckoutGit, useCheckoutGitTarget } from "../../../solus/CheckoutGit";
 import { useSessionController } from "../../../solus/use-session-controller";
 import { SheetActionButton } from "./gitSheetComponents";
 
@@ -47,7 +47,9 @@ function Confirmation({
   const gt = useGT();
   const messages = useMessages();
   const navigation = useNavigation();
-  const git = useCheckoutGit(controller, controller.run.workingDirectory);
+  // The action of the thread's own folder, or of the repository that the route names.
+  const target = useCheckoutGitTarget(controller, params);
+  const git = useCheckoutGit(controller, target.cwd, target);
   const action = params.confirmAction;
   const confirmAction =
     action === "push" ||

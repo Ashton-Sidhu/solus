@@ -1,4 +1,5 @@
 import type { ChangedFileStat } from '@solus/contracts/git-types'
+import { repositoryOfSummaryFile, type SummaryRepository } from './change-repositories'
 
 /**
  * §9 — the diff summary folds by directory rather than growing, so a sweep
@@ -49,29 +50,49 @@ function emptyFolder(path: string, label: string): DiffFolderNode {
   return { kind: 'folder', path, label, folders: [], files: [], fileCount: 0, additions: 0, deletions: 0 }
 }
 
+function childFolder(folder: DiffFolderNode, path: string, label: string): DiffFolderNode {
+  let child = folder.folders.find((candidate) => candidate.path === path)
+  if (!child) {
+    child = emptyFolder(path, label)
+    folder.folders.push(child)
+  }
+  return child
+}
+
 /**
  * Join known changed paths against git's counts. Turn summaries have no
  * transcript-owned path list, so their paths come directly from the stats.
+ *
+ * `repositories` are those of a session that works in more than one
+ * (docs/plans/codebases.md §8). Each file then goes below a folder with its
+ * repository's name, so the reader sees which repository a file is in, and
+ * `../api/src/a.ts` reads `api/src/a.ts`. A file keeps its own path as its
+ * identity: that is what opens its diff.
  */
-export function buildDiffSummaryTree(changedFiles: string[] | undefined, stats: ChangedFileStat[]): DiffTree {
+export function buildDiffSummaryTree(
+  changedFiles: string[] | undefined,
+  stats: ChangedFileStat[],
+  repositories: readonly SummaryRepository[] = [],
+): DiffTree {
   const byPath = new Map(stats.map((stat) => [stat.path, stat]))
   const paths = changedFiles ?? stats.map((stat) => stat.path)
 
   const root = emptyFolder('', '')
   for (const path of paths) {
     const stat = byPath.get(path)
-    const segments = path.split('/')
+    const inRepository = repositoryOfSummaryFile(path, repositories)
+    const segments = (inRepository?.path ?? path).split('/')
     const name = segments.pop() ?? path
     let folder = root
     let prefix = ''
+    if (inRepository) {
+      // The working directory has no path in front of its files: `.` keeps its folder apart from the root.
+      prefix = inRepository.repository.prefix || '.'
+      folder = childFolder(root, prefix, inRepository.repository.name)
+    }
     for (const segment of segments) {
       prefix = prefix ? `${prefix}/${segment}` : segment
-      let child = folder.folders.find((candidate) => candidate.path === prefix)
-      if (!child) {
-        child = emptyFolder(prefix, segment)
-        folder.folders.push(child)
-      }
-      folder = child
+      folder = childFolder(folder, prefix, segment)
     }
     folder.files.push({
       kind: 'file',

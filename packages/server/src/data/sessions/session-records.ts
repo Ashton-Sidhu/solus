@@ -14,6 +14,7 @@ import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type Record
 import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { parseStoredStarter } from '@solus/contracts/session-starter'
+import { sessionAttachedFolderSchema, type SessionAttachedFolder } from '@solus/contracts/codebases'
 import { aclEntry } from '../../sharing/schema'
 import type { Activity } from '@solus/contracts/activity'
 import { appendActivity, deleteActivityFor } from '../activity/activity'
@@ -74,6 +75,8 @@ const recordRowSchema = z.object({
   delegation_created_at: z.number().nullable(),
   place: z.enum(['chat', 'project']).nullable().catch(null),
   started_by: z.string().nullable(),
+  codebase_id: z.string().nullable(),
+  attached_folders: z.string(),
 })
 
 type RecordRow = z.infer<typeof recordRowSchema>
@@ -89,7 +92,7 @@ const RECORD_COLUMN_NAMES = [
   'session_id', 'organization_id', 'publication', 'created_by', 'provider', 'project_path', 'project_remote', 'runner_host_id', 'title', 'custom_title',
   'status', 'model', 'reasoning_effort', 'parent_session_id', 'root_session_id', 'created_at', 'last_activity_at', 'size',
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
-  'place', 'started_by',
+  'place', 'started_by', 'codebase_id', 'attached_folders',
 ]
 const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`).join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
@@ -193,6 +196,15 @@ export function sessionListedClause(reader: SessionPageReader): SQL {
   AND (${active} OR ${grantedAt} >= ${since})))`
 }
 
+/** The stored folders of a session. A value that cannot be read is no folders. */
+function parseStoredAttachedFolders(stored: string): SessionAttachedFolder[] {
+  try {
+    return sessionAttachedFolderSchema.array().catch([]).parse(JSON.parse(stored))
+  } catch {
+    return []
+  }
+}
+
 function delegationFromRow(row: RecordRow): SessionRecordDelegation | null {
   if (row.delegation_message_id === null || row.delegation_depth === null || row.delegation_intent === null || row.delegation_created_at === null) return null
   return { messageId: row.delegation_message_id, depth: row.delegation_depth, intent: row.delegation_intent, createdAt: row.delegation_created_at }
@@ -226,6 +238,8 @@ function recordFromRow(row: RecordRow): SessionRecord {
     delegation: delegationFromRow(row),
     place: row.place,
     startedBy: parseStoredStarter(row.started_by),
+    codebaseId: row.codebase_id,
+    attachedFolders: parseStoredAttachedFolders(row.attached_folders),
   }
   return record
 }
@@ -457,6 +471,8 @@ function firstRecord(organizationId: string, input: SessionRecordUpsert, birth: 
     delegation: null,
     place: null,
     startedBy: null,
+    codebaseId: null,
+    attachedFolders: [],
   }
 }
 
@@ -496,6 +512,8 @@ function mergeRecord(existing: SessionRecord | null, organizationId: string, inp
     // Written once, by the write that knows them (session-starter.md §3); a later report never changes them.
     place: stored.place ?? input.place ?? null,
     startedBy: stored.startedBy ?? input.startedBy ?? null,
+    codebaseId: reported(input.codebaseId, stored.codebaseId),
+    attachedFolders: input.attachedFolders ?? stored.attachedFolders,
   }
 }
 
@@ -557,7 +575,7 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         title, custom_title, status, model, reasoning_effort, parent_session_id, root_session_id,
         created_at, last_activity_at, size,
         cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at,
-        place, started_by, settled_at, settled_by
+        place, started_by, codebase_id, attached_folders, settled_at, settled_by
       ) VALUES (
         ${merged.sessionId}, ${merged.organizationId}, ${merged.ownerKey}, ${merged.publication}, ${now}, ${merged.provider}, ${merged.projectPath},
         ${merged.projectRemote}, ${merged.runnerHostId}, ${merged.title}, ${merged.customTitle}, ${merged.status},
@@ -566,6 +584,7 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         ${merged.cwd}, ${merged.slug}, ${merged.isWorktree ? 1 : 0}, ${merged.branch}, ${merged.projectRoot},
         ${merged.delegation?.messageId ?? null}, ${merged.delegation?.depth ?? null}, ${merged.delegation?.intent ?? null}, ${merged.delegation?.createdAt ?? null},
         ${merged.place}, ${merged.startedBy ? JSON.stringify(merged.startedBy) : null},
+        ${merged.codebaseId}, ${JSON.stringify(merged.attachedFolders)},
         ${bornSettled ? merged.lastActivityAt : null}, ${bornSettled ? 'idle' : null}
       )
       ON CONFLICT(session_id) DO UPDATE SET
@@ -593,7 +612,9 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         delegation_intent = excluded.delegation_intent,
         delegation_created_at = excluded.delegation_created_at,
         place = COALESCE(session_records.place, excluded.place),
-        started_by = COALESCE(session_records.started_by, excluded.started_by)
+        started_by = COALESCE(session_records.started_by, excluded.started_by),
+        codebase_id = excluded.codebase_id,
+        attached_folders = excluded.attached_folders
       WHERE session_records.organization_id = excluded.organization_id
     `)
     if (forkActivity) {
@@ -735,6 +756,40 @@ export function setSessionRecordTitle(scope: RecordScope, sessionId: string, cus
     const result = await getDatabase().run(sql`
       UPDATE ${session} SET custom_title = ${customTitle}
       WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
+    `)
+    if (result.changes > 0) await announceSessionRecordChanged(sessionId)
+  })
+}
+
+/** The folders a session row keeps (docs/plans/codebases.md §6). */
+export interface StoredSessionFolders {
+  codebaseId: string | null
+  attachedFolders: SessionAttachedFolder[]
+}
+
+/** The codebase and the attached folders of a session's row, started or not. Null when the session has no row. */
+export async function storedSessionFolders(sessionId: string): Promise<StoredSessionFolders | null> {
+  const row = z.object({ codebase_id: z.string().nullable(), attached_folders: z.string() }).nullish().parse(await getDatabase().get(sql`
+    SELECT codebase_id, attached_folders FROM ${session} WHERE session_id = ${sessionId}
+  `))
+  if (!row) return null
+  return { codebaseId: row.codebase_id, attachedFolders: parseStoredAttachedFolders(row.attached_folders) }
+}
+
+/**
+ * Write the codebase of a session, its attached folders, or both: one UPDATE,
+ * which also lands on a row admitted before its start. A field left out keeps
+ * the stored value. A session with no row gets these values with the report
+ * that starts it (`persistIndexedSessionStart`).
+ */
+export function setSessionRecordFolders(sessionId: string, folders: { codebaseId?: string | null; attachedFolders?: SessionAttachedFolder[] }): Promise<void> {
+  return serialized(sessionId, async () => {
+    const changes: SQL[] = []
+    if (folders.codebaseId !== undefined) changes.push(sql`codebase_id = ${folders.codebaseId}`)
+    if (folders.attachedFolders !== undefined) changes.push(sql`attached_folders = ${JSON.stringify(folders.attachedFolders)}`)
+    if (changes.length === 0) return
+    const result = await getDatabase().run(sql`
+      UPDATE ${session} SET ${sql.join(changes, sql`, `)} WHERE session_id = ${sessionId}
     `)
     if (result.changes > 0) await announceSessionRecordChanged(sessionId)
   })

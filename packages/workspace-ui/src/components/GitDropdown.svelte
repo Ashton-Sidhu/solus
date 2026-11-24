@@ -22,6 +22,8 @@
     type WorktreeEntry,
   } from "@solus/contracts/types";
   import { checkoutPlace, cloneBaseBranch, pendingClone } from "../contexts/workspace/run-location";
+  import type { WorktreeRepositoryChoice } from "./input/lib/worktree-repositories";
+  import WorktreeRepositoryRows from "./input/WorktreeRepositoryRows.svelte";
 
   type View = "worktrees" | "branches";
 
@@ -55,6 +57,15 @@
     worktreeBlockedNote?: string | null;
     /** Start in the current checkout (`false`) or in a new worktree (`true`). */
     onSelectStartIn?: (worktree: boolean) => void;
+    /** The repositories of the run's codebase that a new worktree covers
+     *  (docs/plans/codebases.md §7). Null for a run with no codebase. */
+    worktreeRepositories?: WorktreeRepositoryChoice | null;
+    onChooseWorktreeRepositories?: (paths: string[]) => void;
+    /** Set when the working folder is a folder of a codebase with no
+     *  repository: it has no branch list, and the person names the base
+     *  branch of its new worktree. */
+    plainFolder?: { baseBranch: string | null } | null;
+    onChooseBaseBranch?: (branch: string) => void;
     /** Return focus to the surface that owns this menu once it closes. */
     onDismiss?: () => void;
   }
@@ -74,6 +85,10 @@
     startsNewWorktree = false,
     worktreeBlockedNote = null,
     onSelectStartIn,
+    worktreeRepositories = null,
+    onChooseWorktreeRepositories,
+    plainFolder = null,
+    onChooseBaseBranch,
     onDismiss,
   }: Props = $props();
 
@@ -149,7 +164,15 @@
   // Only a switch in place can create a branch here; a dispatch picks from origin.
   const newBranch = $derived(pendingDispatch ? null : newBranchFromSearch(query, branches));
 
+  // A new worktree of a codebase has more to choose: its repositories, and the
+  // base branch of a folder with no repository. The menu stays open for them.
+  const hasWorktreeOptions = $derived(
+    !!plainFolder || (worktreeRepositories?.rows.length ?? 0) > 0,
+  );
+
   function handleOpenAutoFocus() {
+    // A folder with no repository has no branches and no worktrees to read.
+    if (plainFolder) return;
     if (pendingDispatch) {
       void environmentStore.refreshDispatchWorktrees(
         run,
@@ -162,7 +185,7 @@
 
   $effect(() => {
     if (open) {
-      view = pendingDispatch ? "worktrees" : initialView;
+      view = pendingDispatch || plainFolder ? "worktrees" : initialView;
       query = "";
       openedAt = Date.now();
     }
@@ -184,7 +207,7 @@
   }
 
   function selectStartIn(worktree: boolean) {
-    open = false;
+    if (!(worktree && hasWorktreeOptions)) open = false;
     onSelectStartIn?.(worktree);
   }
 
@@ -250,7 +273,7 @@
         class="menu-item-stagger"
       >
         <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-        <span class="min-w-0 flex-1 truncate">This checkout</span>
+        <span class="min-w-0 flex-1 truncate">{plainFolder ? "This folder" : "This checkout"}</span>
         {#if !startsNewWorktree}
           <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
         {/if}
@@ -277,6 +300,13 @@
         </p>
       {/if}
     </Command.Group>
+  {/if}
+  {@render worktreeRepositoryRows()}
+{/snippet}
+
+{#snippet worktreeRepositoryRows()}
+  {#if startsNewWorktree && worktreeRepositories && onChooseWorktreeRepositories && !pendingDispatch}
+    <WorktreeRepositoryRows choice={worktreeRepositories} {query} onChoose={onChooseWorktreeRepositories} />
   {/if}
 {/snippet}
 
@@ -385,9 +415,17 @@
             {/if}
           </Command.List>
         </Command.Root>
+        {#if plainFolder && startsNewWorktree && onChooseBaseBranch}
+          <!-- Only a plain working folder shows this field, so it is not part of the first screen. -->
+          {#await import("./input/PlainFolderBaseBranch.svelte") then { default: PlainFolderBaseBranch }}
+            <PlainFolderBaseBranch baseBranch={plainFolder.baseBranch} onChoose={onChooseBaseBranch} />
+          {/await}
+        {/if}
         <MenuFooter
           hints={[["⏎", pendingDispatch ? "select" : "switch"]]}
-          summary={pendingDispatch
+          summary={plainFolder
+            ? "Not a repository"
+            : pendingDispatch
             ? dispatchBranchesLoading
               ? `${worktrees.length} worktrees · loading origin branches`
               : `${worktrees.length} worktrees · ${dispatchBranches.length} origin branches`
@@ -422,6 +460,7 @@
                 </Command.Item>
               {/if}
             </Command.Group>
+            {@render worktreeRepositoryRows()}
             {#if shownBranches.length > 0 || (refsLoading && branches.length === 0)}
               <Command.Group heading="Branches">
                 {#each shownBranches as ref (ref.name)}

@@ -37,7 +37,6 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         provider: restoredSession?.run.provider ?? null,
         handoffFrom: restoredSession?.handoffFrom ? { ...restoredSession.handoffFrom } : undefined,
         location: persistedLocation,
-        additionalDirs: restoredSession ? [...restoredSession.additionalDirs] : [],
         modelConfig: restoredSession
           ? { ...restoredSession.run.modelConfig }
           : { ...session.config.globalDefaults.modelConfig },

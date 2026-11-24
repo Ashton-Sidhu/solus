@@ -151,7 +151,7 @@ async function harness(projectsFolder = 'projects') {
     const ctx = {
       session: {
         sessionId, organizationId: 'A', provider: 'codex', agentSessionId: null, status: 'idle',
-        workingDirectory: clientFolder, projectPath: clientFolder, additionalDirs: [],
+        workingDirectory: clientFolder, projectPath: clientFolder, 
         gitContext: { branch: 'main', targetBranch: 'main', repoRoot: clientFolder, worktreePath: clientFolder },
         worktreeBaseBranch: null, preferredModel: 'gpt-requested', reasoningEffort: 'medium', contextWindow: null,
         fastMode: false, permissionMode: 'supervised', readOnlyReason: null,

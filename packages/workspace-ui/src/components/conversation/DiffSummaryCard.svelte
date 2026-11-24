@@ -4,6 +4,7 @@
   import {
     ChevronRight as CaretRightIcon,
     FileText as FileTextIcon,
+    FolderGit2 as RepositoryIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { sessionTreeStore } from "../../contexts/sessions/session-tree.store.svelte";
@@ -24,6 +25,14 @@
     type DiffTotals,
   } from "./lib/diff-summary-tree";
   import { revealInTranscript } from "./lib/reveal-in-transcript";
+  import { diffRepositories } from "../diff/lib/diff-repositories";
+  import {
+    repositoryChanges,
+    sessionFolderFiles,
+    summaryFilePath,
+    summaryPaths,
+    summaryRepositories,
+  } from "./lib/change-repositories";
 
   /**
    * §9 — the one card with no kicker and no title. In the transcript it arrives
@@ -41,8 +50,9 @@
     /** Session summaries own their paths; turn summaries derive them from git stats. */
     changedFiles?: string[];
     scope?: DiffSummaryScope;
-    /** Opens the diff pane — on one file, or on the whole change with no path. */
-    onOpenDiff?: (filePath?: string) => void;
+    /** Opens the diff pane — on one file, or on the whole change with no path.
+     *  With a repository and no path, on that repository's share of the change. */
+    onOpenDiff?: (filePath?: string, repositoryPath?: string) => void;
     /** Opens the file itself in the file pane. */
     onOpenFile?: (filePath: string) => void;
     /** Removes the card surface when a parent popover already provides it. */
@@ -109,7 +119,28 @@
       .filter((node) => ids.has(node.record.sessionId))
       .map((node) => ({ sessionId: node.record.sessionId, files: node.digest?.changes?.files ?? [] }));
   });
-  const ownTree = $derived(buildDiffSummaryTree(changedFiles, ownStats));
+  // A session with session folders changes more than one repository
+  // (docs/plans/codebases.md §8). Git on this client counts the working
+  // directory, so the other repositories come from the session's digest: their
+  // files for the whole session, their counts for one turn. An open card reads
+  // them; a closed card shows the working directory's totals, as before.
+  const repositories = $derived(isExpanded ? diffRepositories(session.sessions.byId[sessionId]) : []);
+  const fileRepositories = $derived(summaryRepositories(repositories));
+  const ownDigest = $derived(sessionTree?.nodes.find((node) => node.record.sessionId === sessionId)?.digest ?? null);
+  const folderFiles = $derived(scope.kind === "session" ? sessionFolderFiles(ownDigest?.changes, fileRepositories) : []);
+  /** The share of each repository, when more than one holds the change. A turn with no known time has none. */
+  const repositoryRows = $derived(
+    agentScope !== sessionId || (scope.kind === "turn" && !agentWindow)
+      ? []
+      : repositoryChanges(ownDigest, scope.kind === "turn" ? agentWindow : null),
+  );
+  const ownTree = $derived(
+    buildDiffSummaryTree(
+      summaryPaths(changedFiles, repositories, folderFiles),
+      folderFiles.length > 0 ? [...ownStats, ...folderFiles] : ownStats,
+      fileRepositories,
+    ),
+  );
   const tree = $derived(
     agentScope === sessionId
       ? ownTree
@@ -229,6 +260,31 @@
         <AgentFilter options={filterOptions} selected={agentScope} onSelect={(next) => (pickedScope = next)} />
       </div>
     {/if}
+    {#if isExpanded && repositoryRows.length > 0}
+      <!-- One row for each repository of the change. A row is a door, not a
+           disclosure: it opens the diff pane on that repository. -->
+      <div class="-mx-1.5 mt-[0.4375rem] flex flex-col gap-px" role="group" aria-label="Changes by repository">
+        {#each repositoryRows as row (row.repositoryPath)}
+          <button
+            type="button"
+            class="diff-row"
+            disabled={!onOpenDiff}
+            title="Open the diff of {row.name}"
+            data-testid="diff-summary-repository"
+            onclick={() => onOpenDiff?.(undefined, row.repositoryPath)}
+          >
+            <RepositoryIcon size={13} class="shrink-0 text-(--muted-foreground)" />
+            <span class="diff-path font-mono truncate">{row.name}</span>
+            <span class="shrink-0 font-mono text-transcript-meta text-(--muted-foreground) opacity-55">
+              {row.filesChanged} file{row.filesChanged === 1 ? "" : "s"}
+            </span>
+            <span class="flex-1"></span>
+            <span class="diff-add tabular-nums" class:is-zero={row.additions === 0}>+{row.additions}</span>
+            <span class="diff-del tabular-nums" class:is-zero={row.deletions === 0}>−{row.deletions}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#if isExpanded && tree.total === 0}
       <p class="m-0 mt-[0.4375rem] text-transcript-meta text-(--muted-foreground)">No changed files.</p>
     {/if}
@@ -311,7 +367,7 @@
                   class="diff-file-open"
                   title="Open {row.node.path} in the file pane"
                   aria-label="Open {row.node.path} in the file pane"
-                  onclick={() => onOpenFile(row.node.path)}
+                  onclick={() => onOpenFile(summaryFilePath(row.node.path, repositories))}
                 >
                   <FileTextIcon size={12} />
                 </button>

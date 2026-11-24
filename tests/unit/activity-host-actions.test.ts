@@ -364,6 +364,8 @@ describe('a move into a worktree', () => {
       moveSessionCheckout: () => {},
       nameWorktreeBranch: async () => {},
       recordActivity: async (...args: unknown[]) => { recorded.push(args) },
+      // The session has no codebase, so its new worktree is not a task folder.
+      taskFolders: { createForMove: async () => null },
     }
     const handlers = new Map<string, (args: unknown[], ctx: unknown) => Promise<unknown>>()
     const { registerWorktreeHandlers } = await import('@solus/server/transport/handlers/worktree-handlers')

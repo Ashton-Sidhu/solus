@@ -9,10 +9,12 @@ import type { Actor } from '../../admission/actor'
 import type { CheckoutService } from '../../git/checkout-service'
 import { gitOutputPath, runAsync } from '../../git/exec'
 import { resolveRepoRoot } from '../../git/git-helpers'
+import { findTaskFolderContaining } from '../../git/task-folder-store'
 import { getDefaultBranch } from '../../git/worktree-manager'
 import { worktreePathFor } from '../../git/worktree-path'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
+import type { SessionTaskFolders } from './session-task-folders'
 
 const log = createLogger('worktree', 'worktree-move.ts')
 
@@ -26,8 +28,9 @@ const log = createLogger('worktree', 'worktree-move.ts')
 
 export type WorktreeMoveTarget =
   /** A new Solus worktree. `branchName` is the semantic name the branch-naming
-   *  settings shape; without one, `namePrompt` names the branch afterwards. */
-  | { kind: 'new'; baseBranch?: string; branchName?: string; namePrompt?: string }
+   *  settings shape; without one, `namePrompt` names the branch afterwards.
+   *  `exactBranch` is a new branch that the caller names, used as it is. */
+  | { kind: 'new'; baseBranch?: string; branchName?: string; namePrompt?: string; exactBranch?: string }
   /** A checkout of the session's repository that already exists: a linked
    *  worktree, or the project folder. */
   | { kind: 'existing'; path: string }
@@ -80,7 +83,8 @@ interface MoveStep {
   says: string
   /** The checkout whose files the step changes; it must be clean and free. */
   changes?: string
-  run: () => Promise<void>
+  /** The answer is a note for the agent: something the step left as it was, and why. */
+  run: () => Promise<string | void>
 }
 
 interface AgentMoveStart {
@@ -113,6 +117,8 @@ export interface WorktreeMoveRuntime {
   continueSession(sessionId: string, prompt: string): Promise<void>
   recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind): Promise<Activity>
   nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined, preferences?: ExecutionPreferences): Promise<void>
+  /** The task folder of a session of several repositories (docs/plans/codebases.md §7): a new worktree can be one, and a session can leave one. */
+  readonly taskFolders: Pick<SessionTaskFolders, 'plansFor' | 'createForMove' | 'leave'>
 }
 
 export interface WorktreeStatus {
@@ -132,9 +138,16 @@ export interface WorktreeStatus {
 
 /** Git steps a turn asked for, waiting for that turn to end. */
 interface TurnEndMove {
-  work: () => Promise<void>
+  /** The answer is the notes of the steps. */
+  work: () => Promise<string[]>
   continueWith?: string
-  started?: Promise<string | null>
+  started?: Promise<TurnEndMoveResult>
+}
+
+/** How the steps of a turn end move ended: the error of the step that failed, and what the steps left as it was. */
+interface TurnEndMoveResult {
+  error: string | null
+  notes: string[]
 }
 
 export class WorktreeMover {
@@ -199,8 +212,9 @@ export class WorktreeMover {
       return { success: true, directory, branch: moved.gitContext.branch ?? moved.gitContext.detachedHeadSha ?? null, steps, movesAtTurnEnd: false }
     }
     const work = async () => {
+      let notes: string[]
       try {
-        await this.runSteps(plan.steps, sessionId)
+        notes = await this.runSteps(plan.steps, sessionId)
       } catch (error) {
         // A step after the removal of the session's folder failed: work in the project folder, not in a folder that is gone.
         if (!existsSync(plan.from)) await this.bindExisting(request, plan.projectFolder)
@@ -209,6 +223,7 @@ export class WorktreeMover {
       // A branch switch in the session's own checkout is no move: the checkout service reads the new branch.
       if (plan.sameCheckout) await this.runtime.checkouts.refresh(plan.directory)
       else await this.bindExisting(request, plan.directory)
+      return notes
     }
     this.holdForTurnEnd(sessionId, { work, continueWith })
     return { success: true, directory: plan.directory, branch: plan.branch, steps, movesAtTurnEnd: true }
@@ -227,7 +242,24 @@ export class WorktreeMover {
       return { refusal: `Name the branch ${target} must be on. It is on ${targetBranch ?? 'a detached HEAD'}; pass that branch to keep it.` }
     }
     if (!request.branch || request.branch === targetBranch) return this.plainMovePlan(request, start, target)
-    return this.branchMovePlan(request, start, target, request.branch)
+    return await this.taskFolderBranchPlan(request, start, target, request.branch) ?? this.branchMovePlan(request, start, target, request.branch)
+  }
+
+  /**
+   * A new branch in a new worktree, for a session whose codebase gives it a
+   * task folder: the session moves now, because a new task folder changes no
+   * checkout that exists. Null for each other move, and for a request that
+   * `branchMovePlan` refuses with its reason: an existing branch is checked
+   * out in one worktree of its repository, as before.
+   */
+  private async taskFolderBranchPlan(request: AgentMoveRequest, start: AgentMoveStart, target: string | null, wanted: string): Promise<AgentMovePlan | null> {
+    const { projectFolder } = start
+    if (target || !(await this.runtime.taskFolders.plansFor(request.sessionId, projectFolder, request.actor))) return null
+    const validName = await runAsync('git', ['check-ref-format', '--branch', wanted], projectFolder).then(() => true, () => false)
+    if (!validName || await refExists(projectFolder, `refs/heads/${wanted}`)) return null
+    const base = request.baseBranch || this.runtime.getGitContext(request.sessionId)?.targetBranch || await getDefaultBranch(projectFolder)
+    if (!(await startPoint(projectFolder, base))) return null
+    return { moveNow: { kind: 'new', baseBranch: base, exactBranch: wanted }, steps: request.removeWorktree ? [start.removeFrom] : [] }
   }
 
   /** Where an agent move starts: the session's checkout, the repository's checkouts, and the step that removes the one it leaves. */
@@ -240,8 +272,35 @@ export class WorktreeMover {
     if (!from || !fromReal || !project) return { refusal: 'This session is not in a git repository.' }
     const leavesWorktree = fromReal !== project.real
     if (request.removeWorktree && !leavesWorktree) return { refusal: 'This session is in the project folder. There is no worktree to remove.' }
-    const removeFrom: MoveStep = { says: `remove the worktree ${from}`, changes: from, run: () => this.removeWorktree(from, project.path) }
+    const removeFrom = await this.removalOf(request.sessionId, from, project.path)
     return { from, fromReal, checkouts, projectFolder: project.path, leavesWorktree, removeFrom }
+  }
+
+  /**
+   * The step that removes the checkout a session leaves. A worktree inside its
+   * repository must be clean. A task folder is removed as a whole, and what
+   * cannot go stays: a worktree that has uncommitted changes, a file that
+   * exists only there, and all of it when a different session works there. The
+   * step says now which worktrees have changes, and its note says what stayed.
+   */
+  private async removalOf(sessionId: string, from: string, projectFolder: string): Promise<MoveStep> {
+    const taskFolder = findTaskFolderContaining(from)
+    if (!taskFolder) return { says: `remove the worktree ${from}`, changes: from, run: () => this.removeWorktree(from, projectFolder) }
+    const worktrees = [...(taskFolder.primaryIsWorktree ? [taskFolder.primaryPath] : []), ...taskFolder.repositories.map((repository) => repository.worktreePath)]
+    const changed: string[] = []
+    for (const worktree of worktrees) {
+      if (await changedFiles(worktree) > 0) changed.push(worktree)
+    }
+    const stays = changed.length > 0 ? `; ${changed.join(', ')} ${changed.length === 1 ? 'has' : 'have'} uncommitted changes and will stay, so commit there first to remove all of it` : ''
+    return {
+      says: `remove the task folder ${taskFolder.root} with its ${worktrees.length} ${worktrees.length === 1 ? 'worktree' : 'worktrees'}${stays}`,
+      run: async () => {
+        const removal = await this.runtime.taskFolders.leave(sessionId, taskFolder.root)
+        log.info('session_left_task_folder', { sessionId, root: taskFolder.root, removedCount: removal.removed.length, keptCount: removal.kept.length })
+        if (removal.kept.length === 0) return
+        return `Solus kept these parts of the task folder ${taskFolder.root}: ${removal.kept.map((kept) => `${kept.path} (${kept.reason})`).join('; ')}.`
+      },
+    }
   }
 
   /** A move that changes no branch: the session moves now. */
@@ -306,11 +365,16 @@ export class WorktreeMover {
     return [{ says: `switch the project folder ${start.projectFolder} to ${sessionTarget}`, changes: start.projectFolder, run: () => gitIn(start.projectFolder, ['switch', sessionTarget]) }]
   }
 
-  /** Check every checkout the steps change, then run them in order. */
-  private async runSteps(steps: MoveStep[], sessionId: string): Promise<void> {
+  /** Check every checkout the steps change, then run them in order. Answers the notes of the steps. */
+  private async runSteps(steps: MoveStep[], sessionId: string): Promise<string[]> {
     const busy = await this.refusalForSteps(steps, sessionId)
     if (busy) throw new Error(busy)
-    for (const step of steps) await step.run()
+    const notes: string[] = []
+    for (const step of steps) {
+      const note = await step.run()
+      if (note) notes.push(note)
+    }
+    return notes
   }
 
   /** Why one of the checkouts the steps change cannot change now, or null. */
@@ -337,9 +401,9 @@ export class WorktreeMover {
       return
     }
     void this.finishTurnEndMove(sessionId)
-      .then((error) => {
+      .then(({ error, notes }) => {
         if (!move.continueWith) return
-        const prompt = error ? `The move did not finish: ${error}\n\n${move.continueWith}` : move.continueWith
+        const prompt = [...notes, error ? `The move did not finish: ${error}` : null, move.continueWith].filter(Boolean).join('\n\n')
         return this.runtime.continueSession(sessionId, prompt)
       })
       .catch((error) => log.warn('session_move_continuation_failed', { sessionId, error: error instanceof Error ? error.message : String(error) }))
@@ -350,15 +414,15 @@ export class WorktreeMover {
     this.runtime.holdNextTurn(sessionId, async () => { await this.finishTurnEndMove(sessionId) })
   }
 
-  /** Run the steps waiting for the session's turn to end, once. The error, or null. */
-  private finishTurnEndMove(sessionId: string): Promise<string | null> {
+  /** Run the steps waiting for the session's turn to end, once. */
+  private finishTurnEndMove(sessionId: string): Promise<TurnEndMoveResult> {
     const move = this.turnEndMoves.get(sessionId)
-    if (!move) return Promise.resolve(null)
+    if (!move) return Promise.resolve({ error: null, notes: [] })
     move.started ??= this.queue(sessionId, move.work)
-      .then(() => null, (error: Error) => {
+      .then((notes) => ({ error: null, notes }), (error: Error) => {
         const message = error instanceof Error ? error.message : String(error)
         log.warn('session_move_at_turn_end_failed', { sessionId, error: message })
-        return message
+        return { error: message, notes: [] }
       })
       .finally(() => {
         this.turnEndMoves.delete(sessionId)
@@ -449,11 +513,18 @@ export class WorktreeMover {
     const projectFolder = checkouts[0]?.path
     if (!projectFolder) return { refusal: 'This session is not in a git repository.' }
     if (target.kind === 'new') {
+      const baseBranch = target.baseBranch || this.runtime.getGitContext(request.sessionId)?.targetBranch
+      const naming = request.preferences?.worktreeBranchNaming
+      // The codebase of the session can give it a task folder: a worktree of each of its repositories.
+      const inTaskFolder = await this.runtime.taskFolders.createForMove(request.sessionId, projectFolder, {
+        actor: request.actor, naming, generatedName: target.branchName || null, exactBranch: target.exactBranch, baseBranch: baseBranch ?? null, signal,
+      })
       // A worktree is made from the main checkout: a linked worktree's `.git` is a file.
-      const checkout = await this.runtime.checkouts.create(projectFolder, target.baseBranch || this.runtime.getGitContext(request.sessionId)?.targetBranch, {
+      const checkout = inTaskFolder ?? await this.runtime.checkouts.create(projectFolder, baseBranch, {
         signal,
-        naming: request.preferences?.worktreeBranchNaming,
+        naming,
         generatedName: target.branchName || null,
+        branch: target.exactBranch ? { name: target.exactBranch, exists: false } : undefined,
       })
       return checkout?.worktreePath
         ? { directory: checkout.worktreePath, checkout }

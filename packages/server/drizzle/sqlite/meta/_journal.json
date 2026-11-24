@@ -57,6 +57,20 @@
       "when": 1795415973929,
       "tag": "0007_session_executions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795460461935,
+      "tag": "0008_codebases",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795463048219,
+      "tag": "0009_task_folders",
+      "breakpoints": true
     }
   ]
 }

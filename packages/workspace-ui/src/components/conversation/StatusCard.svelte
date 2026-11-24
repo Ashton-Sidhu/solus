@@ -9,7 +9,7 @@
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { TerminalOutput } from "../ui/terminal-output";
   import { SetupStepTiming } from "./lib/setup-timing.svelte";
-  import { statusCardLine } from "./lib/status-card";
+  import { activeStepNote, statusCardLine } from "./lib/status-card";
   import { sessionSyncFailureAction } from "@solus/client-core/session-sync-card";
   import {
     formatStepDuration,
@@ -139,7 +139,7 @@
             </span>
 
             {#if step.status === "active"}
-              <span class="setup-elapsed shrink-0">{step.percent === undefined ? "running" : `${step.percent}%`}</span>
+              <span class="setup-elapsed max-w-[60%] shrink-0 truncate">{activeStepNote(step)}</span>
             {:else if step.status === "skipped"}
               <span class="setup-elapsed shrink-0">skipped</span>
             {:else if stepMs}

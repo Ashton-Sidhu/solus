@@ -119,6 +119,8 @@ function fakeRuntime(options: { create?: WorktreeMoveRuntime['checkouts']['creat
       return { ...kind, id: ulid(), subject, at: Date.now(), by: { kind: 'system' } } as Activity
     },
     nameWorktreeBranch: async () => {},
+    // These sessions have no codebase, so a new worktree is never a task folder.
+    taskFolders: { plansFor: async () => false, createForMove: async () => null, leave: async () => ({ removed: [], kept: [] }) },
   }
   bindings.set('s1', { repoRoot, branch: git(repoRoot, 'branch', '--show-current'), targetBranch: 'main' })
   directories.set('s1', repoRoot)

@@ -3,6 +3,7 @@ import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
+import type { SessionFolder } from '@solus/contracts/codebases'
 import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
 import type { ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -93,6 +94,8 @@ export class TranscriptModel {
   /** Background work of the session runs on its host, held or not (`background_work`). */
   backgroundWorkRunning = false
   backgroundTasks: readonly { taskId: string; description?: string }[] = []
+  /** The folders the session works in besides its working directory, as its host last reported them (`session_folders`). */
+  sessionFolders: readonly SessionFolder[] = []
   agentRows: readonly (AgentItem | ToolItem)[] = []
 
   readonly agentTurnIds = new Map<string, string | null>()
@@ -457,6 +460,10 @@ export class TranscriptModel {
       }
       case 'status_change':
         this.setStatus(event.status)
+        return true
+      case 'session_folders':
+        this.sessionFolders = event.folders
+        this.metaChanged = true
         return true
       case 'background_task_started':
       case 'background_task_progress': {

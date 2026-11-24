@@ -55,7 +55,6 @@ function sampleSnapshot(): PersistedTabs {
       provider: null,
       handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
       location: folderLocation({ serverId: 'local', path: '/repo' }),
-      additionalDirs: [],
       modelConfig: {} as any,
       permissionMode: 'supervised',
       hasUnread: false,

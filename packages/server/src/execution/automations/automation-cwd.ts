@@ -1,4 +1,4 @@
-import { worktreeProjectRoot } from '@solus/contracts/types'
+import { projectRootOfPath } from '../../git/task-folder-store'
 import { resolveProjectRoot } from '../../project-config/project-config'
 
 /** Preserve a directory the user supplied. Only the implicit default is the
@@ -8,5 +8,5 @@ export function resolveAutomationCwd(
   activeCwd: string | undefined,
 ): string {
   if (explicitCwd?.trim()) return explicitCwd
-  return resolveProjectRoot(worktreeProjectRoot(activeCwd ?? '~'))
+  return resolveProjectRoot(projectRootOfPath(activeCwd ?? '~'))
 }

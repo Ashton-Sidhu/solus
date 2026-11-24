@@ -64,6 +64,7 @@ const UNINDEXED_SESSION: SessionRecord = {
   session_server_id: null,
   branch: null,
   checkout_path: null,
+  project_root: null,
   session_is_worktree: null,
   session_started_at: null,
   last_activity_at: null,
@@ -93,6 +94,7 @@ function linkFromRow(row: TaskSessionLinkRow, session: SessionRecord = UNINDEXED
   if (session.agent_session_id && session.agent_session_id !== row.session_id) link.agentSessionId = session.agent_session_id
   if (session.branch !== null) link.branch = session.branch
   if (session.checkout_path) link.checkoutPath = session.checkout_path
+  if (session.project_root) link.projectRoot = session.project_root
   if (session.session_is_worktree !== null) link.isolatedCheckout = session.session_is_worktree === 1
   return link
 }

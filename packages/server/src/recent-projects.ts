@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
-import { worktreeProjectRoot, type RecentProject } from '@solus/contracts/types'
+import type { RecentProject } from '@solus/contracts/types'
+import { projectRootOfPath } from './git/task-folder-store'
 import { getDb } from './db'
 import { isChat } from '@solus/contracts/chat'
 import { recordProject } from './project-config/projects-manifest'
@@ -22,7 +23,7 @@ const recentProjectRowsSchema = z.array(z.object({
 
 export async function trackRecentProject(path: string): Promise<void> {
   if (!path || path === '~') return
-  path = worktreeProjectRoot(path)
+  path = projectRootOfPath(path)
   // A chat is a session with no project — never log its folder as one.
   if (isChat(path)) return
   await recordProject(path).catch(() => {})

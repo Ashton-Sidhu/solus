@@ -21,7 +21,7 @@ import { removeQueuedRunEditAttachment } from "../state/queued-run-edit";
 import { videoMimeType } from "@solus/contracts/media-types";
 import type { DraftComposerAttachment } from "../lib/composerImages";
 import { composerUploadMedia } from "./upload-images";
-import { formatAnswer } from "@solus/contracts/question-answer";
+import { pendingInputAnswers, pendingInputQuestions } from "./pending-question";
 import {
   buildPendingUserInputAnswers,
   togglePendingUserInputOptionSelection,
@@ -233,13 +233,7 @@ export function useThreadScreenData({
         createdAt: shell.updatedAt,
         responseCapability: "live" as const,
         dismissible: false,
-        questions: question.questions.map((q) => ({
-          id: q.id ?? q.question,
-          header: q.header ?? q.question,
-          question: q.question,
-          multiSelect: q.multiSelect,
-          options: q.options.map((o) => ({ ...o, description: o.description ?? "" })),
-        })),
+        questions: pendingInputQuestions(question),
       }
     : null;
   const [draftState, setDraftState] = useState<{
@@ -536,18 +530,7 @@ export function useThreadScreenData({
       if (!pending || !answers || !controller.mayApprove || respondingQuestion) return;
       setRespondingQuestion(pending.requestId);
       await controller
-        .answerQuestion(
-          pending.requestId,
-          Object.fromEntries(
-            pending.questions.map((q) => [
-              q.id,
-              formatAnswer(
-                drafts[q.id]?.selectedOptionValues?.join(", ") ?? "",
-                drafts[q.id]?.customAnswer,
-              ),
-            ]),
-          ),
-        )
+        .answerQuestion(pending.requestId, pendingInputAnswers(pending.questions, drafts))
         .finally(() => setRespondingQuestion(null));
     },
     onDismissUserInput: async () => wip(),

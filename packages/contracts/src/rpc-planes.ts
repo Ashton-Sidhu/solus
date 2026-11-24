@@ -115,6 +115,19 @@ export const RPC_PLANES = {
   workspaceProjectAdd: 'collaboration',
   workspaceProjectRemove: 'collaboration',
   workspaceProjectUpdate: 'collaboration',
+  // The record of a codebase is collaboration. Its members are read from a disk: execution.
+  codebaseList: 'collaboration',
+  codebaseSave: 'collaboration',
+  codebaseMembers: 'execution',
+  codebaseScanFolder: 'execution',
+  // The folders of a session are on the disk of its run host.
+  sessionFolders: 'execution',
+  sessionAttachFolder: 'execution',
+  sessionDetachFolder: 'execution',
+  // A task folder and its worktrees are on the disk of the run host.
+  taskFolderOf: 'execution',
+  sessionAddRepositoryWorktree: 'execution',
+  sessionWorktreeCandidates: 'execution',
   loadSession: 'collaboration',
   loadSessionSubagent: 'execution',
   loadSessionPage: 'collaboration',

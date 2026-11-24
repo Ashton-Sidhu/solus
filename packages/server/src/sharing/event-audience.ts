@@ -85,6 +85,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'tasks.invalidated',
   'tasks.sourcesChanged',
   'workspaceProjects.changed',
+  'codebases.changed',
   'projects.changed',
   'outbox.changed',
   'config.changed',

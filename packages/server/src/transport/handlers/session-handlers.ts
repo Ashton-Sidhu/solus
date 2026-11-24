@@ -48,6 +48,7 @@ import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import { promptImageRefSchema } from '../../data/assets/attachment-store'
 import { queuePromptAfterSessionSync } from './session-sync-prompt'
+import { receiveSessionCodebase } from './codebase-handlers'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -393,7 +394,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     request.title = z.string().trim().min(1).max(ORCHESTRATION_LIMITS.title).optional().catch(undefined).parse(request.title)
     // Its owner is claimed before the record is written, so the record is born theirs.
     await claimSession(request.sessionId, handlerCtx, request.cwd)
-    return sessionRuntime.dispatch.createSession({ ...request, sourceSessionId: undefined, delegation: undefined }, handlerCtx.actor)
+    // The codebase of the session that starts this one is saved here first, so the new session finds its folders.
+    const { codebase, ...order } = request
+    const codebaseId = await receiveSessionCodebase(codebase, handlerCtx)
+    return sessionRuntime.dispatch.createSession({ ...order, codebaseId, sourceSessionId: undefined, delegation: undefined }, handlerCtx.actor)
   })
 
   server.register('promptHeadlessSession', async (args, handlerCtx) => {

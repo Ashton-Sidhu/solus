@@ -39,13 +39,15 @@
   import ProjectPanelItemsMenu from "./ProjectPanelItemsMenu.svelte";
   import {
     allPanelItemsHidden,
+    hasRepositoriesToShow,
     isPanelItemShown,
     isSectionShown,
     pointAnchor,
     type PanelMenuAnchor,
   } from "./lib/panel-items";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
-  import { projectHome, projectRoot } from "../../contexts/workspace/run-location";
+  import { codebaseOf, projectHome, projectRoot } from "../../contexts/workspace/run-location";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -189,6 +191,15 @@
   const gitShown = $derived(isSectionShown(hiddenItems, "git"));
   const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
   const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
+  // The folders of a session exist on its host once it has started.
+  const repositoriesSession = $derived(
+    isSectionShown(hiddenItems, "repositories") &&
+      panelSession &&
+      hasSessionStarted(panelSession) &&
+      hasRepositoriesToShow(codebaseOf(panelRun), panelSession.sessionFolders.length)
+      ? panelSession
+      : null,
+  );
   const webhooksShown = $derived(isSectionShown(hiddenItems, "webhooks"));
 
   // The project's webhooks: the section exists only while it has some.
@@ -448,7 +459,14 @@
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <GitSection {sourceId} active={active && open} {hiddenItems} />
+        <!-- With a session folder, the diff panel has a repository picker: the
+             Changes row of this section opens the working directory. -->
+        <GitSection
+          {sourceId}
+          active={active && open}
+          {hiddenItems}
+          onOpenChanges={repositoriesSession ? () => session.showRepositoryDiff(sourceId, null) : undefined}
+        />
         {#if gitSetupShown}
           <GitSetupSection {sourceId} active={active && open} />
         {/if}
@@ -463,6 +481,27 @@
         onResizePointerDown={startResize}
       >
         <GitSetupSection {sourceId} active={active && open} />
+      </PanelSection>
+    {/if}
+    {#if repositoriesSession}
+      <PanelSection
+        title="Repositories"
+        headerDetail={repositoriesSession.sessionFolders.length > 0 ? `${repositoriesSession.sessionFolders.length + 1} folders` : undefined}
+        collapsed={collapsedSections.repositories}
+        onToggle={() => toggleSection("repositories")}
+        onResizePointerDown={startResize}
+      >
+        <!-- Only a session of a codebase, or one with a second folder, has this
+             section, so its code loads with the first one that shows it. -->
+        {#await import("./RepositoriesSection.svelte") then { default: RepositoriesSection }}
+          <RepositoriesSection
+            {sourceId}
+            sessionId={repositoriesSession.id}
+            active={active && open}
+            {hiddenItems}
+            onOpenChanges={(repositoryPath) => session.showRepositoryDiff(sourceId, repositoryPath)}
+          />
+        {/await}
       </PanelSection>
     {/if}
     {#if serversShown && active && open}

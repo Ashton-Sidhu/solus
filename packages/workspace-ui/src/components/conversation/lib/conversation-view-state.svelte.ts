@@ -17,6 +17,9 @@ export class ConversationViewState {
   readonly mcpApps = new McpAppViews()
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null
+  /** The session folder whose repository the diff panel reads; null for the
+   *  repository of the working directory (docs/plans/codebases.md §9). */
+  diffRepositoryPath = $state<string | null>(null)
   readonly virtualizer = new TranscriptVirtualizer(
     () => this.position === null,
     () => {

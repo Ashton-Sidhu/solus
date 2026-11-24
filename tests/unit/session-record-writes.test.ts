@@ -71,3 +71,27 @@ test('a later report keeps the first created_at', async () => {
   expect(later.createdAt).toBe(1_000)
   expect((await records.getSessionRecord(ANY_ORGANIZATION, 's2'))?.createdAt).toBe(1_000)
 })
+
+test('the codebase and the attached folders of a session stay through reports that do not name them', async () => {
+  // WHY (docs/plans/codebases.md §5): the indexer and the status report write
+  // the same row and know nothing of the folders. A report that erased them
+  // would take the folders away from the session at its next turn.
+  const attachedFolders = [{ path: '/Users/me/libs/ui', source: 'attached' as const }, { path: '/Users/me/new-service', source: 'created' as const }]
+  const first = await records.upsertOwnSessionRecord({ sessionId: 's-folders', provider: 'codex', projectPath: '-repo', lastActivityAt: 1_000, createdAt: 1_000 })
+  expect(first).toMatchObject({ codebaseId: null, attachedFolders: [] })
+
+  await records.upsertOwnSessionRecord({ sessionId: 's-folders', provider: 'codex', projectPath: '-repo', lastActivityAt: 2_000, codebaseId: 'codebase-shop', attachedFolders })
+  const reported = await records.upsertOwnSessionRecord({ sessionId: 's-folders', provider: 'codex', projectPath: '-repo', lastActivityAt: 3_000, title: 'A later report' })
+  expect(reported).toMatchObject({ codebaseId: 'codebase-shop', attachedFolders })
+  expect(await records.getSessionRecord(ANY_ORGANIZATION, 's-folders')).toMatchObject({ codebaseId: 'codebase-shop', attachedFolders })
+
+  // A detach writes the shorter list, and a session can leave its codebase.
+  const detached = await records.upsertOwnSessionRecord({ sessionId: 's-folders', provider: 'codex', projectPath: '-repo', lastActivityAt: 4_000, codebaseId: null, attachedFolders: [attachedFolders[0]!] })
+  expect(detached).toMatchObject({ codebaseId: null, attachedFolders: [attachedFolders[0]] })
+  // The status write returns the row to the listeners: they hear the folders too.
+  const heard: SessionRecord[] = []
+  const stop = records.onSessionRecordChanged((record) => { heard.push(record) })
+  await records.setSessionRecordStatus(ANY_ORGANIZATION, 's-folders', 'running')
+  stop()
+  expect(heard.map((record) => record.attachedFolders)).toEqual([[attachedFolders[0]!]])
+})

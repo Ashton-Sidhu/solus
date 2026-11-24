@@ -210,6 +210,9 @@ export class SessionOrchestrator {
       // A child works for its parent's organization; host B admits it as a prompt in that organization.
       const organizationId = senderSessionId ? await this.runtime.turnOrganization(senderSessionId) : undefined
       if (organizationId) request.organizationId = organizationId
+      // The target host gets the full record of the codebase: it has no other way to read it (docs/plans/codebases.md §6).
+      const codebase = order.codebaseId ? await this.runtime.codebase(order.codebaseId, senderSessionId) : null
+      if (codebase) request.codebase = codebase
       await follow?.watching
       Object.assign(request, await attachToPrompt(order.prompt, order.attachments, uploadTo(host), exchangeId))
       await host.call('the session start', () => host.api.createHeadlessSession(request))

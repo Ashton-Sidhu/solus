@@ -1,4 +1,4 @@
-import type { StatusCardState } from '@solus/contracts/types'
+import type { StatusCardState, StatusCardStep } from '@solus/contracts/types'
 import { formatStepDuration, setupSpanMs } from '@solus/contracts/setup-card'
 
 export interface StatusCardLine {
@@ -33,4 +33,15 @@ export function statusCardLine(card: StatusCardState, clientTotalMs: number): St
     rail: total > 0 ? `step ${Math.min(doneCount + 1, total)} of ${total}` : '',
     progressPercent,
   }
+}
+
+/**
+ * What a running step says at the end of its row: its detail when the host
+ * sends one (the checkout step of several worktrees names the repository,
+ * "web (2 of 3)"), then its percentage, else "running".
+ */
+export function activeStepNote(step: Pick<StatusCardStep, 'detail' | 'percent'>): string {
+  const progress = step.percent === undefined ? null : `${step.percent}%`
+  if (step.detail) return progress ? `${step.detail} · ${progress}` : step.detail
+  return progress ?? 'running'
 }

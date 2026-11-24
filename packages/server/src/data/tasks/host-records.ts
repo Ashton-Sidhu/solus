@@ -28,6 +28,7 @@ const sessionRecordRowSchema = z.object({
   session_server_id: z.string().nullable(),
   branch: z.string().nullable(),
   checkout_path: z.string().nullable(),
+  project_root: z.string().nullable(),
   session_is_worktree: z.number().nullable(),
   session_started_at: z.number().nullable(),
   last_activity_at: z.number().nullable(),
@@ -53,6 +54,7 @@ export function sessionRecordsFor(sessionIds: Iterable<string>): Map<string, Ses
       transcript_index.server_id AS session_server_id,
       transcript_index.branch AS branch,
       transcript_index.cwd AS checkout_path,
+      transcript_index.project_root AS project_root,
       transcript_index.is_worktree AS session_is_worktree,
       (
         SELECT MIN(started_at)

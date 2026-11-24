@@ -3,6 +3,9 @@
 A project is a folder on a host. Usually the folder is a Git repository.
 Sessions, tasks and pull requests belong to a project.
 
+For work that covers more than one folder, or folders on more than one host,
+make a codebase. See [Codebases](codebases.md).
+
 ## Start a project
 
 There are three ways to start a project:
@@ -239,5 +242,13 @@ destination must be new or empty. The cloned repository is registered as a
 project in the same call; no second registration is required.
 
 Both tools return `path` and `projectKey`. Paths name folders on that host.
-The current session keeps its folder. To start work in the project, call
-`start_sessions` with the returned path as `cwd`.
+The current session keeps its working directory, and the new folder becomes a
+folder of the session, so the agent can work there in the same session. Codex
+gets its writable folders at a turn start: a write in the new folder needs an
+approval until the next turn. When the session has a codebase, the new folder
+also becomes a folder of that codebase, unless the call has
+`add_to_codebase: false` or a folder of the codebase holds it already
+([Codebases](codebases.md#new-projects)). The result says so in
+`sessionFolder` and `addedToCodebase`. If the folder could not become a
+folder of the session, the result has `sessionFolderError` with the reason:
+the project still exists.

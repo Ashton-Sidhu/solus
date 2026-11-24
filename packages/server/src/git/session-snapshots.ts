@@ -121,6 +121,32 @@ export async function getSessionPaths(repoRoot: string, sessionId: string): Prom
   return { turnPaths: await turnPathsOf(repoRoot, sidecar), sessionChangedFiles: sidecar.sessionChangedFiles ?? [] }
 }
 
+/** True when a turn of the session changed a path in the repository. */
+export function hasSessionTurnChanges(repoRoot: string, sessionId: string): boolean {
+  const sidecar = readSidecar(repoRoot, sessionId)
+  if (!sidecar) return false
+  return (sidecar.turnPaths?.length ?? 0) > 0 || sidecar.turns.some((turn) => turn.filesChanged > 0)
+}
+
+/**
+ * The commit of each checkout that was clean when the open turn of a session
+ * started there (`folder-turn-snapshots.ts`). Such a turn start has no tree and
+ * no sidecar entry, so the session scope reads the live change of the open turn
+ * against this commit. Live state of this host, kept in memory.
+ */
+const cleanTurnStarts = new Map<string, string>()
+
+/** Note the commit a clean checkout is at when a turn starts; null removes the note. */
+export function noteCleanTurnStart(repoRoot: string, sessionId: string, head: string | null): void {
+  const key = `${repoRoot}\0${sessionId}`
+  if (head) cleanTurnStarts.set(key, head)
+  else cleanTurnStarts.delete(key)
+}
+
+export function cleanTurnStartOf(repoRoot: string, sessionId: string): string | null {
+  return cleanTurnStarts.get(`${repoRoot}\0${sessionId}`) ?? null
+}
+
 function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void {
   ensureSolusDirs(repoRoot)
   // Machine-written, machine-read, and rewritten at every turn boundary — the
@@ -200,12 +226,17 @@ export async function prepareTurnSnapshot(
   workTree: string,
   repoRoot: string,
   sessionId: string,
-): Promise<void> {
+  /** When it stops before the tree is ready, nothing is written: a late tree can hold the first writes of the turn. */
+  signal?: AbortSignal,
+): Promise<boolean> {
   return inSnapshotQueue(repoRoot, async () => {
     const sidecar = readSidecar(repoRoot, sessionId)
-    if (!sidecar) return
-    sidecar.pendingTurnTreeSha = await snapshotLiveTree(workTree, repoRoot)
+    if (!sidecar) return false
+    const tree = await snapshotLiveTree(workTree, repoRoot)
+    if (signal?.aborted) return false
+    sidecar.pendingTurnTreeSha = tree
     writeSidecar(repoRoot, sessionId, sidecar)
+    return true
   })
 }
 
@@ -297,13 +328,27 @@ async function isUnbornHead(workTree: string): Promise<boolean> {
     })
 }
 
+/**
+ * The start of a turn in a checkout that got no tree when the turn started
+ * (`folder-turn-snapshots.ts`): the tree the turn started from, and the commit
+ * that becomes the session's base when the session has none in the repository.
+ */
+export interface LateTurnStart {
+  baseSha: string
+  treeSha: string
+}
+
 export async function snapshotTurn(
   workTree: string,
   repoRoot: string,
   sessionId: string,
   opts: SnapshotOpts = {},
+  lateStart?: LateTurnStart,
 ): Promise<SnapshotTurnResult | null> {
-  return inSnapshotQueue(repoRoot, () => snapshotTurnQueued(workTree, repoRoot, sessionId, opts))
+  return inSnapshotQueue(repoRoot, async () => {
+    if (lateStart) await initSessionBaseQueued(repoRoot, sessionId, lateStart.baseSha, workTree)
+    return snapshotTurnQueued(workTree, repoRoot, sessionId, opts, lateStart?.treeSha)
+  })
 }
 
 async function snapshotTurnQueued(
@@ -311,13 +356,15 @@ async function snapshotTurnQueued(
   repoRoot: string,
   sessionId: string,
   opts: SnapshotOpts,
+  lateStartTree: string | undefined,
 ): Promise<SnapshotTurnResult | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
     log.warn('snapshot_skipped_no_base_ref', { sessionId })
     return null
   }
-  if (!sidecar.pendingTurnTreeSha) {
+  const turnStartTree = lateStartTree ?? sidecar.pendingTurnTreeSha
+  if (!turnStartTree) {
     log.warn('snapshot_skipped_no_turn_start', { sessionId })
     return null
   }
@@ -329,7 +376,7 @@ async function snapshotTurnQueued(
   }
 
   try {
-    const turnFrom = sidecar.pendingTurnTreeSha
+    const turnFrom = turnStartTree
     const liveTo = await snapshotLiveTree(workTree, repoRoot)
     // Another session's writes during this turn stay out of it.
     const othersPaths = await pathsOfOtherSessions(sessionId, workTree,
@@ -429,7 +476,7 @@ async function reconcileSessionPaths(
 }
 
 /** Every path, old and new names alike, that differs between two trees. */
-async function changedPathsBetween(repoRoot: string, from: string, to: string): Promise<string[]> {
+export async function changedPathsBetween(repoRoot: string, from: string, to: string): Promise<string[]> {
   if (from === to) return []
   const out = await runAsync('git', ['diff', '--name-only', '--no-renames', '-z', from, to], repoRoot, { raw: true })
   return out.split('\0').filter(Boolean)
@@ -521,11 +568,12 @@ async function ownLivePaths(
   env: NodeJS.ProcessEnv,
 ): Promise<string[]> {
   const sidecar = readSidecar(repoRoot, sessionId)
-  if (!sidecar) return []
-  const paths = new Set(await turnPathsOf(repoRoot, sidecar))
-  if (sidecar.pendingTurnTreeSha) {
+  // The start of the open turn: the commit of a checkout that was clean then, else the tree captured then.
+  const turnStart = cleanTurnStartOf(repoRoot, sessionId) ?? sidecar?.pendingTurnTreeSha
+  const paths = new Set(sidecar ? await turnPathsOf(repoRoot, sidecar) : [])
+  if (turnStart) {
     const live = (await runAsync('git',
-      ['diff', '--name-only', '--no-renames', '-z', sidecar.pendingTurnTreeSha],
+      ['diff', '--name-only', '--no-renames', '-z', turnStart],
       workTree,
       { env, raw: true },
     )).split('\0').filter(Boolean)
@@ -537,7 +585,7 @@ async function ownLivePaths(
 
 /** `tree` with `paths` put back as they were in `from`, through a temporary
  *  index, so a turn's end tree leaves out what another session wrote. */
-async function restorePaths(repoRoot: string, tree: string, from: string, paths: string[]): Promise<string> {
+export async function restorePaths(repoRoot: string, tree: string, from: string, paths: string[]): Promise<string> {
   ensureSolusDirs(repoRoot)
   const indexPath = tmpIndexPath(repoRoot)
   const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: indexPath }
@@ -726,7 +774,8 @@ async function resolveSessionBase(repoRoot: string, sessionId: string): Promise<
   try {
     return await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
   } catch {
-    return null
+    // No base yet: the session's first change in a checkout that was clean when the open turn started.
+    return cleanTurnStartOf(repoRoot, sessionId)
   }
 }
 

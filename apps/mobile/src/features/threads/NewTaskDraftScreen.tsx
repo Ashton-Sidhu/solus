@@ -103,7 +103,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 
 
 
-function NewTaskWorkspaceIcon(props: {
+export function NewTaskWorkspaceIcon(props: {
   readonly workspaceMode: "local" | "worktree";
   readonly worktreePath: string | null;
   readonly size: number;

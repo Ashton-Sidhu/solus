@@ -1,4 +1,5 @@
 import { agentProjectInstance } from "@solus/contracts/provider-instance-models";
+import { isTaskFolderPath } from "@solus/contracts/codebases";
 import { useSyncExternalStore } from "react";
 import {
   useNavigation,
@@ -57,7 +58,10 @@ function Picker({
   const meta = useSyncExternalStore(store.meta.subscribe, store.metaSnapshotOf);
   const draft = useComposerDraft(params.draftKey);
   const { controller } = store;
-  const cwd = meta.run.workingDirectory;
+  // The project folder names the provider settings. The path of a task folder names no project (docs/plans/codebases.md §7).
+  const cwd = isTaskFolderPath(meta.run.workingDirectory)
+    ? meta.run.projectRoot
+    : meta.run.workingDirectory;
   const host = useModelPickerHost(params.environmentId, cwd);
   const agents = (host.agents ?? meta.runOptions.agents ?? []).filter(
     (agent) =>

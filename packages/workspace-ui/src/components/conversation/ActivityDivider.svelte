@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Activity } from "@solus/contracts/activity";
-  import { GitFork as GitForkIcon, CirclePlus as PlusCircleIcon } from "@lucide/svelte";
+  import { FolderGit2 as CodebaseIcon, GitFork as GitForkIcon, CirclePlus as PlusCircleIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import { agentLabel } from "../../lib/agentAvailability";
   import ActivityRow from "../activity/ActivityRow.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import WorktreeOfferCard from "./WorktreeOfferCard.svelte";
+  import { codebaseDividerFolders } from "./lib/codebase-divider";
   import { worktreeDividerName } from "./lib/worktree-divider";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -13,7 +14,8 @@
   /**
    * One activity in the transcript (plans/012 §5): what a person did as a
    * divider, and the thread's own news — a fork, a move into a worktree, an
-   * agent switch, a plan's fresh session — with the action each has always had.
+   * agent switch, a plan's fresh session, a codebase that the host made — with
+   * the action each has always had.
    * An offer to switch into the agent's worktree is a card with its answer.
    */
   interface Props {
@@ -52,6 +54,19 @@
       short
       title={worktreeDividerName(activity, movedCheckout ? movedCheckout.checkout : session.environment.environmentFor(sess?.run).checkout)}
     />
+  </TranscriptDivider>
+{:else if activity.kind === "codebase_formed"}
+  <!-- The host made a codebase for the session. The line opens the codebase in
+       Settings, where its folders and its delete are. -->
+  <TranscriptDivider
+    glyphClass="text-(--solus-accent)"
+    ariaLabel="Open the codebase {activity.name} in Settings"
+    onclick={() => session.router.navigate({ name: "settings", params: { tab: "codebases", codebase: activity.codebaseId } })}
+    testid="codebase-formed-message"
+    {skipMotion}
+  >
+    {#snippet glyph()}<CodebaseIcon size={12} />{/snippet}
+    <ActivityRow {activity} {self} short title={activity.name} tail={codebaseDividerFolders(activity.folders)} />
   </TranscriptDivider>
 {:else if activity.kind === "worktree_offered"}
   <WorktreeOfferCard offer={activity} {tabId} />

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, jest, test } from 'bun:test'
-import type { SessionDigest } from '@solus/contracts/session-digest'
+import { sessionDigestSchema, type SessionDigest } from '@solus/contracts/session-digest'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { DIGEST_WRITE_INTERVAL_MS, SessionDigests } from '@solus/server/execution/sessions/session-digests'
 
@@ -195,6 +195,52 @@ describe('session digests', () => {
     expect(run.last().changes).toEqual(changes)
     expect(run.last().turns.map((turn) => turn.changes)).toEqual([null, { filesChanged: 1, additions: 3, deletions: 1 }])
     expect(run.announced).toEqual(['session-1'])
+  })
+
+  test('a checkpoint of several repositories keeps the entry of each one, also through the stored form', async () => {
+    // WHY: a session with several repositories has one summary over all of
+    // them (docs/plans/codebases.md §8). A reader must tell the repositories
+    // apart, and the digest is parsed with its schema each time it is read
+    // from the database or copied to a different host: a schema that drops the
+    // entries would show only the totals there.
+    const stored: SessionDigest = {
+      sessionId: 'session-1',
+      turns: [{ id: 'one', startedAt: START, endedAt: START + 10_000, settled: true, prompt: 'One', toolCalls: [], changes: null }],
+      changes: null,
+      subagents: [],
+      lastReply: null,
+      updatedAt: START + 10_000,
+    }
+    const run = harness(stored)
+    const api = { repositoryPath: '/work/api', name: 'api' }
+    const web = { repositoryPath: '/work/web', name: 'web' }
+    const changes = {
+      files: [
+        { path: 'handler.ts', additions: 3, deletions: 1, status: 'M' as const },
+        { path: '../web/page.ts', additions: 2, deletions: 0, status: 'A' as const },
+      ],
+      filesChanged: 2, additions: 5, deletions: 1,
+      repositories: [
+        { ...api, files: [{ path: 'handler.ts', additions: 3, deletions: 1, status: 'M' as const }], filesChanged: 1, additions: 3, deletions: 1 },
+        { ...web, files: [{ path: 'page.ts', additions: 2, deletions: 0, status: 'A' as const }], filesChanged: 1, additions: 2, deletions: 0 },
+      ],
+    }
+    const turn = {
+      filesChanged: 2, additions: 5, deletions: 1,
+      repositories: [{ ...api, filesChanged: 1, additions: 3, deletions: 1 }, { ...web, filesChanged: 1, additions: 2, deletions: 0 }],
+    }
+    run.digests.checkpointed({ sessionId: 'session-1', changes, turn: { ...turn, endedAt: START + 10_500 } })
+    await run.digests.settled()
+
+    const read = sessionDigestSchema.parse(JSON.parse(JSON.stringify(run.last())))
+    expect(read.changes).toEqual(changes)
+    expect(read.turns[0]?.changes).toEqual(turn)
+
+    // The next checkpoint has one changed repository: the summary names no repository.
+    const single = { files: changes.repositories[0]!.files, filesChanged: 1, additions: 3, deletions: 1 }
+    run.digests.checkpointed({ sessionId: 'session-1', changes: single, turn: { filesChanged: 0, additions: 0, deletions: 0, endedAt: START + 10_600 } })
+    await run.digests.settled()
+    expect(run.last().changes).toEqual(single)
   })
 
   test('a new turn continues the stored digest of the session', async () => {

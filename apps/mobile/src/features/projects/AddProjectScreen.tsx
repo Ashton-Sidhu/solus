@@ -1,4 +1,4 @@
-import { createProject, cloneProject, addLocalProject, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
+import { createProject, cloneProject, addLocalProject, addCodebaseFolder, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
 import { useEnvironmentQuery } from "../../state/query";
 import { useCheckoutAccess } from "../../solus/use-checkout-files";
 import { solus, useSolusWorkspace } from "../../solus/runtime";
@@ -1022,8 +1022,13 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
   );
 }
 
-export function AddProjectLocalFolderScreen(props: { readonly environmentId?: string | string[] }) {
+export function AddProjectLocalFolderScreen(props: {
+  readonly environmentId?: string | string[];
+  readonly codebaseId?: string | string[];
+}) {
   const environment = useEnvironmentFromParam(props.environmentId);
+  // Solus: with a codebase, the chosen folder becomes a root of it and no project is added.
+  const codebaseId = stringParam(props.codebaseId);
   const canCreateProject = environment?.connectionState === "connected";
   const navigation = useNavigation();
   const openNewTaskDraft = useOpenNewTaskDraft();
@@ -1051,6 +1056,12 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
     setIsSubmitting(true);
     const originRoute = getActiveRoute(navigation);
     try {
+      if (codebaseId !== null) {
+        await addCodebaseFolder(environment.environmentId, codebaseId, resolved.path);
+        setIsSubmitting(false);
+        navigation.goBack();
+        return;
+      }
       const project = await addLocalProject(environment.environmentId, resolved.path);
       if (project)
         openNewTaskDraft(
@@ -1071,16 +1082,22 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
   };
 
   return (
-    <AddProjectShell title={gt("Local folder")}>
+    <AddProjectShell title={codebaseId !== null ? gt("Add folder") : gt("Local folder")}>
       {error ? <ErrorBanner message={error} /> : null}
       {environment ? (
         <>
           {!canCreateProject ? (
-            <ErrorBanner message={gt("This connection cannot add projects.")} />
+            <ErrorBanner
+              message={
+                codebaseId !== null
+                  ? gt("This connection cannot add folders.")
+                  : gt("This connection cannot add projects.")
+              }
+            />
           ) : null}
           <ProjectPathInput value={pathInput} onChangeText={setPathInput} onSubmit={submitPath} />
           <PrimaryActionButton
-            label={gt("Add project")}
+            label={codebaseId !== null ? gt("Add folder") : gt("Add project")}
             disabled={!canCreateProject || isSubmitting}
             onPress={submitPath}
             loading={isSubmitting}

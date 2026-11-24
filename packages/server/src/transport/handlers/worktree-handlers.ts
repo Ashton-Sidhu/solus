@@ -1,5 +1,6 @@
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { writeFile } from 'fs/promises'
+import { resolve } from 'path'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
 import { DIFF_STATS_BATCH_LIMIT } from '@solus/contracts/git-types'
@@ -21,7 +22,8 @@ import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { prIndex } from '../../prs/pr-index'
 import { pullRequestForHead, pushHeadFor, type CodeHost } from '../../prs/code-host'
 import type { SolusServer } from '../server'
-import { attributionOf } from '../../admission/actor'
+import { attributionOf, type Actor } from '../../admission/actor'
+import { resolveHomePath } from '../../platform/paths'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { resolveSourceControlWriterModel, sourceControlWritingFor } from '../../host/settings'
@@ -90,6 +92,47 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
   const textGenerator = new TextGenerator(sessionRuntime)
 
+  /**
+   * The checkout a diff request reads: the session's own, or the one of the
+   * repository the request names (docs/plans/codebases.md §8). A request names
+   * a repository by the working directory of the session, by its repository
+   * root, or by the `path` or `repositoryPath` of a `git` session folder. Any
+   * other path is refused: the session id alone must not open a diff of an
+   * arbitrary folder.
+   */
+  const diffCheckoutOf = async (ctx: IpcContext, repositoryPath: string | undefined, actor: Actor): Promise<{ workTree: string; repoRoot: string } | null> => {
+    const own = workTreeForCtx(ctx)
+    let workTree = own
+    if (repositoryPath !== undefined) {
+      const named = resolve(resolveHomePath(repositoryPath))
+      const ownRepoRoot = own && own !== '~' ? await checkoutRepoRoot(ctx) : null
+      const isOwn = (own && named === resolve(resolveHomePath(own))) || (ownRepoRoot && named === resolve(ownRepoRoot))
+      if (!isOwn) {
+        const folders = ctx.session.sessionId ? await sessionRuntime.sessionFolders.read(ctx.session.sessionId, actor) : []
+        const folder = folders.find((each) => each.state === 'git' && (each.path === named || each.repositoryPath === named))
+        if (!folder) throw new Error(`"${repositoryPath}" is not a repository of this session.`)
+        workTree = folder.path
+      }
+    }
+    if (!workTree || workTree === '~') return null
+    const repoRoot = await resolveRepoRoot(workTree)
+    return repoRoot ? { workTree, repoRoot } : null
+  }
+
+  /**
+   * True when `cwd` is a session folder of the session and not its working
+   * directory. A Git action there leaves the session bound to its working
+   * directory: the folder's own `git_context` and `git_status` events carry
+   * the change (docs/plans/codebases.md §8).
+   */
+  const isSessionFolder = async (sessionId: string, cwd: string | undefined, actor: Actor): Promise<boolean> => {
+    if (!sessionId || !cwd || cwd === '~') return false
+    const path = resolve(resolveHomePath(cwd))
+    const workingDirectory = sessionRuntime.sessionCheckouts.sessionCheckoutPaths.get(sessionId)
+    if (workingDirectory && resolve(workingDirectory) === path) return false
+    return (await sessionRuntime.sessionFolders.read(sessionId, actor)).some((folder) => folder.path === path)
+  }
+
   const generateCommitSubject = async (
     cwd: string,
     writer: WritingBackend | null,
@@ -123,55 +166,59 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return listProjectWorktrees(dir)
   })
 
-  server.register('diff', async (args) => {
+  server.register('diff', async (args, handlerCtx) => {
     const ctx = withSessionCheckout(args[0])
     const request = args[1]
     log.info('rpc_diff', { sessionId: ctx.session.sessionId, scopeKind: request.scope.kind })
-    const repoRoot = await checkoutRepoRoot(ctx)
-    if (!repoRoot) return null
-    const workTree = workTreeForCtx(ctx)
+    const checkout = await diffCheckoutOf(ctx, request.repositoryPath, handlerCtx.actor)
+    if (!checkout) return null
     const sid = ctx.session.sessionId ?? null
-    return await getDiff(workTree, repoRoot, request.scope, sid)
+    return await getDiff(checkout.workTree, checkout.repoRoot, request.scope, sid)
   })
 
-  server.register('diffFileContents', async (args) => {
+  server.register('diffFileContents', async (args, handlerCtx) => {
     const ctx = withSessionCheckout(args[0])
     const request = args[1]
-    const repoRoot = await checkoutRepoRoot(ctx)
-    if (!repoRoot) return null
-    const workTree = workTreeForCtx(ctx)
+    const checkout = await diffCheckoutOf(ctx, request.repositoryPath, handlerCtx.actor)
+    if (!checkout) return null
     const sid = ctx.session.sessionId ?? null
-    return getDiffFileContents(workTree, repoRoot, sid, request)
+    return getDiffFileContents(checkout.workTree, checkout.repoRoot, sid, request)
   })
 
-  server.register('diffStats', async (args) => {
+  server.register('diffStats', async (args, handlerCtx) => {
     const ctx = withSessionCheckout(args[0])
     const request = args[1]
-    const repoRoot = await checkoutRepoRoot(ctx)
-    if (!repoRoot) return []
-    const workTree = workTreeForCtx(ctx)
+    const checkout = await diffCheckoutOf(ctx, request.repositoryPath, handlerCtx.actor)
+    if (!checkout) return []
     const sid = ctx.session.sessionId ?? null
-    return getDiffStats(workTree, repoRoot, request.scope, sid)
+    return getDiffStats(checkout.workTree, checkout.repoRoot, request.scope, sid)
   })
 
-  server.register('diffStatsBatch', async (args) => {
+  server.register('diffStatsBatch', async (args, handlerCtx) => {
     const ctx = withSessionCheckout(args[0])
     const requests = args[1]
     if (requests.length > DIFF_STATS_BATCH_LIMIT) throw new Error(`diffStatsBatch answers at most ${DIFF_STATS_BATCH_LIMIT} requests`)
-    const repoRoot = await checkoutRepoRoot(ctx)
-    if (!repoRoot) return requests.map(() => [])
-    const workTree = workTreeForCtx(ctx)
+    // One resolve for each repository the batch names; most batches name one.
+    const checkouts = new Map<string | undefined, ReturnType<typeof diffCheckoutOf>>()
+    const checkoutFor = (repositoryPath: string | undefined) => {
+      let checkout = checkouts.get(repositoryPath)
+      if (!checkout) checkouts.set(repositoryPath, checkout = diffCheckoutOf(ctx, repositoryPath, handlerCtx.actor))
+      return checkout
+    }
     const sid = ctx.session.sessionId ?? null
-    return Promise.all(requests.map((request) => getDiffStats(workTree, repoRoot, request.scope, sid)))
+    return Promise.all(requests.map(async (request) => {
+      const checkout = await checkoutFor(request.repositoryPath)
+      return checkout ? getDiffStats(checkout.workTree, checkout.repoRoot, request.scope, sid) : []
+    }))
   })
 
-  server.register('listTurnSnapshots', async (args) => {
+  server.register('listTurnSnapshots', async (args, handlerCtx) => {
     const ctx = withSessionCheckout(args[0])
     const sid = ctx.session.sessionId
     if (!sid) return []
-    const repoRoot = await checkoutRepoRoot(ctx)
-    if (!repoRoot) return []
-    return await listTurnSnapshots(repoRoot, sid)
+    const checkout = await diffCheckoutOf(ctx, args[1], handlerCtx.actor)
+    if (!checkout) return []
+    return await listTurnSnapshots(checkout.repoRoot, sid)
   })
 
   server.register('gitRunAction', async (args, handlerCtx) => {
@@ -230,12 +277,17 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       },
     })
     if (result.branch.status === 'created') {
-      const nextGitContext = { ...gitContext, branch: result.branch.name }
-      sessionRuntime.sessionCheckouts.setSessionGitEnvironment(
-        ctx.session.sessionId,
-        nextGitContext.worktreePath ?? ctx.session.workingDirectory,
-        nextGitContext,
-      )
+      if (await isSessionFolder(ctx.session.sessionId, cwd, handlerCtx.actor)) {
+        // The session stays in its working directory. The read tells each session that has the folder.
+        await sessionRuntime.checkouts.refresh(cwd)
+      } else {
+        const nextGitContext = { ...gitContext, branch: result.branch.name }
+        sessionRuntime.sessionCheckouts.setSessionGitEnvironment(
+          ctx.session.sessionId,
+          nextGitContext.worktreePath ?? ctx.session.workingDirectory,
+          nextGitContext,
+        )
+      }
     }
     const pullRequest = result.pullRequest
     const sessionId = ctx.session.agentSessionId ? ctx.session.sessionId : null
@@ -271,7 +323,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return syncWithOrigin(gitContext, ctx.session.workingDirectory)
   })
 
-  server.register('gitCheckoutBranch', async (args): Promise<GitCheckoutBranchResult> => {
+  server.register('gitCheckoutBranch', async (args, handlerCtx): Promise<GitCheckoutBranchResult> => {
     const [ctx, branch, options] = args
     log.info('rpc_git_checkout_branch', { sessionId: ctx.session.sessionId, branch, create: options?.create === true })
     try {
@@ -295,8 +347,12 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
       // A branch found in another worktree leaves the session where it is: the
       // caller moves its own run there. Binding the session to that worktree
-      // would move a started conversation the caller did not choose.
-      if (workingDirectory === cwd) sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
+      // would move a started conversation the caller did not choose. A checkout
+      // in a session folder also leaves the session in its working directory:
+      // the refresh above told each session that has the folder.
+      if (workingDirectory === cwd && !await isSessionFolder(ctx.session.sessionId, cwd, handlerCtx.actor)) {
+        sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
+      }
       return { success: true, gitContext, workingDirectory }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
@@ -373,8 +429,10 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return computeGitIdentity(cwd)
   })
 
-  server.register('gitRegisterEnvironment', (args) => {
+  server.register('gitRegisterEnvironment', async (args, handlerCtx) => {
     const [ctx, cwd, gitContext] = args
+    // A session folder is not the checkout of the session: it is watched by its own path.
+    if (await isSessionFolder(ctx.session.sessionId, gitContext?.worktreePath ?? cwd, handlerCtx.actor)) return
     sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
   })
 

@@ -11,6 +11,9 @@ interface DiffStateOptions {
   getTabId: () => string
   getCtx?: () => IpcContext
   getApi?: () => HostApi
+  /** The session folder whose repository the panel reads. Absent, or an answer
+   *  of undefined, is the repository of the working directory. */
+  getRepositoryPath?: () => string | undefined
 }
 
 export interface DiffLoadResult {
@@ -22,6 +25,14 @@ function scopeKey(scope: DiffScope): string {
   if (scope.kind === 'session' || scope.kind === 'working-tree' || scope.kind === 'branch') return scope.kind
   if (scope.kind === 'pr') return `pr:${scope.baseSha}`
   return `turn:${scope.index}`
+}
+
+/**
+ * One parsed patch for each scope of each repository. A scope alone is not a
+ * key: turn 2 of one repository is not turn 2 of a different one.
+ */
+function parsedKey(repositoryPath: string | undefined, scope: DiffScope): string {
+  return repositoryPath ? `${repositoryPath}\n${scopeKey(scope)}` : scopeKey(scope)
 }
 
 type ParsedDiffScope = {
@@ -107,7 +118,8 @@ export class DiffState {
     }
 
     const requestScope = this.scope
-    const response = await this.load(requestScope)
+    const requestRepository = this.opts.getRepositoryPath?.()
+    const response = await this.load(requestScope, requestRepository)
     if (generation !== this.generation) return { result: null, error: null }
 
     if (opts.silent && !response.result) return response
@@ -115,7 +127,7 @@ export class DiffState {
     this.diff = response.result
     this.loadError = response.error
     if (response.result) {
-      this.applyPatch(requestScope, response.result.patch)
+      this.applyPatch(parsedKey(requestRepository, requestScope), response.result.patch)
     }
 
     this.loading = false
@@ -129,7 +141,7 @@ export class DiffState {
     this.scope = scope
     this.diff = { patch }
     this.loadError = null
-    this.applyPatch(scope, patch)
+    this.applyPatch(parsedKey(undefined, scope), patch)
     this.loading = false
   }
 
@@ -143,6 +155,7 @@ export class DiffState {
       this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
       this.scope,
       fileDiff,
+      this.opts.getRepositoryPath?.(),
     )
   }
 
@@ -221,11 +234,11 @@ export class DiffState {
     this.parsedByScope.clear()
   }
 
-  private async load(scope: DiffScope): Promise<DiffLoadResult> {
+  private async load(scope: DiffScope, repositoryPath: string | undefined): Promise<DiffLoadResult> {
     try {
       const result = await (this.opts.getApi?.() ?? this.opts.session.apiFor(this.opts.getTabId())).diff(
         this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
-        { scope: { ...scope } },
+        repositoryPath ? { scope: { ...scope }, repositoryPath } : { scope: { ...scope } },
       )
       return { result, error: null }
     } catch (err) {
@@ -233,8 +246,7 @@ export class DiffState {
     }
   }
 
-  private applyPatch(scope: DiffScope, patch: string): void {
-    const key = scopeKey(scope)
+  private applyPatch(key: string, patch: string): void {
     this.patch = patch
     let parsed = this.parsedByScope.get(key)
     if (!parsed || parsed.patch !== patch) {

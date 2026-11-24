@@ -25,6 +25,7 @@ function fixture(previousReply?: string) {
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
     turnEnding: async () => (previousReply ? { reply: previousReply } : {}), taskIdFor: async () => undefined,
     turnOrganization: async () => undefined,
+    codebase: async () => null,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise.then(() => {})); return promise },

@@ -45,6 +45,7 @@
   import ArtifactCard from "./ArtifactCard.svelte";
   import ArtifactRow from "./ArtifactRow.svelte";
   import ChangeKinds from "./ChangeKinds.svelte";
+  import ChangeRepositories from "./ChangeRepositories.svelte";
   import ChangeTree from "./ChangeTree.svelte";
   import LineCounts from "./LineCounts.svelte";
   import RecentArtifactsRow from "./RecentArtifactsRow.svelte";
@@ -159,7 +160,7 @@
   // A kind the scope no longer holds is no filter: the tree shows every kind again.
   const changeKind = $derived(changeKinds.some((entry) => entry.kind === pickedChangeKind) ? pickedChangeKind : null);
   const treeChanges = $derived(changesOfKind(overview.changes, changeKind));
-  const changesTree = $derived(changeTree(treeChanges));
+  const changesTree = $derived(changeTree(treeChanges, overview.fileRepositories));
   // A small change, or a search, shows its files at once; a larger one opens on its folders.
   const changeTreesOpen = $derived(treeChanges.length <= OPEN_TREE_FILE_LIMIT || overview.query.trim().length > 0);
   const runningAgents = $derived(desktopLineage ? 0 : overview.agents.filter((row) => row.standing === "live").length);
@@ -197,6 +198,11 @@
       return;
     }
     if (tabId) session.showDiff(tabId, overview.changeScope ?? { kind: "session" }, path);
+  }
+
+  /** One repository's share of the change, in the diff pane with its repository picker on that repository. */
+  function openRepositoryChange(repositoryPath: string) {
+    if (tabId) session.showRepositoryDiff(tabId, repositoryPath, overview.changeScope ?? { kind: "session" });
   }
 
   function openAgent(row: RailAgentRow, split: boolean) {
@@ -365,6 +371,9 @@
               {/snippet}
               {#if changeKinds.length > 1}
                 <ChangeKinds kinds={changeKinds} selected={changeKind} onSelect={(kind) => (pickedChangeKind = kind)} />
+              {/if}
+              {#if overview.changeRepositories.length > 0 && !overview.query.trim()}
+                <ChangeRepositories repositories={overview.changeRepositories} onOpen={tabId ? openRepositoryChange : undefined} />
               {/if}
               <ChangeTree tree={changesTree} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId || overview.agentChoices.length > 0 ? openChange : undefined} />
             </ArtifactCard>

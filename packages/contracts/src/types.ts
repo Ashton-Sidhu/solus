@@ -21,6 +21,8 @@ import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
 import type { ExecutionPreferenceSnapshot, ExecutionPreferences } from './settings'
 import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
+import type { Codebase, SessionAttachedFolder, SessionFolder } from './codebases'
+import { isTaskFolderPath, TASK_FOLDER_ROOT_NAME } from './codebases'
 import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
@@ -469,6 +471,12 @@ export interface HeadlessSessionRequest {
    * new session passes the same turn admission as a prompt with it (organization-vms §1).
    */
   organizationId?: string
+  /**
+   * The codebase of the session that starts this one, as the full record
+   * (docs/plans/codebases.md §6). This host saves it, the newest copy wins,
+   * and the new session starts with it.
+   */
+  codebase?: Codebase
 }
 
 /** A prompt to an existing session from an agent on another host. The session
@@ -983,6 +991,13 @@ export interface Place {
  */
 export interface RunLocation {
   checkout: FolderCheckout | CloneCheckout
+  /** The codebase the run starts with (docs/plans/codebases.md), or null for a
+   *  run with one working directory. The project home stays the folder the
+   *  run works in: a codebase does not replace the project. */
+  codebaseId: string | null
+  /** The person chose "No codebase" for this run: the host gives its session
+   *  none (docs/plans/codebases.md decision 13). Absent with a codebase. */
+  noCodebase?: true
   /**
    * Where the project lives: its tasks are filed on this host, and the sidebar
    * groups the session under this folder. Not the checkout's host for a
@@ -1005,9 +1020,11 @@ export interface FolderCheckout {
    * Branch into a new worktree on start. Null works in the folder itself.
    * `baseBranch` is null while the branch to fork from is unresolved: the choice
    * is made before the host answers, because choosing a project drops the old
-   * checkout.
+   * checkout. `repositories` are the member paths of the run's codebase that
+   * get a worktree; null is the default set, which the host chooses
+   * (docs/plans/codebases.md §7).
    */
-  newWorktree: { baseBranch: string | null } | null
+  newWorktree: { baseBranch: string | null; repositories: string[] | null } | null
 }
 
 /**
@@ -1201,7 +1218,8 @@ export interface Session {
   /** Files changed since this Solus session began. Committing does not clear
    * these paths; uncommitted files come from live Git state instead. */
   sessionChangedFiles: string[]
-  additionalDirs: string[]
+  /** The folders the session works in besides its working directory, as its host last reported them (docs/plans/codebases.md). */
+  sessionFolders: SessionFolder[]
   readOnlyReason: string | null
   /** The organization of the session's record, as its host last reported it
    *  (organization-scope §3). An organization session's record and mirrored
@@ -2110,7 +2128,14 @@ export type NormalizedEvent =
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
-  | { type: 'git_context'; gitContext: GitCheckout }
+  /** The checkout of one folder of the session: `cwd` is its working directory or one of its session folders. */
+  | { type: 'git_context'; cwd: string; gitContext: GitCheckout }
+  /** The folders the session works in besides its working directory. Sent when the list changes. */
+  | { type: 'session_folders'; folders: SessionFolder[] }
+  /** The session took a codebase after its start, or the host made one for it
+   *  (docs/plans/codebases.md decision 13): the run names it from now on. A
+   *  codebase that the host made is also a `codebase_formed` activity. */
+  | { type: 'session_codebase'; codebaseId: string; name: string }
   | { type: 'git_status'; cwd: string; state: GitState | null }
   | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
@@ -2256,7 +2281,11 @@ export interface SessionCtx {
   status: SessionStatus
   workingDirectory: string
   projectPath: string
-  additionalDirs: string[]
+  /** The codebase the run starts with, or null (docs/plans/codebases.md). */
+  codebaseId: string | null
+  /** The person chose "No codebase": the host forms none and takes none for
+   *  this session (decision 13). The client sends it with each turn. */
+  noCodebase?: true
   preferredModel: string | null
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
@@ -2264,6 +2293,9 @@ export interface SessionCtx {
   permissionMode: PermissionMode
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** The member paths of the codebase that get a worktree when the run starts
+   *  a new worktree. Null is the default set, which the host chooses. */
+  worktreeRepositories: string[] | null
   /** The repository the host copies before this run starts, while the run's
    *  checkout is a clone that Send has not made yet. */
   repository?: DispatchRepository
@@ -2363,9 +2395,22 @@ export interface SessionRunInput {
   forkPointId?: string
   workingDirectory: string
   projectPath: string
-  additionalDirs: string[]
+  /**
+   * The codebase a new session starts with (docs/plans/codebases.md). Only the
+   * first turn of a session reads it: the session record keeps the id from
+   * then on, and a later turn cannot change it.
+   */
+  codebaseId?: string | null
+  /** The person chose "No codebase": no rule of decision 13 gives the session one. */
+  noCodebase?: boolean
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /**
+   * The member paths of the session's codebase that get a worktree when this
+   * run starts a new worktree. Null or absent is the default set, which the
+   * host chooses (docs/plans/codebases.md §7).
+   */
+  worktreeRepositories?: string[] | null
   contextWindow: number | null
   /** Resolved model the run uses (the value the backend actually runs with). */
   model: string
@@ -2692,6 +2737,8 @@ export interface SessionMeta {
   shared?: boolean
   /** Where the session runs; absent for a session made before the host recorded it. */
   place?: SessionPlace
+  /** The codebase of the session (docs/plans/codebases.md decision 5); absent for a session with no codebase. */
+  codebaseId?: string
 }
 
 export interface SessionDelegation {
@@ -2777,6 +2824,12 @@ export interface SessionRecord {
   place: SessionPlace | null
   /** What started the session. Written once, as `place` is. */
   startedBy: SessionStarter | null
+  /** The codebase of the session (docs/plans/codebases.md decision 5).
+   *  Null for a session with no codebase. */
+  codebaseId: string | null
+  /** The folders the session works in besides its working directory and the
+   *  members of its codebase. The host that runs the session writes them. */
+  attachedFolders: SessionAttachedFolder[]
   /** Whether the session's work is finished (docs/plans/session-archive.md).
    *  Null when nothing settled it. */
   state?: SessionState | null
@@ -3076,6 +3129,13 @@ export interface ProjectConfig {
   worktreeBranchNaming?: WorktreeBranchNaming
   /** How to build the app for Build & run on a device (plan 016, S02). */
   deviceRuns?: DeviceRunProfile[]
+  /** Repositories inside this folder that a codebase does not cover, as paths
+   *  relative to the folder (docs/plans/codebases.md §5). */
+  ignoreRepositories?: string[]
+  /** Shell commands that make and remove the task folder of a session that
+   *  works in this folder, in place of the built-in layout
+   *  (docs/plans/codebases.md §7). */
+  worktreeLayout?: { create: string; remove?: string }
 }
 
 // ─── Editor / Terminal Types ───
@@ -3487,20 +3547,52 @@ export function encodePathAsFolder(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
-/** True if `path` lives inside a Solus-managed worktree (`<root>/.git/solus/worktrees/<slug>`). */
+/**
+ * True if `path` is in a checkout that Solus made for a session: a worktree
+ * inside its repository (`<root>/.git/solus/worktrees/<slug>`), or a task
+ * folder (docs/plans/codebases.md §7).
+ */
 export function isSolusWorktreePath(path: string): boolean {
-  return hostPathKey(path).includes(SOLUS_WORKTREE_PATH_MARKER)
+  return hostPathKey(path).includes(SOLUS_WORKTREE_PATH_MARKER) || isTaskFolderPath(path)
 }
 
-/** The base project root for a worktree path, or `path` unchanged when it isn't a worktree. */
+/**
+ * The base project root for a worktree path, or `path` unchanged when it isn't
+ * a worktree inside its repository.
+ *
+ * A task folder path does not name its repository, so this function answers
+ * it unchanged. A reader that can get a task folder path takes the root from
+ * the data it has: the `repoRoot` of a `GitCheckout`, the `projectRoot` of a
+ * session record, the project home of a run location, or, on the server,
+ * `projectRootOfPath`.
+ */
 export function worktreeProjectRoot(path: string): string {
   // The key has the path's length, so its index is the path's.
   const idx = hostPathKey(path).indexOf(SOLUS_WORKTREE_PATH_MARKER)
   return idx === -1 ? path : path.slice(0, idx)
 }
 
+/**
+ * The project folder of a session, from its record: the `projectRoot` that its
+ * host wrote for a session in a task folder, whose `cwd` does not name its
+ * project; else the root that `cwd` names.
+ */
+export function sessionProjectRoot(session: { cwd: string; projectRoot?: string | null }): string {
+  return (isTaskFolderPath(session.cwd) && session.projectRoot) || worktreeProjectRoot(session.cwd)
+}
+
 /** `SOLUS_WORKTREE_PATH_MARKER` as it appears inside an encoded Claude folder name. */
 export const SOLUS_WORKTREE_ENCODED_MARKER = encodePathAsFolder(SOLUS_WORKTREE_PATH_MARKER)
+
+const TASK_FOLDER_ENCODED_MARKER = encodePathAsFolder(`/${TASK_FOLDER_ROOT_NAME}/`)
+
+/**
+ * `isSolusWorktreePath` for the encoded folder name of a working directory
+ * (`encodePathAsFolder`), which is all that a reader of the provider's files has.
+ */
+export function isEncodedSolusWorktreeFolder(encodedPath: string): boolean {
+  return encodedPath.includes(SOLUS_WORKTREE_ENCODED_MARKER) || encodedPath.includes(TASK_FOLDER_ENCODED_MARKER)
+}
 
 interface GitCheckoutIdentity {
   /** The branch or worktree branch the session is running in */
@@ -3531,7 +3623,8 @@ export function gitCheckoutFromState(
   return worktreePath
     ? {
         ...checkoutIdentity,
-        repoRoot: projectRoot ?? worktreeProjectRoot(worktreePath),
+        // The path of a worktree in a task folder does not name its repository: Git's answer does.
+        repoRoot: projectRoot ?? (isTaskFolderPath(worktreePath) ? status.repoRoot : worktreeProjectRoot(worktreePath)),
         worktreePath,
       }
     : { ...checkoutIdentity, repoRoot: status.repoRoot }

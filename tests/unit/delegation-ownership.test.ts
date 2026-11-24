@@ -15,7 +15,7 @@ function harness() {
     respondToPermission: () => false, pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
     turnEnding: async () => ({ outcome: 'completed', reply: 'Done' }),
-    turnOrganization: async () => undefined, taskIdFor: async () => undefined,
+    turnOrganization: async () => undefined, taskIdFor: async () => undefined, codebase: async () => null,
     emit: () => {}, invalidatePlanCaches: () => {}, recordActivity: async () => { throw new Error('No activity expected') },
     trackWork: promise => { work.push(promise); return promise },
     repliesEnded: () => {},
@@ -23,7 +23,7 @@ function harness() {
   const orchestrator = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   return { orchestrator, created, stopped, drain: () => Promise.all(work) }
 }
-const order: SpawnOrder = { prompt: 'Do work', provider: 'codex', modelId: 'test', reasoningEffort: 'medium', contextWindow: null, cwd: '/fixture' }
+const order: SpawnOrder = { codebaseId: null, prompt: 'Do work', provider: 'codex', modelId: 'test', reasoningEffort: 'medium', contextWindow: null, cwd: '/fixture' }
 
 test('only delegated children hold the parent open and belong to its stop tree', async () => {
   const { orchestrator, created, drain } = harness()

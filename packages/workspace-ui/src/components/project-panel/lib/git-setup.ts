@@ -1,3 +1,4 @@
+import { hostPathKey, isInsideHostPath, sameHostPath } from '@solus/contracts/host-path'
 import type { GithubPublishRepositoryResult } from '@solus/contracts/types'
 
 /** The stage that failed, in the order Publish runs them — for the retry label. */
@@ -19,4 +20,31 @@ export function publishFailureMessage(result: GithubPublishRepositoryResult): st
 /** A GitHub URL to show once the repository exists, even if a later stage failed. */
 export function publishRepositoryUrl(result: GithubPublishRepositoryResult): string | null {
   return result.repository.status === 'failed' ? null : result.repository.url
+}
+
+/** A folder as the count below reads it: a session folder, or a member of a codebase. */
+interface FolderFact {
+  path: string
+  state: 'git' | 'plain' | 'missing'
+}
+
+/**
+ * How many repositories a folder with no repository holds
+ * (docs/plans/codebases.md §9): the session folders of a started session, and
+ * the members that the host read for the codebase of a draft. With one or
+ * more, the standing Git section names them, and "set up Git" is not its
+ * main message: the folder is the place of several repositories, not a
+ * project that lacks one.
+ */
+export function repositoriesInFolder(cwd: string | null | undefined, sessionFolders: readonly FolderFact[], members: readonly FolderFact[]): number {
+  if (!cwd || cwd === '~') return 0
+  const inside = new Set<string>()
+  for (const folder of [...sessionFolders, ...members]) {
+    if (folder.state === 'git' && isInsideHostPath(cwd, folder.path) && !sameHostPath(cwd, folder.path)) inside.add(hostPathKey(folder.path))
+  }
+  return inside.size
+}
+
+export function repositoriesInFolderLabel(count: number): string {
+  return `${count} ${count === 1 ? 'repository' : 'repositories'} in this folder`
 }

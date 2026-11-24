@@ -1,5 +1,5 @@
 import { useSessionController } from "../../../solus/use-session-controller";
-import { useCheckoutCommit } from "../../../solus/CheckoutGit";
+import { useCheckoutCommit, useCheckoutGitTarget } from "../../../solus/CheckoutGit";
 import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import { FilePreviewLoading } from "../../files/FilePreviewFeedback";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -29,13 +29,25 @@ type GitCommitSheetProps = StaticScreenProps<
 export function GitCommitSheet(props: GitCommitSheetProps) {
   const controller = useSessionController(props.route.params);
   return controller ? (
-    <Commit key={JSON.stringify(props.route.params)} controller={controller} />
+    <Commit
+      key={JSON.stringify(props.route.params)}
+      controller={controller}
+      params={props.route.params}
+    />
   ) : (
     <EmptyState title="Session unavailable" detail="Open the session to commit changes." />
   );
 }
-function Commit({ controller }: { controller: ConversationController }) {
-  const { git, files } = useCheckoutCommit(controller);
+function Commit({
+  controller,
+  params,
+}: {
+  controller: ConversationController;
+  params: GitCommitSheetProps["route"]["params"];
+}) {
+  // The commit of the thread's own folder, or of the repository that the route names.
+  const target = useCheckoutGitTarget(controller, params);
+  const { git, files } = useCheckoutCommit(controller, target);
   const error = files.error ?? git.error;
   if (error)
     return (
@@ -58,6 +70,7 @@ function Commit({ controller }: { controller: ConversationController }) {
       canWriteSourceControl={git.canWrite}
       canCreateFeatureBranch={git.canWrite && controller.canChooseStart}
       isDefaultRef={git.status.isDefaultRef}
+      repositoryName={target.repository?.name}
       onCommit={(input) =>
         git.perform({
           ...input,

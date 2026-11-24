@@ -590,6 +590,10 @@ export interface TaskSessionLink {
   branch?: string
   /** Checkout address on executionServerId (or the task host), when indexed. */
   checkoutPath?: string
+  /** The project folder of the session on that host, as its host names it. The
+   *  path of a checkout in a task folder does not name its project, so a
+   *  reader that groups by project uses this. Absent when not indexed. */
+  projectRoot?: string
   /** Whether that branch is the session's own worktree rather than a clone it
    *  shares. Git state is held per working directory, so every attempt running
    *  in one checkout reports the same branch — a fact about the checkout, not

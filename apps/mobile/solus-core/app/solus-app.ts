@@ -32,6 +32,7 @@ import { AppearancePreference, type AppearanceMode } from '../features/settings/
 import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { ForwardedHosts } from '../features/hosts/forwarded-hosts'
+import { Codebases } from '../features/codebases/codebases'
 import { NativeDevices } from '../features/devices/native-devices'
 import { NativeBrowser } from '../features/browser/native-browser'
 import { HostAccess } from '../features/settings/host-access'
@@ -111,6 +112,9 @@ const lastRouteSchema = z.object({
     reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable(),
     title: z.string().nullable(),
     customTitle: z.string().nullable(),
+    // A session in a task folder names its project and its codebase only here (docs/plans/codebases.md §7).
+    projectRoot: z.string().nullable().optional(),
+    codebaseId: z.string().nullable().optional(),
   }).optional(),
 })
 
@@ -153,6 +157,8 @@ export class SolusApp {
   readonly forwardedHosts: ForwardedHosts
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
+  /** The codebases of the hosts of this phone (docs/plans/codebases.md §10). */
+  readonly codebases: Codebases
   readonly devices: NativeDevices
   /** Each host's browser pages and their streamed frames. */
   readonly browser: NativeBrowser
@@ -251,6 +257,27 @@ export class SolusApp {
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
+    this.codebases = new Codebases({
+      scope: () => this.sessionCache.scope(),
+      machines: () => this.registry.hosts().map((host) => {
+        const state = this.connections.state(host.id)
+        // A host that is not ready is not dialed here, and a person who may not use the host does not read its codebases.
+        const connection = state?.readiness === 'ready' && this.connections.may(host.id, 'host.use') ? this.connections.connection(host.id) : null
+        return {
+          hostId: host.id,
+          // The host's own answer first; the saved host entry until it answers.
+          installationId: connection?.facts.value('serverInfo')?.installationId ?? host.installationId,
+          label: host.label,
+          connection,
+          generation: state?.sessionGeneration ?? 0,
+        }
+      }),
+      onChange: (listener) => {
+        const stops = [this.registry.changes.subscribe(listener), this.connections.changes.subscribe(listener), this.account.changes.subscribe(listener)]
+        return () => { for (const stop of stops) stop() }
+      },
+      uuid: platform.uuid,
+    })
     const connectionFor = (hostId: string) => this.connections.connection(hostId)
     const organizationId = () => this.account.organizationId
     this.pullRequests = new PullRequestDirectory(connectionFor, organizationId, this.pullRequestCache)
@@ -596,6 +623,7 @@ export class SolusApp {
     this.hostSettings.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)
     this.forwardedHosts.forgetHost(hostId)
+    this.codebases.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
     this.devices.forgetHost(hostId)
     this.browser.forgetHost(hostId)

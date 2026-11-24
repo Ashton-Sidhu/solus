@@ -151,7 +151,7 @@ class Backend extends EventEmitter implements AgentBackend {
 function input(agentSessionId: string | null): SessionRunInput {
   return {
     provider: 'codex', agentSessionId, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
+    gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }
@@ -201,7 +201,7 @@ describe.serial('SessionRuntime observability hooks', () => {
       const context: IpcContext = {
         session: {
           sessionId, provider: 'codex', agentSessionId: null, status: 'failed',
-          workingDirectory: repository, projectPath: repository, additionalDirs: [],
+          workingDirectory: repository, projectPath: repository, 
           preferredModel: 'gpt-test', reasoningEffort: 'medium', contextWindow: null,
           fastMode: false, permissionMode: 'supervised', gitContext: null, worktreeBaseBranch: null,
           readOnlyReason: null,

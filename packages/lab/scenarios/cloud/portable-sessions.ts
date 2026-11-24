@@ -14,7 +14,7 @@ import { recordedRuns } from '../../src/oracle'
 
 function promptContext(sessionId: string, cwd: string, threadId: string | null = null, forked = false): IpcContext {
   const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: threadId, status: 'idle', workingDirectory: cwd, projectPath: cwd,
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null, permissionMode: 'full-access',
+    gitContext: null, worktreeBaseBranch: null, contextWindow: null, permissionMode: 'full-access',
     preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: undefined, forked }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', executionPreferences: { rateLimitBehavior: 'queue' } }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }

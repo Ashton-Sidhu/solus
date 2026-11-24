@@ -8,50 +8,54 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
-  AuthFilesystemReadScope,
-  AuthOrchestrationOperateScope,
   PROJECT_TRACKED_FOLDERS_MAX,
   type ProjectTrackedFolder,
   type WorkspaceFolderState,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { msg, T, useGT, useMessages } from "gt-react-native";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
 import { ListActionRow } from "../../components/ui/ListActionRow";
 import { ListRowLayout } from "../../components/ui/ListRowLayout";
-import { filesystemEnvironment } from "../../state/filesystem";
-import { projectEnvironment } from "../../state/projects";
+import { codebaseFolders } from "../../solus/codebase-folders";
 import { useEnvironmentQuery } from "../../state/query";
-import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 
-const FOLDER_STATE_LABELS: Record<WorkspaceFolderState, string> = {
+export const FOLDER_STATE_LABELS: Record<WorkspaceFolderState, string> = {
   git: msg("Git repository"),
   plain: msg("Folder", { $context: "a plain folder that is not a Git repository" }),
   missing: msg("Missing", { $context: "folder state: not found on disk" }),
 };
 
-/** Tracked folders are paths on one environment, so each checkout gets its own section. */
+/**
+ * The folders of one Solus codebase are paths on one environment, so each environment of a
+ * codebase gets its own section. `member` names that environment.
+ */
 export function ProjectRepositoriesSection(props: {
-  readonly member: EnvironmentProject;
+  readonly member: Pick<EnvironmentProject, "environmentId" | "trackedFolders">;
+  readonly codebaseId: string;
   readonly title: string;
+  /** Rows after the folders, for example an action that adds a folder. */
+  readonly children?: ReactNode;
 }) {
-  const { member } = props;
+  const { member, codebaseId } = props;
   const gt = useGT();
   const m = useMessages();
   const tracked = member.trackedFolders ?? [];
-  const canEdit = useEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope);
-  const canReadFiles = useEnvironmentScope(member.environmentId, AuthFilesystemReadScope);
-  // Read from disk: the project's own copy of the list can be a moment behind a clone.
+  const canEdit = useAtomValue(codebaseFolders.update.permissionAtom(member.environmentId));
+  // The record and the members of a codebase need the same permission.
+  const canReadFiles = canEdit;
+  // Read from disk: the record holds the roots only.
   const listQuery = useEnvironmentQuery(
     canReadFiles
-      ? filesystemEnvironment.listFolders({
+      ? codebaseFolders.listFolders({
           environmentId: member.environmentId,
-          input: { projectId: member.id },
+          input: { codebaseId },
         })
       : null,
   );
@@ -60,14 +64,14 @@ export function ProjectRepositoriesSection(props: {
   // Only a workspace file's folders are offered: the rest is found without asking.
   const scanQuery = useEnvironmentQuery(
     canReadFiles
-      ? filesystemEnvironment.scanFolders({
+      ? codebaseFolders.scanFolders({
           environmentId: member.environmentId,
-          input: { workspaceRoot: member.workspaceRoot },
+          input: { codebaseId },
         })
       : null,
   );
   const suggested = suggestedTrackedFolders(folders, scanQuery.data?.folders ?? []);
-  const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
+  const updateProject = useAtomCommand(codebaseFolders.update, { reportFailure: false });
   const [isSaving, setIsSaving] = useState(false);
   // A save builds on the listed folders, so it waits for the list that follows the last one.
   const isBusy = isSaving || listQuery.isPending;
@@ -82,7 +86,7 @@ export function ProjectRepositoriesSection(props: {
     const result = await updateProject({
       environmentId: member.environmentId,
       input: {
-        projectId: member.id,
+        codebaseId,
         ...("track" in change
           ? { trackFolders: [{ path: change.track.path, name: change.track.name }] }
           : { untrackFolders: [change.untrack] }),
@@ -105,10 +109,11 @@ export function ProjectRepositoriesSection(props: {
   const remove = (folder: ProjectTrackedFolder) =>
     Dialog.confirm({
       title: gt("Remove folder"),
-      message: gt("Agents in this project stop working in {name}. Files on disk are not touched.", {
-        name: folder.name,
-      }),
-      confirmText: gt("Remove", { $context: "verb, removes a folder from the project" }),
+      message: gt(
+        "A new session in this codebase does not work in {name}. No file on the disk is deleted.",
+        { name: folder.name },
+      ),
+      confirmText: gt("Remove", { $context: "verb, removes a folder from the codebase" }),
       destructive: true,
       onConfirm: () => void save({ untrack: folder.path }),
     });
@@ -118,7 +123,7 @@ export function ProjectRepositoriesSection(props: {
     if (next === null) {
       Dialog.alert(
         gt("Too many folders"),
-        gt("A project can cover up to {max} folders.", { max: PROJECT_TRACKED_FOLDERS_MAX }),
+        gt("A codebase has at most {max} folders.", { max: PROJECT_TRACKED_FOLDERS_MAX }),
       );
       return;
     }
@@ -130,10 +135,10 @@ export function ProjectRepositoriesSection(props: {
       <SettingsSection
         title={props.title}
         footer={gt(
-          "Repositories inside this project's folder are part of it as soon as they are there.",
+          "Repositories inside a folder of this codebase are part of it as soon as they are there.",
         )}
       >
-        {null}
+        {props.children ?? null}
       </SettingsSection>
     );
   }
@@ -163,13 +168,13 @@ export function ProjectRepositoriesSection(props: {
             folder.discovered === true ? undefined : (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={gt("Remove {name} from the project", { name: folder.name })}
+                accessibilityLabel={gt("Remove {name} from the codebase", { name: folder.name })}
                 disabled={!canEdit || isBusy}
                 onPress={() => remove(folder)}
                 className="rounded-full border border-border bg-card px-3 py-1.5 disabled:opacity-40"
               >
                 <Text className="font-t3-medium text-xs text-danger-foreground">
-                  <T context="verb, removes a folder from the project">Remove</T>
+                  <T context="verb, removes a folder from the codebase">Remove</T>
                 </Text>
               </Pressable>
             )
@@ -186,6 +191,7 @@ export function ProjectRepositoriesSection(props: {
           onPress={() => add(folder)}
         />
       ))}
+      {props.children}
     </SettingsSection>
   );
 }
