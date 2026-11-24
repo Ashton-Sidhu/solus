@@ -6,15 +6,14 @@ The project panel is the rail at the right of a conversation on desktop and web.
 
 | Section | Row ids |
 | --- | --- |
-| `environment` | `environment.project` (project row and its Open in menu), `environment.terminal`, `environment.view` (Browser, Builds, or Artifacts), `environment.usage` (usage meters) |
+| `environment` | `environment.project` (project row and its Open in menu), `environment.folders` (the other folders of the session, and the folders of its codebase on other hosts), `environment.terminal`, `environment.view` (Browser, Builds, or Artifacts), `environment.usage` (usage meters) |
 | `git` | `git.branch`, `git.commit` (commit and push), `git.changes`, `git.pullRequestAction` (create a pull request, publish, or sync), `git.discard`, `git.conflicts` (merge conflict alert), `git.pullRequest` (the linked pull request and its actions), `git.otherPullRequests` (other linked pull requests, behind Show N more), `git.setup` (repository setup) |
-| `repositories` | `repositories.folders` (the working directory, each session folder, Add folder, and Add repository), `repositories.otherHosts` (the folders of the codebase on other hosts) |
 | `servers` | None. Its own card lists running web and API servers. |
 | `goal` | `goal.objective`, `goal.details` (cost and time), `goal.budget` (token budget bar) |
 | `agents` (desktop) | `agents.running`, `agents.previous` |
 | `webhooks` | None. The section lists one row per webhook, so it has no row kinds to choose. |
 
-Goal shows only while a goal is set, and Webhooks only when the project has webhooks. Repositories shows only for a started session that has a codebase or at least one session folder.
+Goal shows only while a goal is set, and Webhooks only when the project has webhooks. The panel has no Repositories section: the repositories of a session are in the Git section, and its other folders are in the Environment section ([Repositories and folders](#repositories-and-folders)).
 
 The desktop Agents section and the Agents card on Threads read the same session tree. They show the parent, fork source, recent forks, provider sub-agents, and direct child sessions. While agents run, earlier agents are under Previous agents.
 
@@ -37,35 +36,53 @@ The Terminal option keeps the shared terminal session behavior and its keyboard 
 
 The Git **Changes** row shows line counts for the current checkout. Select it to open the same comparison on desktop or web. The mobile review sheet uses it for its **Changes** option. The host compares the checkout with the merge base of its target branch. It uses the available remote-tracking ref first, so Changes can include local commits on the default branch. If there is no comparison ref, the host uses HEAD. Before the first commit, it uses an empty tree.
 
-When the working directory is not a repository, the Git section shows "This folder isn't a Git repository yet." and the **Initialize Git** button. A folder that holds repositories is different: the section then shows one row, for example "2 repositories in this folder". In a started session, select the row to open the Repositories section. The menu of the row has **Track with Git**, which makes a repository in the folder itself. In a draft, the row opens that menu, because the Repositories section shows only for a started session.
+When the working directory is not a repository, the Git section shows "This folder isn't a Git repository yet." and the **Initialize Git** button. A folder that holds repositories is different: the section then lists the repositories ([Repositories and folders](#repositories-and-folders)). **Track with Git**, which makes a repository in the folder itself, is then in the menu of the project row of the Environment section.
 
 Select **Uncommitted** to see staged, unstaged, and untracked changes against HEAD. Select **Session** or a turn to see changes from the session snapshots. The line counts in the project panel stay on the checkout comparison. Reading either checkout comparison preserves the staging area.
 
 The linked pull request group starts with an Open row. Its menu has "In Solus", which opens the pull request pane, and "In browser", which opens the pull request on the code host. While the session watches the pull request, the group shows "Stop watching". The row stops the watch on the host that runs the session; a viewer who may not change the session's watches sees it disabled. When a row is narrow, the repository name of a pull request in another repository is cut first, then the title. The number always shows. The group heading and the other linked pull request rows use the same order.
 
-## Repositories
+## Repositories and folders
 
-The Repositories section is for a session that works in more than one folder ([Codebases](codebases.md); the design is in [the plan](plans/codebases.md)). It has one row for the working directory, then one row for each session folder. A row shows the name of the folder, the branch, and the line counts of its own checkout.
+A session can work in more than one folder ([Codebases](codebases.md); the design is in [the plan](plans/codebases.md)). The panel has no card of its own for them. The Git section shows the repositories, and the Environment section shows the folders.
 
+### The repositories of the Git section
+
+When a session works in more than one repository, the Git section starts with one row for each repository: the repository of the working directory first, then each session folder that is a repository. The section lists them as it lists the other linked pull requests of a session: one row for each, and a choice of a row makes it the one that the rows of the section work with. The title of the section says how many repositories there are, for example "3 repositories".
+
+- A row shows the name of the repository, its branch, and the line counts of its own checkout.
 - A worktree of a task folder has the worktree icon. Its tooltip says that its changes stay out of the repository until they are merged.
-- A row with "Not attached" is a folder that the agent changed a file in, but that the session was not given. Open the menu of the row and select "Attach to this session".
-- A row with "No repository" is a folder with no Git repository. It has no diff. Select the row to open its menu, and select "Track with Git" to make a repository there.
-- Select the row of the working directory to open its changes.
-- The menu of each row has "Open files", which opens the files pane at the folder of that row. On the desktop app, for a session on this machine, it also has "Open terminal", which opens a terminal in that folder.
-- Select the row of a session folder to show the Git rows for that folder: branch, commit and push, changes, pull request, discard, and merge conflicts. These are the rows of the Git section, and they work in that folder only. The session stays in its working directory. The keyboard shortcuts for commit and push and for sync work in the working directory.
+- A row with "Not attached" is a repository that the agent changed a file in, but that the session was not given. Attach it from its row in the Environment section.
+- Select a row to choose that repository. The Git rows below the list (branch, commit and push, changes, pull request, discard, and merge conflicts) then work in that repository only. The session stays in its working directory. The chosen row keeps the highlight of an open control, and a screen reader hears it as the current row.
+- The repository of the working directory is chosen at first. The choice stays when you go to a different tab and come back.
+- The Changes row opens the diff panel on the chosen repository.
 - A worktree of a task folder keeps the branch of its session, so its branch row cannot switch branches.
-- The menu of a row has "Detach from this session" for a folder that was attached or that a project tool made, and "Add to <codebase>" for a folder that is not in the codebase of the session. A folder of the codebase cannot be detached.
-- "Add folder…" opens the folder browser on the host of the session and attaches the folder that you choose. The palette has the same command: "Add folder to this session".
-- "Add repository…" shows in a session that works in a task folder. It lists the repositories of the codebase that have no worktree in the task folder. Select one to make its worktree on the branch of the session. If the host refuses, the message of the host shows.
-- When the working folder of a task folder session has no repository, its row says that its files are links to the originals, and that an edit of a linked file changes the original for every session.
+- The keyboard shortcuts for commit and push and for sync work in the working directory.
+- "Add repository…" shows in a session that works in a task folder. It lists the repositories of the session that have no worktree in the task folder. Select one to make its worktree on the branch of the session. If the host refuses, the message of the host shows.
 
-The "Folders on other hosts" rows list each folder of the codebase that is on a different host, with the name of the host and "Offline" or "Not connected" when this client cannot reach it. A session changes only the folders on its own host. The child sessions that this session started on a host show below the folders of that host, with the branch and line counts of their checkout when this client has them. Select a child session to open it.
+A session in one repository has no repository rows: the section looks as it does for each session with one project.
 
-The section has no offer to make a codebase. The host makes the codebase when a folder is attached to a session that has none, and a divider in the conversation says so ([How a codebase forms](codebases.md#how-a-codebase-forms)). The attached folder is then a folder of the codebase, so its row has no "Detach from this session". To make a codebase by hand, use Settings → Codebases.
+When the working directory is a folder with no repository that holds repositories, the section lists those repositories, and the first one is chosen. In a draft, the rows show what the session gets: a row opens the files of its repository, and the Git rows show when the session starts.
 
-The palette entry "Show repositories" opens the project panel and this section, and it shows the section again if it was hidden. "Open codebase settings" opens the page of the codebase of the session in Settings.
+### The folders of the Environment section
 
-The logic is in `packages/workspace-ui/src/components/project-panel/lib/repositories-section.ts`.
+The Environment section shows where the session works. Below the project row, it has one row for each session folder that is not a repository of the project: a folder that was attached, a folder of the codebase outside the project folder, and a folder that the agent changed a file in. A repository that the host found inside the project folder has no row here: it is in the project that the section names already.
+
+- A row shows the name of the folder and the mark of its host, as the project row does. A folder with no Git repository shows "No repository". A folder that the session was not given shows "Not attached".
+- Select a row to open the files pane at that folder.
+- The arrow of a row opens its menu: "Open files", "Open terminal" (on the desktop app, for a session on this machine), "Attach to this session" for a folder that is not attached, "Detach from this session" for a folder that was attached or that a project tool made, "Add to <codebase>" for a folder that is not in the codebase of the session, and "Track with Git" for a folder with no repository. A folder of the codebase cannot be detached.
+- A repository of the codebase has a row here for its place, and a row in the Git section for its Git state.
+- After the folders of the session, the rows list each folder of the codebase that is on a different host, with the name of the host and "Offline" or "Not connected" when this client cannot reach it. A session changes only the folders on its own host. The child sessions that this session started on a host show below the folders of that host, with the branch and line counts of their checkout when this client has them. Select a child session to open it.
+- "Add folder…" is in the menu of the project row. It opens the folder browser on the host of the session and attaches the folder that you choose. The palette has the same command: "Add folder to this session".
+- When the working folder of a task folder session has no repository, a text below the project row says that its files are links to the originals, and that an edit of a linked file changes the original for every session.
+
+A session with one project and no other folder has no folder row: the section looks as it did before.
+
+The panel has no offer to make a codebase. The host makes the codebase when a second project is attached to a session that has none, and a divider in the conversation says so ([How a codebase forms](codebases.md#how-a-codebase-forms)). The attached folder is then a folder of the codebase, so its menu has no "Detach from this session". To make a codebase by hand, use Settings → Codebases.
+
+The palette entry "Open codebase settings" opens the page of the codebase of the session in Settings.
+
+The logic is in `packages/workspace-ui/src/components/project-panel/lib/git-repositories.ts` and `lib/environment-folders.ts`.
 
 ## How to change them
 

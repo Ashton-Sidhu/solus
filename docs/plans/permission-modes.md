@@ -80,6 +80,11 @@ of the provider.
   session", "Allow and add to the codebase" (only when the session has a
   codebase), and "Do not allow". A refused folder is not asked again in the
   turn.
+- With no request by name, Solus attaches only a Git repository or a project
+  that the host lists: from a prompt that a person wrote, from a blocked
+  path in Auto, from "Allow for Session", and from an observed write. For
+  each other path (a file in `~/Downloads`), nothing is attached, and the
+  permission card of the provider answers for that one call.
 - A folder that a person attaches needs no card.
 - After the attach, a call in the folder follows the mode, as in the working
   directory. Claude gets a new folder at its next turn. In the turn of the
@@ -94,9 +99,10 @@ of the provider.
   folder. `supervised` asks for each write, also in the working directory.
 - "Allow for Session" on a Claude request for a path outside the folders of
   the session, and an approval for the session on a Codex request that names
-  its paths, also attach the folder of each path.
-- The prompt trigger (a folder that the prompt names) attaches only in
-  `full-access` and `auto`.
+  its paths, also attach the project of each path: its Git repository, or
+  the listed project that holds it. A path in no project attaches nothing.
+- The prompt trigger (a project that a prompt of a person names) attaches
+  only in `full-access` and `auto`.
 - `attach_folder` has `requiresApproval: false`: the attach rule decides, not
   the approval gate of the provider.
 

@@ -1,13 +1,15 @@
 # Codebases
 
-A codebase is a named set of folders that one piece of work covers. The
-folders can be on one host or on more than one host. With a codebase, one
-session can read, change, review, and commit in more than one folder on its
-host, and the agent knows which folders of the work are on a different host.
+A codebase is a named set of two or more folders that one piece of work
+covers. The folders can be on one host or on more than one host. With a
+codebase, one session can read, change, review, and commit in more than one
+project on its host, and the agent knows which folders of the work are on a
+different host.
 
 A codebase does not replace a project. A project is one folder on one host
-([Projects](projects.md)). A session still has one project and one working
-directory.
+([Projects](projects.md)), and it covers the repositories inside that
+folder with no codebase. A project is never also a codebase: one folder is
+a project. A session still has one project and one working directory.
 
 The design and the decisions are in [the plan](plans/codebases.md).
 
@@ -15,77 +17,99 @@ The design and the decisions are in [the plan](plans/codebases.md).
 
 | Word | Meaning |
 |---|---|
-| **codebase** | A named set of folders, on one or more hosts, that one piece of work covers. |
+| **codebase** | A named set of two or more folders, on one or more hosts, that one piece of work covers. |
 | **root** | A folder that you or Solus put in a codebase: a host and an absolute path on that host. |
 | **member** | A folder that a codebase covers on one host: each root, and each repository that the host finds inside a root. |
 | **member state** | `git` (a Git repository), `plain` (a folder with no repository), or `missing` (the folder is not there). |
-| **session folder** | A folder that one session works in besides its working directory. |
+| **session folder** | A folder that one session works in besides its working directory: a repository inside its project folder, a folder of its codebase, or a folder that was attached. |
 | **attach** | To add a session folder to a running session. |
 | **task folder** | The folder that a worktree session of more than one repository works in. |
 
+## A project covers its repositories
+
+You need no codebase for the repositories inside one folder. When the
+project folder of a session holds repositories, for example `~/shop` with
+`~/shop/api` and `~/shop/web`, each session of the project works in each of
+them:
+
+- The agent is told about each repository, and to commit each one
+  separately.
+- Each repository has its own diff, its own Git actions, and its own pull
+  request ([Review](#review)).
+- A new worktree session gets a worktree of each repository
+  ([Worktree sessions](#worktree-sessions)).
+
+The host finds the repositories at each turn start, as it finds the
+repositories inside a folder of a codebase
+([Folders that Solus finds](#folders-that-solus-finds)). No codebase is
+made. In the project picker, the row of such a project can say how many
+repositories it holds, for example "2 repositories".
+
+Solus finds no repository for a chat, for your home folder, for the root of
+the file system, for the projects folder of the host, and for a guest of a
+shared session.
+
 ## When a codebase helps
 
-A codebase helps when one piece of work changes more than one folder:
+A codebase helps when one piece of work changes more than one project, or
+folders on more than one host:
 
-- Two repositories in one folder, for example `~/shop/api` and `~/shop/web`.
 - A repository and a library that it uses, in a different folder.
+- Two projects that change together, for example `~/solus` and
+  `~/solus-cloud`.
 - A service on a laptop and its infrastructure on a server.
 
-Solus makes the codebase for the first two cases by itself. For folders on a
-different host, add the folder to the codebase in Settings.
+Solus makes the codebase for the first two cases by itself, when the second
+project is attached to a session. For folders on a different host, make the
+codebase in Settings.
 
 ## How a codebase forms
 
-You do not have to make a codebase before you start. The host of a session
-gives a session that has no codebase the codebase of its project folder. The
-project folder is the repository that the session works in, or the working
+You do not have to make a codebase before you start. The project folder of
+a session is the repository that the session works in, or the working
 directory when that is a folder with no repository. For a session in a
 worktree, it is the original folder.
 
-At each turn start, in this order:
+At each turn start, for a session that has no codebase:
 
 1. **One codebase holds the project folder.** The session takes that
    codebase. When more than one codebase holds the folder, the session takes
    none, and Solus makes none.
-2. **The project folder holds a repository.** When no codebase holds the
-   folder, and the host finds one or more repositories inside it, Solus makes
-   a codebase with one root: the project folder. Thus a session in `~/shop`,
-   a folder with no repository that holds `api` and `web`, has the two
-   repositories as session folders at its first message.
-3. In each other case, the session stays with no codebase.
 
 When a folder is attached to a session that has no codebase:
 
-4. **Solus makes a codebase from the two folders**, when the attached folder
-   is a Git repository or is in a project of the host. Its roots are the
-   project folder and the attached folder. This applies to a folder that you
-   attached, that the agent attached, that you allowed on a card, and that a
-   project tool made. Thus a session in `~/solus` that is told to change
-   `~/solus-cloud` makes a codebase, and the next session in `~/solus` starts
-   with the two folders. For a folder that Solus only saw a write in (**Not
-   attached**), Solus makes the codebase only when the folder is in a
-   project of the host.
+2. **Solus makes a codebase from the two folders**, when the attached folder
+   is a second project: a Git repository, or a folder in a project of the
+   host. Its roots are the project folder and the attached folder. This
+   applies to a folder that you attached, that the agent attached, that you
+   allowed on a card, and that a project tool made. Thus a session in
+   `~/solus` that is told to change `~/solus-cloud` makes a codebase, and the
+   next session in `~/solus` starts with the two folders. For a folder that
+   Solus only saw a write in (**Not attached**), Solus makes the codebase
+   only when the folder is in a project of the host.
+
+Solus makes no codebase from one folder. It makes none from a folder that is
+inside the project folder (the project covers it), and none from a folder
+that holds the project folder.
 
 A different folder that is attached (a folder of notes, a folder with no
 repository that is not a project) stays a folder of that session only, and
 Solus makes no codebase from it. You can add it to a codebase in Settings.
 
 When the session has a codebase already, an attached folder stays a folder of
-that session only. Its row offers **Add to** with the name of the codebase.
+that session only. Its menu offers **Add to** with the name of the codebase.
 
-**The name.** The codebase has the name of the project folder. When a
-codebase has that name, Solus adds a number: `shop 2`, `shop 3`. You can
-rename it in Settings.
+**The name.** The codebase has the names of its two folders, for example
+`solus + solus-cloud`. When a codebase has that name, Solus adds a number:
+`solus + solus-cloud 2`. You can rename it in Settings.
 
 **The line in the conversation.** When Solus makes a codebase in a session,
 the conversation shows a divider at that point. The divider names the folders
-that the codebase was made from: "Made the codebase shop from the folder
-shop", or "Made the codebase solus from the folders solus and solus-cloud".
-A codebase that Solus makes at the start of a turn shows its divider before
-the prompt of that turn. The divider is a part of the conversation: it is
-there after a reload, and each client that opens the session shows it at the
-same place. A session that starts with a codebase that exists shows no
-divider.
+that the codebase was made from: "Made the codebase solus + solus-cloud from
+the folders solus and solus-cloud". The divider is a part of the
+conversation: it is there after a reload, and each client that opens the
+session shows it at the same place. A session that starts with a codebase
+that exists shows no divider.
 
 Select the divider to open the page of the codebase in Settings. **Delete
 codebase** on that page is the way back. No file is deleted.
@@ -94,7 +118,8 @@ codebase** on that page is the way back. No file is deleted.
 codebase with the same folders again. It can still make a codebase with a
 different set of folders: when you delete a codebase of `~/solus` and a wrong
 folder, a session in `~/solus` that attaches `~/solus-cloud` makes the
-codebase of those two folders. You can also make each codebase by hand. **No codebase** on the project chip does the same for one session
+codebase of those two folders. You can also make each codebase by hand. **No
+codebase** on the project chip does the same for one session
 (see [Start a session in a codebase](#start-a-session-in-a-codebase)).
 
 **When Solus makes none.** Solus makes no codebase for a chat, for your home
@@ -113,19 +138,27 @@ codebases** and **New codebase**.
 
 1. Select **New codebase**.
 2. Type a name.
-3. Choose the host, then select **Choose folder** and choose the first folder.
-   The page reads the folder and shows what it found, for example "A folder
-   with no repository of its own. 2 repositories were found inside it."
-4. Select **Create codebase**.
+3. Below **First folder**, choose the host, then select **Choose folder** and
+   choose the first folder. The page reads the folder and shows what it
+   found, for example "A folder with no repository of its own. 2
+   repositories were found inside it."
+4. Below **Second folder**, choose the second folder the same way. It can be
+   on a different host. A codebase has two or more folders, so **Create
+   codebase** is available only after you choose the two. A folder that is
+   the first folder, is inside it, or holds it is refused.
+5. Select **Create codebase**.
 
 After that, the page of the codebase shows its folders for each host. Use it
 to:
 
 - Rename the codebase.
 - Add a folder with **Add folder**. A folder that is in the codebase already,
-  and a folder that does not exist, are refused. A codebase has at most 128
-  folders.
-- Remove a folder with **Remove**. No file is deleted.
+  a folder that is inside a folder of the codebase or holds one, and a folder
+  that does not exist are refused. A codebase has at most 128 folders.
+- Remove a folder with **Remove**. No file is deleted. When the codebase has
+  only two folders, **Remove** is not available, and the page says: "A
+  codebase has at least 2 folders. To remove this folder, delete the
+  codebase."
 - Delete the codebase with **Delete**. The codebase is deleted on each host.
   No file is deleted.
 
@@ -193,15 +226,16 @@ A folder with no repository is a member. The agent can read and change its
 files. It has no diff, no branch, and no Git actions.
 
 To make a repository there, start a session that has the folder, open the
-**Repositories** section of the project panel, open the menu of the row, and
-select **Track with Git**. The host runs `git init` in the folder. The row
-then shows a branch, and the folder has a diff.
+**Environment** section of the project panel, open the menu of the row of the
+folder, and select **Track with Git**. The host runs `git init` in the
+folder. The folder is then a repository of the **Git** section, with a
+branch and a diff.
 
 When the working directory of a session is a folder with no repository that
 holds repositories, the **Git** section of the project panel does not ask you
-to set up Git. It shows one row, for example "2 repositories in this folder".
-Select the row to open the Repositories section. **Track with Git** for the
-folder itself is in the menu of that row.
+to set up Git. It lists the repositories, and its Git rows work in the one
+that you choose. **Track with Git** for the folder itself is in the menu of
+the project row of the Environment section.
 
 ## Start a session in a codebase
 
@@ -220,9 +254,13 @@ does not show the folder that the session works in. The tooltip of the chip
 does, for example "Works in api on Laptop", and so does the Environment
 section of the project panel.
 
-The list has two groups, **Projects** and **Codebases**. A row of a codebase
-that has a folder on the host of the run shows how many repositories the
-codebase covers there, for example "2 repositories".
+The list has two groups, **Projects** and **Codebases**. The Codebases group
+lists only codebases: each one has two or more folders, so no row there has
+the name of a project for the same folder. A row of a codebase that has a
+folder on the host of the run shows how many repositories the codebase
+covers there, for example "2 repositories". A row of a project that holds
+repositories shows how many it holds, when this client has read its folder.
+Such a project is a project only.
 
 - Select a codebase to start the session with it.
 - When the project folder is in the codebase already, the folder stays.
@@ -246,20 +284,16 @@ on its host, the session starts with that codebase. You do no extra step.
 When the folder is in more than one codebase, the chip shows **Choose
 codebase** beside the project.
 
-**A new codebase.** When the project folder is in no codebase and holds
-repositories, the chip shows the project with the note **New codebase**.
-Solus makes this codebase when you send the first prompt. Until then the run
-is in the project, so the list marks the row of the project. The Codebases
-group has a row with the name of the folder and the note "New", with no mark.
-The control for the
-repositories of a new worktree works from the repositories that the host
-found, before the codebase exists.
+**A project that holds repositories.** The chip shows the project, with no
+note. The session gets the repositories with the project, and the control
+for the repositories of a new worktree lists them
+([A project covers its repositories](#a-project-covers-its-repositories)).
 
-**No codebase.** When the run has a codebase, or gets a new one, the group
-has **No codebase**. Select it to start the session with no codebase. The
-automatic choice does not put the codebase back for that folder, and the host
-makes no codebase and takes none for that session. To take the choice back
-for a new codebase, select its row.
+**No codebase.** When the run has a codebase, the group has **No codebase**.
+Select it to start the session with no codebase. The automatic choice does
+not put the codebase back for that folder, and the host makes no codebase and
+takes none for that session. The session still gets the repositories of its
+project. To take the choice back, select the row of a codebase.
 
 A session that has a codebase keeps it. A session that started with no
 codebase gets one later when a folder is attached to it
@@ -271,6 +305,8 @@ At each turn start, the host reads the codebase and the disk, and gives the
 agent:
 
 - The working directory.
+- Each repository that the host finds in the project folder, as a session
+  folder.
 - Each member of the codebase that exists on the host of the session, as a
   session folder.
 - Each folder that is attached to the session.
@@ -287,18 +323,20 @@ first session sends the record with it. No tool moves the work of a session
 to a different host, and no tool clones a member to the host of the session
 by itself.
 
-The project panel shows the folders on other hosts, and the sessions that the
-agent started there ([Project panel](project-panel.md#repositories)).
+The Environment section of the project panel shows the folders on other
+hosts, and the sessions that the agent started there
+([Project panel](project-panel.md#repositories-and-folders)).
 
 ## Attach a folder in a running session
 
 To attach is to add a session folder to a running session. There are three
 ways:
 
-- **You attach.** In the Repositories section of the project panel, select
-  **Add folder…** and choose a folder on the host of the session. The command
-  palette has **Add folder to this session**. A folder that you attach needs
-  no card.
+- **You attach.** In the Environment section of the project panel, open the
+  menu of the project row, select **Add folder…**, and choose a folder on
+  the host of the session. The command palette has **Add folder to this
+  session**. A folder that you attach needs no card. You can attach each
+  folder but the refused places below.
 - **The agent asks.** The agent calls the `attach_folder` tool with a path.
 - **Solus attaches automatically.** See the triggers below.
 
@@ -318,10 +356,20 @@ Solus keeps them in its data folder.
 A path that is in the working directory or in a session folder is available
 already, so nothing is attached.
 
+**Solus attaches by itself only a real project.** An automatic trigger
+attaches a Git repository, or the project of the host that holds the path.
+For a path in a subfolder of such a project, it attaches the project. For
+each other path, for example a file in `~/Downloads`, it attaches nothing:
+the agent then asks permission for that one call, as it does in a session
+with one folder. You or the agent can still attach such a folder by name:
+with **Add folder…**, or with the `attach_folder` tool.
+
 A temporary folder of the system (`/tmp`, `/var/folders`, the temporary
-folder of your user) is attached only when you or the agent ask for it: with
-**Add folder…**, or with the `attach_folder` tool. No automatic trigger
-attaches it, and no automatic trigger attaches a folder that cannot be read.
+folder of your user) and a folder that cannot be read are attached only by
+name also. At the start of a turn, Solus removes from a session a temporary
+folder that an automatic trigger attached before this rule. A different
+folder that was attached that way, for example `~/Desktop`, stays until you
+detach it ([Detach a folder](#detach-a-folder)).
 
 ### The rule for each permission mode
 
@@ -353,18 +401,20 @@ host, and to start a session there.
 
 | Trigger | What Solus does |
 |---|---|
-| Your prompt names a folder on the host in its text (`~/x` or an absolute path), or names a file or a folder with an `@` mention | In Full access and Auto, Solus attaches the folder before the turn starts. One prompt attaches at most three folders. In the other modes, the agent asks with `attach_folder`. A file that you paste or drop into the prompt attaches nothing: an attachment is not a request to work in a folder. |
-| Claude asks permission for a path outside its folders | In Auto, Solus attaches the folder and allows the call with no card. On a permission card, **Allow for Session** also attaches the folder. |
-| Codex asks approval for a write outside its sandbox | In Accept edits and Auto, Solus accepts the write with no card when each path is in a session folder. An approval for the session also attaches the folder. |
-| A file tool of the agent changed a file in a repository that is not a session folder | At the turn end, the repository shows in the Repositories section with **Not attached**. The agent was not given the folder. Select **Attach to this session** in the menu of the row to give it. |
+| A prompt that you wrote names a folder on the host in its text (`~/x` or an absolute path), or names a file or a folder with an `@` mention | In Full access and Auto, Solus attaches the project of that path before the turn starts. One prompt attaches at most three folders. In the other modes, the agent asks with `attach_folder`. A file that you paste or drop into the prompt attaches nothing: an attachment is not a request to work in a folder. A prompt that you did not write attaches nothing: the report or the message of a different session, the prompt of an automation, and a message that Solus made. |
+| Claude asks permission for a path outside its folders | In Auto, when the path is in a project, Solus attaches the project and allows the call with no card. On a permission card, **Allow for Session** also attaches the project. For a path in no project, the card of Claude answers for that call, and nothing is attached. |
+| Codex asks approval for a write outside its sandbox | In Accept edits and Auto, Solus accepts the write with no card when each path is in a session folder. An approval for the session also attaches the project of each path. |
+| A file tool of the agent changed a file in a repository that is not a session folder | At the turn end, the repository shows in the Git section and in the Environment section of the project panel with **Not attached**. The agent was not given the folder. Select **Attach to this session** in the menu of its row in the Environment section to give it. |
 
 ### Detach a folder
 
-In the Repositories section, open the menu of the row and select **Detach
-from this session**. You can detach a folder that was attached and a folder
-that a project tool made. A member of the codebase cannot be detached: remove
-it from the codebase in Settings. A folder whose attach made the codebase of
-the session is a member of that codebase.
+In the Environment section of the project panel, open the menu of the row of
+the folder and select **Detach from this session**. You can detach a folder
+that was attached and a folder that a project tool made. A member of the
+codebase cannot be detached: remove it from the codebase in Settings. A
+folder whose attach made the codebase of the session is a member of that
+codebase. A repository inside the project folder cannot be detached: it
+comes with the project.
 
 ### When the agent gets the folder
 
@@ -381,19 +431,20 @@ of the attach has these rules:
 
 ## Worktree sessions
 
-A new worktree session of a codebase can get a worktree of more than one
-repository. Those worktrees are in one folder, the task folder.
+A new worktree session can get a worktree of more than one repository: the
+repositories of its project, and those of its codebase. Those worktrees are
+in one folder, the task folder.
 
 ### When a session gets a task folder
 
 A new worktree session works in a task folder when all of these are true:
 
-- The session has a codebase. Solus makes one before it makes the worktrees,
-  when the project folder holds repositories
-  ([How a codebase forms](#how-a-codebase-forms)).
-- The project folder is a member of the codebase on the host of the session.
+- The session has more than one repository: its project folder holds
+  repositories, or its codebase has more on the host of the session. It
+  needs no codebase: the first worktree session in `~/shop`, a folder with
+  no repository that holds `api` and `web`, gets a task folder with the two.
 - More than one repository gets a worktree, or the project folder is a folder
-  with no repository.
+  with no repository that holds a repository or is in a codebase.
 
 In each other case the session gets one worktree inside its repository, as
 before ([Agent worktrees](worktree-names.md#agent-worktrees)).
@@ -402,17 +453,17 @@ before ([Agent worktrees](worktree-names.md#agent-worktrees)).
 
 Open the branch chip and select **New worktree**. The menu shows
 **Repositories with a worktree**: the working folder, then each other
-repository of the codebase on the host, with a check.
+repository of the project and of the codebase on the host, with a check.
 
-- With no choice from you, each repository gets a worktree when the codebase
+- With no choice from you, each repository gets a worktree when the session
   has at most eight repositories that can get one. The working repository is
   in that count. Above eight, no other repository gets a worktree unless you
   choose it.
 - A row with **Submodule**, **No commit**, or **Other drive** cannot be
   chosen. A submodule comes with the worktree of its parent repository.
 
-A repository of the codebase that gets no worktree is not a session folder of
-that session. The session stays isolated: it does not reach the shared
+A repository that gets no worktree is not a session folder of that
+session. The session stays isolated: it does not reach the shared
 checkout of that repository.
 
 ### The task folder
@@ -458,7 +509,7 @@ the folders on the way to a repository are real folders. A repository is
 never linked.
 
 **An edit of a linked file changes the original for every session.** The
-start control and the Repositories section say so.
+start control and the Environment section of the project panel say so.
 
 A new worktree of a folder with no repository needs a base branch. The branch
 chip shows **This folder**, and the start control has a **Base branch**
@@ -467,9 +518,10 @@ in the folder itself.
 
 ### Add a repository to a running session
 
-In a session that works in a task folder, the Repositories section has **Add
-repository…**. It lists the repositories of the codebase that have no
-worktree in the task folder and that can get one. Select one, and the host
+In a session that works in a task folder, the Git section of the project
+panel has **Add repository…**. It lists the repositories of the session (of
+its project and of its codebase) that have no worktree in the task folder
+and that can get one. Select one, and the host
 makes its worktree on the branch of the session.
 
 The agent can do the same: `attach_folder` on a repository of the codebase
@@ -549,23 +601,27 @@ Other rules:
 
 ## Review
 
-### The Repositories section
+### The repositories of the Git section
 
-The project panel of a started session has a **Repositories** section when
-the session has a codebase or a session folder. It has one row for the
-working directory and one row for each session folder, with the branch and
-the line counts of that checkout. It also lists the folders of the codebase
-on other hosts. See [Project panel](project-panel.md#repositories).
+The project panel has no card of its own for repositories. When a session
+works in more than one repository, the **Git** section starts with one row
+for each: the repository of the working directory, then each session folder
+that is a repository, with the branch and the line counts of that checkout.
+Select a row to choose that repository. The Git rows of the section then
+work in it. See [Project panel](project-panel.md#repositories-and-folders).
 
-The menu of each row has **Open files**, which opens the files pane at that
-folder. On the desktop app, for a session on this machine, it also has **Open
-terminal**.
-
-### The Environment section
+### The folders of the Environment section
 
 The project row of the Environment section shows the name of the codebase of
 the run, with the host of the run. On a different host, it shows the name of
 the codebase, then the name of the host.
+
+Below the project row, the section has one row for each session folder that
+is not a repository of the project, with its state (**No repository**, **Not
+attached**), then the folders of the codebase on other hosts. Select a row to
+open the files pane at that folder. The menu of a row has **Open files**. On
+the desktop app, for a session on this machine, it also has **Open
+terminal**.
 
 ### The repository picker of the diff panel
 
@@ -589,17 +645,18 @@ each repository. Select a row to open the diff panel on that repository.
 
 ### Git actions for one repository
 
-Select the row of a session folder in the Repositories section. The Git rows
-show below it: branch, commit and push, changes, pull request, discard, and
-merge conflicts. They work in that folder only. The session stays in its
-working directory.
+Select the row of a repository at the top of the Git section. The Git rows
+below the list (branch, commit and push, changes, pull request, discard, and
+merge conflicts) then work in that repository only. The session stays in its
+working directory. The repository of the working directory is chosen at
+first, and your choice stays when you go to a different tab and come back.
 
 One Git action is in one repository. To commit in two repositories, commit in
 each one.
 
 ### Pull requests
 
-The Git rows of a session folder have the pull request row of that
+The Git rows of the chosen repository have the pull request row of that
 repository. Solus also finds the pull request of a branch by itself, and a
 session keeps one found pull request for each repository. For a session
 folder, Solus looks only at a folder that a turn of the session changed, and
@@ -613,11 +670,15 @@ host of the session ([Projects](projects.md#agent-tools)). After the call:
 
 - The new folder becomes a session folder, so the agent can work there in the
   same session. No card shows: you approved the tool call.
-- When the session has a codebase, the new folder also becomes a root of the
-  codebase. It does not when the call has `add_to_codebase: false`, or when a
-  root of the codebase holds the folder already.
-- When the session has no codebase, Solus makes one from the project folder
-  and the new folder. It makes none when the call has
+- A new folder inside the project folder needs no codebase: the project
+  covers it.
+- For a new folder outside the project folder: when the session has a
+  codebase, the new folder also becomes a root of the codebase. It does not
+  when the call has `add_to_codebase: false`, or when a root of the codebase
+  holds the folder already.
+- For a new folder outside the project folder, in a session with no
+  codebase: Solus makes one from the project folder and the new folder,
+  with the two names. It makes none when the call has
   `add_to_codebase: false`.
 
 The result of the tool has `sessionFolder` and `addedToCodebase`.
@@ -628,9 +689,10 @@ The mobile app has the same capability in its own screens.
 
 | Thing | Where it is on mobile |
 |---|---|
-| The codebases of a project | The settings of a project show one section for each codebase that holds the project folder: the folders on the host, then the folders on other hosts. **Add folder**, **Rename codebase**, and **Delete codebase** are there. A project that is in no codebase has **Make a codebase**. |
-| The codebase of a new session | A folder in exactly one codebase gives the draft that codebase. A folder in more than one adds a **Codebase** control with each codebase and **No codebase**. A folder in no codebase that holds repositories gets its codebase from the host at the first prompt. |
-| The repositories of a new worktree | The workspace controls of the draft have a repositories control. A submodule and a repository with no commit show as rows that you cannot choose. For a folder that gets a new codebase, the control lists the repositories that the host found in the folder. |
+| The repositories of a project | The settings of a project show one **Repositories** section with the repositories that the host found inside the project folder. A project with no repository inside it has no such section. |
+| The codebases of a project | After that, the settings show one section for each codebase that holds the project folder: the folders on the host, then the folders on other hosts. **Add folder**, **Rename codebase**, and **Delete codebase** are there. A project that is in no codebase has **Make a codebase**: it asks for the second folder, then for the name, and makes the codebase of the two folders. |
+| The codebase of a new session | A folder in exactly one codebase gives the draft that codebase. A folder in more than one adds a **Codebase** control with each codebase and **No codebase**. A folder in no codebase starts with none, and the session gets the repositories of its project. |
+| The repositories of a new worktree | The workspace controls of the draft have a repositories control. A submodule and a repository with no commit show as rows that you cannot choose. The control lists the repositories that the host found in the project folder, then those of the codebase. |
 | The session folders | The Git overview of a session lists one row for each session folder. A row opens the Git sheet of that repository. |
 | Folder actions | The Git sheet of a session folder has **Track with Git** for a folder with no repository, **Attach** for a folder that the agent was not given, and **Detach** for an attached folder. |
 | Add a repository | In a task folder session, the list of other repositories comes from the host, and a choice makes the worktree. |
@@ -644,8 +706,8 @@ Differences on mobile:
   Each repository starts from its default branch.
 - A row of a session folder shows its branch and the number of changed files,
   with no line counts.
-- A draft does not show that its folder gets a new codebase, and it has no
-  **No codebase** choice for it.
+- "Make a codebase" chooses the second folder on the host of the project.
+  Add a folder on a different host after that, with **Add folder**.
 - The conversation shows no divider when Solus makes a codebase. To delete
   the codebase, use **Delete codebase** in the settings of the project.
 - A draft shows the project in its heading. It shows the codebase only when
@@ -677,10 +739,12 @@ The mobile app has no project panel.
   After a restart of the host, a message from a different client, or from an
   agent, can give the session a codebase.
 - A client cannot tell that a folder is your home folder or the projects
-  folder of the host. A draft there can show **New codebase**, and the host
-  then makes none.
-- Solus makes a codebase only for repositories that the host finds: at most
-  two levels below the project folder.
+  folder of the host. A draft there can list the repositories that the host
+  found for a new worktree, and the host then gives the session none.
+- A project covers only the repositories that the host finds: at most two
+  levels below the project folder. Attach a deeper repository by name.
+- A stored codebase with one folder, from an earlier version, is not shown
+  and is not used. Its project covers its repositories.
 
 **Discovery**
 
@@ -691,8 +755,15 @@ The mobile app has no project panel.
 **Attach**
 
 - The prompt trigger works only in Full access and Auto, for at most three
-  folders in one prompt. It does not run for a retry or for a session with
-  nobody present.
+  folders in one prompt, and only for a prompt that a person wrote. It does
+  not run for a retry, for a message from a different session, or for a
+  session with nobody present.
+- An automatic trigger attaches only a Git repository or a project of the
+  host. In Auto, a read of a file in a different folder (`~/Downloads`) shows
+  a permission card for that call.
+- The record of a session does not say who asked for a folder that was
+  attached before this rule. Such a folder stays until you detach it, but
+  for a temporary folder of the system, which Solus removes.
 - A pasted or dropped file attaches no folder. In Auto, a read of such a file
   in a temporary folder of the system can show a permission card, because
   Solus does not attach that folder automatically.

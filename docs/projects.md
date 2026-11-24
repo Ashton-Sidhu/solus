@@ -3,8 +3,10 @@
 A project is a folder on a host. Usually the folder is a Git repository.
 Sessions, tasks and pull requests belong to a project.
 
-For work that covers more than one folder, or folders on more than one host,
-make a codebase. See [Codebases](codebases.md).
+A project covers the repositories inside its folder: a session of the
+project works in each one, with no setup. For work that covers a second
+folder, or folders on more than one host, there is the codebase: a named set
+of two or more folders. See [Codebases](codebases.md).
 
 ## Start a project
 
@@ -245,10 +247,13 @@ Both tools return `path` and `projectKey`. Paths name folders on that host.
 The current session keeps its working directory, and the new folder becomes a
 folder of the session, so the agent can work there in the same session. Codex
 gets its writable folders at a turn start: a write in the new folder needs an
-approval until the next turn. When the session has a codebase, the new folder
-also becomes a folder of that codebase, unless the call has
-`add_to_codebase: false` or a folder of the codebase holds it already
-([Codebases](codebases.md#new-projects)). The result says so in
+approval until the next turn. A new folder inside the project folder of the
+session needs nothing more: the project covers it. For a new folder outside
+it: when the session has a codebase, the new folder also becomes a folder of
+that codebase, unless the call has `add_to_codebase: false` or a folder of
+the codebase holds it already. When the session has no codebase, Solus makes
+the codebase of the project folder and the new folder, unless the call has
+`add_to_codebase: false` ([Codebases](codebases.md#new-projects)). The result says so in
 `sessionFolder` and `addedToCodebase`. If the folder could not become a
 folder of the session, the result has `sessionFolderError` with the reason:
 the project still exists.
