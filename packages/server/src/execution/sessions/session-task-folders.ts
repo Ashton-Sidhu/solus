@@ -10,8 +10,7 @@ import {
 } from '@solus/contracts/worktree-branch-naming'
 import type { Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { recordScopeOf } from '../../admission/principal'
-import { getCodebase } from '../../data/codebases/codebases'
+import { codebasesFor } from '../../data/codebases/codebases'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { getIndexedSession, indexedTaskFolderDirectories } from '../../db/session-indexer'
@@ -458,7 +457,7 @@ export class SessionTaskFolders {
   }
 
   private async membersOf(codebaseId: string, actor: Actor): Promise<CodebaseMember[]> {
-    const codebase = await getCodebase(recordScopeOf(actor.principal), codebaseId)
+    const codebase = await codebasesFor(actor).get(codebaseId)
     return codebase && codebase.deletedAt === null ? membersOf(codebase, getInstallationId()) : []
   }
 

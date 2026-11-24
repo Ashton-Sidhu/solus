@@ -5,8 +5,8 @@ import { hostPathBaseName, sameHostPath } from '@solus/contracts/host-path'
 import type { NormalizedEvent, PermissionMode, SessionRecordUpsert } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { ANY_ORGANIZATION, organizationForNew, recordScopeOf } from '../../admission/principal'
-import { getCodebase } from '../../data/codebases/codebases'
+import { ANY_ORGANIZATION, organizationForNew } from '../../admission/principal'
+import { codebasesFor, getCodebase } from '../../data/codebases/codebases'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { setSessionRecordFolders, storedSessionFolders } from '../../data/sessions/session-records'
@@ -220,7 +220,7 @@ export class SessionFolders implements SessionFolderGate {
    */
   private async hasCodebase(state: SessionFoldersState, actor: Actor): Promise<boolean> {
     if (!state.codebaseId) return false
-    const codebase = await getCodebase(recordScopeOf(actor.principal), state.codebaseId)
+    const codebase = await codebasesFor(actor).get(state.codebaseId)
     return !codebase || codebase.deletedAt === null
   }
 
@@ -756,7 +756,7 @@ export class SessionFolders implements SessionFolderGate {
   /** Read the codebase and the disk again, and keep the new list. */
   private async refresh(sessionId: string, state: SessionFoldersState, actor: Actor): Promise<void> {
     state.place ??= this.storedPlaceOf(sessionId)
-    const codebase = state.codebaseId ? await getCodebase(recordScopeOf(actor.principal), state.codebaseId) : null
+    const codebase = state.codebaseId ? await codebasesFor(actor).get(state.codebaseId) : null
     state.codebase = codebase && codebase.deletedAt === null ? codebase : null
     const members = state.codebase ? await membersOf(state.codebase, getInstallationId()) : []
 

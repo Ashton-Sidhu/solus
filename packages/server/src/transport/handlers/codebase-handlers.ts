@@ -3,15 +3,12 @@ import { z } from 'zod'
 import { codebaseListOptionsSchema, codebaseSchema, type Codebase, type TaskFolder } from '@solus/contracts/codebases'
 import { HOST_USE, permissionsAllow } from '@solus/contracts/permissions'
 import { permissionsFor } from '../../admission/access-policy'
-import { ownerKeyOf } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { organizationForNew, recordScopeOf } from '../../admission/principal'
-import { getCodebase, listCodebases, saveCodebase } from '../../data/codebases/codebases'
+import { codebasesFor } from '../../data/codebases/codebases'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { membersOf, scanFolder } from '../../files/codebase-members'
 import { expandHome } from '../../files/host-path'
 import { findTaskFolderContaining } from '../../git/task-folder-store'
-import { hostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import type { SessionFolders } from '../../execution/sessions/session-folders'
 import type { SessionTaskFolders } from '../../execution/sessions/session-task-folders'
@@ -35,7 +32,7 @@ export async function receiveSessionCodebase(sent: Codebase | undefined, caller:
   if (sent === undefined || !permissionsAllow(permissionsFor(caller.principal), HOST_USE)) return null
   const codebase = codebaseSchema.parse(sent)
   try {
-    await saveCodebase(organizationForNew(caller.principal), ownerKeyOf(caller.actor) ?? hostUserKey(), codebase)
+    await codebasesFor(caller.actor).save(codebase)
   } catch (error) {
     log.warn('session_codebase_save_failed', { codebaseId: codebase.id, error: error instanceof Error ? error.message : String(error) })
   }
@@ -54,12 +51,12 @@ export function registerCodebaseHandlers(
   sessionFolders: Pick<SessionFolders, 'read' | 'attach' | 'detach'>,
   taskFolders: Pick<SessionTaskFolders, 'addRepository' | 'candidates'>,
 ): void {
-  server.register('codebaseList', ([options], ctx) => listCodebases(recordScopeOf(ctx.principal), codebaseListOptionsSchema.parse(options ?? {})))
+  server.register('codebaseList', ([options], ctx) => codebasesFor(ctx.actor).list(codebaseListOptionsSchema.parse(options ?? {})))
   server.register('codebaseSave', ([codebase], ctx) => {
-    return saveCodebase(organizationForNew(ctx.principal), ownerKeyOf(ctx.actor) ?? hostUserKey(), codebaseSchema.parse(codebase))
+    return codebasesFor(ctx.actor).save(codebaseSchema.parse(codebase))
   })
   server.register('codebaseMembers', async ([codebaseId], ctx) => {
-    const codebase = await getCodebase(recordScopeOf(ctx.principal), codebaseIdSchema.parse(codebaseId))
+    const codebase = await codebasesFor(ctx.actor).get(codebaseIdSchema.parse(codebaseId))
     if (!codebase || codebase.deletedAt !== null) throw new Error('This host has no copy of that codebase.')
     return membersOf(codebase, getInstallationId())
   })

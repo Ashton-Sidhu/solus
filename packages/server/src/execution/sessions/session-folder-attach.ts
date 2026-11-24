@@ -4,13 +4,11 @@ import { nextUpdatedAt } from '@solus/client-core/codebases'
 import type { Codebase, SessionFolderSource } from '@solus/contracts/codebases'
 import { isInsideHostPath } from '@solus/contracts/host-path'
 import type { NormalizedEvent, PermissionMode } from '@solus/contracts/types'
-import { ownerKeyOf, type Actor } from '../../admission/actor'
+import type { Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { organizationForNew, recordScopeOf } from '../../admission/principal'
-import { getCodebase, saveCodebase } from '../../data/codebases/codebases'
+import { codebasesFor } from '../../data/codebases/codebases'
 import { membersOf } from '../../files/codebase-members'
 import { readHostList } from '../../host/host-list'
-import { hostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { realPathOf } from '../../paths'
 import { resolveHomePath } from '../../platform/paths'
@@ -295,10 +293,10 @@ export async function addCodebaseRoot(sessionId: string, state: AttachState, fol
   if (!state.codebaseId) return false
   const installationId = getInstallationId()
   try {
-    const codebase = await getCodebase(recordScopeOf(actor.principal), state.codebaseId)
+    const codebase = await codebasesFor(actor).get(state.codebaseId)
     if (!codebase || codebase.deletedAt !== null) return false
     if (codebase.roots.some((root) => root.installationId === installationId && isInsideHostPath(root.path, folder))) return false
-    state.codebase = await saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
+    state.codebase = await codebasesFor(actor).save({
       ...codebase,
       roots: [...codebase.roots, await rootOf(folder)],
       updatedAt: nextUpdatedAt(codebase, Date.now()),

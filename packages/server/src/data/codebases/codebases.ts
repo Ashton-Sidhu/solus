@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, hasEnoughRoots, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
 import { codebaseRootKey, codebasesHolding } from '@solus/client-core/codebases'
 import { isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
-import type { RecordScope } from '../../admission/principal'
+import { ownerKeyOf, type Actor } from '../../admission/actor'
+import { organizationForNew, recordScopeOf, type RecordScope } from '../../admission/principal'
+import { hostUserKey } from '../../host/host-user'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
 import { codebases } from './schema'
@@ -146,4 +148,27 @@ export async function saveCodebase(organizationId: string, createdBy: string, co
  */
 export async function codebasesOfFolder(scope: RecordScope, installationId: string, path: string): Promise<Codebase[]> {
   return codebasesHolding(await listCodebases(scope), installationId, path)
+}
+
+/** The codebases as one person reads and changes them. */
+export interface ActorCodebases {
+  list(options?: CodebaseListOptions): Promise<Codebase[]>
+  get(codebaseId: string): Promise<Codebase | null>
+  ofFolder(installationId: string, path: string): Promise<Codebase[]>
+  /** A save in the organization of a new record of the person. When it makes the row, the person is its creator. */
+  save(codebase: Codebase): Promise<Codebase>
+}
+
+/**
+ * The codebases in the scope of `actor`. A read names the scope of the
+ * person, and a save names the organization and the creator of the person,
+ * so each caller does not build them. The scope is read at each call.
+ */
+export function codebasesFor(actor: Actor): ActorCodebases {
+  return {
+    list: (options) => listCodebases(recordScopeOf(actor.principal), options),
+    get: (codebaseId) => getCodebase(recordScopeOf(actor.principal), codebaseId),
+    ofFolder: (installationId, path) => codebasesOfFolder(recordScopeOf(actor.principal), installationId, path),
+    save: (codebase) => saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), codebase),
+  }
 }

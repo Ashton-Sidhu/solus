@@ -5,13 +5,11 @@ import { isChat } from '@solus/contracts/chat'
 import { nextUpdatedAt } from '@solus/client-core/codebases'
 import { plainCodebaseName, type Codebase, type CodebaseRoot, type SessionAttachedFolder } from '@solus/contracts/codebases'
 import { hostPathBaseName } from '@solus/contracts/host-path'
-import { ownerKeyOf, type Actor } from '../../admission/actor'
+import type { Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { organizationForNew, recordScopeOf } from '../../admission/principal'
-import { codebasesOfFolder, getCodebase, listCodebases, saveCodebase } from '../../data/codebases/codebases'
+import { codebasesFor } from '../../data/codebases/codebases'
 import { folderStateOf, isContainer } from '../../files/codebase-members'
 import { findTaskFolderContaining, projectRootOfPath } from '../../git/task-folder-store'
-import { hostUserKey } from '../../host/host-user'
 import { runOneAtATime } from '../../lib/concurrency'
 import { createLogger } from '../../logger'
 import { isInsideRoot, realPathOf } from '../../paths'
@@ -115,7 +113,7 @@ export function projectFolderOf(place: FormationPlace): string {
 async function wasRemovedByAPerson(roots: readonly string[], actor: Actor): Promise<boolean> {
   const installationId = getInstallationId()
   const wanted = await realPathsOf(roots)
-  for (const codebase of await listCodebases(recordScopeOf(actor.principal), { includeDeleted: true })) {
+  for (const codebase of await codebasesFor(actor).list({ includeDeleted: true })) {
     if (codebase.deletedAt === null || codebase.roots.length !== roots.length) continue
     if (codebase.roots.some((root) => root.installationId !== installationId)) continue
     const removed = await realPathsOf(codebase.roots.map((root) => root.path))
@@ -131,7 +129,7 @@ async function realPathsOf(paths: readonly string[]): Promise<Set<string>> {
 
 /** `base`, or `base` with a number when a live codebase in the scope of the person has that name: `solus 2`. */
 async function freeNameFor(base: string, actor: Actor, exceptId?: string): Promise<string> {
-  const taken = new Set((await listCodebases(recordScopeOf(actor.principal))).filter((codebase) => codebase.id !== exceptId).map((codebase) => codebase.name))
+  const taken = new Set((await codebasesFor(actor).list()).filter((codebase) => codebase.id !== exceptId).map((codebase) => codebase.name))
   if (!taken.has(base)) return base
   for (let number = 2; ; number++) {
     if (!taken.has(`${base} ${number}`)) return `${base} ${number}`
@@ -140,7 +138,7 @@ async function freeNameFor(base: string, actor: Actor, exceptId?: string): Promi
 
 /** Rule 1. `none`: no live codebase holds the folder. `several`: more than one does, so the session takes none. */
 async function existingCodebaseOf(projectFolder: string, actor: Actor): Promise<Codebase | 'none' | 'several'> {
-  const holders = await codebasesOfFolder(recordScopeOf(actor.principal), getInstallationId(), projectFolder)
+  const holders = await codebasesFor(actor).ofFolder(getInstallationId(), projectFolder)
   if (holders.length === 0) return 'none'
   return holders.length === 1 ? holders[0] : 'several'
 }
@@ -155,7 +153,7 @@ export async function rootOf(path: string): Promise<CodebaseRoot> {
 }
 
 async function makeCodebase(sessionId: string | null, roots: CodebaseRoot[], name: string, actor: Actor): Promise<Codebase> {
-  const codebase = await saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
+  const codebase = await codebasesFor(actor).save({
     id: crypto.randomUUID(),
     name,
     roots,
@@ -308,11 +306,11 @@ export async function codebaseForAttachedFolder(
  * Answers the saved copy, or null.
  */
 export async function renameFormed(codebaseId: string, plainName: string, generatedName: string, actor: Actor): Promise<Codebase | null> {
-  const current = await getCodebase(recordScopeOf(actor.principal), codebaseId)
+  const current = await codebasesFor(actor).get(codebaseId)
   if (!current || current.deletedAt !== null || current.name !== plainName) return null
   const name = await freeNameFor(generatedName, actor, codebaseId)
   if (name === current.name) return null
-  return saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
+  return codebasesFor(actor).save({
     ...current,
     name,
     updatedAt: nextUpdatedAt(current, Date.now()),
