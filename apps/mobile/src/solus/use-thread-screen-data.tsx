@@ -44,6 +44,7 @@ import {
   pickComposerFiles,
   pastedComposerImages,
 } from "@solus-mobile/features/threads/composer-attachment-pickers";
+import { modelInstanceId, runOptionSelections } from "./model-picker-catalog";
 import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { RequestCards, RequestPanels } from "./RequestCards";
 import {
@@ -207,6 +208,7 @@ export function useThreadScreenData({
   const draftTitle =
     placeName ?? (isChat(meta.run.workingDirectory) ? "No project" : meta.run.workingDirectory);
   const edit = useQueuedRunEdit(key);
+  const editedModel = edit?.hostModelSelection ?? edit?.hostInitialModel;
   const inputKey = draftKey ?? key;
   const composerKey = edit ? queuedEditDraftKey(key, edit.runId) : inputKey;
   const [savingEdit, setSavingEdit] = useState(false);
@@ -278,10 +280,17 @@ export function useThreadScreenData({
   const binding = {
     selectedThread: { ...shell, pendingBackgroundTasks: backgroundTasks(controller.model) },
     onStopBackgroundWork: () => void controller.stopBackgroundWork(),
+    composerModelSelection: editedModel
+      ? {
+          instanceId: modelInstanceId(editedModel.provider),
+          model: editedModel.modelConfig.modelId ?? "",
+          options: runOptionSelections(editedModel.modelConfig),
+        }
+      : undefined,
     modelDisplayName: modelLabel(
-      meta.run.provider,
-      meta.run.model,
-      meta.runOptions.agents?.find((agent) => agent.id === meta.run.provider),
+      editedModel?.provider ?? meta.run.provider,
+      editedModel ? (editedModel.modelConfig.modelId ?? "") : meta.run.model,
+      meta.runOptions.agents?.find((agent) => agent.id === (editedModel?.provider ?? meta.run.provider)),
     ),
     environmentId,
     projectWorkspaceRoot: meta.run.workingDirectory,

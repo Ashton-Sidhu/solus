@@ -325,6 +325,7 @@
         selection.modelId = pendingModelId;
         selection.fastMode = false;
       }
+      selection.modelId ??= currentModelId;
       selection.reasoningEffort = effort;
       onSelectionChange?.(selection);
       return;

@@ -176,23 +176,25 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const busyRef = useRef(false);
   const mayChangeQueue = store?.controller.mayDrive ?? true;
   const queuedRuns = meta
-    ? meta.queue.entries.map((entry) => {
-        const message = hostQueueMessage(
-          target.environmentId,
-          target.threadId,
-          entry,
-          (path, refresh) =>
-            resolveConversationImage(store!, path, refresh).then((source) => source.uri),
-        );
-        return {
-          run: { id: RunId.make(entry.queueId), freshContext: false },
-          text: entry.text,
-          messageId: message.messageId,
-          context: undefined,
-          message: null,
-          attachments: message.hostQueue.attachments,
-        };
-      })
+    ? meta.queue.entries
+        .filter((entry) => entry.kind !== "provider_switch")
+        .map((entry) => {
+          const message = hostQueueMessage(
+            target.environmentId,
+            target.threadId,
+            entry,
+            (path, refresh) =>
+              resolveConversationImage(store!, path, refresh).then((source) => source.uri),
+          );
+          return {
+            run: { id: RunId.make(entry.queueId), freshContext: false },
+            text: entry.text,
+            messageId: message.messageId,
+            context: undefined,
+            message: null,
+            attachments: message.hostQueue.attachments,
+          };
+        })
     : (upstream?.queuedRuns ?? []);
 
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
@@ -249,10 +251,11 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     void Haptics.selectionAsync();
     if (store && meta) {
       try {
+        if (!hostEntry) return;
         await store.controller.changeQueue({
           kind: action,
           queueId: runId,
-          revision: meta.queue.entries[index]?.revision ?? 0,
+          revision: hostEntry.revision ?? 0,
         });
       } catch (error) {
         Dialog.alert(gt("Queue"), String(error));

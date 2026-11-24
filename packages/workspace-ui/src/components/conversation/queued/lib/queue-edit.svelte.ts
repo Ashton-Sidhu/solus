@@ -1,5 +1,6 @@
 import type { OutboundPrompt } from '@solus/contracts/types'
-import type { QueueAttachment } from '@solus/contracts/session-queue'
+import type { QueueAttachment, QueuedModelSelection } from '@solus/contracts/session-queue'
+import type { PickerSelection } from '../../../pickers/lib/picker-selection'
 import type { SessionQueueController } from '../../../../contexts/workspace/session-queue.store.svelte'
 
 /** Editing is a separate draft. The live queue and composer stay unchanged
@@ -9,13 +10,25 @@ export class QueueEdit {
   attachments = $state<QueueAttachment[] | undefined>()
   busy = $state(false)
   error = $state('')
-  private attachmentsChanged = false
-  constructor(private readonly queue: SessionQueueController, private readonly tabId: string, readonly source: OutboundPrompt) {
+  model = $state<PickerSelection>()!
+  private modelChanged = $state(false)
+  private attachmentsChanged = $state(false)
+  constructor(private readonly queue: SessionQueueController, private readonly tabId: string, readonly source: OutboundPrompt,
+    private readonly initialModel: QueuedModelSelection,
+    private readonly contextWindowFor: (provider: PickerSelection['provider'], modelId: string | null) => number | null) {
+    const { modelId, reasoningEffort, fastMode } = initialModel.modelConfig
+    this.model = { provider: initialModel.provider, modelId, reasoningEffort, fastMode }
     this.text = source.text
     this.attachments = source.queueAttachments?.map((item) => ({ ...item }))
   }
-  /** A removed attachment is an edit even when the text is unchanged. */
-  get changed(): boolean { return this.text !== this.source.text || this.attachmentsChanged }
+  get changed(): boolean { return this.text !== this.source.text || this.attachmentsChanged || this.modelChanged }
+  markModelChanged(): void { this.modelChanged = true }
+  get selection(): QueuedModelSelection | undefined {
+    if (!this.modelChanged) return undefined
+    const { provider, ...model } = this.model
+    const sameModel = provider === this.initialModel.provider && model.modelId === this.initialModel.modelConfig.modelId
+    return { provider, modelConfig: { ...model, contextWindow: sameModel ? this.initialModel.modelConfig.contextWindow : this.contextWindowFor(provider, model.modelId) } }
+  }
   removeAttachment(index: number): void { this.attachments?.splice(index, 1); this.attachmentsChanged = true }
   async add(files: File[]): Promise<void> {
     this.busy = true
@@ -32,10 +45,11 @@ export class QueueEdit {
     finally { this.busy = false }
   }
   async save(): Promise<boolean> {
+    if (this.busy) return false
     if (!this.text.trim()) { this.error = 'Enter a prompt before saving.'; return false }
     this.busy = true
     this.error = ''
-    try { await this.queue.edit(this.tabId, this.source, this.text, this.attachmentsChanged ? this.attachments : undefined); return true }
+    try { await this.queue.edit(this.tabId, this.source, this.text, this.attachmentsChanged ? this.attachments : undefined, this.selection); return true }
     catch (error) { this.error = error instanceof Error ? error.message : String(error); return false }
     finally { this.busy = false }
   }

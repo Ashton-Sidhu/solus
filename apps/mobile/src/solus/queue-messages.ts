@@ -70,6 +70,7 @@ export function beginHostQueuedRunEdit(
   resolvePath: (path: string, refresh?: boolean) => Promise<string>,
 ): boolean {
   const { environmentId, threadId } = target;
+  const { controller } = store;
   if (
     !store.controller.mayDrive ||
     store.controller.hostId !== environmentId ||
@@ -90,6 +91,20 @@ export function beginHostQueuedRunEdit(
       originalText: message.text,
       hostRevision: message.hostQueue.revision,
       existingAttachments: message.hostQueue.attachments,
+      hostInitialModel: entry.provider && entry.modelConfig
+        ? { provider: entry.provider, modelConfig: entry.modelConfig }
+        : undefined,
+      recoverHostModel: ({ provider, modelConfig }) => {
+        if (!controller.mayDrive || provider === "opencode") return;
+        if (controller.policy.providerDenial(provider)) return;
+        if (modelConfig.modelId && controller.policy.modelDenial(provider, modelConfig.modelId)) return;
+        controller.pickProvider(provider);
+        controller.updateRun({
+          model: modelConfig.modelId ?? undefined,
+          reasoningEffort: modelConfig.reasoningEffort,
+          fastMode: modelConfig.fastMode,
+        });
+      },
     },
     hostQueuedRuns(store),
   );
@@ -105,6 +120,7 @@ export function hostQueuedEditMutation(
 ): Extract<SessionQueueMutation, { kind: "edit" }> {
   const mutation = {
     kind: "edit" as const,
+    selection: edit.hostModelSelection,
     queueId: edit.runId,
     revision: edit.hostRevision ?? 0,
     text: restoreAttachmentOnlyBootstrapPrompt(

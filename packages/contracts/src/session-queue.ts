@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Attachment, ModelConfig, PromptOptions, QueuedPromptSnapshot } from './types'
+import type { AgentId, Attachment, ModelConfig, PromptOptions, QueuedPromptSnapshot } from './types'
 
 export interface QueueAttachment extends Pick<Attachment, 'id' | 'type' | 'name' | 'mimeType' | 'size'> {
   hostPath?: string
@@ -18,8 +18,13 @@ export interface QueueEntryDetails {
   attachments?: QueueAttachment[]
 }
 
+export interface QueuedModelSelection {
+  provider: AgentId
+  modelConfig: ModelConfig
+}
+
 export type SessionQueueMutation =
-  | { kind: 'edit'; queueId: string; revision: number; text: string; attachmentContext?: string; attachments?: QueueAttachment[]; images?: PromptOptions['imageAttachments']; imageRefs?: PromptOptions['imageAttachmentRefs'] }
+  | { kind: 'edit'; queueId: string; revision: number; text: string; selection?: QueuedModelSelection; attachmentContext?: string; attachments?: QueueAttachment[]; images?: PromptOptions['imageAttachments']; imageRefs?: PromptOptions['imageAttachmentRefs'] }
   | { kind: 'remove' | 'steer'; queueId: string; revision: number }
   | { kind: 'move'; queueId: string; revision: number; beforeQueueId: string | null }
   | { kind: 'resume' }
@@ -35,9 +40,14 @@ export const queueAttachmentSchema: z.ZodType<QueueAttachment> = z.object({
   context: z.string().optional(),
 }).refine((attachment) => !!attachment.hostPath || attachment.type === 'image' && !!attachment.dataUrl, 'An attachment needs a host path or image data.')
 
+const modelConfigSchema: z.ZodType<ModelConfig> = z.object({
+  modelId: z.string().nullable(), reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']),
+  contextWindow: z.number().int().positive().nullable(), fastMode: z.boolean(),
+})
 const revision = { queueId: z.string().min(1), revision: z.number().int().nonnegative() }
 export const sessionQueueMutationSchema: z.ZodType<SessionQueueMutation> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('edit'), ...revision, text: z.string().min(1), attachmentContext: z.string().optional(),
+    selection: z.object({ provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']), modelConfig: modelConfigSchema }).optional(),
     attachments: z.array(queueAttachmentSchema).optional(),
     images: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).optional(),
     imageRefs: z.array(z.object({ mimeType: z.string(), hostPath: z.string(), name: z.string().optional() })).optional(),
@@ -46,8 +56,5 @@ export const sessionQueueMutationSchema: z.ZodType<SessionQueueMutation> = z.dis
   z.object({ kind: z.literal('move'), ...revision, beforeQueueId: z.string().nullable() }),
   z.object({ kind: z.literal('resume') }),
   // Deprecated (plans/021): accepted for one release, for older clients.
-  z.object({ kind: z.literal('switch'), provider: z.enum(['claude-code', 'codex']), modelConfig: z.object({
-    modelId: z.string().nullable(), reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']),
-    contextWindow: z.number().int().positive().nullable(), fastMode: z.boolean(),
-  }) }),
+  z.object({ kind: z.literal('switch'), provider: z.enum(['claude-code', 'codex']), modelConfig: modelConfigSchema }),
 ])

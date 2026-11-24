@@ -270,6 +270,8 @@ describe('durable queue controls', () => {
     await expect(plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'remove', queueId: entry.queueId, revision: entry.revision ?? 0 }, HOST_ACTOR)).rejects.toThrow('changed or started')
     const edited = plane.scheduler.sessionQueue(ctx('edit')).entries[0]!
     expect(edited.attachments?.[0]?.name).toBe('notes.md')
+    expect(edited.modelConfig).toEqual(entry.modelConfig)
+    expect(edited.provider).toBe(entry.provider)
     const screenshots = []
     for (let index = 0; index < 12; index++) {
       const name = `screenshot-${index}.png`
@@ -293,6 +295,37 @@ describe('durable queue controls', () => {
     expect(backend.requests[1]?.imageAttachments).toEqual(screenshots.map(({ mimeType, name }) => ({
       mimeType, dataUrl: `data:${mimeType};base64,${Buffer.from(name).toString('base64')}`,
     })))
+  })
+
+  test('an edited prompt starts on its selected provider with its own options', async () => {
+    const claude = holdingBackend('claude-code', 'edited-claude')
+    const codex = holdingBackend('codex', 'edited-codex')
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', claude.value], ['codex', codex.value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { plane.shutdown(); claude.releaseAll(); codex.releaseAll() })
+    const sessionId = 'edited-model'
+    await plane.dispatch.submitPrompt(ctx(sessionId), { prompt: 'first' }, { actor: HOST_ACTOR })
+    const context = ctx(sessionId, 'edited-claude-1')
+    for (const prompt of ['second', 'third']) {
+      await plane.dispatch.submitPrompt(context, { prompt, delivery: 'queue' }, { actor: HOST_ACTOR })
+    }
+    const [entry, sibling] = plane.scheduler.sessionQueue(context).entries
+    const selection = {
+      provider: 'codex' as const,
+      modelConfig: { modelId: 'gpt-6-astra', reasoningEffort: 'high' as const, contextWindow: 1_050_000, fastMode: true },
+    }
+    const edited = await plane.scheduler.sessionQueueChange(context, {
+      kind: 'edit', queueId: entry!.queueId, revision: entry!.revision!, text: 'second', selection,
+    }, HOST_ACTOR)
+    expect(edited.entries[0]).toMatchObject(selection)
+    expect(edited.entries[1]).toEqual(sibling)
+    await expect(plane.scheduler.sessionQueueChange(context, {
+      kind: 'edit', queueId: entry!.queueId, revision: entry!.revision!, text: 'stale', selection,
+    }, HOST_ACTOR)).rejects.toThrow('changed or started')
+    expect(codex.requests).toHaveLength(0)
+    const started = codex.nextStart()
+    claude.releaseOne()
+    expect(await started).toMatchObject({ prompt: 'second', model: 'gpt-6-astra', reasoningEffort: 'high', fastMode: true })
   })
 
   test('provider switches and prompts run in delivery order without stopping the current work', async () => {

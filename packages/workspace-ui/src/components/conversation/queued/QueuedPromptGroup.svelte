@@ -76,7 +76,14 @@
         composerDraftEmpty: !input.text.trim() && input.attachments.length === 0,
       });
       if (exit === 'clean') return;
-      if (exit === 'kept') input.text = open.text;
+      if (exit === 'kept') {
+        input.text = open.text;
+        const selection = open.selection;
+        if (selection) {
+          session.config.switchActiveAgent(selection.provider, tabId);
+          session.updateModelConfig(selection.modelConfig, tabId);
+        }
+      }
       toasts.info(QUEUED_EDIT_EXIT_NOTICE[exit]);
       requestInputFocus({ tabId });
     });
@@ -99,6 +106,19 @@
       (err) => session.eventReducer.handleError(sess!.id, err),
     );
     requestInputFocus();
+  }
+
+  function beginEdit(prompt: OutboundPrompt) {
+    const context = session.ctxFor(tabId);
+    const provider = prompt.provider ?? context.session.provider ?? context.settings.activeAgent;
+    const modelConfig = prompt.modelConfig ?? {
+      modelId: context.statusBar.model || null,
+      reasoningEffort: context.statusBar.reasoningEffort,
+      contextWindow: context.session.contextWindow,
+      fastMode: context.statusBar.fastMode,
+    };
+    edit = new QueueEdit(session.queue, tabId, { ...prompt }, { provider, modelConfig },
+      (agent, modelId) => session.config.modelConfigFor(agent, modelId, sess?.run).contextWindow);
   }
 
   function handleRemove(prompt: OutboundPrompt) {
@@ -148,7 +168,7 @@
             <button type="button" onclick={() => change({ kind: 'steer', queueId: prompt.queueId!, revision: prompt.revision ?? 0 })} class="flex cursor-pointer items-center gap-1 text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11"><ArrowUpIcon size={13} aria-hidden="true" />Send now</button>
             <span class="h-3 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true"></span>
           {/if}
-          <button type="button" onclick={() => edit = new QueueEdit(session.queue, tabId, { ...prompt })} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Edit queued message" title="Edit"><PencilIcon size={13} /></button>
+          <button type="button" onclick={() => beginEdit(prompt)} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Edit queued message" title="Edit"><PencilIcon size={13} /></button>
           <button type="button" onclick={() => handleRemove(prompt)} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--destructive) focus-visible:text-(--destructive) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Remove queued message" title="Remove"><XIcon size={13} /></button>
         {/snippet}
         {#if prompt.queueId && (model || prompt.held)}

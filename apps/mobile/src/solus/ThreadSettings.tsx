@@ -7,6 +7,11 @@ import {
 } from "@react-navigation/native";
 import { Alert } from "react-native";
 import { ProjectId } from "@t3tools/contracts";
+import { selectModel } from "@solus-mobile/features/conversation/lib/run-settings";
+import type { ModelOption } from "../lib/modelOptions";
+import { scopedThreadKey } from "../lib/scopedEntities";
+import { isQueuedEditDraftKey } from "../state/queued-edit-draft-key";
+import { activeComposerDraftKey, selectQueuedRunModel, useQueuedRunEdit } from "../state/queued-run-edit";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import {
   ThreadSettingsPickerScreen,
@@ -56,6 +61,14 @@ function Picker({
 }) {
   const navigation = useNavigation();
   const meta = useSyncExternalStore(store.meta.subscribe, store.metaSnapshotOf);
+  const threadKey = scopedThreadKey(params.environmentId, params.threadId);
+  const edit = useQueuedRunEdit(threadKey);
+  const editingQueue = isQueuedEditDraftKey(params.draftKey);
+  const activeEdit = editingQueue && activeComposerDraftKey(threadKey, params.draftKey, edit) === params.draftKey
+    ? edit : null;
+  const queuedModel = activeEdit?.hostModelSelection ?? activeEdit?.hostInitialModel;
+  const provider = queuedModel?.provider ?? meta.run.provider;
+  const modelId = queuedModel ? queuedModel.modelConfig.modelId : meta.run.model;
   const draft = useComposerDraft(params.draftKey);
   const { controller } = store;
   // The project folder names the provider settings. The path of a task folder names no project (docs/plans/codebases.md §7).
@@ -90,23 +103,43 @@ function Picker({
     .flatMap((group) => group.models)
     .find(
       (m) =>
-        m.selection.instanceId === modelInstanceId(meta.run.provider) &&
-        (meta.run.model ? meta.run.model === m.selection.model : m.isDefault),
+        m.selection.instanceId === modelInstanceId(provider) &&
+        (modelId ? modelId === m.selection.model : m.isDefault),
     );
-  const selectedOptions = runOptionSelections(meta.run);
+  const selectedOptions = runOptionSelections(queuedModel?.modelConfig ?? meta.run);
   const runtimeMode = toRuntimeMode(meta.run.permissionMode);
+  const pickQueuedModel = (option: ModelOption, options: Parameters<typeof pickerRunOptions>[1]) => {
+    if (!activeEdit || !controller.mayDrive) return;
+    const agent = agents.find((candidate) => modelInstanceId(candidate.id) === option.selection.instanceId);
+    if (!agent || controller.policy.modelDenial(agent.id, option.selection.model)) return;
+    const sameModel = provider === agent.id && selected?.selection.model === option.selection.model;
+    const defaultsForModel = selectModel(agent.id, option.selection.model, defaults, agent);
+    const current = sameModel ? (queuedModel?.modelConfig ?? meta.run) : defaultsForModel;
+    selectQueuedRunModel(threadKey, params.draftKey, {
+      provider: agent.id,
+      modelConfig: {
+        modelId: option.selection.model,
+        reasoningEffort: current.reasoningEffort,
+        contextWindow: sameModel && queuedModel ? queuedModel.modelConfig.contextWindow : defaultsForModel.contextWindow,
+        fastMode: current.fastMode,
+        ...pickerRunOptions(option, options),
+      },
+    });
+  };
+
   return (
     <ThreadSettingsPickerScreen
       environmentId={params.environmentId}
       projectId={ProjectId.make(cwd)}
       cwd={cwd}
-      providerInstanceId={modelInstanceId(meta.run.provider)}
+      providerInstanceId={modelInstanceId(provider)}
       pickerHost={{
         ...host,
         runtimeDenial: (mode, selection) => {
           const agent = agents.find(
             (entry) => modelInstanceId(entry.id) === selection?.instanceId,
           );
+          if (editingQueue) return "Runtime mode belongs to the session.";
           if (!controller.mayDrive) return "You cannot change this session.";
           if (agent?.capabilities?.permissions === false)
             return "This provider controls its own permissions.";
@@ -114,13 +147,17 @@ function Picker({
         },
       }}
       providerGroups={groups}
+      isolateModelOptions={editingQueue}
       selectedModel={
         selected ? { ...selected.selection, options: selectedOptions } : null
       }
       prompt={draft.text}
-      onPromptChange={(value) => setComposerDraftText(params.draftKey, value)}
+      onPromptChange={(value) => {
+        if (!editingQueue || activeEdit) setComposerDraftText(params.draftKey, value);
+      }}
       runtimeMode={runtimeMode}
       onUpdateRuntimeMode={(mode) => {
+        if (editingQueue) return false;
         if (
           controller.mayDrive &&
           controller.updateRun({ permissionMode: permissionModes[mode] })
@@ -137,10 +174,15 @@ function Picker({
         selections: selectedOptions,
       })}
       onUpdateOptionSelections={(options) => {
-        if (selected && controller.mayDrive)
-          controller.updateRun(pickerRunOptions(selected, options));
+        if (!selected || !controller.mayDrive) return;
+        if (editingQueue) pickQueuedModel(selected, options);
+        else controller.updateRun(pickerRunOptions(selected, options));
       }}
       onSelectModel={(option) => {
+        if (editingQueue) {
+          pickQueuedModel(option, option.selection.options ?? []);
+          return;
+        }
         const id =
           option.selection.instanceId === "claudeAgent"
             ? "claude-code"
