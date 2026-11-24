@@ -9,7 +9,7 @@ import { LiveActivityRelay, type LiveActivityRelayDeps } from '../../packages/se
 
 const row = (hostId: string, sessionId: string, phase: AgentActivityRow['phase'] = 'running'): AgentActivityRow => ({
   hostId, sessionId, projectTitle: 'solus', threadTitle: `Session ${sessionId}`, modelTitle: 'gpt-5.5',
-  phase, status: phase === 'running' ? 'Working' : 'Done', updatedAt: '2026-10-13T00:00:00.000Z', deepLink: `/thread/${hostId}/${sessionId}`,
+  phase, status: phase === 'running' ? 'Working' : 'Done', updatedAt: '2026-10-13T00:00:00.000Z', deepLink: `/threads/${hostId}/${sessionId}`,
 })
 
 const registration = (generation: number, rows: AgentActivityRow[]): LiveActivityRegistration => ({
@@ -84,6 +84,20 @@ describe('Live Activity relay on the host', () => {
     relay.sessionStatusChanged({ sessionId: 'x', agentSessionId: 'a', status: 'completed' })
     await clock.next().run()
     expect(reports.map((r) => r.report.rows[0]!.phase)).toEqual(['running', 'running', 'completed'])
+  })
+
+  test('a card distinguishes an approval from a question when the session phase stays the same', async () => {
+    const clock = deadlines()
+    const { relay, reports } = harness({ schedule: clock.schedule })
+    relay.register(registration(1, [row('mac', 'a')]))
+    await clock.next().run()
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'awaiting_input', awaitingApproval: true })
+    await clock.next().run()
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'awaiting_input' })
+    await clock.next().run()
+    expect(reports.map(({ report }) => report.rows[0]!.phase)).toEqual([
+      'running', 'waiting_for_approval', 'waiting_for_input',
+    ])
   })
 
   test('a card the phone showed with a stale status is corrected at once', async () => {

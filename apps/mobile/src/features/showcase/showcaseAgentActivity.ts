@@ -29,6 +29,7 @@ const STATUS_BY_PHASE: Record<AgentActivityPhase, string> = {
   waiting_for_approval: "Approval",
   waiting_for_input: "Input",
   stale: "Waiting",
+  limited: "Rate limited",
   completed: "Done",
   failed: "Failed",
 };
@@ -85,8 +86,8 @@ function showcaseAgentAlert(activity: AgentActivityProps) {
     title: row.threadTitle,
     body: `${row.status}: ${row.projectTitle}`,
     path: row.deepLink,
-    environmentId: row.environmentId,
-    threadId: row.threadId,
+    environmentId: row.environmentId ?? "",
+    threadId: row.threadId ?? "",
   };
 }
 

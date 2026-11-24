@@ -102,7 +102,7 @@ export function AgentActivityWidget(
   const linkRow = rows[0];
   const deepLink =
     linkRow && linkRow.deepLink.startsWith("/") && !linkRow.deepLink.startsWith("//")
-      ? `t3code://${linkRow.deepLink.slice(1)}`
+      ? `solus://${linkRow.deepLink.slice(1)}`
       : null;
 
   const background = accessory ? "clear" : isLightScheme ? "#ffffff" : "#1c1c1e";
@@ -115,9 +115,9 @@ export function AgentActivityWidget(
   // and tint it through a container the resizable image fills.
   const renderLogo = (height: number) => (
     <HStack
-      modifiers={[frame({ width: height * 1.5, height }), foregroundStyle(primaryForeground)]}
+      modifiers={[frame({ width: height, height }), foregroundStyle(primaryForeground)]}
     >
-      <Image assetName="T3Mark" modifiers={[resizable()]} />
+      <Image assetName="SolusMark" modifiers={[resizable()]} />
     </HStack>
   );
 

@@ -6,12 +6,23 @@ import {
   SESSION_NOTIFICATION_EVENTS,
 } from "@solus/contracts/notification-types";
 import type { PersonalSettings } from "@solus/contracts/settings";
+import { useAtom } from "@effect/atom-react";
+import * as Notifications from "expo-notifications";
+import * as Effect from "effect/Effect";
 import { Linking, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useListened } from "@solus-mobile/app/app-context";
 import { solus as app } from "./runtime";
 
+import * as Dialog from "../components/ui/Dialog";
+import {
+  openAndroidLiveUpdateSettings,
+  supportsAndroidLiveUpdateSettings,
+  supportsLocalAndroidActivity,
+} from "../features/agent-awareness/androidNotifications";
+import { requestAgentNotificationPermission } from "../features/agent-awareness/notificationPermissions";
+import { makePermissionStatusAtom } from "../lib/permissionStatusAtom";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { AppText as Text } from "../components/ui/AppText";
 import { SettingsScreen } from "../features/settings/components/SettingsScreen";
@@ -24,6 +35,16 @@ import {
 } from "./settings-labels";
 
 type NotificationPreferences = PersonalSettings["notifications"];
+type PermissionStatus = "checking" | "enabled" | "disabled";
+
+const notificationStatus = makePermissionStatusAtom<PermissionStatus>({
+  label: "solus:notification-permission",
+  initial: "checking",
+  read: () => Notifications.getPermissionsAsync().then(
+    ({ granted }) => granted ? "enabled" : "disabled",
+    () => "disabled",
+  ),
+});
 
 /**
  * What you are told about, and how: the person's own choice (plans/018), not
@@ -33,7 +54,21 @@ type NotificationPreferences = PersonalSettings["notifications"];
  */
 export function NotificationSettingsScreen() {
   const insets = useSafeAreaInsets();
+  const [permission, setPermission] = useAtom(notificationStatus);
+  const ios = Platform.OS === "ios";
+  const supportsActivity = ios || supportsLocalAndroidActivity();
   const liveActivities = useListened(app.liveActivity.changes, app.liveActivity.enabled);
+
+  const allowNotifications = async () => {
+    try {
+      const result = await Effect.runPromise(requestAgentNotificationPermission);
+      setPermission(result.type === "granted" ? "enabled" : "disabled");
+      if (result.type === "granted" && !ios && app.liveActivity.enabled()) app.liveActivity.set(true);
+      if (result.type === "denied" && !result.canAskAgain) await Linking.openSettings();
+    } catch {
+      Dialog.alert("Notifications unavailable", "Could not request notification access.");
+    }
+  };
 
   return (
     <SettingsScreen title="Notifications">
@@ -45,15 +80,9 @@ export function NotificationSettingsScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
         <View className="gap-3">
-          <SettingsSection title="Agent activity">
-            {Platform.OS === "ios" ? (
-              <SettingsSwitchRow
-                icon="bolt.circle"
-                label="Live Activity Updates"
-                subtitle="Show agent work on the Lock Screen and in the Dynamic Island."
-                value={liveActivities}
-                onValueChange={(on) => app.liveActivity.set(on)}
-              />
+          <SettingsSection title="Device notifications">
+            {permission === "disabled" ? (
+              <SettingsRow icon="bell.badge" label="Allow notifications" onPress={() => void allowNotifications()} />
             ) : null}
             <SettingsRow
               icon="gearshape"
@@ -61,12 +90,38 @@ export function NotificationSettingsScreen() {
               onPress={() => void Linking.openSettings()}
             />
           </SettingsSection>
-          <Text className="px-2 text-sm text-foreground-muted">
-            {Platform.OS === "ios"
-              ? "iOS must also allow Live Activities for Solus. Linked hosts update activity while the app is closed. After 10 minutes without an update, activity shows as out of date."
-              : "Open system settings to manage notification access for this device."}
-          </Text>
         </View>
+
+        {supportsActivity ? (
+          <View className="gap-3">
+            <SettingsSection title="Agent activity">
+              <SettingsSwitchRow
+                icon="bolt.circle"
+                label={ios ? "Live Activity Updates" : "Ongoing Activity Updates"}
+                subtitle={ios
+                  ? "Show agent work on the Lock Screen and in the Dynamic Island."
+                  : "Show agent work in an ongoing notification."}
+                value={liveActivities}
+                onValueChange={(on) => {
+                  app.liveActivity.set(on);
+                  if (on && !ios && permission === "disabled") void allowNotifications();
+                }}
+              />
+              {supportsAndroidLiveUpdateSettings() ? (
+                <SettingsRow
+                  icon="gearshape"
+                  label="Open Live Update settings"
+                  onPress={() => void openAndroidLiveUpdateSettings()}
+                />
+              ) : null}
+            </SettingsSection>
+            <Text className="px-2 text-sm text-foreground-muted">
+              {ios
+                ? "Linked hosts can update an existing Live Activity while Solus is closed."
+                : "Activity updates while this device can reach its connected hosts."}
+            </Text>
+          </View>
+        ) : null}
 
         <View className="gap-3">
           <SettingsSection title="Delivery">

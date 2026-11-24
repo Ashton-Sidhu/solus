@@ -99,6 +99,25 @@ are not affected by these switches. Errors are never suppressed.
   `components/settings/lib/notification-settings.ts`. A test asserts the catalog
   covers every channel and event in the contract.
 
+## Mobile delivery
+
+In Settings → Notifications, **Allow notifications** gives Solus permission to
+display device alerts. New approval requests, questions, failures, and finished
+turns use the user's event and delivery preferences. The foreground option
+shows a banner, except for the session already on screen. A tap opens the
+session on its host. Older attention entries stay in the app's notification
+history.
+
+**Live Activity Updates** on iOS uses ActivityKit. A linked host can update an
+existing card while the app is suspended. It can also alert for an approval,
+question, or failure on the card through ActivityKit. The device's Live
+Activity settings control these alerts. See [Live Activity push updates](plans/live-activity-push.md).
+**Ongoing Activity Updates** on Android uses the system notification area and
+supports promoted Live Updates where Android offers them. It requires the
+device's notification permission. The Android card and regular native alerts
+use the live connection and update while it can deliver events. Standard push
+alerts to a suspended or closed app require a separate device push relay.
+
 ## Host updates
 
 Host updates use one toast, however many hosts and Solus releases are pending.

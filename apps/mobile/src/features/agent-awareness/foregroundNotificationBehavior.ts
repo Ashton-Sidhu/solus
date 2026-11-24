@@ -1,4 +1,5 @@
 import type { Notification, NotificationBehavior } from "expo-notifications";
+import { Platform } from "react-native";
 
 import { extractAgentNotificationDeepLink } from "./notificationPayload";
 
@@ -24,5 +25,11 @@ export function foregroundNotificationBehavior(
   if (target !== null && target === deepLinkOnScreen) {
     return SUPPRESS;
   }
-  return SHOW;
+  const { data } = notification.request.content;
+  return {
+    ...SHOW,
+    shouldShowList: data?.ephemeral !== true,
+    // Android needs this flag for heads-up display. Its silent channel controls audio.
+    shouldPlaySound: Platform.OS === "android" || data?.silent !== true,
+  };
 }
