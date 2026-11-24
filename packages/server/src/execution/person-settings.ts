@@ -68,18 +68,23 @@ let account: PersonSettingsAccount | null = null
 let now: () => number = Date.now
 
 /**
- * The account's answer as a host reads it. The envelope is strict; the document is
- * read key by key (`knownPersonalSettings`), so a key that the cloud knows and this
- * host does not never refuses the pull.
+ * A settings document as a client, the account, or this host's database sent it:
+ * any object. Its keys are read one at a time afterwards (`knownPersonalSettings`),
+ * so a key that a newer client or the cloud knows and this host does not never
+ * refuses the read.
  */
+// SAFETY: only an object passes, and every reader of the result reads each key with that key's own schema.
+const sentSettingsSchema = z.looseObject({}).transform((sent) => sent as PersonalSettingsDocument)
+
+/** The account's answer as a host reads it: the envelope is strict, the document lenient. */
 const accountAnswerSchema = z.object({
   revision: z.number().int().positive().nullable(),
-  settings: z.custom<PersonalSettingsDocument>((value) => typeof value === 'object' && value !== null && !Array.isArray(value)),
+  settings: sentSettingsSchema,
 })
 
 /** A client's change, read leniently: a key or value this host does not know is named, never a refusal. */
 const patchSchema = z.object({
-  set: z.custom<PersonalSettingsDocument>((value) => typeof value === 'object' && value !== null && !Array.isArray(value)).default({}),
+  set: sentSettingsSchema.default({}),
   reset: z.array(z.string().max(200)).max(1_000).default([]),
 })
 
@@ -105,7 +110,7 @@ export async function loadPersonSettings(): Promise<void> {
 
 function parseContent(content: string): PersonalSettingsDocument {
   try {
-    const parsed = accountAnswerSchema.shape.settings.safeParse(JSON.parse(content))
+    const parsed = sentSettingsSchema.safeParse(JSON.parse(content))
     return parsed.success ? parsed.data : {}
   } catch {
     return {}

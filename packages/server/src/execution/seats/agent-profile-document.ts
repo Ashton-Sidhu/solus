@@ -33,12 +33,18 @@ function actingPersonKey(): string {
   return personKey
 }
 
+/** The entries a reader kept, and the keys of the ones it left out. */
+interface KnownEntries {
+  entries: AgentProfile
+  ignored: string[]
+}
+
 /**
- * The entries this host can read, one at a time: an entry whose key or shape
+ * The entries this host can read, one at a time: an entry whose key or kind
  * this version does not know, or a retired entry, is left out and named, so a
  * newer client never makes a call fail.
  */
-function knownEntries(sent: AgentProfile): { entries: AgentProfile; ignored: string[] } {
+function knownEntries(sent: AgentProfile): KnownEntries {
   const entries: AgentProfile = {}
   const ignored: string[] = []
   for (const [key, value] of Object.entries(sent)) {
