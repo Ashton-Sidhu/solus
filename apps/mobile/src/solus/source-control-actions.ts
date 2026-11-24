@@ -2,6 +2,7 @@ import type {
   IssueRef,
   PullRequestRef,
   IssueUpdateInput,
+  IssueSetStateInput,
   PullRequestUpdateInput,
   PullRequestReviewerRequestInput,
   PullRequestLabelChangeInput,
@@ -58,6 +59,21 @@ export const updateIssue = hostCommand(
     registry.refresh(
       solusIssueDetail({ environmentId: id, input: { ...reference, taskId: task.id } }),
     );
+  },
+);
+
+export const moveIssue = hostCommand(
+  "issues.setState",
+  "host.use",
+  async (id, input: IssueSetStateInput & { taskId?: string }, registry, check) => {
+    const { api, detail } = await readIssueRecord(id, input);
+    const status = detail.statusOptions?.columns.find(({ name }) => name === input.state);
+    if (!detail.statusOptions?.canSetStatus || !status)
+      throw new Error("This issue cannot move to that status.");
+    check();
+    await api.tasksMove(detail.task.id, { statusId: status.id });
+    const { projectId, tracker, host, scope, key } = input;
+    registry.refresh(solusIssueDetail({ environmentId: id, input: { projectId, tracker, ...(host && { host }), scope, key, ...(input.taskId && { taskId: input.taskId }) } }));
   },
 );
 

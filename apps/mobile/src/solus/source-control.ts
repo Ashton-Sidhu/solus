@@ -207,7 +207,11 @@ export const solusIssueList = hostQuery(
     const [tasks, projects] = await Promise.all([readTasks(), api.listProjects()]);
     const rows = tasks.flatMap((task) => {
       const row = issueRow(task, projects);
-      return row ? [{ ...row, solusTaskId: task.id }] : [];
+      return row ? [{
+        ...row,
+        solusTaskId: task.id,
+        ...(task.providerId === "github" && task.state.id && { solusPlanningStatus: task.state.name }),
+      }] : [];
     });
     const scopes = new Map(
       rows.map(({ projectId, tracker, host, scope }) => [
@@ -273,24 +277,27 @@ export const solusIssueDetail = hostQuery(
       : await readIssueRecord(id, input);
     if (!row) throw new Error("The issue is unavailable.");
     const writableFields = external ? [] : detail.task.writableFields;
+    const statusOptions = external ? undefined : detail.statusOptions;
     return {
       ...row,
       body: detail.task.body,
       commentCount: detail.comments.length,
       writableFields,
-      writable: writableFields.length > 0,
+      writable: writableFields.length > 0 || statusOptions?.canSetStatus === true,
       capabilities: external
         ? { ...issueCapabilities, events: true }
         : { ...issueCapabilities, edit: true, labels: true, assignees: true },
       viewerPermissions: {
         edit:
           writableFields.includes("title") || writableFields.includes("body"),
-        setState: false,
+        setState: statusOptions?.canSetStatus === true,
         comment: false,
         labels: writableFields.includes("labels"),
         assignees: writableFields.includes("assignee"),
       },
-      states: [],
+      states: statusOptions?.columns.map(({ name, category }) => ({
+        name, category: category === "done" ? "closed" : "open",
+      })) ?? [],
       viewer: null,
       comments: detail.comments.map(issueComment),
       commentsCursor: null,

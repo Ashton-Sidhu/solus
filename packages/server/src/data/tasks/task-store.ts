@@ -134,7 +134,10 @@ function taskSummaryFromRow(row: TaskSummaryRow, placements: TaskPlacement[]): T
     kind: row.kind,
     title: row.title,
     url: row.url,
-    state: { name: row.state_name, category: row.state_category },
+    state: {
+      name: row.state_name, category: row.state_category,
+      ...(row.provider === 'github' && row.state_id !== null && { id: row.state_id }),
+    },
     category: row.category,
     placements,
     assignees: jsonValue(row.assignees, z.array(z.object({ login: z.string(), avatarUrl: z.string().optional() }))) ?? [],
@@ -284,6 +287,7 @@ const storedFactsRowSchema = z.object({
   body: z.string(),
   state_name: z.string(),
   state_category: z.string(),
+  state_id: z.string().nullable(),
   assignees: z.string(),
   assignee: z.string().nullable(),
   labels: z.string(),
@@ -309,7 +313,7 @@ function assigneesJsonOf(task: ProviderTask): string {
 export async function upsertProviderTask(db: Db, task: ProviderTask, now: number): Promise<TaskUpsert> {
   const id = taskKey(task.ref)
   const existing = storedFactsRowSchema.nullish().parse(await db.get(sql`
-    SELECT epic, title, body, state_name, state_category, assignees, assignee, labels, priority, due_date, reference, updated_at
+    SELECT epic, title, body, state_name, state_category, state_id, assignees, assignee, labels, priority, due_date, reference, updated_at
     FROM ${tasks} WHERE id = ${id}
   `))
   let epic = task.epic ?? null
@@ -317,6 +321,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
   if (epic && !epic.body && heldEpic?.externalId === epic.externalId) epic = { ...epic, body: heldEpic.body }
   const labels = JSON.stringify(task.labels)
   const assignees = assigneesJsonOf(task)
+  const stateId = task.stateId ?? null
   await db.run(sql`
     INSERT INTO ${tasks}(
       id, provider, kind, reference, url, title, body, state_name, state_category, state_id, category,
@@ -324,7 +329,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
       created_at, updated_at, fetched_at
     ) VALUES (
       ${id}, ${task.ref.provider}, ${task.kind}, ${task.reference ?? null}, ${task.url}, ${task.title}, ${task.body},
-      ${task.state.name}, ${task.state.category}, ${task.stateId ?? null}, ${taskCategory(task.state.category, [])},
+      ${task.state.name}, ${task.state.category}, ${stateId}, ${taskCategory(task.state.category, [])},
       ${assignees}, ${task.assignee ?? null}, ${task.assigneeAvatarUrl ?? null}, ${labels}, ${task.priority ?? null}, ${task.dueDate ?? null},
       ${epic ? JSON.stringify(epic) : null}, ${JSON.stringify(task.writableFields)}, ${JSON.stringify(task.home)},
       ${task.createdAt ?? null}, ${task.updatedAt}, ${now}
@@ -339,7 +344,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
   `)
   if (!existing) return { changed: true, previousAssignee: undefined }
   const changed = listFactsOf(existing) !== JSON.stringify([
-    task.title, task.body, task.state.name, task.state.category, assignees, task.assignee ?? null, labels,
+    task.title, task.body, task.state.name, task.state.category, stateId, assignees, task.assignee ?? null, labels,
     task.priority ?? null, task.dueDate ?? null, task.reference ?? null, task.updatedAt,
   ])
   return { changed, previousAssignee: existing.assignee }
@@ -348,7 +353,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
 /** The facts of a stored task that a list or a page shows, as one comparable text. */
 function listFactsOf(stored: z.infer<typeof storedFactsRowSchema>): string {
   return JSON.stringify([
-    stored.title, stored.body, stored.state_name, stored.state_category, stored.assignees, stored.assignee, stored.labels,
+    stored.title, stored.body, stored.state_name, stored.state_category, stored.state_id, stored.assignees, stored.assignee, stored.labels,
     stored.priority, stored.due_date, stored.reference, stored.updated_at,
   ])
 }

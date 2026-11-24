@@ -312,12 +312,13 @@
               : 'border-border/60'}"
           >
             <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
-              <span class="flex min-w-0 flex-1 items-center gap-1.5">
+              <h3 class="m-0 flex min-w-0 flex-1 items-center gap-1.5 font-normal">
                 {#if user}
                   <UserAvatar {user} size={16} />
                 {:else}
                 <span
                   class="grid size-4 shrink-0 place-items-center rounded-full text-[8px] font-medium"
+                  aria-hidden="true"
                   style={agent
                     ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
                     : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
@@ -345,7 +346,7 @@
                 {/if}
                 <span class="truncate font-medium text-foreground">{commentAuthorName(comment, currentUserId)}</span>
                 <span class="shrink-0 text-muted-foreground">{relativeTime(comment.createdAt)}</span>
-              </span>
+              </h3>
               {#if delivery.state === "unsent"}
                 <span
                   class="flex shrink-0 items-center gap-1 font-medium text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"

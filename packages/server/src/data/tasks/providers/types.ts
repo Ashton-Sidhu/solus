@@ -10,6 +10,7 @@ import type {
   TaskPriority,
   TaskSourceHealth,
   TaskState,
+  TaskStatusOptions,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '../../../atlassian/api'
@@ -40,8 +41,7 @@ export interface ProviderTask {
   title: string
   body: string
   state: TaskState
-  /** The Jira status id of `state`. A Jira project column is this id, and a
-   *  Jira board column lists it. Absent on GitHub. */
+  /** The provider status id of `state`, where the provider supplies one. */
   stateId?: string
   assignees?: TaskAssigneeCandidate[]
   assignee?: string
@@ -72,6 +72,7 @@ export interface ProviderTaskDetails {
   /** The task has more comments than `comments` holds. */
   commentsTruncated: boolean
   providerMetadata?: TaskProviderMetadata
+  statusOptions?: TaskStatusOptions
 }
 
 /** One task of a source, with where the source puts it. */
@@ -165,6 +166,7 @@ export interface TaskProviderAdapter {
    * fails loudly when there is none. A GitHub draft has no state of its own.
    */
   setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask>
+  setNamedStatus?(home: TaskHome, statusId: string): Promise<ProviderTask>
   comment(home: TaskHome, body: string): Promise<ProviderComment>
   assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]>
   /** Upload the local assets that `body` references and answer the body to send. */
