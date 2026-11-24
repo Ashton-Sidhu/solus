@@ -203,7 +203,12 @@ export class ConversationController {
   runOptionsLoaded: Promise<void> = Promise.resolve()
   /** True once the host knows the session; before that uploads name a draft. */
   get hasStarted(): boolean { return this.started }
+  /** The local outbox can show a busy session before there is work to stop on the host. */
+  get canStopTurn(): boolean {
+    return isSessionBusyStatus(this.hostStatus) && isSessionBusyStatus(this.model.status)
+  }
   private started: boolean
+  private hostStatus: SessionStatus = 'idle'
   private projectPath: string
   /** The branch picked for a new session's checkout; null until one is
    *  picked, and again when the session goes back to the project's own. */
@@ -341,7 +346,7 @@ export class ConversationController {
     }))
     this.cleanups.push(connection.events.subscribe('session.executionChanged', (payload) => {
       if (payload.sessionId !== this.run.sessionId || payload.toolId || !this.applyExecution(payload.execution)) return
-      this.flush()
+      this.flush(true)
     }))
     // A session name set anywhere (generated here or on desktop, or typed) is
     // the session's: the header shows it, and a hand rename stops naming.
@@ -1525,9 +1530,11 @@ export class ConversationController {
       this.settledTurnIds.add(event.turnId)
       this.deps.runHosts?.noteTurnSettled(this.hostId, this.run.sessionId)
     }
+    const changedLegacyStatus = event.type === 'status_change' && !this.executionRevision && event.status !== this.hostStatus
+    if (changedLegacyStatus) this.hostStatus = event.status
     this.model.apply(event)
     this.run.status = this.model.status
-    this.flush(RUN_CHANGING_EVENTS.has(event.type))
+    this.flush(changedLegacyStatus || RUN_CHANGING_EVENTS.has(event.type))
     if (event.type === 'status_card') this.followStatusCard(event.card)
   }
 
@@ -1594,7 +1601,8 @@ export class ConversationController {
   private applyExecution(execution: SessionExecution): boolean {
     if (execution.revision <= this.executionRevision) return false
     this.executionRevision = execution.revision
-    this.model.setStatus(sessionExecutionStatus(execution))
+    this.hostStatus = sessionExecutionStatus(execution)
+    this.model.setStatus(this.hostStatus)
     return true
   }
 
@@ -1605,7 +1613,10 @@ export class ConversationController {
     }
     const runtime = watched.runtime
     if (runtime) {
-      if (!this.executionRevision) this.model.setStatus(runtime.status)
+      if (!this.executionRevision) {
+        this.hostStatus = runtime.status
+        this.model.setStatus(this.hostStatus)
+      }
       this.model.setRateLimit(runtime.rateLimitInfo)
       this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning, runtime.backgroundTaskIds)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
@@ -1620,6 +1631,7 @@ export class ConversationController {
       if (runtime.permissionMode) this.run.permissionMode = runtime.permissionMode
     } else if (this.run.agentSessionId && !this.executionRevision) {
       // Nothing runs for the session any more.
+      this.hostStatus = 'idle'
       this.model.setStatus('idle')
       this.model.setRateLimit(null)
       this.model.setBackgroundWorkRunning(false)

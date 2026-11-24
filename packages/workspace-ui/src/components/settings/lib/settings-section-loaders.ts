@@ -30,3 +30,28 @@ export const settingsSectionLoaders = {
   'keybindings': () => import('../SettingsTabKeybindings.svelte'),
   projects: () => import('../SettingsTabProviders.svelte'),
 }
+
+type SettingsSectionName = keyof typeof settingsSectionLoaders
+type SettingsSectionModule<Name extends SettingsSectionName> = Awaited<ReturnType<(typeof settingsSectionLoaders)[Name]>>
+
+const loadedSections = new Map<SettingsSectionName, SettingsSectionModule<SettingsSectionName>>()
+
+/**
+ * The module of a section. A loaded section comes back as the module itself, not a promise,
+ * so `{#await}` renders it at once. A promise always shows the pending branch for a few frames,
+ * even when the module is already loaded, and that flashes the section skeleton.
+ */
+export function settingsSection<Name extends SettingsSectionName>(
+  name: Name,
+): SettingsSectionModule<Name> | Promise<SettingsSectionModule<Name>> {
+  const loaded = loadedSections.get(name)
+  if (loaded) {
+    // SAFETY: the map stores each module under the name of the loader that gave it.
+    return loaded as SettingsSectionModule<Name>
+  }
+  return settingsSectionLoaders[name]().then((module) => {
+    loadedSections.set(name, module)
+    // SAFETY: `module` comes from `settingsSectionLoaders[name]`, so it is the module of `name`.
+    return module as SettingsSectionModule<Name>
+  })
+}

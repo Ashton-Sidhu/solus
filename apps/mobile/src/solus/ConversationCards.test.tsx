@@ -9,6 +9,7 @@ import { RequestPanels } from "./RequestCards";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
 import { ConversationCard } from "./ConversationCard";
+import { BackgroundCommandRow } from "../features/threads/BackgroundCommandRow";
 
 vi.mock("../features/pull-requests/PullRequestMarkdown", () => ({
   PullRequestMarkdown: ({ markdown }: { markdown: string }) => <span>{markdown}</span>,
@@ -25,6 +26,7 @@ const host = vi.hoisted(() => ({
   dispatch: vi.fn(),
   remember: vi.fn(),
   read: vi.fn(async (id: string) => ({ sessionId: id })),
+  recordOpen: vi.fn(),
 }));
 vi.mock("@react-navigation/native", () => ({
   useNavigation: () => ({ dispatch: host.dispatch, getState: () => undefined }),
@@ -63,6 +65,7 @@ vi.mock("./runtime", () => ({
     threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
     connections: { state: () => undefined, connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
+    history: { record: host.recordOpen },
     // A started session's card reads its agent activity from the thread list.
     threadList: { changes: { subscribe: () => () => {} }, facts: () => ({ agentActivity: new Map() }) },
   },
@@ -70,6 +73,7 @@ vi.mock("./runtime", () => ({
 // The dots read app state and screen focus; these tests are about what a card opens.
 vi.mock("../components/ProviderIcon", () => ({ ProviderIcon: () => null }));
 vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
+vi.mock("../features/threads/LinkRequestCard", () => ({ LinkRequestCard: () => null }));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
 }));
@@ -135,12 +139,15 @@ vi.mock("../components/ui/Button", () => ({
   Button: ({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) =>
     <button disabled={disabled} onClick={onPress}>{label}</button>,
 }));
-vi.mock("gt-react-native", () => ({
-  msg: (value: string) => value,
-  T: ({children}: {children: ReactNode}) => <>{children}</>,
-  useGT: () => (value: string) => value,
-  useMessages: () => (value: string) => value,
-}));
+vi.mock("gt-react-native", async (importOriginal) => {
+  const { gtFallback } = await importOriginal<typeof import("gt-react-native")>();
+  return {
+    msg: (value: string) => value,
+    T: ({children}: {children: ReactNode}) => <>{children}</>,
+    useGT: () => gtFallback,
+    useMessages: () => (value: string) => value,
+  };
+});
 vi.mock("@solus-mobile/features/threads/PendingSecretCard", () => ({
   PendingSecretCard: ({ onSubmit }: { onSubmit: (values: (string | null)[]) => void }) => (
     <button onClick={() => onSubmit(["fixture", null])}>Submit private answer</button>
@@ -233,6 +240,25 @@ it("expands the actual tool row to show host input, the error and returned image
   expect(container.textContent).toContain("Tool image 1");
   await act(async () => container.querySelector("button")!.click());
   expect(container.textContent).not.toContain("Tool image 1");
+});
+
+it("shows the exit code immediately and keeps terminal output behind the disclosure", async () => {
+  const { root, container } = await fixture();
+  await act(async () => root.render(
+    <BackgroundCommandRow command={{
+      command: "bun test",
+      exitCode: 1,
+      attention: true,
+      output: "\u001b[31m# 1 failed\u001b[0m\n* End",
+    }} />,
+  ));
+  const row = container.querySelector("button")!;
+  expect(row.textContent).toContain("exit 1");
+  expect(container.textContent).not.toContain("# 1 failed");
+  await act(async () => row.click());
+  expect(container.textContent).toContain("# 1 failed\n* End");
+  await act(async () => row.click());
+  expect(container.textContent).not.toContain("# 1 failed");
 });
 
 it.each(["screen", "inspector", "linked host"] as const)("opens a child with one tap (%s)", async (destination) => {
@@ -380,6 +406,22 @@ it("opens an earlier saved artifact in the same T3 renderer on demand", async ()
   const html = container.querySelector("[data-page]")?.getAttribute("data-page");
   expect(html).toContain('<style id="t3-theme">');
   expect(html).toContain("<p>Version one</p>");
+});
+
+it("puts a saved artifact the person opens full screen into their history", async () => {
+  const { store, root, container } = await fixture();
+  store.controller.model.items.set("page", {
+    kind: "artifact",
+    id: "page",
+    title: "Snapshot",
+    html: "<p>Version one</p>",
+    workId: "work",
+  });
+  await act(async () => root.render(<ConversationCard store={store} id="page" />));
+  // Shown in the conversation is not opened.
+  expect(host.recordOpen).not.toHaveBeenCalled();
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Snapshot"]')!.click());
+  expect(host.recordOpen).toHaveBeenCalledWith("work:work");
 });
 
 it("opens a session guide stop inline with the host patch for its numbered turn", async () => {

@@ -64,10 +64,14 @@
     </button>
   {/snippet}
 
-  {@render heading("Places")}
-  {#each locations as loc (loc.path)}
-    {@render place(loc.label, loc.path, loc.icon)}
-  {/each}
+  <!-- Empty while the host is read on open: a heading over no places is a
+       state that is not true. -->
+  {#if locations.length > 0}
+    {@render heading("Places")}
+    {#each locations as loc (loc.path)}
+      {@render place(loc.label, loc.path, loc.icon)}
+    {/each}
+  {/if}
 
   {#if recents.length > 0}
     <div class="h-4 shrink-0"></div>

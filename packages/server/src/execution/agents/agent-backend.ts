@@ -102,8 +102,9 @@ export interface AgentBackend extends EventEmitter {
   /** Set whether a running command holds the turn; returns its canonical item ID.
    * Accepts the command item ID or the terminal session ID shown to the agent. */
   setBackgroundCommandWaiting?(sessionId: string, taskId: string, waiting: boolean): string | null
-  /** Stop one background task without ending the turn. */
-  stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>
+  /** Stop one background task without ending the turn. Return 'missing' when
+   *  the host should clear a stale task. False leaves recovery to the provider. */
+  stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean | 'missing'>
   stopNativeSubagent?(sessionId: string, toolId: string): Promise<boolean>
   /** Whether work the agent left running outlives its turn's end. Absent when
    *  a provider's background tasks end with its run (Claude). */

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import type { Work } from "@solus/contracts/types";
-  import { getSurfaceContext, getClientShellContext, presenceStore, sharesStore } from "../../contexts";
+  import { getSurfaceContext, getClientShellContext, personHistoryStore, presenceStore, sharesStore } from "../../contexts";
+  import { workHistoryKey } from "@solus/client-core/person-history";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -46,6 +47,11 @@
   // One hold per open work id: the store's shared, subscribed saved record, and
   // this pane's own draft over it. Local and cloud works take the same path.
   let hold = $state.raw<WorkPaneHold | null>(null);
+  // Opening a work, from any surface, goes into the person's history (docs/plans/person-state.md).
+  $effect(() => {
+    const key = workHistoryKey(params.workId);
+    untrack(() => personHistoryStore.record(key));
+  });
   // Leaving the work ends editing on purpose; the host would clear it anyway.
   $effect(() => {
     const workId = params.workId;

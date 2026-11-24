@@ -19,3 +19,10 @@ export function relativeTime(input: string, now = Date.now()): string {
   const deltaDays = Math.floor(deltaHours / 24);
   return `${deltaDays}d`;
 }
+
+/** The time a short-lived request or code has left, as `4:59 left`. */
+export function timeLeft(expiresAt: number, now: number): string {
+  const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+  if (seconds === 0) return "Expired";
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left`;
+}

@@ -131,6 +131,7 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
     questions: event.questions,
   }
   if (event.kind) request.kind = event.kind
+  if (event.hostLink) request.hostLink = event.hostLink
   if (event.responseMode) request.responseMode = event.responseMode
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
   return request

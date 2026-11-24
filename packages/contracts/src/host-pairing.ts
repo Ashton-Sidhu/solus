@@ -1,12 +1,18 @@
 import { z } from 'zod'
 import type { HostListing } from './host-list'
 
-/** An explicit owner pairing. Codes travel only through this request, never a listing. */
+/**
+ * An explicit owner pairing. Codes travel only through this request, never a listing.
+ * Exactly one of `code` (the host's pairing code or link) and `checkCode` (an approval
+ * request: the caller makes the check code, shows it, and the call resolves when the
+ * host's owner approves; docs/plans/add-machine-card.md).
+ */
 export const hostPairRequestSchema = z.object({
   url: z.string().trim().min(1).max(2048),
-  code: z.string().trim().min(1).max(2048),
+  code: z.string().trim().min(1).max(2048).optional(),
+  checkCode: z.string().trim().length(9).optional(),
   label: z.string().trim().min(1).max(200).optional(),
-}).strict()
+}).strict().refine((request) => !!request.code !== !!request.checkCode, { message: 'Give a pairing code or a check code, not both.' })
 export type HostPairRequest = z.infer<typeof hostPairRequestSchema>
 
 /** A host this host paired. `pairedAt` changes only when the owner pairs it again:

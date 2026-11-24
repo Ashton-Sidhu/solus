@@ -1,20 +1,45 @@
-# Pair hosts from a chat session or terminal
+# Add hosts from a chat session or terminal
 
 An owner can add a remote Solus server without computer control. Start Solus on
-that machine and make its address reachable first. Pairing does not install a
+that machine and make its address reachable first, or add it over SSH: then
+Solus installs and starts the server there. Pairing with a code does not install a
 server, configure its firewall, or register it with Solus Cloud.
 
-In a chat session, ask the agent to pair the server at its HTTP or HTTPS address.
-The agent uses `request_secret` to ask for a fresh pairing code or link in a
-private card, then calls `pair_host` with the address and the returned
-`secretRef`. Run `solus pair` on the remote machine to get the code. The ref is
-one-use and belongs to that session. Codes and persistent tokens are not tool
-results. `remove_host` forgets a pairing by the installation id returned by
-`pair_host`. `list_hosts` lists the same machines a client of this host lists: the
+In a chat session, ask the agent to add the machine. The agent calls `add_host`
+with the person's words for it (`hint`) and its address (`url`) when it knows
+them (docs/plans/add-machine-card.md). If this host already reaches an online host
+that the address or the exact name matches, `add_host` returns it and shows no
+card. Otherwise it shows the **Add a machine** card (question kind `host-link`).
+The card offers each way to add the machine, the way that needs no typing first:
+
+- **From this device**: the client makes a code on a host it already reaches as
+  owner.
+- **Over SSH**: the session host adds the machine with `hostsAddOverSsh`, with its
+  own SSH config and keys. An address such as `10.10.1.10` matches the
+  `~/.ssh/config` alias whose `HostName` it is.
+- **Ask it to approve**: an approval request (see "Approval requests" below).
+- **Needs a code**: the person types the 6-digit code or pastes the pair link
+  from `solus pair` on that machine.
+
+The client does the add with the session host's own RPCs (`hostsAddOverSsh`,
+`hostsPair`), then answers the card with the installation id only. A code or an
+SSH password goes only in those calls. It is never in the transcript, the tool
+input, or the tool output. `add_host` returns the machine only when this host now
+holds a credential for it. A failure shows on the card, and the card stays open.
+**Decline** closes it and tells the agent; a stopped run closes it too. The card
+asks for no name: the host keeps the name it reports, and the person can change it.
+
+`hostsPair`, and so the CLI, checks the shape of a code before it sends anything.
+A code is 6 digits (spaces or a dash between them are allowed) or a pair link
+that names the same address. Any other value, such as a password, is refused,
+and no request goes to the host.
+
+`remove_host` forgets a machine by the installation id returned by `add_host` or
+`list_hosts`. `list_hosts` lists the same machines a client of this host lists: the
 account's hosts and every host on the person's host list. Each one says how this host
 reaches it: the account, a pairing, an introduction, or an SSH forward. A host on the
 list that this host holds no credential for is `listed`, with the status
-`not-paired`, and `start_sessions` there answers with the way in: `pair_host`. The
+`not-paired`, and `start_sessions` there answers with the way in: `add_host`. The
 other statuses are `online`, `unreachable`, `auth-required`, and `not-ready`, with the
 host's managed state when applicable. While the person is signed in, their list is an
 account document that only a client reads with its own sign-in, so this host lists
@@ -97,3 +122,58 @@ Public addresses require HTTPS. HTTP on a local network remains supported. The
 remote host must provide its identity key when paired over HTTP; update an older
 server or use HTTPS. Later dials verify the saved identity before sending the
 persistent token. Pairing requests have a time limit and do not follow redirects.
+
+## Approval requests
+
+A machine can ask a host to pair it without a code. The host's owner approves
+or denies the request with one click (desktop, web, mobile) or with the CLI
+(docs/plans/add-machine-card.md, "The approval request").
+
+1. The requester makes a check code, such as `K7QX-M2PA`, and shows it. The
+   alphabet has no `0`, `O`, `1`, or `I`.
+2. The requester sends `POST /pair/request` with its device label and the check
+   code. The host keeps the request in memory for 5 minutes and replies with a
+   request id and a `waitToken`. Only the requester knows the `waitToken`.
+3. The requester calls `POST /pair/request/wait` with the request id and the
+   `waitToken`. Each call waits at most 25 seconds and replies `pending`,
+   `denied`, `expired`, or `approved`.
+4. Connections that hold `host.local.reach` get `host.pairApprovalsChanged`
+   with the open requests. Each request shows the check code, the device label,
+   and the address it came from. Compare the check code with the code on the
+   requester's screen before you approve.
+5. Approval issues a session token exactly as `POST /pair` does. The device is
+   listed and revocable with the other paired devices. If the request names a
+   token to replace, that token is revoked. If the requester does not collect
+   the token within 50 seconds, the host revokes it.
+
+Rules:
+
+- The routes have the same exposure as `/pair`. They do not exist on a managed
+  host or over the tunnel, and they are rate limited per address.
+- A host holds at most 5 open requests. A sixth request gets 429.
+- A wait with a wrong `waitToken` or an unknown request id gets `expired` at
+  once and changes nothing.
+- A restart forgets the open requests. The requester then gets `expired`.
+- A host that does not have the routes answers 404. The requester reads that as
+  "this host does not take approval requests" and uses a pairing code.
+- Behind Tailscale Serve, the address shows the forwarded address with
+  "(Tailscale Serve)".
+
+From a terminal on the host:
+
+```bash
+solus host approvals [--json]
+solus host approve K7QX-M2PA
+solus host deny k7qxm2pa
+```
+
+A check code is accepted in any case, with or without the dash.
+
+To ask another host from this host, give no code:
+
+```bash
+solus host pair http://10.10.1.10:3000 --label Windows
+```
+
+The command prints the check code and waits until the owner of that host
+approves or denies the request, or until it expires.

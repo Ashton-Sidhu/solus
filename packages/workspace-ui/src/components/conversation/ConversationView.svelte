@@ -35,6 +35,7 @@
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import SecretRequestCard from "./SecretRequestCard.svelte";
+  import AddMachineCard from "./AddMachineCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import SeatConnectCard from "../seats/SeatConnectCard.svelte";
@@ -82,7 +83,7 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
-  import { setHtmlBlockOrigin } from "./lib/html-block-origin";
+  import { setHtmlBlockOrigin, wideRenderRoom } from "./lib/html-block-origin";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
   import { showsBackgroundWork } from "@solus/client-core/background-work";
@@ -200,7 +201,7 @@
   // An HTML block renders from deep inside the markdown tree, where these props
   // do not reach. Saving one as an artifact still has to file the work against
   // this conversation's host rather than the active tab's.
-  setHtmlBlockOrigin(() => ({ tabId, linkContext }));
+  setHtmlBlockOrigin(() => ({ tabId, linkContext, sideRoom: wideRoom }));
   const sessionHostId = $derived(runHost(sess?.run));
   const hostState = $derived(sessionHostId ? serversStore.readinessFor(sessionHostId) : null);
   /** Past its grace and not back yet: what needs the host (composer, actions) is
@@ -235,6 +236,7 @@
   // Each message's hover rail hangs in this gutter and wraps only when it is too narrow.
   let transcriptWidth = $state(0);
   let readingColumnWidth = $state(0);
+  const wideRoom = $derived(wideRenderRoom(transcriptWidth, readingColumnWidth));
   // The one owner of following the end. It lives as long as the scroller, not
   // its visibility, so a hidden view still knows whether the reader was at the
   // end when it is shown again.
@@ -777,7 +779,7 @@
           class="w-full"
           class:opacity-0={hidesTranscript}
           inert={hidesTranscript}
-          style="max-width:var(--solus-reading-max);margin-inline:auto;--transcript-gutter:{Math.max(0, (transcriptWidth - readingColumnWidth) / 2)}px{reservesBandRoom
+          style="max-width:var(--solus-reading-max);margin-inline:auto;--transcript-gutter:{Math.max(0, (transcriptWidth - readingColumnWidth) / 2)}px;--wide-render-room:{wideRoom}px{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >
@@ -876,6 +878,12 @@
                    Keyed so the next card starts with empty fields. -->
               {#key sess.questionQueue[0].questionId}
                 <SecretRequestCard tabId={tab.id} request={sess.questionQueue[0]} />
+              {/key}
+            {:else if sess.questionQueue[0].kind === "host-link"}
+              <!-- An add_host card: it does the work on the session host, then answers with respondQuestion.
+                   Keyed so the next card starts with empty fields. -->
+              {#key sess.questionQueue[0].questionId}
+                <AddMachineCard tabId={tab.id} request={sess.questionQueue[0]} />
               {/key}
             {:else}
               <QuestionCard

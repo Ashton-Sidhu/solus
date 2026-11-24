@@ -106,6 +106,32 @@ it("updates streaming text without subscribing the entire feed to tool progress"
   expect(listeners.size).toBe(0);
 });
 
+it("renders background command notices from live and saved turns with their command result", () => {
+  const text = "A background command finished after your turn ended (exit 0): bun test\n\nOutput (last part):\n# 4 passed\n* End";
+  const live = new TranscriptModel("session");
+  live.apply({ type: "user_message", text, via: "background-command" });
+  live.apply({ type: "assistant_message", text: "All tests passed." });
+  const saved = TranscriptModel.fromHistory("session", {
+    messages: [
+      { role: "user", messageId: "wake", timestamp: 1, content: text },
+      { role: "assistant", messageId: "reply", timestamp: 2, content: "All tests passed." },
+    ],
+    before: null,
+  });
+  for (const model of [live, saved]) {
+    const feed = conversationFeed(
+      { item: (key) => model.items.get(key), subscribeFeedItems: () => () => {} },
+      model.order,
+      "session",
+      () => null,
+    ).get();
+    expect(feed).toMatchObject([
+      { message: { backgroundCommand: { command: "bun test", exitCode: 0, output: "# 4 passed\n* End" } } },
+      { message: { role: "assistant", text: "All tests passed." } },
+    ]);
+  }
+});
+
 it("folds tool calls under their own prompt, keeps interactive results visible and restores tool details on expansion", () => {
   const tool: Extract<TranscriptItem, { kind: "tool" }> = {
     kind: "tool",

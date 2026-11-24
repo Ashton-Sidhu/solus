@@ -406,6 +406,51 @@ describe('native conversation: sending', () => {
     controller.close()
   })
 
+  test('Stop becomes available when the host takes the first prompt, including during setup', async () => {
+    const reply = Promise.withResolvers<{ disposition: 'started' }>()
+    const api = baseApi().on('prompt', () => reply.promise)
+    const { controller, transport, changes } = await open({ api, target: { hostId: 'inst-a', newSession: {
+      sessionId: 'draft', provider: 'codex', workingDirectory: '/work/app',
+    } } })
+    await controller.load()
+    const send = controller.send('build it')
+    await flushPromises()
+    expect(api.callsOf('prompt')).toHaveLength(1)
+    expect(controller.model.status).toBe('connecting')
+    expect(controller.canStopTurn).toBe(false)
+
+    changes.length = 0
+    transport.emit('session.executionChanged', { sessionId: 'draft', execution: {
+      revision: 1, current: { runId: 'run-1', phase: 'connecting', startedAt: 1 }, lastTurn: null,
+    } })
+    expect(controller.canStopTurn).toBe(true)
+    expect(changes.some((change) => change.meta)).toBe(true)
+
+    reply.resolve({ disposition: 'started' })
+    await send
+    transport.emit('session.executionChanged', { sessionId: 'draft', execution: {
+      revision: 2, current: null,
+      lastTurn: { runId: 'run-1', outcome: 'completed', startedAt: 1, endedAt: 2 },
+    } })
+    expect(controller.canStopTurn).toBe(false)
+    controller.close()
+  })
+
+  test('a legacy host can enable Stop with a status event that confirms local connecting', async () => {
+    const { controller, transport, changes } = await open({ api: baseApi() })
+    await controller.load()
+    await controller.send('go')
+    expect(controller.canStopTurn).toBe(false)
+
+    changes.length = 0
+    transport.emitSession('thread-1', { type: 'status_change', status: 'connecting' })
+    expect(controller.canStopTurn).toBe(true)
+    expect(changes.some((change) => change.meta)).toBe(true)
+    transport.emitSession('thread-1', { type: 'status_change', status: 'idle' })
+    expect(controller.canStopTurn).toBe(false)
+    controller.close()
+  })
+
   test('a new session that a prompt started reloads its history after a reconnect that lost the server session', async () => {
     const api = baseApi()
     const { controller, transport } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-1', provider: 'claude-code', workingDirectory: '/work/app' } } })

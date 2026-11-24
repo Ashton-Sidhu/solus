@@ -1,7 +1,8 @@
 import type { Via } from '@solus/contracts/analytics-events'
 
 import type { PullRequestOpenTarget, WorkspaceContext } from '../workspace/workspace.context.svelte'
-import { connectionsNav } from '../../components/connections/connections-nav.svelte'
+import { connectionsNav, type HostPageTab } from '../../components/connections/connections-nav.svelte'
+import { pairCodeRequest } from '../../components/connections/lib/pair-code-request.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'
@@ -29,8 +30,9 @@ export type ResourceRoute =
   | { kind: 'automation'; automationId: string; serverId: string }
   /** One app on the host that runs it (docs/plans/apps.md §9). `slug` is the app's slug, or its id. */
   | { kind: 'app'; slug: string; serverId: string }
-  /** Where a code-host connection is made: the workspace's API access settings. */
-  | { kind: 'connections'; serverId?: string }
+  /** Where a code-host connection is made: the workspace's API access settings. With a host, its page
+   *  on `tab`; `pair` also makes a pairing code there (docs/plans/add-machine-card.md). */
+  | { kind: 'connections'; serverId?: string; tab?: HostPageTab; pair?: boolean }
 
 export type ResourceRouteKind = ResourceRoute['kind']
 
@@ -75,7 +77,9 @@ export function openResourceInWorkspace(session: WorkspaceContext, route: Resour
       return
     case 'connections':
       session.showSettings('api-access')
-      if (route.serverId) connectionsNav.open(route.serverId)
+      if (!route.serverId) return
+      if (route.pair) pairCodeRequest.ask(route.serverId)
+      connectionsNav.open(route.serverId, route.pair ? 'access' : route.tab)
       return
   }
 }

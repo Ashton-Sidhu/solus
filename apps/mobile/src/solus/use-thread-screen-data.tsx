@@ -29,7 +29,10 @@ import {
   type PendingUserInputDraftAnswer,
 } from "@t3tools/client-runtime/state/pending-user-input";
 import { connectionTone } from "../features/connection/connectionTone";
-import { permissionForFeedback } from "@solus-mobile/features/conversation/lib/pending-requests";
+import {
+  hasOwnCard,
+  permissionForFeedback,
+} from "@solus-mobile/features/conversation/lib/pending-requests";
 import {
   pickComposerMedia,
   pickComposerFiles,
@@ -223,7 +226,7 @@ export function useThreadScreenData({
       });
   };
   const firstQuestion = meta.questions.find((q) => !q.expired);
-  const question = firstQuestion?.kind === "secret" ? null : firstQuestion;
+  const question = hasOwnCard(firstQuestion) ? null : firstQuestion;
   const pending = question
     ? {
         requestId: RuntimeRequestId.make(question.questionId),
@@ -279,20 +282,20 @@ export function useThreadScreenData({
     connectionStateLabel: env?.connectionState ?? "offline",
     canOperateThread: controller.mayDrive,
     activeThreadBusy: busy,
-    canStopThread: busy && controller.mayDrive,
+    canStopThread: !showingDraft && meta.canStopTurn && controller.mayDrive,
     onStopThread: () =>
       void controller.stop().catch((e: Error) => Alert.alert("Stop failed", e.message)),
     onReconnectEnvironment: () => solus.connections.retry(hostId),
     onOpenConnectionEditor: () => navigation.navigate("SettingsEnvironments"),
     requestPanels:
       meta.permissions.length > 0 ||
-      (firstQuestion ?? meta.questions[0])?.kind === "secret" ||
+      hasOwnCard(firstQuestion ?? meta.questions[0]) ||
       meta.pendingPlan ||
       meta.agentPlans.length > 0 ? (
         <RequestPanels store={store} meta={meta} />
       ) : null,
     composerCards: <RequestCards store={store} meta={meta} draft={showingDraft} />,
-    privateInputActive: firstQuestion?.kind === "secret",
+    privateInputActive: hasOwnCard(firstQuestion),
     mayAnswerRequests: controller.mayApprove,
     activePendingApproval: null,
     activePendingApprovals: [],
@@ -382,7 +385,7 @@ export function useThreadScreenData({
       }
       if (
         (!draft.text.trim() && !controller.attachments.length && !controller.uploading) ||
-        firstQuestion?.kind === "secret"
+        hasOwnCard(firstQuestion)
       )
         return null;
       const feedback = permissionForFeedback(meta.permissions);

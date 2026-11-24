@@ -1,4 +1,6 @@
 import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
+import type { PairApprovalDecision, PairApprovalRequest } from './add-machine'
+import type { PersonHistoryEntry } from './person-history'
 import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
 import type { VaultKeyRef, VaultKeySave, VaultKeyStatus } from './vault-keys'
 import type { PrReactionContent, PrReactions } from './pr-social'
@@ -500,6 +502,10 @@ export interface SolusAPI {
   /** Explicit owner pairing, used by chat tools and the CLI. */
   hostsPair(request: HostPairRequest): Promise<HostListing>
   hostsListPaired(): Promise<HostPairingsSnapshot>
+  /** The open approval requests from machines that ask to pair with this host. */
+  hostsPairApprovals(): Promise<PairApprovalRequest[]>
+  /** Approves or denies one approval request. False when it is no longer open. */
+  hostsPairApprovalDecide(requestId: string, decision: PairApprovalDecision): Promise<boolean>
   hostsPairClient(installationId: string): Promise<HostClientPairing>
   hostsForget(installationId: string): Promise<{ removed: boolean }>
   hostListRead(): Promise<HostListing[]>
@@ -1301,6 +1307,13 @@ export interface SolusAPI {
    *  it to unread. Answers with the boundary the host settled on, which can be
    *  older than the one sent — a read never moves the boundary backward. */
   setSessionReadState(sessionId: string, viewedAt: number | null): Promise<number | null>
+  /** Record that the caller opened these records (docs/plans/person-state.md).
+   *  The home keeps the later time for each one, so a retry or a late batch
+   *  never moves a time back. `personHistory.changed` tells the caller's other
+   *  connections. */
+  personHistoryRecord(entries: PersonHistoryEntry[]): Promise<void>
+  /** The caller's own history in this home, newest open first. */
+  personHistoryList(): Promise<PersonHistoryEntry[]>
   /** Foreground heartbeat: hosts skip watch-fired freshness work while no
    *  client holds a live lease (dispatch-client step 7). */
   activityLease(foreground: boolean): Promise<{ ok: boolean }>

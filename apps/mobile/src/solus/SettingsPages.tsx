@@ -18,6 +18,7 @@ import { SettingsScreen } from "../features/settings/components/SettingsScreen";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
+import { HostAccessSection } from "./HostAccessSection";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
 import { SYNC_STATE_LABELS } from "./settings-labels";
 
@@ -281,7 +282,11 @@ export function SolusAccount() {
 
 export function SolusHostDetail({
   route,
-}: StaticScreenProps<{ environmentId: EnvironmentId }>) {
+}: StaticScreenProps<{
+  environmentId: EnvironmentId;
+  /** `new`: the link from an Add machine card; the page makes a pairing code. */
+  pairCode?: "new";
+}>) {
   const id = route.params.environmentId;
   const nav = useNavigation();
   const directory = useSolusWorkspace();
@@ -323,6 +328,11 @@ export function SolusHostDetail({
           }
         />
       </SettingsSection>
+      <HostAccessSection
+        hostId={id}
+        isConnected={host?.connectionState === "connected"}
+        makeCode={route.params.pairCode === "new"}
+      />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (
           <AppText className="px-4 py-3 text-foreground">

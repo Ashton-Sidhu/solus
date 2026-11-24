@@ -43,8 +43,7 @@
 }}>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <!-- In the Refresh chip's geometry, beside it in the page's head row;
-           the label goes first in a narrow pane. -->
+      <!-- Match the Refresh chip's height. Hide the label in a narrow pane. -->
       <button
         {...props}
         type="button"

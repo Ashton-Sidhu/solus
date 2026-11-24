@@ -2,7 +2,8 @@ import type { SessionArtifact } from '@solus/contracts/session-artifacts'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import type { WorkspaceContext } from '../../../../contexts/workspace/workspace.context.svelte'
 import { projectRoot } from '../../../../contexts/workspace/run-location'
-import { artifactOpensStore } from '../../../../contexts/sessions/artifact-opens.store.svelte'
+import { recentArtifactKey } from '@solus/client-core/recent-artifacts'
+import { personHistoryStore } from '../../../../contexts/person-history/person-history.store.svelte'
 import { fileRouteParams } from './artifact-list'
 
 type ArtifactOpener = Pick<WorkspaceContext, 'router' | 'prReview' | 'sessions' | 'ctx' | 'ctxForDirectory' | 'serverIdForSession'>
@@ -13,7 +14,7 @@ type ArtifactOpener = Pick<WorkspaceContext, 'router' | 'prReview' | 'sessions' 
  * scopes a pull request and holds a file, and its host holds every item (a
  * file, automation, or app link is refused unless it is on the session's host).
  * A caller that knows the host passes it: a session with no tab here does not.
- * The open is recorded on this device for the Threads surface's row.
+ * The open goes into the person's history, which orders the Threads row.
  */
 export function openArtifact(
   workspace: ArtifactOpener,
@@ -21,7 +22,7 @@ export function openArtifact(
   ownerSessionId: string,
   serverId = workspace.serverIdForSession(ownerSessionId),
 ): void {
-  artifactOpensStore.record(artifact)
+  personHistoryStore.record(recentArtifactKey(artifact))
   const root = projectRoot(workspace.sessions.byId[ownerSessionId]?.run)
   switch (artifact.kind) {
     case 'pull-request': {

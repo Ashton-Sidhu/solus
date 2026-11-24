@@ -5,8 +5,7 @@ import type { SessionExecution } from '@solus/contracts/session-execution'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
 import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { hostCatalog } from '@solus/client-core/host-catalog'
-import { agentLabel } from '../../../../lib/agentAvailability'
-import type { GroupedItem } from '../../lib/turns'
+import { itemKey, type GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
 import { agentExecutionLink, plainDetail, type AgentLinkStatus, summarizeAgentLinks } from '../../lib/agent-link'
 
@@ -88,30 +87,50 @@ export function isAwaitingReply(ref: AgentConversationRef): boolean {
   return OPEN_STATUSES.has(last.status)
 }
 
-/** Agents this turn has asked and not yet heard back from, in dispatch order.
- *  While the parent has no tool running, this — not "planning the next step" —
- *  is what it is actually doing. */
-export function agentsAwaitingReply(items: GroupedItem[]): string[] {
-  const names: string[] = []
+/** The agent sessions this turn has asked and not yet heard back from. */
+export interface AwaitedAgents {
+  /** Sessions that wait on a person: a question, a permission, or a plan. */
+  needYou: number
+  /** The other sessions, still working. Each session counts once, however
+   *  many messages this turn sent it. */
+  working: number
+  /** The transcript item (`itemKey`) to scroll to: the first card that needs
+   *  you, else the first card that waits. */
+  firstItemKey: string
+}
+
+/** Agent sessions this turn has asked and not yet heard back from. While the
+ *  parent has no tool running, this — not "planning the next step" — is what
+ *  it is actually doing. Null when none waits. */
+export function agentsAwaitingReply(items: GroupedItem[]): AwaitedAgents | null {
+  const needYou = new Set<string>()
+  const waiting = new Set<string>()
+  let firstNeedsYouKey: string | null = null
+  let firstWaitingKey: string | null = null
   for (const item of items) {
     if (item.kind !== 'agent-conversation-group') continue
     for (const message of item.messages) {
       const ref = message.agentConversationRef
       if (!ref || !isAwaitingReply(ref)) continue
-      const name = agentLabel(ref.provider)
-      if (!names.includes(name)) names.push(name)
+      waiting.add(ref.sessionId)
+      firstWaitingKey ??= itemKey(item)
+      if (agentConversationCardState(ref) !== 'waiting') continue
+      needYou.add(ref.sessionId)
+      firstNeedsYouKey ??= itemKey(item)
     }
   }
-  return names
+  const firstItemKey = firstNeedsYouKey ?? firstWaitingKey
+  return firstItemKey ? { needYou: needYou.size, working: waiting.size - needYou.size, firstItemKey } : null
 }
 
-/** Name the agents, never the mechanism — and past two, count them rather than
- *  running a list into the row's truncation. */
-export function waitingOnLabel(names: string[]): string | null {
-  if (names.length === 0) return null
-  if (names.length === 1) return `Waiting on ${names[0]}…`
-  if (names.length === 2) return `Waiting on ${names[0]} and ${names[1]}…`
-  return `Waiting on ${names.length} agents…`
+/** Count the sessions, never name their provider: two Claude Code sessions
+ *  read as one "Claude Code", and a provider name reads as the thing that is
+ *  busy, not the work. A session that waits on you goes first, because only
+ *  you can move it. That is a still state, so it takes no ellipsis. */
+export function waitingOnLabel({ needYou, working }: AwaitedAgents): string {
+  if (needYou === 0) return working === 1 ? 'Waiting on an agent…' : `Waiting on ${working} agents…`
+  const asked = needYou === 1 ? 'An agent needs you' : `${needYou} agents need you`
+  return working === 0 ? asked : `${asked} · waiting on ${working} more`
 }
 
 // ─── Messages ───

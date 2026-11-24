@@ -15,7 +15,7 @@
   import PickerPreviewSkeleton from "./PickerPreviewSkeleton.svelte";
   import PickerRecordPreview from "./PickerRecordPreview.svelte";
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
-  import { entryOpenLabel, hasActionBar } from "./lib/picker-record-view";
+  import { hasActionBar } from "./lib/picker-record-view";
   import {
     conversationProjectLabel,
     conversationTitle,
@@ -221,19 +221,6 @@
             onPrimary={() => onSelectTask(picked)}
             secondaryLabel={hasSessions ? "New draft" : undefined}
             onSecondary={hasSessions ? () => onStartDraft(picked) : undefined}
-            onOpenTask={onOpenTaskPage}
-            {onOpenSource}
-          />
-        {:else if entry.kind === "record" && entry.record.type === "pullRequest"}
-          {@const picked = entry}
-          {@const pullRequestUrl = entry.record.found.pullRequest.url}
-          <PickerActionBar
-            task={null}
-            {portalTarget}
-            primaryLabel={entryOpenLabel(picked)}
-            onPrimary={() => onActivate(picked)}
-            secondaryLabel="Open in browser"
-            onSecondary={() => onOpenExternal(pullRequestUrl)}
             onOpenTask={onOpenTaskPage}
             {onOpenSource}
           />

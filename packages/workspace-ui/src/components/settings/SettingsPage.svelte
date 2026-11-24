@@ -37,7 +37,9 @@
     getSettingsContext,
     serversStore,
     agentProfileLocalStore,
+    codebasesStore,
   } from "../../contexts";
+  import { NEW_CODEBASE } from "../codebases/lib/codebase-view";
   import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
@@ -438,6 +440,19 @@
           : null,
   );
 
+  // A codebase page keeps the nav rail: the header names it, and its
+  // Codebases crumb goes back to the list.
+  const openCodebaseLabel = $derived.by(() => {
+    const codebaseId = session.settingsTab === "codebases" ? session.router.params("settings")?.codebase : undefined;
+    if (!codebaseId) return null;
+    if (codebaseId === NEW_CODEBASE) return "New codebase";
+    return codebasesStore.codebaseOf(codebaseId)?.name ?? "Codebase";
+  });
+
+  function showCodebaseList() {
+    session.router.navigate({ name: "settings", params: { tab: "codebases" } }, { replace: true });
+  }
+
   function selectProjectScope(projectCwd: string | null) {
     session.router.navigate({ name: "settings", params: { tab: session.settingsTab, projectCwd: projectCwd ?? undefined } }, { replace: true });
   }
@@ -650,7 +665,16 @@
     >
       <div class="flex min-w-0 items-center gap-2.5">
         {#if openHostLabel}{@render backButton()}{/if}
-        <p class="truncate text-workspace-chrome text-muted-foreground">Settings{#if !openHostLabel} / {activeTabMeta.label}{/if}</p>
+        {#if openCodebaseLabel}
+          <p class="flex min-w-0 items-center gap-1 text-workspace-chrome text-muted-foreground">
+            <span class="shrink-0">Settings /</span>
+            <button type="button" class="shrink-0 cursor-pointer rounded-sm transition-colors duration-150 hover:text-foreground focus-visible:text-foreground focus-visible:underline focus-visible:outline-none" onclick={showCodebaseList}>{activeTabMeta.label}</button>
+            <span class="shrink-0">/</span>
+            <span class="truncate text-foreground" aria-current="page">{openCodebaseLabel}</span>
+          </p>
+        {:else}
+          <p class="truncate text-workspace-chrome text-muted-foreground">Settings{#if !openHostLabel} / {activeTabMeta.label}{/if}</p>
+        {/if}
       {#if openHostLabel}
         <Breadcrumb.Root class="min-w-0">
           <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-workspace-chrome">
@@ -720,7 +744,7 @@
           </header>
         {/if}
         <div class="flex flex-col gap-10">
-          <SettingsSections {pageQuery} {selectedSettingsHost} {selectedSettingsApi} {scopeControl} {setSearchQuery} />
+          <SettingsSections {pageQuery} {selectedSettingsHost} {selectedSettingsApi} {scopeControl} />
         </div>
       </div>
     </div>

@@ -23,6 +23,7 @@ import {
   toolRowLabel,
 } from "@solus-mobile/features/threads/thread-work-log-presentation";
 import { InlineHtmlRender } from "../features/threads/HtmlRenderWebView";
+import { workHistoryKey } from "@solus/client-core/person-history";
 import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
 import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
 import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferCard";
@@ -233,6 +234,7 @@ function ArtifactCard({
   superseded: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { workId } = item;
   const visible = !superseded || expanded;
   const pending = !item.html && !!item.contentVersion;
   const needsRead = visible && pending && !item.loading && !item.error;
@@ -267,7 +269,7 @@ function ArtifactCard({
             <AppActivityIndicator accessibilityLabel="Loading artifact" />
           )
         ) : (
-          <InlineHtmlRender html={item.html} title={item.title} />
+          <InlineHtmlRender html={item.html} title={item.title} onOpen={workId ? () => solus.history.record(workHistoryKey(workId)) : undefined} />
         ))}
     </View>
   );

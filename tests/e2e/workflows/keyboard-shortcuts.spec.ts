@@ -56,6 +56,45 @@ test.describe('Keyboard shortcuts modal', () => {
 })
 
 test.describe('Keybindings editor', () => {
+  test('Settings search and shortcut search keep separate input values', async ({ page }) => {
+    const app = new AppPage(page)
+    await app.waitForAppReady()
+    await app.waitForWorkspace()
+
+    await page.keyboard.press('ControlOrMeta+Comma')
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await settings.getByRole('button', { name: 'Keybindings', exact: true }).click()
+    const settingsSearch = settings.getByRole('textbox', { name: 'Search', exact: true })
+    const shortcutSearch = settings.getByRole('textbox', { name: 'Search shortcuts', exact: true })
+
+    await shortcutSearch.pressSequentially('t')
+    await expect(shortcutSearch).toHaveValue('t')
+    await shortcutSearch.pressSequentially('oggle sidebar')
+    await expect(shortcutSearch).toHaveValue('toggle sidebar')
+    await expect(settingsSearch).toHaveValue('')
+    await expect(settings.getByRole('button', { name: 'Rebind Toggle sidebar', exact: true })).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Rebind New session', exact: true })).toBeHidden()
+
+    await shortcutSearch.press('Escape')
+    await expect(shortcutSearch).toBeFocused()
+    await expect(shortcutSearch).toHaveValue('')
+
+    await settingsSearch.fill('toggle sidebar')
+    await expect(shortcutSearch).toHaveValue('')
+    await expect(settings.getByRole('button', { name: 'Rebind Toggle sidebar', exact: true })).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Rebind New session', exact: true })).toBeHidden()
+
+    await shortcutSearch.fill('new session')
+    await expect(settingsSearch).toHaveValue('toggle sidebar')
+    await expect(settings.getByRole('button', { name: 'Rebind New session', exact: true })).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Rebind Toggle sidebar', exact: true })).toBeHidden()
+
+    await shortcutSearch.press('Escape')
+    await expect(shortcutSearch).toHaveValue('')
+    await expect(settingsSearch).toHaveValue('toggle sidebar')
+    await expect(settings.getByRole('button', { name: 'Rebind Toggle sidebar', exact: true })).toBeVisible()
+  })
+
   /**
    * Intent test (Rule 6): the whole point of the editor is that a rebind takes
    * effect live and is reflected everywhere the binding is shown. This drives the

@@ -216,6 +216,7 @@ export function conversationFeed(
     };
     const row: ThreadFeedSourceRow = {
       hostTime: createdAt,
+      hostBackgroundCommand: item.kind === "user" ? item.backgroundCommand : undefined,
       ...(item.kind === "assistant" && item.forkPointId && { hostForkPointId: item.forkPointId }),
       sourceItemId: base.id,
       sourceThreadId: ThreadId.make(item.sourceSessionId ?? id),

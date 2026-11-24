@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { KeybindingsContext } from '@solus/workspace-ui/lib/keybindings/dispatcher.svelte'
 import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
+import { isMac } from '@solus/workspace-ui/lib/keybindings/match'
+
+// Bun has no DOM. The dispatcher checks the target against HTMLElement.
+const globals = globalThis as { HTMLElement?: new () => object }
+globals.HTMLElement ??= class {}
 
 describe('session task shortcuts', () => {
   test('keeps a new session distinct from a new task', () => {
@@ -17,22 +23,37 @@ describe('session task shortcuts', () => {
       combo: null,
       label: 'New session in task',
     })
-    expect(KEYBINDINGS['global.new-session-without-task']).toMatchObject({
-      combo: { mod: true, shift: true, code: 'KeyN' },
-      web: { alt: true, shift: true, code: 'KeyU' },
-      label: 'New session without task',
-    })
   })
 
-  test('New chat sits beside the new-session family, on the same combo everywhere', () => {
-    // WHY: a chat is the plain way to start; it needs its own key, and the
-    // opt+shift letters are all taken. No browser claims ⌘⌥N, so web keeps it.
-    expect(KEYBINDINGS['global.new-chat']).toMatchObject({
-      combo: { mod: true, alt: true, code: 'KeyN' },
-      scope: 'global',
-      label: 'New chat',
-    })
-    expect(KEYBINDINGS['global.new-chat']).not.toHaveProperty('web')
+  test('desktop Shift+N with the primary modifier opens a chat without a project', () => {
+    const keybindings = new KeybindingsContext()
+    keybindings.pushScope('global')
+    const opened: string[] = []
+    keybindings.register('global.new-session', () => { opened.push('project session') })
+    keybindings.register('global.new-session-without-task', () => { opened.push('project session without task') })
+    keybindings.register('global.new-chat', () => { opened.push('chat') })
+
+    const keydown = (modifiers: { shiftKey: boolean; altKey: boolean }) => ({
+      code: 'KeyN',
+      metaKey: isMac,
+      ctrlKey: !isMac,
+      target: null,
+      repeat: false,
+      preventDefault() {},
+      ...modifiers,
+    }) as unknown as KeyboardEvent
+
+    keybindings.dispatch(keydown({ shiftKey: true, altKey: false }))
+    expect(opened).toEqual(['chat'])
+    keybindings.dispatch(keydown({ shiftKey: false, altKey: true }))
+    expect(opened).toEqual(['chat', 'project session without task'])
+    keybindings.dispatch(keydown({ shiftKey: false, altKey: false }))
+    expect(opened).toEqual(['chat', 'project session without task', 'project session'])
+  })
+
+  test('web keeps both actions clear of the private-window shortcut', () => {
+    expect(KEYBINDINGS['global.new-chat']).toHaveProperty('web', { mod: true, alt: true, code: 'KeyN' })
+    expect(KEYBINDINGS['global.new-session-without-task'].web).toEqual({ alt: true, shift: true, code: 'KeyU' })
   })
 
   test('keeps browser-owned project and session shortcuts available on web', () => {

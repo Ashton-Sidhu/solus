@@ -39,7 +39,7 @@
      *  the line so they stay one click away. Rendered after a separator. */
     trail?: Snippet;
     /** Page-specific chips at the far end of the line: provider identity, a
-     *  bulk-selection count. Rendered before the sync chip. */
+     *  bulk-selection count. Rendered after the sync chip. */
     actions?: Snippet;
     onRefresh?: () => void;
     refreshing?: boolean;
@@ -139,8 +139,8 @@
        second claim on the same slack. -->
   <span class="min-w-2 flex-1 @max-[30rem]/pane:hidden" aria-hidden="true"></span>
 
-  {#if actions}{@render actions()}{/if}
-
+  <!-- Refresh comes first at the far end: when its label changes width, only
+       its own left edge moves, into the spacer. The page actions stay put. -->
   {#if onRefresh}
     <!-- One control: the timestamp is the label and the whole chip is the
          button, so the fact and the way to renew it can never disagree. -->
@@ -166,6 +166,8 @@
       {/if}
     </button>
   {/if}
+
+  {#if actions}{@render actions()}{/if}
 
   {#if hasWindowActions}
     <span

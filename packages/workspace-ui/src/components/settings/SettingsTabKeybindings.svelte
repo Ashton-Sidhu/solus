@@ -28,13 +28,16 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import SettingsSection from "./SettingsSection.svelte";
 
-  interface Props {
-    searchQuery?: string;
-  }
+  let { settingsQuery }: { settingsQuery: string } = $props();
+  let shortcutQuery = $state("");
+  const searchQuery = $derived(shortcutQuery || settingsQuery);
 
-  // Bound to the page's settings search, so this field and the settings rail's
-  // field show one query and Escape on the page clears both.
-  let { searchQuery = $bindable("") }: Props = $props();
+  function handleSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !shortcutQuery) return;
+    event.preventDefault();
+    event.stopPropagation();
+    shortcutQuery = "";
+  }
 
   const settings = getSettingsContext();
   const shell = getClientShellContext();
@@ -343,8 +346,9 @@
 <div class="flex flex-col gap-1 text-xs">
   <div class="flex items-center gap-4 pb-3">
     <SearchField
-      bind:value={searchQuery}
+      bind:value={shortcutQuery}
       placeholder="Search shortcuts"
+      onkeydown={handleSearchKeydown}
       class="max-w-[22rem] basis-auto"
     />
     <Button variant="ghost" size="sm" class="ml-auto shrink-0" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>

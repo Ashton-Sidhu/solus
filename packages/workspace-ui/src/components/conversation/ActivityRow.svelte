@@ -44,6 +44,9 @@
     /** Absent means there is nothing folded away. The whole row is the
      *  disclosure — there is no chevron; hover and the detail's rule say it opens. */
     onToggle?: () => void;
+    /** The row is a button that goes somewhere instead of a disclosure — the
+     *  wait on other agents scrolls to their cards. */
+    onActivate?: (event: MouseEvent) => void;
     testid?: string;
   }
 
@@ -64,6 +67,7 @@
     endAligned = false,
     expanded = false,
     onToggle,
+    onActivate,
     testid,
   }: Props = $props();
 </script>
@@ -71,7 +75,7 @@
 <div class="activity-block" class:is-end={endAligned} {@attach pauseWhenOffscreen}>
   <div
     class="activity-row"
-    class:is-static={!onToggle}
+    class:is-static={!onToggle && !onActivate}
     class:is-nested={nested}
     class:is-stacked={stacked}
     data-testid={testid}
@@ -80,9 +84,9 @@
       type="button"
       class="activity-disclose"
       class:is-stacked={stacked}
-      disabled={!onToggle}
+      disabled={!onToggle && !onActivate}
       aria-expanded={onToggle ? expanded : undefined}
-      onclick={onToggle}
+      onclick={onToggle ?? onActivate}
     >
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>

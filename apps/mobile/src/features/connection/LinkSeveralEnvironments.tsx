@@ -16,7 +16,7 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 import * as Result from "effect/Result";
-import { T, useGT, useMessages } from "gt-react-native";
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import { useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,7 +35,21 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentsWithScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
-import { LINK_ACCESS_CHOICES } from "../threads/LinkRequestCard";
+import { RUNTIME_MODE_CHOICES } from "../threads/thread-settings-options";
+
+/** The same five levels as web's access picker: read-only, then the runtime modes. */
+const LINK_ACCESS_CHOICES: ReadonlyArray<{
+  readonly access: AuthMcpClientAccess;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    access: "read-only",
+    label: msg("Read only"),
+    description: msg("Read projects and threads. Cannot start, message or change anything."),
+  },
+  ...RUNTIME_MODE_CHOICES.map((choice) => ({ ...choice, access: choice.mode })),
+];
 
 const NO_MACHINES: ReadonlySet<EnvironmentId> = new Set();
 const NO_OUTCOMES: ReadonlyMap<EnvironmentId, LinkBatchOutcome> = new Map();

@@ -71,6 +71,13 @@
       "when": 1795463048219,
       "tag": "0009_task_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795498910409,
+      "tag": "0010_person_opened_at",
+      "breakpoints": true
     }
   ]
 }

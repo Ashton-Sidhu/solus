@@ -110,9 +110,25 @@ export async function readCheckoutEntry(
 
 export const readEntry = checkoutQuery(readCheckoutEntry);
 
+export async function signCheckoutAsset(
+  api: Pick<HostApi, "assetCreateUrl">,
+  { cwd, path }: { cwd: string; path: string },
+  organizationId: string | null,
+  httpBaseUrl: string,
+) {
+  const signed = await api.assetCreateUrl(projectContext(cwd, organizationId), { path });
+  return {
+    url: new URL(signed.relativeUrl, new URL(httpBaseUrl).origin).toString(),
+    expiresAt: signed.expiresAt,
+  };
+}
+
 export const checkoutAssetUrl = checkoutQuery(
-  async (api, { cwd, path }: { cwd: string; path: string }, organizationId, httpBaseUrl) => {
-    const signed = await api.assetCreateUrl(projectContext(cwd, organizationId), { path });
-    return new URL(signed.relativeUrl, new URL(httpBaseUrl).origin).toString();
-  },
+  async (api, input: { cwd: string; path: string }, organizationId, httpBaseUrl) =>
+    (await signCheckoutAsset(api, input, organizationId, httpBaseUrl)).url,
+);
+
+export const checkoutMediaAsset = checkoutQuery(
+  (api, input: { cwd: string; path: string; revision?: string | null }, organizationId, httpBaseUrl) =>
+    signCheckoutAsset(api, input, organizationId, httpBaseUrl),
 );

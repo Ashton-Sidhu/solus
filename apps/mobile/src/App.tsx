@@ -23,6 +23,7 @@ import { RegistryContext } from "@effect/atom-react";
 import { ProjectChipIconRasterizer } from "./native/ProjectChipIconImages";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import * as Dialog from "./components/ui/Dialog";
+import { ConnectDeviceApprovalCoordinator } from "./features/connection/ConnectDeviceApprovalCoordinator";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
 import { prepareNativeShowcaseCapture } from "./features/showcase/nativeShowcaseScene";
 import { installShowcaseCapture } from "./features/showcase/ShowcaseCaptureCoordinator";
@@ -291,6 +292,7 @@ function AppContent() {
                   onStateChange={handleNavigationStateChange}
                 />
                 <Dialog.Host />
+                <ConnectDeviceApprovalCoordinator />
                 <ThreadArrangementHost />
                 <ProjectChipIconRasterizer />
               </NativeLayoutMetricsProvider>

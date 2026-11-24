@@ -99,10 +99,22 @@ describe.skipIf(process.platform === 'win32')('the shortcuts a browser page give
     expect(guestShortcuts({}, true)).toContainEqual({ code: 'KeyR', alt: true, shift: false, meta: false, ctrl: false })
   })
 
-  test('⌘ and ⌃ shortcuts stay with the page, which binds them itself', () => {
+  test('forwards New chat from a focused page and leaves editor shortcuts with the page', () => {
+    const newChat: GuestShortcut = { code: 'KeyN', alt: false, shift: true, meta: true, ctrl: false }
     const shortcuts = guestShortcuts({}, true)
-    expect(shortcuts.some((shortcut) => shortcut.code === 'KeyK' && shortcut.meta)).toBe(false)
-    expect(shortcuts.every((shortcut) => shortcut.alt)).toBe(true)
+    expect(shortcuts.filter((shortcut) => !shortcut.alt)).toEqual([newChat])
+    expect(matchGuestShortcut(input({ code: 'KeyN', meta: true, shift: true }), shortcuts)).toEqual(newChat)
+    expect(guestShortcuts({ 'global.new-chat': null }, true)).not.toContainEqual(newChat)
+  })
+
+  test('uses the saved New chat shortcut in a focused page', () => {
+    const rebound = guestShortcuts({ 'global.new-chat': { mod: true, shift: true, code: 'F9' } }, true)
+    expect(matchGuestShortcut(input({ code: 'KeyN', meta: true, shift: true }), rebound)).toBeNull()
+    expect(matchGuestShortcut(input({ code: 'F9', meta: true, shift: true }), rebound))
+      .toEqual({ code: 'F9', alt: false, shift: true, meta: true, ctrl: false })
+
+    const printable = guestShortcuts({ 'global.new-chat': { code: 'KeyN', shift: true } }, true)
+    expect(matchGuestShortcut(input({ code: 'KeyN', shift: true }), printable)).toBeNull()
   })
 
   test('a rebound shortcut is forwarded under its new keys, and a removed one is not', () => {

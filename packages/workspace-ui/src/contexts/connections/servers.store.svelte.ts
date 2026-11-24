@@ -50,6 +50,7 @@ import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 import { prDeviceCache } from '../prs/pr-device-cache'
+import { personHistoryStore } from '../person-history/person-history.store.svelte'
 
 /** How often a focused window scans its network while a view shows the nearby hosts. */
 const NEARBY_SHOWN_DISCOVERY_MS = 30_000
@@ -453,6 +454,15 @@ class ServersStore {
         const signedIn = accountStore.isSignedIn
         untrack(() => this.chooseHostList(signedIn))
       })
+      // The person's history lives where the account state says, as the host list does (docs/plans/person-state.md §3).
+      $effect(() => {
+        if (!accountStore.hasAnswered) return
+        const choice = { signedIn: accountStore.isSignedIn, solusApiId: this.activeCloudServerId }
+        untrack(() => personHistoryStore.follow(choice))
+      })
+    })
+    serverConnections.onPrimaryChange(() => {
+      if (accountStore.hasAnswered) personHistoryStore.follow({ signedIn: accountStore.isSignedIn, solusApiId: this.activeCloudServerId })
     })
   }
 

@@ -41,6 +41,7 @@ function setup() {
     orchestration: undefined,
     isShuttingDown: false,
     statuses: {
+      holdsOutsideRun: () => false,
       setStatus: (sessionId: string, status: SessionStatus) => {
         statuses.push(status)
         const session = activeSessions.get(sessionId)
@@ -49,6 +50,7 @@ function setup() {
     },
     inputRequests: { expirePendingInput: () => {}, stampTurnAuthor: () => {} },
     sessionEmitter: { onEvent: () => {}, recordTerminal: () => {} },
+    activity: { observe: () => {} },
     rateLimitPark: { currentRateLimitEvent: () => null },
     handoffs: { handoffCarry: { settle: () => {} } },
     // The provider events give each event to the session folders, and attach the folders of a turn at its end.

@@ -1,165 +1,113 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useNavigation } from "@react-navigation/native";
 import {
-  ANOTHER_ADDRESS,
-  type LinkableMachine,
-  linkDestination,
-  linkRequestAnswerInput,
-  linkRequestDefaultAccess,
-  linkRequestDisplay,
-  linkRequestFailureMessage,
-  linkRequestInitialMachine,
-  type LinkRequestItem,
-  linkRequestTarget,
-  rankMachinesByHint,
-} from "@t3tools/client-runtime/link-request";
+  rankAddMachineCandidates,
+  type AddMachineCandidate,
+} from "@solus/client-core/add-machine-candidates";
 import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+  addMachineOutcomeAnswers,
+  PAIR_APPROVAL_TTL_MS,
+  type AddMachineAsk,
+} from "@solus/contracts/add-machine";
+import type { SshTargetCandidate } from "@solus/contracts/remote-machines";
+import { requestExpiryText } from "@solus/contracts/types";
 import {
-  AuthAccessWriteScope,
-  type AuthMcpClientAccess,
-  type EnvironmentId,
-  type OrchestrationV2ProjectedTurnItem,
-} from "@t3tools/contracts";
-import * as Option from "effect/Option";
-import * as Result from "effect/Result";
-import { msg, T, useGT, useMessages, Var } from "gt-react-native";
-import { useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, View, type ColorValue } from "react-native";
+  approveInstructions,
+  attemptAddMachine,
+  codeSteps,
+  makeCheckCode,
+  reachableMachines,
+  stepFor,
+  typedCodeError,
+  typedCodeValue,
+  watchSshProgress,
+  wayLabel,
+  type AddMachineAttempt,
+} from "@solus-mobile/features/conversation/lib/add-machine-card";
+import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
+import { timeLeft } from "@solus-mobile/lib/time";
+import { EnvironmentId } from "@t3tools/contracts";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
-import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
-import type { MessageResolver } from "../../i18n/messages";
-import { peerLinkEnvironment, useLinkableMachines } from "../../state/peerLinks";
-import { mintPairingCodeOn } from "../../state/peerPairingCode";
-import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
+import { openSettings } from "../settings/settings-navigation";
 import { Button } from "../../components/ui/Button";
 import { StepRail } from "../../components/ui/StepRail";
 import { Sheet } from "../../components/ui/Sheet";
-import { RUNTIME_MODE_CHOICES } from "./thread-settings-options";
+import { nearbyUrl } from "../../solus/discovery";
+import { nearby, solus, useSolusWorkspace } from "../../solus/runtime";
 
-/** The same five levels as web's access picker: read-only, then the runtime modes. */
-export const LINK_ACCESS_CHOICES: ReadonlyArray<{
-  readonly access: AuthMcpClientAccess;
-  readonly label: string;
-  readonly description: string;
-}> = [
-  {
-    access: "read-only",
-    label: msg("Read only"),
-    description: msg("Read projects and threads. Cannot start, message or change anything."),
-  },
-  ...RUNTIME_MODE_CHOICES.map((choice) => ({ ...choice, access: choice.mode })),
-];
-const accessLabel = (access: AuthMcpClientAccess, resolve: MessageResolver) => {
-  const label = LINK_ACCESS_CHOICES.find((choice) => choice.access === access)?.label;
-  return label === undefined ? access : resolve(label);
-};
+// Adapted from T3 Code's link request card: the same card, machine sheet, and
+// step rail, answering a Solus Add machine card (`host-link`,
+// docs/plans/add-machine-card.md). A code or a password lives only in this
+// card's state and the one host call that uses it.
 
-const LINK_SYMBOL: AppSymbolName = { ios: "link", android: "desktop_windows" };
+const ANOTHER_ADDRESS = "another-address";
+const NO_ASK: AddMachineAsk = { reason: "" };
+const MACHINE_SYMBOL: AppSymbolName = "desktopcomputer";
 
-/** Whether the agent left the machine for the user to pick. */
-const picksMachine = (item: LinkRequestItem) =>
-  item.environmentId === undefined && item.url === undefined;
+const failedAttempt = (message: string): AddMachineAttempt => ({ kind: "failed", message });
 
-/**
- * Feed card for a link an agent asked the user to make. The user picks the
- * access in a sheet; the pairing code lives only in that sheet's state and
- * the RPC payload, and is never logged, alerted, or persisted.
- */
-export function LinkRequestCard(props: {
-  readonly environmentId: EnvironmentId;
-  readonly projectedItem: OrchestrationV2ProjectedTurnItem;
-  readonly iconColor: ColorValue;
-}) {
-  const m = useMessages();
-  const { item, visibility } = props.projectedItem;
-  if (item.type !== "link_request") return null;
-  const display = linkRequestDisplay(item, visibility, (access) => accessLabel(access, m), m);
-  if (display.kind === "pending") {
-    return <PendingLinkRequest environmentId={props.environmentId} item={item} />;
-  }
-  const icon: AppSymbolName =
-    display.kind === "pending-elsewhere"
-      ? LINK_SYMBOL
-      : display.outcome === "linked"
-        ? "checkmark"
-        : display.outcome === "failed"
-          ? "xmark"
-          : "minus";
-  return (
-    <View className="mb-3 min-h-9 flex-row items-center gap-2 px-1">
-      <SymbolView name={icon} size={13} tintColor={props.iconColor} type="monochrome" />
-      <Text className="flex-1 font-sans text-sm text-foreground-muted" numberOfLines={2}>
-        {display.label}
-      </Text>
-    </View>
-  );
+/** An approval request in progress: the card shows its check code until the target answers. */
+interface WaitingApproval {
+  readonly checkCode: string;
+  readonly expiresAt: number;
+  readonly name: string;
 }
 
-function PendingLinkRequest(props: {
-  readonly environmentId: EnvironmentId;
-  readonly item: LinkRequestItem;
+export function LinkRequestCard(props: {
+  readonly question: PendingQuestion;
+  readonly sessionHostId: string;
+  readonly responding: boolean;
+  /** False for a reader who may only view the session: an editor answers. */
+  readonly mayDrive: boolean;
+  /** Sends the card's answers to the host with `respondQuestion`. */
+  readonly onAnswer: (answers: Record<string, string>) => Promise<void>;
 }) {
-  const gt = useGT();
-  const m = useMessages();
-  const { item } = props;
+  const ask = props.question.hostLink ?? NO_ASK;
   const [open, setOpen] = useState(false);
-  const [declining, setDeclining] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const answer = useAtomCommand(peerLinkEnvironment.answerRequest, {
-    label: "decline link request",
-    reportFailure: false,
-    reportDefect: false,
-  });
-  const canAnswer = useAtomValue(
-    peerLinkEnvironment.answerRequest.permissionAtom(props.environmentId),
-  );
-  const decline = async () => {
-    const input = linkRequestAnswerInput(item, { type: "decline" });
-    if (input === null) return;
-    setDeclining(true);
-    setError(null);
-    const result = await answer({ environmentId: props.environmentId, input }).finally(() =>
-      setDeclining(false),
-    );
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      setError(linkRequestFailureMessage(squashAtomCommandFailure(result), m));
-    }
-  };
-
+  const flow = useAddMachine(ask, props.sessionHostId, props.onAnswer, () => setOpen(false));
+  const canRespond = props.question.expired === undefined;
+  const busy = props.responding || flow.busy;
   return (
-    <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">
+    <View className="gap-3 rounded-[20px] border border-border bg-card-alt p-4">
       <View className="gap-1">
-        <Text className="font-t3-bold text-base text-foreground">
-          {item.url === undefined
-            ? gt("Link a machine to this environment")
-            : gt("Link {target} to this environment", { target: linkDestination(item.url) })}
-        </Text>
-        {item.reason.trim() ? (
-          <Text className="font-sans text-sm leading-5 text-foreground-muted">{item.reason}</Text>
+        <Text className="font-t3-bold text-base text-foreground">Add a machine</Text>
+        {ask.reason.trim() ? (
+          <Text selectable className="font-sans text-sm leading-5 text-foreground-muted">
+            {ask.reason}
+          </Text>
         ) : null}
       </View>
-      {error !== null ? (
+      {props.question.expired ? (
+        <Text className="font-sans text-sm leading-5 text-foreground-muted">
+          {requestExpiryText(props.question.expired)}
+        </Text>
+      ) : null}
+      {flow.waiting ? <ApprovalWait waiting={flow.waiting} /> : null}
+      {flow.progress && !open ? (
+        <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
+          {flow.progress}
+        </Text>
+      ) : null}
+      {flow.error !== null && !open ? (
         <Text
           accessibilityRole="alert"
           accessibilityLiveRegion="polite"
           className="font-sans text-sm text-danger-foreground"
         >
-          {error}
+          {flow.error}
         </Text>
       ) : null}
-      {canAnswer ? (
+      {!canRespond ? null : props.mayDrive ? (
         <>
           <Button
-            label={picksMachine(item) ? gt("Choose machine…") : gt("Review link…")}
-            disabled={declining}
+            label={flow.busy ? "Adding…" : ask.url ? "Review machine…" : "Choose machine…"}
+            disabled={busy}
             onPress={() => setOpen(true)}
             tone="primary"
             fullWidth
@@ -167,27 +115,24 @@ function PendingLinkRequest(props: {
           <View className="flex-row justify-end">
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: declining }}
-              disabled={declining}
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
               hitSlop={8}
               className="px-1 py-1 active:opacity-60 disabled:opacity-50"
-              onPress={() => void decline()}
+              onPress={() => void props.onAnswer(addMachineOutcomeAnswers({ status: "declined" }))}
             >
-              <Text className="font-sans text-xs text-foreground-muted">
-                {gt("Decline", { $context: "verb, refuses the link request" })}
-              </Text>
+              <Text className="font-sans text-xs text-foreground-muted">Decline</Text>
             </Pressable>
           </View>
         </>
       ) : (
-        <Text className="font-sans text-xs text-foreground-muted">
-          <T>Only a session that manages access here can answer this.</T>
-        </Text>
+        <Text className="font-sans text-xs text-foreground-muted">Waiting for an editor</Text>
       )}
       {open ? (
-        <LinkRequestSheet
-          environmentId={props.environmentId}
-          item={item}
+        <AddMachineSheet
+          ask={ask}
+          flow={flow}
+          disabled={busy}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -195,116 +140,244 @@ function PendingLinkRequest(props: {
   );
 }
 
-function LinkRequestSheet(props: {
-  readonly environmentId: EnvironmentId;
-  readonly item: LinkRequestItem;
-  readonly onClose: () => void;
-}) {
-  const gt = useGT();
-  const m = useMessages();
-  const { item } = props;
-  const insets = useSafeAreaInsets();
-  const pickMachine = picksMachine(item);
-  const listed = useLinkableMachines(props.environmentId, true);
-  const machines = useMemo(() => rankMachinesByHint(listed, item.hint), [listed, item.hint]);
+/** The check code and the time left of an approval request, on the card and in the sheet. */
+function ApprovalWait(props: { readonly waiting: WaitingApproval }) {
+  const [now, setNow] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a one-second countdown that stops when the request ends
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <View className="gap-1 rounded-xl border border-border bg-card p-3">
+      <Text className="font-sans text-xs text-foreground-muted">
+        Waiting for approval on {props.waiting.name} · {timeLeft(props.waiting.expiresAt, now)}
+      </Text>
+      <Text
+        selectable
+        accessibilityLabel={`Check code ${props.waiting.checkCode}`}
+        className="font-mono text-2xl tracking-[2px] text-foreground"
+      >
+        {props.waiting.checkCode}
+      </Text>
+      <Text selectable className="font-sans text-xs leading-snug text-foreground-muted">
+        {approveInstructions(props.waiting.name, props.waiting.checkCode)}
+      </Text>
+    </View>
+  );
+}
+
+/** The machines the card offers: this phone's hosts, the session host's SSH targets, and nearby servers. */
+function useCandidates(ask: AddMachineAsk, sessionHostId: string, isOpen: boolean) {
+  const { environments } = useSolusWorkspace();
+  const found = useSyncExternalStore(nearby.changes.subscribe, nearby.snapshot);
+  const [ssh, setSsh] = useState<readonly SshTargetCandidate[]>([]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- one read of the session host's SSH targets while the sheet is open
+  useEffect(() => {
+    if (!isOpen) return;
+    let current = true;
+    solus.connections
+      .connection(sessionHostId)
+      ?.api.hostsListSshConfigHosts()
+      .then((targets) => current && setSsh(targets))
+      // A host without SSH, or one that refuses this phone, offers no SSH rows.
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [isOpen, sessionHostId]);
+  return useMemo(() => {
+    const known = solus.registry.hosts().map((host) => ({
+      hostId: host.id,
+      label: host.label,
+      routes: host.routes,
+      isConnected: solus.connections.state(host.id)?.readiness === "ready",
+      mayReach: solus.connections.may(host.id, "host.local.reach"),
+    }));
+    return rankAddMachineCandidates(ask, {
+      reachable: reachableMachines(known, sessionHostId),
+      ssh,
+      nearby: found.hosts
+        .filter((host) => host.installationId !== sessionHostId)
+        .map((host) => ({ label: host.name, url: nearbyUrl(host) })),
+    });
+    // `environments` changes with the hosts and their connections.
+  }, [ask, sessionHostId, ssh, found.hosts, environments]);
+}
+
+/** The state of one card: the selected row, the typed values, and the attempt in progress. */
+function useAddMachine(
+  ask: AddMachineAsk,
+  sessionHostId: string,
+  onAnswer: (answers: Record<string, string>) => Promise<void>,
+  onAdded: () => void,
+) {
+  const [isOpen, setIsOpen] = useState(false);
+  const candidates = useCandidates(ask, sessionHostId, isOpen);
   const [choice, setChoice] = useState<string | null>(null);
-  const [address, setAddress] = useState(item.url ?? "");
-  const [access, setAccess] = useState<AuthMcpClientAccess>(() => linkRequestDefaultAccess(item));
-  const [pairingCode, setPairingCode] = useState("");
+  const [address, setAddress] = useState(ask.url ?? "");
+  const [useCode, setUseCode] = useState(false);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [needsAuth, setNeedsAuth] = useState<string | null>(null);
+  const [mintRefused, setMintRefused] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mintFailed, setMintFailed] = useState<ReadonlySet<EnvironmentId>>(new Set());
-  // Submit then a tap can both run before a re-render; this guard is synchronous.
+  const [progress, setProgress] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState<WaitingApproval | null>(null);
+  // Two taps can both run before a re-render; this guard is synchronous.
   const inFlight = useRef(false);
-  const answer = useAtomCommand(peerLinkEnvironment.answerRequest, {
-    label: "answer link request",
-    // The failure cause holds the request, and with it the code; keep it out of the console.
-    reportFailure: false,
-    reportDefect: false,
-  });
-  const selected = choice ?? linkRequestInitialMachine(item, machines);
-  const target = linkRequestTarget(item, machines, selected, m);
-  const targetName =
-    target.kind === "machine"
-      ? target.label
-      : item.url === undefined
-        ? null
-        : linkDestination(item.url);
-  const targetId = target.kind === "machine" ? target.environmentId : null;
-  const connected = usePreparedConnection(targetId);
-  const mayMint = useEnvironmentScope(targetId, AuthAccessWriteScope);
-  const needsAddress =
-    target.kind === "address" || (target.kind === "machine" && target.urls.length === 0);
-  // This phone mints a code there when it is connected with a session that may
-  // create pairing links, and only for its own addresses: anything can answer
-  // as that machine at one typed in, so that one gets a code the user fetched.
-  const canMint =
-    targetId !== null &&
-    !needsAddress &&
-    Option.isSome(connected) &&
-    mayMint &&
-    !mintFailed.has(targetId);
-  const useExisting = target.kind === "machine" && target.linked;
-  const ready =
-    target.kind !== "none" &&
-    (useExisting ||
-      ((!needsAddress || address.trim().length > 0) && (canMint || pairingCode.trim().length > 0)));
+  const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- an answer that lands after the card closed changes nothing on screen
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
-  const prepareAnswer = async () => {
-    if (target.kind === "none") return null;
-    if (target.kind === "machine" && target.linked) {
-      return linkRequestAnswerInput(item, {
-        type: "use-existing",
-        environmentId: target.environmentId,
-      });
-    }
-    let code = pairingCode;
-    if (canMint && targetId !== null) {
-      const minted = await mintPairingCodeOn(targetId, access);
-      if (Result.isFailure(minted)) {
-        setMintFailed((failed) => new Set(failed).add(targetId));
-        setError(linkRequestFailureMessage(minted.failure, m));
-        return null;
-      }
-      code = minted.success;
-    }
-    return linkRequestAnswerInput(item, {
-      type: "link",
-      target: target.kind === "machine" && target.urls.length > 0 ? target : { url: address },
-      access,
-      pairingCode: code,
-    });
+  const selectedKey = choice ?? candidates[0]?.key ?? ANOTHER_ADDRESS;
+  const candidate = candidates.find((row) => row.key === selectedKey) ?? null;
+  const step = stepFor(candidate, { address, useCode, mintRefused });
+  const codeError = step?.kind === "code" ? typedCodeError(code) : null;
+  const ready =
+    step !== null &&
+    (step.kind !== "code" || typedCodeValue(code) !== null) &&
+    (needsAuth === null || password.length > 0);
+
+  const select = (key: string) => {
+    setChoice(key);
+    setUseCode(false);
+    setNeedsAuth(null);
+    setPassword("");
+    setError(null);
   };
 
-  const submit = async () => {
-    if (inFlight.current || target.kind === "none") return;
+  const add = async () => {
+    if (inFlight.current || !step || !ready) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    const input = await prepareAnswer();
-    const result =
-      input === null ? null : await answer({ environmentId: props.environmentId, input });
+    setProgress(null);
+    const session = solus.connections.connection(sessionHostId);
+    const requestId = solus.platform.uuid();
+    const stopProgress =
+      step.kind === "ssh" && session
+        ? watchSshProgress(session.events, requestId, (event) => {
+            if (mounted.current)
+              setProgress(event.percent === undefined ? event.message : `${event.message} ${event.percent}%`);
+          })
+        : () => {};
+    const checkCode =
+      step.kind === "approve" ? makeCheckCode(solus.platform.accountCrypto?.randomBytes) : undefined;
+    // The check code shows at once, so the person can compare it while the target asks.
+    if (checkCode) setWaiting({ checkCode, expiresAt: Date.now() + PAIR_APPROVAL_TTL_MS, name: step.name });
+    const input = {
+      requestId,
+      checkCode,
+      code: step.kind === "code" ? (typedCodeValue(code) ?? undefined) : undefined,
+      authSecret: needsAuth !== null && password ? password : undefined,
+    };
+    // No value is kept after it is sent.
+    setCode("");
+    setPassword("");
+    const attempt = session
+      ? await attemptAddMachine(
+          {
+            session: session.api,
+            target: (serverId) =>
+              solus.connections.state(serverId)?.readiness === "ready"
+                ? (solus.connections.connection(serverId)?.api ?? null)
+                : null,
+            deviceLabel: solus.registry.host(sessionHostId)?.label ?? "Solus",
+          },
+          step,
+          input,
+        )
+      : failedAttempt("The session's host cannot be reached now.");
+    stopProgress();
+    if (attempt.kind === "added") {
+      await onAnswer(addMachineOutcomeAnswers(attempt.outcome));
+    }
     inFlight.current = false;
+    if (!mounted.current) return;
     setBusy(false);
-    if (result === null) return;
-    if (result._tag === "Success") {
-      setPairingCode("");
-      props.onClose();
-    } else if (!isAtomCommandInterrupted(result)) {
-      setError(linkRequestFailureMessage(squashAtomCommandFailure(result), m));
+    setWaiting(null);
+    setProgress(null);
+    if (attempt.kind === "added") {
+      onAdded();
+    } else if (attempt.kind === "needs-auth") {
+      setNeedsAuth(attempt.message);
+    } else {
+      setError(attempt.message);
+      const refused = attempt.mintRefused;
+      if (refused) setMintRefused((current) => new Set(current).add(refused));
     }
   };
 
+  return {
+    candidates,
+    selectedKey,
+    candidate,
+    step,
+    address,
+    setAddress,
+    useCode,
+    setUseCode: (value: boolean) => {
+      setUseCode(value);
+      setError(null);
+    },
+    code,
+    setCode,
+    codeError,
+    password,
+    setPassword,
+    needsAuth,
+    busy,
+    error,
+    progress,
+    waiting,
+    ready,
+    select,
+    add,
+    setIsOpen,
+  };
+}
+
+type AddMachineFlow = ReturnType<typeof useAddMachine>;
+
+function AddMachineSheet(props: {
+  readonly ask: AddMachineAsk;
+  readonly flow: AddMachineFlow;
+  readonly disabled: boolean;
+  readonly onClose: () => void;
+}) {
+  const { flow } = props;
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  // The machine list reads the session host's SSH targets only while the sheet is open.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the card that its sheet is open
+  useEffect(() => {
+    flow.setIsOpen(true);
+    return () => flow.setIsOpen(false);
+  }, []);
+  const step = flow.step;
+  const name = step?.name ?? null;
+  // This phone reaches the target: its page makes the code there.
+  const codeHostId =
+    flow.candidate?.serverId &&
+    solus.connections.state(flow.candidate.serverId)?.readiness === "ready"
+      ? flow.candidate.serverId
+      : null;
+  const typesAddress = flow.selectedKey === ANOTHER_ADDRESS;
+  const offersCode = step !== null && (step.kind === "approve" || (step.kind === "ssh" && !!flow.candidate?.url));
+
   return (
     <Sheet
-      title={
-        pickMachine || targetName === null
-          ? gt("Link a machine")
-          : gt("Link {targetName}", { targetName })
-      }
+      title={name === null ? "Add a machine" : `Add ${name}`}
       onClose={props.onClose}
-      // An answer that lands after a close would still link, and would close a reopened sheet.
-      dismissDisabled={busy}
+      // An SSH add or a code cannot be stopped once it is sent; an approval request waits on the card.
+      dismissDisabled={props.disabled && flow.waiting === null}
     >
       <ScrollView
         nestedScrollEnabled
@@ -314,183 +387,149 @@ function LinkRequestSheet(props: {
         contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="gap-1">
-          <Text className="font-sans text-sm leading-5 text-foreground-muted">
-            <T>
-              Agents here can then launch, message and wait on threads there. It appears under
-              Authorized clients in that machine's Sharing & access, where it can be revoked.
-            </T>
-          </Text>
-          {item.url !== undefined && target.kind === "machine" ? (
-            <Text className="font-sans text-xs text-foreground-muted" numberOfLines={1}>
-              {item.url}
-            </Text>
-          ) : null}
-        </View>
-        {needsAddress && !useExisting && address.trim() ? (
-          <View
-            accessibilityRole="alert"
-            className="gap-1 rounded-xl border border-warning-border bg-warning p-3"
-          >
-            <Text className="font-t3-bold text-sm text-warning-foreground">
-              <T>Check this address</T>
-            </Text>
-            <Text className="font-sans text-xs leading-snug text-warning-foreground">
-              <T>
-                This app cannot confirm it is one of your machines. The pairing code you paste is
-                sent there.
-              </T>
-            </Text>
-            <Text selectable className="font-sans text-xs leading-snug text-warning-foreground">
-              {linkDestination(address)}
-            </Text>
-          </View>
-        ) : null}
-        {pickMachine ? (
-          <SettingsSection title={gt("Machine")}>
-            {machines.map((machine, index) => (
-              <MachineRow
-                key={machine.environmentId}
-                machine={machine}
-                selected={selected === machine.environmentId}
-                separated={index > 0}
-                disabled={busy}
-                onPress={() => {
-                  setChoice(machine.environmentId);
-                  setError(null);
-                }}
-              />
-            ))}
-            <SettingsChoiceRow
-              label={gt("Another address…")}
-              description={gt(
-                "Link a machine this app does not know, by its https or Tailscale address.",
-              )}
-              selected={selected === ANOTHER_ADDRESS}
-              separated={machines.length > 0}
-              disabled={busy}
-              onPress={() => {
-                setChoice(ANOTHER_ADDRESS);
-                setError(null);
-              }}
+        <Text className="font-sans text-sm leading-5 text-foreground-muted">
+          The session's host can then start, message, and wait on sessions there. It appears with
+          the other paired devices on that machine, where it can be revoked.
+        </Text>
+        <SettingsSection title="Machine">
+          {flow.candidates.map((candidate, index) => (
+            <MachineRow
+              key={candidate.key}
+              candidate={candidate}
+              selected={flow.selectedKey === candidate.key}
+              separated={index > 0}
+              disabled={props.disabled}
+              onPress={() => flow.select(candidate.key)}
             />
-          </SettingsSection>
+          ))}
+          <SettingsChoiceRow
+            label="Another address…"
+            description="Add a machine by its address on your network or tailnet."
+            selected={typesAddress}
+            separated={flow.candidates.length > 0}
+            disabled={props.disabled}
+            onPress={() => flow.select(ANOTHER_ADDRESS)}
+          />
+        </SettingsSection>
+        {typesAddress ? (
+          <TextInput
+            accessibilityLabel="Address"
+            placeholder="http://10.0.0.5:4810"
+            value={flow.address}
+            onChangeText={flow.setAddress}
+            editable={!props.disabled}
+            autoCorrect={false}
+            autoCapitalize="none"
+            keyboardType="url"
+            spellCheck={false}
+          />
         ) : null}
-        {needsAddress && item.url === undefined ? (
+        {flow.waiting ? <ApprovalWait waiting={flow.waiting} /> : null}
+        {step?.kind === "code" ? (
+          <StepRail
+            steps={[
+              {
+                title: `Make a code on ${step.name}`,
+                hint: codeSteps(step.name),
+                state: flow.code.trim() ? "done" : "current",
+              },
+              {
+                title: "Enter the code here",
+                state: flow.code.trim() ? "current" : "next",
+              },
+            ]}
+            renderDetail={(_step, index) =>
+              index === 0 && codeHostId ? (
+                <Pressable
+                  accessibilityRole="link"
+                  hitSlop={8}
+                  className="mt-2 self-start active:opacity-60"
+                  onPress={() => {
+                    props.onClose();
+                    openSettings(navigation, "SettingsEnvironmentDetail", {
+                      environmentId: EnvironmentId.make(codeHostId),
+                      pairCode: "new",
+                    });
+                  }}
+                >
+                  <Text className="font-t3-bold text-sm text-foreground underline">
+                    Show a code on {step.name}
+                  </Text>
+                </Pressable>
+              ) : index === 1 ? (
+                <View className="mt-2 gap-1">
+                  <TextInput
+                    accessibilityLabel="Pairing code"
+                    placeholder="123456"
+                    value={flow.code}
+                    onChangeText={flow.setCode}
+                    editable={!props.disabled}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    autoComplete="one-time-code"
+                    textContentType="oneTimeCode"
+                    spellCheck={false}
+                  />
+                  {flow.codeError ? (
+                    <Text className="font-sans text-xs text-danger-foreground">{flow.codeError}</Text>
+                  ) : null}
+                </View>
+              ) : null
+            }
+          />
+        ) : null}
+        {step?.kind === "ssh" && flow.needsAuth !== null ? (
           <View className="gap-2">
+            <Text className="font-sans text-sm leading-5 text-foreground-muted">{flow.needsAuth}</Text>
             <TextInput
-              accessibilityLabel={gt("Address")}
-              placeholder="https://machine.tailnet.ts.net"
-              value={address}
-              onChangeText={setAddress}
-              editable={!busy}
+              accessibilityLabel={`SSH password for ${step.sshTarget}`}
+              placeholder="Password or key passphrase"
+              value={flow.password}
+              onChangeText={flow.setPassword}
+              editable={!props.disabled}
+              secureTextEntry
               autoCorrect={false}
               autoCapitalize="none"
-              keyboardType="url"
+              autoComplete="off"
+              textContentType="none"
               spellCheck={false}
             />
-            {target.kind === "machine" ? (
-              <Text className="font-sans text-xs text-foreground-muted">
-                <T>
-                  This app has no address for <Var>{target.label}</Var> that another machine can
-                  reach. Enter its https or Tailscale address.
-                </T>
-              </Text>
-            ) : null}
           </View>
         ) : null}
-        {useExisting ? (
-          <Text className="font-sans text-sm leading-5 text-foreground-muted">
-            <T>
-              This environment is already linked to <Var>{targetName}</Var>. The agent can use that
-              link as it is; change its access in Settings → Environments.
-            </T>
+        {flow.progress ? (
+          <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
+            {flow.progress}
           </Text>
-        ) : target.kind === "none" ? null : (
-          <>
-            {canMint ? null : (
-              <StepRail
-                steps={[
-                  {
-                    title:
-                      targetName === null
-                        ? gt("Create a link on a machine")
-                        : gt("Create a link on {machine}", { machine: targetName }),
-                    hint: gt("Settings → Sharing & access → Authorized clients → Create link"),
-                    state: pairingCode.trim() ? "done" : "current",
-                  },
-                  {
-                    title: gt("Paste its code here"),
-                    state: pairingCode.trim() ? "current" : "next",
-                  },
-                ]}
-                renderDetail={(_step, index) =>
-                  index === 1 ? (
-                    <View className="mt-2">
-                      <TextInput
-                        accessibilityLabel={gt("Pairing code")}
-                        placeholder={gt("Paste the code")}
-                        value={pairingCode}
-                        onChangeText={setPairingCode}
-                        editable={!busy}
-                        autoCorrect={false}
-                        autoCapitalize="none"
-                        autoComplete="one-time-code"
-                        textContentType="oneTimeCode"
-                        spellCheck={false}
-                      />
-                    </View>
-                  ) : null
-                }
-              />
-            )}
-            <SettingsSection title={gt("What agents here may do there")}>
-              {LINK_ACCESS_CHOICES.map((choice, index) => (
-                <SettingsChoiceRow
-                  key={choice.access}
-                  label={m(choice.label)}
-                  description={m(choice.description)}
-                  selected={choice.access === access}
-                  separated={index > 0}
-                  disabled={busy}
-                  onPress={() => setAccess(choice.access)}
-                />
-              ))}
-            </SettingsSection>
-            <Text className="font-sans text-xs text-foreground-muted">
-              <T>
-                An agent here never gets more there than its own mode here either. Threads it starts
-                there cannot change that environment's own threads, projects or settings.
-              </T>
-            </Text>
-          </>
-        )}
-        {error !== null ? (
+        ) : null}
+        {flow.error !== null ? (
           <Text
             accessibilityRole="alert"
             accessibilityLiveRegion="polite"
             className="font-sans text-sm text-danger-foreground"
           >
-            {error}
+            {flow.error}
           </Text>
         ) : null}
         <Button
-          label={
-            busy
-              ? gt("Linking…")
-              : useExisting
-                ? gt("Use this link")
-                : gt("Link", { $context: "verb, confirms linking the machine" })
-          }
-          disabled={busy || !ready}
-          onPress={() => void submit()}
+          label={props.disabled ? "Adding…" : flow.error !== null ? "Try again" : "Add"}
+          disabled={props.disabled || !flow.ready}
+          onPress={() => void flow.add()}
           tone="primary"
           fullWidth
         />
+        {offersCode || flow.useCode ? (
+          <Button
+            label={flow.useCode ? "Ask it to approve instead" : "Use a pairing code instead"}
+            tone="secondary"
+            disabled={props.disabled}
+            onPress={() => flow.setUseCode(!flow.useCode)}
+            fullWidth
+          />
+        ) : null}
         <Button
-          label={gt("Cancel")}
+          label="Cancel"
           tone="secondary"
-          disabled={busy}
+          disabled={props.disabled && flow.waiting === null}
           onPress={props.onClose}
           fullWidth
         />
@@ -499,23 +538,15 @@ function LinkRequestSheet(props: {
   );
 }
 
-/** One machine in the sheet's list: its glyph, name, and whether it is linked or reachable. */
+/** One machine in the sheet's list: its name, its address or SSH target, and its way. */
 function MachineRow(props: {
-  readonly machine: LinkableMachine;
+  readonly candidate: AddMachineCandidate;
   readonly selected: boolean;
   readonly separated: boolean;
   readonly disabled: boolean;
   readonly onPress: () => void;
 }) {
-  const gt = useGT();
-  const { machine } = props;
-  const status = machine.linked
-    ? gt("Linked")
-    : machine.connected
-      ? null
-      : machine.connectOnly
-        ? "T3 Connect"
-        : gt("Not connected");
+  const { candidate } = props;
   return (
     <Pressable
       accessibilityRole="radio"
@@ -528,16 +559,22 @@ function MachineRow(props: {
       disabled={props.disabled}
       onPress={props.onPress}
     >
-      <EnvironmentMachineSymbol
-        kind={machine.machine}
+      <SymbolView
+        name={MACHINE_SYMBOL}
         size={18}
         tintColorClassName="accent-foreground-muted"
+        type="monochrome"
       />
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className="text-lg text-foreground android:text-base" numberOfLines={1}>
-          {machine.label}
+          {candidate.label}
         </Text>
-        {status === null ? null : <Text className="text-sm text-foreground-muted">{status}</Text>}
+        <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+          {candidate.detail}
+        </Text>
+        <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+          {wayLabel(candidate)}
+        </Text>
       </View>
       {props.selected ? (
         <SymbolView
@@ -551,3 +588,4 @@ function MachineRow(props: {
     </Pressable>
   );
 }
+

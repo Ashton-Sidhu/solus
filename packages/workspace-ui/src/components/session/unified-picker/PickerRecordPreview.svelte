@@ -18,7 +18,8 @@
   /**
    * The selected record in miniature: a work's opening, a pull request's
    * description, an automation's schedule and instructions, or a project's
-   * home. It reads; it never edits. The action bar under it opens the record.
+   * home. It reads; it never edits. ⏎ opens the record; the key hints under
+   * the list say so, and for a pull request also offer the browser.
    */
   interface Props {
     record: PickerRecord;

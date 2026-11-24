@@ -292,6 +292,10 @@ export const RPC_INVOKE_METHODS = [
   // the host broadcasts `session.readStateChanged` after the write.
   'setSessionReadState',
 
+  // A person's history (docs/plans/person-state.md): kept in the person's home.
+  'personHistoryRecord',
+  'personHistoryList',
+
   // Client activity lease: foreground heartbeat gating host freshness work
   'activityLease',
 
@@ -314,6 +318,9 @@ export const RPC_INVOKE_METHODS = [
   // The hosts the owner connected to themselves, while signed out (plans/031 D7)
   'hostsPair',
   'hostsListPaired',
+  // Approval requests from machines that ask to pair (docs/plans/add-machine-card.md)
+  'hostsPairApprovals',
+  'hostsPairApprovalDecide',
   'hostsPairClient',
   'hostsForget',
   'hostListRead',

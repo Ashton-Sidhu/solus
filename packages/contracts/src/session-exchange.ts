@@ -85,6 +85,7 @@ export type ExchangeRequest =
 export function questionRequestFrom(event: Extract<NormalizedEvent, { type: 'question_request' }>): QuestionRequest {
   const request: QuestionRequest = { questionId: event.questionId, questions: event.questions }
   if (event.kind) request.kind = event.kind
+  if (event.hostLink) request.hostLink = event.hostLink
   if (event.responseMode) request.responseMode = event.responseMode
   return request
 }

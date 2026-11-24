@@ -24,7 +24,7 @@ already exist.
   name, so saved layouts and custom shortcuts still work. On mobile, the
   Threads screen reached from the thread's menu.
 - **recent row** — the "Recently viewed" section of pictures at the top of the surface: the
-  session's works, apps, files, and images, the ones this device opened first,
+  session's works, apps, files, and images, the ones the person opened first,
   latest open first, then the others, latest made first (decision 17).
 - **own** — the session's own artifacts. **children** — one group per session
   below it in its delegation tree: the sessions it started, oldest started
@@ -162,7 +162,10 @@ or a message, and do not call the scope a filter.
     requests, and Works and files. A card's label closes it. On a pane of
     44rem or wider the cards take two columns, so a row is never wider than a
     narrow pane. One model orders and scopes the rows on every client
-    (`packages/client-core/src/session-overview.ts`).
+    (`packages/client-core/src/session-overview.ts`). A link card (Pull
+    requests, Works, Apps, Automations, Files, Images) shows its newest 6 rows,
+    then "Show N more" adds 12, as the Agents card does; a search shows every
+    match (`shownLinkRowCount`, 2026-11-24).
 11. **The turn timeline is working time, and a divider starts each turn.**
     Each bar is one round span (15 seconds to an hour; the finest whose bars
     fit the pane), as tall as the tool calls that started in it; a span with
@@ -232,11 +235,14 @@ or a message, and do not call the scope a filter.
     (not "Artifacts": it holds what the person opened first, not every
     item), holds one row of the works,
     apps, files, and images of the session and the sessions it started; pull
-    requests and automations stay in their cards. The items this device opened
+    requests and automations stay in their cards. The items the person opened
     come first, the latest open first; then the others, the latest made first
     (by when a session linked it). A pin or a change to a work does not move an
     item (changed 2026-11-23; it was "Pinned and recent", pinned first, then
-    the latest opened, changed, or linked).
+    the latest opened, changed, or linked). When the person opened an item is
+    their history (`docs/plans/person-state.md`), kept in their home, so an open
+    on any of their devices, and of a work or app from any surface, counts
+    (changed 2026-11-24; it was kept in each browser's `localStorage`).
     An item two sessions linked shows once. The row holds at most 12, scrolls
     sideways, and is the whole session's: a turn or a search does not narrow
     it. Its label folds it, as the cards' labels fold them, and its arrows

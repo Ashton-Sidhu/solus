@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
+import { withBinding, withBindingRemoved, type BindingOverrides } from '@solus/workspace-ui/lib/keybindings/editing'
+import { formatComboText } from '@solus/workspace-ui/lib/keybindings/match'
 import {
   commandsShown,
   moveCommandSelection,
@@ -6,6 +8,20 @@ import {
   retainCommandSelection,
   type Command,
 } from '@solus/workspace-ui/components/command-palette/lib/commands'
+
+test('the New chat command shows the current shortcut, including when it is removed', async () => {
+  mock.module('@solus/workspace-ui/lib/inputFocus', () => ({ requestInputFocus: () => {} }))
+  const { newChatCommand } = await import('@solus/workspace-ui/components/command-palette/lib/new-chat-command')
+  const settings: { keybindings: BindingOverrides } = { keybindings: {} }
+  const command = newChatCommand({ settings } as Parameters<typeof newChatCommand>[0])
+  const custom = { mod: true, shift: true, code: 'F9' }
+
+  settings.keybindings = withBinding('global.new-chat', custom, settings.keybindings)
+  expect(command.hint).toBe(formatComboText(custom))
+
+  settings.keybindings = withBindingRemoved('global.new-chat', settings.keybindings)
+  expect(command.hint).toBeUndefined()
+})
 
 describe('retainCommandSelection', () => {
   const commands: Command[] = [

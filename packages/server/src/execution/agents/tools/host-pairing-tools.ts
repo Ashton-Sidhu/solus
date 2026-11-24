@@ -1,11 +1,15 @@
 import { permissionsAllow } from '@solus/contracts/permissions'
+import { readAddMachineOutcome, type AddMachineAsk } from '@solus/contracts/add-machine'
+import { normalizeServerUrl } from '@solus/client-core/pairing'
 import { z } from 'zod'
 import { isHostOwner } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { permissionsFor } from '../../../admission/access-policy'
 import type { HostPairings } from '../../../host/host-pairings'
-import { takeSecretRef } from '../../sessions/secret-requests'
-import type { AgentTool } from './agent-tool'
+import type { ListedRemoteHost } from '../../orchestration/remote-hosts'
+import { answerToolQuestionWith } from '../../sessions/input-requests'
+import { listedRemoteHosts } from './session-tools'
+import type { AgentTool, AgentToolContext } from './agent-tool'
 
 let pairings: HostPairings | null = null
 export function setHostPairingTools(next: HostPairings | null): void { pairings = next }
@@ -19,32 +23,91 @@ function forOwner(): HostPairings {
   return pairings
 }
 
-export const pairHostAgentTool: AgentTool = {
-  name: 'pair_host',
-  description: 'Pair a remote Solus host for agent work and connected owner clients. Pass its address and a secretRef from request_secret for its code or link (solus pair on the remote). Never put codes in chat or tool input. Local owner only. list_hosts lists machines; remove_host forgets.',
-  inputFields: {
-    url: z.string().describe('The server address, with no pairing token, for example http://10.10.1.10:3000.'),
-    secretRef: z.string().describe('One-use ref from request_secret for the pairing code or link.'),
-    label: z.string().optional(),
-  },
-  requiresApproval: true,
+/** The origin of an address the agent was given; a pair link's token or a path is dropped. */
+function askedOrigin(url: string): string {
+  const parsed = new URL(normalizeServerUrl(url))
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('url must be an http or https address, for example http://10.10.1.10:3000.')
+  return parsed.origin
+}
+
+function originOf(url: string): string | null {
+  try { return new URL(normalizeServerUrl(url)).origin } catch { return null }
+}
+
+/** An online host that the ask names: by its address, or by its exact name or id. */
+function reachedMatch(hosts: ListedRemoteHost[], ask: AddMachineAsk): ListedRemoteHost | undefined {
+  const hint = ask.hint?.trim().toLowerCase()
+  return hosts.find((host) => host.status === 'online' && (
+    (ask.url !== undefined && host.routes.some((route) => originOf(route.url) === ask.url))
+    || (!!hint && [host.name, host.id, host.installationId].some((name) => name.toLowerCase() === hint))
+  ))
+}
+
+const hostFacts = ({ id, installationId, name, status, source }: ListedRemoteHost) => ({ id, installationId, name, status, source })
+
+/** Shows the Add machine card and waits for its answer; null when the run stops first. */
+async function askOnCard(context: AgentToolContext, ask: AddMachineAsk): Promise<Record<string, string> | null> {
+  const questionId = `host-link-${crypto.randomUUID()}`
+  const answers = await new Promise<Record<string, string> | null>((answer) => {
+    const stopped = (): void => { stop(); answer(null) }
+    const stop = answerToolQuestionWith(questionId, (values) => {
+      context.abortSignal.removeEventListener('abort', stopped)
+      answer(values)
+    })
+    if (context.abortSignal.aborted) { stopped(); return }
+    context.abortSignal.addEventListener('abort', stopped, { once: true })
+    context.emit({
+      type: 'question_request',
+      questionId,
+      kind: 'host-link',
+      hostLink: ask,
+      // A client that does not know the kind still shows what the agent asks.
+      questions: [{ header: 'Add a machine', question: ask.reason, options: [], multiSelect: false }],
+    })
+  })
+  // A `host-link` answer is not a `question_answered`; this closes the card on every client.
+  context.emit({ type: 'permission_resolved', questionId })
+  return answers
+}
+
+const addHostFields = {
+  hint: z.string().max(200).optional().describe('The person\'s words, e.g. "my windows machine".'),
+  url: z.string().max(2048).optional().describe('Its Solus address, e.g. http://10.10.1.10:3000.'),
+  reason: z.string().min(1).max(300).describe('Why, in one sentence; the card shows it.'),
+}
+
+export const addHostAgentTool: AgentTool<typeof addHostFields> = {
+  name: 'add_host',
+  description: 'Add another Solus host (a machine) for agent work. Shows the person an Add machine card: SSH from this host, an approval request, or a pairing code. Never ask for a code, password, or link in chat or with request_secret. Pass the person\'s words as hint and the address as url when known. No label: the host\'s own name is used. Returns the added host, or one already reached. Local owner only. remove_host forgets.',
+  inputFields: addHostFields,
+  // The card is the person's consent: nothing is added until they choose a machine on it, and Decline closes it.
+  requiresApproval: false,
   async execute(input, context) {
     try {
-      const service = forOwner()
-      const secret = takeSecretRef(input.secretRef, context.sessionId() ?? null)
-      if (!secret) throw new Error('The secretRef is expired, already used, or belongs to another session. Ask with request_secret again.')
-      const { parsePairLink, normalizeServerUrl } = await import('@solus/client-core/pairing')
-      const link = parsePairLink(secret)
-      if (link && normalizeServerUrl(input.url) !== link.url) throw new Error('The pairing link names a different server. Use the address from that link.')
-      const host = await service.pair({ url: input.url, code: link?.pairToken ?? secret.trim(), label: input.label }, context.abortSignal)
-      return { ok: true, text: JSON.stringify({ host, paired: true, note: 'Agents here can use this host with start_sessions. Connected owner clients get their own pairing through the host list.' }) }
-    } catch (error) { return { ok: false, text: error instanceof Error ? error.message : 'Host pairing failed.' } }
+      forOwner()
+      const sessionId = context.sessionId()
+      if (!sessionId) throw new Error('add_host needs a session.')
+      const ask: AddMachineAsk = { reason: input.reason.trim() }
+      if (input.hint?.trim()) ask.hint = input.hint.trim()
+      if (input.url?.trim()) ask.url = askedOrigin(input.url)
+      const reached = reachedMatch(await listedRemoteHosts(sessionId) ?? [], ask)
+      if (reached) return { ok: true, text: JSON.stringify({ added: false, alreadyReached: true, host: hostFacts(reached), note: 'This host already reaches that machine, so no card was shown. Use it with start_sessions.' }) }
+      const answers = await askOnCard(context, ask)
+      if (!answers) return { ok: false, text: 'The run stopped before a machine was added.' }
+      const outcome = readAddMachineOutcome(answers)
+      if (!outcome) return { ok: false, text: 'The card gave an answer that names no machine. Nothing was added; call add_host again if the person still wants it.' }
+      if (outcome.status === 'declined') return { ok: true, text: JSON.stringify({ added: false, declined: true, note: 'The person declined. Do not ask again unless they ask you to.' }) }
+      // The answer comes from a client: return only a host that this host now holds a credential for.
+      const host = (await listedRemoteHosts(sessionId) ?? []).find((listed) => listed.installationId === outcome.installationId && listed.source !== 'listed')
+      if (!host) return { ok: false, text: 'The card said a machine was added, but this host holds no record for it. Nothing was added; call add_host again.' }
+      return { ok: true, text: JSON.stringify({ added: true, way: outcome.way, host: hostFacts(host), note: 'Agents here can use this host with start_sessions.' }) }
+    } catch (error) { return { ok: false, text: error instanceof Error ? error.message : 'Could not add the machine.' } }
   },
 }
 
 export const removeHostAgentTool: AgentTool = {
   name: 'remove_host',
-  description: 'Forget a host here by installationId from list_hosts or pair_host. Clears credentials and forwards; connected owner clients forget it too. The remote server and sessions stay. Pair again to restore access.',
+  description: 'Forget a host here by installationId from list_hosts or add_host. Clears credentials and forwards; connected owner clients forget it too. The remote server and sessions stay. Add it again to restore access.',
   inputFields: { installationId: z.string().min(1) }, requiresApproval: true,
   async execute(input) {
     try { return { ok: true, text: JSON.stringify({ removed: forOwner().forget(input.installationId) }) } }

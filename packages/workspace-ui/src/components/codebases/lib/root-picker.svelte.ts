@@ -1,6 +1,6 @@
 import type { CodebaseFolderScan, CodebaseRoot } from '@solus/contracts/codebases'
 import { codebasesStore, type CodebaseHost, type CodebaseRootChoice } from '../../../contexts/codebases/codebases.store.svelte'
-import { rootFor, rootRefusal, type CodebaseRootRefusal } from '@solus/client-core/codebases'
+import { rootFor, rootRefusal, rootRefusalText, type CodebaseRootRefusal } from '@solus/client-core/codebases'
 
 /**
  * The choice of one folder for a codebase, before it is a root: the host, the
@@ -72,6 +72,14 @@ export class RootPickerState {
   get chosenRoots(): CodebaseRoot[] {
     const host = this.host
     return this.choice && host?.installationId ? [rootFor(host.installationId, this.choice.path)] : []
+  }
+
+  /** Why the scanned folder cannot be added, as one line, or null when it can. */
+  get problemText(): string | null {
+    if (this.error) return this.error
+    const refusal = this.refusal
+    if (refusal) return rootRefusalText(refusal)
+    return this.choice ? null : 'The host could not read the folder.'
   }
 
   clear(): void {

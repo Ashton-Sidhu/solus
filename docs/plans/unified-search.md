@@ -208,15 +208,18 @@ tasks. The same key and the same place now open Search.
 | ← → | Change the type. With a modifier, the arrows move the caret |
 | ⏎ | Open the row |
 | ⌥⏎ | Open the menu of a task or session row |
+| ⌘⏎ (Ctrl+⏎) | Open a pull request row in the browser |
 | ⌥A | Choose the project scope |
 | ⌥S | Order, search mode, and filters |
 | Esc | Close |
 
 The foot of the list shows these keys. They are absent for a touch pointer. The
-preview of a task, of a task's session, or of a pull request has a floating bar
-at its foot with the actions of the row, and the primary button of that bar
-shows what ⏎ does. A row with one action has no bar: the foot of the list shows
-what ⏎ does to it.
+preview of a task or of a task's session has a floating bar at its foot with
+the actions of the row, and the primary button of that bar shows what ⏎ does.
+A row with one action has no bar: the foot of the list shows what ⏎ does to it.
+A pull request has no bar either: the foot of the list shows "Open ⏎" and an
+"Open in browser" hint that is also a button, so a touch pointer keeps it
+without its key.
 
 A pull request row is the row of the Pull requests page (`PrListRow`, built by
 `prRow`), so the two surfaces cannot disagree. Its icon is its state: open,

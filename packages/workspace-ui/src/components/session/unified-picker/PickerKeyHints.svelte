@@ -10,6 +10,8 @@
    * no room to spare in a narrow window. The hints are siblings of the
    * list's total, so they have no element of their own around them. A hand on
    * glass has no keys to name, so each hint is absent for a coarse pointer.
+   * The one exception is a pull request's browser hint: it is a button too, so
+   * a touch keeps it, without its key.
    */
   interface Props {
     /** The row has a menu of its own actions. */
@@ -19,8 +21,10 @@
     /** What ⏎ does to the row the cursor is on. Empty when the preview's
      *  action bar says it, and with no row. */
     openLabel: string;
+    /** The row is a pull request: open it in the browser. */
+    onOpenInBrowser?: () => void;
   }
-  let { hasRowActions, hasProjects, openLabel }: Props = $props();
+  let { hasRowActions, hasProjects, openLabel, onOpenInBrowser }: Props = $props();
 </script>
 
 {#snippet hint(label: string, keys: string[])}
@@ -42,4 +46,15 @@
 {/if}
 {#if openLabel}
   {@render hint(openLabel, ["↵"])}
+{/if}
+{#if onOpenInBrowser}
+  <button
+    type="button"
+    class="-mx-1.5 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 whitespace-nowrap transition-colors duration-100 hover:bg-[var(--wash-1)] hover:text-foreground"
+    onclick={onOpenInBrowser}
+    data-testid="picker-key-hint"
+  >
+    <span>Open in browser</span>
+    <span class="contents pointer-coarse:hidden"><Kbd variant="keycap">{comboHint("task-picker.open-in-browser")}</Kbd></span>
+  </button>
 {/if}

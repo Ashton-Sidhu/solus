@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Play as StartIcon } from "@lucide/svelte";
-  import { getSettingsContext, getWorkspaceContext, serversStore } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext, personHistoryStore, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -65,6 +65,12 @@
     const hostId = serverId;
     const appId = app?.id;
     if (hostId && appId) untrack(() => appsStore.ensure(hostId, appId));
+  });
+  // Opening an app, from any surface, goes into the person's history (docs/plans/person-state.md).
+  $effect(() => {
+    const hostId = serverId;
+    const appId = app?.id;
+    if (hostId && appId) untrack(() => personHistoryStore.record(personHistoryStore.appKey(hostId, appId)));
   });
 
   const phase = $derived(

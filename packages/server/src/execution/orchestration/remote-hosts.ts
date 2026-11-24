@@ -72,7 +72,7 @@ export interface ListedRemoteHost {
   installationId: string
   name: string
   source: HostTarget['source']
-  /** `not-paired`: this host holds no credential for it; `pair_host` here gives it one. */
+  /** `not-paired`: this host holds no credential for it; `add_host` here gives it one. */
   status: 'online' | 'unreachable' | 'auth-required' | 'not-ready' | 'not-paired'
   managedState?: DirectoryHost['managedState']
   routes: HostRoute[]
@@ -293,7 +293,7 @@ export class RemoteHosts {
   /** The connection to `host`, opened on first use. */
   connect(host: HostTarget): RemoteHost | { error: string } {
     if (host.source === 'listed') {
-      return { error: `${host.label} is on your host list, but this host holds no credential for it. Pair it here with pair_host, then try again.` }
+      return { error: `${host.label} is on your host list, but this host holds no credential for it. Add it here with add_host, then try again.` }
     }
     if (host.managedState && host.managedState !== 'ready') {
       return { error: `${host.label} is ${host.managedState}. Start it first, then try again.` }

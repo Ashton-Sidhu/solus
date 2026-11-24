@@ -1,3 +1,4 @@
+import type { PersonHistoryEntry } from './person-history'
 import type { SessionHeadChanged } from './session-repositories'
 import type { RunningServer } from './running-servers'
 import type { PolicySet } from './policy'
@@ -5,6 +6,7 @@ import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { AppActivityEvent, AppSignalOccurredEvent, AppsChangedEvent } from './apps'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
+import type { PairApprovalRequest } from './add-machine'
 import type { CheckoutChange } from './checkout'
 import type { HostTelemetryEvent } from './host-resources'
 import type { AtlassianOAuthCompleted } from './atlassian'
@@ -125,6 +127,9 @@ export interface HostEventMap {
   /** The caller's own task snoozes changed. Delivered only to that person's
    *  connections; they read `tasksSnoozes` again. Names nothing. */
   'tasks.snoozesChanged': Record<string, never>
+  /** The recipient opened these records on another client (docs/plans/person-state.md).
+   *  Delivered only to that person's connections; a client keeps the later time of each. */
+  'personHistory.changed': { entries: PersonHistoryEntry[] }
   /** The host read these task sources again, or one of them changed health.
    *  Clients that show a source it names read `tasksSources` again. */
   'tasks.sourcesChanged': { sourceKeys: string[] }
@@ -199,6 +204,8 @@ export interface HostEventMap {
   'host.forwardedHostsChanged': { hosts: ForwardedHost[] }
   /** The owner's host list changed (plans/031 D7). It names nothing: the owner reads it again with `hostListRead`. */
   'host.listChanged': Record<string, never>
+  /** The open approval requests changed; the payload is the whole list. Only principals with `host.local.reach` hear it. */
+  'host.pairApprovalsChanged': { approvals: PairApprovalRequest[] }
   /** An agent or user opened a device in a session; clients showing that session may reveal it. */
   'device.surfaceRequested': { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
@@ -313,6 +320,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The host's copy of one or more tasks, or a task's attachments, changed." },
   'tasks.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
   'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
+  'personHistory.changed': { owner: 'people', category: 'delta', recovery: 'reload', description: 'The recipient opened records on another client; merge the later times.' },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'codebases.changed': { owner: 'codebases', category: 'invalidation', recovery: 'reload', description: 'A codebase was saved or deleted on this host.' },
   'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },
@@ -341,6 +349,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.sshProgress': { owner: 'connections', category: 'targeted', recovery: 'reset', description: 'A step of adding a machine over SSH; the request id names the add.' },
   'host.forwardedHostsChanged': { owner: 'connections', category: 'snapshot', recovery: 'reload', description: 'The forwarded hosts, or the state of a forward, changed; the payload is the whole list.' },
   'host.listChanged': { owner: 'connections', category: 'invalidation', recovery: 'reload', description: "The owner's host list changed; read it again." },
+  'host.pairApprovalsChanged': { owner: 'connections', category: 'snapshot', recovery: 'reload', description: 'The open approval requests changed; the payload is the whole list.' },
   'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
   'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },

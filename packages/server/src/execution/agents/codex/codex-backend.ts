@@ -233,9 +233,34 @@ const SEAT_CLIENT_CAP = 8
  *  otherwise keep them until the host restarts. The next turn's `thread/resume`
  *  loads it again. */
 const THREAD_IDLE_UNLOAD_MS = 10 * 60_000
+const BACKGROUND_COMMAND_CHECK_MS = 10_000
 /** How long Stop waits for Codex to end the turn before Solus settles the run
  *  itself (t3code #27252). Past Codex's own 10 s interrupt request deadline. */
 const STOP_CONFIRM_TIMEOUT_MS = 15_000
+
+function isBackgroundTerminalThreadGone(error: unknown): boolean {
+  return error instanceof CodexRpcError && /^thread not (found|loaded)\b/i.test(error.message)
+}
+
+async function listBackgroundTerminalItems(client: CodexAppServerClient, threadId: string): Promise<Set<string>> {
+  const liveItems = new Set<string>()
+  let cursor: string | undefined
+  try {
+    do {
+      const page = await client.request<
+        { data: { itemId: string }[]; nextCursor: string | null },
+        { threadId: string; cursor?: string }
+      >('thread/backgroundTerminals/list', { threadId, cursor }, 10_000)
+      for (const terminal of page.data) liveItems.add(terminal.itemId)
+      cursor = page.nextCursor ?? undefined
+    } while (cursor)
+  } catch (error) {
+    if (!isBackgroundTerminalThreadGone(error)) throw error
+    // An unloaded thread has no terminals, even if it unloaded between pages.
+    liveItems.clear()
+  }
+  return liveItems
+}
 
 interface SeatClient {
   client: CodexAppServerClient
@@ -267,6 +292,7 @@ interface RunningCommand {
   waiting?: boolean
   /** A person stopped it, so its completion wakes nobody. */
   isStopping?: boolean
+  wasMissing?: boolean
 }
 
 type CodexRunHandle = RunHandle & {
@@ -359,6 +385,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    *  outlives its turn is background work: its completion arrives after the
    *  run's routing is gone, and this is how it still finds the session. */
   private readonly runningCommands = new Map<string, RunningCommand>()
+  private backgroundCommandCheck: ReturnType<typeof setTimeout> | null = null
   private sessionByChildThread = new Map<string, string>()
   /** Native sub-agents still working after the root turn that started them ended. */
   private readonly nativeChildren = new CodexNativeChildren({
@@ -1037,6 +1064,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   shutdown(): void {
     this.stopWatchingCommandStops()
+    if (this.backgroundCommandCheck) clearTimeout(this.backgroundCommandCheck)
+    this.backgroundCommandCheck = null
+    this.runningCommands.clear()
     if (this.sessionIndexRefreshTimer) {
       clearTimeout(this.sessionIndexRefreshTimer)
       this.sessionIndexRefreshTimer = null
@@ -1797,6 +1827,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         command.isBackground = true
         this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId, awaitable: command.waiting === false } satisfies NormalizedEvent)
       }
+      this.scheduleBackgroundCommandCheck()
     }
     // So is a sub-agent still working, after a completed or a failed root. An
     // interrupted root's normalizer reports nothing more, and an ephemeral
@@ -1920,11 +1951,59 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
+  /** Use the owning app-server's terminal list when a completion event is lost. */
+  private scheduleBackgroundCommandCheck(): void {
+    if (this.backgroundCommandCheck || !this.runningCommands.values().some((command) => command.isBackground)) return
+    const timer = setTimeout(() => {
+      void this.checkBackgroundCommands()
+        .finally(() => {
+          if (this.backgroundCommandCheck !== timer) return
+          this.backgroundCommandCheck = null
+          this.scheduleBackgroundCommandCheck()
+        })
+        .catch((error) => log.warn('codex_background_check_failed', { error: error instanceof Error ? error.message : String(error) }))
+    }, BACKGROUND_COMMAND_CHECK_MS)
+    timer.unref?.()
+    this.backgroundCommandCheck = timer
+  }
+
+  private async checkBackgroundCommands(): Promise<void> {
+    const threadsByClient = new Map<CodexAppServerClient, Map<string, [string, RunningCommand][]>>()
+    for (const [itemId, command] of this.runningCommands) {
+      if (!command.isBackground) continue
+      let threads = threadsByClient.get(command.client)
+      if (!threads) threadsByClient.set(command.client, threads = new Map())
+      let commands = threads.get(command.threadId)
+      if (!commands) threads.set(command.threadId, commands = [])
+      commands.push([itemId, command])
+    }
+    const threads = [...threadsByClient].flatMap(([client, threads]) =>
+      [...threads].map(([threadId, commands]) => ({ client, threadId, commands })))
+    await runWithConcurrency(threads, 4, async ({ client, threadId, commands }) => {
+      if (!commands.some(([itemId, command]) => this.runningCommands.get(itemId) === command)) return
+      let liveItems: Set<string>
+      try {
+        liveItems = await listBackgroundTerminalItems(client, threadId)
+      } catch {
+        return
+      }
+      for (const [itemId, command] of commands) {
+        if (this.runningCommands.get(itemId) !== command) continue
+        const isMissing = !liveItems.has(itemId)
+        // The final output event can arrive just after Codex removes the terminal.
+        if (isMissing && command.wasMissing) {
+          this.settleBackgroundCommand(itemId, command, command.isStopping ? 'stopped' : 'killed')
+        }
+        command.wasMissing = isMissing
+      }
+    })
+  }
+
   /** Forget a command, and end the background task it was. */
   private settleBackgroundCommand(itemId: string, command: RunningCommand, status: 'completed' | 'failed' | 'stopped' | 'killed'): void {
     this.runningCommands.delete(itemId)
     if (!command.isBackground) return
-    if (status !== 'killed' && !this.activeRuns.has(command.threadId) && !this.hasBackgroundTasks(command.threadId)) {
+    if ((status !== 'killed' || command.client.hasStarted) && !this.activeRuns.has(command.threadId) && !this.hasBackgroundTasks(command.threadId)) {
       this.armThreadIdle(command.client, command.threadId)
     }
     this.emit('normalized', command.threadId, { type: 'background_task_settled', taskId: itemId, toolUseId: itemId, status } satisfies NormalizedEvent)
@@ -1947,11 +2026,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return null
   }
 
-  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean | 'missing'> {
     const command = this.runningCommands.get(taskId)
     if (command) return command.threadId === sessionId && this.stopCommand(taskId, command)
     const childStop = this.nativeChildren.taskToStop(sessionId, taskId)
-    return !!childStop && this.stopChild(childStop)
+    return childStop ? this.stopChild(childStop) : 'missing'
   }
 
   async stopNativeSubagent(sessionId: string, toolId: string): Promise<boolean> {
@@ -1967,6 +2046,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    *  it, so its result is not news for the agent. */
   private async stopCommand(itemId: string, command: RunningCommand): Promise<boolean> {
     command.isStopping = true
+    let status: 'stopped' | 'killed' | 'failed' = 'stopped'
     if (command.processId) {
       try {
         const result = await command.client.request<{ terminated: boolean }, { threadId: string; processId: string }>(
@@ -1974,18 +2054,26 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           { threadId: command.threadId, processId: command.processId },
           10_000,
         )
-        if (!result?.terminated) return false
+        if (this.runningCommands.get(itemId) !== command) return true
+        if (!result.terminated) {
+          const liveItems = await listBackgroundTerminalItems(command.client, command.threadId)
+          status = liveItems.has(itemId) ? 'failed' : 'killed'
+        }
       } catch (error) {
         // An unloaded thread has no terminals left: Codex killed them on unload.
-        if (!(error instanceof CodexRpcError && error.message.startsWith('thread not found'))) {
+        if (isBackgroundTerminalThreadGone(error)) {
+          status = 'killed'
+        } else {
           log.warn('codex_background_terminate_failed', { sessionId: command.threadId, itemId, error: error instanceof Error ? error.message : String(error) })
-          return false
+          status = 'failed'
         }
       }
     }
     // Still tracked: Codex did not report the command complete while the request ran.
-    if (this.runningCommands.get(itemId) === command) this.settleBackgroundCommand(itemId, command, 'stopped')
-    return true
+    if (this.runningCommands.get(itemId) !== command) return true
+    this.settleBackgroundCommand(itemId, command, status)
+    if (status === 'failed' && command.isBackground) this.emit('background-work-ended', command.threadId)
+    return status !== 'failed'
   }
 
   private sessionIdFor(params: any): string | null {

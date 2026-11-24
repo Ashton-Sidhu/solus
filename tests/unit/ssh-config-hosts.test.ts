@@ -12,7 +12,7 @@ describe('the machines ~/.ssh/config names', () => {
       { hosts: ['pi'], port: 2222 },
     ]
     expect(sshConfigHostCandidates(entries)).toEqual([
-      { target: 'ada@devbox', label: 'devbox -> devbox.internal', source: 'ssh-config' },
+      { target: 'ada@devbox', label: 'devbox -> devbox.internal', source: 'ssh-config', hostName: 'devbox.internal' },
       { target: 'pi:2222', label: 'pi', source: 'ssh-config' },
     ])
   })
@@ -26,6 +26,14 @@ describe('the machines ~/.ssh/config names', () => {
       { hosts: ['build'] },
     ]
     expect(sshConfigHostCandidates(entries).map((candidate) => candidate.target)).toEqual(['build'])
+  })
+
+  test('an entry names the address it resolves to, so a client matches 10.10.1.10 to its alias', () => {
+    // WHY: docs/plans/add-machine-card.md. The agent knows the address; the person's key is under the alias.
+    expect(sshConfigHostCandidates([{ hosts: ['solus-windows'], hostname: '10.10.1.10' }, { hosts: ['same'], hostname: 'same' }])).toEqual([
+      { target: 'solus-windows', label: 'solus-windows -> 10.10.1.10', source: 'ssh-config', hostName: '10.10.1.10' },
+      { target: 'same', label: 'same -> same', source: 'ssh-config' },
+    ])
   })
 
   test('two entries that name the same target list it once', () => {

@@ -117,26 +117,30 @@
 
   <button
     type="button"
-    class="grid h-full min-w-0 flex-1 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-3 overflow-hidden border-0 bg-transparent p-0 text-left focus-visible:outline-none"
+    class="flex h-full min-w-0 flex-1 cursor-pointer items-center overflow-hidden border-0 bg-transparent p-0 text-left focus-visible:outline-none"
     onclick={() => {
       if (!longPress.consumeClick()) onSelect?.();
     }}
     data-list-row
   >
-    <!-- Keep the PR state visible, with conflicts marked at its bottom-right corner. -->
-    <span
-      class="relative flex size-4 items-center justify-center {glyph.toneClass}"
-      role="img"
-      aria-label={row.conflictLabel ? `${glyph.label}, ${row.conflictLabel}` : glyph.label}
-      title={row.conflictLabel ?? glyph.label}
-    >
-      <glyph.icon size={16} />
-      {#if row.conflictLabel}
-        <TriangleAlert size={11} class="absolute -right-1 -bottom-1 rounded-xs bg-background text-red-600 dark:text-red-400" aria-hidden="true" />
-      {/if}
-    </span>
+    <!-- The state glyph sits in the title's line, in the grid's first column;
+         the second line starts under the title. -->
+    <span class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5">
+      <!-- Keep the PR state visible, with conflicts marked at its
+           bottom-right corner. The mark has no background of its own, so it
+           sits on the row's hover and selection washes alike. -->
+      <span
+        class="relative flex size-4 items-center justify-center {glyph.toneClass}"
+        role="img"
+        aria-label={row.conflictLabel ? `${glyph.label}, ${row.conflictLabel}` : glyph.label}
+        title={row.conflictLabel ?? glyph.label}
+      >
+        <glyph.icon size={16} />
+        {#if row.conflictLabel}
+          <TriangleAlert size={11} class="absolute -right-1 -bottom-1 text-red-600 dark:text-red-400" aria-hidden="true" />
+        {/if}
+      </span>
 
-    <span class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5">
       <span class="truncate text-sm font-medium text-foreground" title={row.title}>
         {row.title}
       </span>
@@ -197,7 +201,7 @@
            end: labels go before the number and repository, which are how a
            row is found. -->
       <span
-        class="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
+        class="col-start-2 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
       >
         <span class="shrink-0 tabular-nums">{row.ident}</span>
         {@render dot()}

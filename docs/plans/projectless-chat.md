@@ -124,6 +124,7 @@ path or run Git there.
 
 ## Keybinding
 
-**New chat** is `⌘⌥N` (`Ctrl+Alt+N` on Windows and Linux), beside the
-new-session family. The web uses the same combo. On iPad, `⌘N` in the Chats
-list starts a new chat.
+On desktop, `⌘⇧N` opens **New chat** and `⌘⌥N` opens **New session without
+task**. Use Ctrl in place of Command on Windows and Linux. On the web, use
+`⌘⌥N` for **New chat** because the browser reserves `⌘⇧N` for a private
+window. On iPad, `⌘N` in the Chats list starts a new chat.

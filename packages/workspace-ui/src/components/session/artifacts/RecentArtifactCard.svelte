@@ -9,14 +9,15 @@
     recentArtifactAccessibilityLabel,
     recentArtifactAge,
     recentArtifactTimeLabel,
-    type RecentArtifact,
+    type RecentItem,
   } from "@solus/client-core/recent-artifacts";
   import { HostMediaUrl } from "../../../lib/host-media-url.svelte";
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import { artifactTitle, artifactTooltip, workPagePreview } from "./lib/artifact-list";
 
   /**
-   * One item of the Threads surface's row: a small picture of it, its name,
+   * One item of a "Recently viewed" row (the Threads surface's, the Workspace
+   * page's): a small picture of it, its name,
    * and how long ago it was last opened, or else added. A written work
    * shows the start of its text; an artifact shows the host's still of its
    * render, in the current appearance; an image shows itself; anything else,
@@ -24,8 +25,8 @@
    * pinned work.
    */
   interface Props {
-    item: RecentArtifact;
-    /** The host that holds the session's files. */
+    item: RecentItem;
+    /** The host that holds the item's files and pictures. */
     serverId: string;
     /** Which still of an artifact to show. */
     isDark: boolean;
@@ -34,7 +35,7 @@
   }
   let { item, serverId, isDark, now, onOpen }: Props = $props();
 
-  const artifact = $derived(item.owned.artifact);
+  const artifact = $derived(item.artifact);
   const title = $derived(artifactTitle(artifact));
   const age = $derived(recentArtifactAge(item, now));
   const image = new HostMediaUrl(() => {

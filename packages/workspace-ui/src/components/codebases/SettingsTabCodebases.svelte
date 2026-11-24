@@ -3,7 +3,7 @@
    *  connected host in one list, and the page of one codebase. The open
    *  codebase is the page URL, so a link opens the same view. */
   import { tick, untrack } from "svelte";
-  import { Plus as PlusIcon } from "@lucide/svelte";
+  import { Plus as PlusIcon, TriangleAlert as TriangleAlertIcon } from "@lucide/svelte";
   import { codebasesStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import { ListEmpty } from "../ui/list-page";
@@ -27,12 +27,25 @@
     session.router.navigate({ name: "settings", params: codebase ? { tab: "codebases", codebase } : { tab: "codebases" } }, { replace: true });
   }
 
-  /** Back to the list, with focus on the row the person came from, else on New codebase. */
-  async function showList(fromCodebaseId: string | null) {
-    show(null);
+  /** The codebase page that was open last, so a way back to the list (Cancel,
+   *  Delete, or the Codebases crumb in the settings header) can focus its row. */
+  let lastOpenCodebase: string | null = null;
+  $effect(() => {
+    const shown = openCodebase;
+    const fromCodebase = lastOpenCodebase;
+    lastOpenCodebase = shown;
+    if (shown !== null || fromCodebase === null) return;
+    void tick().then(() => {
+      const row = fromCodebase !== NEW_CODEBASE ? listEl?.querySelector<HTMLElement>(`[data-codebase-row="${CSS.escape(fromCodebase)}"]`) : null;
+      (row ?? listEl?.querySelector<HTMLElement>("[data-new-codebase]"))?.focus();
+    });
+  });
+
+  /** Delete from the list. The row goes away, so focus moves to New codebase. */
+  async function deleteCodebase(codebaseId: string) {
+    await codebasesStore.delete(codebaseId);
     await tick();
-    const row = fromCodebaseId ? listEl?.querySelector<HTMLElement>(`[data-codebase-row="${CSS.escape(fromCodebaseId)}"]`) : null;
-    (row ?? listEl?.querySelector<HTMLElement>("[data-new-codebase]"))?.focus();
+    listEl?.querySelector<HTMLElement>("[data-new-codebase]")?.focus();
   }
 
   // The command palette's "New codebase" opens the form, also when the page is open.
@@ -53,22 +66,22 @@
   const hostNotes = $derived(
     hosts.flatMap((host) => {
       if (!host.isReady) return [{ serverId: host.serverId, text: `${host.label} is not connected. It gets your changes when it connects.` }];
-      if (host.status === "unavailable") return [{ serverId: host.serverId, text: `${host.label} did not give its codebases. It can be an older version of Solus.` }];
+      if (host.status === "unavailable") return [{ serverId: host.serverId, text: `Solus could not read the codebases on ${host.label}. That host can have an older version of Solus.` }];
       return [];
     }),
   );
 </script>
 
 {#if openCodebase === NEW_CODEBASE}
-  <CodebaseNewForm onClose={() => void showList(null)} onCreated={(codebaseId) => show(codebaseId)} />
+  <CodebaseNewForm onClose={() => show(null)} onCreated={(codebaseId) => show(codebaseId)} />
 {:else if openCodebase}
   {#key openCodebase}
-    <CodebaseDetail codebaseId={openCodebase} onClose={() => void showList(openCodebase)} />
+    <CodebaseDetail codebaseId={openCodebase} onClose={() => show(null)} />
   {/key}
 {:else}
   <section bind:this={listEl} class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <p class="max-w-xl text-pretty text-workspace-chrome text-muted-foreground">
+      <p class="min-w-0 flex-1 basis-64 text-pretty text-workspace-chrome text-muted-foreground">
         A codebase is a named set of two or more folders, on one or more hosts, that one piece of work covers.
       </p>
       <Button data-new-codebase size="sm" variant="outline" class="shrink-0" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
@@ -76,9 +89,16 @@
       </Button>
     </div>
 
-    {#each hostNotes as note (note.serverId)}
-      <p class="text-workspace-chrome text-muted-foreground">{note.text}</p>
-    {/each}
+    {#if hostNotes.length > 0}
+      <div role="status" class="flex flex-col gap-1.5 rounded-lg border border-border bg-[var(--wash-1)] px-3.5 py-2.5">
+        {#each hostNotes as note (note.serverId)}
+          <p class="flex items-start gap-2.5 text-[13px] leading-[1.45] text-(--solus-text-secondary)">
+            <TriangleAlertIcon size={14} class="mt-[3px] shrink-0 text-(--warning)" aria-hidden="true" />
+            <span class="min-w-0">{note.text}</span>
+          </p>
+        {/each}
+      </div>
+    {/if}
 
     {#if codebases.length > 0}
       <RowCard>
@@ -88,6 +108,7 @@
             name={codebase.name}
             summary={codebaseSummary(codebase, (installationId) => codebasesStore.hostOf(installationId))}
             onOpen={() => show(codebase.id)}
+            onDelete={() => deleteCodebase(codebase.id)}
           />
         {/each}
       </RowCard>

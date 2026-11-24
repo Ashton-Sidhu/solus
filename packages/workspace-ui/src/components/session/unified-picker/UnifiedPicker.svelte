@@ -382,6 +382,9 @@
   useKeybinding("task-picker.row-actions", openRowActions, {
     enabled: () => open && hasRowMenu(selectedEntry),
   });
+  useKeybinding("task-picker.open-in-browser", () => openSelectedInBrowser(), {
+    enabled: () => open && selectedPullRequestUrl !== null,
+  });
 
   /** The order and the search mode are held on the workspace, like the scope,
    *  so every mounted picker reads the same choice. Both re-run the list, so
@@ -495,6 +498,16 @@
     void localApi.openExternal(url);
   }
 
+  /** The address of the selected pull request, which the browser key opens. */
+  const selectedPullRequestUrl = $derived(
+    selectedEntry?.kind === "record" && selectedEntry.record.type === "pullRequest"
+      ? selectedEntry.record.found.pullRequest.url
+      : null,
+  );
+  function openSelectedInBrowser(): void {
+    if (selectedPullRequestUrl) openLinkedExternal(selectedPullRequestUrl);
+  }
+
   async function unlinkItem(link: TaskLink): Promise<void> {
     try {
       await session.tasksStore
@@ -582,7 +595,7 @@
     } else if (typeStep) {
       event.preventDefault();
       chooseResultType(adjacentResultType(resultTypes, resultType, typeStep));
-    } else if (event.key === "Enter" && !event.altKey && selectedEntry) {
+    } else if (event.key === "Enter" && !event.altKey && !event.metaKey && !event.ctrlKey && selectedEntry) {
       event.preventDefault();
       activate(selectedEntry, "keybinding");
     }
@@ -743,6 +756,7 @@
           hasRowActions={hasRowMenu(selectedEntry)}
           hasProjects={projectOptions.length > 0}
           openLabel={selectedEntry && !hasActionBar(selectedEntry) ? entryOpenLabel(selectedEntry) : ""}
+          onOpenInBrowser={selectedPullRequestUrl ? openSelectedInBrowser : undefined}
         />
         {#if list.entries.length > 0}
           <span class="ml-auto shrink-0 whitespace-nowrap tabular-nums" aria-live="polite">

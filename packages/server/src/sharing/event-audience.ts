@@ -3,6 +3,8 @@ import type { HostEvent } from '@solus/contracts/host-events'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { actorFor, ownerKeyOf } from '../admission/actor'
 import { isHostOwner, readsWholeDisk, type Principal } from '../admission/principal'
+import { permissionsFor } from '../admission/access-policy'
+import { permissionsAllow } from '@solus/contracts/permissions'
 import type { ShareManager } from './share-manager'
 
 /**
@@ -17,6 +19,8 @@ import type { ShareManager } from './share-manager'
  * in the room, and again after any share or task change, not on every event.
  */
 export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
+  // Who asks to pair is for the connections that may approve it (docs/plans/add-machine-card.md).
+  if (event.type === 'host.pairApprovalsChanged') return permissionsAllow(permissionsFor(principal), 'host.local.reach')
   const personal = personalEventVisibleTo(principal, event)
   if (personal !== null) return personal
   if (readsWholeDisk(principal)) return true

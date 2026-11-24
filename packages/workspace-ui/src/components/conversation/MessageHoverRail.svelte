@@ -99,6 +99,15 @@
     transition: opacity 120ms ease-out 40ms;
   }
 
+  /* A reply with a widened render: the render covers the gutter beside the
+     column, so the rail hangs left of the render instead, in the edge it keeps
+     clear, and stays right of the message navigator (3rem from the pane edge).
+     The time stacks there. */
+  :global(.cv-rail-host:has(.artifact-frame.is-wide)) .hover-rail {
+    margin-right: calc(0.625rem + var(--hover-rail-clear, 0rem) + var(--wide-render-room, 0px));
+    max-width: calc(var(--transcript-gutter, 3rem) - var(--wide-render-room, 0px) - 0.625rem - 3rem);
+  }
+
   .hover-rail.is-right {
     right: auto;
     left: 100%;

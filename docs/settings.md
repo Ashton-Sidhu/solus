@@ -345,6 +345,9 @@ palette, or an existing settings link to open it.
 
 Use the section list and search field to find a setting. In a narrow container,
 section buttons replace the list. `Cmd+F` or `Ctrl+F` focuses settings search.
+In Keybindings, use **Search shortcuts** to filter shortcuts on that page.
+When **Search shortcuts** is empty, the page can show matches from the Settings
+search. Each field keeps its own text.
 Escape clears an active search first. With no search, Escape closes Settings.
 The close button and a press on the background also close it. Focus returns to
 the active input. A menu or child dialog handles its own Escape key first.

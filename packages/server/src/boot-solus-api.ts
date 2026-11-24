@@ -42,6 +42,7 @@ import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { registerSolusApiHandlers } from './transport/solus-api/service-handlers'
 import { onSessionStateChanged } from './data/sessions/session-states'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
+import { publishPersonHistoryChanges } from './transport/events/person-history-events'
 import { PersonConnections } from './transport/events/person-connections'
 import { organizationPrSync } from './prs/organization-pr-sync'
 import type { PrSync } from './prs/pr-sync'
@@ -200,6 +201,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   // that ran it: machines rotate and go offline (docs/plans/session-archive.md).
   const unsubscribeSessionStates = onSessionStateChanged((sessionId, state) => { void events.broadcast('session.stateChanged', { sessionId, state }) })
   const unsubscribeSessionViews = publishSessionViewChanges(events, people)
+  const unsubscribePersonHistory = publishPersonHistoryChanges(events, people)
   // The home of organization sessions keeps their pull requests fresh: their machines rotate and go offline.
   let prSync: PrSync | null = null
   if (options.accountCredential) {
@@ -253,7 +255,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     close() {
       return closing ??= (async () => {
         prSync?.stop(); useAccountCredentialSource(null)
-        unsubscribeProjects(); unsubscribeSessionStates(); unsubscribeSessionViews(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
+        unsubscribeProjects(); unsubscribeSessionStates(); unsubscribeSessionViews(); unsubscribePersonHistory(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()

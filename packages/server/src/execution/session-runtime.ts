@@ -680,9 +680,8 @@ export class SessionRuntime extends EventEmitter {
 
   /**
    * Stop the background tasks a session's agent left running, and nothing else:
-   * the agent's turn is already settled, so this is not an interrupt. Each task
-   * settles through the provider's own events, and the session leaves
-   * 'background' through the usual turn that follows.
+   * the agent's turn is already settled, so this is not an interrupt. Tasks
+   * settle through provider events, or are cleared if Stop cannot find them.
    * A session that waits only on the sessions it sent work to stops the
    * children that work for it and stops waiting; it settles as `completed`.
    */
@@ -704,7 +703,17 @@ export class SessionRuntime extends EventEmitter {
     if (!stopBackgroundTask) return false
     log.info('background_tasks_stop_requested', { sessionId, taskIds })
     this.restarts.restartRuns?.remove(sessionId)
-    const stopped = await Promise.all(taskIds.map((taskId) => stopBackgroundTask(agentSessionId, taskId)))
+    const stopped = await Promise.all(taskIds.map(async (taskId) => {
+      try {
+        const result = await stopBackgroundTask(agentSessionId, taskId)
+        if (result === 'missing') this.providerEvents.forgetBackgroundTask(session, backend, taskId, 'killed')
+        return result !== false
+      } catch (error) {
+        log.warn('background_task_stop_failed', { sessionId, taskId, error: error instanceof Error ? error.message : String(error) })
+        this.providerEvents.forgetBackgroundTask(session, backend, taskId, 'failed')
+        return false
+      }
+    }))
     return stopped.some(Boolean)
   }
 
@@ -715,7 +724,7 @@ export class SessionRuntime extends EventEmitter {
     if (backend.stopNativeSubagent) return backend.stopNativeSubagent(session.agentSessionId, toolId)
     const taskId = session.lineageTaskIds?.get(toolId)
     if (!taskId || !session.backgroundTaskIds?.has(taskId)) return false
-    return await backend.stopBackgroundTask?.(session.agentSessionId, taskId) ?? false
+    return await backend.stopBackgroundTask?.(session.agentSessionId, taskId) === true
   }
 
   /**

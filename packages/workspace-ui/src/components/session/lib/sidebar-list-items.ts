@@ -118,7 +118,8 @@ export function draftItem(draft: DraftRow): Extract<SidebarListItem, { kind: 'dr
   return { kind: 'draft', key: `draft:${draft.draftId}`, draft }
 }
 
-/** Drafts lead the status view, with a divider below them when there are any. */
+/** Drafts follow the pins in the status view, with a divider below them when
+ *  there are any. */
 export function draftItems(drafts: readonly DraftRow[]): SidebarListItem[] {
   if (drafts.length === 0) return []
   return [...drafts.map(draftItem), { kind: 'drafts-divider', key: 'drafts-divider' }]
@@ -126,9 +127,9 @@ export function draftItems(drafts: readonly DraftRow[]): SidebarListItem[] {
 
 export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[] {
   return [
-    ...draftItems(input.drafts),
     ...pinnedItems(input.pinned),
-    // Active sessions stay visible below Pinned and cannot collapse.
+    ...draftItems(input.drafts),
+    // Active sessions stay visible below the drafts and cannot collapse.
     ...input.sessions.map((task) => taskItem(task, 'sessions')),
     ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
     ...sectionItems('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),

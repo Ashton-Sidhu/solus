@@ -4,6 +4,7 @@ import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types
 import { MessageVideo } from "../../solus/MessageVideo";
 import { isUploadVideo, isUploadImage, uploadImagePreview } from "../../solus/upload-images";
 import { CollapsibleUserMessageBody } from "./CollapsibleUserMessageBody";
+import { BackgroundCommandRow } from "./BackgroundCommandRow";
 import { msg, T, useGT, useLocale, useMessages } from "gt-react-native";
 import { m } from "../../i18n/messages";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
@@ -47,7 +48,6 @@ import {
 } from "./thread-handoff-row";
 import { GuestBubbleTint, GuestMessageName } from "./guestMessageStyle";
 import { ThreadGuestPendingMessage, useThreadGuestShare } from "./ThreadGuestShareBar";
-import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import {
@@ -245,7 +245,6 @@ import {
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
   isContextHandoffActivityGroup,
-  isLinkRequestActivityGroup,
   isSecretRequestActivityGroup,
   type ThreadFeedEntry,
   type ThreadFeedLatestRun,
@@ -2310,16 +2309,6 @@ function renderFeedEntry(
     );
   }
 
-  if (entry.type === "activity-group" && isLinkRequestActivityGroup(entry)) {
-    return (
-      <LinkRequestCard
-        environmentId={props.environmentId}
-        projectedItem={entry.activities[0]!.projectedItem}
-        iconColor={iconSubtleColor}
-      />
-    );
-  }
-
   if (entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) {
     const label = entry.activities[0]!.summary;
     const item = entry.activities[0]!.projectedItem.item;
@@ -2351,6 +2340,18 @@ function renderFeedEntry(
 
   if (entry.type === "message") {
     const { message } = entry;
+    if (message.backgroundCommand) {
+      const rowId = `background-command:${message.id}`;
+      return (
+        <BackgroundCommandRow
+          command={message.backgroundCommand}
+          disclosure={{
+            expanded: props.expandedWorkRows[rowId] ?? false,
+            toggle: () => props.onToggleUserMessage(rowId, entry.id),
+          }}
+        />
+      );
+    }
     const isUser = message.role === "user";
     const presentation = resolveUserMessagePresentation(message);
     const renderedText = presentation.text;
