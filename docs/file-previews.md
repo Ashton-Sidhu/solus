@@ -42,9 +42,18 @@ Local desktop actions also require permission to open native windows.
 For a remote SSH host, **Open with** hands the file or folder to an editor on
 the viewing computer. Solus uses the SSH alias saved on that computer when
 available, or the SSH address the host advertises. Set any custom port, key,
-or jump host for the alias in the viewing computer's SSH config. Desktop web
-browsers can also hand off an advertised address to VS Code. The native mobile
-app and mobile browsers use the in-app file preview.
+or jump host for the alias in the viewing computer's SSH config.
+
+On the macOS, Windows, and Linux desktop app, **Open local copy** and **Reveal
+local copy** download a single remote file to a private temporary folder on
+the viewing computer. Edits to the copy stay local. Save it elsewhere if you
+need to keep it. Solus removes it after ten minutes or when it quits. The
+transfer limit is 10 MiB. Open supports common text, source, image, media,
+and PDF file types. Reveal adds a `.txt` suffix to copies of executables and
+other file types that Solus cannot open safely.
+
+Desktop web browsers can hand off an advertised SSH address to VS Code. The
+native mobile app and mobile browsers use the in-app file preview.
 
 ## Media and other binary files
 

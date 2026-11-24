@@ -49,7 +49,7 @@
     setInlineCommentDraft,
   } from "./diff-comment-draft.store.svelte";
   import FileOpenMenuItems from "../files/FileOpenMenuItems.svelte";
-  import { fileOpenPath, fileOpenRoute, openFileAction, type FileOpenAction } from "../files/lib/file-open-actions";
+  import { fileOpenEditors, fileOpenPath, fileOpenRoute, openFileAction, type FileOpenAction } from "../files/lib/file-open-actions";
   import * as ContextMenu from "../ui/context-menu";
   import {
     useKeybinding,
@@ -256,8 +256,8 @@
   const openRoute = $derived(fileOpenRoute(editorServerId));
   const fileOpenRoot = $derived(worktreePath ?? projectPath ?? "");
   const canOpenFileActions = $derived(!!openRoute && !!fileOpenPath(openRoute, fileOpenRoot, "."));
-  const canOpenConfiguredEditor = $derived(canOpenFileActions && !!openRoute?.editors.some((editor) => editor.id === theme.defaultEditor));
-  let fileActions = $state<{ path: string; x: number; y: number; serverId: string; cwd: string } | null>(null);
+  const canOpenConfiguredEditor = $derived(canOpenFileActions && !!openRoute && fileOpenEditors(openRoute, fileOpenRoot).some((editor) => editor.id === theme.defaultEditor));
+  let fileActions = $state<{ path: string; absolutePath: string; x: number; y: number; serverId: string; cwd: string } | null>(null);
 
   // The in-progress inline-comment draft. Owned here and shared down to
   // DiffStream (this panel's only consumer) via context, so the selection /
@@ -695,8 +695,9 @@
   }
 
   function showFileActions(path: string, x: number, y: number) {
-    if (!openRoute || !fileOpenPath(openRoute, fileOpenRoot, path)) return;
-    fileActions = { path, x, y, serverId: editorServerId, cwd: fileOpenRoot };
+    const absolutePath = openRoute && fileOpenPath(openRoute, fileOpenRoot, path);
+    if (!absolutePath) return;
+    fileActions = { path, absolutePath, x, y, serverId: editorServerId, cwd: fileOpenRoot };
   }
 
   function runFileAction(action: FileOpenAction, path: string) {
@@ -1220,7 +1221,7 @@
   <ContextMenu.Root onOpenChange={(open) => { if (!open) fileActions = null; }}>
     <ContextMenu.PointTrigger x={fileActions.x} y={fileActions.y} />
     <ContextMenu.Content class="min-w-44" onCloseAutoFocus={(event) => event.preventDefault()}>
-      <FileOpenMenuItems route={openRoute} onSelect={selectFileAction} />
+      <FileOpenMenuItems route={openRoute} path={fileActions.absolutePath} onSelect={selectFileAction} />
     </ContextMenu.Content>
   </ContextMenu.Root>
 {/if}

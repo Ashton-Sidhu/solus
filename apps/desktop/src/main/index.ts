@@ -1,6 +1,7 @@
 import { DesktopActivityBadges } from './activity-badges'
 import { ServerForwards, serverForwardRequestSchema } from './server-forwards'
 import { registerFileDrag } from './file-drag'
+import { registerLocalFileCopy } from './local-file-copy'
 import { attachContextMenu } from './context-menu'
 import { initialWindowBounds } from './window-platform'
 import { HtmlFullscreen } from './html-fullscreen'
@@ -690,8 +691,10 @@ ipcMain.on('solus:log-share-dialog', (_event, row) => {
   log.info(parsed.data.event, parsed.data)
 })
 
-registerFileDrag((event) => isLive(mainWindow) && mainWindow.webContents === event.sender &&
-  event.senderFrame === event.sender.mainFrame)
+const isWorkspaceMainFrame: Parameters<typeof registerFileDrag>[0] = (event) =>
+  isLive(mainWindow) && mainWindow.webContents === event.sender && event.senderFrame === event.sender.mainFrame
+registerFileDrag(isWorkspaceMainFrame)
+registerLocalFileCopy(isWorkspaceMainFrame)
 
 ipcMain.handle('solus:read-attachment-bytes', async (_event, rawPath, rawMime) => {
   const request = attachmentReadSchema.safeParse([rawPath, rawMime])

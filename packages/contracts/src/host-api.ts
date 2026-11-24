@@ -1603,6 +1603,7 @@ export interface GuestShortcut {
 }
 
 export interface NativeSolusAPI {
+  showLocalFileCopy(name: string, data: ArrayBuffer, action: import('./local-file-copy').LocalFileCopyAction): Promise<import('./local-file-copy').LocalFileCopyResult>
   serverForwardStart(request: NativeServerForwardRequest): Promise<NativeServerForward>
   serverForwardStop(forwardId: string): Promise<void>
   serverForwardList(): Promise<NativeServerForward[]>

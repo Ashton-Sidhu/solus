@@ -8,6 +8,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'getPathForFile',
   'readAttachmentBytes',
   'prepareFileDrag',
+  'showLocalFileCopy',
   'startFileDrag',
   'getLocalConnection',
   'setLocalHostEnabled',

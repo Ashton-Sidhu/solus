@@ -923,13 +923,15 @@
 
 {#if contextMenu}
   {@const target = contextMenu}
-  {@const targetOpenRoute = openRoute && fileOpenPath(openRoute, root || cwd, target.path) ? openRoute : null}
-  {#if canWriteFiles || targetOpenRoute}
+  {@const absolutePath = openRoute && fileOpenPath(openRoute, root || cwd, target.path, target.isFolder)}
+  {#if canWriteFiles || absolutePath}
     <FilesTreeContextMenu
       x={target.x}
       y={target.y}
       name={entryDisplayName(target.path)}
-      openRoute={targetOpenRoute}
+      {openRoute}
+      {absolutePath}
+      isFolder={target.isFolder}
       canWrite={canWriteFiles}
       onOpen={(action) => void openFileAction(action, {
         serverId, api, ctx, cwd: root || cwd, path: target.path, isFolder: target.isFolder,

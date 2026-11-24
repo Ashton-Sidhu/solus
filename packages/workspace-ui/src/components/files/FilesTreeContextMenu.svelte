@@ -16,6 +16,8 @@
     /** Row the menu was opened on, for the destructive item's label. */
     name: string;
     openRoute: FileOpenRoute | null;
+    absolutePath: string | null;
+    isFolder: boolean;
     onOpen: (action: FileOpenAction) => void;
     canWrite: boolean;
     onCreate: (kind: FileTreeEntryKind) => void;
@@ -24,7 +26,7 @@
     onClose: () => void;
   }
 
-  let { x, y, name, openRoute, onOpen, canWrite, onCreate, onRename, onDelete, onClose }: Props = $props();
+  let { x, y, name, openRoute, absolutePath, isFolder, onOpen, canWrite, onCreate, onRename, onDelete, onClose }: Props = $props();
 
   function select(action: () => void) {
     action();
@@ -41,11 +43,11 @@
     data-file-tree-context-menu-root="true"
     onCloseAutoFocus={(event) => event.preventDefault()}
   >
-    {#if openRoute}
-      <FileOpenMenuItems route={openRoute} onSelect={(action) => select(() => onOpen(action))} />
+    {#if openRoute && absolutePath}
+      <FileOpenMenuItems route={openRoute} path={absolutePath} {isFolder} onSelect={(action) => select(() => onOpen(action))} />
     {/if}
     {#if canWrite}
-      {#if openRoute}<ContextMenu.Separator />{/if}
+      {#if openRoute && absolutePath}<ContextMenu.Separator />{/if}
       <ContextMenu.Item onSelect={() => select(() => onCreate("file"))}>
         <FilePlusIcon />
         New file
