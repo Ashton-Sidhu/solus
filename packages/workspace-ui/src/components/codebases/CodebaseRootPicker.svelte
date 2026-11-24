@@ -10,6 +10,7 @@
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import CodebaseMemberList from "./CodebaseMemberList.svelte";
   import { rootRefusalText } from "@solus/client-core/codebases";
+  import { isContainerScan } from "@solus/contracts/codebases";
   import { countLabel, memberStateLabel, memberStateTint, scanSummary } from "./lib/codebase-view";
   import type { RootPickerState } from "./lib/root-picker.svelte";
 
@@ -19,7 +20,8 @@
   let chooseButtonEl = $state<HTMLElement | null>(null);
 
   const host = $derived(picker.host);
-  const found = $derived(picker.scan?.members.filter((member) => member.discovered) ?? []);
+  // Only a container gives its repositories to the codebase. A folder that is one project gives itself.
+  const found = $derived(picker.scan && isContainerScan(picker.scan) ? picker.scan.members.filter((member) => member.discovered) : []);
 
   function closeBrowser() {
     isBrowsing = false;

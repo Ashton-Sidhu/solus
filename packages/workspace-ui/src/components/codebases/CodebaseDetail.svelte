@@ -203,7 +203,7 @@
 
     <SettingsSection
       label="Folders"
-      description="Each host reads the repositories inside its folders from its disk. A repository that you clone into a folder is found on the next read."
+      description="A folder that holds two or more repositories gives each of them: its host reads them from its disk, and a repository that you clone into it is found on the next read. Each other folder is one project."
       plain
     >
       {#snippet action()}

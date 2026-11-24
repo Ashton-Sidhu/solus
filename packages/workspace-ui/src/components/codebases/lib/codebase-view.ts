@@ -32,14 +32,15 @@ export function rootName(root: { name: string; path: string }): string {
 }
 
 /**
- * What a root is, in one muted line after its name: its kind, and how many
- * repositories its host found inside it. A plain folder with none says so,
- * because then the codebase gets no repository from it.
+ * What a root is, in one muted line after its name: its kind, and, for a
+ * container, how many repositories its host found inside it. A root that is
+ * one project (a repository, or a folder with no container mark) has no
+ * count: the host does not look inside it.
  */
 export function rootDescription(state: CodebaseMemberState, foundCount: number): string {
   if (state === 'missing') return 'Not on the host'
   if (foundCount > 0) return `${STATE_LABEL[state]} · ${countLabel(foundCount, 'repository', 'repositories')} inside`
-  return state === 'plain' ? 'Folder · No repository inside' : STATE_LABEL[state]
+  return STATE_LABEL[state]
 }
 
 export function countLabel(count: number, one: string, many: string): string {
@@ -133,11 +134,16 @@ export function newCodebaseDraft(typedName: string, first: CodebaseFolderScan | 
   return { name, firstIsContainer, canCreate: name !== '' && !!first && (firstIsContainer || hasSecond) }
 }
 
-/** One line for what a scan found in a folder, shown before the folder is added. */
+/**
+ * One line for what a folder is in a codebase, shown before the folder is
+ * added. A container names how many repositories were found inside it: they
+ * come with it. Each other folder is one project: Solus does not look inside it.
+ */
 export function scanSummary(scan: CodebaseFolderScan): string {
   if (scan.state === 'missing') return 'This folder does not exist on the host.'
-  const found = scan.members.filter((member) => member.discovered)
-  const kind = scan.state === 'git' ? 'A Git repository' : 'A folder with no repository of its own'
-  if (found.length === 0) return `${kind}. No repository was found inside it.`
-  return `${kind}. ${countLabel(found.length, 'repository was', 'repositories were')} found inside it.`
+  if (isContainerScan(scan)) {
+    const count = scan.members.filter((member) => member.discovered && member.state === 'git').length
+    return `A folder with no repository of its own. ${countLabel(count, 'repository was', 'repositories were')} found inside it.`
+  }
+  return scan.state === 'git' ? 'A Git repository. It is one project.' : 'A folder with no repository of its own. It is one project.'
 }

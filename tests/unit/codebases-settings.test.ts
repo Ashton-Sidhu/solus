@@ -121,10 +121,11 @@ describe('the text of the Codebases page', () => {
   // WHY: a folder row must say what the codebase gets from it. A Git root is
   // itself the repository, so "no repository inside" would read as empty.
   test('a folder row says what the folder is and what is inside it', () => {
+    // A root that is one project has no count: the host does not look inside it.
     expect(rootDescription('git', 0)).toBe('Git repository')
-    expect(rootDescription('git', 2)).toBe('Git repository · 2 repositories inside')
-    expect(rootDescription('plain', 0)).toBe('Folder · No repository inside')
-    expect(rootDescription('plain', 1)).toBe('Folder · 1 repository inside')
+    expect(rootDescription('plain', 0)).toBe('Folder')
+    // A container: the repositories that its host found come with it.
+    expect(rootDescription('plain', 2)).toBe('Folder · 2 repositories inside')
     expect(rootDescription('missing', 0)).toBe('Not on the host')
   })
 
@@ -138,7 +139,9 @@ describe('the text of the Codebases page', () => {
     const found = (path: string): CodebaseMember => ({ path, name: '', state: 'git', repositoryKey: null, rootPath: '/code/shop', discovered: true, hasCommit: true, submodule: false })
     const scan: CodebaseFolderScan = { path: '/code/shop', state: 'plain', members: [{ ...found('/code/shop'), discovered: false, state: 'plain' }, found('/code/shop/api'), found('/code/shop/packages/web')], suggestions: [] }
     expect(scanSummary(scan)).toBe('A folder with no repository of its own. 2 repositories were found inside it.')
-    expect(scanSummary({ ...scan, state: 'git', members: scan.members.slice(0, 1) })).toBe('A Git repository. No repository was found inside it.')
+    // A repository, and a folder that holds one repository, are one project each: the scan does not name what is inside.
+    expect(scanSummary({ ...scan, state: 'git' })).toBe('A Git repository. It is one project.')
+    expect(scanSummary({ ...scan, members: scan.members.slice(0, 2) })).toBe('A folder with no repository of its own. It is one project.')
     expect(scanSummary({ ...scan, state: 'missing', members: [] })).toBe('This folder does not exist on the host.')
     expect(memberPlace(found('/code/shop/packages/web'))).toBe('packages/web')
   })
