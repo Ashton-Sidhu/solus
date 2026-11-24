@@ -370,8 +370,7 @@ describe('the choices of the attach card', () => {
       const waiting: (() => void)[] = []
       const attachedFolders: string[] = []
       const request: AttachRequest = {
-        sessionId: live.sessionId,
-        state: { codebaseId: null, codebase: null, openCards: new Map(), refused: new Set() },
+        state: { sessionId: live.sessionId, codebaseId: null, codebase: null, openCards: new Map(), refused: new Set() },
         actor: HOST_ACTOR,
         source: 'attached',
         mode: 'supervised',

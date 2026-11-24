@@ -102,6 +102,7 @@ export function attachAnswerOf(answer: string): AttachAnswer {
 
 /** What the attach rule keeps for one session. `SessionFolders` owns the object. */
 export interface AttachState {
+  readonly sessionId: string
   codebaseId: string | null
   /** The record of the codebase as last read. Null for no codebase, and for a deleted one. */
   codebase: Codebase | null
@@ -117,7 +118,6 @@ export interface AttachState {
  * folder is attached. `SessionFolders` gives it.
  */
 export interface AttachRequest {
-  sessionId: string
   state: AttachState
   actor: Actor
   source: SessionFolderSource
@@ -234,12 +234,13 @@ async function attachNow(request: AttachRequest, folder: string, addToCodebase: 
     if (holder) return { kind: 'available', folder: holder }
     return { kind: 'invalid', message: error instanceof Error ? error.message : String(error) }
   }
-  return { kind: 'attached', folder, addedToCodebase: addToCodebase && await addCodebaseRoot(request.sessionId, request.state, folder, request.actor) }
+  return { kind: 'attached', folder, addedToCodebase: addToCodebase && await addCodebaseRoot(request.state, folder, request.actor) }
 }
 
 /** Show the attach card of one folder, and do what the person chose. */
 async function askToAttach(request: AttachRequest, folder: string, asker: AttachAsker): Promise<AttachOutcome> {
-  const { sessionId, state } = request
+  const { state } = request
+  const { sessionId } = state
   const questionId = `${ATTACH_QUESTION_ID_PREFIX}${crypto.randomUUID()}`
   // The attach forms a codebase: the card says so, and the person can name it.
   const formation = state.codebase ? null : await request.formationOf(folder)
@@ -295,7 +296,8 @@ async function askToAttach(request: AttachRequest, folder: string, asker: Attach
  * has no codebase, when a root on this host holds the folder already, and
  * when the person may not save the codebase.
  */
-export async function addCodebaseRoot(sessionId: string, state: AttachState, folder: string, actor: Actor): Promise<boolean> {
+export async function addCodebaseRoot(state: AttachState, folder: string, actor: Actor): Promise<boolean> {
+  const { sessionId } = state
   if (!state.codebaseId) return false
   const installationId = getInstallationId()
   try {

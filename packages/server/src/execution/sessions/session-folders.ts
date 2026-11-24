@@ -144,12 +144,12 @@ export class SessionFolders implements SessionFolderGate {
     const state = await this.stateOf(sessionId)
     state.actor = turn.actor
     state.place = { workingDirectory: resolve(resolveHomePath(turn.workingDirectory)), repositoryRoot: turn.repositoryRoot ?? null }
-    await this.dropTemporaryFolders(sessionId, state)
+    await this.dropTemporaryFolders(state)
     if (!turn.isCodebaseSettled) await this.settleCodebase(sessionId, turn)
     // A turn that stopped before its end left its writes: they are read now.
     await this.attachObserved(sessionId)
     state.refused.clear()
-    await this.refresh(sessionId, state, turn.actor)
+    await this.refresh(state, turn.actor)
     return this.foldersOf(sessionId)
   }
 
@@ -161,7 +161,8 @@ export class SessionFolders implements SessionFolderGate {
    * record. A folder that a person or the agent asked for by its name stays,
    * and so does each folder in a different place: a person detaches it.
    */
-  private async dropTemporaryFolders(sessionId: string, state: SessionFoldersState): Promise<void> {
+  private async dropTemporaryFolders(state: SessionFoldersState): Promise<void> {
+    const { sessionId } = state
     const kept: SessionAttachedFolder[] = []
     for (const attached of state.attached) {
       const isAutomatic = !attached.byName && (attached.source === 'attached' || attached.source === 'observed')
@@ -207,7 +208,7 @@ export class SessionFolders implements SessionFolderGate {
       let taken: SessionCodebase | null = existing && { codebase: existing, formed: false }
       taken ??= await containerCodebaseOf(sessionId, projectFolder, turn.actor)
       for (const attached of attachedBefore) taken ??= await codebaseForAttachedFolder(sessionId, projectFolder, attached, turn.actor)
-      if (taken) await this.takeCodebase(sessionId, state, taken, turn.actor)
+      if (taken) await this.takeCodebase(state, taken, turn.actor)
     } catch (error) {
       log.warn('session_codebase_not_settled', { sessionId, error: error instanceof Error ? error.message : String(error) })
     }
@@ -232,7 +233,8 @@ export class SessionFolders implements SessionFolderGate {
    * person that the turn or the attach acts for: that person is the creator
    * of the codebase, so the record names them.
    */
-  private async takeCodebase(sessionId: string, state: SessionFoldersState, taken: SessionCodebase, actor: Actor): Promise<void> {
+  private async takeCodebase(state: SessionFoldersState, taken: SessionCodebase, actor: Actor): Promise<void> {
+    const { sessionId } = state
     const { codebase, formed } = taken
     state.codebaseId = codebase.id
     state.codebase = codebase
@@ -240,7 +242,7 @@ export class SessionFolders implements SessionFolderGate {
     if (formed) await this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, formationActivity(codebase))
     this.rt.publish(sessionId, { type: 'session_codebase', codebaseId: codebase.id, name: codebase.name })
     log.info('session_codebase_taken', { sessionId, codebaseId: codebase.id, formed })
-    if (taken.plainName) void this.nameFormed(sessionId, state, codebase, taken.plainName, actor)
+    if (taken.plainName) void this.nameFormed(state, codebase, taken.plainName, actor)
   }
 
   /**
@@ -250,7 +252,8 @@ export class SessionFolders implements SessionFolderGate {
    * it arrives. The formation did not wait for it. A person who renamed the
    * codebase in that time keeps their name (`renameFormed`).
    */
-  private async nameFormed(sessionId: string, state: SessionFoldersState, codebase: Codebase, plainName: string, actor: Actor): Promise<void> {
+  private async nameFormed(state: SessionFoldersState, codebase: Codebase, plainName: string, actor: Actor): Promise<void> {
+    const { sessionId } = state
     try {
       const installationId = getInstallationId()
       const [projectRoot] = codebase.roots
@@ -277,7 +280,8 @@ export class SessionFolders implements SessionFolderGate {
    * codebase. Before the first turn of the session in this process, the choice
    * of the person is not known, so the turn start reads the folder.
    */
-  private async formForAttached(sessionId: string, state: SessionFoldersState, attached: SessionAttachedFolder, actor: Actor, name?: string): Promise<void> {
+  private async formForAttached(state: SessionFoldersState, attached: SessionAttachedFolder, actor: Actor, name?: string): Promise<void> {
+    const { sessionId } = state
     if (!state.turnStarted) {
       state.attachedBeforeTurn.push(attached)
       return
@@ -286,9 +290,9 @@ export class SessionFolders implements SessionFolderGate {
       if (state.noCodebase || !state.place || await this.hasCodebase(state, actor)) return
       const taken = await codebaseForAttachedFolder(sessionId, projectFolderOf(state.place), attached, actor, name)
       if (!taken) return
-      await this.takeCodebase(sessionId, state, taken, actor)
+      await this.takeCodebase(state, taken, actor)
       // The attached folder is a member now.
-      await this.refresh(sessionId, state, actor)
+      await this.refresh(state, actor)
     } catch (error) {
       log.warn('session_codebase_not_formed', { sessionId, path: attached.path, error: error instanceof Error ? error.message : String(error) })
     }
@@ -301,7 +305,7 @@ export class SessionFolders implements SessionFolderGate {
    */
   async read(sessionId: string, actor: Actor): Promise<SessionFolder[]> {
     const state = await this.stateOf(sessionId)
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     return this.foldersOf(sessionId)
   }
 
@@ -429,7 +433,7 @@ export class SessionFolders implements SessionFolderGate {
    */
   async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor, options: { byName?: boolean } & AttachCodebase = {}): Promise<SessionFolder[]> {
     const attached = await this.addFolder(sessionId, path, source, actor, options.byName)
-    if (!options.sessionOnly) await this.formForAttached(sessionId, await this.stateOf(sessionId), attached, actor, options.codebaseName)
+    if (!options.sessionOnly) await this.formForAttached(await this.stateOf(sessionId), attached, actor, options.codebaseName)
     return this.foldersOf(sessionId)
   }
 
@@ -453,7 +457,7 @@ export class SessionFolders implements SessionFolderGate {
     const folderState = await folderStateOf(folderPath)
     if (folderState === 'missing') throw new Error(`"${folderPath}" is not a folder on this host.`)
     const state = await this.stateOf(sessionId)
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     const realPath = await realPathOf(folderPath)
     const refusal = await refusalForSolusData(folderPath, realPath)
     if (refusal) throw new Error(refusal)
@@ -470,7 +474,7 @@ export class SessionFolders implements SessionFolderGate {
     const reached = workingDirectory !== null && isInsideRoot(workingDirectory, realPath)
     const entry: FolderEntry = { folder: attachedFolder(folderPath, folderState, source), realPath, reached }
     // The list changes before the record is written: a second attach of the folder at the same time finds it.
-    this.setEntries(sessionId, state, [...(state.entries ?? []).filter((each) => !isShownOnly(each)), entry])
+    this.setEntries(state, [...(state.entries ?? []).filter((each) => !isShownOnly(each)), entry])
     await setSessionRecordFolders(sessionId, { attachedFolders: state.attached })
     log.info('session_folder_attached', { sessionId, path: folderPath, source, byName })
     return attached
@@ -487,22 +491,21 @@ export class SessionFolders implements SessionFolderGate {
     if (!state.place && options.workingDirectory) {
       state.place = this.storedPlaceOf(sessionId) ?? { workingDirectory: resolve(resolveHomePath(options.workingDirectory)), repositoryRoot: null }
     }
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     const modeOf = (id: string) => this.modeOf(id)
     const request: AttachRequest = {
-      sessionId,
       state,
       actor,
       source,
       // Read when the rule asks: the mode of the session can change while the rule waits.
       get mode() { return modeOf(sessionId) },
       temporaryPlaces: this.temporaryPlaces,
-      refresh: () => this.refresh(sessionId, state, actor),
+      refresh: () => this.refresh(state, actor),
       holderOf: (held) => this.holderOf(state, held),
       grantedHolderOf: (realPath) => (state.entries ?? []).find((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))?.folder.path ?? null,
       attach: async (folder, codebase = {}) => { await this.attach(sessionId, folder, source, actor, { byName: options.byName, ...codebase }) },
       formationOf: (folder) => this.formationOf(state, folder, source, actor),
-      standInFor: (member) => this.standInFor(sessionId, state, member, actor),
+      standInFor: (member) => this.standInFor(state, member, actor),
     }
     return requestAttach(request, path, options)
   }
@@ -535,19 +538,19 @@ export class SessionFolders implements SessionFolderGate {
    */
   async adoptCreated(sessionId: string, path: string, addToCodebase: boolean, actor: Actor): Promise<{ addedToCodebase: boolean }> {
     const state = await this.stateOf(sessionId)
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     const folder = resolve(resolveHomePath(path))
     const realPath = await realPathOf(folder)
     if (state.place && isInsideRoot(await realPathOf(projectFolderOf(state.place)), realPath)) {
       // The read of the disk finds a new repository of a container. A place that the session does not reach after it is attached.
-      await this.refresh(sessionId, state, actor)
+      await this.refresh(state, actor)
       if (!await this.holderOf(state, folder)) await this.addFolder(sessionId, folder, 'created', actor)
       return { addedToCodebase: false }
     }
-    const addedToCodebase = addToCodebase && await addCodebaseRoot(sessionId, state, folder, actor)
+    const addedToCodebase = addToCodebase && await addCodebaseRoot(state, folder, actor)
     if ((state.entries ?? []).some((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))) {
       // A session folder holds the new folder. In a codebase, a new repository there is a member: read the disk again.
-      if (state.codebase) await this.refresh(sessionId, state, actor)
+      if (state.codebase) await this.refresh(state, actor)
       return { addedToCodebase }
     }
     // A caller that keeps the folder out of the codebase also makes no codebase with it.
@@ -598,7 +601,7 @@ export class SessionFolders implements SessionFolderGate {
     const state = await this.stateOf(sessionId)
     const actor = this.rt.actorOfSession(sessionId) ?? state.actor
     if (!actor) return
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     const isObserved = source === 'observed'
     const named = resolve(resolveHomePath(path))
     if (await this.holderOf(state, named, isObserved)) return
@@ -628,7 +631,7 @@ export class SessionFolders implements SessionFolderGate {
   async detach(sessionId: string, path: string, actor: Actor): Promise<SessionFolder[]> {
     const folderPath = resolve(resolveHomePath(path))
     const state = await this.stateOf(sessionId)
-    if (!state.entries) await this.refresh(sessionId, state, actor)
+    if (!state.entries) await this.refresh(state, actor)
     const entry = (state.entries ?? []).find((each) => each.folder.path === folderPath)
     if (entry?.folder.source === 'codebase') {
       throw new Error(`"${folderPath}" comes from the codebase of the session. Remove it from the codebase.`)
@@ -637,7 +640,7 @@ export class SessionFolders implements SessionFolderGate {
     if (attached.length === state.attached.length) return this.foldersOf(sessionId)
     state.attached = attached
     await setSessionRecordFolders(sessionId, { attachedFolders: attached })
-    this.setEntries(sessionId, state, (state.entries ?? []).filter((each) => each !== entry))
+    this.setEntries(state, (state.entries ?? []).filter((each) => each !== entry))
     log.info('session_folder_detached', { sessionId, path: folderPath })
     return this.foldersOf(sessionId)
   }
@@ -647,7 +650,7 @@ export class SessionFolders implements SessionFolderGate {
    * list: a repository got its worktree in the task folder of the session.
    */
   async reread(sessionId: string, actor: Actor): Promise<SessionFolder[]> {
-    await this.refresh(sessionId, await this.stateOf(sessionId), actor)
+    await this.refresh(await this.stateOf(sessionId), actor)
     return this.foldersOf(sessionId)
   }
 
@@ -658,7 +661,8 @@ export class SessionFolders implements SessionFolderGate {
    * has none gets it now. Null for a session with no task folder, and for a
    * plain folder, which has no worktree.
    */
-  private async standInFor(sessionId: string, state: SessionFoldersState, member: string, actor: Actor): Promise<AttachOutcome | null> {
+  private async standInFor(state: SessionFoldersState, member: string, actor: Actor): Promise<AttachOutcome | null> {
+    const { sessionId } = state
     const taskFolder = taskFolderOf(state)
     if (!taskFolder || await folderStateOf(member) !== 'git') return null
     const known = await worktreeOfMember(taskFolder, await realPathOf(member))
@@ -708,7 +712,7 @@ export class SessionFolders implements SessionFolderGate {
     const folderPath = resolve(resolveHomePath(path))
     for (const [sessionId, state] of this.sessions) {
       if (!state.entries?.some((entry) => entry.folder.path === folderPath)) continue
-      await this.refresh(sessionId, state, this.rt.actorOfSession(sessionId) ?? state.actor ?? actor)
+      await this.refresh(state, this.rt.actorOfSession(sessionId) ?? state.actor ?? actor)
     }
   }
 
@@ -725,6 +729,7 @@ export class SessionFolders implements SessionFolderGate {
     const raced = this.sessions.get(sessionId)
     if (raced) return raced
     const state: SessionFoldersState = {
+      sessionId,
       codebaseId: stored?.codebaseId ?? null,
       attached: stored?.attachedFolders ?? [],
       codebase: null,
@@ -756,7 +761,8 @@ export class SessionFolders implements SessionFolderGate {
   }
 
   /** Read the codebase and the disk again, and keep the new list. */
-  private async refresh(sessionId: string, state: SessionFoldersState, actor: Actor): Promise<void> {
+  private async refresh(state: SessionFoldersState, actor: Actor): Promise<void> {
+    const { sessionId } = state
     state.place ??= this.storedPlaceOf(sessionId)
     const codebase = state.codebaseId ? await codebasesFor(actor).get(state.codebaseId) : null
     state.codebase = codebase && codebase.deletedAt === null ? codebase : null
@@ -786,11 +792,12 @@ export class SessionFolders implements SessionFolderGate {
       if (realPath === workingDirectory || entries.has(realPath)) continue
       entries.set(realPath, { folder: attachedFolder(path, folderState, attached.source), realPath, reached: isReached(realPath) })
     }
-    this.setEntries(sessionId, state, await outsideSolusData([...entries.values()]))
+    this.setEntries(state, await outsideSolusData([...entries.values()]))
   }
 
   /** Keep a new list: publish it when it changed, and hear the checkout of each `git` folder in it. */
-  private setEntries(sessionId: string, state: SessionFoldersState, entries: FolderEntry[]): void {
+  private setEntries(state: SessionFoldersState, entries: FolderEntry[]): void {
+    const { sessionId } = state
     state.entries = entries.sort(byPath)
     const folders = state.entries.map((entry) => entry.folder)
     const serialized = JSON.stringify(folders)
