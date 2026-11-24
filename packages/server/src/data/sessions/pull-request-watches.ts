@@ -35,6 +35,7 @@ export const pullRequestWatchStateSchema = z.object({
    *  no-checks news until a check of that name finishes or the head moves.
    *  A state stored before this field has no hold. */
   approvalChecks: z.array(z.string()).default([]),
+  rerunChecks: z.array(z.object({ name: z.string(), previous: z.string() })).optional(),
 })
 export type PullRequestWatchState = z.infer<typeof pullRequestWatchStateSchema>
 
@@ -69,6 +70,7 @@ const CLEARED = sql`watch_id = NULL, watch_started_at = NULL, watch_user_id = NU
 
 type ChangeListener = (sessionId: string) => void
 const listeners = new Set<ChangeListener>()
+const storedStates = new WeakMap<PullRequestWatch, string>()
 
 /** Hear each session whose watches started or stopped. */
 export function onPullRequestWatchesChanged(listener: ChangeListener): () => void {
@@ -146,6 +148,25 @@ export async function recordPullRequestWatchState(watch: PullRequestWatch, state
   `)).changes > 0
 }
 
+/** Reopen checks on this head only, keeping the remark watermark. Rotation
+ * invalidates an in-flight sweep and triggers a reload of the same watch. */
+export async function reopenPullRequestWatchChecks(
+  watch: PullRequestWatch, headSha: string, checks: NonNullable<PullRequestWatchState['rerunChecks']>,
+): Promise<boolean> {
+  if (watch.state.headSha !== headSha || checks.length === 0) return false
+  const next = {
+    ...watch.state,
+    passReported: false,
+    rerunChecks: [...(watch.state.rerunChecks ?? []).filter(previous => !checks.some(check => check.name === previous.name)), ...checks],
+  }
+  const changed = (await getDatabase().run(sql`
+    UPDATE ${resourceLinks} SET watch_id = ${randomUUID()}, watch_state = ${JSON.stringify(next)}
+    WHERE resource_links.watch_id = ${watch.watchId} AND resource_links.watch_state = ${storedStates.get(watch) ?? JSON.stringify(watch.state)}
+  `)).changes > 0
+  if (changed) emitPullRequestWatchesChanged(watch.sessionId)
+  return changed
+}
+
 /** The watches of the named sessions, or of every session. */
 export async function readPullRequestWatches(sessionIds?: readonly string[]): Promise<PullRequestWatch[]> {
   if (sessionIds && !sessionIds.length) return []
@@ -157,13 +178,17 @@ export async function readPullRequestWatches(sessionIds?: readonly string[]): Pr
       resource_links.watch_started_at, resource_links.watch_state, resource_links.watch_user_id
     FROM ${resourceLinks} WHERE resource_links.watch_id IS NOT NULL${onlySessions}
   `))
-  return rows.map((row) => ({
-    sessionId: row.session_id,
-    repository: row.repository,
-    number: row.number,
-    watchId: row.watch_id,
-    startedAt: row.watch_started_at,
-    state: pullRequestWatchStateSchema.parse(JSON.parse(row.watch_state)),
-    actingUserKey: row.watch_user_id,
-  }))
+  return rows.map((row) => {
+    const watch = {
+      sessionId: row.session_id,
+      repository: row.repository,
+      number: row.number,
+      watchId: row.watch_id,
+      startedAt: row.watch_started_at,
+      state: pullRequestWatchStateSchema.parse(JSON.parse(row.watch_state)),
+      actingUserKey: row.watch_user_id,
+    }
+    storedStates.set(watch, row.watch_state)
+    return watch
+  })
 }

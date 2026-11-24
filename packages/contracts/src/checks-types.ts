@@ -21,6 +21,7 @@ export interface CheckItem {
    *  or StatusContext.context (its name is its identity). */
   id: string
   name: string
+  description?: string
   /** Null while the check is still running — inFlight distinguishes that from a
    *  check that finished with no conclusion. */
   conclusion: CheckConclusion | null

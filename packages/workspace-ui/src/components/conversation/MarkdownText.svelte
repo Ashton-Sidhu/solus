@@ -10,6 +10,8 @@
 
 <script lang="ts">
   import { getSurfaceContext } from "../../contexts";
+  import { fileDrag } from "../../lib/file-drag";
+  import { getMarkdownImageContext } from "./lib/markdown-image";
   import { requestFilePreview } from "../../lib/filePreview";
 
   let { text = "" }: { text?: string } = $props();
@@ -17,6 +19,7 @@
   // A file token previews on the person's session; a client with none (the
   // cloud console) shows the token alone.
   const session = getSurfaceContext().workspace;
+  const host = getMarkdownImageContext();
 
   const segments = $derived(tokenizeMarkdownText(text));
 
@@ -34,6 +37,10 @@
       type="button"
       class={tokenClassName("file")}
       data-solus-reference={fileReferenceText(seg.path)}
+      use:fileDrag={() => {
+        const serverId = host?.serverId();
+        return serverId ? { serverId, path: fileMentionTarget(seg.path).path, ctx: host?.ctx() } : null;
+      }}
       title={seg.path}
       onclick={() => handleFileClick(seg.path)}
     ><span class="solus-token__icon"><FileIcon path={seg.path} size={12} /></span><span

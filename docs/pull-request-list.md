@@ -452,3 +452,26 @@ the diff, and the guide. Offline, it shows that copy with a "Not refreshed"
 notice, and the controls that change the pull request are off until the host is
 connected again. The copy is kept for 30 days, and for at most 256 records and
 32 MiB for each host.
+
+## Agent tools
+
+Claude and Codex can use `pull_request_read`, `pull_request_list`,
+`pull_request_create`, `pull_request_update`, `pull_request_respond`,
+`pull_request_review`, `pull_request_merge`, `ci_logs`, and `ci_rerun`.
+Use `include` on `pull_request_read` to add the body, check runs, threads,
+comments, or diff. Pass the section's `nextCursor` to read its next page.
+The calling session supplies the checkout, repository, and GitHub identity.
+With a PR number, a repository selector can name a PR already linked to the
+calling session. Solus checks access to that link and uses the caller's
+credential policy for the linked repository.
+Mutations use the normal agent approval rules and the host and session
+permissions. Use `list_thread_pull_requests` to see the PRs linked to an
+accessible session, with the full linked chain for each stack on the page.
+To list another host's links, pass its `environmentId` and the target
+`threadId`. Solus can
+show stacks inferred from branch names. Only a native GitHub stack can use
+`pull_request_merge` with `stack: true`. Pass `expectedHeadSha` from the read.
+Solus checks the head of each open layer it will land. Use `base` on
+`pull_request_create` to open a PR onto the branch of a lower layer.
+CI log reads and reruns work with GitHub Actions jobs. Use
+`watch_pull_request` to wait for changes.

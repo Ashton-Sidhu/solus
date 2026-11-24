@@ -81,6 +81,7 @@ export async function readPullRequestStack(
   client: GitHubClient,
   repo: RepoRef,
   number: number,
+  options?: { headsOnly?: boolean },
 ): Promise<PrStack | null> {
   const listed = await client.rest.request('GET /repos/{owner}/{repo}/stacks', {
     owner: repo.owner,
@@ -90,6 +91,10 @@ export async function readPullRequestStack(
   const found = z.array(restStackSchema).safeParse(listed.data)
   const stack = found.success ? found.data[0] : undefined
   if (!stack) return null
+  // The agent only needs the heads and state, not the layer titles.
+  if (options?.headsOnly && stack.pull_requests.every(pr => pr.merged_at || (pr.head.sha && pr.state && pr.draft !== undefined))) {
+    return toPrStack(stack)
+  }
   const full = await client.rest.request('GET /repos/{owner}/{repo}/stacks/{stack_number}', {
     owner: repo.owner,
     repo: repo.repo,
@@ -157,8 +162,14 @@ export async function mergeGithubPullRequestStack(
   repo: RepoRef,
   request: PrStackMergeRequest,
   clock: StackMergeClock = SYSTEM_CLOCK,
+  options?: { byStackNumber?: boolean },
 ): Promise<GithubStackMerge> {
-  const open = layersToMerge(await readPullRequestStack(client, repo, request.number), request)
+  const stack = options?.byStackNumber
+    ? toPrStack(restStackSchema.parse((await client.rest.request('GET /repos/{owner}/{repo}/stacks/{stack_number}', {
+        owner: repo.owner, repo: repo.repo, stack_number: request.stackNumber,
+      })).data))
+    : await readPullRequestStack(client, repo, request.number)
+  const open = layersToMerge(stack, request)
   const target = open[open.length - 1]
   const started = await client.rest.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge-async', {
     owner: repo.owner,

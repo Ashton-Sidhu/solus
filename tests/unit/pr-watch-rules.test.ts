@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 import {
   evaluateWatch,
+  checkAttempt,
   initialWatchState,
   NO_CHECKS_GRACE_MS,
   REMARK_ONLY_WAKE_LIMIT,
@@ -59,6 +60,20 @@ function run(reads: WatchRead[], state: PullRequestWatchState = initialWatchStat
 }
 
 describe('PR watch rules', () => {
+  test('a rerun holds stale check results and reports a new failure even if polling missed the start', () => {
+    const previous = check('build', 'failure')
+    const { state } = run([read({ checks: checks([previous]) })])
+    const reopened = { ...state, rerunChecks: [{ name: previous.name, previous: checkAttempt(previous) }] }
+    const changed = { ...previous, completedAt: new Date(minutes(3)).toISOString() }
+    const result = run([
+      read({ checks: checks([previous]), remarks: [remark('comment', new Date(minutes(1)).toISOString())] }),
+      read({ checks: checks([changed]) }),
+      read({ checks: checks([changed]) }),
+    ], reopened)
+    expect(result.kinds).toEqual([['remarks'], ['checks-failed'], []])
+    expect(result.state.rerunChecks).toEqual([])
+  })
+
   test('a failed check is news once, as soon as it fails, while others still run', () => {
     const { kinds } = run([
       read({ checks: checks([check('build', null), check('lint', null)]) }),

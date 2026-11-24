@@ -11,6 +11,8 @@ import {
   type ThreadMoveDestination,
 } from "../features/threads/threadOrder";
 import { getThreadListV2OrderedSection } from "../features/threads/threadListV2";
+import { queuedEditDraftKey } from "../state/queued-edit-draft-key";
+import { abortComposerDraftOperationsWhere } from "../state/composerDraftOperations";
 import { appAtomRegistry } from "../state/atom-registry";
 import { threadDropBusyAtom } from "../state/thread-order";
 import { queuedThreadKeysAtom } from "../state/use-thread-outbox";
@@ -193,7 +195,11 @@ export const listActions = {
     }
   },
   archiveThread: (t: EnvironmentThreadShell) =>
-    updateList(t, () => change(t, () => solus.threadList.setArchived(t.environmentId, t.id, true))),
+    updateList(t, () => change(t, async () => {
+      await solus.threadList.setArchived(t.environmentId, t.id, true);
+      const key = scopedThreadKey(t.environmentId, t.id);
+      abortComposerDraftOperationsWhere((draftKey) => draftKey === key || draftKey.startsWith(queuedEditDraftKey(key, "")));
+    })),
   unarchiveThread: (t: EnvironmentThreadShell) =>
     change(t, () => solus.threadList.setArchived(t.environmentId, t.id, false)),
   settleThread: (t: EnvironmentThreadShell) =>

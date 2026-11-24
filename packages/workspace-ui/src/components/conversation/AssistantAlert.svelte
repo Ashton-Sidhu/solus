@@ -4,6 +4,7 @@
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownAlert from "../ui/MarkdownAlert.svelte";
   import FencedBlock from "./FencedBlock.svelte";
+  import TranscriptTable from "./TranscriptTable.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownList from "./MarkdownList.svelte";
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
@@ -13,7 +14,7 @@
    *  markdown, so it renders with the reply's own renderers. */
   let { alertType, text }: { alertType: AlertType; text: string } = $props();
 
-  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
+  const markdownRenderers = { table: TranscriptTable, code: FencedBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
 </script>
 
 <MarkdownAlert {alertType}>

@@ -432,3 +432,9 @@ streaming derivations or history prefetch. The shared copy button shows a check
 for 1.5 seconds after a successful copy; its reset timer starts only on copy.
 
 On mobile, long-press a tool row to copy its full detail.
+
+Chat tables have a Copy as HTML action. The clipboard also contains tab-separated text for plain-text paste. On iOS and Android, touch and hold the table and choose Copy.
+
+On macOS and Windows, drag a file pill from a message or the composer to Finder or File Explorer. Desktop can copy up to 10 MB from the session's checkout or its upload folder on a local or remote host. Keep the mouse button down while a remote file downloads. Preview, download, and remove actions remain available where applicable.
+
+Dictation follows the draft that started the recording. Switch back to use that draft's controls, or finish the recording from the active composer. The result goes to the original draft. Closing its tab cancels its recording or pending transcription.

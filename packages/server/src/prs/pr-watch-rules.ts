@@ -102,18 +102,16 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   const news: WatchNews[] = []
 
   const checks = [...read.checks.required, ...read.checks.optional]
-  const failed = checks.filter(isFailed)
-  const newlyFailed = failed.filter((check) => !next.failedChecks.includes(check.id))
-  next.failedChecks = failed.map((check) => check.id)
-  if (newlyFailed.length) news.push({ kind: 'checks-failed', checks: newlyFailed })
-
-  news.push(...approvalNews(next, checks))
-
-  const gate = read.checks.required.length ? read.checks.required : checks
-  if (gate.some(isFailed)) news.push(...failedGateNews(next, checks, failed, newlyFailed))
-  // While the hold is set, a read without the awaited check is not a pass.
-  else if (!next.approvalChecks.length) news.push(...passNews(next, read))
-  news.push(...noChecksNews(next, read, headMoved))
+  if (headMoved) delete next.rerunChecks
+  if (next.rerunChecks?.length) {
+    const started = checks.filter(check => next.rerunChecks?.some(({ name, previous }) =>
+      check.name === name && checkAttempt(check) !== previous))
+    next.failedChecks = next.failedChecks.filter(id => !started.some(check => check.id === id))
+    next.passedChecks = next.passedChecks.filter(name => !started.some(check => check.name === name))
+    next.rerunChecks = next.rerunChecks.filter(({ name, previous }) =>
+      !checks.some(check => check.name === name && checkAttempt(check) !== previous))
+  }
+  if (!next.rerunChecks?.length) news.push(...checkNews(next, read, checks, headMoved))
 
   // Unknown mergeability keeps the last answer.
   if (pullRequest.mergeable !== null) {
@@ -152,6 +150,28 @@ function failedGateNews(next: PullRequestWatchState, checks: CheckItem[], failed
 
 /** What passed that the agent was not told: the checks that gate the merge,
  *  then every check once the optional ones it was told were running finish. */
+export function checkAttempt(check: CheckItem): string {
+  return JSON.stringify([check.id, check.inFlight, check.conclusion, check.startedAt, check.completedAt])
+}
+
+function checkNews(next: PullRequestWatchState, read: WatchRead, checks: CheckItem[], headMoved: boolean): WatchNews[] {
+  const news: WatchNews[] = []
+  const failed = checks.filter(isFailed)
+  const newlyFailed = failed.filter((check) => !next.failedChecks.includes(check.id))
+  next.failedChecks = failed.map((check) => check.id)
+  if (newlyFailed.length) news.push({ kind: 'checks-failed', checks: newlyFailed })
+
+  news.push(...approvalNews(next, checks))
+
+  const gate = read.checks.required.length ? read.checks.required : checks
+  if (gate.some(isFailed)) news.push(...failedGateNews(next, checks, failed, newlyFailed))
+  // While the hold is set, a read without the awaited check is not a pass.
+  else if (!next.approvalChecks.length) news.push(...passNews(next, read))
+  news.push(...noChecksNews(next, read, headMoved))
+
+  return news
+}
+
 function passNews(next: PullRequestWatchState, read: WatchRead): WatchNews[] {
   const { required, optional } = read.checks
   const checks = [...required, ...optional]

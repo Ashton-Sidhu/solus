@@ -5,6 +5,7 @@
   import ReviewCommentCard from "./ReviewCommentCard.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import TranscriptTable from "./TranscriptTable.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownList from "./MarkdownList.svelte";
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
@@ -38,6 +39,7 @@
   import { attachmentLabel } from "../../lib/attachment-label";
   import { clipboardAttachmentRefs } from "@solus/client-core/attachment-clipboard";
   import { writeAttachmentClipboard } from "../../lib/attachment-clipboard";
+  import { fileDrag } from "../../lib/file-drag";
   import { attachmentDownloadName, downloadHostFile } from "./lib/attachment-download";
   import { resolveHostMediaUrl } from "../../lib/host-media-url.svelte";
   import { toasts } from "../../lib/toasts";
@@ -48,7 +50,7 @@
 
   // `rawtext` is the leaf: a `text` token in a tight list item carries inline
   // children (code, bold), and an override there would print them as source.
-  const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, rawtext: MarkdownText, list: MarkdownList, blockquote: MarkdownBlockquote };
+  const markdownRenderers = { table: TranscriptTable, link: MarkdownLink, codespan: CodeSpan, rawtext: MarkdownText, list: MarkdownList, blockquote: MarkdownBlockquote };
 
   interface Props {
     message?: Message;
@@ -234,6 +236,13 @@
   function canDownload(attachment: NonNullable<Message['attachments']>[number]): boolean {
     return !isPending && !!session && !!videoAttachmentPath(attachment);
   }
+  function dragSource(attachment: NonNullable<Message['attachments']>[number]) {
+    const path = videoAttachmentPath(attachment);
+    return canDownload(attachment) && path
+      ? { serverId: imageHost(attachment), path, name: attachmentDownloadName(attachment), ctx: session?.ctxFor(attachmentTabId) }
+      : null;
+  }
+
   async function download(attachment: NonNullable<Message['attachments']>[number]) {
     const fileName = attachmentDownloadName(attachment);
     try {
@@ -407,6 +416,7 @@
       {#each fileAttachments as a, i (i)}
         <button
           type="button"
+          use:fileDrag={() => dragSource(a)}
           onclick={() => requestFilePreview({
             path: a.path,
             tabId: session?.focusedChatTabId ?? session?.activeTabId ?? "",
@@ -433,6 +443,7 @@
         >
           <button
             type="button"
+            use:fileDrag={() => dragSource(a)}
             aria-label="Open {attachmentLabel(a)}"
             onclick={() => requestFilePreview({
               path: a.path,

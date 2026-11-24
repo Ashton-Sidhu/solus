@@ -195,6 +195,11 @@ class Dictation {
     return true
   }
 
+  isMessageInFlight(owner: string): boolean {
+    return this.messageOwner === owner && this.mode === 'message' &&
+      (this.#voice.state !== 'idle' || this.#voice.starting)
+  }
+
   /** Claim a prose editor and mark it as the shortcut destination. */
   focusMessageConsumer(
     owner: string,
@@ -213,12 +218,11 @@ class Dictation {
     this.blurMessageConsumer(owner)
     if (this.#pendingMessageConsumer?.owner === owner) this.#pendingMessageConsumer = null
     if (this.messageOwner !== owner) return
-    if (this.mode === 'message' && (this.#voice.state === 'recording' || this.#voice.starting)) {
-      this.#voice.cancel()
-    }
+    const isInFlight = this.isMessageInFlight(owner)
     this.messageOwner = null
     this.#onMessage = null
     this.#autoRearmFn = null
+    if (isInFlight) this.#voice.cancel()
   }
 
   /** Toggle voice for the focused registered plain field or prose editor. */
@@ -330,7 +334,7 @@ class Dictation {
     if (!this.autoEnabled || !this.#getVoiceReady() || !isDictationTarget(el) || this.#voice.error) return
     // Idle → start dictating. If the conversational recorder is live, yield the
     // mic to this field instead (startInto cancels it and queues the insert).
-    if (this.#voice.state === 'idle' || this.mode === 'message') this.startInto(el)
+    if (this.#voice.state === 'idle' && !this.#voice.starting) this.startInto(el)
   }
 
   /**

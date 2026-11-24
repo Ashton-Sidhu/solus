@@ -63,3 +63,5 @@ The mobile PR list, detail, activity, diff pages, change breakdown, and review g
 Solus replaces the working and waiting icons of T3's session rows with state marks: animated dot marks for live work and still line glyphs for the states that need the person (`docs/plans/session-state-marks.md`). Keep them when an upstream update changes the row's status indicator.
 
 Phone and tablet use T3 Code's **Fork from this response** button and its **Forked from conversation** row, checked at `9f24cac6d42f99e92569b7cbd97ec07932f232d8`. The Solus host supplies the completed Codex or Claude Code response, saves the new session, and reads its history through that response. The first prompt uses the source provider on that host.
+
+The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text. Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.

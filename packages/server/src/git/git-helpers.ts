@@ -425,6 +425,10 @@ export async function isUnpublishedBranch(cwd: string, branch: string): Promise<
 }
 
 export async function resolvePushHead(cwd: string, branch: string): Promise<PullRequestHead | null> {
+  return (await resolvePushDestination(cwd, branch))?.head ?? null
+}
+
+export async function resolvePushDestination(cwd: string, branch: string): Promise<{ remote: string; head: PullRequestHead } | null> {
   const remotes = await remoteUrlsOf(cwd)
   if (!remotes.size) return null
   const git = (args: string[]) => runAsync('git', ['-c', 'safe.directory=*', ...args], cwd).then((out) => out.trim() || null, () => null)
@@ -435,14 +439,14 @@ export async function resolvePushHead(cwd: string, branch: string): Promise<Pull
       .filter((name) => pushRef.startsWith(`${name}/`))
       .sort((a, b) => b.length - a.length)[0]
     const repository = remote ? parseRemoteUrl(remotes.get(remote) ?? '') : null
-    if (remote && repository) return new PullRequestHead(repository, pushRef.slice(remote.length + 1))
+    if (remote && repository) return { remote, head: new PullRequestHead(repository, pushRef.slice(remote.length + 1)) }
   }
   const remote = await git(['config', '--get', `branch.${branch}.pushRemote`])
     ?? await git(['config', '--get', 'remote.pushDefault'])
     ?? await git(['config', '--get', `branch.${branch}.remote`])
     ?? (remotes.has('origin') ? 'origin' : remotes.size === 1 ? [...remotes.keys()][0]! : null)
   const repository = remote ? parseRemoteUrl(remotes.get(remote) ?? '') : null
-  return repository ? new PullRequestHead(repository, branch) : null
+  return remote && repository ? { remote, head: new PullRequestHead(repository, branch) } : null
 }
 
 const primaryRepoRefCache = new Map<string, Promise<RepoRef | null>>()

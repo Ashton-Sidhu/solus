@@ -1,3 +1,7 @@
+import { readAgentLinkedPullRequests, readAgentPullRequestSummary, readAgentPullRequestConversation, readAgentPullRequestList, readAgentPullRequestNumberForHead, readAgentReviewThreadComments } from './agent-pull-requests'
+import type { AgentPullRequestConversationInput, AgentPullRequestListInput } from '../types'
+import type { CheckItem } from '@solus/contracts/checks-types'
+import { readActionsCheckLog, rerunActionsChecks } from './check-runs'
 import { githubCredentials } from './credentials'
 import { isGithubNotFound, type GitHubClient } from './octokit'
 import { runGithubRequest } from './request'
@@ -70,6 +74,7 @@ import {
   githubPullRequestAccessFor,
   githubWriteRefusal,
   listGithubReviewerCandidates,
+  mergeAgentPullRequest,
   revertGithubPullRequest,
   updateGithubPullRequestBranch,
   updateGithubPullRequestLifecycle,
@@ -652,6 +657,12 @@ async function accessFor(client: GitHubClient, repo: RepoRef, author: string): P
 export class GitHubProvider implements ReviewProvider {
   private diffBaseCache = new Map<string, Promise<string>>()
 
+  constructor(private readonly checkout?: string) {}
+
+  forCheckout(cwd: string): ReviewProvider {
+    return new GitHubProvider(cwd)
+  }
+
   /**
    * The clients to try for `host`, one per credential in chain order. This is
    * the provider's one seam: tests script GitHub's answers by replacing it.
@@ -673,7 +684,7 @@ export class GitHubProvider implements ReviewProvider {
     operation: string,
     host: string,
     run: (client: GitHubClient) => Promise<Result>,
-    credentialCwd?: string,
+    credentialCwd = this.checkout,
   ): Promise<Result> {
     return runGithubRequest(operation, host, await this.clients(host, credentialCwd), run)
   }
@@ -737,18 +748,27 @@ export class GitHubProvider implements ReviewProvider {
       readPriorityNumbers(client, repos, state, viewer || await viewerLogin(client)))
   }
 
+  defaultPullRequestBase(repo: RepoRef): Promise<string> {
+    return this.withClient('pull_request_default_base', repo.host, async (client) =>
+      (await client.rest.repos.get({ owner: repo.owner, repo: repo.repo })).data.default_branch)
+  }
+
   async createPullRequest(
     repo: RepoRef,
-    input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },
+    input: { baseRef?: string; headRef: string; headRepo?: string; title: string; body: string; draft?: boolean; credentialCwd?: string },
   ): Promise<PullRequest> {
     return this.withClient('create_pull_request', repo.host, async (client) => {
+      const repository = { owner: repo.owner, repo: repo.repo }
+      const base = input.baseRef ?? (await client.rest.repos.get(repository)).data.default_branch
       const { data } = await client.rest.pulls.create({
         owner: repo.owner,
         repo: repo.repo,
-        base: input.baseRef,
+        base,
         head: input.headRef,
+        head_repo: input.headRepo,
         title: input.title,
         body: input.body,
+        draft: input.draft,
       })
       return toPullRequest(data, repo, await accessFor(client, repo, data.user?.login ?? ''))
     }, input.credentialCwd)
@@ -790,7 +810,7 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string> {
+  async getPullRequestDiffBase(repo: RepoRef, pullRequest: Pick<PullRequest, 'number' | 'baseSha' | 'headSha'>): Promise<string> {
     const key = `${repo.host}/${repo.owner}/${repo.repo}:${pullRequest.number}:${pullRequest.baseSha}:${pullRequest.headSha}`
     let pending = this.diffBaseCache.get(key)
     if (!pending) {
@@ -813,7 +833,7 @@ export class GitHubProvider implements ReviewProvider {
     return pending
   }
 
-  async getPullRequestDiff(repo: RepoRef, detail: PullRequest, request: PrDiffRequest): Promise<PrDiffSlice> {
+  async getPullRequestDiff(repo: RepoRef, detail: Pick<PullRequest, 'number' | 'baseSha' | 'headSha'>, request: PrDiffRequest): Promise<PrDiffSlice> {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
     }
@@ -922,6 +942,43 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
+  agentPullRequestSummary(repo: RepoRef, number: number, input: { body: boolean; fresh?: boolean; checksOnly?: boolean }) {
+    return this.withClient('agent_pull_request_summary', repo.host, (client) =>
+      readAgentPullRequestSummary(client, repo, number, input))
+  }
+
+  agentPullRequestConversation(repo: RepoRef, number: number, input: AgentPullRequestConversationInput) {
+    return this.withClient('agent_pull_request_activity', repo.host, (client) =>
+      readAgentPullRequestConversation(client, repo, number, input))
+  }
+
+  agentPullRequestList(repo: RepoRef, input: AgentPullRequestListInput) {
+    return this.withClient('agent_pull_request_list', repo.host, async (client) =>
+      readAgentPullRequestList(client, repo, input, input.involvement === 'all' ? undefined : await viewerLogin(client)))
+  }
+
+  async agentLinkedPullRequests(repo: RepoRef, numbers: number[]) {
+    return this.withClient('agent_linked_pull_requests', repo.host, client => readAgentLinkedPullRequests(client, repo, numbers))
+  }
+
+  async agentReviewThreadComments(repo: RepoRef, thread: Parameters<typeof readAgentReviewThreadComments>[1]) {
+    return this.withClient('agent_review_thread_comments', repo.host, client => readAgentReviewThreadComments(client, thread))
+  }
+
+  async agentPullRequestNumberForHead(repo: RepoRef, head: PullRequestHead, fresh: boolean) {
+    return this.withClient('agent_pull_request_number_for_head', repo.host, client => readAgentPullRequestNumberForHead(client, repo, head, fresh))
+  }
+
+  async agentMergePullRequest(repo: RepoRef, pr: PullRequest, method: MergeMethod, auto: boolean): Promise<PullRequest['state']> {
+    if (repo.host === 'github.com') {
+      return this.withClient('agent_merge_pull_request', repo.host, client => mergeAgentPullRequest(client, repo, pr, method, auto))
+    }
+    if (auto) return (await this.enablePullRequestAutoMerge(repo, pr.number, method, pr.headSha)).state
+    const result = await this.mergePullRequest(repo, pr.number, method, pr.headSha)
+    if (!result.merged) throw new Error(result.message ?? 'GitHub could not merge the pull request.')
+    return 'merged'
+  }
+
   async getPullRequest(repo: RepoRef, number: number): Promise<PullRequest> {
     return this.withClient('get_pull_request', repo.host, async (client) =>
       (await readGithubPullRequestDetail(client, repo, number)).pullRequest)
@@ -957,9 +1014,9 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async getPullRequestStack(repo: RepoRef, number: number): Promise<PrStack | null> {
+  async getPullRequestStack(repo: RepoRef, number: number, options?: { headsOnly?: boolean }): Promise<PrStack | null> {
     return this.withClient('get_pull_request_stack', repo.host, async (client) => {
-      return readPullRequestStack(client, repo, number).catch(async (error) => {
+      return readPullRequestStack(client, repo, number, options).catch(async (error) => {
         // GitHub answers 404 both where stacks are not on and for a repository
         // this credential cannot see. Only the second should try the next credential.
         if (!isGithubNotFound(error)) throw error
@@ -1026,6 +1083,18 @@ export class GitHubProvider implements ReviewProvider {
       })
     }
     return this.getPullRequest(repo, number)
+  }
+
+  async containsReviewThread(repo: RepoRef, number: number, threadId: string): Promise<boolean> {
+    return this.withClient('contains_review_thread', repo.host, async ({ graphql }) => {
+      const result = await graphql<{ repository: { pullRequest: { id: string } | null } | null; node: { pullRequest?: { id: string } } | null }>(`
+        query AgentReviewThreadSubject($owner: String!, $repo: String!, $number: Int!, $thread: ID!) {
+          repository(owner: $owner, name: $repo) { pullRequest(number: $number) { id } }
+          node(id: $thread) { ... on PullRequestReviewThread { pullRequest { id } } }
+        }`, { owner: repo.owner, repo: repo.repo, number, thread: threadId })
+      const subject = result.repository?.pullRequest?.id
+      return subject !== undefined && subject === result.node?.pullRequest?.id
+    })
   }
 
   async listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]> {
@@ -1107,9 +1176,40 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
+  async changeLabels(repo: RepoRef, number: number, change: { add: string[]; remove: string[] }): Promise<void> {
+    const target = { owner: repo.owner, repo: repo.repo, issue_number: number }
+    if (change.add.length) {
+      await this.withClient('add_pull_request_labels', repo.host, ({ rest }) =>
+        rest.issues.addLabels({ ...target, labels: change.add }))
+    }
+    for (const name of change.remove) {
+      await this.withClient('remove_pull_request_label', repo.host, async ({ rest: client }) => {
+        try {
+          await client.rest.issues.removeLabel({ ...target, name })
+        } catch (error) {
+          if (!isGithubNotFound(error)) throw error
+          // A second editor may have removed the label. Confirm that the
+          // credential can still read this PR before treating 404 as success.
+          const labels = await client.paginate(client.rest.issues.listLabelsOnIssue, { ...target, per_page: 100 })
+          if (labels.some(label => label.name.toLowerCase() === name.toLowerCase())) throw error
+        }
+      })
+    }
+  }
+
   async requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]> {
     await this.withClient('request_reviewers', repo.host, async ({ rest }) => {
-      await rest.pulls.requestReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: logins })
+      const reviewers = logins.filter((login) => !login.includes('/'))
+      const teams = logins.filter((login) => login.includes('/')).map((login) => {
+        const [organization, slug, extra] = login.split('/')
+        if (extra !== undefined || !slug || organization.toLowerCase() !== repo.owner.toLowerCase()) {
+          throw new Error('A team reviewer must belong to the repository organization.')
+        }
+        return slug
+      })
+      await rest.pulls.requestReviewers({
+        owner: repo.owner, repo: repo.repo, pull_number: number, reviewers, team_reviewers: teams,
+      })
     })
     return this.readReviewers(repo, number)
   }
@@ -1194,13 +1294,14 @@ export class GitHubProvider implements ReviewProvider {
     }
   }
 
-  async mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }> {
+  async mergePullRequest(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha?: string): Promise<{ merged: boolean; message?: string }> {
     try {
       const { data } = await this.withClient('merge_pull_request', repo.host, ({ rest }) => rest.pulls.merge({
         owner: repo.owner,
         repo: repo.repo,
         pull_number: number,
         merge_method: method,
+        sha: expectedHeadSha,
       }))
       return { merged: data.merged, message: data.message }
     } catch (err) {
@@ -1273,10 +1374,10 @@ export class GitHubProvider implements ReviewProvider {
     }
   }
 
-  async mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest): Promise<GithubStackMerge> {
+  async mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest, options?: { byStackNumber?: boolean }): Promise<GithubStackMerge> {
     try {
       return await this.withClient('merge_pull_request_stack', repo.host, (client) =>
-        mergeGithubPullRequestStack(client, repo, request))
+        mergeGithubPullRequestStack(client, repo, request, undefined, options))
     } catch (err) {
       if (err instanceof GithubStackMergeRefusal) throw err
       throw githubWriteRefusal(
@@ -1506,6 +1607,14 @@ export class GitHubProvider implements ReviewProvider {
 
   /** Only the pull requests whose checks moved are read in full, and reads of
    *  other repositories on this account share the document. */
+  readCheckLog(repo: RepoRef, check: CheckItem, headSha: string, tailLines: number) {
+    return this.withClient('read_check_log', repo.host, (client) => readActionsCheckLog(client, repo, check, headSha, tailLines))
+  }
+
+  rerunChecks(repo: RepoRef, checks: CheckItem[], headSha: string) {
+    return this.withClient('rerun_checks', repo.host, (client) => rerunActionsChecks(client, repo, checks, headSha))
+  }
+
   async listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]> {
     const unique = uniquePrNumbers(numbers)
     if (unique.length === 0) return []

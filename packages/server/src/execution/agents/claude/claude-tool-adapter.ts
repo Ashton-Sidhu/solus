@@ -11,10 +11,12 @@ const TOOL_USE_ID_META_KEY = 'claudecode/toolUseId'
 const claudeToolExtraSchema = z.object({
   _meta: z.object({ 'claudecode/toolUseId': z.string().optional() }).optional(),
 })
+const structuredResult = z.record(z.string(), z.json())
 
 interface ClaudeToolResponse {
   content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
   isError?: true
+  structuredContent?: z.output<typeof structuredResult>
 }
 
 export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchema>): string | undefined {
@@ -31,7 +33,7 @@ export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchem
  * parses the call again against the tool's own fields, which fills the
  * default in.
  */
-function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'] {
+function callerFields(fields: AgentTool['inputFields']): NonNullable<AgentTool['inputFields']> {
   return Object.fromEntries(Object.entries(fields ?? {}).map(([name, field]) => {
     if (!(field instanceof z.ZodDefault)) return [name, field]
     const optional = z.optional(field.unwrap())
@@ -46,6 +48,10 @@ export function claudeToolResponse(result: AgentToolResult): ClaudeToolResponse 
   }
   for (const image of result.images ?? []) response.content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
   if (!result.ok) response.isError = true
+  if (result.ok && result.format === 'json') {
+    const structured = structuredResult.safeParse(JSON.parse(result.text))
+    if (structured.success) response.structuredContent = structured.data
+  }
   return response
 }
 
@@ -77,7 +83,9 @@ export function adaptClaudeTools(
       // model. A passthrough tool takes any object: the SDK strips the keys a
       // field map does not name but runs a Zod object as it is, so a loose one
       // keeps them. The model reads the compact schema; the check stays full.
-      const callSchema = agentTool.passthroughInput ? z.looseObject({}) : z.object(callerFields(agentTool.inputFields))
+      const fields = callerFields(agentTool.inputFields)
+      const callSchema = agentTool.passthroughInput ? z.looseObject({})
+        : agentTool.strictInput ? z.strictObject(fields) : z.object(fields)
       // The SDK's zod writes `$schema` first and then this schema's own keys,
       // so an undefined `$schema` keeps it out of the JSON the model reads.
       callSchema._zod.toJSONSchema = () => ({ ...advertisedInputSchema(agentTool), $schema: undefined })

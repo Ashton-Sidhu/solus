@@ -499,6 +499,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
           }}
           enableTaskListItemToggle={props.onTaskListItemPress !== undefined}
           onTaskListItemPress={props.onTaskListItemPress}
+          enableBlockContextMenu
           enableCodeBlockWrapToggle
           spoilerOverlay="solid"
           onLinkPress={

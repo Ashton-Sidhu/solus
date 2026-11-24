@@ -1,3 +1,4 @@
+import { isInsideRoot } from '../../paths'
 import { attachmentsRoot, uploadFolderName } from './attachment-store'
 import { createHash, randomBytes } from 'crypto'
 import { createReadStream, existsSync } from 'fs'
@@ -274,6 +275,34 @@ export async function createAssetUrl(
   return { relativeUrl: `/api/assets/${token}`, expiresAt }
 }
 
+/** Mint an attachment URL for a checked-out file or a file already uploaded
+ * to the originating draft/session. Use the canonical path and bind the token
+ * to its inode, as with uploaded attachments. */
+export async function createFileDownloadUrl(
+  ctx: IpcContext | undefined,
+  request: Pick<AssetCreateUrlRequest, 'path' | 'name'>,
+  options: { scope: string | null; secret?: Buffer; now?: number },
+): Promise<AssetCreateUrlResult> {
+  if (!request.path || !ctx) throw new Error('The download needs a session file path.')
+  const checkout = projectRootForRequest(ctx)
+  const target = await realpath(resolvePreviewPath(request.path, checkout ?? undefined))
+  const root = checkout ? await realpath(checkout).catch(() => null) : null
+  const sessionId = ctx.session.sessionId || ctx.session.draftId
+  const uploadRoot = sessionId ? await realpath(attachmentsRoot()).catch(() => null) : null
+  const scope = options.scope ? await realpath(options.scope).catch(() => '') : options.scope
+  const inCheckout = root && isInsideRoot(root, target) && (scope === null || (!!scope && isInsideRoot(scope, target)))
+  const inUploads = scope === null && sessionId && uploadRoot && target.startsWith(join(uploadRoot, uploadFolderName(sessionId)) + sep)
+  if (!inCheckout && !inUploads) throw new Error('This file is outside the checkout and session uploads.')
+  const file = await stat(target)
+  if (!file.isFile()) throw new Error('Only files can be downloaded.')
+  const expiresAt = (options.now ?? Date.now()) + ASSET_URL_TTL_MS
+  const token = signToken({
+    path: target, expiresAt, mime: 'application/octet-stream',
+    downloadName: request.name, uploadFile: { dev: file.dev, ino: file.ino },
+  } satisfies AssetTokenPayload, options.secret ?? getAssetSigningSecret())
+  return { relativeUrl: `/api/assets/${token}`, expiresAt }
+}
+
 /** Serve the first candidate that `createAssetUrl` accepts, in one round trip.
  *  A client probing conventional locations (a project favicon) would otherwise
  *  pay one host request per miss. */
@@ -312,7 +341,7 @@ export async function serveAssetToken(
   const isStoredAsset = ASSET_ID.test(basename(payload.path))
   const mediaType = mediaTypeFor(payload.path)
   const audioMime = isStoredAsset ? audioAssetMime(basename(payload.path)) : null
-  const knownMime = mediaType?.mime ?? payload.mime ?? audioMime ?? undefined
+  const knownMime = payload.mime ?? mediaType?.mime ?? audioMime ?? undefined
   const mime = knownMime ?? 'application/octet-stream'
   if (!isStoredAsset && !knownMime) return new Response('Unsupported type', { status: 415 })
   // A stored video or audio plays in place like a stored image shows. Every
@@ -339,7 +368,10 @@ export async function serveAssetToken(
   }
   if ((isStoredAsset && !isInline) || mime === 'application/octet-stream') {
     const safeName = (payload.downloadName || basename(payload.path)).replace(/["\\\r\n]/g, '_')
-    Object.assign(headers, { 'Content-Disposition': `attachment; filename="${safeName}"` })
+    const asciiName = safeName.replace(/[^ -~]/g, '_')
+    Object.assign(headers, {
+      'Content-Disposition': `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName.toWellFormed())}`,
+    })
   }
   if (range) Object.assign(headers, { 'Content-Range': `bytes ${start}-${end}/${fileStat.size}` })
   if (request.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })

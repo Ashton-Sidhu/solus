@@ -1,3 +1,4 @@
+import { dictation } from '../../lib/dictation.svelte'
 import { agentForProject, modelProfileForAgent } from '@solus/contracts/provider-instance-models'
 import { hosts } from '../hosts/hosts.svelte'
 import { SessionQueueController } from './session-queue.store.svelte'
@@ -1388,6 +1389,7 @@ export class WorkspaceContext implements SurfaceContext {
     const sessionId = tab?.sessionId
     const closedTabIndex = this.tabOrder.indexOf(tabId)
     const newOrder = this.tabOrder.filter((id) => id !== tabId)
+    dictation.releaseMessageConsumer(`composer:${tabId}`)
     this.onTabClosing?.(tabId)
     delete this.tabs[tabId]
     // Purge the closed tab's persisted input draft so the drafts map can't grow

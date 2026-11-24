@@ -1575,6 +1575,8 @@ export interface NativeSolusAPI {
   rendererReady(): void
   rendererMounted(): void
   getPathForFile(file: File): string
+  prepareFileDrag?(name: string, data: ArrayBuffer): Promise<string | null>
+  startFileDrag?(token: string): Promise<boolean>
   readAttachmentBytes(path: string, mime: string): Promise<{ dataUrl: string; size: number }>
   /** Applies UI zoom to this window's webContents; main clamps the factor. */
   setZoomFactor(factor: number): void

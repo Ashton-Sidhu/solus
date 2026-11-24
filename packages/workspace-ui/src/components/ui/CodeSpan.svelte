@@ -2,6 +2,8 @@
   import { tokenClassName } from "../editor/tokenStyle";
   import FileIcon from "./file-icon/FileIcon.svelte";
   import { getSurfaceContext, hasSurfaceContext } from "../../contexts";
+  import { fileDrag } from "../../lib/file-drag";
+  import { getMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestFilePreview } from "../../lib/filePreview";
   import { codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
   import { boldTextInCodeSpan } from "@solus/document-model/markdown";
@@ -15,6 +17,7 @@
 
   // A file path opens a preview on the person's session; a client with no
   // session (the cloud console, which sets no surface context) shows the path as code.
+  const host = getMarkdownImageContext();
   const workspace = hasSurfaceContext() ? getSurfaceContext().workspace : null;
 
   // No entity decoding here: marked ≥13 hands codespan token text through
@@ -47,6 +50,10 @@
   <button
     type="button"
     class={tokenClassName("file")}
+    use:fileDrag={() => {
+      const serverId = host?.serverId();
+      return serverId ? { serverId, path: filePath, ctx: host?.ctx() } : null;
+    }}
     title={copyText}
     onclick={handleFileClick}
   ><span class="solus-token__icon"><FileIcon path={filePath} size={12} /></span><span
