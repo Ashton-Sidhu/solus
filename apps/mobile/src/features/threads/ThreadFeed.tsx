@@ -399,6 +399,8 @@ export interface ThreadFeedProps {
   readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly openedAsDraft?: boolean;
+  readonly onReady?: () => void;
   readonly pendingHandoff?: HandoffEndpoints | null;
   /** Thread states that close the feed: background work, then snooze or settle. */
   readonly statusLines?: ReadonlyArray<ThreadStatusLineModel>;
@@ -3986,6 +3988,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // LegendList reports ready, and shows its rows, while rows measured during its initial scroll can
   // still leave it hundreds of points short of the end; isAtEnd stays true through that.
   const settling = props.feed.length > 0 && landedListKey !== feedThreadKey;
+  // A first prompt has no history to land on. Paint it as soon as the feed
+  // replaces the draft, while the list finishes measuring its first rows.
+  const hideUntilLanded = settling && !props.openedAsDraft;
   const landingFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reportMetrics = (ready: boolean) => {
     const state = listRef.current?.getState();
@@ -4524,7 +4529,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           <KeyboardAwareLegendList
             ref={attachList}
             dataKey={feedThreadKey}
-            style={settling ? { flex: 1, opacity: 0 } : { flex: 1 }}
+            style={hideUntilLanded ? { flex: 1, opacity: 0 } : { flex: 1 }}
             applyWorkaroundForContentInsetHitTestBug
             {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
             contentInsetAdjustmentBehavior="never"
@@ -4581,10 +4586,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             scrollToOverflowEnabled
             estimatedItemSize={180}
             alignItemsAtEnd
-            initialScrollAtEnd
+            initialScrollAtEnd={!props.openedAsDraft}
             onReady={() => {
               setLoadedListKey(feedThreadKey);
               reportMetrics(true);
+              props.onReady?.();
               // Never leave the feed hidden if end following stalls short of the end.
               landingFallback.current = setTimeout(() => setLandedListKey(feedThreadKey), 1000);
             }}

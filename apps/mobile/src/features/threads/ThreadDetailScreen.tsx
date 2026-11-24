@@ -440,6 +440,11 @@ function ThreadDetailBody(
 ) {
   const gt = useGT();
   const messages = useMessages();
+  const [openedAsDraft] = useState(() => props.draftMode !== undefined);
+  const [submittingDraftContent, setSubmittingDraftContent] = useState<
+    NonNullable<ThreadDetailScreenProps["draftMode"]>["content"] | null
+  >(null);
+  const draftContent = props.draftMode?.content ?? submittingDraftContent;
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const deviceType = useDeviceType();
   const workspace = useWorkspaceTabs();
@@ -1100,7 +1105,7 @@ function ThreadDetailBody(
   const screenAreaHeight = screenHeight ?? windowHeight;
   const draftViewportHeight = screenAreaHeight - navigationHeaderHeight - liveKeyboardHeight;
   const { height: keyboardTranslation, progress: keyboardProgress } = useReanimatedKeyboardAnimation();
-  const hasDraft = props.draftMode !== undefined;
+  const hasDraft = draftContent !== null;
   const composerControlBottomInset = controlInsets.bottom;
   const draftBottomInsetStyle = useAnimatedStyle(() => {
     if (!hasDraft) return {};
@@ -1386,6 +1391,10 @@ function ThreadDetailBody(
         : undefined;
     let dismissingKeyboard = false;
     const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
+      if (!scope.aborted && props.draftMode) {
+        const content = props.draftMode.content;
+        setSubmittingDraftContent(() => content);
+      }
       if (
         scope.aborted ||
         Platform.OS !== "ios" ||
@@ -1397,6 +1406,7 @@ function ThreadDetailBody(
       dismissingKeyboard = true;
     });
     if (messageId === null || scope.aborted) {
+      if (!scope.aborted && props.draftMode) setSubmittingDraftContent(null);
       if (dismissingKeyboard && !scope.aborted) setSendingWithKeyboard(false);
       return messageId;
     }
@@ -1545,19 +1555,31 @@ function ThreadDetailBody(
     feedTouchStartRef.current = null;
   };
 
+  // Prepare the first rows while the draft still covers them. Keep the draft in
+  // place until the list can paint the prompt, even if the route has already changed.
+  const showThreadFeed =
+    showContent &&
+    (!props.draftMode ||
+      props.selectedThreadFeed.some(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      ));
+  const coverThreadFeed = draftContent !== null && contentPresentationKind === "ready";
+  // Release the cover if layout fails so the feed can expose its error or retry.
+  useEffect(() => {
+    if (props.draftMode || submittingDraftContent === null) return;
+    const timeout = setTimeout(() => setSubmittingDraftContent(null), 1200);
+    return () => clearTimeout(timeout);
+  }, [props.draftMode, submittingDraftContent]);
+
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
-      {props.draftMode ? (
-        props.draftMode.content(
-          navigationHeaderHeight,
-          draftBottomInsetStyle,
-          draftViewportHeight,
-          screenAreaHeight - navigationHeaderHeight - collapsedComposerHeight - 24,
-        )
-      ) : showContent ? (
+      {showThreadFeed ? (
         <View
-          style={{ flex: 1 }}
+          style={coverThreadFeed ? { flex: 1, opacity: 0 } : { flex: 1 }}
+          pointerEvents={coverThreadFeed ? "none" : "auto"}
+          accessibilityElementsHidden={coverThreadFeed}
+          importantForAccessibility={coverThreadFeed ? "no-hide-descendants" : "auto"}
           onTouchStart={handleFeedTouchStart}
           onTouchMove={handleFeedTouchMove}
           onTouchEnd={handleFeedTouchEnd}
@@ -1593,6 +1615,8 @@ function ThreadDetailBody(
                   detailRef={props.selectedThreadDetailRef}
                   workspaceRoot={props.threadCwd}
                   feed={props.selectedThreadFeed}
+                  openedAsDraft={openedAsDraft}
+                  onReady={submittingDraftContent !== null ? () => setSubmittingDraftContent(null) : undefined}
                   pendingHandoff={props.pendingHandoff}
                   statusLines={statusLines}
                   worktreeSetup={props.worktreeSetup}
@@ -1648,6 +1672,12 @@ function ThreadDetailBody(
         </View>
       ) : (
         <View className="flex-1" />
+      )}
+      {draftContent?.(
+        navigationHeaderHeight,
+        draftBottomInsetStyle,
+        draftViewportHeight,
+        screenAreaHeight - navigationHeaderHeight - collapsedComposerHeight - 24,
       )}
 
       {showContent ? (
