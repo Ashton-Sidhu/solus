@@ -3,7 +3,7 @@ import { spawnSync } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SshClient, type SshTarget } from '@solus/server/platform/ssh'
+import { SshClient, SshForwardAuthError, supportsSshControlMaster, type SshTarget } from '@solus/server/platform/ssh'
 import { spawnHelper, type HelperProcess } from '@solus/server/devices/device-helpers'
 import type { DeviceCommandOptions, DeviceCommandRunner } from '@solus/server/devices/device-process'
 
@@ -89,6 +89,64 @@ describe('SshClient', () => {
     })
     await expect(client.forward(TARGET, 41000, '/readyz')).rejects.toThrow('did not answer')
     expect(child.killed).toBe(true)
+  })
+
+  test.skipIf(process.platform !== 'darwin' && process.platform !== 'linux')('an auth failure reuses a signed-in master and cancels its forward on close', async () => {
+    const direct = { ...fakeProcess(9), stderrTail: 'Permission denied (publickey,keyboard-interactive).' }
+    const mux = fakeProcess(10)
+    const commands: string[][] = []
+    const spawned: string[][] = []
+    const client = new SshClient({
+      run: async (_command, args) => {
+        commands.push([...args])
+        return { code: 0, stdout: args.includes('-G') ? 'controlpath /tmp/studio socket\n' : '', stderr: '' }
+      },
+      spawn: (_command, args) => { spawned.push([...args]); return spawned.length === 1 ? direct : mux },
+      reservePort: async () => 52006,
+      fetch: async () => {
+        if (spawned.length > 1) return new Response('ok')
+        direct.exit(255)
+        throw new Error('refused')
+      },
+    })
+
+    const forward = await client.forward(TARGET, 41000, '/health')
+    expect(spawned[0]).toContain('ControlPath=none')
+    expect(commands[0]).toContain('-G')
+    expect(commands[1]).toContain('check')
+    expect(spawned[1]).toContain('/tmp/studio socket')
+    expect(spawned[1]).toContain('ProxyCommand=exit 1')
+    expect(spawned[1]).toContain('127.0.0.1:52006:127.0.0.1:41000')
+    forward.close()
+    await forward.exited
+    expect(mux.killed).toBe(true)
+    expect(commands[2]).toContain('cancel')
+    expect(commands[2]).toContain('127.0.0.1:52006:127.0.0.1:41000')
+  })
+
+  test('a stale control socket retains the auth refusal and opens no second connection', async () => {
+    const direct = { ...fakeProcess(11), stderrTail: 'Permission denied (publickey,keyboard-interactive).' }
+    const commands: string[][] = []
+    let spawnCount = 0
+    const client = new SshClient({
+      run: async (_command, args) => {
+        commands.push([...args])
+        return args.includes('-G')
+          ? { code: 0, stdout: 'controlpath /tmp/stale-socket\n', stderr: '' }
+          : { code: 255, stdout: '', stderr: 'No such file or directory' }
+      },
+      spawn: () => { spawnCount += 1; return direct },
+      reservePort: async () => 52007,
+      fetch: async () => {
+        direct.exit(255)
+        throw new Error('refused')
+      },
+    })
+    await expect(client.forward(TARGET, 41000, '/health')).rejects.toBeInstanceOf(SshForwardAuthError)
+    expect(spawnCount).toBe(1)
+    if (supportsSshControlMaster()) expect(commands[1]).toContain('check')
+    else expect(commands).toHaveLength(0)
+    expect(supportsSshControlMaster('win32')).toBe(false)
   })
 
   test.skipIf(process.platform === 'win32')('the script goes on stdin and each argument reaches it as one word', async () => {

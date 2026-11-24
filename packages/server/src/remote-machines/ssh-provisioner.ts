@@ -5,7 +5,7 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import { formatLinkCode } from '@solus/contracts/uplink'
 import type { DeviceCommandResult } from '../devices/device-process'
 import { createLogger } from '../logger'
-import { isMissingPosixShell, isSshAuthFailure, powerShellCommand, powerShellLiteral, quoteRemoteArg, type SshRunOptions, type SshTarget } from '../platform/ssh'
+import { isMissingPosixShell, isSshAuthFailure, powerShellCommand, powerShellLiteral, quoteRemoteArg, supportsSshControlMaster, type SshRunOptions, type SshTarget } from '../platform/ssh'
 import type { MachineClient } from './wsl'
 import { formatSshTarget } from './ssh-targets'
 
@@ -212,9 +212,12 @@ export class SshProvisioner {
       : await this.ssh.run(request.target, undefined, [], { ...options, command: powerShellCommand(script) })
     if (result.code !== 0 && isSshAuthFailure(`${result.stderr}\n${result.stdout}`)) {
       const name = formatSshTarget(request.target)
+      const sharingHint = supportsSshControlMaster()
+        ? ' For a one-time code, sign in from a terminal with OpenSSH connection sharing enabled, then retry.'
+        : ''
       throw new AuthNeeded(request.authSecret
         ? `${name} refused that password or passphrase.`
-        : `${name} refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.`)
+        : `${name} refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.${sharingHint}`)
     }
     return result
   }

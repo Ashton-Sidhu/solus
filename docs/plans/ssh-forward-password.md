@@ -31,7 +31,23 @@ must sign in again each time it opens, so "used once" is not sufficient.
    already read that user's SSH keys and the Solus data folder. We accept this.
    OpenSSH closes inherited descriptors, so a pipe to askpass needs a named pipe and
    has no Windows form. That is more machinery than the risk earns.
-4. One prompt for one secret. A second factor (a one-time code) cannot be answered.
+4. One prompt for one secret. Enter a one-time code in OpenSSH in a terminal.
+
+## Use a signed-in OpenSSH connection
+
+On a macOS or Linux computer that holds the SSH forward, configure OpenSSH
+connection sharing for the target. For example, set `ControlMaster auto`,
+`ControlPath ~/.ssh/solus-%C`, and `ControlPersist 10m` under its `Host`
+entry. Sign in to that same target in a terminal and complete authentication
+there. Then add the host in Solus while the master is active. If a saved
+forward is already waiting for a password, restart the Solus host that holds
+the forward to try it again.
+
+Solus still tries a direct forward first. If authentication fails, it can
+reuse the authenticated master for a target with POSIX `sh`. The forward
+binds to loopback and Solus cancels it when the client process ends. Without
+a live master, or on Windows OpenSSH, the existing key, password, and
+passphrase flow applies.
 
 ## Decisions
 

@@ -42,6 +42,7 @@ const PERMISSION_OF_METHOD = {
   restartApp: 'host.local.window',
   // Opens a window on the host's own screen.
   openInFileManager: 'host.local.window',
+  openDesktopFile: 'host.local.window',
   // Acts on the host's own screen, disk, and clipboard: a native picker, a path on its disk,
   // a capture of its screen. No session role reaches them; a remote client uploads instead.
   attachFiles: 'host.local.window',

@@ -12,31 +12,36 @@ export interface HelperProcess {
   readonly pid: number
   /** Resolves with the exit code when the process ends. */
   readonly exited: Promise<number | null>
+  readonly stderrTail?: string
   kill(): void
 }
 
-export type HelperSpawner = (command: string, args: readonly string[], env: NodeJS.ProcessEnv) => HelperProcess
+export type HelperSpawner = (command: string, args: readonly string[], env: NodeJS.ProcessEnv, options?: { keepStdinOpen?: boolean }) => HelperProcess
 
-export const spawnHelper: HelperSpawner = (command, args, env) => {
+export const spawnHelper: HelperSpawner = (command, args, env, options) => {
   const child = spawn(command, [...args], {
     cwd: resolveHomePath(homedir()),
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [options?.keepStdinOpen ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     shell: false,
     detached: false,
   })
   const pid = child.pid ?? -1
   // Helper output is noise unless it fails; keep a short tail for diagnosis.
   let tail = ''
+  let stderrTail = ''
   const append = (chunk: Buffer) => { tail = (tail + chunk.toString()).slice(-2000) }
   child.stdout?.on('data', append)
-  child.stderr?.on('data', append)
+  child.stderr?.on('data', (chunk: Buffer) => {
+    append(chunk)
+    stderrTail = (stderrTail + chunk.toString()).slice(-2000)
+  })
   const exited = new Promise<number | null>((resolve) => {
     child.once('error', (error) => {
       log.warn('device_helper_spawn_failed', { command, error: error.message })
       resolve(127)
     })
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       if (code !== 0 && code !== null) log.warn('device_helper_exited', { pid, code, tail: tail.slice(-500) })
       resolve(code)
     })
@@ -44,6 +49,7 @@ export const spawnHelper: HelperSpawner = (command, args, env) => {
   return {
     pid,
     exited,
+    get stderrTail() { return stderrTail },
     kill: () => {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
     },

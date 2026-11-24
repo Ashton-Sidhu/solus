@@ -4,7 +4,7 @@ import type { ForwardedHost, ForwardedHostState } from '@solus/contracts/remote-
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { readHostRecords, saveHostConnection, hostCredential, removeHostListing, onHostRecordRemoved } from '../host/host-list'
-import type { SshTarget } from '../platform/ssh'
+import { SshForwardAuthError, type SshTarget } from '../platform/ssh'
 import { AuthNeeded } from './ssh-provisioner'
 import type { MachineClient, MachineForward } from './wsl'
 import { formatSshTarget, parseSshTarget } from './ssh-targets'
@@ -179,10 +179,10 @@ export class ForwardedHosts {
   }
 
   /** Closes every forward; the records stay for the next start. */
-  closeAll(): void {
+  async closeAll(): Promise<void> {
     this.isClosed = true
     this.stopRemoval()
-    for (const installationId of this.live.keys()) this.close(installationId)
+    await Promise.allSettled([...this.live.keys()].map((installationId) => this.close(installationId)))
   }
 
   private async open(record: ForwardRecord): Promise<void> {
@@ -217,13 +217,14 @@ export class ForwardedHosts {
         this.retry(record.installationId, live, 'The SSH connection closed.')
       })
     } catch (error) {
-      if (error instanceof AuthNeeded) this.waitForAuth(record.installationId, live, authSecret ? error.message : undefined)
+      if (error instanceof SshForwardAuthError) this.waitForAuth(record.installationId, live, error.message)
+      else if (error instanceof AuthNeeded) this.waitForAuth(record.installationId, live, authSecret ? error.message : undefined)
       else this.retry(record.installationId, live, error instanceof Error ? error.message : String(error))
     }
     this.notify()
   }
 
-  /** SSH refused: no timer runs, and a refused secret leaves memory. `refusal` says why a given secret failed. */
+  /** SSH refused: no timer runs, and a refused secret leaves memory. */
   private waitForAuth(installationId: string, live: LiveForward, refusal: string | undefined): void {
     if (this.isClosed || this.live.get(installationId) !== live) return
     live.state = 'needs-auth'
@@ -247,7 +248,7 @@ export class ForwardedHosts {
     this.notify()
   }
 
-  private close(installationId: string): void {
+  private close(installationId: string): Promise<number | null> | undefined {
     const live = this.live.get(installationId)
     if (!live) return
     if (live.timer) (this.deps.clearTimeoutFn ?? clearTimeout)(live.timer)
@@ -255,6 +256,7 @@ export class ForwardedHosts {
     const forward = live.forward
     live.forward = null
     forward?.close()
+    return forward?.exited
   }
 
   private describe(record: ForwardRecord): ForwardedHost {

@@ -65,6 +65,7 @@ export const RPC_PLANES = {
   saveFileDialog: 'execution',
   openExternal: 'execution',
   openInFileManager: 'execution',
+  openDesktopFile: 'execution',
   openInTerminal: 'execution',
   openWorktreeTerminal: 'execution',
   resolveTerminal: 'execution',

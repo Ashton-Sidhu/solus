@@ -264,6 +264,7 @@ export interface SolusAPI {
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   openInFileManager(path: string): Promise<boolean>
+  openDesktopFile(path: string, action: 'open' | 'reveal'): Promise<boolean>
   openInTerminal(ctx: IpcContext): Promise<boolean>
   openWorktreeTerminal(ctx: IpcContext): Promise<boolean>
   resolveTerminal(fallbackTerminalId: TerminalAppId | null): Promise<ResolvedTerminal>

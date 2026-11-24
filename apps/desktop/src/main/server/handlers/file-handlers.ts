@@ -2,7 +2,8 @@ import { voiceStreamIdSchema, voiceStreamFeedSchema, voiceWarmRequestSchema } fr
 import { dialog, shell } from 'electron'
 import { takeDesktopScreenshot } from '../../capture/screenshot'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
-import { join, dirname } from 'path'
+import { z } from 'zod'
+import { join, dirname, isAbsolute } from 'path'
 import { existsSync, writeFileSync, statSync } from 'fs'
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -26,6 +27,7 @@ import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachmen
 
 const log = createLogger('main', 'file-handlers')
 const { terminal } = desktopPlatform
+const desktopFileActionSchema = z.tuple([z.string().refine(isAbsolute), z.enum(['open', 'reveal'])])
 
 export interface FileDeps {
   /** The desktop workspace window used by dialogs and screenshots. */
@@ -106,6 +108,16 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     } catch {
       return false
     }
+  })
+
+  server.register('openDesktopFile', async (args) => {
+    const request = desktopFileActionSchema.safeParse(args)
+    if (!request.success) return false
+    const [path, action] = request.data
+    if (action === 'open') return (await shell.openPath(path)) === ''
+    if (!await stat(path).catch(() => null)) return false
+    shell.showItemInFolder(path)
+    return true
   })
 
   server.register('attachFiles', async () => {

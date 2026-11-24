@@ -31,6 +31,21 @@ equal horizontal padding. File headers use the compact size: 24 px high
 with lighter labels and less padding. Touch controls retain their larger
 height.
 
+## Open files in another application
+
+Use the file tree menu or **File actions** in a diff header. For files on the
+desktop client's own host, **Open** uses the system default application,
+**Reveal in file manager** selects the path, and **Open with** lists installed
+editors. These actions require permission to use the host and read its files.
+Local desktop actions also require permission to open native windows.
+
+For a remote SSH host, **Open with** hands the file or folder to an editor on
+the viewing computer. Solus uses the SSH alias saved on that computer when
+available, or the SSH address the host advertises. Set any custom port, key,
+or jump host for the alias in the viewing computer's SSH config. Desktop web
+browsers can also hand off an advertised address to VS Code. The native mobile
+app and mobile browsers use the in-app file preview.
+
 ## Media and other binary files
 
 The Files pane shows images, PDFs, and videos on desktop, web, and mobile.

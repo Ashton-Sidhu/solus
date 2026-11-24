@@ -38,3 +38,13 @@ test('Tailscale SSH requires both prefs', () => {
   expect(tailscaleSshFromPrefs({ RunSSH: true, WantRunning: false })).toBe(false)
   expect(tailscaleSshFromPrefs({ RunSSH: true })).toBe(false)
 })
+
+test('a viewer opens an SSH alias as a file or as a folder', () => {
+  const alias = { host: 'studio', user: 'dev' }
+  const file = 'vscode://vscode-remote/ssh-remote+dev%40studio/work/a%20b.ts:1:1'
+  const folder = 'vscode://vscode-remote/ssh-remote+dev%40studio/work/src?windowId=_blank'
+  expect(remoteEditorLink('vscode', alias, '/work/a b.ts', 'file')).toBe(file)
+  expect(remoteEditorLink('vscode', alias, '/work/src', 'folder')).toBe(folder)
+  expect(remoteEditorFileUrl(file)).toBe(file)
+  expect(remoteEditorFileUrl(folder)).toBe(folder)
+})

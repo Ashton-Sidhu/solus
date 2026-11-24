@@ -6,6 +6,8 @@
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
+  import FileOpenMenuItems from "./FileOpenMenuItems.svelte";
+  import type { FileOpenAction, FileOpenRoute } from "./lib/file-open-actions";
   import type { FileTreeEntryKind } from "./lib/file-tree-mutations";
 
   interface Props {
@@ -13,13 +15,16 @@
     y: number;
     /** Row the menu was opened on, for the destructive item's label. */
     name: string;
+    openRoute: FileOpenRoute | null;
+    onOpen: (action: FileOpenAction) => void;
+    canWrite: boolean;
     onCreate: (kind: FileTreeEntryKind) => void;
     onRename: () => void;
     onDelete: () => void;
     onClose: () => void;
   }
 
-  let { x, y, name, onCreate, onRename, onDelete, onClose }: Props = $props();
+  let { x, y, name, openRoute, onOpen, canWrite, onCreate, onRename, onDelete, onClose }: Props = $props();
 
   function select(action: () => void) {
     action();
@@ -36,22 +41,28 @@
     data-file-tree-context-menu-root="true"
     onCloseAutoFocus={(event) => event.preventDefault()}
   >
-    <ContextMenu.Item onSelect={() => select(() => onCreate("file"))}>
-      <FilePlusIcon />
-      New file
-    </ContextMenu.Item>
-    <ContextMenu.Item onSelect={() => select(() => onCreate("folder"))}>
-      <FolderPlusIcon />
-      New folder
-    </ContextMenu.Item>
-    <ContextMenu.Separator />
-    <ContextMenu.Item onSelect={() => select(onRename)}>
-      <PencilSimpleIcon />
-      Rename
-    </ContextMenu.Item>
-    <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
-      <TrashIcon />
-      Delete “{name}”
-    </ContextMenu.Item>
+    {#if openRoute}
+      <FileOpenMenuItems route={openRoute} onSelect={(action) => select(() => onOpen(action))} />
+    {/if}
+    {#if canWrite}
+      {#if openRoute}<ContextMenu.Separator />{/if}
+      <ContextMenu.Item onSelect={() => select(() => onCreate("file"))}>
+        <FilePlusIcon />
+        New file
+      </ContextMenu.Item>
+      <ContextMenu.Item onSelect={() => select(() => onCreate("folder"))}>
+        <FolderPlusIcon />
+        New folder
+      </ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item onSelect={() => select(onRename)}>
+        <PencilSimpleIcon />
+        Rename
+      </ContextMenu.Item>
+      <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
+        <TrashIcon />
+        Delete “{name}”
+      </ContextMenu.Item>
+    {/if}
   </ContextMenu.Content>
 </ContextMenu.Root>

@@ -47,6 +47,7 @@ import { readLocalHostEnabled, writeLocalHostEnabled } from '@solus/desktop-main
 import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
+import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
 
 // Every static import above has now evaluated, so this is the main bundle's
 // module-graph cost — the first item on the startup critical path.
@@ -606,7 +607,7 @@ ipcMain.handle('solus:set-local-host-enabled', (_event, rawEnabled) => {
   app.quit()
 })
 
-const externalUrlSchema = z.string().regex(/^https?:\/\//i)
+const externalUrlSchema = z.string()
 const serverForwards = new ServerForwards()
 ipcMain.handle('solus:server-forward-start', (_event, request) => serverForwards.start(serverForwardRequestSchema.parse(request)))
 ipcMain.handle('solus:server-forward-stop', (_event, forwardId) => serverForwards.stop(z.string().uuid().parse(forwardId)))
@@ -617,8 +618,10 @@ const attachmentReadSchema = z.tuple([z.string(), z.string()])
 ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {
   const parsedUrl = externalUrlSchema.safeParse(input)
   if (!parsedUrl.success) return false
+  const target = /^https?:\/\//i.test(parsedUrl.data) ? parsedUrl.data : remoteEditorFileUrl(parsedUrl.data)
+  if (!target) return false
   try {
-    await shell.openExternal(parsedUrl.data)
+    await shell.openExternal(target)
     if (options?.hideAppAfterOpen) hideAppWindow()
     return true
   } catch {
