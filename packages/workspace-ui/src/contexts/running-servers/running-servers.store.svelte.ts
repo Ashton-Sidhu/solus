@@ -40,7 +40,7 @@ export class RunningServersStore {
   rowsForScope(scope: RunningServersScope) { return this.#controller.rowsForScope(scope) }
   retry() { this.#controller.retry() }
   retainCheckout(path: string | null) { return this.#controller.retainCheckout(path) }
-  retainCheckouts(paths: readonly string[]) { return this.#controller.retainCheckouts(paths) }
+  retainCheckouts(paths: readonly string[]) { return untrack(() => this.#controller.retainCheckouts(paths)) }
   configuredUrls(path: string) { return this.#controller.configuredUrls(path) }
   configureUrls(path: string, urls: string[]) { return this.#controller.configureUrls(path, urls) }
 }

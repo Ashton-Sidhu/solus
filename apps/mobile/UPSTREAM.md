@@ -72,6 +72,10 @@ The device and browser viewers share their selection and presentation helpers wi
 
 Loopback browser pages stream from the selected Solus host. Its Host settings screen shows **Preview tunnel** when the host supports that setting. This control governs desktop port forwarding and shows the selected host’s policy lock.
 
+The session header opens the Solus Running servers sheet. It uses the shared
+server controller for the run host and opens endpoints in the existing Browser
+preview. Server URLs use the selected session folder's project config.
+
 New-session and scheduled-task branch pickers use T3's branch paging hook. Their shared read uses Solus Git status and branch refs. Searching and paging reuse the checkout's answer. The host identifies a remote-only branch by its branch name and does not supply a remote tracking ref.
 
 The active thread and draft routes share T3's project and host controls for short viewports. Solus supplies the project and host choices and adds its workspace controls. The draft, Git header, and branch sheets read the T3 branch and status types through one adapter in `src/solus/checkout-git-queries.ts`. The adapter reads the selected host's checkout and subscribes to its checkout changes. It scopes reads by account, host connection, and folder. The branch can appear before the worktree scan and pull request lookup finish. Git mutations still use Solus's session or session-folder context and checkout confirmation.

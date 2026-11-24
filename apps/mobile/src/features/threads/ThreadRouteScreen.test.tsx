@@ -50,8 +50,11 @@ vi.mock("../../solus/CheckoutGit", () => ({
   useCheckoutGitControls: () => ({ environmentId: "host", threadId: "session" }),
 }));
 vi.mock("./ThreadHeader", () => ({
-  ThreadHeader: ({ onOpenFilesInspector }: { onOpenFilesInspector: () => void }) => (
-    <button onClick={onOpenFilesInspector}>Files</button>
+  ThreadHeader: ({ onOpenFilesInspector, onOpenRunningServers }: { onOpenFilesInspector: () => void; onOpenRunningServers?: () => void }) => (
+    <>
+      <button onClick={onOpenFilesInspector}>Files</button>
+      {onOpenRunningServers ? <button onClick={onOpenRunningServers}>Running servers</button> : null}
+    </>
   ),
   ThreadNavigationHeader: () => null,
 }));
@@ -177,6 +180,12 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
       threadId: "session",
       cwd: "/repo/worktree",
       projectName: "project",
+    });
+    const servers = [...container.querySelectorAll("button")].find((button) => button.textContent === "Running servers");
+    act(() => servers!.click());
+    expect(state.navigate).toHaveBeenLastCalledWith("ThreadRunningServers", {
+      environmentId: "host",
+      threadId: "session",
     });
   } finally {
     act(() => root.unmount());

@@ -1,7 +1,7 @@
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import { serverUrlsFromText, stopRefusalText } from "@solus/contracts/running-servers";
-import { runningServerFolderPaths, type RunningServersController } from "@solus/client-core/running-servers";
+import { runningServerFolderPaths, type RunningServersController, type RunningServersRow } from "@solus/client-core/running-servers";
 import { useListened } from "@solus-mobile/app/app-context";
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -39,33 +39,18 @@ function RunningServersSheet({ target }: { target: Target }) {
   const store = runningServersFor(environmentId);
   const state = useSyncExternalStore(store.subscribe, () => store.revision);
   const mayUse = useListened(solus.connections.changes, () => solus.connections.may(environmentId, "host.use"));
-  const mayStop = useListened(solus.connections.changes, () => solus.connections.may(environmentId, "host.admin"));
   const connectionGeneration = useListened(solus.connections.changes, () => solus.connections.state(environmentId)?.sessionGeneration);
-  const [showOther, setShowOther] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [editingUrls, setEditingUrls] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [savingUrls, setSavingUrls] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const urlPath = selectedPath && checkoutPaths.includes(selectedPath) ? selectedPath : checkoutPaths[0];
   const { sessionRows, otherRows } = useMemo(
     () => store.rowsForScope({ checkoutPaths, sessionId: threadId }),
     [store, state, checkoutPaths, threadId],
   );
-  const isShowingOther = showOther && otherRows.length > 0;
-  const rows = isShowingOther ? otherRows : sessionRows;
   useEffect(() => {
     if (session && mayUse && focused) return store.retainCheckouts(checkoutPaths);
   }, [store, session, mayUse, focused, checkoutPaths]);
-
-  async function run(action: () => Promise<string | void>) {
-    setBusy(true);
-    setMessage(null);
-    try { setMessage(await action() ?? null); }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
-  }
 
   return (
     <View className="flex-1 bg-sheet">
@@ -79,7 +64,7 @@ function RunningServersSheet({ target }: { target: Target }) {
               <>
                 <Button label="Back to servers" disabled={savingUrls} onPress={() => setEditingUrls(false)} />
                 {checkoutPaths.length > 1 ? checkoutPaths.map((path) => (
-                  <Pressable key={path} accessibilityRole="radio" accessibilityState={{ selected: path === urlPath, disabled: savingUrls }} disabled={savingUrls}
+                  <Pressable key={path} accessibilityRole="radio" accessibilityState={{ checked: path === urlPath, disabled: savingUrls }} disabled={savingUrls}
                     onPress={() => setSelectedPath(path)} className="rounded-xl bg-secondary p-3">
                     <AppText>{path === urlPath ? "✓ " : ""}{path}</AppText>
                   </Pressable>
@@ -88,62 +73,98 @@ function RunningServersSheet({ target }: { target: Target }) {
                   onSaving={setSavingUrls} onSaved={() => setEditingUrls(false)} />
               </>
             ) : (
-              <>
-                {store.status === "loading" ? <AppActivityIndicator accessibilityLabel="Finding servers" /> : null}
-                {store.status === "error" ? (
-                  <>
-                    <AppText accessibilityRole="alert">{store.error}</AppText>
-                    <Button label="Retry" onPress={() => store.retry()} />
-                  </>
-                ) : null}
-                {store.status === "ready" && rows.length === 0 ? (
-                  <AppText className="text-foreground-muted">No servers in this session.</AppText>
-                ) : null}
-                {message ? <AppText accessibilityLiveRegion="polite">{message}</AppText> : null}
-                {(expanded ? rows : rows.slice(0, shownByDefault)).map(({ server, endpoint, label, checkoutPath }) => {
-                  const folder = server.location.projectRoot ?? checkoutPath;
-                  const name = endpoint.response?.pageTitle || server.process.name;
-                  return (
-                    <View className="gap-2 rounded-xl bg-secondary p-3" key={JSON.stringify([server.serverId, endpoint.endpointId])}>
-                      <AppText className="font-t3-medium">{name} · {label}</AppText>
-                      <AppText className="text-foreground-muted" numberOfLines={1}>
-                        {folder ? `${hostPathBaseName(folder) || folder} · ` : ""}{server.sourceLabel}
-                      </AppText>
-                      <View className="flex-row flex-wrap gap-2">
-                        <Button label="Open" accessibilityLabel={`Open ${name} ${label}`} disabled={busy} size="compact" onPress={() => void run(async () => {
-                          const tabId = await solus.browser.open(environmentId, endpoint.url);
-                          if (navigation.isFocused()) navigation.navigate("ThreadBrowserPreview", { ...target, tabId });
-                        })} />
-                        <Button label="Copy URL" disabled={busy} size="compact" onPress={() => void run(async () => {
-                          await Clipboard.setStringAsync(endpoint.url);
-                          return "Copied server URL.";
-                        })} />
-                        {mayStop && server.actions.canStop ? (
-                          <Button label="Stop" tone="danger" disabled={busy} size="compact" onPress={() => void run(async () => {
-                            const result = await server.stop();
-                            return result.status === "refused" ? stopRefusalText(result.reason) : "Server stopped.";
-                          })} />
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })}
-                {rows.length > shownByDefault ? (
-                  <Button label={expanded ? "Show less" : `Show ${rows.length - shownByDefault} more`} onPress={() => setExpanded(!expanded)} />
-                ) : null}
-                {otherRows.length ? (
-                  <Button label={isShowingOther ? "Session folders" : `${otherRows.length} in other checkouts`} onPress={() => {
-                    setShowOther(!isShowingOther);
-                    setExpanded(false);
-                  }} />
-                ) : null}
-                {urlPath ? <Button label="Server URLs" onPress={() => setEditingUrls(true)} /> : null}
-              </>
+              <RunningServerList
+                target={target}
+                store={store}
+                sessionRows={sessionRows}
+                otherRows={otherRows}
+                onEditUrls={urlPath ? () => setEditingUrls(true) : undefined}
+              />
             )}
           </View>
         </ScrollView>
       </ScreenContent>
     </View>
+  );
+}
+
+function RunningServerList({ target, store, sessionRows, otherRows, onEditUrls }: {
+  target: Target;
+  store: RunningServersController;
+  sessionRows: readonly RunningServersRow[];
+  otherRows: readonly RunningServersRow[];
+  onEditUrls?: () => void;
+}) {
+  const { environmentId } = target;
+  const navigation = useNavigation();
+  const mayStop = useListened(solus.connections.changes, () => solus.connections.may(environmentId, "host.admin"));
+  const [showOther, setShowOther] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const isShowingOther = showOther && otherRows.length > 0;
+  const rows = isShowingOther ? otherRows : sessionRows;
+
+  async function run(action: () => Promise<string | void>) {
+    setBusy(true);
+    setMessage(null);
+    try { setMessage(await action() ?? null); }
+    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <>
+      {store.status === "loading" ? <AppActivityIndicator accessibilityLabel="Finding servers" /> : null}
+      {store.status === "error" ? (
+        <>
+          <AppText accessibilityRole="alert">{store.error}</AppText>
+          <Button label="Retry" onPress={() => store.retry()} />
+        </>
+      ) : null}
+      {store.status === "ready" && rows.length === 0 ? (
+        <AppText className="text-foreground-muted">No servers in this session.</AppText>
+      ) : null}
+      {message ? <AppText accessibilityLiveRegion="polite">{message}</AppText> : null}
+      {(expanded ? rows : rows.slice(0, shownByDefault)).map(({ server, endpoint, label, checkoutPath }) => {
+        const folder = server.location.projectRoot ?? checkoutPath;
+        const name = endpoint.response?.pageTitle || server.process.name;
+        return (
+          <View className="gap-2 rounded-xl bg-secondary p-3" key={JSON.stringify([server.serverId, endpoint.endpointId])}>
+            <AppText className="font-t3-medium">{name} · {label}</AppText>
+            <AppText className="text-foreground-muted" numberOfLines={1}>
+              {folder ? `${hostPathBaseName(folder) || folder} · ` : ""}{server.sourceLabel}
+            </AppText>
+            <View className="flex-row flex-wrap gap-2">
+              <Button label="Open" accessibilityLabel={`Open ${name} ${label}`} disabled={busy} size="compact" onPress={() => void run(async () => {
+                const tabId = await solus.browser.open(environmentId, endpoint.url);
+                if (navigation.isFocused()) navigation.navigate("ThreadBrowserPreview", { ...target, tabId });
+              })} />
+              <Button label="Copy URL" disabled={busy} size="compact" onPress={() => void run(async () => {
+                await Clipboard.setStringAsync(endpoint.url);
+                return "Copied server URL.";
+              })} />
+              {mayStop && server.actions.canStop ? (
+                <Button label="Stop" tone="danger" disabled={busy} size="compact" onPress={() => void run(async () => {
+                  const result = await server.stop();
+                  return result.status === "refused" ? stopRefusalText(result.reason) : "Server stopped.";
+                })} />
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+      {rows.length > shownByDefault ? (
+        <Button label={expanded ? "Show less" : `Show ${rows.length - shownByDefault} more`} onPress={() => setExpanded(!expanded)} />
+      ) : null}
+      {otherRows.length ? (
+        <Button label={isShowingOther ? "Session folders" : `${otherRows.length} in other checkouts`} onPress={() => {
+          setShowOther(!isShowingOther);
+          setExpanded(false);
+        }} />
+      ) : null}
+      {onEditUrls ? <Button label="Server URLs" onPress={onEditUrls} /> : null}
+    </>
   );
 }
 

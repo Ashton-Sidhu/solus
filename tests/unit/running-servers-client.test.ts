@@ -1,5 +1,5 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test'
-import { RunningServersController, type RunningServersSource } from '@solus/client-core/running-servers'
+import { RunningServersController, runningServerFolderPaths, type RunningServersSource } from '@solus/client-core/running-servers'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import { RUNNING_SERVER_TUNNEL_PATH } from '@solus/contracts/running-servers'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
@@ -186,9 +186,17 @@ test('a session watches all its folders together and can see its own servers out
     server.startedBy = { kind: 'agent', sessionId }
     return server
   }
-  const scope = { checkoutPaths: ['/solus', '/task/cloud', '/task/cloud', '/plain'], sessionId: 'session-1' }
+  const scope = {
+    checkoutPaths: runningServerFolderPaths('/solus', [
+      { path: '/task/cloud', granted: true },
+      { path: '/task/cloud/', granted: true },
+      { path: '/plain', granted: true },
+      { path: '/observed', granted: false },
+    ]),
+    sessionId: 'session-1',
+  }
   s.source.api.runningServersCheckoutRoots = async (paths) => paths.map((path) => ({ path, root: path === '/plain' ? null : path }))
-  const release = s.store.retainCheckouts(scope.checkoutPaths)
+  const release = s.store.retainCheckouts([...scope.checkoutPaths, '/task/cloud'])
   expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([['/solus', '/task/cloud', '/plain']])
   const plain = serverIn('plain', '/plain')
   plain.location.worktreePath = null
@@ -196,16 +204,31 @@ test('a session watches all its folders together and can see its own servers out
   await s.answer([
     serverIn('cloud worktree', '/task/cloud'),
     serverIn('cloud main', '/cloud'),
+    serverIn('observed', '/observed'),
     serverIn('started before attach', '/elsewhere', 'session-1'),
     plain,
   ])
   const rows = s.store.rowsForScope(scope)
   expect(rows.sessionRows.map(({ server }) => server.serverId)).toEqual(['cloud worktree', 'started before attach', 'plain'])
-  expect(rows.otherRows.map(({ server }) => server.serverId)).toEqual(['cloud main'])
+  expect(rows.otherRows.map(({ server }) => server.serverId)).toEqual(['cloud main', 'observed'])
   const empty = s.store.rowsForScope({ checkoutPaths: ['/solus'], sessionId: 'unrelated' })
   expect(empty.sessionRows).toHaveLength(0)
-  expect(empty.otherRows).toHaveLength(4)
+  expect(empty.otherRows).toHaveLength(5)
   release()
+})
+
+test('saving server URLs cannot cross a connection scope change', async () => {
+  const s = setup()
+  s.source.scope = 'previous'
+  let loaded: (value: null) => void = () => {}
+  s.source.api.projectConfigLoad = () => new Promise((resolve) => { loaded = resolve })
+  const save = mock(s.source.api.projectConfigSave)
+  s.source.api.projectConfigSave = save
+  const pending = s.store.configureUrls('/solus-cloud', ['http://localhost:5177'])
+  s.source.scope = 'current'
+  loaded(null)
+  await expect(pending).rejects.toThrow('The host connection changed.')
+  expect(save).not.toHaveBeenCalled()
 })
 
 test('a host that disables the preview tunnel releases the desktop forward and its lease', async () => {

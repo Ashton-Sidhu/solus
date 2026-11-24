@@ -56,14 +56,13 @@
   import {
     codebaseMembersOn,
     gitCardRepositories,
-    gitRepositoriesDetail,
     showsRepositoryRows,
   } from "./lib/git-repositories";
   import { useDraftRepositoryReads } from "./lib/git-repository-reads.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import * as TooltipUI from "../ui/tooltip";
   import { Button } from "../ui/button";
 
   interface Props {
@@ -115,11 +114,12 @@
   const initialRowCount = $derived(panelHeight <= 800 ? 3 : 5);
 
   $effect(() => {
-    if (!outerScrollbar || !sectionsElement) return;
+    const element = sectionsElement;
+    if (!outerScrollbar || !element) return;
     // Registration reads and mutates the parent's reactive target list. Keep
     // those implementation reads out of this element-lifecycle effect or the
     // effect subscribes to its own write and repeatedly tears itself down.
-    return untrack(() => outerScrollbar.register(sectionsElement));
+    return untrack(() => outerScrollbar.register(element));
   });
 
   // Both rails render the same component, so every piece of their view state is

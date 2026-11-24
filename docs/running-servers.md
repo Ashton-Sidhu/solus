@@ -1,23 +1,27 @@
 # Running servers
 
 The Running servers card sits below Git in the desktop and web project panel.
-It lists the selected checkout's servers. When other checkouts on the host have
-servers, a link under the list shows how many (**2 in other checkouts**). It
-adds those servers and unassigned servers, and each row then names its checkout after its title.
-**Only this checkout** goes back. The card has its own collapse and visibility
-controls. It is visible only when the selected scope has server rows. Loading, disconnected,
-and failed scans with no rows do not show a card. Discovery stays subscribed, so
-the card returns when a server appears. The mobile server screen keeps its status
-and retry controls available. On desktop and web, a row shows its copy, forward,
+It lists servers in the working folder and the session's attached and codebase
+folders on the run host. It also lists servers that the session started outside
+those folders. Each row names its project or folder when Solus has that path.
+Select **2 in other checkouts** to see the other servers on the run host,
+including servers with no assigned folder. The link is available even if the
+session has no servers. Select **Session folders** to return.
+
+The card has collapse and visibility controls. It stays hidden when the host
+has no server rows and returns when discovery finds a server. The mobile
+server screen shows loading, connection, and retry status. On desktop and web,
+a row shows its copy, forward,
 and stop buttons when the pointer is on it or keyboard focus is in it. Stop turns
 red on hover. On a touch screen, the buttons always show.
 
-Native mobile exposes the same list and Stop action from the session header's
-server button. Both clients start with four endpoint rows and offer **Show more**.
+Native mobile exposes the same list and Stop action from **Running servers** in
+the session header. The lists limit the number of rows initially and offer **Show more**.
 Each row shows Agent, Terminal, or Configured as its source. On desktop and web, a row is one line: its icon shows the source (the Claude or Codex mark of the agent's session, a terminal, or a globe for a configured URL), and its tooltip names it. The starting session
-is separate from the server's checkout. Solus resolves the active checkout root
-on the host. A session in a subfolder sees that checkout's servers, without
-including a main checkout or a nested or sibling worktree.
+is separate from the server's checkout. Solus resolves each folder's checkout
+root on the host. A task folder uses its member worktrees. Servers in the main
+checkout and sibling worktrees appear under other checkouts unless the session
+started them.
 
 ## Discovery and explicit URLs
 
@@ -32,8 +36,9 @@ process (`docs/integrations.md`, "MCP servers that run on the host").
 
 For HTTPS, a specific path, or a server started outside Solus, use **Server URLs**
 in the project panel menu. On mobile, use **Server URLs** on the server screen.
-These controls stay available with an empty list. They save `serverUrls` in the
-project's `.solus/config.json`:
+Choose the folder when the session has several. These controls stay available
+with an empty list. They save `serverUrls` in that project's
+`.solus/config.json`:
 
 ```json
 {
