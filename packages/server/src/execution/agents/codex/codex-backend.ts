@@ -238,6 +238,30 @@ const BACKGROUND_COMMAND_CHECK_MS = 10_000
  *  itself (t3code #27252). Past Codex's own 10 s interrupt request deadline. */
 const STOP_CONFIRM_TIMEOUT_MS = 15_000
 
+function isBackgroundTerminalThreadGone(error: unknown): boolean {
+  return error instanceof CodexRpcError && /^thread not (found|loaded)\b/i.test(error.message)
+}
+
+async function listBackgroundTerminalItems(client: CodexAppServerClient, threadId: string): Promise<Set<string>> {
+  const liveItems = new Set<string>()
+  let cursor: string | undefined
+  try {
+    do {
+      const page = await client.request<
+        { data: { itemId: string }[]; nextCursor: string | null },
+        { threadId: string; cursor?: string }
+      >('thread/backgroundTerminals/list', { threadId, cursor }, 10_000)
+      for (const terminal of page.data) liveItems.add(terminal.itemId)
+      cursor = page.nextCursor ?? undefined
+    } while (cursor)
+  } catch (error) {
+    if (!isBackgroundTerminalThreadGone(error)) throw error
+    // An unloaded thread has no terminals, even if it unloaded between pages.
+    liveItems.clear()
+  }
+  return liveItems
+}
+
 interface SeatClient {
   client: CodexAppServerClient
   historyReference?: string
@@ -1957,19 +1981,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       [...threads].map(([threadId, commands]) => ({ client, threadId, commands })))
     await runWithConcurrency(threads, 4, async ({ client, threadId, commands }) => {
       if (!commands.some(([itemId, command]) => this.runningCommands.get(itemId) === command)) return
-      const liveItems = new Set<string>()
+      let liveItems: Set<string>
       try {
-        let cursor: string | undefined
-        do {
-          const page = await client.request<
-            { data: { itemId: string }[]; nextCursor: string | null },
-            { threadId: string; cursor?: string }
-          >('thread/backgroundTerminals/list', { threadId, cursor }, 10_000)
-          for (const terminal of page.data) liveItems.add(terminal.itemId)
-          cursor = page.nextCursor ?? undefined
-        } while (cursor)
-      } catch (error) {
-        if (!(error instanceof CodexRpcError && /^thread not (found|loaded)\b/i.test(error.message))) return
+        liveItems = await listBackgroundTerminalItems(client, threadId)
+      } catch {
+        return
       }
       for (const [itemId, command] of commands) {
         if (this.runningCommands.get(itemId) !== command) continue
@@ -2038,10 +2054,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           { threadId: command.threadId, processId: command.processId },
           10_000,
         )
-        if (!result.terminated) status = 'failed'
+        if (this.runningCommands.get(itemId) !== command) return true
+        if (!result.terminated) {
+          const liveItems = await listBackgroundTerminalItems(command.client, command.threadId)
+          status = liveItems.has(itemId) ? 'failed' : 'killed'
+        }
       } catch (error) {
         // An unloaded thread has no terminals left: Codex killed them on unload.
-        if (error instanceof CodexRpcError && /^thread not (found|loaded)\b/i.test(error.message)) {
+        if (isBackgroundTerminalThreadGone(error)) {
           status = 'killed'
         } else {
           log.warn('codex_background_terminate_failed', { sessionId: command.threadId, itemId, error: error instanceof Error ? error.message : String(error) })

@@ -141,20 +141,36 @@ describe('Codex background command wake', () => {
   })
 
   test.each([
-    { name: 'terminal missing', terminate: async () => ({ terminated: false }) },
-    { name: 'request failed', terminate: async () => { throw new Error('request timed out') } },
-  ])('Stop clears the background command when $name', async ({ terminate }) => {
+    { name: 'terminal is absent', liveItems: [], expectedStatus: 'killed', expectedResult: true },
+    { name: 'terminal is still running', liveItems: ['item-1'], expectedStatus: 'failed', expectedResult: false },
+    { name: 'terminal list fails', liveItems: null, expectedStatus: 'failed', expectedResult: false },
+    { name: 'terminate request fails', liveItems: [], terminateFails: true, expectedStatus: 'failed', expectedResult: false },
+  ])('Stop clears the background command when $name', async ({ liveItems, terminateFails, expectedStatus, expectedResult }) => {
     const backend = new CodexBackend()
     const internals = backend as unknown as BackendInternals
-    const client = { request: terminate }
+    const requests: string[] = []
+    const client = {
+      request: async (method: string) => {
+        requests.push(method)
+        if (method === 'thread/backgroundTerminals/terminate') {
+          if (terminateFails) throw new Error('terminate timed out')
+          return { terminated: false }
+        }
+        if (!liveItems) throw new Error('list timed out')
+        return { data: liveItems.map((itemId) => ({ itemId })), nextCursor: null }
+      },
+    }
     const settled: NormalizedEvent[] = []
     backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => settled.push(event))
     internals.runningCommands.set('item-1', backgroundCommand(client))
 
     try {
-      await backend.stopBackgroundTask('thread-1', 'item-1')
+      expect(await backend.stopBackgroundTask('thread-1', 'item-1')).toBe(expectedResult)
       expect(backend.hasBackgroundTasks('thread-1')).toBe(false)
-      expect(settled).toEqual([expect.objectContaining({ type: 'background_task_settled', taskId: 'item-1' })])
+      expect(settled).toEqual([{ type: 'background_task_settled', taskId: 'item-1', toolUseId: 'item-1', status: expectedStatus }])
+      expect(requests).toEqual(terminateFails
+        ? ['thread/backgroundTerminals/terminate']
+        : ['thread/backgroundTerminals/terminate', 'thread/backgroundTerminals/list'])
     } finally {
       backend.shutdown()
     }
