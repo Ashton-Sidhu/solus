@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, hasEnoughRoots, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
-import { hostPathKey, isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
+import { codebaseRootKey, codebasesHolding } from '@solus/client-core/codebases'
+import { isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
@@ -98,7 +99,7 @@ function assertValidCodebase(codebase: Codebase): void {
   const seen = new Set<string>()
   for (const root of codebase.roots) {
     if (!isAbsoluteHostPath(root.path)) throw new Error(`"${root.path}" is not an absolute path. A folder of a codebase is an absolute path on its host.`)
-    const key = `${root.installationId}\0${hostPathKey(root.path)}`
+    const key = codebaseRootKey(root)
     if (seen.has(key)) throw new Error(`"${root.path}" is in the codebase two times.`)
     seen.add(key)
   }
@@ -144,6 +145,5 @@ export async function saveCodebase(organizationId: string, createdBy: string, co
  * codebases (decision 5).
  */
 export async function codebasesOfFolder(scope: RecordScope, installationId: string, path: string): Promise<Codebase[]> {
-  const all = await listCodebases(scope)
-  return all.filter((codebase) => codebase.roots.some((root) => root.installationId === installationId && isInsideHostPath(root.path, path)))
+  return codebasesHolding(await listCodebases(scope), installationId, path)
 }
