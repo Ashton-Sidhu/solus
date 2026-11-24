@@ -57,11 +57,15 @@ export interface PairingOutcome {
   readonly error: string | null;
 }
 
-/** Pairs with the environment behind a pairing link and saves it. */
+/**
+ * Pairs with the environment behind a pairing link and saves it. `syncSettings` is the
+ * Sync settings checkbox; null leaves the host's Sync settings as they are.
+ */
 export async function pairEnvironment(
   pairingUrl: string,
   expectedEnvironmentId?: EnvironmentId,
   discoveredId?: string,
+  syncSettings: boolean | null = null,
 ): Promise<PairingOutcome> {
   try {
     const { host, code } = parsePairingUrl(pairingUrl);
@@ -82,7 +86,7 @@ export async function pairEnvironment(
       return { ok: false, error: "This address belongs to another host." };
     if (!input.pairToken && !answer.preview.trusted)
       return { ok: false, needsCode: true, error: "This host requires a pairing code." };
-    await solus.pair(answer.preview, input.pairToken ?? undefined);
+    await solus.pair(answer.preview, input.pairToken ?? undefined, undefined, syncSettings);
     appAtomRegistry.set(connectionPairingUrlAtom, "");
     return { ok: true, error: null };
   } catch (error) {
@@ -182,7 +186,8 @@ export function useRemoteConnections() {
     pairingUrl?: string,
     expectedEnvironmentId?: EnvironmentId,
     discoveredId?: string,
-  ) => pairEnvironment(pairingUrl ?? connectionPairingUrl, expectedEnvironmentId, discoveredId);
+    syncSettings: boolean | null = null,
+  ) => pairEnvironment(pairingUrl ?? connectionPairingUrl, expectedEnvironmentId, discoveredId, syncSettings);
 
   const onReconnectEnvironment = useRetryEnvironment();
   const onSetEnvironmentEnabled = (environmentId: EnvironmentId, enabled: boolean) =>

@@ -85,6 +85,7 @@ async function settingsHandlers() {
     // A newer client may send what this host's types do not name.
     patch: (change: PersonalSettingsPatch | { set: object; reset?: string[] }) => handlers.get('personalSettingsPatch')!([change]) as Promise<PersonalSettingsPatchResult>,
     changed: () => handlers.get('personalSettingsChanged')!([]) as Promise<HostPersonalSettings>,
+    syncSet: (syncSettings: boolean) => handlers.get('personalSettingsSyncSet')!([syncSettings]) as Promise<HostPersonalSettings>,
   }
 }
 
@@ -202,6 +203,29 @@ describe("a host keeps each person's settings", () => {
   })
 })
 
+describe("a person's Sync settings switch on a host", () => {
+  test('it is on before the person chooses, keeps their choice across a restart, and is their own', async () => {
+    // WHY: docs/plans/settings-sync-hosts.md decision 2. The switch is on the host, so
+    // each client of the person shows the same choice, and a restart does not undo it.
+    const host = await settingsHandlers()
+    expect(as('person-a', () => host.get()).syncSettings).toBe(true)
+    const answer = await as('person-a', () => host.syncSet(false))
+    expect(answer.syncSettings).toBe(false)
+    await restartOn('host-a')
+    expect(as('person-a', () => host.get()).syncSettings).toBe(false)
+    expect(as('person-b', () => host.get()).syncSettings).toBe(true)
+  })
+
+  test('turning it off or on changes no setting', async () => {
+    // WHY: the switch says which hosts take a change; a host with it off keeps its own settings.
+    const host = await settingsHandlers()
+    await as('person-a', () => host.patch({ set: { themeMode: 'dark' }, reset: [] }))
+    await as('person-a', () => host.syncSet(false))
+    await as('person-a', () => host.syncSet(true))
+    expect(as('person-a', () => host.get()).settings).toEqual({ themeMode: 'dark' })
+  })
+})
+
 describe("a signed-in person's settings come from the account", () => {
   test('the host pulls them, and keeps them when the cloud does not answer and after a restart', async () => {
     // WHY: ADR 0007 decision 4. The host follows the account by pull and keeps the last copy for restarts and an outage.
@@ -214,7 +238,7 @@ describe("a signed-in person's settings come from the account", () => {
     await as('person-ada', () => host.patch({ set: { extraInstructions: 'Old, on the host.' }, reset: [] }))
 
     const pulled = await as('person-ada', () => host.changed())
-    expect(pulled).toEqual({ settings: { extraInstructions: 'From the account.', themeMode: 'light' }, source: 'account', followsAccount: true, accountRevision: 3, updatedAt: expect.any(Number) })
+    expect(pulled).toEqual({ settings: { extraInstructions: 'From the account.', themeMode: 'light' }, source: 'account', followsAccount: true, accountRevision: 3, updatedAt: expect.any(Number), syncSettings: true })
 
     answers.set('ada', () => ({ refused: 'UNREACHABLE', message: 'Solus Cloud is unreachable.' }))
     await as('person-ada', () => host.changed())

@@ -33,7 +33,11 @@ export class HostSettings {
   /** One `config.changed` subscription per host connection. */
   private readonly watches = new Map<string, { connection: HostConnection; stop: () => void }>()
 
-  constructor(private readonly connectionFor: (hostId: string) => HostConnection | null) {}
+  constructor(
+    private readonly connectionFor: (hostId: string) => HostConnection | null,
+    /** A change the host took; Sync settings spreads its shared keys (docs/plans/settings-sync-hosts.md). */
+    private readonly onWritten: (hostId: string, patch: HostConfigPatch) => void = () => {},
+  ) {}
 
   stateOf = (hostId: string): HostSettingsState => this.states.get(hostId) ?? IDLE
 
@@ -67,6 +71,7 @@ export class HostSettings {
     this.set(hostId, { kind: 'loaded', settings: mergeHostConfig(current.settings, patch) })
     try {
       this.set(hostId, { kind: 'loaded', settings: (await connection.api.configUpdate(patch)).config })
+      this.onWritten(hostId, patch)
     } catch (error) {
       await this.load(hostId)
       throw error

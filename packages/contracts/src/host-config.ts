@@ -144,6 +144,36 @@ export const HOST_CONFIG_AGENT_HIDDEN_KEYS: readonly HostConfigKey[] = ['otel']
 export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true, previewTunnelEnabled: true })
 
 /**
+ * The host config keys that do not name this machine: a signed-out person's Sync
+ * settings copies them to a new host and spreads each change of them to their
+ * other synced hosts (docs/plans/settings-sync-hosts.md). Every other key is bound
+ * to one machine (`MACHINE_HOST_CONFIG_KEYS`) and stays on its host.
+ */
+export const SHARED_HOST_CONFIG_KEYS = [
+  'sessionCloudSync',
+  'solusTools',
+  'continueSessionsAfterHostRestart',
+  'archivedAutomationRetentionDays',
+  'unfiledRecordingRetentionDays',
+  'otel',
+  'analyticsEnabled',
+] as const satisfies readonly HostConfigKey[]
+
+/** Network access to this machine's ports, the agent binaries installed on it, and paths on its disk. */
+export const MACHINE_HOST_CONFIG_KEYS = ['previewTunnelEnabled', 'agentAutoUpdates', 'reviewWarmingByProject'] as const satisfies readonly HostConfigKey[]
+
+export type SharedHostConfigKey = (typeof SHARED_HOST_CONFIG_KEYS)[number]
+
+/** The shared keys of a config or a patch, as a patch; the machine-bound keys are left out. */
+export function sharedHostConfigOf(config: HostConfigPatch | HostConfig): HostConfigPatch {
+  const shared: HostConfigPatch = {}
+  for (const key of SHARED_HOST_CONFIG_KEYS) {
+    if (config[key] !== undefined) Object.assign(shared, { [key]: structuredClone(config[key]) })
+  }
+  return shared
+}
+
+/**
  * The caller's own TypeSafe key (docs/plans/access-model.md §2.6). Contains no
  * credential value.
  */

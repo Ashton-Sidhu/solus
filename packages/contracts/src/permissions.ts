@@ -146,6 +146,7 @@ const PERMISSION_OF_METHOD = {
   personalSettingsGet: 'host.connect',
   personalSettingsPatch: 'host.connect',
   personalSettingsChanged: 'host.connect',
+  personalSettingsSyncSet: 'host.connect',
   agentProfileDocumentGet: 'host.connect',
   agentProfileDocumentPatch: 'host.connect',
   // A `/v1` request over the socket: each operation checks its own scope and access, as over HTTP.

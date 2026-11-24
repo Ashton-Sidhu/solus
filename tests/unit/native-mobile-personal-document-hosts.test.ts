@@ -13,7 +13,7 @@ import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports
 
 /** One connected host: its copy of the person's settings, and the events it sends. */
 function phoneHost(hostId: string, copy: Partial<HostPersonalSettings> = {}) {
-  const state: HostPersonalSettings = { settings: {}, source: 'host', followsAccount: false, accountRevision: null, updatedAt: null, ...copy }
+  const state: HostPersonalSettings = { settings: {}, source: 'host', followsAccount: false, accountRevision: null, updatedAt: null, syncSettings: true, ...copy }
   const patches: PersonalSettingsPatch[] = []
   const profile: { entries: AgentProfile } = { entries: {} }
   const handlers = new Set<(payload: { kind: 'settings' | 'agent-profile' }) => void>()
@@ -52,7 +52,7 @@ function phoneHost(hostId: string, copy: Partial<HostPersonalSettings> = {}) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-function phone(hosts: ReturnType<typeof phoneHost>[]) {
+function phone(hosts: ReturnType<typeof phoneHost>[], onPersonalChange?: (fromHostId: string | null, change: PersonalSettingsPatch) => void) {
   const storage = memoryKeyValueStore()
   const personal = new PersonalSettingsStore(storage)
   const agentProfile = new AgentProfileLocalStore(storage)
@@ -67,6 +67,7 @@ function phone(hosts: ReturnType<typeof phoneHost>[]) {
     defaultHostId: () => hosts[0]?.connection.hostId ?? null,
     settingsCopyChanges,
     storage,
+    onPersonalChange,
   })
   return { personal, agentProfile, connectionChanges, settingsCopyChanges, stop }
 }
@@ -127,6 +128,30 @@ describe('the phone and the source of the settings', () => {
     await settle()
     // The settings event names its kind: an agent profile change is read by the profile only.
     expect(agentProfile.entries()).toEqual({})
+    stop()
+  })
+})
+
+describe('Settings on one host (docs/plans/settings-sync-hosts.md decision 7)', () => {
+  test("while Settings shows one host, the phone shows that host's copy and writes there; then the first host's again", async () => {
+    // WHY: a person must be able to change a host whose Sync settings is off, and see what it holds.
+    const first = phoneHost('first', { settings: { themeMode: 'dark' } })
+    const second = phoneHost('second', { settings: { themeMode: 'light' } })
+    const spread: Array<string | null> = []
+    const { personal, stop } = phone([first, second], (fromHostId) => spread.push(fromHostId))
+    await settle()
+    personal.showSettingsHost('second')
+    await settle()
+    expect(personal.current().themeMode).toBe('light')
+    personal.set({ extraInstructions: 'On the second host.' })
+    await settle()
+    expect(second.state.settings).toEqual({ themeMode: 'light', extraInstructions: 'On the second host.' })
+    expect(first.state.settings).toEqual({ themeMode: 'dark' })
+    // The change is offered to Sync settings as a change on the host it was made on.
+    expect(spread).toEqual(['second'])
+    personal.showSettingsHost(null)
+    await settle()
+    expect(personal.current().themeMode).toBe('dark')
     stop()
   })
 })

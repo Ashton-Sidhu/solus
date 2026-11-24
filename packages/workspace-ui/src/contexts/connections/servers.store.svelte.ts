@@ -51,6 +51,7 @@ import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-ref
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 import { prDeviceCache } from '../prs/pr-device-cache'
 import { personHistoryStore } from '../person-history/person-history.store.svelte'
+import { settingsSyncStore } from '../app/settings-sync.store.svelte'
 
 /** How often a focused window scans its network while a view shows the nearby hosts. */
 const NEARBY_SHOWN_DISCOVERY_MS = 30_000
@@ -603,13 +604,16 @@ class ServersStore {
   }
 
   /**
-   * Keeps a host this client just paired (`hostCatalog.pair`): its credential, then
-   * its listing on the person's host list. A listing the list refused stays shown
-   * here and is sent again at the next read.
+   * Keeps a host the person just added or paired here (`hostCatalog.pair`): its
+   * credential, then its listing on the person's host list. A listing the list
+   * refused stays shown here and is sent again at the next read. Signed out, the
+   * host takes the server settings of the home host (else `fromHostId`) when the
+   * Sync settings checkbox of the flow is on (docs/plans/settings-sync-hosts.md).
    */
-  async savePairedServer(server: KnownHost): Promise<void> {
+  async savePairedServer(server: KnownHost, fromHostId: string | null = null): Promise<void> {
     if (server.installationId) this.nearby.delete(server.installationId)
     const { host, listError } = await hostCatalog.pair(server)
+    settingsSyncStore.hostAdded(host.id, fromHostId)
     this.justPairedServerId = host.id
     if (listError) toasts.error(`${host.label} is paired here but not yet on your host list`)
   }
@@ -631,6 +635,7 @@ class ServersStore {
     this.addServerUrl = prefillUrl
     this.addServerMode = mode
     this.addServerOpen = true
+    settingsSyncStore.startAdd()
   }
 
   closeAddServer(): void {

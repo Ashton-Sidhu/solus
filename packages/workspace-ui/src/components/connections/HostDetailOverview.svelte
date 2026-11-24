@@ -16,6 +16,9 @@
   import { runningSessionRows } from "./lib/running-sessions";
   import { isManagedHost } from "../servers/lib/managed-host";
   import { Button } from "../ui/button";
+  import { Switch } from "../ui/switch";
+  import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
+  import { toasts } from "../../lib/toasts";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { relativeTime } from "../../lib/relative-time";
@@ -80,6 +83,18 @@
       await setup.refreshReadiness();
     } finally {
       testing = false;
+    }
+  }
+
+  // Signed out: whether this host takes the person's settings changes from their other hosts (docs/plans/settings-sync-hosts.md).
+  const syncSettings = $derived(settingsSyncStore.switchOf(host.id));
+  const isReady = $derived(serversStore.readinessFor(host.id).readiness === "ready");
+
+  async function setSyncSettings(next: boolean) {
+    try {
+      await settingsSyncStore.setSwitch(host.id, next);
+    } catch (error) {
+      toasts.error("Could not change Sync settings", { description: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -186,6 +201,28 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
+
+{#if !settingsSyncStore.isSignedIn}
+  <SettingsSection label="Settings">
+    <SettingsRow
+      label="Sync settings"
+      description={!isReady
+        ? "Connect to this host to change it."
+        : syncSettings === false
+          ? "Off · this host keeps its own settings."
+          : "On · a change to your settings on a synced host also goes to this host."}
+    >
+      {#snippet control()}
+        <Switch
+          checked={syncSettings ?? true}
+          disabled={!isReady || syncSettings === null || !!settingsSyncStore.saving.get(host.id)}
+          onCheckedChange={(next) => void setSyncSettings(next)}
+          aria-label="Sync settings"
+        />
+      {/snippet}
+    </SettingsRow>
+  </SettingsSection>
+{/if}
 
 <SettingsSection label="Readiness">
   {#if uplinkStore.controlFor(host.id) !== "none"}

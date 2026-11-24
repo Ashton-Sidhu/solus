@@ -1,7 +1,7 @@
 <script lang="ts">
   import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
   import { isSolusApiId } from "@solus/contracts/uplink";
-  import { untrack, type Component } from "svelte";
+  import { onDestroy, untrack, type Component } from "svelte";
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import {
     X as XIcon,
@@ -72,6 +72,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   // The dialog owns the close, so it can play its exit animation first.
   let { onClose }: { onClose: () => void } = $props();
@@ -346,7 +347,20 @@
   const pageQuery = $derived(
     searchQuery && !wordsMatch(searchQuery, [activeTabMeta.label, activeTabMeta.description]) ? settingsPageQuery(session.settingsTab, searchQuery) : "",
   );
+  // Signed out, a host keeps the person's settings, so the pages of personal settings
+  // show the settings host too (docs/plans/settings-sync-hosts.md decision 7).
+  const personalHostFramedTab = $derived(
+    !settings.personal.isSignedIn &&
+      (session.settingsTab === "appearance" ||
+        session.settingsTab === "chat" ||
+        session.settingsTab === "notifications" ||
+        session.settingsTab === "review" ||
+        session.settingsTab === "tasks" ||
+        session.settingsTab === "telemetry" ||
+        session.settingsTab === "experimental"),
+  );
   const hostFramedTab = $derived(
+    personalHostFramedTab ||
     session.settingsTab === "general" ||
       session.settingsTab === "sessions" ||
       session.settingsTab === "host" ||
@@ -361,16 +375,17 @@
   );
   // Machines only: the workspace service is a connection this client holds,
   // not a host with settings of its own (docs/plans/cloud-service-model.md §15).
-  // The host on this device leads, never the Run on host: Settings are about
-  // the machine the user holds. The rest keep connection order.
+  // The host of the current session leads, then the host on this device
+  // (docs/plans/settings-sync-hosts.md decision 7). The rest keep connection order.
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
-    const leadHostId = hosts.device?.id;
+    const activeTabId = session.activeTabId;
+    const leadHostIds = [activeTabId ? runHost(session.runFor(activeTabId)) : undefined, hosts.device?.id];
     const serverIds = serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId));
     return [
-      ...serverIds.filter((serverId) => serverId === leadHostId),
-      ...serverIds.filter((serverId) => serverId !== leadHostId),
-    ].map((serverId) => ({
+      ...leadHostIds.filter((serverId): serverId is string => !!serverId && serverIds.includes(serverId)),
+      ...serverIds.filter((serverId) => !leadHostIds.includes(serverId)),
+    ].filter((serverId, index, all) => all.indexOf(serverId) === index).map((serverId) => ({
       serverId,
       label:
         serversStore.hostFor(serverId)?.label ??
@@ -386,6 +401,13 @@
       settingsHosts[0] ??
       null,
   );
+  // Signed out, while Settings is open, the personal settings on screen are the settings host's.
+  $effect(() => {
+    const serverId = settings.personal.isSignedIn ? null : (selectedSettingsHost?.serverId ?? null);
+    untrack(() => settings.personal.showSettingsHost(serverId));
+  });
+  onDestroy(() => settings.personal.showSettingsHost(null));
+
   const selectedSettingsApi = $derived(
     selectedSettingsHost
       ? serverConnections.apiFor(selectedSettingsHost.serverId)

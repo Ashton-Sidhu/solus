@@ -78,8 +78,9 @@ client is the source of personal settings.
 9. **Settings names the host.** Signed out, Settings → Account & sync says "Your
    settings are kept on <host name>. Sign in to keep them in your account and use
    them on every host." Signed in, it says that the account keeps them. The same
-   line is on mobile. Settings does not show a picker for another host: a person
-   who wants one set on every host signs in.
+   line is on mobile. Signed out, the Settings host picker chooses which host's
+   settings show while Settings is open, and Sync settings keeps the hosts whose
+   switch is on the same ([settings-sync-hosts.md](settings-sync-hosts.md)).
 10. **The agent profile.** Signed in: as before (the account; each host pulls).
     Signed out: the client reads and writes the agent profile document on its home
     host (`agentProfileDocumentGet`/`Patch`), not local storage. "Copy now" and the
@@ -93,6 +94,9 @@ client is the source of personal settings.
 
 ## Where it is on each client
 
+- **Sync settings** (signed out): the copy at pairing and the spread of later
+  changes to the person's other synced hosts are in
+  [settings-sync-hosts.md](settings-sync-hosts.md).
 - **client-core**: `HomeHostDocument` (`home-host-document.ts`) is the signed-out
   source of one document: it reads the home host, sends each change, and keeps a
   change that waits in storage. `PersonalSettingsHosts` (`host-personal-settings.ts`,

@@ -29,6 +29,14 @@ holds a credential for it. A failure shows on the card, and the card stays open.
 **Decline** closes it and tells the agent; a stopped run closes it too. The card
 asks for no name: the host keeps the name it reports, and the person can change it.
 
+Signed out, the card, the Add host dialog, the web client's connect form, and the
+phone's pairing screen have a **Sync settings** checkbox, on by default. On, the new
+host takes your server settings from your home host, and later changes on your other
+synced hosts reach it. Off, the host keeps its own settings, and its Sync settings
+switch is off; change it later on the host's page. Signed in, the checkbox does not
+show: your account keeps your settings on every host (`docs/settings.md`,
+`docs/plans/settings-sync-hosts.md`).
+
 `hostsPair`, and so the CLI, checks the shape of a code before it sends anything.
 A code is 6 digits (spaces or a dash between them are allowed) or a pair link
 that names the same address. Any other value, such as a password, is refused,

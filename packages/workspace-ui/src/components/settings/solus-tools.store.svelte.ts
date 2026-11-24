@@ -2,6 +2,7 @@ import type { TypeSafeKeyStatus } from '@solus/contracts/host-config'
 import type { SolusToolPreferences } from '@solus/contracts/agent-tools'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { settingsSyncStore } from '../../contexts/app/settings-sync.store.svelte'
 
 interface SolusToolsState {
   /** The caller's own TypeSafe key on this host (access-model.md §2.6); unknown until read. */
@@ -100,6 +101,7 @@ class SolusToolsStore {
     this.states.set(serverId, { ...state, saving: true, error: '', revision: state.revision + 1 })
     try {
       const { config } = await serverConnections.apiFor(serverId).configUpdate({ solusTools: patch })
+      settingsSyncStore.hostConfigChanged(serverId, { solusTools: patch })
       const current = this.states.get(serverId)!
       this.states.set(serverId, { ...current, preferences: current.revision === state.revision + 1 ? config.solusTools : current.preferences, saving: false })
     } catch {

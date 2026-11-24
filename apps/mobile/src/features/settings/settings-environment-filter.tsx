@@ -1,10 +1,11 @@
-import { useSolusWorkspace } from "../../solus/runtime";
+import { solus, useSolusWorkspace } from "../../solus/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { buildProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { useLocale, useMessages } from "gt-react-native";
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -105,6 +106,14 @@ export function SettingsEnvironmentFilterProvider(props: {
     setSelectedProjectKey(projectKey);
   };
   const getSelectedProjectKey = () => currentProjectKey.current;
+  // Signed out, while Settings is open on one host, the personal settings on screen are that
+  // host's copy, so a person can change a host whose Sync settings is off
+  // (docs/plans/settings-sync-hosts.md decision 7). Otherwise they are the home host's.
+  const settingsHostId = props.open && selectedIds?.size === 1 ? [...selectedIds][0]! : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the personal settings store which host Settings shows
+  useEffect(() => {
+    solus.personal.showSettingsHost(settingsHostId);
+  }, [settingsHostId]);
   const value = {
     selectedIds,
     selectedProjectKey,

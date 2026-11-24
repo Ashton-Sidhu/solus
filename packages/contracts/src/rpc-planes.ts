@@ -351,6 +351,7 @@ export const RPC_PLANES = {
   personalSettingsGet: 'execution',
   personalSettingsPatch: 'execution',
   personalSettingsChanged: 'execution',
+  personalSettingsSyncSet: 'execution',
   agentProfileDocumentGet: 'execution',
   agentProfileDocumentPatch: 'execution',
 
