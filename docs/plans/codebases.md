@@ -617,7 +617,10 @@ for a copy that is not deleted, two or more roots or a container root
 (`onCodebasesChanged`). The store has no delete: a client saves the
 tombstone, so each host gets the same `updatedAt`. Reads use
 `scopeClause(recordScopeOf(principal))`; a write names
-`organizationForNew(principal)`.
+`organizationForNew(principal)`. `codebasesFor(actor)` binds these
+functions to one person: its reads name the scope of the actor, and its
+save names the organization and the creator of the actor. The session owners
+and the codebase handlers use it.
 
 - A save never changes the copy that it stores. Two hosts that have the same
   `updatedAt` have the same record.
