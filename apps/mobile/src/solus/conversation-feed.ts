@@ -23,19 +23,30 @@ import {
   type RawThreadFeedEntry,
 } from "../lib/threadActivity";
 import { messageAttachments } from "./upload-images";
+import { createArtifactGrouping, type ArtifactGroup } from "./artifact-groups";
 
 // The T3 list owns text messages. Rich cards subscribe to their own item on mount.
 export function conversationFeed(
   store: Pick<ConversationStore, "item" | "subscribeFeedItems">,
   id: string,
-  renderCard: (key: string, superseded: boolean, liveAppOnly?: boolean) => ReactNode,
+  renderCard: (
+    key: string,
+    superseded: boolean,
+    liveAppOnly?: boolean,
+    artifactGroup?: ArtifactGroup,
+  ) => ReactNode,
   resolveImagePath: (path: string, refresh?: boolean) => Promise<string>,
   readToolInput: (key: string) => Promise<string>,
 ) {
   type Item = NonNullable<ReturnType<ConversationStore["item"]>>;
   const cache = new WeakMap<
     Item,
-    { leadingRun: RunId | null; superseded: boolean; sources: ThreadFeedSourceRow[] }
+    {
+      leadingRun: RunId | null;
+      superseded: boolean;
+      group: ArtifactGroup | undefined;
+      sources: ThreadFeedSourceRow[];
+    }
   >();
   const threadId = ThreadId.make(id);
   const project = (
@@ -43,7 +54,10 @@ export function conversationFeed(
     item: Item,
     leadingRun: RunId | null,
     superseded: boolean,
+    group: ArtifactGroup | undefined,
   ): ThreadFeedSourceRow[] => {
+    // The group card shows at its first member; the other members are in it.
+    if (group && group.id !== key) return [];
     if (
       item.kind === "user" &&
       item.waitsForTurn &&
@@ -173,7 +187,7 @@ export function conversationFeed(
       runId: leadingRun,
       ...(item.kind === "tool" && { toolStatus: item.status }),
       ...(viewedImage && { viewedImagePath: viewedImage }),
-      render: () => renderCard(key, superseded),
+      render: () => (group ? renderCard(key, false, false, group) : renderCard(key, superseded)),
     };
     if (item.kind !== "user" && item.kind !== "assistant") {
       return [
@@ -240,6 +254,7 @@ export function conversationFeed(
       : [row];
   };
   const feedCache = createThreadFeedCache();
+  const artifactGroups = createArtifactGrouping();
   return (order: readonly string[]) => {
     const observed = new Map<string, NonNullable<ReturnType<ConversationStore["item"]>>>();
     const rows = new Map<string, ThreadFeedSourceRow[]>();
@@ -252,17 +267,29 @@ export function conversationFeed(
       if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
       if (item?.kind === "artifact" && item.workId) latest.set(item.workId, key);
     }
+    const groups = artifactGroups(order, (key) => store.item(key));
     const update = (key: string) => {
       const item = store.item(key);
       if (!item) return;
       if (item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
         observed.set(key, item);
+      const group = groups.get(key);
       const superseded =
-        item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
+        !group && item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
       let held = cache.get(item);
-      if (!held || held.leadingRun !== leadingRun || held.superseded !== superseded) {
-        held = { leadingRun, superseded, sources: project(key, item, leadingRun, superseded) };
+      if (
+        !held ||
+        held.leadingRun !== leadingRun ||
+        held.superseded !== superseded ||
+        held.group !== group
+      ) {
+        held = {
+          leadingRun,
+          superseded,
+          group,
+          sources: project(key, item, leadingRun, superseded, group),
+        };
         cache.set(item, held);
       }
       rows.set(key, held.sources);

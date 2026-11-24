@@ -71,6 +71,41 @@ it("keeps host cards in transcript order and collapses only older versions of th
     ["image", false],
   ]);
 });
+it("shows the different works of one turn as one group card at the first and keeps the rows between in place", () => {
+  const items: TranscriptItem[] = [
+    { kind: "user", id: "p", text: "draw", attachments: [], delivery: "sent", error: null },
+    { kind: "artifact", id: "plan-1", workId: "plan", title: "Plan", html: "<p>1</p>" },
+    { kind: "assistant", id: "between", text: "Now the mock." },
+    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "<p>m</p>" },
+    { kind: "artifact", id: "plan-2", workId: "plan", title: "Plan", html: "<p>2</p>" },
+  ];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const render = vi.fn(() => null);
+  const feed = conversationFeed(
+    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
+    items.map((i) => i.id),
+    "session",
+    render,
+  );
+  expect(feed.get().map((row) => row.id)).toEqual(["p", "plan-1", "between"]);
+  for (const row of feed.get()) if (row.type === "conversation-card") row.render();
+  // No "earlier version" row: the group shows each work once, at the newest revision of the turn.
+  expect(render.mock.calls).toEqual([
+    [
+      "plan-1",
+      false,
+      false,
+      expect.objectContaining({
+        id: "plan-1",
+        defaultTab: 0,
+        tabs: [
+          expect.objectContaining({ workId: "plan", revisions: ["plan-1", "plan-2"], turnRevision: 1 }),
+          expect.objectContaining({ workId: "mock", revisions: ["mock"], turnRevision: 0 }),
+        ],
+      }),
+    ],
+  ]);
+});
 it("updates streaming text without subscribing the entire feed to tool progress", () => {
   const item: TranscriptItem = { kind: "assistant", id: "a", text: "start" };
   const items = new Map<string, TranscriptItem>([

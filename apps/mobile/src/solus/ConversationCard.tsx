@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { msg, useMessages } from "gt-react-native";
 import { modelLabelFor, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
 import { PROVIDERS } from "@solus/contracts/provider-model-settings";
@@ -22,9 +22,6 @@ import {
   toolFullDetail,
   toolRowLabel,
 } from "@solus-mobile/features/threads/thread-work-log-presentation";
-import { InlineHtmlRender } from "../features/threads/HtmlRenderWebView";
-import { workHistoryKey } from "@solus/client-core/person-history";
-import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
 import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
 import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferCard";
 import { ThreadToolAudio } from "@solus-mobile/features/threads/ThreadToolAudio";
@@ -39,6 +36,8 @@ import {
 import { StateMarkView } from "../features/threads/StateMark";
 import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
 import { PlanCard } from "./PlanCard";
+import { ArtifactCard, ArtifactGroupCard } from "./ArtifactCards";
+import type { ArtifactGroup } from "./artifact-groups";
 import { solus } from "./runtime";
 
 function Details({
@@ -224,65 +223,17 @@ function ToolCard({
   );
 }
 
-function ArtifactCard({
-  store,
-  item,
-  superseded,
-}: {
-  store: ConversationStore;
-  item: Extract<TranscriptItem, { kind: "artifact" }>;
-  superseded: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const { workId } = item;
-  const visible = !superseded || expanded;
-  const pending = !item.html && !!item.contentVersion;
-  const needsRead = visible && pending && !item.loading && !item.error;
-  useEffect(() => {
-    if (needsRead) void store.controller.ensureArtifact(item.id);
-  }, [store, item.id, needsRead]);
-  return (
-    <View className="px-1">
-      {superseded && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded }}
-          className="min-h-11 justify-center"
-          onPress={() => setExpanded(!expanded)}
-        >
-          <AppText className="text-sm text-foreground-secondary">
-            {item.title} · earlier version
-          </AppText>
-        </Pressable>
-      )}
-      {visible &&
-        (pending ? (
-          item.error ? (
-            <View className="min-h-28 items-center justify-center">
-              <AppText accessibilityRole="alert">{item.error}</AppText>
-              <RequestActionButton
-                label="Try again"
-                onPress={() => void store.controller.ensureArtifact(item.id)}
-              />
-            </View>
-          ) : (
-            <AppActivityIndicator accessibilityLabel="Loading artifact" />
-          )
-        ) : (
-          <InlineHtmlRender html={item.html} title={item.title} onOpen={workId ? () => solus.history.record(workHistoryKey(workId)) : undefined} />
-        ))}
-    </View>
-  );
-}
-
 export function ConversationCard({
   store,
   id,
   superseded = false,
+  artifactGroup,
 }: {
   store: ConversationStore;
   id: string;
   superseded?: boolean;
+  /** The group card of the saved works of one turn, shown at its first member. */
+  artifactGroup?: ArtifactGroup;
 }) {
   const item = useTranscriptItem(store, id);
   if (!item) return null;
@@ -307,7 +258,11 @@ export function ConversationCard({
     case "assistant":
       return null; // The upstream feed renders the message.
     case "artifact":
-      return <ArtifactCard store={store} item={item} superseded={superseded} />;
+      return artifactGroup ? (
+        <ArtifactGroupCard store={store} group={artifactGroup} />
+      ) : (
+        <ArtifactCard store={store} item={item} superseded={superseded} />
+      );
     case "mcp_app":
       return <ThreadMcpApp store={store} id={id} />;
     case "tool":
