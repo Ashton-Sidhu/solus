@@ -1,11 +1,14 @@
 # Codebases — one session, several folders, several hosts
 
 Status: built. Stages 1 to 8 are in the code. Stage 12 (24 November 2026)
-changed the model, the automatic attach, and the project panel after the
-maintainers used the feature: a codebase has two or more folders and a
-project covers its repositories (decisions 13 and 14), an automatic trigger
-attaches only a real project (decision 8), and the project panel has no
-Repositories card (§9). The person's guide is
+changed the automatic attach and the project panel after the maintainers
+used the feature: an automatic trigger attaches only a real project
+(decision 8), and the project panel has no Repositories card (§9). Stage 13
+(24 November 2026) changed the model again after the maintainers saw it: a
+project is one folder, a folder that holds two or more repositories is a
+container and a container is a codebase (decision 14), a codebase that Solus
+forms gets a short generated name (decision 13), and the surfaces say less
+(§9, §10, §11c). The person's guide is
 [Codebases](../codebases.md). Owner of the decisions: maintainers (agreed
 23 November 2026). §14 lists each place where the code differs from the first
 plan.
@@ -30,9 +33,9 @@ Three things must become true:
    on its host.
 2. The agent knows which folders of the work are on a different host, and it
    starts a session there to change them.
-3. A person does not keep a list by hand. Repositories inside a folder are
-   found on the disk: a project covers the repositories inside it with no
-   codebase (decision 14). A second project that the agent needs in the
+3. A person does not keep a list by hand. A folder that holds two or more
+   repositories is a codebase by itself, and its repositories are found on
+   the disk (decision 14). A second project that the agent needs in the
    middle of a session is attached automatically, and the codebase of the two
    then forms by itself (decision 13).
 
@@ -40,15 +43,16 @@ Three things must become true:
 
 | Term | Meaning |
 |---|---|
-| **codebase** | A named set of two or more folders, on one or more hosts, that one piece of work covers. One folder is a project, never a codebase (decision 14). |
-| **root** | A folder that a person or the host put in a codebase: an installation id and an absolute path on that host. |
-| **member** | A folder that a codebase covers on one host: each root, and each repository found inside a root. A host reads its members from the disk. They are not stored. |
+| **codebase** | A named set of folders, on one or more hosts, that one piece of work covers: two or more projects, or one container. One project is never a codebase (decision 14). |
+| **container** | A folder that is not a repository and that holds two or more repositories (`~/shop` with `api` and `web`). A container is a codebase, never a project. |
+| **root** | A folder that a person or the host put in a codebase: an installation id and an absolute path on that host. A root that is a container has the mark `container`. |
+| **member** | A folder that a codebase covers on one host: each root, and each repository found inside a container root. A host reads its members from the disk. They are not stored. |
 | **member state** | `git` (the folder has its own `.git`), `plain` (a folder with no repository), or `missing`. |
-| **session folder** | A folder that one session works in besides its working directory. It is a repository that the host found in the project folder, a member of the session's codebase, or an attached folder. |
+| **session folder** | A folder that one session works in besides its working directory. It is a member of the session's codebase, or an attached folder. |
 | **attach** | To add a session folder to a running session. |
 | **task folder** | The folder that a worktree session of several repositories works in: one directory that holds a worktree of each chosen repository at the same relative places as the originals. |
 | **project folder** | The member that a session works in: the root of the repository of its working directory, else the working directory. For a session in a worktree, the original folder, never the worktree (`projectFolderOf`). |
-| **project** | One folder on a host (`docs/plans/project-model.md`). It covers the repositories inside it. A codebase does not replace it, and a project is never also a codebase. |
+| **project** | One folder or one repository on a host (`docs/plans/project-model.md`). Solus does not look inside it for more repositories. A codebase does not replace it, and a project is never also a codebase. |
 
 Do not use "tracked folder", "workspace folder", "multi-repo project", or
 "additional directory" in new code or in text that a person reads. The provider
@@ -106,6 +110,18 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
    mode. The card has three choices: allow for this session, allow and add to
    the codebase, refuse. A run with nobody present uses `full-access`
    (`docs/plans/permission-modes.md`), so it gets no card.
+
+   Changed in stage 13: when the attach forms a codebase (the session has
+   none, and the folder is a real second project: decision 13, rule 2), the
+   card says so. Its choices are then "Allow and make the codebase", "Allow
+   for this session only" (the folder is attached, and no codebase is made),
+   and "Do not allow". The description of the first choice names the
+   proposed name, and the person can change it: the card is a normal
+   question card, so the words that the person types in its answer field are
+   the name. The host reads the answer as the label of the choice, then
+   ` — `, then the typed words (`attachAnswerOf`), which is how the card of
+   each client sends a choice with a remark (`formatAnswer`). A codebase
+   with a name from a person gets no generated name.
 
    Changed in the code: the choice "allow and add to the codebase" shows only
    when the session has a codebase. In a task folder session, an attach of a
@@ -171,22 +187,27 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
 11. **New projects join the codebase.** `create_project` and `clone_project`
     add the new folder to the session's codebase unless the caller opts out,
     and they attach it to the session immediately. A new project in the
-    project folder of the session needs no codebase: the project covers it
-    (decision 14). A new project outside it, in a session with no codebase,
+    project folder of the session needs no codebase: it is a part of that
+    project, or, in a container, the read of the disk finds it (decision 14).
+    A new project outside it, in a session with no codebase,
     is a real second project that the agent made on purpose, so it forms the
     codebase of the two folders (decision 13, rule 2).
-12. **A session with no codebase has its working directory and the
-    repositories of its project** (decision 14). It can still get attached
-    folders. Decision 13 says which sessions stay with no codebase.
-13. **A codebase forms by itself, from two folders.** The rule is on the
+12. **A session with no codebase has its working directory.** It is in one
+    project (decision 14). It can still get attached folders. Decision 13
+    says which sessions stay with no codebase.
+13. **A codebase forms by itself.** The rule is on the
     host (`execution/sessions/session-codebase-formation.ts`, called by
     `SessionFolders`), so each client, a session that an agent starts, and an
     automation get it. At each turn start, for a session with no codebase:
 
     1. **Take the one that exists.** Exactly one live codebase holds the
        project folder on this host (`codebasesOfFolder`): the session takes
-       it. More than one: the session takes none, and nothing is formed. In
-       each other case the session stays with no codebase.
+       it. More than one: the session takes none, and nothing is formed.
+
+       **Rule 1a: the container.** No codebase holds the project folder, and
+       the folder is a container (decision 14): the codebase of the container
+       forms, and the session takes it (`containerCodebaseOf`). In each
+       other case the session stays with no codebase.
 
     When a folder is attached to a session with no codebase:
 
@@ -198,29 +219,60 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
        repository (`folderStateOf`), or a folder that is, or is in, a
        project that the host lists (`listedProjectHolding`). For the source
        `observed`, only when the folder is in a listed project. A folder in
-       the project folder is no second project: the project covers it. A
-       folder that holds the project folder is none also: one root of a
+       the project folder is no second project: it is a part of that
+       project. A folder that holds the project folder is none also: one root of a
        codebase is not inside a different one. A different folder that is
        attached (a folder of notes, the directory of a file that the agent
        read) stays a folder of that session only, and no codebase is made: a
        person can add it to a codebase by hand. A session that has a
        codebase gets no new root from an attach.
 
-    Changed in stage 12: the first plan of this decision also formed a
-    codebase with one root from a project folder that holds a repository.
-    That rule is removed (decision 14). The picker showed the name of such a
-    folder two times, as a project and as a codebase.
+    Changed in stage 12, and again in stage 13: the first plan of this
+    decision formed a codebase with one root from each project folder that
+    holds a repository. Stage 12 removed that rule and let a project cover
+    its repositories. Stage 13 has the container rule (decision 14): the
+    folder is a codebase and is no project, so the picker shows its name one
+    time.
 
-    A codebase is made by a person, by the agent, or by rule 2, which has a
-    reason: the disk shows a second project of the work. A pasted image is
-    not a reason (decision 8: its path attaches nothing).
+    A codebase is made by a person, by the agent, or by a rule that has a
+    reason on the disk: the folder is a container, or a second project of the
+    work was attached. A pasted image is not a reason (decision 8: its path
+    attaches nothing).
 
     The rules that apply:
 
-    - **Name.** The names of the two roots, joined: `solus + solus-cloud`.
-      Never the name of the project alone: a project and a codebase with one
-      name read as one thing. When a live codebase in the record scope of
-      the person has that name, a number is added: `shop + ui 2`.
+    - **Name.** A container codebase has the name of its folder (`shop`),
+      and no model names it. A codebase of two projects forms at once with a
+      plain name (`plainCodebaseName`): the common start of the folder names
+      when it has three or more characters (`solus` for `solus` and
+      `solus-cloud`), else the first folder name and the count of the others
+      (`api +1`). When a live codebase in the record scope of the person has
+      the name, a number is added: `solus 2`.
+    - **The generated name.** After the formation, a small model call gives
+      the codebase of two projects a short name
+      (`execution/sessions/codebase-name.ts`), the way Solus names a session
+      and the branch of a worktree: the writing model of the person
+      (`textGenerationModel`, through `writingBackendFor`), on the seat of
+      the person, in one run of at most two turns and 30 seconds, with no
+      built-in tool, and one tool that takes the answer. The model reads the
+      names of the folders and the first 600 bytes of the README of each
+      folder on this host. The answer must be one to three words of letters
+      and digits, with no punctuation, at most 32 characters
+      (`validGeneratedCodebaseName`); each other answer keeps the plain
+      name. The name arrives as a normal save with a later `updatedAt`
+      (`renameFormed`), so each host takes it, and the session gets
+      `session_codebase` again with the new name. The formation never waits
+      for the model. Nothing is saved when the codebase is deleted, and when
+      it does not have its plain name then: a person renamed it, and that
+      name stays. A name that a person typed on the attach card is used as
+      it is.
+    - **The setting.** `codebaseNaming` is a personal setting (`generated`,
+      the default, or `folders`: the plain name stays, and no model is
+      asked). It travels with the turn as each execution preference does,
+      and a policy can manage it. `codebaseNaming` in the
+      `.solus/config.json` of the project folder wins over the setting of
+      the person (`resolveCodebaseNaming`), as the branch naming of a
+      project does.
     - **One at a time.** The formation for one project folder is serialized
       (`runOneAtATime`), and it reads the codebases again inside the lock.
       Two sessions that attach one project at the same moment give one
@@ -231,14 +283,17 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
       this host, compared by their real paths). A codebase with a different
       set of roots is a different codebase: the delete of a wrong codebase
       (`~/solus` with a temporary folder) does not stop `~/solus` with
-      `~/solus-cloud`. Rule 1 does not read tombstones.
+      `~/solus-cloud`. The tombstone of a container codebase (one root, the
+      folder) stops rule 1a for that folder, at a turn start and when the
+      folder is added as a project: the folder is then a project again.
+      Rule 1 does not read tombstones.
       "No codebase" on a draft is `SessionCtx.noCodebase`: no rule gives that
       session a codebase. The host keeps it in memory for the session, and
-      the client sends it with each turn. It takes no repository of the
-      project away (decision 14).
+      the client sends it with each turn.
     - **No rule** for a chat (`isChat`) and for a guest. **No formation** for
       the home directory, the root of the file system, and the projects root
-      of the host or of a member (`holdsTooMuch` in `project-members.ts`).
+      of the host or of a member (`holdsTooMuch`). The rule asks this before
+      it reads the folder: the read of a home directory is not small.
       The codebase is made in the organization of the acting person
       (`organizationForNew`) with that person as its creator, as
       `codebaseSave` does.
@@ -251,39 +306,71 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
     - **The event.** `session_codebase` (§4) tells the clients. A session
       that takes or forms a codebase gets the `<codebase>` block with its
       name at its next turn start.
-    - **The divider.** A formation (rule 2) is also one activity of the
-      session, `codebase_formed`, which the host stores as it stores a move
-      into a worktree (`recordActivity`). The conversation shows it as a
-      divider at the point where the codebase formed. A session that takes a
-      codebase that exists (rule 1, or the codebase that a turn names) gets
-      no divider.
-14. **A project covers the repositories inside it, and a codebase has two or
-    more folders.** Added in stage 12.
+    - **The divider.** A formation in a session (rule 1a at a turn start,
+      and rule 2) is also one activity of the session, `codebase_formed`,
+      which the host stores as it stores a move into a worktree
+      (`recordActivity`). The conversation shows it as a divider at the
+      point where the codebase formed. A session that takes a codebase that
+      exists (rule 1, or the codebase that a turn names) gets no divider,
+      and a codebase that formed when a person added the folder has no
+      session to show it in.
+14. **A project is one folder, and a container is a codebase.** Stage 12
+    let a project cover the repositories inside it. Stage 13 replaced that
+    rule: a plain folder `~/shop` that holds `api` and `web` then showed as
+    a project with the note "2 repositories", which is two names for one
+    kind of thing.
 
-    - **A project is never also a codebase.** One folder is a project. A
-      codebase is for a second folder: a different project, or a folder on a
-      different host.
-    - **The repositories of a project come with it.** At each turn start the
-      host finds the repositories inside the project folder of the session
-      with the discovery of §5 (one level down, one more inside a plain child
-      folder, own `.git` directory, the skip rules, `ignoreRepositories`).
-      Each one is a session folder with the source `project`, in every
-      session, with no codebase record
-      (`execution/sessions/project-members.ts`, `sessionMembers`). All that a
-      member of a codebase on the run host gets, such a repository gets: the
-      grant rule (a folder in the working directory needs no grant), the
-      prompt block, checkpoints, diff, Git actions, pull request detection,
-      and the task folder of a new worktree session (§7).
-    - **No repository** for a chat, for a guest, and for a folder that holds
-      much more than one piece of work (the home directory, the root of the
-      file system, the projects root).
-    - **A live codebase has at least two roots** (`CODEBASE_ROOTS_MIN`), and
-      no root is inside a different root of the same host: the root covers
-      it. `saveCodebase` refuses each. A tombstone is exempt, so each delete
-      moves. A stored record that is not deleted and has fewer roots is not
+    - **A project is one folder or one repository.** Solus does not look
+      inside it. A repository that holds a nested repository is one project.
+      A session with no codebase has one checkout.
+    - **A container is a codebase.** A container is a folder that is not a
+      repository itself and that holds two or more repositories, found with
+      the discovery of §5 (one level down, one more inside a plain child
+      folder, own `.git` directory, the skip rules, `ignoreRepositories`):
+      `isContainer` in `files/codebase-members.ts`. A folder that holds one
+      repository or none is a normal project.
+    - **The record.** One root, the container folder, with the mark
+      `container: true` (`CodebaseRoot`). The members of a container root
+      are the folder and the repositories that the host finds inside it at
+      each read, so a repository that is cloned into the folder later is a
+      member. A root with no mark is one project: one member, and the host
+      does not look inside it. A folder that is a container at the time that
+      it becomes a root of any codebase gets the mark (`rootOf` on the host,
+      `rootFor` on a client, from the scan).
+    - **A live codebase has two or more roots, or a container root**
+      (`hasEnoughRoots`), and no root is inside a different root of the same
+      host. `saveCodebase` refuses each. A tombstone is exempt, so each
+      delete moves. A stored record that is not deleted and has less is not
       a codebase: no read answers it. There is no migration for such a row.
-    - **The clients follow.** New codebase asks for two folders. A root
-      cannot be removed when two are left: the text says to delete the
+    - **It forms by itself** (decision 13, rule 1a), with the name of the
+      folder: (a) at a turn start of a session with no codebase whose
+      project folder is a container; (b) when a person adds or opens the
+      folder as a project. Each path that records a project for a person
+      asks the rule (`formContainerCodebases`): `trackRecentProject` (Open
+      project, the directory picker of the project chip, a session start),
+      `setupCloneProject`, `setupAdoptProject`, `setupCreateProject`, and
+      `projectConfigSave`. A new repository can also make a container of the
+      project that holds it (a clone into `~/shop`, which had one
+      repository): the folder above the new repository, and the one above
+      that, are asked when the host lists them as projects. The host then
+      sends `codebases.changed`, so each client shows the folder under
+      Codebases immediately.
+    - **A session there works in the container folder**, so a path between
+      two of its repositories works. Its repositories are session folders
+      with the source `codebase`. They are inside the working directory, so
+      they need no grant. A new worktree session gets a task folder with a
+      worktree of each chosen repository (§7).
+    - **Never under Projects.** A folder that is the container root of a
+      live codebase is in no project list of a client. The one rule is
+      `isContainerRoot` in `packages/client-core/src/codebases.ts`. Desktop
+      and web ask it where each list is built (`ProjectsStore.projectsFor`
+      and `recentProjectsFor`, which the project chip, the palette, the
+      sidebar filter, and the settings lists read), and mobile asks it in
+      its project list (§10). The host keeps its own project row for the
+      folder (its config, its last use).
+    - **The clients follow.** New codebase takes one container folder, or two
+      folders. A root can be removed only when the roots that stay are a
+      codebase (the refusal `too-few`): the text says to delete the
       codebase. The rules are in `packages/client-core/src/codebases.ts`.
 
 Solus has no file rewind today (`session-code-restore.ts` only rebuilds a
@@ -302,8 +389,10 @@ shape and the length of each string. The store checks the rules of a codebase
 
 ```ts
 export const CODEBASE_ROOTS_MAX = 128
-/** A codebase that is not deleted has at least this many roots. One folder is a project. */
+/** A codebase that is not deleted has at least this many roots, or one container root. One project is not a codebase. */
 export const CODEBASE_ROOTS_MIN = 2
+/** A folder that is not a repository is a container when it holds at least this many repositories. */
+export const CONTAINER_REPOSITORIES_MIN = 2
 /** A new worktree session isolates every repository only up to this many. */
 export const CODEBASE_WORKTREE_DEFAULT_MAX = 8
 
@@ -313,6 +402,8 @@ export interface CodebaseRoot {
   /** Absolute on that host. Never `~`. */
   path: string
   name: string
+  /** The root is a container: the host reads the repositories inside it as members (decision 14). */
+  container?: true
 }
 
 export interface Codebase {
@@ -360,8 +451,7 @@ export interface CodebaseFolderScan {
   suggestions: CodebaseFolderSuggestion[]
 }
 
-/** `project`: a repository that the host found in the project folder of the session (decision 14). */
-export type SessionFolderSource = 'project' | 'codebase' | 'attached' | 'created' | 'observed'
+export type SessionFolderSource = 'codebase' | 'attached' | 'created' | 'observed'
 
 /**
  * One folder that a session record keeps besides its working directory (`session_records.attached_folders`).
@@ -448,15 +538,15 @@ codebase that is deleted.
 **The activity of a formation** (`activity.ts`):
 
 ```ts
-| { kind: 'codebase_formed'; codebaseId: string; name: string; folders: string[] }
+| { kind: 'codebase_formed'; codebaseId: string; name: string }
 ```
 
 When a rule made the codebase, `SessionFolders.takeCodebase` records this
 activity with `SessionRuntime.recordActivity` (`formationActivity` in
-`session-codebase-formation.ts`). `folders` are the names of the roots at
-that time, the project folder first, then the second project that was
-attached, so the line reads the same after a person changes or deletes the
-codebase. The author is the actor of the turn
+`session-codebase-formation.ts`). `name` is the name at that time. A client
+shows the name that the codebase has now, and this one when it has no record
+of the codebase (stage 13: the record kept the folder names before, for a
+line that named them). The author is the actor of the turn
 or of the attach, who is also the creator of the codebase. The activity is a row
 of the `activity` table and of the mirror, and a history read merges it by
 its time (`mergeSessionActivity`). Thus a reload, a client that opens the
@@ -521,8 +611,8 @@ migration adds the two columns of `session_records`.
 copy), `saveCodebase(organizationId, createdBy, codebase)` (keeps the
 incoming copy only when its `updatedAt` is newer; validates: name not empty,
 at most `CODEBASE_ROOTS_MAX` roots, each path absolute, no root twice, and,
-for a copy that is not deleted, at least `CODEBASE_ROOTS_MIN` roots and no
-root inside a different root of the same host),
+for a copy that is not deleted, two or more roots or a container root
+(`hasEnoughRoots`) and no root inside a different root of the same host),
 `codebasesOfFolder(scope, installationId, path)`, and a change listener
 (`onCodebasesChanged`). The store has no delete: a client saves the
 tombstone, so each host gets the same `updatedAt`. Reads use
@@ -537,19 +627,20 @@ tombstone, so each host gets the same `updatedAt`. Reads use
 - The id of a codebase names one row, and its organization never changes. A
   save that names a different organization than the row has is refused.
 - `created_by` applies only when the save makes the row.
-- A stored row that is not deleted and has fewer than two roots is not a
-  codebase (decision 14): `listCodebases`, `getCodebase`, and
-  `codebasesOfFolder` do not answer it. A tombstone can have each number of
-  roots.
+- A stored row that is not deleted, and has fewer than two roots and no
+  container root, is not a codebase (decision 14): `listCodebases`,
+  `getCodebase`, and `codebasesOfFolder` do not answer it. A tombstone can
+  have each number of roots.
 
 **Discovery** `packages/server/src/files/codebase-members.ts`:
 
-- `membersOf(codebase, installationId)`: each root on this host, then the
-  repositories inside it.
-- `membersOfProject(projectFolder)`: the same answer for one project folder
-  with no codebase: the folder, then the repositories inside it (decision 14).
-- Inside a root it looks one level down, and one more level inside a child that
-  is a plain folder (`src`, `packages`).
+- `membersOf(codebase, installationId)`: each root on this host, and, for a
+  container root, the repositories inside it. A root with no container mark
+  is one project: one member (decision 14).
+- `isContainer(folder)`: the folder is no repository, and discovery finds two
+  or more repositories inside it.
+- Inside a container root it looks one level down, and one more level inside
+  a child that is a plain folder (`src`, `packages`).
 - A repository is a folder whose `.git` is a directory. A linked worktree and
   a submodule have a `.git` file, so they are not found.
 - It skips dot-folders, `node_modules`, the paths in the `.gitmodules` file
@@ -565,8 +656,10 @@ tombstone, so each host gets the same `updatedAt`. Reads use
 - A root inside a different root is one member: the root.
 - Git runs only for the facts of a repository that was found (its origin and
   whether it has a commit), four repositories at one time.
-- `scanFolder(path)` gives the same answer for one folder that is not in a
-  codebase yet, plus the `.code-workspace` suggestions. A suggestion is given
+- `scanFolder(path)` gives the answer of a container root for one folder that
+  is not in a codebase yet (the folder, then the repositories inside it),
+  plus the `.code-workspace` suggestions. A client reads from it whether the
+  folder is a container (`isContainerScan`). A suggestion is given
   only for a folder that exists. The file can have comments and trailing
   commas.
 
@@ -583,16 +676,18 @@ keeps the stored value. `SessionFolders` is the one writer
 with mobile: `mergeCodebases(copiesByHost)` returns the newest copy of each id
 and, for each host, the copies that it must get. The same file has the rules
 of a record that both client stores use: the refusal of a root (`duplicate`,
-`nested`, `limit`, `missing`, and `last-two` for the removal of one of the
-last two roots), `isLiveCodebase` (not deleted, two or more roots),
-`nextUpdatedAt`, `rootFor`, `codebasesHolding`, and `startMembers` (the
-repositories of the project folder, then the members of the codebase: the
-list that a new worktree reads on each client).
+`nested`, `limit`, `missing`, and `too-few` for a removal that leaves fewer
+than two roots and no container), `isLiveCodebase` (not deleted, two or more
+roots or a container root), `nextUpdatedAt`, `rootFor` (which sets the
+container mark from the scan of the folder), `codebasesHolding`, and
+`isContainerRoot` (the one rule "a container root is never a project" of
+each client).
 
 Proof: unit tests for discovery on real temporary Git repositories (nested
 repository, plain wrapper folder, submodule, linked worktree, ignored
-repository, link out of the root), for the newest-wins save and the tombstone,
-and for `mergeCodebases`.
+repository, link out of the root, a root with no container mark, the
+container rule), for the newest-wins save and the tombstone, and for
+`mergeCodebases`.
 
 ## 6. Stage 2 — the folders of a session
 
@@ -605,12 +700,11 @@ session; `SessionFolders` owns all other folders. It:
   rules of decision 13 find or make (`settleCodebase`). It reads the codebase
   in the record scope of the person that the turn acts for, so a person does
   not get the folders of a codebase that they cannot read;
-- resolves the folders at each turn start: the repositories that the host
-  finds in the project folder of the session (source `project`, decision
-  14) and the members of the session's codebase on this host that are not in
-  the project folder (source `codebase`), less the working directory and the
-  repository that the working directory is in, plus the attached folders of
-  the session record. Before that, an attached folder in a temporary
+- resolves the folders at each turn start: the members of the session's
+  codebase on this host (source `codebase`; for a container root, the
+  repositories that the host finds inside it: decision 14), less the working
+  directory and the repository that the working directory is in, plus the
+  attached folders of the session record. Before that, an attached folder in a temporary
   directory of the system that nobody asked for by name leaves the record
   (decision 8). An attached folder that is gone stays in the record and is left out
   of the list until the folder comes back. A root of the codebase that is
@@ -670,8 +764,8 @@ Names and paths come from the disk and from people (`codebaseBlock` in
 - The `start_sessions` hint and the `attach_folder` line are written only
   when the run has that tool.
 - A session whose codebase adds no folder on this host and no root on a
-  different host gets no block. A session with no codebase that has a
-  repository in its project folder, or an attached folder, gets a block with
+  different host gets no block. A session with no codebase that has an
+  attached folder gets a block with
   no name: `<codebase>`, then the same lines. A session in one repository
   with no other folder gets no block.
 - In a task folder, the line of the working directory has the name of the
@@ -718,11 +812,17 @@ code:
    client shows it with no change. One card for one folder: a second request
    waits for the same answer, and a refused folder is not asked again in the
    turn (`refused`). With no way to show a card, or when the turn stops
-   before the answer, the folder is not attached (`not-asked`).
+   before the answer, the folder is not attached (`not-asked`). When the
+   attach forms a codebase (`SessionFolders.formationOf`, which asks
+   `formationFor`), the card has the question and the three choices of
+   decision 8 for that case, with the proposed name.
 
 "Allow and add to the codebase" writes the folder as a root of the session's
 codebase on this host (`addCodebaseRoot`), with a newer `updatedAt`, so each
-host takes the copy.
+host takes the copy. "Allow and make the codebase" attaches the folder, and
+the attach forms the codebase with the name that the person typed, else with
+its plain name. "Allow for this session only" attaches the folder with no
+formation (`AttachCodebase.sessionOnly`).
 
 The triggers:
 
@@ -762,8 +862,10 @@ save does not stop the session: it starts with the id.
 **Project tools.** `create_project` and `clone_project` get
 `add_to_codebase?: boolean` (default true). After success
 (`SessionFolders.adoptCreated`): a new folder in the project folder of the
-session is covered by the project (decision 14), so it gets no root and makes
-no codebase: the read of the disk gives it as a `project` folder. For a
+session gets no root and makes no codebase of two roots. In a container, the
+read of the disk gives it as a member. In a project folder that held one
+repository, the second repository makes the folder a container, and the next
+turn start forms its codebase (decision 14). For a
 folder outside the project folder: when it is not inside a root, add it as a
 root of the session's codebase; then attach it with `source: 'created'`. In a
 session with no codebase, that attach makes the codebase of the two folders
@@ -797,21 +899,18 @@ of more than one repository, or when its working member is a plain folder. A
 worktree session of one repository keeps today's worktree in
 `<repo>/.git/solus/worktrees/<slug>`. Both are correct; only the first keeps
 relative paths between repositories. The members of the plan are the
-project folder with the repositories that the host found in it, then the
-members of the session's codebase (`sessionMembers`): a session with no
-codebase gets a task folder from its project alone (decision 14). The first
-worktree session in a plain folder `~/shop` that holds `api` and `web` works
-in a task folder with both, and no codebase exists after it. The project
-folder must be a member: in each other case the plan is null
-(`SessionTaskFolders.plan`), and the session gets one worktree inside its
-repository. The plan is null also for a session with no codebase whose
-project holds no repository. The host settles the codebase of the session
-before the plan (decision 13), so the plan reads the members of a codebase
-that the session takes.
+members of the session's codebase. A session with no codebase is in one
+project, so it gets one worktree inside its repository (decision 14). The
+first worktree session in a container `~/shop` that holds `api` and `web`
+works in a task folder with both: the host forms the codebase of the
+container before the plan. The project folder must be a member: in each
+other case the plan is null (`SessionTaskFolders.plan`), and the session
+gets one worktree inside its repository. The host settles the codebase of
+the session before the plan (decision 13), so the plan reads the members of
+a codebase that the session takes or that the host forms then.
 
 **Which repositories.** `worktreeRepositories(run)` null: every `git` member
-(of the project and of the codebase) on the run host when the worktrees to
-make are at most
+of the codebase on the run host when the worktrees to make are at most
 `CODEBASE_WORKTREE_DEFAULT_MAX`, the working member counted when it is a
 repository; none above that. A repository with no commit and a submodule are
 left out. A member that shares no common ancestor with the working member (a
@@ -929,11 +1028,23 @@ and reads the folders and the checkouts again after a change.
   the creation ends), so a task folder that `move_checkout` made stays across
   a restart of the host before the next turn of its session.
 - `sessionAddRepositoryWorktree` accepts only a candidate
-  (`SessionTaskFolders.candidates`: the repositories of the project and of
-  the codebase that have no worktree), then reads the folders of the session
+  (`SessionTaskFolders.candidates`: the repositories of the codebase that
+  have no worktree), then reads the folders of the session
   again and publishes them.
-- The setup card of the launch shows one `checkout` step for all
-  repositories, with a detail such as "web (2 of 3)" (`taskFolderStages`).
+- The setup card of the launch shows sub-steps (`taskFolderStages`; stage
+  13). Each step that the host runs one time for each repository (fetch the
+  base branch, check out files with the copy of the included files, init
+  submodules) has one sub-step for each repository
+  (`StatusCardStep.substeps`), in the order of the repositories: its name,
+  its state, and its times on the clock of the host. The sub-steps of a
+  step show from the first report of that step, and the step is active
+  until each repository ended it. A warning stays on the row of its
+  repository. The repository that fails names the error on its own row
+  (`TaskFolderProgress` reports `error`), and the step does not repeat it.
+  A sub-step that ran at that time is an error with no message. A setup of
+  one repository has no sub-steps, and its card is as before. A layout
+  command reports no stage, so its card has no sub-steps. The card had one
+  `checkout` step with the detail "web (2 of 3)" before.
 - No task folder is removed when a session is deleted or archived. The sweep
   at the next start of the host removes it.
   The record of a task folder names the session it was made for when the
@@ -1060,48 +1171,71 @@ the added cases in `session-digests.test.ts` and
   has an older one; it reads members from each host that a root names and keeps
   the last answer of a host that is away. Model: `webhooks.store.svelte.ts`.
 - **Settings → Codebases** (group Code, `components/codebases/`): list,
-  create (the form asks for two folders before "Create codebase" is
-  enabled, because a codebase has two or more: decision 14), rename,
-  delete, add and remove roots on any connected host (a root cannot be
-  removed while two are left: the page says to delete the codebase), the
-  members of each root with their state, the `.code-workspace` suggestions
-  with an Add button. The open codebase is the route param `codebase` of the
-  settings route. The palette has "Open codebases" and "New codebase"
-  (`codebaseCommands`). A delete is one tombstone that the store saves on
-  each host with `codebaseSave`. `addRoot` scans the folder again, so the
-  path in the record is the resolved path of the host, and it refuses a
-  folder that is in the codebase, a folder that is inside a folder of the
-  codebase or holds one, a folder that is `missing`, and a root above the
-  limit. A change that no host saves is taken back from the list.
+  create (the form takes one container folder, or two folders:
+  `newCodebaseDraft` in `lib/codebase-view.ts`. "Create codebase" is enabled
+  when the first folder is a container, or when a second folder is chosen.
+  A container that is the only folder gives the codebase its name when the
+  person typed none), rename, delete, add and remove roots on any connected
+  host (a root cannot be removed when the roots that stay are no codebase:
+  the page says to delete the codebase), the members of each root with
+  their state, the `.code-workspace` suggestions with an Add button. The
+  open codebase is the route param `codebase` of the settings route. The
+  palette has "Open codebases" and "New codebase" (`codebaseCommands`). A
+  delete is one tombstone that the store saves on each host with
+  `codebaseSave`. `addRoot` scans the folder again, so the path in the
+  record is the resolved path of the host and a container gets its mark,
+  and it refuses a folder that is in the codebase, a folder that is inside
+  a folder of the codebase or holds one, a folder that is `missing`, and a
+  root above the limit. A change that no host saves is taken back from the
+  list.
+- **The naming setting.** The Codebases page has the section "Names" with
+  the row "Codebase names" (`codebaseNaming`: "Generated name", the
+  default, or "From the folder names"), with the row, the select, and the
+  policy note of the "Branch names" row. The project override "Codebase
+  names for this project" is in Settings → Source control, beside the
+  branch names of the project (`ProjectCodebaseNamingSetting.svelte`): "Your
+  setting", or one of the two ways. It is saved in `.solus/config.json`.
+- **Never under Projects.** `ProjectsStore.projectsFor` and
+  `recentProjectsFor` leave out a folder that is the container root of a
+  live codebase (decision 14). Each project list reads them: the project
+  chip, the palette, the sidebar filter, the settings lists, the directory
+  picker. The store keeps the row that the host has for the folder, so a
+  path inside the container still names its project key. The rule comes
+  from the codebases store through `contexts/codebases/container-rule.ts`:
+  the projects store is loaded by code that does not load the connection
+  stores of the app.
 - **Start.** The project chip has one choice: a run is in a project, or it
   is in a codebase (`chipAtRest` in `input/lib/codebase-choice.ts`). A run
   that has a codebase shows the codebase: the chip shows one name, the name
-  of the codebase, with the codebase icon, and the list marks the row of the
-  codebase and no row of the Projects group (`marksProjectRow`). A run with
-  no codebase shows the project, and the list marks its project row and no
-  row of the Codebases group. The chip never shows the two names. The
-  working folder of a codebase run is in the tooltip of the chip ("Works in
-  <folder> on <host>", `chipHint`) and in the Environment section.
+  of the codebase, with the favicons of its folders, and the list marks the
+  row of the codebase and no row of the Projects group (`marksProjectRow`).
+  A run with no codebase shows the project, and the list marks its project
+  row and no row of the Codebases group. The chip never shows the two names.
   A choice of a codebase sets `codebaseId`. The folder of the run stays when
   the codebase holds it; else the run opens the first root of the codebase
-  on the run host (`codebaseChoiceStep`). The list has no step that asks
-  which root: a row of the Projects group is how a person changes the
-  working folder inside a codebase. A codebase with no root on the run host
-  says so and lists the hosts that have one; a choice moves the run to that
-  host. A project folder that is in exactly one codebase on its host starts
-  with that codebase, decided one time for each folder, so "No codebase"
-  stays the person's choice (`input/lib/codebase-start.svelte.ts`). The
+  on the run host (`codebaseChoiceStep`). A choice of a container codebase
+  opens the container folder, also for a run in one of its repositories: a
+  session of a container works there (decision 14). The list has no step
+  that asks which root: a row of the Projects group is how a person changes
+  the working folder inside a codebase. A codebase with no root on the run
+  host says so and lists the hosts that have one; a choice moves the run to
+  that host. A project folder that is in exactly one codebase on its host
+  starts with that codebase, decided one time for each folder, so "No
+  codebase" stays the person's choice
+  (`input/lib/codebase-start.svelte.ts`). A folder that no codebase holds is
+  not decided: the host forms the codebase of a container when the folder
+  is opened, and the record can arrive after the draft is there. The
   decision is in memory, for each tab and folder. Thus a choice of a project
   row inside a codebase shows that codebase on the chip. "No codebase" is
   the one way to a project-only run in such a folder. It is offered only
-  while the run has a codebase, or gets a new one.
+  while the run has a codebase.
   The Git dropdown
   gets the repositories of the new worktree (`input/lib/worktree-repositories.ts`
   has the rule of `planTaskFolder`) and, for a plain working member, the base
-  branch. The list is the repositories that the host found in the project
-  folder, then the members of the codebase (`startMembers`), so it shows for
-  a run with no codebase also. A Git answer for a folder with no repository keeps the base branch
-  that the person named (`adoptGit`).
+  branch. The list is the members of the codebase of the run. A run with no
+  codebase is in one project, so it has no list. A Git answer for a folder
+  with no repository keeps the base branch that the person named
+  (`adoptGit`).
 - **Running session.** The project panel has no Repositories card
   (changed in stage 12; `docs/project-panel.md`). Its content is in the two
   cards that the panel has:
@@ -1117,29 +1251,42 @@ the added cases in `session-digests.test.ts` and
     directory is chosen at first. The chosen row has `aria-current` and the
     wash of an open control (`MenuRow`'s `current`). The choice is in the
     view state of the conversation (`ConversationViewState.gitRepositoryPath`),
-    so it survives a tab switch. There is one mounted Git section, aimed at
+    so it survives a tab switch. A long list folds (stage 13): the card
+    shows four rows, then "Show N more", as it folds its other linked pull
+    requests (`foldGitRepositoryRows`). The chosen row always shows: when it
+    is after the fourth row, it takes the place of the fourth. The fold is
+    in the view state also (`ConversationViewState.gitRepositoriesExpanded`),
+    and a row that the fold hides reads no Git state. There is one mounted
+    Git section, aimed at
     the chosen repository with its `folder` prop (`GitCard.svelte`). With one
     repository the card has no repository rows. "Add repository…" of a task
     folder session reads `sessionWorktreeCandidates` when its menu opens. A
-    working directory with no repository lists the repositories that it
-    holds, and the first one is chosen. The Changes row opens the diff panel
+    working directory with no repository that holds repositories is a
+    container, thus a codebase: the card lists the `git` session folders,
+    and the first one is chosen. The Changes row opens the diff panel
     on the chosen repository (`showRepositoryDiff`).
-  - **Environment card: the folders.** Below the project row, one row for
-    each session folder that is not a repository of the project
-    (`lib/environment-folders.ts`, `EnvironmentFolders.svelte`): an attached
-    folder, a member of the codebase outside the project folder, and a
-    folder that the agent wrote in. A row shows its state ("No repository",
-    "Not attached") and the host mark of the project row. The row opens the
-    files pane at the folder, and its caret opens a menu: Open files, Open
-    terminal, Attach to this session or Detach from this session, Add to
-    <codebase>, Track with Git. A repository of the codebase is a row here
-    as a place (Open files, Open terminal) and a row of the Git card for
-    its Git state. The folders of the codebase on other hosts, with the child
-    sessions that work there, follow (`OtherHostFolders.svelte`). "Add
-    folder…" is in the menu of the project row, so a session with one
-    project and no other folder shows the card as it was. It attaches a
-    folder that the person chooses (the directory picker intent
-    `choose-folder`).
+  - **Environment card: one row, and the folders in its menu** (stage 13;
+    the card had one row for each folder before). The card shows one name on
+    its project row: the name of the codebase for a session in a codebase,
+    else the name of the project (`lib/project-row.ts`). The caret of the
+    project row opens a menu with one section for each folder
+    (`lib/environment-folders.ts`, `environmentMenu`;
+    `EnvironmentFoldersMenu.svelte`): the working folder, then each session
+    folder in the order of the host, then each folder of the codebase on a
+    different host. The heading of a section has the name of the folder,
+    the host mark of the project row, and the state ("No repository", "Not
+    attached", "Offline", "Not connected", "Missing"). A section of the run
+    host has "Open in Solus" and the file manager of the host, then the
+    options of the folder: Open terminal, Attach to this session or Detach
+    from this session, Add to <codebase>, Track with Git. The working
+    folder has "Track with Git" only when it holds repositories. A folder
+    on a different host has the child sessions that work there as its
+    items, each one time. "Add folder…" is the last item of the menu. It
+    attaches a folder that the person chooses (the directory picker intent
+    `choose-folder`). A session with one folder has one section with no
+    heading and no "Open terminal" (the row "Open in" of the card has it),
+    so its menu is the menu of a session with one project. A draft has that
+    menu also. The panel item `environment.folders` is removed.
   The palette has "Add folder to this session" and "Open codebase settings"
   (`project-panel/lib/repository-commands.ts`). The diff
   panel gets a repository picker beside the scope picker. `lib/changedFiles.ts`
@@ -1156,46 +1303,61 @@ the added cases in `session-digests.test.ts` and
   the codebase (`chooseCodebase`).
 - **The divider.** The `codebase_formed` activity is a divider of the
   conversation (`ActivityDivider`, with `TranscriptDivider` as each other
-  divider): "Made the codebase <name> from the folders <folder> and
-  <folder>" (`conversation/lib/codebase-divider.ts`), for example "Made the
-  codebase solus + solus-cloud from the folders solus and solus-cloud", with
-  no end period, as each divider. The name of the codebase has the
-  accent, and the divider is a button that opens Settings → Codebases on
-  that codebase. It has no Undo: the delete of a codebase is on that page.
-  A formation at a turn start (a folder that the prompt trigger attached
-  before the first turn) is recorded while the bubble of the prompt is on
-  screen, so the reducer puts the divider before that prompt, where a
-  history read puts it. A toast said this before. A toast is gone after a
-  reload and shows on one client only, so it was removed with its Undo and
-  Open actions (`contexts/codebases/formed-codebase.ts`).
+  divider): "Made codebase <name>", for example "Made codebase solus", in
+  the grammar of the other dividers ("Continued in worktree fix-login",
+  "Continued with Claude"), with no end period. Stage 13 made it short: it
+  was "Made the codebase <name> from the folders <folder> and <folder>".
+  The name is the one that the codebase has now
+  (`codebasesStore.codebaseOf`), because the generated name arrives after
+  the formation and a person can rename the codebase; the recorded name
+  shows when this client has no record (`conversation/lib/codebase-divider.ts`).
+  The name has the accent, and the divider is a button that opens Settings
+  → Codebases on that codebase. It has no Undo: the delete of a codebase is
+  on that page. A formation at a turn start (a container, or a folder that
+  the prompt trigger attached before the first turn) is recorded while the
+  bubble of the prompt is on screen, so the reducer puts the divider before
+  that prompt, where a history read puts it. A toast said this before. A
+  toast is gone after a reload and shows on one client only, so it was
+  removed with its Undo and Open actions
+  (`contexts/codebases/formed-codebase.ts`).
 - **A deleted codebase.** When the store says that the codebase of a run is
   deleted (`codebasesStore.isDeleted`), the strip clears the codebase of the
   run (`useCodebaseStart`), also for a started session.
-- **Before the first prompt.** The strip reads the project folder of each
-  draft one time (`codebasesStore.readFolder`), and
-  `codebasesStore.projectScanAt` answers the scan: the folder, then the
-  repositories inside it. A project covers them with no codebase (decision
-  14), so the start control lists them for a new worktree, and no record is
-  made on the client. The chip shows the project with no note. "No codebase"
-  is `refuseCodebase`: the run sends `noCodebase`. It is offered only while
-  the run has a codebase.
+- **Before the first prompt.** A draft does not scan its folder (stage 13
+  removed `readFolder` and `projectScanAt`): a run with no codebase is in
+  one project, and a container is a codebase in the store, so the start
+  control reads the members of that codebase. "No codebase" is
+  `refuseCodebase`: the run sends `noCodebase`. It is offered only while the
+  run has a codebase.
 - **Project picker.** The Codebases group lists only the codebases of the
-  store: each has two or more folders, so no row has the name of a project
-  for the same folder. A row of the Codebases group says how many
-  repositories its codebase covers on the run host, when that host read
-  them. A row of the Projects group says how many repositories its project
-  holds ("2 repositories"), when this client has the scan of its folder
-  (`projectRowNote`). The chip shows one name, so it shows no count.
-- **Git card of a folder with no repository.** When the working directory
-  holds repositories (the session folders of a started session, or the scan
-  of the project folder of a draft), the Git card lists them in place of
-  "This folder isn't a Git repository yet." In a started session the first
-  one is chosen and the Git rows work in it. In a draft the rows show what
-  the session gets, and a row opens the files of its repository. "Track with
-  Git" for the folder itself is in the menu of the project row of the
-  Environment card.
+  store, and a container root is in no list of the Projects group, so no
+  name shows two times. No row has a count (stage 13 removed each "N
+  repositories" note). A row of the Codebases group shows the favicons of
+  its folders in place of a generic icon: a small stack of at most three
+  (`CodebaseFavicons.svelte`, with `ProjectFavicon`; a container shows the
+  favicons of the repositories that its host found, and its own folder
+  before that read). Its only note is "No folder on this host" or "No
+  folder on a connected host". The details are in a tooltip, on the row and
+  on the chip of a codebase run (`CodebaseTooltip.svelte`,
+  `codebaseTooltip`): the name, then one line for each folder with the name
+  of its host ("Unknown host" for a host that this client does not know),
+  at most eight, then "and N more". The chip tooltip starts with "Change
+  the project for this chat" and its shortcut, and ends with "Works in
+  <folder> on <host>." (`chipHint`). The tooltip primitive draws its `value`
+  as one line, so these lines are its children, as each other tooltip with
+  more than one fact.
+- **Git card of a container.** A container is a codebase, so a started
+  session has its repositories as session folders, and the Git card lists
+  them. The card of a draft whose working directory is no repository lists
+  the `git` members of its codebase on the run host (`codebaseMembersOn`,
+  `useDraftRepositoryReads`), and a draft with no codebase has no
+  repository rows. In a draft the rows show what the session gets, and a
+  row opens the files of its repository. "Track with Git" for the container
+  itself is in the section of the working folder, in the menu of the
+  project row of the Environment card.
 - **Environment section.** The project row shows the name of the codebase of
-  the run in its trailing slot, with the host (`lib/project-row.ts`).
+  the run as its label, with the codebase icon, and the host in its trailing
+  slot (`lib/project-row.ts`).
 - **Git in a session folder.** The Git section, its branch row, the commit
   composer, and the publish dialog take a `folder`: the repository that the
   person chose in the Git card. The Git store reads that
@@ -1334,15 +1496,13 @@ added cases in `project-chip-codebases.test.ts`,
 The maintainers used the feature in the running app and decided three
 changes.
 
-- **The model** (decisions 13 and 14). A project covers the repositories
-  inside it with no codebase: `execution/sessions/project-members.ts`
-  (`sessionMembers`) gives `SessionFolders` and `SessionTaskFolders` the
-  repositories of the project folder, with the source `project`. The rule
-  that made a codebase from one folder is removed, with the draft state for
-  it on the clients (`formsCodebaseFor`, `newCodebaseAt`, the note "New
-  codebase"). A live codebase has two or more roots, and no root is inside a
-  different one (`saveCodebase`, `client-core/src/codebases.ts`). A codebase
-  that the host makes has both folder names.
+- **The model** (replaced in stage 13: §11c). A project covered the
+  repositories inside it with no codebase (`project-members.ts`, the session
+  folder source `project`). The rule that made a codebase from one folder
+  was removed, with the draft state for it on the clients
+  (`formsCodebaseFor`, `newCodebaseAt`, the note "New codebase"). A live
+  codebase had two or more roots, and no root inside a different one. A
+  codebase that the host made had both folder names.
 - **The automatic attach** (decision 8). `automaticAttachTarget` attaches
   only a Git repository or a listed project, the prompt trigger reads only a
   prompt that a person wrote, and a turn start removes an attached folder in
@@ -1350,7 +1510,8 @@ changes.
 - **The project panel** (§9, "Running session"). The Repositories card, its
   section id, its show and hide entry, and the palette entry "Show
   repositories" are removed. The Git card has the repositories, and the
-  Environment card has the folders.
+  menu of the project row of the Environment card has the folders (stage
+  13).
 
 Proof: `tests/unit/codebases-store.test.ts` (two roots, no nested root, a
 stored record with one root), `session-codebase-formation.test.ts` (a project
@@ -1363,6 +1524,58 @@ project, a prompt that no person wrote, `promptSession`),
 `codebases-client-store.test.ts`, `project-chip-codebases.test.ts`,
 `git-card-repositories.test.ts`, `environment-folders.test.ts`,
 `repository-commands.test.ts`, and the mobile `codebases-model.test.ts`.
+
+## 11c. Stage 13 — a container is a codebase, short names, and less text
+
+The maintainers reviewed renderings of the feature and decided these
+changes. Each one is a decision.
+
+- **The model** (decision 14). A project is one folder or one repository.
+  `project-members.ts`, the session folder source `project`, and each
+  reader of them are removed. A container (a folder that is no repository
+  and holds two or more repositories) is a codebase with one root that has
+  the mark `container`: `isContainer` and `membersOf` in
+  `files/codebase-members.ts`, `hasEnoughRoots` in the contract and in
+  `saveCodebase`, `containerCodebaseOf` and `formContainerCodebases` in
+  `session-codebase-formation.ts` (a turn start, and each path that records
+  a project for a person). No project list of a client shows a container
+  root (`isContainerRoot`).
+- **Names** (decision 13). A codebase of two projects forms with a plain
+  name and gets a short generated name after it
+  (`execution/sessions/codebase-name.ts`, `renameFormed`). The personal
+  setting `codebaseNaming` and the project key of the same name choose the
+  way. The attach card says when the attach forms a codebase, and the person
+  can name it there (decision 8, `session-folder-attach.ts`).
+- **Desktop and web** (§9). The divider is "Made codebase <name>" with the
+  name that the codebase has now. The rows of the project picker have no
+  count, a codebase row has the favicons of its folders, and the details are
+  in a tooltip. The Environment card shows one name, and the menu of its
+  project row has one section for each folder of the session. The
+  repository rows of the Git card fold after four. The worktree setup card
+  has one sub-step for each repository.
+- **Mobile** (§10). Fewer sections, rows, and sentences, in the upstream
+  patterns.
+
+Proof: `tests/unit/codebase-members.test.ts` (a container root, a root with
+no mark, `isContainer`, a new clone), `codebases-store.test.ts` (one
+container root is a codebase, one project is not),
+`session-codebase-formation.test.ts` (the container rule at a turn start and
+when the folder is added, a clone into a listed project, the tombstone, one
+repository inside, the plain name, the generated name that arrives later,
+an answer that is no name, a rename by a person, the setting, a name from
+the card), `session-folder-attach.test.ts` (the card of an attach that forms
+a codebase: its text, its three choices, the typed name),
+`session-folders.test.ts`, `session-task-folders.test.ts` and
+`task-folders.test.ts` (the task folder of a container, the sub-steps),
+`projects-store.test.ts` (a container root is in no project list),
+`codebases-client-store.test.ts` (a container from a scan, the removal
+rule), `codebases-settings.test.ts` (the New codebase form, the naming
+setting), `project-config-file.test.ts` (`codebaseNaming`),
+`project-chip-codebases.test.ts` (no counts, favicons, the tooltip, the
+choice of a container), `codebase-formed-divider.test.ts` (the short line
+with the current name), `environment-folders.test.ts` and
+`git-card-repositories.test.ts` (the menu sections and the fold),
+`setup-card-substeps.test.ts`, and the mobile tests of §10.
 
 ## 12. Order of work
 
@@ -1446,4 +1659,17 @@ text of the code.
 | §9 | The chip of a draft shows the note "New codebase", and the Codebases group has a row "New" | Removed | The host makes no codebase from one folder |
 | §9 | New codebase asks for one folder | Two folders, and a root cannot be removed while two are left | A codebase has two or more folders |
 | §10 | "Make a codebase" on mobile makes a codebase of the project folder | It asks for the second folder first | A codebase has two or more folders |
-| §10 | The project page on mobile shows the found repositories only in the section of a codebase | One Repositories section for the project, then one section for each codebase | A project covers its repositories with no codebase |
+| §10 | The project page on mobile shows the found repositories only in the section of a codebase | One Repositories section for the project, then one section for each codebase (stage 12; replaced in stage 13) | A project covered its repositories with no codebase |
+| §3 | Stage 12: a project covers the repositories inside it, with the session folder source `project` | Removed in stage 13. A project is one folder or one repository, and a container is a codebase with one root that has the mark `container` | A project with the note "2 repositories" and a codebase are two names for one kind of thing |
+| §3, §5 | A live codebase has two or more roots | Two or more roots, or one container root | A container is a codebase by itself |
+| §5 | Each root gives the repositories inside it as members | Only a container root does. A root with no mark is one member | A project is one folder: Solus does not look inside it |
+| §3 | A codebase forms only at a turn start, or from an attach | The codebase of a container forms also when a person adds or opens the folder as a project | The picker must show it immediately |
+| §3 | A codebase that the host makes has the names of its two roots, joined (stage 12) | A plain name at once (the common start of the folder names, else the first name and a count), then a short generated name, unless the setting or the project says "from the folder names" | `solus + solus-cloud` was long, and it was no name of the work |
+| §3 | The attach card has the same choices with and without a codebase | When the attach forms a codebase: "Allow and make the codebase" with a name that the person can change, "Allow for this session only", "Do not allow" | The attach changes each later session of the project, so the person decides it and names it |
+| §4 | The `codebase_formed` activity keeps the folder names | It keeps the id and the name of that time | The divider names only the codebase |
+| §9 | The divider says "Made the codebase <name> from the folders <a> and <b>" | "Made codebase <name>", with the name that the codebase has now | It was longer than each other divider, and the generated name arrives after the formation |
+| §9 | Rows of the project picker have "N repositories" notes | No count. A codebase row has the favicons of its folders, and a tooltip with each folder and its host | A count is noise on a row, and the details are one hover away |
+| §9 | A draft scans its project folder (`readFolder`, `projectScanAt`) | Removed | A run with no codebase is in one project, and a container is a codebase in the store |
+| §9 | The Environment card has one row for each folder, and the folders on other hosts below them (stage 12) | One name on the project row, and one section for each folder in the menu of that row | A session of five folders made the card long, and the card must say one thing: where the session is |
+| §9 | The Git card has one row for each repository | Four rows at most, then "Show N more". The chosen repository always shows | A codebase can have many repositories |
+| §7 | The setup card has one checkout step for all repositories, with "web (2 of 3)" | One sub-step for each repository below each step that runs one time for each repository | The detail did not say which repository ran, waited, or failed |
