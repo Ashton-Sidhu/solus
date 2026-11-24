@@ -144,14 +144,20 @@
     <div class="px-2 py-3 text-menu text-muted-foreground">No project matches.</div>
   {/if}
   {#if showScopeRows && projectsFirst}
-    {#if matches.length}<DropdownMenu.Separator />{/if}
+    {#if matches.length}{@render divider()}{/if}
     {@render scopeRows()}
   {/if}
 </div>
 {#if showAdd && (!projectsFirst || !query.trim())}
-  <DropdownMenu.Separator />
+  {@render divider()}
   {@render addRow()}
 {/if}
+
+{#snippet divider()}
+  <DropdownMenu.Separator class={projectsFirst
+    ? "relative my-0 h-0 after:absolute after:inset-x-0 after:top-0 after:h-px after:bg-(--solus-menu-hairline)"
+    : undefined} />
+{/snippet}
 
 {#snippet scopeRows()}
   {#if onSelectAll}
