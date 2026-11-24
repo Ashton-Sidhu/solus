@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { QueuedPromptSnapshot } from '@solus/contracts/types'
 import type { SessionQueueMutation, SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { AgentTool, AgentToolResult } from './agent-tool'
-import { findSession, getSessionController } from './session-tools'
+import { findSession, getSessionController, refusalOf } from './session-tools'
 
 /**
  * `queue_session`: an agent manages the messages queued in a session, as the
@@ -37,10 +37,9 @@ export async function manageSessionQueue(input: QueueInput, callerSessionId: str
   const controller = getSessionController()
   if (!controller?.sessionQueue || !controller.changeSessionQueue) return { ok: false, text: 'queue_session is unavailable on this host.' }
   if (!callerSessionId) return { ok: false, text: 'queue_session is unavailable before the calling session is initialized.' }
-  const named = input.session_id?.trim()
-  const sessionId = named && named !== callerSessionId ? (await findSession(named))?.sessionId : callerSessionId
-  if (!sessionId) return { ok: false, text: `Session ${named} not found on this host.` }
-  const label = sessionId === callerSessionId ? 'this session' : `session ${sessionId}`
+  const target = await queueTarget(input, callerSessionId)
+  if ('error' in target) return { ok: false, text: target.error }
+  const { sessionId, label } = target
 
   if (input.action === 'list') return { ok: true, text: formatQueue(controller.sessionQueue(sessionId), label) }
   if (input.action === 'read') {
@@ -58,6 +57,16 @@ export async function manageSessionQueue(input: QueueInput, callerSessionId: str
   } catch (error) {
     return { ok: false, text: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/** The session whose queue the call is about, once the turn's person may read or change that queue as a client could. */
+async function queueTarget(input: QueueInput, callerSessionId: string): Promise<{ sessionId: string; label: string } | { error: string }> {
+  const named = input.session_id?.trim()
+  const sessionId = named && named !== callerSessionId ? (await findSession(named))?.sessionId : callerSessionId
+  if (!sessionId) return { error: `Session ${named} not found on this host.` }
+  const refused = await refusalOf([input.action === 'list' || input.action === 'read' ? 'sessionQueue' : 'sessionQueueChange'], sessionId)
+  if (refused) return { error: refused }
+  return { sessionId, label: sessionId === callerSessionId ? 'this session' : `session ${sessionId}` }
 }
 
 function mutationFor(input: QueueInput): AgentQueueMutation | { error: string } {

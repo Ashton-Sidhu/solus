@@ -20,6 +20,7 @@ export interface ToolItem {
   subagent: string | null
   /** The subagent's answer, apart from ordinary tool output. */
   report: string | null
+  completedAt?: number
   /** Pictures the call returned, stored on the host. */
   images?: readonly ToolResultImage[]
   /** The tool a background sub-agent ran last (`background_task_progress`),

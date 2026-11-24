@@ -8,7 +8,7 @@ import { actorFor, ownerKeyOf } from '../../../admission/actor'
 import type { WorkspaceOperations } from '../../../data/workspace/operations'
 import type { WorkspaceRequestContext } from '../../../admission/workspace-credentials'
 import type { AgentTool, AgentToolResult } from './agent-tool'
-import { findSession, getSessionController } from './session-tools'
+import { findSession, getSessionController, refusalOf } from './session-tools'
 
 /**
  * `organize_session`: an agent moves a session in the person's list, as the
@@ -39,21 +39,8 @@ export async function organizeSession(input: OrganizeInput, callerSessionId: str
     return { ok: false, text: named ? `Session ${named} not found.` : 'organize_session needs a session_id: this session has no id yet.' }
   }
   const label = sessionId === callerSessionId ? 'This session' : `Session ${sessionId}`
-  if (input.action === 'rename') {
-    const rename = getSessionController()?.renameSession
-    if (!rename || !callerSessionId) return { ok: false, text: 'rename is unavailable on this host.' }
-    if (input.title === undefined) return { ok: false, text: 'rename needs title.' }
-    await rename(callerSessionId, sessionId, input.title)
-    return { ok: true, text: input.title.trim() ? `${label} is named "${input.title.trim()}".` : `${label} has no custom name now.` }
-  }
-  if (input.action === 'mark_unread') {
-    // Read state is a person's own: the run's person, else the session's owner.
-    const authority = workspaceToolAuthority()
-    const personKey = (authority ? ownerKeyOf(actorFor(authority)) : null) ?? (await sessionIdentityOf(sessionId))?.ownerKey
-    if (!personKey) return { ok: false, text: `${label} has no person to mark it unread for.` }
-    await markSessionUnread(sessionId, personKey)
-    return { ok: true, text: `${label} is marked unread.` }
-  }
+  if (input.action === 'rename') return renameSession(input.title, callerSessionId, sessionId, label)
+  if (input.action === 'mark_unread') return markUnread(sessionId, label)
   // The session's home keeps where it is in the list: its organization's Solus
   // API, or this machine (docs/plans/session-archive.md).
   const { operations, context } = await workspaceToolContext(sessionId)
@@ -66,6 +53,26 @@ export async function organizeSession(input: OrganizeInput, callerSessionId: str
     case 'archive': return home.setArchived(true)
     case 'unarchive': return home.setArchived(false)
   }
+}
+
+async function markUnread(sessionId: string, label: string): Promise<AgentToolResult> {
+  // Read state is a person's own: the run's person, else the session's owner.
+  const authority = workspaceToolAuthority()
+  const personKey = (authority ? ownerKeyOf(actorFor(authority)) : null) ?? (await sessionIdentityOf(sessionId))?.ownerKey
+  if (!personKey) return { ok: false, text: `${label} has no person to mark it unread for.` }
+  await markSessionUnread(sessionId, personKey)
+  return { ok: true, text: `${label} is marked unread.` }
+}
+
+/** Names the session through the host's one rename path, for the person the caller works for. */
+async function renameSession(title: string | undefined, callerSessionId: string | undefined, sessionId: string, label: string): Promise<AgentToolResult> {
+  const rename = getSessionController()?.renameSession
+  if (!rename || !callerSessionId) return { ok: false, text: 'rename is unavailable on this host.' }
+  if (title === undefined) return { ok: false, text: 'rename needs title.' }
+  const refused = await refusalOf(['setSessionTitle'], sessionId)
+  if (refused) return { ok: false, text: refused }
+  await rename(callerSessionId, sessionId, title)
+  return { ok: true, text: title.trim() ? `${label} is named "${title.trim()}".` : `${label} has no custom name now.` }
 }
 
 /** One session, organized at its home as the person the run is for. */

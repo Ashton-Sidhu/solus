@@ -24,7 +24,7 @@ import { ListSection } from "../../components/ui/ListSection";
 import { RowPressable } from "../../components/ui/RowPressable";
 import { cn } from "../../lib/cn";
 import { useEnvironmentServerConfig, useThreadShell } from "../../state/entities";
-import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusDot } from "./SubagentStatusDot";
+import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusMark } from "./SubagentStatusMark";
 import { SubagentStopButton } from "./SubagentStopButton";
 import {
   nextWorkflowSelection,
@@ -205,8 +205,8 @@ function WorkflowMemberRow(props: {
       onPress={() => threadId !== null && props.onOpen(threadId)}
       className="min-h-11 flex-row gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70"
     >
-      <View className="h-5 justify-center">
-        <SubagentStatusDot tone={presentation.tone} placement="sheet" />
+      <View className="h-5 w-4 items-center justify-center">
+        <SubagentStatusMark environmentId={props.environmentId} status={member.status} />
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="min-h-5 flex-row items-center gap-2">

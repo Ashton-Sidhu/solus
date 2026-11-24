@@ -100,6 +100,7 @@ import {
   View,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type ViewStyle,
 } from "react-native";
 import {
   KeyboardController,
@@ -118,6 +119,7 @@ import Animated, {
   useReducedMotion,
   useSharedValue,
   withTiming,
+  type AnimatedStyle,
 } from "react-native-reanimated";
 import { useBarOverlap } from "../../components/ui/useBarInset";
 import {
@@ -239,7 +241,7 @@ export interface ThreadDetailScreenProps {
     /** viewportHeight excludes the composer so draft chrome can resize it without feedback. */
     readonly content: (
       headerInset: number,
-      bottomInset: number,
+      bottomInsetStyle: AnimatedStyle<Pick<ViewStyle, "bottom">>,
       viewportHeight: number,
       heroLayoutHeight: number,
     ) => React.ReactNode;
@@ -1091,10 +1093,23 @@ function ThreadDetailBody(
   };
   const screenAreaHeight = screenHeight ?? windowHeight;
   const draftViewportHeight = screenAreaHeight - navigationHeaderHeight - liveKeyboardHeight;
+  const { height: keyboardTranslation, progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const hasDraft = props.draftMode !== undefined;
+  const composerControlBottomInset = controlInsets.bottom;
+  const draftBottomInsetStyle = useAnimatedStyle(() => {
+    if (!hasDraft) return {};
+    // Match KeyboardStickyView's translation so the scroll area ends at
+    // the measured composer, even while the keyboard or attachments move.
+    const composerTranslation = keyboardStickyEnabled
+      ? keyboardTranslation.value + keyboardProgress.value * composerKeyboardOffset
+      : 0;
+    return {
+      bottom: contentInsetEndAdjustment.value + composerControlBottomInset - composerTranslation,
+    };
+  });
   // The question card reads the keyboard frame on the UI thread, in the same frame the sticky
   // view translates, so it gets the full height while the keyboard is closed and never crosses
   // the header while the keyboard moves.
-  const { height: keyboardTranslation } = useReanimatedKeyboardAnimation();
   const pendingUserInputMaxHeight = useDerivedValue(() =>
     derivePendingUserInputMaxHeight({
       windowHeight: screenAreaHeight,
@@ -1525,7 +1540,7 @@ function ThreadDetailBody(
       {props.draftMode ? (
         props.draftMode.content(
           navigationHeaderHeight,
-          estimatedOverlayHeight + 24,
+          draftBottomInsetStyle,
           draftViewportHeight,
           screenAreaHeight - navigationHeaderHeight - collapsedComposerHeight - 24,
         )
@@ -1596,7 +1611,6 @@ function ThreadDetailBody(
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
-                  keyboardStickyEnabled={keyboardStickyEnabled}
                   sendingWithKeyboard={sendingWithKeyboard}
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={

@@ -279,11 +279,11 @@ describe('the fallback model', () => {
     }
     const usage = new UsageLimitsStore()
     usage.apply({ provider: 'codex', fiveHour: null, weekly: { usedPercent: options.codexPercent ?? 95, resetsAt: reset * 1000, resetsLabel: null }, planType: null, fetchedAt: Date.now(), stale: false })
-    ;(await import('@solus/server/execution/agents/tools/start-sessions-tool')).setProviderUsage({ usage, held, providerOf: (id) => providers.get(id), actorOf: () => undefined })
+    tools.getSessionController()!.providerUsage = { usage, held, providerOf: (id) => providers.get(id), actorOf: () => undefined }
   }
 
   beforeEach(() => recordSessionSettings('parent-codex', { organizationId: 'local', preferences: { fallbackModel } }))
-  afterAll(async () => (await import('@solus/server/execution/agents/tools/start-sessions-tool')).setProviderUsage(null))
+  afterAll(() => { delete tools.getSessionController()!.providerUsage })
 
   test('replaces the default of a session with no provider or model while the default provider is out of usage', async () => {
     await host()

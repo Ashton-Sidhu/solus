@@ -2,8 +2,8 @@ import { ComposerInlineControl } from "../../components/ComposerToolbar";
 import { T, useGT } from "gt-react-native";
 import type { ReactNode } from "react";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Platform, Pressable, View } from "react-native";
+import Animated, { useAnimatedStyle, type AnimatedStyle } from "react-native-reanimated";
+import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { NativeScrollEdgeEffectsContext } from "../../native/NativeScrollViewMarker";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -98,11 +98,11 @@ export function draftHeroContent(props: {
 }) {
   return (
     headerInset: number,
-    bottomInset: number,
+    bottomInsetStyle: AnimatedStyle<Pick<ViewStyle, "bottom">>,
     viewportHeight: number,
     heroLayoutHeight: number,
   ) => (
-    <DraftViewport {...{ headerInset, bottomInset, viewportHeight, heroLayoutHeight }}>
+    <DraftViewport {...{ headerInset, bottomInsetStyle, viewportHeight, heroLayoutHeight }}>
       {props.scratch ? (
         <NewTaskScratchHero
           disabled={props.disabled}
@@ -127,19 +127,18 @@ export function draftHeroContent(props: {
 
 export function DraftViewport({
   headerInset,
-  bottomInset,
+  bottomInsetStyle,
   viewportHeight,
   heroLayoutHeight,
   children,
 }: {
   headerInset: number;
-  bottomInset: number;
+  bottomInsetStyle: AnimatedStyle<Pick<ViewStyle, "bottom">>;
   viewportHeight: number;
   heroLayoutHeight: number;
   children: ReactNode;
 }) {
   const { height } = useReanimatedKeyboardAnimation();
-  const keyboardInset = useAnimatedStyle(() => ({ bottom: bottomInset - height.value }));
   // Keep the heading in place as the composer grows. The smaller scroll viewport
   // still lets the user reach the project and host above a tall composer.
   const heroLayout = useAnimatedStyle(() => ({
@@ -159,7 +158,7 @@ export function DraftViewport({
             right: 0,
             overflow: "hidden",
           },
-          keyboardInset,
+          bottomInsetStyle,
         ]}
       >
         <ScrollView

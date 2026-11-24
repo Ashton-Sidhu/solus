@@ -233,9 +233,6 @@ vi.mock("@legendapp/list/keyboard", () => ({
       createElement("div", { key: item.id }, props.renderItem({ item, index })),
     ),
 }));
-vi.mock("../features/threads/IosThreadFeedList", async () => ({
-  IosThreadFeedList: (await import("@legendapp/list/keyboard")).KeyboardAwareLegendList,
-}));
 vi.mock("@legendapp/list/react-native", () => ({
   useViewabilityAmount: (callback: (token: { sizeVisible: number }) => void) =>
     useEffect(() => callback({ sizeVisible: 1 }), [callback]),

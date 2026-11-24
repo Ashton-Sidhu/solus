@@ -122,6 +122,22 @@ describe('queue_session', () => {
     ])
   })
 
+  test("a guest's turn may not change the queue of a session its link does not reach", async () => {
+    const { installToolAccess } = await import('@solus/server/admission/workspace-tool-authority')
+    installToolAccess(async () => 'none', { standingFor: async () => ({ role: 'none' }) })
+    const guest = {
+      kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', expiresAt: 0, deviceLabel: 'Guest link', organizationId: 'org1',
+      share: { resource: { kind: 'session', id: 'shared' }, role: 'editor', sharedByUserId: 'local:L1', linkSecretHash: 'h' },
+    } as const
+    try {
+      const result = await withWorkspaceToolAuthority(guest, () => queueTool.manageSessionQueue({ action: 'cancel', session_id: 'child', queue_id: 'q1', revision: 0 }, 'caller'))
+      expect(result.ok).toBe(false)
+      expect(changes).toEqual([])
+    } finally {
+      installToolAccess(async () => 'owner', { standingFor: async () => ({ role: 'owner' }) })
+    }
+  })
+
   test('a refused change comes back as text the agent can act on', async () => {
     sessionTools.getSessionController()!.changeSessionQueue = async () => { throw new Error('This queue entry changed or started. Refresh the queue before editing it.') }
     const result = await queueTool.manageSessionQueue({ action: 'cancel', queue_id: 'q1', revision: 0 }, 'caller')

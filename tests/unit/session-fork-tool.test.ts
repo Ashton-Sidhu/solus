@@ -37,7 +37,6 @@ function response(pointId: string, timestamp: number): WireSessionLoadMessage {
 const sourceId = randomUUID()
 const sendCalls: Array<{ sender: string; target: string; prompt: string }> = []
 /** The sessions the tool checked the person may prompt. */
-const drives: string[] = []
 const promptSession = mock(async () => ({ disposition: 'started' as const }))
 /** The fork's own transcript, set once the fork exists. */
 let forkPage: WireSessionLoadMessage[] = []
@@ -45,8 +44,7 @@ let forkPage: WireSessionLoadMessage[] = []
 async function setUp() {
   const { upsertOwnSessionRecord, getSessionRecord } = await import('@solus/server/data/sessions/session-records')
   const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
-  const { setSessionForkHost } = await import('@solus/server/execution/agents/tools/session-fork-tool')
-  const { setSessionOrchestration } = await import('@solus/server/execution/agents/tools/session-tools')
+  const { setSessionController, setSessionOrchestration } = await import('@solus/server/execution/agents/tools/session-tools')
   await upsertOwnSessionRecord({
     sessionId: sourceId, provider: 'codex', projectPath: '/test', cwd: '/test', title: 'Source', lastActivityAt: 10,
   })
@@ -56,7 +54,7 @@ async function setUp() {
     backendFor: () => ({ loadSessionPage: async () => ({ messages: sourcePage, before: null }) }),
     dispatch: { promptSession },
   }
-  setSessionForkHost({
+  setSessionController({ fork: {
     runtime: runtime as never,
     readsFor: () => ({
       sessionInfo: async (sessionId: string) => {
@@ -67,9 +65,8 @@ async function setUp() {
         messages: request.sessionId === sourceId ? sourcePage : forkPage, before: null,
       }),
     }),
-    assertMayDrive: async (_principal, sessionId) => { drives.push(sessionId) },
     announce: () => {},
-  })
+  } } as never)
   setSessionOrchestration({
     spawn: async () => { throw new Error('Unexpected spawn') },
     send: async (sender, target, message) => {
@@ -106,7 +103,6 @@ test('a fork copies the session through its latest completed response and starts
     status: 'idle',
     startedBy: { kind: 'person', fork: { sourceSessionId: sourceId, pointId: 'latest' } },
   })
-  expect(drives).toEqual([sourceId])
   expect(promptSession).not.toHaveBeenCalled()
   expect(sendCalls).toEqual([])
 })
@@ -143,7 +139,6 @@ test('a merge back into the calling session returns the findings; into another s
   expect(sendCalls).toHaveLength(1)
   expect(sendCalls[0]).toMatchObject({ sender: forkId, target: sourceId })
   expect(sendCalls[0]!.prompt).toContain('The cache key misses the host id')
-  expect(drives.at(-1)).toBe(sourceId)
 })
 
 test('a turn whose person may not start a session cannot fork', async () => {

@@ -332,10 +332,9 @@ one mark everywhere.
     no closed state for a card.
   - Any other tool card: its own kind while it runs (a command is Running, an
     MCP call is Working), Failed when it failed, and no mark when it is done.
-- The T3 agent surfaces (`SubagentRow`, `ThreadAgentsSheet`,
-  `ThreadBackgroundWorkSheet`, `ProviderSubagentBar`) get no Solus data: the
-  feed makes no T3 sub-agent items, and two of these routes show `Wip`. They
-  keep the T3 status dot until Solus data reaches them.
+- The Agents sheet uses the same dot marks and line glyphs as the agent cards.
+  Its rows show Starting or Working from the agent status. The row gives the
+  elapsed time in its own column. Done and Failed use the shared glyphs.
 
 ## Tests
 

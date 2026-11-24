@@ -23,6 +23,7 @@ import type {
   HeadlessPromptRequest,
   HeadlessSessionRequest,
   NormalizedEvent,
+  SessionMeta,
 } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
 import { attributionOf, type Actor } from '../../admission/actor'
@@ -54,6 +55,15 @@ const NO_REPLY = '(no final assistant reply available)'
 
 import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget, type PromptDisposition, type SentMessage } from './session-orders'
 export * from './session-orders'
+
+/** What a send tells its sender: what the message became, and why it waits. */
+function sentMessage(exchangeId: string, result: PromptDisposition, rateLimitReleased: boolean | undefined, waited: OrchestrationItem | null | undefined): SentMessage {
+  const sent: SentMessage = { exchangeId, disposition: result.disposition }
+  if (result.rateLimitHold) sent.rateLimitHold = result.rateLimitHold
+  if (rateLimitReleased !== undefined) sent.rateLimitReleased = rateLimitReleased
+  if (waited !== undefined) sent.waited = waited
+  return sent
+}
 
 export class SessionOrchestrator {
   private readonly ledger: ExchangeLedger
@@ -276,7 +286,7 @@ export class SessionOrchestrator {
     target?: RemoteTarget,
   ): Promise<SentMessage> {
     if (targetSessionId === senderSessionId) throw new Error('Cannot message your own session.')
-    const meta = target ? null : this.runtime.sessionMeta(targetSessionId) ?? await this.runtime.recordedSessionMeta?.(targetSessionId) ?? null
+    const meta = target ? null : await this.localSessionMeta(targetSessionId)
     // Refused before the card shows it: there is nothing to send it to.
     if (!target && !meta) throw new Error(`Session ${targetSessionId} not found.`)
     const provider = meta?.provider ?? this.remoteProviderOf(senderSessionId, targetSessionId, target!.host)
@@ -306,18 +316,19 @@ export class SessionOrchestrator {
     this.publish(exchange, promptedUpdate(exchange, meta, message, target?.host.installationId))
     try {
       // Released first: the held prompt runs, and this message waits behind it as for any busy session.
-      const rateLimitReleased = message.releaseRateLimit && !target ? this.releaseRateLimit(senderSessionId, targetSessionId) : undefined
+      const rateLimitReleased = message.releaseRateLimit ? this.releaseRateLimit(senderSessionId, targetSessionId) : undefined
       const result = target ? await this.promptThere(exchange, message, target.host) : await this.promptHere(exchange, message)
       this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })
-      const sent: SentMessage = { exchangeId, disposition: result.disposition }
-      if (result.rateLimitHold) sent.rateLimitHold = result.rateLimitHold
-      if (rateLimitReleased !== undefined) sent.rateLimitReleased = rateLimitReleased
-      if (waited) sent.waited = await waited
-      return sent
+      return sentMessage(exchangeId, result, rateLimitReleased, await waited)
     } catch (error) {
       this.settleUnaccepted(exchange)
       throw error
     }
+  }
+
+  /** A session on this host: from the index, else from its record (a fork that no turn has run in). */
+  private async localSessionMeta(sessionId: string): Promise<SessionMeta | null> {
+    return this.runtime.sessionMeta(sessionId) ?? await this.runtime.recordedSessionMeta?.(sessionId) ?? null
   }
 
   /** The provider of a session the sender started on `host`; only such a session is reachable there. */

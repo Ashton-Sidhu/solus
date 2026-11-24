@@ -3,11 +3,11 @@ import { z } from 'zod'
 import type { SessionMeta, SessionRecord } from '@solus/contracts/types'
 import { actorFor, type Actor } from '../../../admission/actor'
 import type { Principal } from '../../../admission/principal'
-import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
+import { assertToolMay, workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import type { SessionRuntime } from '../../session-runtime'
 import { forkSessionFromResponse, latestForkPoint, mayFork, mergeBackPrompt, type SessionReads } from '../../sessions/session-forks'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
-import { getSessionOrchestration, sessionLink } from './session-tools'
+import { getSessionController, getSessionOrchestration, sessionLink } from './session-tools'
 
 /**
  * `fork_session`: an agent forks a session from a completed response, or brings
@@ -15,20 +15,13 @@ import { getSessionOrchestration, sessionLink } from './session-tools'
  * acts for the person the calling session works for, on this host only.
  */
 
-/** What the tool needs from the host. Wired once the host boots (`boot-server.ts`). */
+/** What the tool needs from the host: `SessionController.fork`, wired when the host boots (`boot-server.ts`). */
 export interface SessionForkHost {
   runtime: SessionRuntime
   /** Session reads with the access of one person. */
   readsFor(principal: Principal): SessionReads
-  /** Refuses when the person may not prompt the session, as the RPC that prompts it refuses. A fork needs the same access to its source. */
-  assertMayDrive(principal: Principal, sessionId: string): Promise<void>
   /** Tells the clients about a new fork. */
   announce(sessionId: string): void
-}
-
-let forkHost: SessionForkHost | null = null
-export function setSessionForkHost(next: SessionForkHost | null): void {
-  forkHost = next
 }
 
 const DESCRIPTION =
@@ -48,6 +41,7 @@ function linkOf(meta: SessionMeta | null, record: Pick<SessionRecord, 'sessionId
 }
 
 export async function runSessionFork(input: ForkInput, context: Pick<AgentToolContext, 'provider'> & { callerSessionId: string | undefined }): Promise<AgentToolResult> {
+  const forkHost = getSessionController()?.fork
   if (!forkHost) return { ok: false, text: 'fork_session is not available on this host.' }
   const sessionId = input.session_id ?? context.callerSessionId
   if (!sessionId) return { ok: false, text: 'fork_session needs a session_id: this session has no id yet.' }
@@ -77,7 +71,8 @@ async function fork(
   if (!mayFork(actor)) return { ok: false, text: 'The person this session works for may not start a session on this host.' }
   const source = await reads.sessionInfo(sessionId)
   if (!source) return { ok: false, text: `Session ${sessionId} not found on this host.` }
-  await host.assertMayDrive(actor.principal, source.sessionId)
+  // A person forks a session they may prompt; so does the agent that works for them.
+  await assertToolMay('forkSessionFromResponse', source.sessionId)
   const point = pointId ? { pointId, sourceThreadId: source.sessionId } : await latestForkPoint(source, reads)
   if (!point) return { ok: false, text: `${sessionLink(source)} has no completed response to fork from yet.` }
   const via = context.callerSessionId ? { sessionId: context.callerSessionId, provider: context.provider } : undefined
@@ -103,7 +98,7 @@ async function mergeBack(host: SessionForkHost, sessionId: string, actor: Actor,
   const orchestration = getSessionOrchestration()
   if (!orchestration) return { ok: false, text: 'fork_session cannot send messages: no session orchestrator is wired.' }
   if (!callerSessionId) return { ok: false, text: 'fork_session cannot send messages before this session has an id.' }
-  await host.assertMayDrive(actor.principal, merge.target.sessionId)
+  await assertToolMay('promptHeadlessSession', merge.target.sessionId)
   const sent = await orchestration.send(callerSessionId, merge.target.sessionId, { prompt: merge.prompt, delivery: 'queue', notify: false, waitMs: 0 })
   const target = await reads.sessionInfo(merge.target.sessionId).catch(() => null)
   const link = target ? sessionLink(target) : `"${merge.target.title}"`

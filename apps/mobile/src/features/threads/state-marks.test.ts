@@ -3,6 +3,7 @@ import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcr
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  agentListStateMark,
   startedSessionStateMark,
   stateMarkLabel,
   subagentStateMark,
@@ -16,6 +17,17 @@ import {
 
 const dot = (mark: string, startedAt: number | null = 1000) => ({ kind: "dot", mark, startedAt });
 const glyph = (name: string) => ({ kind: "glyph", glyph: name });
+
+it("shows activity marks only until the agent leaves the active list states", () => {
+  expect(agentListStateMark("pending")).toEqual(dot("starting", null));
+  expect(agentListStateMark("running")).toEqual(dot("working", null));
+  expect(agentListStateMark("waiting")).toEqual(dot("working", null));
+  expect(agentListStateMark("completed")).toEqual(glyph("done"));
+  expect(agentListStateMark("interrupted")).toEqual(glyph("done"));
+  expect(agentListStateMark("failed")).toEqual(glyph("failed"));
+  expect(agentListStateMark("cancelled")).toBeNull();
+  expect(agentListStateMark("idle")).toBeNull();
+});
 
 /** A parent transcript with one running provider sub-agent, fed the given child events. */
 function subagentAfter(...events: WireNormalizedEvent[]) {

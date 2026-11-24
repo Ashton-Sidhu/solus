@@ -173,6 +173,9 @@ describe('runtime instructions', () => {
       expect(prompt).toContain('Use send_session to continue an existing session')
       expect(prompt).toContain('Reuse request_id only to retry the same request')
       expect(prompt).toContain('Do not poll')
+      // T3 Code's orchestration rules: an agent never changes the provider or releases a limit on its own.
+      expect(prompt).toContain('never move a session to another provider unasked')
+      expect(prompt).toContain('only when the user says the limit is reset')
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Solus orchestration')
     expect(await claudeAppend([])).not.toContain('## Solus orchestration')

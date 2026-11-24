@@ -14,13 +14,15 @@ import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { loadTask } from '../../../data/tasks/task-store'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
-import { toolMayRead } from '../../../admission/workspace-tool-authority'
+import { assertToolMay, toolMayRead, type ToolCommand } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type ModelChoice, type RateLimitHold, type RemoteTarget, type SendOrder, type SentMessage, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import { resolveSessionLineageById } from '../../../data/sessions/session-lineage'
 import { chooseRunner } from './agent-runner'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { AgentQueueMutation } from './session-queue-tool'
+import type { SessionForkHost } from './session-fork-tool'
+import type { ProviderUsageReaders } from '../../sessions/provider-usage'
 import type { ListedRemoteHost, ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
@@ -104,6 +106,10 @@ export interface SessionController {
   invalidatePlanCaches(sessionId: string): void
   /** Mark the background tasks a live session's agent waits on; null when the session is not live. */
   awaitBackgroundTasks?(sessionId: string, taskIds: readonly string[], waiting: boolean): AwaitedTasksResult | null
+  /** What fork_session needs from the host: the runtime, reads and access checks for one person, and the fork announcement. */
+  fork?: SessionForkHost
+  /** What start_sessions reads to tell whether a provider is out of usage, for its fallback model. */
+  providerUsage?: ProviderUsageReaders
   /** Names a session for the person the calling session works for; a blank title clears the name. */
   renameSession?(callerSessionId: string, sessionId: string, title: string): Promise<void>
   /** The queued messages of a session on this host. */
@@ -622,37 +628,73 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
   if (!message.trim() && !args.release_rate_limit) return { ok: false, text: 'send_session requires a non-empty message.' }
   const report = args.report
   const waitMs = args.wait_seconds * 1000
-  // A restart is a queued message that stops the turn in progress first.
-  const order: SendOrder = { prompt: message, delivery: args.delivery === 'restart' ? 'queue' : args.delivery, notify: report, waitMs }
-  if (args.request_id) order.requestId = args.request_id
-  if (args.release_rate_limit) order.releaseRateLimit = true
-  if (args.delivery === 'restart') order.restart = true
+  const order = sendOrderFor(args)
   const recipient = await sendRecipient(sessionId, callerSessionId, deps)
   if ('error' in recipient) return { ok: false, text: recipient.error }
-  if (args.release_rate_limit && recipient.target) return { ok: false, text: 'release_rate_limit works only for a session on this host.' }
-  const model = await modelChoiceFor(args, recipient)
-  if (model && 'error' in model) return { ok: false, text: model.error }
-  if (model) order.model = model
-  if (!message.trim()) {
-    const released = sessionOrchestration.releaseRateLimit(callerSessionId, recipient.sessionId)
-    const link = recipientLink(recipient, recipient.meta?.provider ?? deps.ctx!.agentProvider)
-    return released
-      ? { ok: true, text: `Released the rate-limit hold of ${link}. The messages it held run now, and their reports come back as before.` }
-      : { ok: false, text: `No rate limit holds ${link}. Nothing was sent.` }
-  }
+  const model = await checkedSend(args, recipient)
+  if ('error' in model) return { ok: false, text: model.error }
+  order.model = model.choice
+  if (!message.trim()) return releaseOnly(sessionOrchestration, callerSessionId, recipient, deps)
   const attachError = await attachTo(order, args.attachments, deps)
   if (attachError) return { ok: false, text: attachError }
   const sent = await sessionOrchestration.send(callerSessionId, recipient.sessionId, order, recipient.target)
-  const dispatch = sent.disposition === 'queued'
-    ? 'Queued for'
-    : sent.disposition === 'steered'
-      ? 'Steered the turn in progress in'
-      : 'Sent to'
+  const dispatch = DISPATCH_VERBS[sent.disposition]
   const provider = recipient.meta?.provider ?? sessionOrchestration.readExchange?.(callerSessionId, sent.exchangeId)?.provider ?? deps.ctx!.agentProvider
   return {
     ok: true,
-    text: `${dispatch} ${recipientLink(recipient, provider)}.${modelNote(model, recipient)}${releaseNote(sent.rateLimitReleased)}${holdNote(sent.rateLimitHold)}${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
+    text: `${dispatch} ${recipientLink(recipient, provider)}.${modelNote(model.choice, recipient)}${releaseNote(sent.rateLimitReleased)}${holdNote(sent.rateLimitHold)}${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
   }
+}
+
+/** Refuses a send this host cannot carry or its person may not make; else the model it chose. */
+async function checkedSend(args: z.infer<z.ZodObject<typeof sendSessionFields>>, recipient: SendRecipient): Promise<{ choice?: ModelChoice } | { error: string }> {
+  if (args.release_rate_limit && recipient.target) return { error: 'release_rate_limit works only for a session on this host.' }
+  // Another host checks its own sessions; here the turn's person must be allowed what a client sends.
+  const refused = recipient.meta ? await refusalOf(sendCommands(args), recipient.sessionId) : null
+  return refused ? { error: refused } : modelChoiceFor(args, recipient)
+}
+
+/** The commands a send is, as a person's client would send them. */
+function sendCommands(args: Pick<z.infer<z.ZodObject<typeof sendSessionFields>>, 'message' | 'delivery' | 'release_rate_limit'>): ToolCommand[] {
+  const commands: ToolCommand[] = []
+  if (args.message.trim()) commands.push('promptHeadlessSession')
+  if (args.delivery === 'restart') commands.push('stopSession')
+  if (args.release_rate_limit) commands.push('rateLimitDecision')
+  return commands
+}
+
+/** Why the turn's person may not send these commands to the session, or null when they may. */
+export async function refusalOf(commands: readonly ToolCommand[], sessionId: string): Promise<string | null> {
+  try {
+    for (const command of commands) await assertToolMay(command, sessionId)
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+const DISPATCH_VERBS = {
+  queued: 'Queued for',
+  steered: 'Steered the turn in progress in',
+  started: 'Sent to',
+} satisfies { [disposition in SentMessage['disposition']]: string }
+
+function sendOrderFor(args: z.infer<z.ZodObject<typeof sendSessionFields>>): SendOrder {
+  // A restart is a queued message that stops the turn in progress first.
+  const order: SendOrder = { prompt: args.message, delivery: args.delivery === 'restart' ? 'queue' : args.delivery, notify: args.report, waitMs: args.wait_seconds * 1000 }
+  if (args.request_id) order.requestId = args.request_id
+  if (args.release_rate_limit) order.releaseRateLimit = true
+  if (args.delivery === 'restart') order.restart = true
+  return order
+}
+
+/** An empty message with release_rate_limit: release the hold, and send nothing. */
+function releaseOnly(orchestration: SessionOrchestration, callerSessionId: string, recipient: SendRecipient, deps: SessionToolDeps): SessionToolResult {
+  const released = orchestration.releaseRateLimit(callerSessionId, recipient.sessionId)
+  const link = recipientLink(recipient, recipient.meta?.provider ?? deps.ctx!.agentProvider)
+  return released
+    ? { ok: true, text: `Released the rate-limit hold of ${link}. The messages it held run now, and their reports come back as before.` }
+    : { ok: false, text: `No rate limit holds ${link}. Nothing was sent.` }
 }
 
 /** The provider and model the sender chose for the message, checked against this host's
@@ -661,8 +703,8 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
 async function modelChoiceFor(
   args: Pick<z.infer<z.ZodObject<typeof sendSessionFields>>, 'agent_provider' | 'model_id' | 'reasoning_effort'>,
   recipient: SendRecipient,
-): Promise<ModelChoice | { error: string } | undefined> {
-  if (!args.agent_provider && !args.model_id && !args.reasoning_effort) return undefined
+): Promise<{ choice?: ModelChoice } | { error: string }> {
+  if (!args.agent_provider && !args.model_id && !args.reasoning_effort) return {}
   if (!recipient.meta) return { error: 'agent_provider, model_id, and reasoning_effort work only for a session on this host.' }
   const targets = await sessionController?.listAgentTargets?.()
   if (!targets) return { error: 'The provider catalog of this host is unavailable.' }
@@ -673,7 +715,7 @@ async function modelChoiceFor(
     args.model_id ?? (keepsModel ? recipient.meta.model ?? undefined : undefined),
     args.reasoning_effort ?? (keepsModel && !args.model_id ? recipient.meta.reasoningEffort ?? undefined : undefined))
   if ('error' in runner) return runner
-  return { provider: runner.provider as AgentId, modelId: runner.modelId, reasoningEffort: runner.reasoningEffort }
+  return { choice: { provider: runner.provider, modelId: runner.modelId, reasoningEffort: runner.reasoningEffort } }
 }
 
 /** The provider that holds the session's thread now: after a handoff, the lineage's. */
@@ -778,6 +820,8 @@ async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionField
   }
   const meta = await findSession(sessionId)
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
+  const refused = await refusalOf(['stopSession'], meta.sessionId)
+  if (refused) return { ok: false, text: refused }
   return sessionOrchestration.stop(deps.ctx?.sessionId, meta.sessionId)
     ? { ok: true, text: `Stopped session ${sessionId}.` }
     : { ok: true, text: `Session ${sessionId} is not currently running.` }

@@ -121,7 +121,11 @@ export class TranscriptModel {
     if (index === -1) this.agentRows = [...this.agentRows, item]
     else {
       const previous = this.agentRows[index]
-      if (previous === item || (previous?.kind === 'tool' && item.kind === 'tool' && previous.report === item.report && previous.status === item.status && previous.input === item.input)) return
+      if (previous === item || (
+        previous?.kind === 'tool' && item.kind === 'tool'
+        && previous.report === item.report && previous.status === item.status
+        && previous.input === item.input && previous.completedAt === item.completedAt
+      )) return
       const next = this.agentRows.slice()
       next[index] = item
       this.agentRows = next
@@ -331,6 +335,8 @@ export class TranscriptModel {
       ...tool,
       status: row.status === 'error' ? 'error' : 'completed',
       errorHead: row.errorHead ?? null,
+      report: row.report ?? tool.report,
+      ...(tool.subagent && row.timestamp !== undefined && { completedAt: row.timestamp }),
       images: row.toolImages ?? tool.images,
       audio: row.toolAudio ?? tool.audio,
       leftOut: row.toolLeftOut ?? tool.leftOut,
@@ -433,7 +439,12 @@ export class TranscriptModel {
         }))
         return true
       case 'subagent_report':
-        this.patchToolById(event.toolUseId, false, (tool) => ({ ...tool, report: event.text, status: event.isError ? 'error' : tool.status }))
+        this.patchToolById(event.toolUseId, false, (tool) => ({
+          ...tool,
+          report: event.text,
+          status: event.isError ? 'error' : 'completed',
+          completedAt: tool.completedAt ?? Date.now(),
+        }))
         return true
       case 'user_message':
         this.applyUserMessage(event)

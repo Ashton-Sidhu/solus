@@ -68,6 +68,42 @@ it("opens a native agent through the provider tool call in its parent session", 
   expect(agent?.id).not.toBe("provider-call");
 });
 
+it("shows a completed provider agent and its report after live delivery and reconnect", () => {
+  const toolId = "provider-call";
+  const report =
+    "[Subagent hand-back] The text below is the final report of a subagent this session delegated to.\n\nUpdated the three render works.";
+  const live = new TranscriptModel("parent");
+  live.apply({ type: "tool_call", toolName: "Agent", toolId, index: 0, isSubagent: true });
+  expect(sessionAgents(live, "parent", "claude-code")?.liveCount).toBe(1);
+  live.apply({ type: "subagent_report", toolUseId: toolId, text: report });
+
+  const restored = new TranscriptModel("parent");
+  restored.prependHistory({
+    before: null,
+    messages: [
+      { role: "tool", content: "", toolId, toolName: "Agent", toolStatus: "running", timestamp: 1000 },
+      {
+        role: "tool_result",
+        content: "",
+        toolResultForId: toolId,
+        status: "ok",
+        report,
+        timestamp: 4000,
+      },
+    ],
+  });
+
+  for (const model of [live, restored]) {
+    const turn = sessionAgents(model, "parent", "claude-code");
+    expect(turn?.liveCount).toBe(0);
+    expect(turn?.subagents[0]).toMatchObject({
+      status: "completed",
+      result: "Updated the three render works.",
+    });
+    expect(turn?.subagents[0]?.completedAt).toBeTruthy();
+  }
+});
+
 it("names a provider sub-agent by its own description, as the desktop card and the host do", () => {
   const model = new TranscriptModel("parent");
   model.apply({ type: "tool_call", toolName: "Agent", toolId: "provider-call", index: 0, isSubagent: true });

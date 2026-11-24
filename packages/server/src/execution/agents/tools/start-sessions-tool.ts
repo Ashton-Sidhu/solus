@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import {
   ATTACHMENTS_FIELD, HOST_FIELD, REASONING_VALUES, REQUEST_ID_FIELD, WAIT_FIELD,
-  attachTo, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
+  attachTo, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
   type SessionToolDeps, type SessionToolResult,
 } from './session-tools'
 import { sessionSettings } from '../../sessions/session-settings'
@@ -17,7 +17,7 @@ import { PERMISSION_MODES } from '@solus/contracts/types'
 import type { AgentId, AgentTarget, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
 import { formatExchangeTag, ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import type { RemoteTarget, SpawnedSession, SpawnOrder } from '../../orchestration/session-orders'
-import { providerSpent, seatOf, type ProviderSpent, type ProviderUsageReaders } from '../../sessions/provider-usage'
+import { providerSpent, seatOf, type ProviderSpent } from '../../sessions/provider-usage'
 import { chooseRunner, type Checked, type Runner } from './agent-runner'
 
 // session-tools.ts checks the runner of send_session with the same rule.
@@ -100,12 +100,6 @@ const startSessionsSchema = z.object(startSessionsFields).strict()
 type StartSessionsInput = z.output<typeof startSessionsSchema>
 type SessionInput = StartSessionsInput['sessions'][number]
 
-/** What this host reads to tell that a provider is out of usage (wired in boot-server.ts). */
-let providerUsage: ProviderUsageReaders | null = null
-export function setProviderUsage(readers: ProviderUsageReaders | null): void {
-  providerUsage = readers
-}
-
 /** The runner of a session, and, when it is the fallback model, the default provider it replaces. */
 interface Choice {
   runner: Runner
@@ -124,6 +118,9 @@ export async function startSessions(input: StartSessionsInput, deps: SessionTool
   if (!orchestration) return { ok: false, text: 'Session launch is unavailable — it requires an active control plane.' }
   const empty = input.sessions.findIndex((session) => !session.prompt.trim())
   if (empty >= 0) return { ok: false, text: `sessions[${empty}] needs a non-empty prompt. No session was started.` }
+  // A session on another host is that host's to admit; one here needs what a person's start needs.
+  const refused = input.sessions.some((session) => !session.host) ? await refusalOf(['createHeadlessSession'], '') : null
+  if (refused) return { ok: false, text: `${refused}. No session was started.` }
   const launches = await checkedLaunches(input.sessions, deps)
   if ('error' in launches) return { ok: false, text: launches.error }
 
@@ -238,6 +235,7 @@ function defaultRunnerFor(session: SessionInput, caller: Caller, place: Place): 
  */
 function fallbackFor(session: SessionInput, caller: Caller, place: Place, runner: Runner): Choice | null {
   const fallback = caller.fallbackModel
+  const providerUsage = getSessionController()?.providerUsage
   if (session.agent_provider || session.model_id || place.target || !fallback || !providerUsage) return null
   if (fallback.provider === runner.provider) return null
   // A child acts for the person its caller acts for, so it runs under the caller's seat.

@@ -2,10 +2,11 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, OrchestrationV2Subagent } from "@t3tools/contracts";
 import { useGT, useMessages } from "gt-react-native";
 import { useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import * as Dialog from "../../components/ui/Dialog";
-import { IconButton } from "../../components/ui/IconButton";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { cn } from "../../lib/cn";
 import { mobileHost } from "../../state/mobile-host";
 import { rememberSession } from "../../solus/session-record";
 import { hostQueryScope, hostQueryScopeAtom } from "../../state/host-query-scope";
@@ -51,24 +52,39 @@ export function SubagentStopButton(props: {
   };
 
   return (
-    <View className={props.className}>
-      <IconButton
-        icon="stop.fill"
-        variant="danger"
-        accessibilityLabel={
-          stopping ? gt("Stopping agent {label}", { label }) : gt("Stop agent {label}", { label })
-        }
-        disabled={stopping}
-        onPress={() =>
-          Dialog.confirm({
-            title: gt("Stop agent?"),
-            message: gt("Stop {label}?", { label }),
-            confirmText: gt("Stop", { $context: "verb, confirm button" }),
-            destructive: true,
-            onConfirm: () => void stop(),
-          })
-        }
-      />
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        stopping ? gt("Stopping agent {label}", { label }) : gt("Stop agent {label}", { label })
+      }
+      accessibilityState={{ busy: stopping, disabled: stopping }}
+      disabled={stopping}
+      className={cn(
+        "size-11 shrink-0 items-center justify-center active:opacity-70",
+        props.className,
+      )}
+      onPress={() =>
+        Dialog.confirm({
+          title: gt("Stop agent?"),
+          message: gt("Stop {label}?", { label }),
+          confirmText: gt("Stop", { $context: "verb, confirm button" }),
+          destructive: true,
+          onConfirm: () => void stop(),
+        })
+      }
+    >
+      <View
+        className={cn(
+          "size-7 items-center justify-center rounded-full",
+          stopping ? "bg-subtle-strong" : "bg-danger",
+        )}
+      >
+        <SymbolView
+          name="stop.fill"
+          size={12}
+          tintColorClassName={stopping ? "accent-icon-subtle" : "accent-danger-foreground"}
+        />
+      </View>
+    </Pressable>
   );
 }

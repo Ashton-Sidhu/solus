@@ -22,3 +22,26 @@ test('a guest turn reads only its shared session; the owner and the host itself 
   // The host's own work runs with no turn person.
   expect(await toolMayRead({ kind: 'session', id: 'private' })).toBe(true)
 })
+
+// The same rule for commands: an agent's send, stop, queue change, release,
+// start, or fork is the RPC a person's client sends, for the same session, so a
+// guest's or a member's turn acts only where that person may act.
+test('a command from a guest turn obeys the RPC rules; the owner and the host itself may send it', async () => {
+  const { assertToolMay } = await import('@solus/server/admission/workspace-tool-authority')
+  const standings = {
+    // The owner owns every session on the host; the guest's link reaches only the shared one.
+    standingFor: async (principal: Principal, resource: { id: string }) => ({ role: principal.kind === 'owner' ? 'owner' as const : resource.id === 'shared' ? 'editor' as const : 'none' as const }),
+  }
+  installToolAccess(async () => 'owner', standings)
+  const asGuest = (command: Parameters<typeof assertToolMay>[0], sessionId?: string) => withWorkspaceToolAuthority(GUEST, () => assertToolMay(command, sessionId))
+  for (const command of ['promptHeadlessSession', 'stopSession', 'sessionQueueChange', 'rateLimitDecision', 'forkSessionFromResponse', 'setSessionTitle'] as const) {
+    await expect(asGuest(command, 'private')).rejects.toThrow()
+    await expect(withWorkspaceToolAuthority(OWNER, () => assertToolMay(command, 'private'))).resolves.toBeUndefined()
+    // The host's own work runs with no turn person.
+    await expect(assertToolMay(command, 'private')).resolves.toBeUndefined()
+  }
+  // On the session its link gives it as an editor, the guest's turn may prompt.
+  await expect(asGuest('promptHeadlessSession', 'shared')).resolves.toBeUndefined()
+  // A guest starts no session on the host.
+  await expect(asGuest('createHeadlessSession')).rejects.toThrow()
+})

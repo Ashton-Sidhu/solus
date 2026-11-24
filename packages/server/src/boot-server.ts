@@ -230,7 +230,6 @@ import { startAutomationScheduler, stopAutomationScheduler } from './execution/a
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
 import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
-import { setProviderUsage } from './execution/agents/tools/start-sessions-tool'
 import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
@@ -332,7 +331,6 @@ import { SessionDigests } from './execution/sessions/session-digests'
 import { emitSessionDigestChanged, onSessionDigestChanged, readSessionDigests, writeSessionDigest } from './data/sessions/session-digests'
 import { onTurnCheckpointed } from './git/turn-checkpoints'
 import { setFolderToolHost } from './execution/agents/tools/folder-tools'
-import { setSessionForkHost } from './execution/agents/tools/session-fork-tool'
 import { sessionReadsFor } from './transport/handlers/session-reads'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
@@ -578,7 +576,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     membersReachable: () => apiMode || registrar.current() !== null,
   })
   // An agent tool reads a record only when the turn's person may open it (plans/031 item 7).
-  installToolAccess((principal, resource) => shares.roleFor(principal, resource))
+  installToolAccess((principal, resource) => shares.roleFor(principal, resource), shares)
   server.useResourceAccess(shares)
   /** The host's share rows for a published session, appended for its organization; nothing for a session that is not published. */
   const mirrorShareRows = async (resource: ShareResource): Promise<void> => {
@@ -850,13 +848,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onResponseForkCreated: announceFork,
   }
   registerSessionHandlers(server, sessionDeps)
-  // fork_session reads sessions as the person the calling turn works for.
-  setSessionForkHost({
-    runtime: opts.sessionRuntime,
-    readsFor: (principal) => sessionReadsFor(server, { clientId: 'agent-tool', principal }),
-    assertMayDrive: (principal, sessionId) => assertRpcAccess('promptHeadlessSession', principal, [{ sessionId }], shares),
-    announce: announceFork,
-  })
   registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
@@ -1322,14 +1313,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostLabel: hostDisplayName,
     local: localMcpServers,
   })
-  // start_sessions reads this host's usage to choose the fallback model.
-  setProviderUsage({
-    usage: opts.sessionRuntime.usageLimits,
-    held: opts.sessionRuntime.rateLimitPark.rateLimits,
-    providerOf: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.backendId,
-    actorOf: (sessionId) => opts.sessionRuntime.actorOfSession(sessionId),
-  })
   setSessionController({
+    // fork_session reads sessions as the person the calling turn works for.
+    fork: {
+      runtime: opts.sessionRuntime,
+      readsFor: (principal) => sessionReadsFor(server, { clientId: 'agent-tool', principal }),
+      announce: announceFork,
+    },
+    // start_sessions reads this host's usage to choose the fallback model.
+    providerUsage: {
+      usage: opts.sessionRuntime.usageLimits,
+      held: opts.sessionRuntime.rateLimitPark.rateLimits,
+      providerOf: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.backendId,
+      actorOf: (sessionId) => opts.sessionRuntime.actorOfSession(sessionId),
+    },
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
     // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through

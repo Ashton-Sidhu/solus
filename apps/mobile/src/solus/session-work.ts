@@ -15,6 +15,11 @@ import type { TranscriptModel } from "@solus-mobile/features/conversation/lib/tr
 import type { AgentId } from "@solus/contracts/types";
 import { subagentTitle } from "@solus/contracts/subagent-input";
 
+function providerReportPreview(report: string | null): string | null {
+  if (!report?.startsWith("[Subagent hand-back] The text below is the final report")) return report;
+  return report.replace(/^[\s\S]*?(?:\r?\n[ \t]*\r?\n|$)/, "").trim() || null;
+}
+
 export function sessionAgents(model: TranscriptModel, id: string, provider: AgentId) {
   const subagents = model.agentRows.map((item): OrchestrationV2Subagent => {
     const agent = item.kind === "agent";
@@ -23,6 +28,7 @@ export function sessionAgents(model: TranscriptModel, id: string, provider: Agen
       (agent ? (item.provider ?? provider) : provider) === "claude-code" ? "claudeAgent" : "codex";
     const status = agent ? agentCardStatus(item) : item.status;
     const promptId = model.agentTurnIds.get(item.id);
+    const completedAt = agent ? item.settledAt : item.completedAt;
     return {
       id: NodeId.make(item.id),
       parentNodeId: NodeId.make(id),
@@ -48,10 +54,10 @@ export function sessionAgents(model: TranscriptModel, id: string, provider: Agen
             : status === "lost" || status === "interrupted"
               ? "interrupted"
               : "running",
-      result: agent ? item.reply : item.report,
+      result: agent ? item.reply : providerReportPreview(item.report),
       startedAt: time,
       updatedAt: time,
-      completedAt: agent && item.settledAt ? DateTime.makeUnsafe(item.settledAt) : null,
+      completedAt: completedAt == null ? null : DateTime.makeUnsafe(completedAt),
     };
   });
   const result = deriveThreadTurnSubagents({ runs: [], subagents });

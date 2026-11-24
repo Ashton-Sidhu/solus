@@ -2,6 +2,7 @@ import { agentActivityOfTool, type AgentActivity } from "@solus/contracts/agent-
 import type { AgentExchangeStatus } from "@solus/contracts/types";
 import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from "@solus/client-core/dot-marks";
 import type { ToolItem } from "@solus-mobile/features/conversation/lib/tool-item";
+import type { OrchestrationV2Subagent } from "@t3tools/contracts";
 import { msg } from "gt-react-native";
 
 import type { AppSymbolName } from "../../components/ui/AppSymbol";
@@ -84,6 +85,25 @@ export type StateMark =
   | { readonly kind: "glyph"; readonly glyph: StateGlyphName };
 
 const glyph = (name: StateGlyphName): StateMark => ({ kind: "glyph", glyph: name });
+
+/** The agent list has its own elapsed time column. Marks here carry no timer. */
+export function agentListStateMark(status: OrchestrationV2Subagent["status"]): StateMark | null {
+  switch (status) {
+    case "pending":
+      return { kind: "dot", mark: "starting", startedAt: null };
+    case "running":
+    case "waiting":
+      return { kind: "dot", mark: "working", startedAt: null };
+    case "completed":
+    case "interrupted":
+      return glyph("done");
+    case "failed":
+      return glyph("failed");
+    case "idle":
+    case "cancelled":
+      return null;
+  }
+}
 
 /** The word a mark says to VoiceOver and TalkBack; the card puts it in its sentence. */
 export function stateMarkLabel(mark: StateMark, resolve: MessageResolver = m): string {
