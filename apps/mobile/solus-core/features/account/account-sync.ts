@@ -90,6 +90,8 @@ export class AccountSync {
   private hosts = new Map<string, AgentProfileHostState>()
   private accountKey: string | null = null
   private readonly unsubscribes: Array<() => void> = []
+  /** Hears when the settings on screen move to another source, or the account's copy changes (ADR 0007). */
+  readonly settingsCopyChanges = new Listeners()
 
   constructor(
     private readonly personal: PersonalSettingsStore,
@@ -105,8 +107,13 @@ export class AccountSync {
     this.profile = this.profileEngine.current
     this.unsubscribes.push(
       this.settingsEngine.subscribe((status) => {
+        const previous = this.settings
         this.settings = status
         this.changes.notify()
+        // As for the profile: a start, or a confirmed write. The hosts take the account's copy.
+        const started = status.generation !== null && status.generation !== previous.generation
+        const confirmed = status.state === 'synced' && previous.pendingKeys.length > 0 && status.pendingKeys.length === 0
+        if (started || confirmed) this.settingsCopyChanges.notify()
       }),
       this.profileEngine.subscribe((status) => {
         const previous = this.profile
@@ -118,7 +125,10 @@ export class AccountSync {
         const confirmed = status.state === 'synced' && previous.pendingKeys.length > 0 && status.pendingKeys.length === 0
         if (started || confirmed) this.pullEverywhere()
       }),
-      this.settingsEngine.onRemoteChange((change) => personal.applyRemote(change)),
+      this.settingsEngine.onRemoteChange((change) => {
+        personal.applyRemote(change)
+        this.settingsCopyChanges.notify()
+      }),
       this.profileEngine.onRemoteChange((change) => local.applyRemote(change)),
       // The engine ignores a change until the account was read, so an edit made before stays local and seeds.
       personal.onLocalChange((change) => { this.settingsEngine.recordLocalChange(change) }),
@@ -175,7 +185,9 @@ export class AccountSync {
       this.settingsEngine.setAccount(account)
       this.profileEngine.setAccount(account)
     }
+    const changed = accountKey !== this.accountKey
     this.accountKey = accountKey
+    if (changed) this.settingsCopyChanges.notify()
   }
 
   /** "Clear synced settings": the account's copy goes, and this device starts it again from its own. */

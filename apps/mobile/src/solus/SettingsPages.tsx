@@ -210,6 +210,10 @@ export function SolusAccount() {
     solus.accountSync.changes,
     solus.accountSync.currentSettings,
   );
+  // Signed out, the settings on screen are one host's (docs/plans/personal-settings-source.md).
+  const homeHostId = useListened(solus.personal.changes, solus.personal.homeHostId);
+  const directory = useSolusWorkspace();
+  const homeHostLabel = homeHostId ? directory.hostsById[homeHostId]?.environmentLabel ?? null : null;
   const run = (action: Promise<void>) =>
     void action.catch((reason) => Alert.alert("Solus account", String(reason)));
   return (
@@ -250,9 +254,13 @@ export function SolusAccount() {
       </SettingsSection>
       <SettingsSection title="Settings sync">
         <AppText className="px-4 py-3 text-foreground">
-          {sync.error?.message ??
-            sync.error?.code ??
-            SYNC_STATE_LABELS[sync.state]}
+          {account.kind === "signed-in"
+            ? sync.error?.message ??
+              sync.error?.code ??
+              SYNC_STATE_LABELS[sync.state]
+            : homeHostLabel
+              ? `Your settings and your agent profile are kept on ${homeHostLabel}. Each host keeps its own. Sign in to Solus to keep them in your account and use them on every host and device.`
+              : "Your settings and your agent profile are kept on your host. Sign in to Solus to keep them in your account and use them on every host and device."}
         </AppText>
         <SettingsRow
           label="Sync now"

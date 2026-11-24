@@ -23,11 +23,12 @@ import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore } from '../../platform/ports'
 
 /**
- * The person's own settings on this device (plans/018 §3.5, §5): one local
- * profile per account and cloud origin, and one for nobody signed in. It is the
- * source of truth here; the account document is its optional replica, kept by
- * `SettingsSync`. Theme, agent defaults, instructions, and notification choices
- * live here, never on a host.
+ * The person's own settings on this device (plans/018 §3.5, ADR 0007). The
+ * source is not here: signed in, it is the account (`SettingsSync`); signed out,
+ * it is the home host (`PersonalSettingsHosts`, `personal-settings-hosts.ts`).
+ * This store holds the copy on screen, one per account and cloud origin and one
+ * for the home host while signed out, cached in storage so the app paints it
+ * before the account or the host answers.
  */
 
 const profileKey = (accountKey: string) => `solus.mobile.personal.v1:${accountKey}`
@@ -68,6 +69,7 @@ export type PersonalSetOutcome = 'saved' | 'invalid'
 export class PersonalSettingsStore {
   readonly changes = new Listeners()
   private accountKey = syncAccountKey(null)
+  private homeId: string | null = null
   private profile: Profile
   private values: PersonalSettings
   private readonly localChangeListeners = new Set<(change: PersonalSettingsChange) => void>()
@@ -81,6 +83,20 @@ export class PersonalSettingsStore {
 
   /** The values with defaults filled in. The same object until a value changes. */
   current = (): PersonalSettings => this.values
+
+  /** Signed in: the account is the source of what shows. */
+  get isSignedIn(): boolean {
+    return this.accountKey !== syncAccountKey(null)
+  }
+
+  /** Signed out: the host whose copy is on screen; null with none, and signed in. Settings names it. */
+  homeHostId = (): string | null => this.homeId
+
+  setHomeHostId(hostId: string | null): void {
+    if (hostId === this.homeId) return
+    this.homeId = hostId
+    this.changes.notify()
+  }
 
   get explicitThemeMode() { return this.profile.settings.themeMode }
 
@@ -164,6 +180,14 @@ export class PersonalSettingsStore {
     this.save()
     this.refresh()
     for (const listener of this.localChangeListeners) listener({ set: {}, reset })
+  }
+
+  /** Signed out: the home host's copy replaces the copy on screen. It is never sent back. */
+  adoptHostCopy(settings: PersonalSettingsDocument): void {
+    if (this.isSignedIn) return
+    this.profile.settings = structuredClone(settings)
+    this.save()
+    this.refresh()
   }
 
   /** A change confirmed by the cloud. Not reported back to sync. */
