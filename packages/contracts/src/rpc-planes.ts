@@ -506,6 +506,8 @@ export const RPC_PLANES = {
   prUpdateBranch: 'collaboration',
   prRevert: 'collaboration',
   prMergeStack: 'collaboration',
+  prEnableStackAutoMerge: 'collaboration',
+  prDisableStackAutoMerge: 'collaboration',
   prMediaUrl: 'collaboration',
   prPendingWorkflowRuns: 'collaboration',
   prApproveWorkflowRuns: 'collaboration',

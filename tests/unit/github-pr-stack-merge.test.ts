@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrStackMergeRequest, RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
-import { githubPullRequestAccess } from '@solus/server/providers/github/pull-request-actions'
+import { disableGithubAutoMerge, githubPullRequestAccess } from '@solus/server/providers/github/pull-request-actions'
 import { GithubStackMergeRefusal, mergeGithubPullRequestStack, readPullRequestStack, type StackMergeClock } from '@solus/server/providers/github/stacks'
 
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'app' }
@@ -23,11 +23,13 @@ const threeLayers = (overrides: Partial<Layer>[] = []): Layer[] => [
 interface Sent { route: string; params: { [name: string]: string | number } }
 
 /** A GitHub that holds one stack and answers merge-async with `answers` in turn. */
-function stackGitHub(layers: Layer[], answers: object[]): { client: GitHubClient; sent: Sent[] } {
+function stackGitHub(layers: Layer[], answers: object[], autoMergeError?: string) {
+  const mutations: Array<{ document: string; params: Sent['params'] }> = []
   const sent: Sent[] = []
   const stack = { number: 4, url: 'https://api.github.com/repos/acme/app/stacks/4', base: { ref: 'main' }, pull_requests: layers }
   const client = {
     rest: {
+      pulls: { get: async () => ({ data: { node_id: 'PR_66' } }) },
       request: async (route: string, params: Sent['params']) => {
         sent.push({ route, params })
         if (route === 'GET /repos/{owner}/{repo}/stacks') return { data: [stack] }
@@ -40,10 +42,16 @@ function stackGitHub(layers: Layer[], answers: object[]): { client: GitHubClient
         throw new Error(`unexpected request ${route}`)
       },
     },
-    graphql: async () => ({}),
+    graphql: async (document: string, params: Sent['params']) => {
+      mutations.push({ document, params })
+      if (autoMergeError) throw new Error(autoMergeError)
+      const disabling = document.includes('disablePullRequestAutoMerge')
+      const pullRequest = { state: 'OPEN', isDraft: false, updatedAt: '2026-11-20T12:00:00Z', autoMergeRequest: disabling ? null : { mergeMethod: 'SQUASH' } }
+      return disabling ? { disablePullRequestAutoMerge: { pullRequest } } : { enablePullRequestAutoMerge: { pullRequest } }
+    },
     credential: { source: 'host', token: 'test-token' },
   } as unknown as GitHubClient
-  return { client, sent }
+  return { client, sent, mutations }
 }
 
 /** Time moves only when the merge waits, so a poll loop runs without real sleeps. */
@@ -61,6 +69,47 @@ const mergeSecondLayer: PrStackMergeRequest = {
 }
 
 const merges = (sent: Sent[]) => sent.filter((request) => request.route.startsWith('PUT '))
+
+describe('auto-merging a GitHub stack', () => {
+  const request = { ...mergeSecondLayer, auto: true }
+
+  test('arms the reviewed stack prefix without starting an immediate merge', async () => {
+    const { client, sent, mutations } = stackGitHub(threeLayers(), [])
+    const result = await mergeGithubPullRequestStack(client, repo, request, fakeClock())
+    expect(result).toMatchObject({ status: 'auto-merge-enabled', layers: [65, 66], armed: { autoMergeEnabled: true, autoMergeMethod: 'squash' } })
+    expect(merges(sent)).toEqual([])
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0]?.document).toContain('includeStack: true')
+    expect(mutations[0]?.params).toEqual({ pullRequestId: 'PR_66', mergeMethod: 'SQUASH', expectedHeadOid: 'sha-66' })
+  })
+
+  test('refuses a moved lower layer before arming', async () => {
+    const { client, sent, mutations } = stackGitHub(threeLayers([{ head: { ref: 'layer-1', sha: 'changed' } }]), [])
+    await expect(mergeGithubPullRequestStack(client, repo, request, fakeClock())).rejects.toThrow('The stack changed')
+    expect(merges(sent)).toEqual([])
+    expect(mutations).toEqual([])
+  })
+
+  test('only an already mergeable stack falls back to a fresh guarded merge', async () => {
+    const ready = stackGitHub(threeLayers(), [{ status: 'merged' }], 'Auto-merge is not needed because all requested pull requests are already mergeable')
+    await expect(mergeGithubPullRequestStack(ready.client, repo, request, fakeClock())).resolves.toEqual({ status: 'merged', layers: [65, 66] })
+    expect(ready.sent.filter(({ route }) => route.endsWith('/stacks'))).toHaveLength(2)
+    expect(merges(ready.sent)[0]?.params.sha).toBe('sha-66')
+
+    const locked = stackGitHub(threeLayers(), [], 'Another stack operation is in progress')
+    await expect(mergeGithubPullRequestStack(locked.client, repo, request, fakeClock())).rejects.toThrow('Another stack operation is in progress')
+    expect(merges(locked.sent)).toEqual([])
+  })
+
+  test('cancels the covered stack using a document separate from single-PR cancellation', async () => {
+    const { client, mutations } = stackGitHub(threeLayers(), [])
+    const result = await disableGithubAutoMerge(client, 'PR_66', true)
+    expect(result.autoMergeEnabled).toBe(false)
+    expect(mutations[0]?.document).toContain('includeStack: true')
+    await disableGithubAutoMerge(client, 'PR_66')
+    expect(mutations[1]?.document).not.toContain('includeStack')
+  })
+})
 
 describe('merging a GitHub stack', () => {
   test('lands the target and every open layer below it, with the head the viewer saw', async () => {

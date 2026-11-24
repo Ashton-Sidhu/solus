@@ -512,8 +512,8 @@ const prReview = tool(
 )
 
 async function mergeStack(
-  session: ToolSession, pr: PullRequest, method: PrMergeMethod, expectedHeadSha: string,
-): Promise<PullRequest['state']> {
+  session: ToolSession, pr: PullRequest, method: PrMergeMethod, auto: boolean,
+) {
   const { repo, provider: { review } } = session
   const stack = await review.getPullRequestStack(repo, pr.number, { headsOnly: true })
   const index = stack?.layers.findIndex((layer) => layer.number === pr.number) ?? -1
@@ -522,20 +522,20 @@ async function mergeStack(
   const expectedHeads = await Promise.all(layers.map(async (layer) => {
     await assertMayWrite(session, layer.number)
     if (!layer.headSha) throw new Error(`GitHub did not report the head of PR #${layer.number}.`)
-    return { number: layer.number, headSha: layer.number === pr.number ? expectedHeadSha : layer.headSha }
+    return { number: layer.number, headSha: layer.number === pr.number ? pr.headSha : layer.headSha }
   }))
-  const result = await review.mergePullRequestStack(repo, { repo, number: pr.number, stackNumber: stack.number, method, expectedHeads }, { byStackNumber: true })
-  await refreshMergedRows(session, result.layers)
-  return result.status === 'queued' ? 'open' : 'merged'
+  const result = await review.mergePullRequestStack(repo, { repo, number: pr.number, stackNumber: stack.number, method, expectedHeads, ...(auto && { auto }) }, { byStackNumber: true })
+  if (result.armed) await syncMerge(session, { ...pr, ...result.armed })
+  else await refreshMergedRows(session, result.layers)
+  return result.status
 }
 
 const prMerge = tool(
-  'pull_request_merge', 'Merge a PR if its head still matches expectedHeadSha. Set stack to land all open layers below it.',
+  'pull_request_merge', 'Merge a PR if its head still matches expectedHeadSha. Set stack to include all open layers below it. Set auto to merge when requirements pass. Set stack and cancelAuto to cancel stack auto-merge on the armed PR.',
   {
     ...targetFields, expectedHeadSha: nonEmpty, method: z.enum(['merge', 'squash', 'rebase', 'fast-forward']).optional(),
-    auto: z.boolean().optional(), stack: z.boolean().optional(),
+    auto: z.boolean().optional(), stack: z.boolean().optional(), cancelAuto: z.boolean().optional(),
   }, true, async (input, session) => {
-    if (input.stack && input.auto) throw new Error('A stack merge cannot wait with auto.')
     const { repo, provider: { review } } = session
     const pr = await locate(session, input)
     await assertMayWrite(session, pr.number)
@@ -543,16 +543,29 @@ const prMerge = tool(
     const sameHead = /^[0-9a-f]{7,}$/i.test(expected)
       ? pr.headSha.toLowerCase().startsWith(expected.toLowerCase()) : pr.headSha === expected
     if (!sameHead) throw new Error(`The head is now ${pr.headSha || 'unknown'}, not ${expected}. Review the new commits first.`)
-    const action = input.stack ? 'merge-stack' : input.auto ? 'enable-auto-merge' : 'merge'
-    if (!pr.viewerPermissions.actions.includes(action)) throw new Error('You do not have permission to merge this pull request this way.')
+    if (input.cancelAuto && (!input.stack || input.auto)) throw new Error('cancelAuto needs stack and cannot be combined with auto.')
+    const action = input.stack
+      ? input.cancelAuto ? 'disable-stack-auto-merge' : input.auto ? 'enable-stack-auto-merge' : 'merge-stack'
+      : input.auto ? 'enable-auto-merge' : 'merge'
+    if (!pr.capabilities.actions.includes(action) || !pr.viewerPermissions.actions.includes(action)) throw new Error('You do not have permission to merge this pull request this way.')
+    if (input.cancelAuto) {
+      if (pr.state !== 'open' || !pr.autoMergeEnabled) throw new Error('Stack auto-merge is not active on this pull request.')
+      const stack = await review.getPullRequestStack(repo, pr.number, { headsOnly: true })
+      if (!stack) throw new Error('This PR is not in a native stack.')
+      const updated = await review.disablePullRequestAutoMerge(repo, pr.number, stack.number)
+      await session.host.prSync.apply(session.syncHost, updated)
+      prIndex.invalidate(repo)
+      return { ...identity(pr), state: updated.state, autoMergeEnabled: updated.autoMergeEnabled }
+    }
+    if (input.stack && input.auto && pr.autoMergeEnabled) throw new Error('Auto-merge is already active on this pull request.')
     const method = input.method ?? pr.capabilities.defaultMergeMethod ?? pr.capabilities.mergeMethods[0]
     if (!method || method === 'fast-forward' || !pr.capabilities.mergeMethods.includes(method)) {
       throw new Error('The repository does not allow that merge method.')
     }
     try {
       if (input.stack) {
-        const state = await mergeStack(session, pr, method, pr.headSha)
-        return { ...identity(pr), state }
+        const status = await mergeStack(session, pr, method, input.auto === true)
+        return { ...identity(pr), state: status === 'merged' ? 'merged' : 'open', ...(input.auto && { status }) }
       }
       if (review.agentMergePullRequest) {
         const state = await review.agentMergePullRequest(repo, pr, method, input.auto === true)

@@ -49,6 +49,7 @@ import { accountConnectionsUrl } from '../../vault/account-reads'
 import { writeMissingCopiedFiles } from '../../git/worktree-include'
 import { progressPercent, progressThrottle, type DispatchCheckoutPathOf, type PrepareDispatchCheckout } from './dispatch-repository'
 import { SPAN_SERVICES } from '../../data/insights/registries'
+import { isPullRequestMergeWake } from './session-wake'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
 import { taskSystemContext, logNewSessionPrompt } from './run-task-context'
 import { taskFolderStages, type CreateSessionTaskFolder, type CreatedSessionTaskFolder, type TaskFolderTurn } from './session-task-folders'
@@ -965,7 +966,7 @@ export class RunLauncher {
     this.rt.statuses.notifyActiveWork()
     // A prompt is work: a settled session is active again, and back in the
     // list of the person the turn is for.
-    await new SessionShelf(sessionId).recordPrompt(request.actor ? ownerKeyOf(request.actor) : null)
+    await new SessionShelf(sessionId).recordPrompt(request.actor ? ownerKeyOf(request.actor) : null, Date.now(), isPullRequestMergeWake(options))
     void admitTurnAtHome(sessionId)
 
     // A session never makes a task of its own: a prompt that names no task

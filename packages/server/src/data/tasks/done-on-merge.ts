@@ -8,6 +8,7 @@ import { createLogger } from '../../logger'
 import { loadProjectConfig } from '../../project-config/project-config'
 import { listProjects } from '../../project-config/projects-manifest'
 import { resourceLinks } from '../links/schema'
+import { isDeliveringPullRequestMergeWake, isPullRequestWatchedBySessions } from '../sessions/pull-request-watches'
 import { scopeClause } from '../scope'
 import { moveTask } from './task'
 import { linkedPullRequestIsMerged, readTaskLinks, type PrLinkTarget } from './task-links'
@@ -80,7 +81,10 @@ export async function completeTasksForMergedPullRequest(
     // A task this host never read has no copy to judge.
     if (!task || task.category === 'done') continue
     const working = ((await taskSessions(scope, taskId))[taskId] ?? []).filter((link) => link.role !== 'referenced')
-    if (working.some((link) => completion.isSessionBusy(link.sessionId))) continue
+    const sessionIds = working.map((link) => link.sessionId)
+    if (sessionIds.some((id) => completion.isSessionBusy(id) || isDeliveringPullRequestMergeWake(id))) continue
+    if (await isPullRequestWatchedBySessions(repository, number, sessionIds)) continue
+    if (sessionIds.some((id) => completion.isSessionBusy(id) || isDeliveringPullRequestMergeWake(id))) continue
     if (await projectTurnedRuleOff(repository, working.flatMap((link) => link.checkoutPath && !link.executionServerId ? [link.checkoutPath] : []))) continue
     const others = (await readTaskLinks(db, scope, taskId)).flatMap((link) => {
       if (link.kind !== 'pr') return []

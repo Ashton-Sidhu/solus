@@ -89,8 +89,9 @@ belongs to a session, not to a task.
    A new head resets what was reported about checks.
 6. **When a watch ends**, with the reason logged once
    (`pr_watch_ended`):
-   - the pull request merged (no wake: the session settles by the pull
-     request rule);
+   - the pull request merged (one final wake). Automatic pull request settlement
+     waits for the watch to claim and queue the notice and for the turn to finish.
+     The notice keeps the last-prompt time so the merge can still settle the session;
    - it closed (wake);
    - 10 wakes in a row brought only remarks, so two bots cannot keep an agent
      busy forever (wake);

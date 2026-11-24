@@ -1,4 +1,4 @@
-import type { QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
+import type { PromptOptions, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
 import type { User } from '@solus/contracts/user'
 import type { SessionQueueMutation } from '@solus/contracts/session-queue'
 import type { RunLedger, SavedQueueEntry } from '../../data/sessions/run-ledger'
@@ -69,8 +69,12 @@ export class SessionRequestQueue {
   }
 
   hasPrompt(sessionId: string, clientPromptId: string): boolean {
-    return [...(this.queues.get(sessionId) ?? []), ...(this.claimed.get(sessionId) ?? [])]
-      .some((entry) => entry.run.options.clientPromptId === clientPromptId)
+    return this.hasPromptMatching(sessionId, (options) => options.clientPromptId === clientPromptId)
+  }
+
+  hasPromptMatching(sessionId: string, matches: (options: PromptOptions) => boolean): boolean {
+    return this.queues.get(sessionId)?.some(({ run }) => matches(run.options)) === true
+      || this.claimed.get(sessionId)?.some(({ run }) => matches(run.options)) === true
   }
 
   lastSwitchInput(sessionId: string): SessionRunInput | undefined {

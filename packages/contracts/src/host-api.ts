@@ -980,6 +980,8 @@ export interface SolusAPI {
    *  operation. Needs `merge-stack` in both `capabilities.actions` and
    *  `viewerPermissions.actions`. */
   prMergeStack(request: PrStackMergeRequest): Promise<PrStackMergeResult>
+  prEnableStackAutoMerge(request: PrStackMergeRequest): Promise<PrStackMergeResult>
+  prDisableStackAutoMerge(pr: PrRef, stackNumber: number): Promise<PullRequest>
   /** A host URL for media that a pull request points at on GitHub, such as
    *  `https://github.com/user-attachments/assets/<id>`. A private repository
    *  serves it only with a GitHub credential, so the host fetches it with its

@@ -27,6 +27,7 @@ let watches: typeof import('@solus/server/data/sessions/pull-request-watches')
 let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
 let rules: typeof import('@solus/server/prs/pr-watch-rules')
 let watcherModule: typeof import('@solus/server/prs/pr-watcher')
+let sessionStates: typeof import('@solus/server/data/sessions/session-states')
 let wakeModule: typeof import('@solus/server/execution/sessions/session-wake')
 let rateLimit: typeof import('@solus/server/providers/github/rate-limit')
 let actingScope: typeof import('@solus/server/vault/acting-scope')
@@ -40,6 +41,7 @@ beforeAll(async () => {
   sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
   rules = await import('@solus/server/prs/pr-watch-rules')
   watcherModule = await import('@solus/server/prs/pr-watcher')
+  sessionStates = await import('@solus/server/data/sessions/session-states')
   wakeModule = await import('@solus/server/execution/sessions/session-wake')
   rateLimit = await import('@solus/server/providers/github/rate-limit')
   actingScope = await import('@solus/server/vault/acting-scope')
@@ -355,16 +357,40 @@ describe('PR watcher', () => {
     expect(host.fullReads).toBe(1)
   })
 
-  test('a merge ends the watch without a wake', async () => {
+  test('a watched merge wakes once before the session settles', async () => {
     const host = new FakeHost()
     host.state = 'merged'
-    await watch('session-1')
-    const { watcher, woke } = setup(host)
+    const watched = await watch('session-1')
+    const merged = (await host.review.getPullRequests({}, [7])).get(7)!
+    const shelf = new sessionStates.SessionShelf('session-1')
+    await shelf.recordPrompt(null, Date.parse(merged.updatedAt) - 1)
+    // PR sync can read the merge before the watcher does.
+    await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, 7, merged)
+    expect(await sessionStates.settleSessionsWithEndedPullRequests(() => false)).toEqual([])
+    const woke: string[] = []
+    let busy = false
+    const watcher = new watcherModule.PrWatcher({
+      codeHost: codeHostOf(host),
+      sessionWake: new wakeModule.SessionWake({
+        prompt: async (_sessionId, text, origin) => {
+          expect(origin.clientPromptId).toBe(`pr-merge-watch:${watched.watchId}`)
+          expect(await sessionStates.settleSessionsWithEndedPullRequests(() => false)).toEqual([])
+          await shelf.recordPrompt(null, Date.parse(merged.updatedAt) + 1000, wakeModule.isPullRequestMergeWake(origin))
+          woke.push(text)
+          busy = true
+        },
+      }),
+    })
     await watcher.start()
-    await watcher.sweep()
+    await Promise.all([watcher.sweep(), watcher.sweep()])
     watcher.stop()
-    expect(woke).toEqual([])
+    expect(woke).toHaveLength(1)
+    expect(woke[0]).toContain('The pull request merged.')
     expect(await watches.readPullRequestWatches()).toEqual([])
+    expect(await sessionStates.settleSessionsWithEndedPullRequests(() => busy)).toEqual([])
+    busy = false
+    expect(await sessionStates.settleSessionsWithEndedPullRequests(() => busy)).toEqual(['session-1'])
+    expect((await shelf.state()).settledBy).toBe('pull-request')
   })
 
   test('a quiet head with no check is told so at the end of its grace period, once', async () => {

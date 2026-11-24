@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { PrStack, PrStackLayer, PrStackMembership, PrStackMergeRequest, RepoRef } from '@solus/contracts/providers'
+import { enableGithubAutoMerge, type PrAutoMergeUpdate } from './pull-request-actions'
 import { isGithubNotFound, type GitHubClient } from './octokit'
 
 /**
@@ -141,7 +142,8 @@ const SYSTEM_CLOCK: StackMergeClock = {
 const STACK_MERGE_DEADLINE_MS = 5 * 60_000
 
 export interface GithubStackMerge {
-  status: 'merged' | 'queued'
+  status: 'merged' | 'queued' | 'auto-merge-enabled'
+  armed?: PrAutoMergeUpdate
   /** The open layers the merge landed, bottom to top. */
   layers: number[]
 }
@@ -160,7 +162,7 @@ export interface GithubStackMerge {
 export async function mergeGithubPullRequestStack(
   client: GitHubClient,
   repo: RepoRef,
-  request: PrStackMergeRequest,
+  request: PrStackMergeRequest & { auto?: boolean },
   clock: StackMergeClock = SYSTEM_CLOCK,
   options?: { byStackNumber?: boolean },
 ): Promise<GithubStackMerge> {
@@ -171,6 +173,22 @@ export async function mergeGithubPullRequestStack(
     : await readPullRequestStack(client, repo, request.number)
   const open = layersToMerge(stack, request)
   const target = open[open.length - 1]
+  const layers = open.map((layer) => layer.number)
+  if (request.auto) {
+    if (repo.host !== 'github.com') throw new GithubStackMergeRefusal('This code host cannot auto-merge a stack.')
+    const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: request.number })
+    if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+    const expectedHead = target.headSha
+    if (!expectedHead) throw new GithubStackMergeRefusal(STACK_CHANGED)
+    try {
+      const armed = await enableGithubAutoMerge(client, raw.node_id, request.method, expectedHead, true)
+      return { status: 'auto-merge-enabled', layers, armed }
+    } catch (error) {
+      if (!(error instanceof Error) || !/auto-merge is not needed because all requested pull requests are already mergeable/i.test(error.message)) throw error
+      // GitHub will not arm a ready stack. Check every layer again before landing it.
+      return mergeGithubPullRequestStack(client, repo, { ...request, auto: false }, clock, options)
+    }
+  }
   const started = await client.rest.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge-async', {
     owner: repo.owner,
     repo: repo.repo,
@@ -180,7 +198,7 @@ export async function mergeGithubPullRequestStack(
     sha: target.headSha,
   })
   const result = await awaitStackMerge(client, repo, request.number, parseMergeAsync(started.data), clock)
-  return { status: result === 'enqueued' ? 'queued' : 'merged', layers: open.map((layer) => layer.number) }
+  return { status: result === 'enqueued' ? 'queued' : 'merged', layers }
 }
 
 /**

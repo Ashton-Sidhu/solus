@@ -50,6 +50,8 @@ The mobile notification and Live Activity presentation follows T3 Code revision 
 
 The T3 pull request and issue sheets use the selected host for edits, labels, reviewers, assignees, and review submission. A review names the head revision shown in the diff. Session review uses T3’s file list, line selection, and comment composer for working-tree, session, and turn diffs. The draft host and branch pickers use the Solus host list and checkout. A Solus session has one working directory, so a draft offers one project at a time. A session can work in more folders than its working directory: the session folders that its codebase and its attached folders give (see the last sections).
 
+The native PR merge controls use Solus host RPCs for stack membership, immediate merge, and auto-merge. The selected host checks permissions and the heads that the confirmation showed. GitHub reports stack auto-merge on the layer where it was turned on.
+
 The session review picker follows T3's Changes and Uncommitted choices. The Solus host supplies both comparisons and uses its own target branch selection. The picker also offers Session for the session's accumulated changes.
 
 The mobile Issues list can open a pasted issue URL in the T3 issue screen. The selected Solus host resolves the address and supplies the read-only issue details. The Issues list keeps its existing sources.

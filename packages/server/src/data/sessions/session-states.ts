@@ -9,7 +9,7 @@ import { OBSERVATION_JOIN } from '../links/pull-request-observations'
 import { session } from './schema'
 import { ensureSessionRow, machineSessionHome } from './session-identity'
 import { organizationOfSession } from './session-records'
-import { stopSessionPullRequestWatches } from './pull-request-watches'
+import { isDeliveringPullRequestMergeWake, stopSessionPullRequestWatches } from './pull-request-watches'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
 
 /**
@@ -111,12 +111,18 @@ export class SessionShelf {
   async settle(by: Exclude<SessionSettledBy, 'person'>, at = Date.now()): Promise<SessionState | null> {
     // One statement makes the row when it is missing, settles it only when it is not, and returns it.
     // `settled_at` and `settled_by` are written together: one is null exactly when the other is.
+    if (isDeliveringPullRequestMergeWake(this.sessionId)) return null
     const home = machineSessionHome()
     const row = rowSchema.nullish().parse(await getDatabase().get(sql`
       INSERT INTO ${session} (session_id, organization_id, created_by, created_at, settled_at, settled_by)
       VALUES (${this.sessionId}, ${home.organizationId}, ${home.ownerKey}, ${at}, ${at}, ${by})
       ON CONFLICT(session_id) DO UPDATE SET settled_at = excluded.settled_at, settled_by = excluded.settled_by
       WHERE session_records.settled_at IS NULL AND session_records.auto_settle_disabled_at IS NULL
+        AND (${by} <> 'pull-request' OR NOT EXISTS (
+          SELECT 1 FROM ${resourceLinks} ${OBSERVATION_JOIN}
+          WHERE resource_links.source_id = session_records.session_id
+            AND resource_links.source_kind = 'session' AND resource_links.watch_id IS NOT NULL AND o.state = 'merged'
+        ))
       RETURNING ${COLUMNS}
     `))
     const state = row && stateFromColumns(row)
@@ -153,10 +159,12 @@ export class SessionShelf {
    * settle stays. The time is what its pull requests must end after to settle
    * it. The row exists from the turn's admission; one that does not is born now.
    */
-  async recordPrompt(personKey: string | null, at = Date.now()): Promise<void> {
+  async recordPrompt(personKey: string | null, at = Date.now(), preservesSettlement = false): Promise<void> {
     const before = await this.row()
     if (!before) await ensureSessionRow(this.sessionId)
-    await this.update(sql`last_prompt_at = ${at}, settled_at = NULL, settled_by = NULL`)
+    await this.update(preservesSettlement
+      ? sql`settled_at = NULL, settled_by = NULL`
+      : sql`last_prompt_at = ${at}, settled_at = NULL, settled_by = NULL`)
     if (before?.settled_at != null) await this.announce()
     if (personKey) await new SessionViewer(this.sessionId, personKey).returnToList()
   }

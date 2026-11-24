@@ -197,6 +197,8 @@ const PERMISSION_OF_METHOD = {
   prUpdateBranch: 'host.git.write',
   prRevert: 'host.git.write',
   prMergeStack: 'host.git.write',
+  prEnableStackAutoMerge: 'host.git.write',
+  prDisableStackAutoMerge: 'host.git.write',
   prApproveWorkflowRuns: 'host.git.write',
   openWorktreeTerminal: 'host.terminal',
   usageLimits: 'host.usage.read',

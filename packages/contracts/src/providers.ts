@@ -275,6 +275,8 @@ export type PrLifecycleAction =
   /** Merge a stacked pull request and every open layer below it, in one host
    *  operation. Only offered for a pull request in a stack (`stack`). */
   | 'merge-stack'
+  | 'enable-stack-auto-merge'
+  | 'disable-stack-auto-merge'
   /** Let the Actions workflow runs of a fork pull request start. The host
    *  holds them until a maintainer approves them. */
   | 'approve-workflows'
@@ -307,10 +309,11 @@ export interface PrStackMergeRequest extends PrRef {
 
 export interface PrStackMergeResult {
   /** `merged`: the layers landed. `queued`: the host put them in its merge
-   *  queue, and they land when the queue passes them. */
-  status: 'merged' | 'queued'
+   *  queue. `auto-merge-enabled`: the host armed auto-merge for the stack
+   *  up to the selected pull request. */
+  status: 'merged' | 'queued' | 'auto-merge-enabled'
   /** Every layer the merge touched, bottom to top, as the host reports them
-   *  after the merge. */
+   *  after the merge. For auto-merge, only the selected pull request reports the request. */
   pullRequests: PullRequest[]
 }
 

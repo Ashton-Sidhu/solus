@@ -3,6 +3,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { PrStackMergeRequest, PullRequest, RepoRef } from '@solus/contracts/providers'
+import type { ResourceRole } from '@solus/contracts/permissions'
 import type { Provider } from '@solus/server/providers/types'
 import { SolusServer } from '@solus/server/transport/server'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
@@ -19,8 +20,8 @@ const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
 const hostFacts = new Map<number, PullRequest>()
 function facts(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
   const pullRequest = pullRequestFixture(number, { headSha: `sha-${number}`, baseRepo: repo, ...overrides })
-  pullRequest.capabilities.actions.push('merge-stack', 'approve-workflows')
-  pullRequest.viewerPermissions.actions.push('merge-stack', 'approve-workflows')
+  pullRequest.capabilities.actions.push('merge-stack', 'enable-stack-auto-merge', 'disable-stack-auto-merge', 'approve-workflows')
+  pullRequest.viewerPermissions.actions.push('merge-stack', 'enable-stack-auto-merge', 'disable-stack-auto-merge', 'approve-workflows')
   return pullRequest
 }
 
@@ -56,10 +57,18 @@ const calls: string[] = []
 let landedLayers: number[] = []
 const provider = {
   review: {
-    mergePullRequestStack: async (_repo: RepoRef, request: PrStackMergeRequest) => {
+    mergePullRequestStack: async (_repo: RepoRef, request: PrStackMergeRequest & { auto?: boolean }) => {
+      if (request.auto) {
+        calls.push(`arm-stack:${request.number}`)
+        return { status: 'auto-merge-enabled', layers: [65, 66], armed: { autoMergeEnabled: true } }
+      }
       calls.push(`merge-stack:${request.number}`)
       for (const number of landedLayers) hostFacts.set(number, facts(number, { state: 'merged' }))
       return { status: 'merged', layers: landedLayers }
+    },
+    disablePullRequestAutoMerge: async (_repo: RepoRef, number: number, stackNumber?: number) => {
+      calls.push(`cancel-stack:${stackNumber}:${number}`)
+      return facts(number, { autoMergeEnabled: false })
     },
     listPendingWorkflowRuns: async () => { calls.push('list-runs'); return [{ id: 1, name: 'CI', url: null }] },
     approvePendingWorkflowRuns: async () => { calls.push('approve-runs'); return 1 },
@@ -75,7 +84,7 @@ const { registerProviderHandlers } = await import('@solus/server/transport/handl
 
 const applied: number[] = []
 
-function server(): SolusServer {
+function server(role: ResourceRole = 'owner'): SolusServer {
   const solus = new SolusServer()
   registerProviderHandlers(solus, {
     checkouts: {} as never,
@@ -85,7 +94,7 @@ function server(): SolusServer {
     events: { broadcast: () => 1, publish: () => 1 } as unknown as HostEventPublisher,
     prSync: { apply: async (_target: object, pullRequest: PullRequest) => { applied.push(pullRequest.number) } } as unknown as PrSync,
 
-    resources: { roleFor: async () => 'owner' },
+    resources: { standingFor: async () => ({ role }) },
   })
   return solus
 }
@@ -118,6 +127,45 @@ describe('merging a stack through the host', () => {
     expect(result.pullRequests.map((pullRequest) => [pullRequest.number, pullRequest.state])).toEqual([[65, 'merged'], [66, 'merged']])
     expect(applied).toEqual([65, 66])
     expect(completed).toEqual([65, 66])
+  })
+
+  test('arm and cancel publish the target without completing the task', async () => {
+    hostFacts.set(66, facts(66))
+    const solus = server()
+    const result = await solus.handle('prEnableStackAutoMerge', [stackRequest], TEST_HANDLER_CTX)
+    expect(result.status).toBe('auto-merge-enabled')
+    expect(result.pullRequests.map(({ number, autoMergeEnabled }) => [number, autoMergeEnabled])).toEqual([[66, true]])
+    hostFacts.set(66, facts(66, { autoMergeEnabled: true }))
+    const cancelled = await solus.handle('prDisableStackAutoMerge', [stackRequest, 4], TEST_HANDLER_CTX)
+    expect(cancelled.autoMergeEnabled).toBe(false)
+    expect(calls).toEqual(['arm-stack:66', 'cancel-stack:4:66'])
+    expect(applied).toEqual([66, 66])
+    expect(completed).toEqual([])
+  })
+
+  test('cannot schedule a lower layer linked to a session the caller cannot edit', async () => {
+    const { linkSessionPullRequest, unlinkSessionPullRequest } = await import('@solus/server/data/sessions/session-pull-requests')
+    hostFacts.set(66, facts(66))
+    await linkSessionPullRequest('lower-layer', {
+      url: 'https://github.com/owner/repo/pull/65', source: 'manual', by: { kind: 'system' },
+    })
+    try {
+      await expect(server('viewer').handle('prEnableStackAutoMerge', [stackRequest], TEST_HANDLER_CTX))
+        .rejects.toThrow('This pull request is part of a session you cannot change.')
+      expect(calls).toEqual([])
+    } finally {
+      await unlinkSessionPullRequest('lower-layer', 'github.com/owner/repo', 65)
+    }
+  })
+
+  test('a viewer with only immediate stack merge cannot arm or cancel', async () => {
+    const pr = facts(66, { autoMergeEnabled: true })
+    pr.viewerPermissions.actions = ['merge-stack']
+    hostFacts.set(66, pr)
+    const solus = server()
+    await expect(solus.handle('prEnableStackAutoMerge', [stackRequest], TEST_HANDLER_CTX)).rejects.toThrow('permission')
+    await expect(solus.handle('prDisableStackAutoMerge', [stackRequest, 4], TEST_HANDLER_CTX)).rejects.toThrow('permission')
+    expect(calls).toEqual([])
   })
 
   test('a viewer without the permission never reaches the code host', async () => {

@@ -90,7 +90,7 @@ export function PullRequestMergeControls(props: {
           ? gt("Couldn't check stack membership. Refresh before merging.")
           : gt("Checking stack membership…")
         : null);
-  const canMerge = !busy && method !== undefined && !reason;
+  const canMerge = !busy && method !== undefined && !reason && !(scope && pr.autoMergeEnabled);
   const label = method
     ? scope && scope.layers.length > 1
       ? gt(
@@ -154,9 +154,14 @@ export function PullRequestMergeControls(props: {
   const autoAction = pr.autoMergeEnabled ? "disable-auto-merge" : "enable-auto-merge";
   const canAutoMerge =
     !busy &&
-    (autoAction === "disable-auto-merge" || (!stack.stack && canMergeSingle)) &&
+    (stack.stack
+      ? stack.isFresh && pr.capabilities.stackAutoMerge === true && (pr.autoMergeEnabled || (scope && !scope.reason))
+      : canMergeSingle) &&
     permissions.canWrite &&
     canPerformPullRequestAction(pr, autoAction);
+
+  const primaryAutoMerge = !!scope && canAutoMerge && autoAction === "enable-auto-merge" &&
+    !status && pr.checks.some((check) => check.required && check.status === "pending");
 
   const perform = async (action: "merge" | "enable-auto-merge" | "disable-auto-merge") => {
     if (
@@ -172,33 +177,14 @@ export function PullRequestMergeControls(props: {
       input: {
         ...target.input,
         action,
-        ...(action === "merge" && method && stack.stack && scope
+        ...(pr.headSha && { expectedHeadSha: pr.headSha }),
+        ...(stack.stack && scope
           ? {
               stackNumber: stack.stack.number,
-              expectedStackHeads: scope.heads,
+              ...(action !== "disable-auto-merge" && { expectedStackHeads: scope.heads }),
               mergeMethod: method,
             }
-          : action === "merge" && method
-            ? {
-                resolveMergeMethod: (fresh) => {
-                  if (
-                    !canPerformPullRequestAction(fresh, "merge") ||
-                    !allowedMergeMethods(fresh).includes(method)
-                  )
-                    throw new Error(
-                      gt(
-                        "The {term, select, mr {merge request} cr {change request} other {pull request}} changed. Refresh before merging.",
-                        {
-                          term: changeRequestTermKind(terminology),
-                        },
-                      ),
-                    );
-                  return method;
-                },
-              }
-            : action === "enable-auto-merge" && method
-              ? { mergeMethod: method }
-              : {}),
+          : { mergeMethod: method }),
       },
     });
     // A stack can partly merge before the provider reports a failure.
@@ -230,8 +216,8 @@ export function PullRequestMergeControls(props: {
               { term: changeRequestTermKind(terminology) },
             )
         : action === "enable-auto-merge"
-          ? gt("Enable auto-merge?")
-          : gt("Disable auto-merge?");
+          ? scope ? gt("Auto-merge stack?") : gt("Enable auto-merge?")
+          : scope ? gt("Cancel stack auto-merge?") : gt("Disable auto-merge?");
     const message =
       action === "merge" && scope
         ? gt(
@@ -244,13 +230,17 @@ export function PullRequestMergeControls(props: {
               number: pr.number,
             },
           )
-        : action === "enable-auto-merge"
+        : action === "enable-auto-merge" && scope
+          ? gt("Merge {layers} from the bottom up when their requirements pass. This may happen immediately.", {
+              layers: scope.layers.map((layer) => `#${layer.number}`).join(" → "),
+            })
+          : action === "enable-auto-merge"
           ? gt(
               "Merge #{number} using {kind, select, squash {squash} merge {merge} rebase {rebase} fastForward {fast-forward} other {{method}}} when its requirements are met. This may happen immediately.",
               { number: pr.number, kind: mergeMethodKind(method), method: method ?? "" },
             )
           : action === "disable-auto-merge"
-            ? gt(
+            ? scope ? gt("Stop automatic merging for this stack.") : gt(
                 "Stop the provider from automatically merging this {term, select, mr {merge request} cr {change request} other {pull request}}.",
                 {
                   term: changeRequestTermKind(terminology),
@@ -272,8 +262,8 @@ export function PullRequestMergeControls(props: {
           action === "merge"
             ? label
             : action === "enable-auto-merge"
-              ? gt("Enable auto-merge")
-              : gt("Disable auto-merge"),
+              ? scope ? gt("Auto-merge stack") : gt("Enable auto-merge")
+              : scope ? gt("Cancel stack auto-merge") : gt("Disable auto-merge"),
         onPress: () => void perform(action),
       },
     ]);
@@ -286,7 +276,7 @@ export function PullRequestMergeControls(props: {
             ? gt("Working…")
             : !permissions.connected
               ? gt("Reconnect to merge")
-              : (status?.label ?? label)
+              : (status?.label ?? (primaryAutoMerge ? gt("Auto-merge stack") : label))
         }
         accessibilityLabel={
           status
@@ -303,10 +293,10 @@ export function PullRequestMergeControls(props: {
               : label
         }
         icon={status?.icon ?? PullRequestGlyph.merged}
-        disabled={status?.action ? stateAction.busy : !canMerge || status !== null}
+        disabled={status?.action ? stateAction.busy : (!canMerge && !primaryAutoMerge) || status !== null}
         loading={busy || stateAction.busy || (!status?.action && checkingStack)}
         onPress={() =>
-          status?.action ? void stateAction.perform(status.action) : confirm("merge")
+          status?.action ? void stateAction.perform(status.action) : confirm(primaryAutoMerge ? "enable-auto-merge" : "merge")
         }
         menuTitle={gt("Merge options")}
         actions={
@@ -319,13 +309,14 @@ export function PullRequestMergeControls(props: {
                   state: id === method ? ("on" as const) : ("off" as const),
                   attributes: { disabled: !canMerge && !canAutoMerge },
                 })),
-                ...(canAutoMerge
+                ...(primaryAutoMerge && canMerge ? [{ id: "merge-stack", title: label }] : []),
+                ...(canAutoMerge && !primaryAutoMerge
                   ? [
                       {
                         id: autoAction,
                         title: pr.autoMergeEnabled
-                          ? gt("Disable auto-merge")
-                          : gt("Enable auto-merge"),
+                          ? scope ? gt("Cancel stack auto-merge") : gt("Disable auto-merge")
+                          : scope ? gt("Auto-merge stack") : gt("Enable auto-merge"),
                         image: "clock",
                       },
                     ]
@@ -337,7 +328,8 @@ export function PullRequestMergeControls(props: {
           if (selected) {
             setSelectedMethod(selected);
             void savePreferences({ pullRequestMergeMethod: selected });
-          } else if (id === autoAction && canAutoMerge) confirm(autoAction);
+          } else if (id === "merge-stack" && canMerge) confirm("merge");
+          else if (id === autoAction && canAutoMerge) confirm(autoAction);
         }}
       />
       {permissions.connected && !status && reason ? (

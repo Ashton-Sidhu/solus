@@ -190,7 +190,7 @@ export async function githubPullRequestAccessFor(
       })
     cache.set(key, settings)
   }
-  return githubPullRequestAccess({ viewer, author, ...await settings })
+  return githubPullRequestAccess({ viewer, author, ...await settings }, repo.host)
 }
 
 /** One active rule on a branch, as `GET /rules/branches/{branch}` lists it. */
@@ -219,7 +219,7 @@ export function branchMergeMethods(
   return limits.reduce((allowed, limit) => allowed.filter((method) => limit.includes(method)))
 }
 
-export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAccess {
+export function githubPullRequestAccess(access: RepositoryAccess, host?: string): PullRequestAccess {
   const isAuthor = access.viewer.toLowerCase() === access.author.toLowerCase()
   const lifecycle: PrLifecycleAction[] = access.canWrite || isAuthor
     ? ['close', 'reopen', 'ready', 'draft']
@@ -234,6 +234,10 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
   const supported: PrLifecycleAction[] = ['merge', 'close', 'reopen', 'ready', 'draft']
   if (access.allowAutoMerge) supported.push('enable-auto-merge', 'disable-auto-merge')
   supported.push('revert', 'merge-stack', 'approve-workflows')
+  if (host === 'github.com' && access.allowAutoMerge) {
+    supported.push('enable-stack-auto-merge', 'disable-stack-auto-merge')
+    if (access.canWrite) lifecycle.push('enable-stack-auto-merge', 'disable-stack-auto-merge')
+  }
 
   const repositoryMethods: PrReviewCapabilities['mergeMethods'] = []
   if (access.allowMergeCommit) repositoryMethods.push('merge')
@@ -381,17 +385,17 @@ interface GithubAutoMergeResult extends GithubLifecycleResult {
 
 const AUTO_MERGE_RESULT_FIELDS = 'isDraft state updatedAt autoMergeRequest { mergeMethod }'
 
-const ENABLE_AUTO_MERGE_MUTATION = `
+const enableAutoMergeMutation = (includeStack: boolean) => `
   mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!, $expectedHeadOid: GitObjectID) {
-    enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: $mergeMethod, expectedHeadOid: $expectedHeadOid }) {
+    enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: $mergeMethod, expectedHeadOid: $expectedHeadOid${includeStack ? ', includeStack: true' : ''} }) {
       pullRequest { ${AUTO_MERGE_RESULT_FIELDS} }
     }
   }
 `
 
-const DISABLE_AUTO_MERGE_MUTATION = `
+const disableAutoMergeMutation = (includeStack: boolean) => `
   mutation($pullRequestId: ID!) {
-    disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+    disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId${includeStack ? ', includeStack: true' : ''} }) {
       pullRequest { ${AUTO_MERGE_RESULT_FIELDS} }
     }
   }
@@ -461,9 +465,10 @@ export async function enableGithubAutoMerge(
   pullRequestId: string,
   method: PrMergeMethod,
   expectedHeadSha: string,
+  includeStack = false,
 ): Promise<PrAutoMergeUpdate> {
   const result = await client.graphql<{ enablePullRequestAutoMerge?: { pullRequest: GithubAutoMergeResult } }>(
-    ENABLE_AUTO_MERGE_MUTATION,
+    enableAutoMergeMutation(includeStack),
     { pullRequestId, mergeMethod: GITHUB_MERGE_METHOD[method], expectedHeadOid: expectedHeadSha },
   )
   return autoMergeUpdate(result.enablePullRequestAutoMerge?.pullRequest)
@@ -502,9 +507,10 @@ export async function mergeAgentPullRequest(
 export async function disableGithubAutoMerge(
   client: GitHubClient,
   pullRequestId: string,
+  includeStack = false,
 ): Promise<PrAutoMergeUpdate> {
   const result = await client.graphql<{ disablePullRequestAutoMerge?: { pullRequest: GithubAutoMergeResult } }>(
-    DISABLE_AUTO_MERGE_MUTATION,
+    disableAutoMergeMutation(includeStack),
     { pullRequestId },
   )
   return autoMergeUpdate(result.disablePullRequestAutoMerge?.pullRequest)

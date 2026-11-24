@@ -15,8 +15,9 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PrActionConfirm from "./PrActionConfirm.svelte";
   import PrStackLayerItems from "./PrStackLayerItems.svelte";
+  import { prActionAllowed } from "./lib/merge-readiness";
   import { MERGE_METHOD_OPTIONS } from "./lib/merge-method";
-  import { stackMergeOutcome, stackMergePlan, stackPosition } from "./lib/pr-stack";
+  import { stackMergeOutcome, stackMergePlan, stackPosition, type StackMergePlan } from "./lib/pr-stack";
 
   /**
    * The GitHub stack this pull request is in: its place as `2/3`, and a menu of
@@ -60,25 +61,50 @@
 
   // "Merge stack" lands every open layer from the bottom up to this one.
   const mergePlan = $derived(pullRequest ? stackMergePlan(pullRequest, stack) : null);
-  const mergeMethodLabel = $derived(
-    (MERGE_METHOD_OPTIONS.find((option) => option.value === mergePlan?.method)?.label ?? "Merge commit").toLowerCase(),
-  );
   let mergeConfirmOpen = $state(false);
   let mergingStack = $state(false);
+  let autoMerge = $state(false);
+  let confirmedPlan = $state.raw<{ target: PullRequest; plan: StackMergePlan; base: string } | null>(null);
+  const canArm = $derived(!!pullRequest && !!mergePlan?.expectedHeads
+    && !pullRequest.autoMergeEnabled && !!pullRequest.capabilities.mergeMethods.length
+    && !stack?.layers.slice(0, position).some((layer) => layer.state === "closed" || (layer.state === "open" && layer.draft))
+    && prActionAllowed(pullRequest, "enable-stack-auto-merge"));
+  const canCancel = $derived(!!pullRequest && pullRequest.state === "open" && pullRequest.autoMergeEnabled
+    && prActionAllowed(pullRequest, "disable-stack-auto-merge"));
+
+  function confirmMerge(auto: boolean) {
+    if (!pullRequest || !mergePlan || !stack) return;
+    confirmedPlan = { target: pullRequest, plan: mergePlan, base: stack.base };
+    autoMerge = auto;
+    mergeConfirmOpen = true;
+  }
+
+  async function cancelAutoMerge() {
+    if (!pullRequest || !stack || mergingStack) return;
+    mergingStack = true;
+    try {
+      await pullRequest.disableAutoMerge(stack.number);
+    } catch (error) {
+      toasts.error("Couldn't cancel stack auto-merge", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      mergingStack = false;
+      requestInputFocus();
+    }
+  }
 
   async function mergeStack() {
-    const target = pullRequest;
-    const plan = mergePlan;
-    if (!target || !plan?.expectedHeads || mergingStack) return;
+    const target = confirmedPlan?.target;
+    const plan = confirmedPlan?.plan;
+    if (!target || target !== pullRequest || !plan?.expectedHeads || mergingStack || (autoMerge && !canArm)) return;
     mergingStack = true;
     const count = plan.layers.length;
-    const progress = toasts.progress(`Merging ${count} pull request${count === 1 ? "" : "s"}…`);
+    const progress = toasts.progress(autoMerge ? "Turning on stack auto-merge…" : `Merging ${count} pull request${count === 1 ? "" : "s"}…`);
     try {
       const result = await target.mergeStack({
         stackNumber: plan.stackNumber,
         method: plan.method,
         expectedHeads: plan.expectedHeads,
-      });
+      }, autoMerge);
       progress.success(stackMergeOutcome(result), {
         description: result.pullRequests.map((merged) => `#${merged.number}`).join(", "),
       });
@@ -122,14 +148,24 @@
     >
       <PrStackLayerItems {stack} {current} onOpen={open} />
       <DropdownMenu.Separator />
-      {#if mergePlan}
+      {#if mergePlan && !pullRequest.autoMergeEnabled}
         <DropdownMenu.Item
           disabled={mergingStack || !mergePlan.expectedHeads}
           title={mergePlan.expectedHeads ? undefined : "Refresh the pull request to read every layer's head"}
-          onSelect={() => (mergeConfirmOpen = true)}
+          onSelect={() => confirmMerge(false)}
         >
           <MergeIcon size={14} />
           {mergingStack ? "Merging stack…" : `Merge stack (${mergePlan.layers.length})`}
+        </DropdownMenu.Item>
+      {/if}
+      {#if canArm && mergePlan}
+        <DropdownMenu.Item disabled={mergingStack} onSelect={() => confirmMerge(true)}>
+          <MergeIcon size={14} />
+          Auto-merge stack ({mergePlan.layers.length})
+        </DropdownMenu.Item>
+      {:else if canCancel}
+        <DropdownMenu.Item disabled={mergingStack} onSelect={() => void cancelAutoMerge()}>
+          Cancel stack auto-merge
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Item onSelect={() => void localApi.openExternal(stack.url)}>
@@ -138,15 +174,23 @@
       </DropdownMenu.Item>
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+  {#if canArm && (pullRequest.mergeStateStatus === "blocked" || pullRequest.mergeStateStatus === "behind")}
+    <Button size="xs" variant="ghost" disabled={mergingStack} onclick={() => confirmMerge(true)}>
+      Auto-merge stack
+    </Button>
+  {/if}
 {/if}
 
-{#if mergePlan}
-  {@const plan = mergePlan}
+{#if confirmedPlan}
+  {@const plan = confirmedPlan.plan}
+  {@const mergeMethodLabel = (MERGE_METHOD_OPTIONS.find((option) => option.value === plan.method)?.label ?? "Merge commit").toLowerCase()}
   <PrActionConfirm
     bind:open={mergeConfirmOpen}
-    title="Merge {plan.layers.length} pull request{plan.layers.length === 1 ? '' : 's'}?"
-    description="These land on {stack?.base ?? 'the base branch'} from the bottom up, each with {mergeMethodLabel}."
-    confirmLabel="Merge stack"
+    title="{autoMerge ? 'Auto-merge' : 'Merge'} {plan.layers.length} pull request{plan.layers.length === 1 ? '' : 's'}?"
+    description={autoMerge
+      ? `These land on ${confirmedPlan.base} from the bottom up with ${mergeMethodLabel} when requirements pass. This can happen immediately.`
+      : `These land on ${confirmedPlan.base} from the bottom up, each with ${mergeMethodLabel}.`}
+    confirmLabel={autoMerge ? "Auto-merge stack" : "Merge stack"}
     onConfirm={() => void mergeStack()}
   >
     {#snippet details()}

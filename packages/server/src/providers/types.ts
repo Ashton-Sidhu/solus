@@ -299,7 +299,7 @@ export interface ReviewProvider {
   /** Arm the host's auto-merge with `method`, checked against the head the
    *  viewer saw. Answers the pull request as the mutation left it. */
   enablePullRequestAutoMerge(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
-  disablePullRequestAutoMerge(repo: RepoRef, number: number): Promise<PullRequest>
+  disablePullRequestAutoMerge(repo: RepoRef, number: number, stackNumber?: number): Promise<PullRequest>
   /** Bring the base into the head with a merge commit or a rebase, refused by
    *  the host when the head moved past `expectedHeadSha`. */
   updatePullRequestBranch(repo: RepoRef, number: number, method: 'merge' | 'rebase', expectedHeadSha: string): Promise<void>
@@ -308,7 +308,7 @@ export interface ReviewProvider {
   /** Merge `request.number` and every open layer below it in its stack, after
    *  a check that each open layer still has the head the viewer saw. Answers
    *  the merged layers, bottom to top. A host without stacks refuses it. */
-  mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest, options?: { byStackNumber?: boolean }): Promise<{ status: 'merged' | 'queued'; layers: number[] }>
+  mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest & { auto?: boolean }, options?: { byStackNumber?: boolean }): Promise<{ status: 'merged' | 'queued' | 'auto-merge-enabled'; layers: number[]; armed?: Pick<PullRequest, 'state' | 'draft' | 'updatedAt' | 'autoMergeEnabled' | 'autoMergeMethod'> }>
   /** The workflow runs that wait for a maintainer on the head of a fork pull request. */
   listPendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<PrPendingWorkflowRun[]>
   /** Approve those runs. Answers how many the host approved. */

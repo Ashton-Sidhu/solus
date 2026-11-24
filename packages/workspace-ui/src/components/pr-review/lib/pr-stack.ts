@@ -66,6 +66,7 @@ export function stackExpectedHeads(layers: readonly PrStackLayer[]): PrStackHead
 export function stackMergeOutcome(result: PrStackMergeResult): string {
   const count = result.pullRequests.length
   const noun = count === 1 ? 'pull request' : 'pull requests'
+  if (result.status === 'auto-merge-enabled') return 'Stack auto-merge is on'
   return result.status === 'queued'
     ? `${count} ${noun} added to the merge queue`
     : `${count} ${noun} merged`

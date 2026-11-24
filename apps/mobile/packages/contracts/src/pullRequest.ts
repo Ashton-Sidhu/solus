@@ -309,6 +309,7 @@ export const PullRequestCapabilities = Schema.Struct({
   edit: Schema.optional(PullRequestEditCapabilities),
   stacks: Schema.optional(Schema.Boolean),
   stackActions: Schema.optional(Schema.Boolean),
+  stackAutoMerge: Schema.optional(Schema.Boolean),
   labels: Schema.optional(Schema.Boolean),
   /** The host searches the repository's users, so composers can complete `@login`. */
   mentions: Schema.optional(Schema.Boolean),

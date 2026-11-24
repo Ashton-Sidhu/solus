@@ -22,13 +22,19 @@ const WAKE_LABELS = {
 export interface WakeRecord {
   sessionId: string
   personKey: string | null
+  completionWatchId?: string
 }
 
 export interface SessionWakeDeps {
   /** Queues the message on the session, after its running turn, as `origin.actor`. */
-  prompt: (sessionId: string, text: string, origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> & { actor?: Actor }) => Promise<void>
+  prompt: (sessionId: string, text: string, origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs' | 'clientPromptId'> & { actor?: Actor }) => Promise<void>
   /** The attachment store, for the images of the message; a test passes a temporary folder. */
   attachmentsDir?: string
+}
+
+/** A terminal watch turn must finish before auto-settlement, without resetting its clock. */
+export function isPullRequestMergeWake(options: Pick<PromptOptions, 'via' | 'clientPromptId'>): boolean {
+  return options.via === 'pull-request-watch' && options.clientPromptId?.startsWith('pr-merge-watch:') === true
 }
 
 /** A guest's work does not run unattended (plans/019-acting-identity.md): the wake fails, and its owner ends the record. */
@@ -53,6 +59,7 @@ export class SessionWake {
   async send(record: WakeRecord, via: WakeVia, text: string, images: AgentToolImage[] = []): Promise<void> {
     const actor = await this.actorOf(record, via)
     const origin: Parameters<SessionWakeDeps['prompt']>[2] = { via, actor }
+    if (record.completionWatchId) origin.clientPromptId = `pr-merge-watch:${record.completionWatchId}`
     if (images.length) origin.imageAttachmentRefs = await this.storedImages(record.sessionId, via, images)
     await this.deps.prompt(record.sessionId, text, origin)
   }
