@@ -135,7 +135,9 @@ export function createSessionListProjection() {
       const agentActivity = facts.agentActivity?.get(key);
       const hostAway = awayHosts?.has(hostId) === true;
       const since = execution?.current?.startedAt ?? execution?.lastTurn?.endedAt ?? facts.statusSince?.get(key) ?? attention?.since;
-      const pendingQuestion = execution ? execution.hasPendingQuestion === true : live === undefined
+      // A session this one started that waits on the person shows as Input
+      // on this row: mobile rows have one mark for a request.
+      const pendingQuestion = execution ? execution.hasPendingQuestion === true || execution.delegatedRequest !== undefined : live === undefined
         ? record.hasPendingQuestion === true
         : facts.pendingQuestions?.has(key) === true;
       const readEvent = facts.viewedAt?.get(key);

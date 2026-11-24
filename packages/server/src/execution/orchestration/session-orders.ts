@@ -160,6 +160,9 @@ export interface OrchestratedRuntime {
   /** The sender waits on no more reports, and the last one has reached it:
    *  a sender that no report woke stops waiting in 'background'. */
   repliesEnded(senderSessionId: string): void
+  /** What a session this one started waits on the person for changed
+   *  (`SessionOrchestrator.delegatedRequestOf`). */
+  delegatedRequestChanged(sessionId: string): void
 }
 
 export interface OrchestratorDeps {

@@ -10,7 +10,7 @@ import {
   type DeviceState,
   type SshDeviceHostConfig,
 } from '@solus/contracts/device-types'
-import { personalSettingsDocumentSchema } from '@solus/contracts/settings'
+import { PERSONAL_SETTING_SCHEMAS, personalSettingsDocumentSchema, type PersonalSettingsDocument } from '@solus/contracts/settings'
 import { THEME_GUIDE } from '@solus/contracts/theme-css'
 import {
   AGENT_PROFILE_MAX_ENTRIES,
@@ -334,7 +334,7 @@ export const updateConfigAgentTool: AgentTool = {
 export const readThemeAgentTool: AgentTool = {
   name: 'read_theme',
   description:
-    "Read how to restyle Solus itself: its color tokens, its stable CSS selectors, and the person's current `themeMode` and `themeCss`. Call it before you change `personal.themeCss` with update_config, and only when the person asks to change how Solus looks.",
+    "Read how to restyle Solus itself: its color tokens, its stable CSS selectors, and the person's current `themeMode` and `themeCss`. Call it before you change the theme CSS with update_theme, and only when the person asks to change how Solus looks.",
   inputFields: {} as const,
   requiresApproval: false,
   execute: async (_input, context) => {
@@ -344,5 +344,32 @@ export const readThemeAgentTool: AgentTool = {
       ? { themeMode: reply.settings.themeMode ?? 'system', themeCss: reply.settings.themeCss ?? '' }
       : { unavailable: reply.error }
     return { ok: true, text: JSON.stringify({ current, guide: THEME_GUIDE }) }
+  },
+}
+
+/**
+ * The theme, through the same owner as a change in Settings › Appearance: the
+ * person's client applies it as a local edit, and sync sends it to their other
+ * clients. Solus keeps one custom theme per person (docs/theme-css.md), so there
+ * is no theme to publish or to switch to by id.
+ */
+export const updateThemeAgentTool: AgentTool = {
+  name: 'update_theme',
+  description:
+    "Change how Solus looks. Use it only when the person asks. `appearance` sets light, dark, or system mode. `css` replaces the person's whole custom theme CSS: call read_theme first, and send an empty string to remove it. Solus applies the change on the person's connected client, and it syncs to their other clients, as a change in Settings does. Solus keeps one custom theme for each person; it has no saved themes to switch between.",
+  inputFields: {
+    appearance: PERSONAL_SETTING_SCHEMAS.themeMode.optional(),
+    css: PERSONAL_SETTING_SCHEMAS.themeCss.optional(),
+  },
+  requiresApproval: false,
+  execute: async ({ appearance, css }, context) => {
+    if (appearance === undefined && css === undefined) return { ok: false, text: 'Name appearance, css, or both.' }
+    if (!toolHost) return { ok: false, text: NO_PERSON }
+    const settings: PersonalSettingsDocument = {}
+    if (appearance !== undefined) settings.themeMode = appearance
+    if (css !== undefined) settings.themeCss = css
+    const { reply } = await toolHost.personal(context.sessionId(), { settings })
+    if (!reply.ok) return { ok: false, text: reply.error }
+    return { ok: true, text: JSON.stringify({ themeMode: reply.settings.themeMode ?? 'system', themeCssCharacters: (reply.settings.themeCss ?? '').length }) }
   },
 }

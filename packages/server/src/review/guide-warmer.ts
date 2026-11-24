@@ -6,6 +6,7 @@ import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import {
   type PrGuideMetadata,
   type PrGuideMetadataRequest,
+  type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
 import { listProjectWorktrees } from '../git/worktree-manager'
@@ -54,37 +55,45 @@ const queuedPrefetches = new Set<string>()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
-  checkouts: CheckoutService
   dispatcher: AgentDispatcher
   /** The requester's own provider login for each backend. */
   seatFor: SeatResolver
   ctx: IpcContext
-  repoRoot: string
   repo: RepoRef
-  provider: Provider
-  isWorktreeInUse: (path: string) => boolean
   guides: ReviewGuideJobs
 }
 
+/** One pull request of an explicit request: its run, and whether the request joined a run that was already going; or why no run started. */
+export type PrGuideStart =
+  | { number: number; joined: boolean; status: ReviewGuideStatusEvent }
+  | { number: number; error: string }
+
 /**
- * Explicit user request: generate guides for these PRs now, regardless of the
- * background-warming opt-in or an existing cached guide. Shares the warmer's
- * serialized queue so only one guide generates at a time.
+ * Explicit request (the `prGenerateGuides` RPC and the `pull_request_guide_write`
+ * tool): generate guides for these PRs now, regardless of the background-warming
+ * opt-in or an existing cached guide. A request for a PR whose guide is already
+ * being written joins that run. Shares the warmer's serialized queue so only one
+ * guide generates at a time. Resolves when each run is queued, not when it ends.
  */
-export function requestPrGuides(request: PrGuideRequest, numbers: number[]): void {
-  for (const number of new Set(numbers)) {
-    void request.guides.request({
-      dispatcher: request.dispatcher,
-      seatFor: request.seatFor,
-      ctx: request.ctx,
-      opts: {
-        target: { kind: 'pr', ...request.repo, number },
-        agent: lockedReviewSettings(request.ctx).reviewAgent ?? request.ctx.settings.activeAgent,
-        model: lockedReviewSettings(request.ctx).reviewModel,
-        reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
-      },
-    })
-  }
+export function requestPrGuides(request: PrGuideRequest, numbers: number[]): Promise<PrGuideStart[]> {
+  return Promise.all([...new Set(numbers)].map(async (number): Promise<PrGuideStart> => {
+    try {
+      const job = await request.guides.request({
+        dispatcher: request.dispatcher,
+        seatFor: request.seatFor,
+        ctx: request.ctx,
+        opts: {
+          target: { kind: 'pr', ...request.repo, number },
+          agent: lockedReviewSettings(request.ctx).reviewAgent ?? request.ctx.settings.activeAgent,
+          model: lockedReviewSettings(request.ctx).reviewModel,
+          reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
+        },
+      })
+      return job ? { number, joined: job.joined, status: job.status } : { number, error: 'There is nothing to review.' }
+    } catch (error) {
+      return { number, error: errorMessage(error) }
+    }
+  }))
 }
 
 /** Metadata reads use the same PR identity and both provider revisions as the

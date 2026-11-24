@@ -137,8 +137,9 @@ export class ReviewGuideJobs {
   }
 
   /** Start, join, or replace the job for the guide a request names. Null when
-   * there is nothing to review. */
-  async request(request: GuideJobRequest): Promise<{ status: ReviewGuideStatusEvent; completion: Promise<GeneratedGuide | null> } | null> {
+   * there is nothing to review. `joined` is true when the request joined a job
+   * that was already running. */
+  async request(request: GuideJobRequest): Promise<{ status: ReviewGuideStatusEvent; joined: boolean; completion: Promise<GeneratedGuide | null> } | null> {
     const source = this.sourceFor(request.opts)
     const subject = await source.identify(request.ctx, request.opts, { withRevision: true })
     if (!subject) return null
@@ -148,7 +149,7 @@ export class ReviewGuideJobs {
         running.listeners.push(request.onStatus)
         request.onStatus(running.event)
       }
-      return { status: running.event, completion: running.completion }
+      return { status: running.event, joined: true, completion: running.completion }
     }
     if (running) this.stop(running)
     const job: GuideJob = {
@@ -168,7 +169,7 @@ export class ReviewGuideJobs {
     } else {
       job.completion = start()
     }
-    return { status: job.event, completion: job.completion }
+    return { status: job.event, joined: false, completion: job.completion }
   }
 
   /** Stop the running job for the guide a request names, whatever revision it reads. */

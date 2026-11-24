@@ -26,8 +26,13 @@ export const sessionExecutionSchema = z.strictObject({
   }).nullable(),
   hasPendingQuestion: z.literal(true).optional(),
   awaitingApproval: z.literal(true).optional(),
+  /** A session this one started, at any depth, waits on the person for this.
+   *  Its card in this session's conversation shows the request, so the row
+   *  of this session says so too. Absent when none waits. */
+  delegatedRequest: z.enum(['question', 'permission', 'plan']).optional(),
 })
 export type SessionExecution = z.infer<typeof sessionExecutionSchema>
+export type DelegatedRequest = NonNullable<SessionExecution['delegatedRequest']>
 
 /** The state shown when no other presentation facts are needed. */
 export function sessionExecutionStatus(execution: SessionExecution): SessionStatus {

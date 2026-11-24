@@ -86,20 +86,35 @@ decline → respondQuestion with { declined }
 ### The card
 
 - Title: "Add a machine". The agent's reason below it.
-- A candidate list. Each row shows the name, its address or SSH alias, and its
-  way: "From this device", "Over SSH · solus-windows", "Ask it to approve",
-  "Needs a code". The best match is selected. "Another address…" is always
-  last.
-- One primary button for the selected way: **Add**.
-- `approve`: after Add, the card shows the check code, the target's name, and
-  "Approve it in Solus on <name>, or run `solus host approve <check code>`
-  there". A countdown shows the time left.
+- A candidate list. Each row shows the machine's mark (its operating system,
+  or a terminal for an SSH target), the name, its address or SSH alias, and its
+  way: "From this device", "Over SSH", "Ask it to approve", "Needs a code".
+  The best match is selected, and a first row that matches the agent's ask
+  shows "Best match". "Another address…" is always last. The rows have no
+  status dots.
+- One primary button for the selected way: **Add <name>**, or **Ask to
+  approve**. The key hints show while the pointer or focus is on the card.
+- After Add, the card is the setup card that a run's setup draws
+  (`StatusCard`), with the steps from `addMachineStatusCard` in client-core, on
+  every client. SSH shows each step that the host reports on
+  `host.sshProgress`, with the install percentage. A pairing is one host call,
+  so its steps are only what the client knows: it waits on the target, then it
+  is connected.
+- `approve`: the check code shows under the waiting step, with "Approve it in
+  Solus on <name>, or run `solus host approve <check code>` there" (the command
+  shows as code) and the time left.
 - `code` (typed): a 6-digit field (pair links also paste), with steps that
   name the target: "On <name>, open Settings → Connections → This computer →
   Access → Generate code, or run `solus pair`". When this client reaches the
   target, a link opens that host's Access tab with a code already made.
-- SSH `ssh-needs-auth`: a password field appears on the same card.
-- A failure shows its message at the field. **Try again** keeps the card.
+- SSH `ssh-needs-auth`: the step that SSH stopped on shows a warning with the
+  reason, and a password field appears on the card.
+- A failed add shows its setup card above the choice: the step it stopped on
+  is red, with the reason. A value refused before anything is sent shows its
+  message at the field. **Try again** keeps the card. Another machine or way
+  removes the old setup card.
+- An answered card leaves the conversation. The tool output does not reach the
+  client, so no line stays in the conversation; a toast tells the person.
 - **Decline** closes the card and tells the agent.
 
 ### The approval request

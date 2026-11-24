@@ -30,6 +30,9 @@ const COMMAND_ARGS = {
   rateLimitDecision: (sessionId: string): unknown[] => [{ session: { sessionId } }],
   forkSessionFromResponse: (sessionId: string): unknown[] => [{ sessionId }],
   setSessionTitle: (sessionId: string): unknown[] => [sessionId],
+  // Host use: the rule reads no argument, and refuses a guest.
+  readGuide: (): unknown[] => [],
+  prGenerateGuides: (): unknown[] => [],
 }
 export type ToolCommand = keyof typeof COMMAND_ARGS
 

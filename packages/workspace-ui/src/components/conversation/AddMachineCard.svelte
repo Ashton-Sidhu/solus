@@ -4,14 +4,14 @@
    *  session's host (an SSH add, an approval request, or a pairing code), then
    *  answers the card with the outcome only. A typed code or password lives
    *  only in this card's state and goes to the host once, in that call. */
-  import { ArrowUpRight as ArrowUpRightIcon, KeyRound as KeyIcon, ShieldCheck as ShieldIcon } from "@lucide/svelte";
+  import { ArrowUpRight as ArrowUpRightIcon, KeyRound as KeyIcon, Plus as PlusIcon, Terminal as TerminalIcon } from "@lucide/svelte";
   import { rankAddMachineCandidates } from "@solus/client-core/add-machine-candidates";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { serverFromSshAdd } from "@solus/client-core/known-host";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { unencryptedPasswordMessage } from "@solus/client-core/ssh-password";
   import type { SshTargetCandidate } from "@solus/contracts/remote-machines";
-  import type { QuestionRequest } from "@solus/contracts/types";
+  import type { QuestionRequest, StatusCardStep } from "@solus/contracts/types";
   import { getClientShellContext, getWorkspaceContext, serversStore } from "../../contexts";
   import { discoveredServerUrl } from "../../contexts/connections/discovery";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
@@ -23,8 +23,10 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import InterruptCard from "./InterruptCard.svelte";
+  import StatusCard from "./StatusCard.svelte";
+  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { countdown } from "../../lib/countdown";
-  import { ANOTHER_ADDRESS_KEY, approveSteps, codeSteps, reachableMachines, targetName, wayLabel } from "./lib/add-machine-card";
+  import { ANOTHER_ADDRESS_KEY, approveSteps, codeSteps, reachableMachines, stepTextParts, targetName, wayLabel } from "./lib/add-machine-card";
   import { AddMachineCardState } from "./lib/add-machine-card.svelte";
 
   interface Props {
@@ -60,6 +62,7 @@
         label: server.label,
         routes: server.routes,
         principal: server.readiness === "ready" ? hosts.get(server.id)?.me.principal : undefined,
+        os: server.os,
       })),
       sessionHostId,
     ),
@@ -100,6 +103,10 @@
 
   const closed = $derived(!!request.expired || card.phase === "closed" || !canDrive);
   const isBusy = $derived(card.phase !== "choose");
+  // While an add runs, and once it is done, the card is the setup card a run's setup draws.
+  const isAdding = $derived(!request.expired && card.phase !== "choose" && card.phase !== "closed" && !!card.statusCard);
+  // A failed add shows where it stopped above the choice, so the message is not also at the field.
+  const showsFieldMessage = $derived(!card.statusCard);
   const selected = $derived(card.selected);
   const name = $derived(targetName(selected, card.address));
   const isAddressRow = $derived(card.selectedKey === ANOTHER_ADDRESS_KEY);
@@ -129,175 +136,189 @@
   }
 
   function addLabel(): string {
-    if (card.phase !== "sending") return selected?.way === "approve" && !card.useCode ? "Ask to approve" : "Add";
-    if (card.approval) return "Waiting…";
-    return "Adding…";
+    if (card.failure) return "Try again";
+    return selected?.way === "approve" && !card.useCode ? "Ask to approve" : `Add ${name}`;
   }
 </script>
 
-<InterruptCard type="question" title="Add a machine" testId="add-machine-card">
-  <form
-    id="{idBase}-form"
-    class="flex min-w-0 flex-col gap-3"
-    autocomplete="off"
-    onsubmit={(event) => { event.preventDefault(); void card.add(); }}
-  >
-    <p class="interrupt-title m-0 wrap-anywhere">{ask.reason}</p>
+<!-- A line of steps: a command in backticks shows as code. -->
+<!-- One line, so no space comes between a command and the stop after it. -->
+{#snippet stepText(text: string)}{#each stepTextParts(text) as part, index (index)}{#if part.isCode}<code class="rounded-sm bg-(--solus-surface-hover) px-1 font-mono text-[0.95em] text-(--solus-text-secondary)">{part.text}</code>{:else}{part.text}{/if}{/each}{/snippet}
 
-    {#if request.expired}
-      <p class="m-0 text-transcript-meta text-(--muted-foreground)">This request is closed.</p>
-    {:else if card.phase === "added"}
-      <p class="m-0 text-transcript-meta text-(--solus-text-secondary)" role="status">{card.addedLabel} is added.</p>
-    {:else if card.approval}
-      <!-- The approval request waits on the target's owner: the check code is what they compare. -->
-      <div class="flex flex-col items-start gap-2 rounded-lg bg-(--solus-surface-hover) px-3 py-3" role="status" aria-live="polite">
-        <span class="flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
-          <ShieldIcon size={14} class="shrink-0" />
-          Waiting for {name} · {countdown(card.approval.expiresAt - now)}
-        </span>
-        <code class="font-mono text-[1.75em] leading-none font-medium tracking-[0.08em] text-(--solus-text-primary) tabular-nums">{card.approval.checkCode}</code>
-        <p class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">{approveSteps(name, card.approval.checkCode)}</p>
+<!-- The approval request waits on the target's owner: the check code is what they compare. -->
+{#snippet approvalCode(step: StatusCardStep)}
+  {#if step.id === "approve" && step.status === "active" && card.approval}
+    <li class="pr-2 pb-2 pl-[1.875rem]">
+      <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-lg bg-(--solus-surface-hover) px-3.5 py-3">
+        <code class="shrink-0 font-mono text-[1.375rem] leading-none font-medium tracking-[0.08em] whitespace-nowrap text-(--solus-text-primary) tabular-nums">{card.approval.checkCode}</code>
+        <p class="m-0 min-w-48 flex-1 text-transcript-meta text-pretty text-(--muted-foreground)">
+          {@render stepText(approveSteps(name, card.approval.checkCode))}
+          <span class="whitespace-nowrap tabular-nums">{countdown(card.approval.expiresAt - now)} left</span>
+        </p>
       </div>
-    {:else}
-      <!-- One list, one selection: arrows move it, Enter adds. -->
-      <div
-        class="-mx-2 flex flex-col gap-0.5 rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-tx-focus-ring)"
-        role="listbox"
-        tabindex={closed ? -1 : 0}
-        aria-label="Machines"
-        aria-activedescendant="{idBase}-{card.selectedKey}"
-        aria-disabled={closed || isBusy}
-        onkeydown={onListKey}
-      >
-        {#each candidates as candidate (candidate.key)}
-          {@const isSelected = candidate.key === card.selectedKey}
-          <div
-            id="{idBase}-{candidate.key}"
-            role="option"
-            tabindex="-1"
-            aria-selected={isSelected}
-            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", isSelected && "bg-(--solus-surface-hover)"]}
-            onclick={() => card.select(candidate.key)}
-            onkeydown={onListKey}
-          >
-            <span class={["flex size-4 shrink-0 items-center justify-center rounded-full", isSelected ? "bg-(--primary)" : "shadow-[inset_0_0_0_0.09375rem_color-mix(in_oklch,var(--foreground)_24%,transparent)]"]} aria-hidden="true">
-              {#if isSelected}<span class="size-1.5 rounded-full bg-(--primary-foreground)"></span>{/if}
-            </span>
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span class={["truncate text-xs font-medium", isSelected ? "text-(--solus-text-primary)" : "text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)"]}>{candidate.label}</span>
-              <span class="truncate font-mono text-[0.6875rem] text-(--muted-foreground)">{candidate.detail}</span>
-            </span>
-            <span class="shrink-0 text-[0.6875rem] text-(--muted-foreground)">{wayLabel(candidate)}</span>
-          </div>
-        {/each}
+    </li>
+  {/if}
+{/snippet}
+
+{#if isAdding && card.statusCard}
+  <StatusCard card={card.statusCard} stepAddon={approvalCode} />
+{:else}
+  {#if card.statusCard && !request.expired}
+    <StatusCard card={card.statusCard} />
+  {/if}
+  <InterruptCard type="question" title="Add a machine" testId="add-machine-card">
+    <form
+      id="{idBase}-form"
+      class="flex min-w-0 flex-col gap-3"
+      autocomplete="off"
+      onsubmit={(event) => { event.preventDefault(); void card.add(); }}
+    >
+      <p class="interrupt-title m-0 wrap-anywhere">{ask.reason}</p>
+
+      {#if request.expired}
+        <p class="m-0 text-transcript-meta text-(--muted-foreground)">This request is closed.</p>
+      {:else}
+        <!-- One list, one selection: arrows move it, Enter adds. -->
         <div
-          id="{idBase}-{ANOTHER_ADDRESS_KEY}"
-          role="option"
-          tabindex="-1"
-          aria-selected={isAddressRow}
-          class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", isAddressRow && "bg-(--solus-surface-hover)"]}
-          onclick={() => card.select(ANOTHER_ADDRESS_KEY)}
+          class="-mx-1.5 flex flex-col gap-0.5 rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-tx-focus-ring)"
+          role="listbox"
+          tabindex={closed ? -1 : 0}
+          aria-label="Machines"
+          aria-activedescendant="{idBase}-{card.selectedKey}"
+          aria-disabled={closed || isBusy}
           onkeydown={onListKey}
         >
-          <span class={["flex size-4 shrink-0 items-center justify-center rounded-full", isAddressRow ? "bg-(--primary)" : "shadow-[inset_0_0_0_0.09375rem_color-mix(in_oklch,var(--foreground)_24%,transparent)]"]} aria-hidden="true">
-            {#if isAddressRow}<span class="size-1.5 rounded-full bg-(--primary-foreground)"></span>{/if}
-          </span>
-          <span class={["min-w-0 flex-1 truncate text-xs font-medium", isAddressRow ? "text-(--solus-text-primary)" : "text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)"]}>Another address…</span>
+          {#each candidates as candidate, index (candidate.key)}
+            {@const isSelected = candidate.key === card.selectedKey}
+            <div
+              id="{idBase}-{candidate.key}"
+              role="option"
+              tabindex="-1"
+              aria-selected={isSelected}
+              class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", isSelected && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
+              onclick={() => card.select(candidate.key)}
+              onkeydown={onListKey}
+            >
+              <!-- The machine's mark: its operating system, or a terminal for an SSH target. -->
+              <span class={["flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-tx-card-bg) shadow-(--solus-tx-hairline)", isSelected ? "text-(--solus-text-primary)" : "text-(--muted-foreground)"]} aria-hidden="true">
+                {#if candidate.way === "ssh"}<TerminalIcon size={15} />{:else}<HostOperatingSystemIcon os={candidate.os} size={15} />{/if}
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col">
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span class={["truncate text-[0.8125rem] font-medium", isSelected ? "text-(--solus-text-primary)" : "text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)"]}>{candidate.label}</span>
+                  {#if index === 0 && candidate.isMatch}
+                    <span class="shrink-0 rounded-full bg-(--solus-accent-soft) px-1.5 text-[0.6875rem] leading-4 font-medium text-(--solus-accent)">Best match</span>
+                  {/if}
+                </span>
+                <span class="truncate font-mono text-[0.6875rem] text-(--muted-foreground)">{candidate.detail}</span>
+              </span>
+              <span class="shrink-0 text-[0.6875rem] text-(--muted-foreground)">{wayLabel(candidate)}</span>
+            </div>
+          {/each}
+          <div
+            id="{idBase}-{ANOTHER_ADDRESS_KEY}"
+            role="option"
+            tabindex="-1"
+            aria-selected={isAddressRow}
+            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", isAddressRow && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
+            onclick={() => card.select(ANOTHER_ADDRESS_KEY)}
+            onkeydown={onListKey}
+          >
+            <span class="flex size-7 shrink-0 items-center justify-center rounded-lg text-(--muted-foreground) shadow-[inset_0_0_0_0.0625rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true">
+              <PlusIcon size={14} />
+            </span>
+            <span class={["min-w-0 flex-1 truncate text-[0.8125rem]", isAddressRow ? "font-medium text-(--solus-text-primary)" : "text-(--muted-foreground) group-hover:text-(--solus-text-primary)"]}>Another address…</span>
+          </div>
         </div>
-      </div>
 
-      {#if isAddressRow}
-        <div class="flex min-w-0 flex-col gap-1">
-          <label for="{idBase}-address" class="text-transcript-meta text-(--muted-foreground)">Address or pair link</label>
-          <Input
-            id="{idBase}-address"
-            bind:value={card.address}
-            dictation={false}
-            spellcheck={false}
-            autocomplete="off"
-            placeholder="10.10.1.10, or paste a pair link"
-            disabled={closed || isBusy}
-            aria-invalid={failureAt === "address"}
-            class="h-8 font-mono text-xs"
-          />
-          {#if failureAt === "address"}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+        {#if isAddressRow}
+          <div class="flex min-w-0 flex-col gap-1">
+            <label for="{idBase}-address" class="text-transcript-meta text-(--muted-foreground)">Address or pair link</label>
+            <Input
+              id="{idBase}-address"
+              bind:value={card.address}
+              dictation={false}
+              spellcheck={false}
+              autocomplete="off"
+              placeholder="10.10.1.10, or paste a pair link"
+              disabled={closed || isBusy}
+              aria-invalid={failureAt === "address"}
+              class="h-8 font-mono text-xs"
+            />
+            {#if failureAt === "address" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+          </div>
+        {/if}
+
+        {#if card.showsCodeField}
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <label for="{idBase}-code" class="text-transcript-meta text-(--muted-foreground)">Pairing code from {name}</label>
+            <Input
+              id="{idBase}-code"
+              bind:value={card.code}
+              dictation={false}
+              spellcheck={false}
+              autocomplete="one-time-code"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+              placeholder="000000, or paste a pair link"
+              disabled={closed || isBusy}
+              aria-invalid={failureAt === "code"}
+              aria-describedby="{idBase}-code-steps"
+              class="h-8 font-mono text-sm tracking-[0.2em] placeholder:tracking-normal"
+            />
+            {#if failureAt === "code" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+            <p id="{idBase}-code-steps" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">{@render stepText(codeSteps(name))}</p>
+            {#if selected?.serverId}
+              <button type="button" class="interrupt-link inline-flex w-fit items-center gap-1" onclick={showCodeOnTarget}>
+                Show the code on {name}<ArrowUpRightIcon size={14} />
+              </button>
+            {/if}
+          </div>
+        {/if}
+
+        {#if showsPassword}
+          <div class="flex min-w-0 flex-col gap-1">
+            <label for="{idBase}-password" class="flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
+              <KeyIcon size={14} class="shrink-0" />SSH password or key passphrase for {selected?.sshTarget}
+            </label>
+            <Input
+              id="{idBase}-password"
+              type="password"
+              bind:value={card.password}
+              dictation={false}
+              autocomplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+              disabled={closed || isBusy}
+              aria-invalid={failureAt === "password"}
+              class="h-8 text-xs"
+            />
+            {#if failureAt === "password" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+            <p class="m-0 text-transcript-meta text-(--muted-foreground)">It goes to the session's host once and is not saved.</p>
+          </div>
+        {/if}
+
+        {#if failureAt === "general" && showsFieldMessage}
+          <p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>
+        {/if}
+
+        {#if canEnterCode}
+          <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.enterCode()}>Enter a code instead</button>
+        {/if}
+      {/if}
+    </form>
+    {#snippet footer()}
+      {#if !request.expired}
+        <div class="flex min-w-0 items-center justify-end gap-1">
+          <span class="interrupt-key mr-auto truncate" aria-hidden="true">↑↓ pick · ↵ add</span>
+          <Button size="sm" variant="ghost" disabled={closed || isBusy} onclick={() => void card.decline()}>Decline</Button>
+          <Button size="sm" type="submit" form="{idBase}-form" disabled={closed || isBusy} class="min-w-0 max-w-64">
+            <span class="truncate">{addLabel()}</span>
+          </Button>
         </div>
       {/if}
-
-      {#if card.showsCodeField}
-        <div class="flex min-w-0 flex-col gap-1.5">
-          <label for="{idBase}-code" class="text-transcript-meta text-(--muted-foreground)">Pairing code from {name}</label>
-          <Input
-            id="{idBase}-code"
-            bind:value={card.code}
-            dictation={false}
-            spellcheck={false}
-            autocomplete="one-time-code"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore
-            placeholder="000000, or paste a pair link"
-            disabled={closed || isBusy}
-            aria-invalid={failureAt === "code"}
-            aria-describedby="{idBase}-code-steps"
-            class="h-8 font-mono text-sm tracking-[0.2em] placeholder:tracking-normal"
-          />
-          {#if failureAt === "code"}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
-          <p id="{idBase}-code-steps" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">{codeSteps(name)}</p>
-          {#if selected?.serverId}
-            <button type="button" class="interrupt-link inline-flex w-fit items-center gap-1" onclick={showCodeOnTarget}>
-              Show the code on {name}<ArrowUpRightIcon size={14} />
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      {#if showsPassword}
-        <div class="flex min-w-0 flex-col gap-1">
-          <label for="{idBase}-password" class="flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
-            <KeyIcon size={14} class="shrink-0" />SSH password or key passphrase for {selected?.sshTarget}
-          </label>
-          <Input
-            id="{idBase}-password"
-            type="password"
-            bind:value={card.password}
-            dictation={false}
-            autocomplete="off"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore
-            disabled={closed || isBusy}
-            aria-invalid={failureAt === "password"}
-            class="h-8 text-xs"
-          />
-          {#if failureAt === "password"}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
-          <p class="m-0 text-transcript-meta text-(--muted-foreground)">It goes to the session's host once and is not saved.</p>
-        </div>
-      {/if}
-
-      {#if card.sshProgress && card.phase === "sending"}
-        <p class="m-0 text-transcript-meta text-(--muted-foreground)" role="status">
-          {card.sshProgress.message}{#if card.sshProgress.percent !== undefined}&nbsp;· {card.sshProgress.percent}%{/if}
-        </p>
-      {/if}
-
-      {#if failureAt === "general"}
-        <p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>
-      {/if}
-
-      {#if canEnterCode}
-        <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.enterCode()}>Enter a code instead</button>
-      {/if}
-    {/if}
-  </form>
-  {#snippet footer()}
-    {#if !request.expired}
-      <div class="flex items-center justify-end gap-1">
-        <Button size="sm" variant="ghost" disabled={closed || isBusy} onclick={() => void card.decline()}>Decline</Button>
-        <Button size="sm" type="submit" form="{idBase}-form" disabled={closed || isBusy}>
-          {card.failure && card.phase === "choose" ? "Try again" : addLabel()}
-        </Button>
-      </div>
-    {/if}
-  {/snippet}
-</InterruptCard>
+    {/snippet}
+  </InterruptCard>
+{/if}

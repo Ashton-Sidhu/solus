@@ -14,6 +14,7 @@ import {
 } from "../features/threads/threadListV2";
 import { resolveThreadProviderInstance } from "../features/threads/thread-provider-instance";
 import type { SessionStatus } from "@solus/contracts/types";
+import type { SessionExecution } from "@solus/contracts/session-execution";
 import { solusListHosts } from "./list-hosts";
 import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { expect, it, vi } from "vite-plus/test";
@@ -191,6 +192,23 @@ it("updates the T3 status, timer and snooze gate when a host changes state", () 
   expect(resolveThreadListV2RowStatus(status("rate_limited"))).toBe("limited");
   expect(resolveThreadListV2RowStatus(status("failed"))).toBe("failed");
   expect(resolveThreadListV2RowStatus(status("completed"))).toBe("ready");
+});
+
+it("shows Input on a row whose started session waits on the person", () => {
+  // WHY: a session an agent started has no row of its own. Its question holds
+  // the work of the row that started it, so that row must not read as Waiting.
+  const rows = [{ key: "one", hostId: "mac", record: session }];
+  const delegating = {
+    revision: 2,
+    current: { runId: "run", phase: "background" as const, startedAt: 1, waitingForAgents: true as const },
+    lastTurn: null,
+  };
+  const status = (execution: SessionExecution) =>
+    resolveThreadListV2RowStatus(
+      createSessionListProjection()(rows, { views: new Map(), states: new Map(), executions: new Map([["one", execution]]) })[0]!,
+    );
+  expect(status(delegating)).toBe("waiting");
+  expect(status({ ...delegating, delegatedRequest: "question" })).toBe("input");
 });
 
 it("clears the wake badge only after a visit at or after the wake time", () => {

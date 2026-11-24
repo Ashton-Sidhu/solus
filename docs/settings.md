@@ -38,8 +38,9 @@ A host refuses a `configUpdate` that names any key that is not host config.
 ### Agents and settings
 
 An agent reads settings with `read_config` and changes them with `update_config`.
-To restyle Solus, it calls `read_theme` first for the guide, then writes
-`personal.themeCss` (docs/theme-css.md).
+To restyle Solus, it calls `read_theme` first for the guide, then writes the
+theme with `update_theme`, which changes `personal.themeMode` and
+`personal.themeCss` through the same owner (docs/theme-css.md).
 The user does not approve each call. Both tools use five sections, and each
 section goes to its owner. `update_config` takes each section except `profile` as
 an object of the keys to change. Keys that it does not name keep their values. It

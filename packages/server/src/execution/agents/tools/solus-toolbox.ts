@@ -72,11 +72,14 @@ import {
   browserUploadAgentTool,
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
-import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool } from './config-tools'
+import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool, updateThemeAgentTool } from './config-tools'
 import { attachFolderAgentTool } from './folder-tools'
 import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
+import { deleteProjectAgentTool, listProjectsAgentTool, readProjectAgentTool, updateProjectAgentTool } from './project-record-tools'
+import { deleteCodebaseAgentTool, listCodebasesAgentTool, readCodebaseAgentTool, updateCodebaseAgentTool } from './codebase-tools'
 import { checkoutStatusAgentTool, moveCheckoutAgentTool } from './worktree-tools'
 import { pullRequestTools } from './pull-request-tools'
+import { pullRequestGuideTools } from './pull-request-guide-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
@@ -194,6 +197,7 @@ export const solusToolbox = {
     fork: forkSessionAgentTool,
     watchPullRequest: watchPullRequestAgentTool,
     ...pullRequestTools,
+    ...pullRequestGuideTools,
     unlink: unlinkAgentTool,
     listLinks: listLinksAgentTool,
     link: linkAgentTool,
@@ -205,6 +209,14 @@ export const solusToolbox = {
   projects: {
     create: createProjectAgentTool,
     clone: cloneProjectAgentTool,
+    list: listProjectsAgentTool,
+    read: readProjectAgentTool,
+    update: updateProjectAgentTool,
+    delete: deleteProjectAgentTool,
+    listCodebases: listCodebasesAgentTool,
+    readCodebase: readCodebaseAgentTool,
+    updateCodebase: updateCodebaseAgentTool,
+    deleteCodebase: deleteCodebaseAgentTool,
   },
   tasks: {
     list: listTasksAgentTool,
@@ -217,5 +229,6 @@ export const solusToolbox = {
     read: readConfigAgentTool,
     update: updateConfigAgentTool,
     readTheme: readThemeAgentTool,
+    updateTheme: updateThemeAgentTool,
   },
 } as const

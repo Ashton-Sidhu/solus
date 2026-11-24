@@ -115,7 +115,11 @@
   // foreground tool is the more immediate thing to say. So it speaks in the
   // gaps — exactly where the row used to claim it was planning.
   const showsBackgroundWait = $derived(
-    live && !runningTool && !setupLabel && !providerStartup && backgroundWait !== null,
+    live &&
+      !runningTool &&
+      !setupLabel &&
+      !providerStartup &&
+      backgroundWait !== null,
   );
   const runningStep = $derived(
     runningTool
@@ -126,14 +130,16 @@
     runningStep
       ? runningStep.label
       : (setupLabel ??
-        (providerStartup ? providerStartupLabel(providerStartup) : undefined) ??
-        backgroundWait?.label ??
-        liveActivityLabel(
-          activityLabel,
-          durationMs ?? 0,
-          turn.tools.length > 0,
-          turnStart,
-        )),
+          (providerStartup
+            ? providerStartupLabel(providerStartup)
+            : undefined) ??
+          backgroundWait?.label ??
+          liveActivityLabel(
+            activityLabel,
+            durationMs ?? 0,
+            turn.tools.length > 0,
+            turnStart,
+          )),
   );
   const liveTarget = $derived(
     showsBackgroundWait
@@ -179,7 +185,10 @@
   {#snippet glyph()}
     {#if rowState === "live"}
       {#if providerStartup?.provider === "claude-code" || providerStartup?.provider === "codex"}
-        <ProviderMark mark={providerStartup.provider === "codex" ? "codex" : "claude"} transparent />
+        <ProviderMark
+          mark={providerStartup.provider === "codex" ? "codex" : "claude"}
+          transparent
+        />
       {:else if waiting}
         <span class="activity-dots" aria-hidden="true"
           ><span></span><span></span><span></span></span
@@ -225,7 +234,7 @@
     {#if attempt > 1}
       <span>attempt {attempt}</span>
     {/if}
-    {#if state !== "done"}
+    {#if rowState !== "done"}
       <span class="activity-rail-time">{duration}</span>
     {/if}
   {/snippet}

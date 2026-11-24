@@ -774,6 +774,32 @@ host of the session ([Projects](projects.md#agent-tools)). After the call:
 
 The result of the tool has `sessionFolder` and `addedToCodebase`.
 
+## Agent tools
+
+Four tools read and change the codebases of the host, as a person does in
+Settings → Codebases. They send the same RPCs as a client (`codebaseList`,
+`codebaseSave`, `codebaseMembers`, `codebaseScanFolder`), as the person whose
+turn calls them. A guest's turn is refused.
+
+- `list_codebases` lists the codebases with their `id`, `name`, and folders.
+  Each folder names its host (`hostId`, and `onThisHost`) and whether it is a
+  container.
+- `read_codebase` takes `codebase_id` (the codebase of the session when
+  omitted). It also returns the repositories that this host finds in its
+  folders. Folders on other hosts are not read.
+- `update_codebase` takes `codebase_id` and any of `name`, `add_folders`
+  (folders on this host, scanned as **Add folder** scans them), and
+  `remove_folders`. Adds apply before removes. The same rules apply as in
+  Settings: no folder two times, no folder inside a different folder, and a
+  codebase keeps two or more folders or one container.
+- `delete_codebase` takes `codebase_id`. The delete is a tombstone: a copy with
+  `deletedAt`, so it goes to the other hosts as a save does.
+
+A change saves a newer copy on this host. Each client then gives that copy to
+the other hosts of the person. No tool deletes a folder on disk.
+`update_codebase` and `delete_codebase` need an approval in a supervised
+session.
+
 ## Mobile
 
 The mobile app has the same capability in its own screens.

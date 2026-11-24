@@ -3,13 +3,15 @@ import {
   rankAddMachineCandidates,
   type AddMachineCandidate,
 } from "@solus/client-core/add-machine-candidates";
+import { addMachineStatusCard } from "@solus/client-core/add-machine-progress";
 import {
   addMachineOutcomeAnswers,
   PAIR_APPROVAL_TTL_MS,
   type AddMachineAsk,
+  type AddMachineWay,
 } from "@solus/contracts/add-machine";
 import type { SshAddProgress, SshTargetCandidate } from "@solus/contracts/remote-machines";
-import { requestExpiryText } from "@solus/contracts/types";
+import { requestExpiryText, type StatusCardState } from "@solus/contracts/types";
 import {
   approveInstructions,
   attemptAddMachine,
@@ -40,6 +42,7 @@ import { openSettings } from "../settings/settings-navigation";
 import { Button } from "../../components/ui/Button";
 import { StepRail } from "../../components/ui/StepRail";
 import { Sheet } from "../../components/ui/Sheet";
+import { AddMachineSteps } from "./AddMachineSteps";
 import { nearbyUrl } from "../../solus/discovery";
 import { nearby, solus, useSolusWorkspace } from "../../solus/runtime";
 
@@ -72,8 +75,16 @@ function attemptOnSessionHost(
   return attemptAddMachine({ session: session.api, target: readyApi, deviceLabel }, step, input);
 }
 
-const progressText = (event: SshAddProgress) =>
-  event.percent === undefined ? event.message : `${event.message} ${event.percent}%`;
+/** The add that runs, or the last one sent: what its setup steps show. */
+interface SentAttempt {
+  readonly id: string;
+  readonly way: AddMachineWay;
+  readonly name: string;
+  readonly sshTarget?: string;
+}
+
+const wayOfStep = (step: AddMachineStep): AddMachineWay =>
+  step.kind === "ssh" ? "ssh" : step.kind === "approve" ? "approve" : "code";
 
 /** An approval request in progress: the card shows its check code until the target answers. */
 interface WaitingApproval {
@@ -112,7 +123,7 @@ export function LinkRequestCard(props: {
         </Text>
       ) : null}
       {flow.waiting ? <ApprovalWait waiting={flow.waiting} /> : null}
-      {open ? null : <AttemptMessages progress={flow.progress} error={flow.error} />}
+      {open ? null : <AttemptMessages statusCard={flow.statusCard} error={flow.error} />}
       {!canRespond ? null : props.mayDrive ? (
         <>
           <Button
@@ -232,7 +243,8 @@ function useAddMachine(
   const [mintRefused, setMintRefused] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
+  const [sshSteps, setSshSteps] = useState<readonly SshAddProgress[]>([]);
+  const [sent, setSent] = useState<SentAttempt | null>(null);
   const [waiting, setWaiting] = useState<WaitingApproval | null>(null);
   // Two taps can both run before a re-render; this guard is synchronous.
   const inFlight = useRef(false);
@@ -249,6 +261,21 @@ function useAddMachine(
   const candidate = candidates.find((row) => row.key === selectedKey) ?? null;
   const step = stepFor(candidate, { address, useCode, mintRefused });
   const codeError = step?.kind === "code" ? typedCodeError(code) : null;
+  // The sent attempt as setup steps, the rows a worktree setup draws: they run, then show where the add stopped.
+  const statusCard: StatusCardState | null = useMemo(() => {
+    if (!sent) return null;
+    const standing = busy ? "running" : needsAuth !== null ? "needs-auth" : error !== null ? "failed" : null;
+    if (!standing) return null;
+    return addMachineStatusCard({
+      attemptId: sent.id,
+      way: sent.way,
+      name: sent.name,
+      sshTarget: sent.sshTarget,
+      sshSteps,
+      standing,
+      error: needsAuth ?? error ?? "",
+    });
+  }, [sent, sshSteps, busy, needsAuth, error]);
   const ready =
     step !== null &&
     (step.kind !== "code" || typedCodeValue(code) !== null) &&
@@ -260,12 +287,12 @@ function useAddMachine(
     setNeedsAuth(null);
     setPassword("");
     setError(null);
+    setSent(null);
   };
 
   const finish = (attempt: AddMachineAttempt) => {
     setBusy(false);
     setWaiting(null);
-    setProgress(null);
     if (attempt.kind === "added") return onAdded();
     if (attempt.kind === "needs-auth") return setNeedsAuth(attempt.message);
     setError(attempt.message);
@@ -278,12 +305,14 @@ function useAddMachine(
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    setProgress(null);
+    setNeedsAuth(null);
+    setSshSteps([]);
     const requestId = solus.platform.uuid();
+    setSent({ id: requestId, way: wayOfStep(step), name: step.name, sshTarget: step.kind === "ssh" ? step.sshTarget : undefined });
     const events = step.kind === "ssh" ? solus.connections.connection(sessionHostId)?.events : null;
     const stopProgress = events
       ? watchSshProgress(events, requestId, (event) => {
-          if (mounted.current) setProgress(progressText(event));
+          if (mounted.current) setSshSteps((steps) => [...steps, event]);
         })
       : () => {};
     const checkCode =
@@ -314,6 +343,7 @@ function useAddMachine(
     setUseCode: (value: boolean) => {
       setUseCode(value);
       setError(null);
+      setSent(null);
     },
     code,
     setCode,
@@ -323,7 +353,7 @@ function useAddMachine(
     needsAuth,
     busy,
     error,
-    progress,
+    statusCard,
     waiting,
     ready,
     select,
@@ -376,9 +406,9 @@ function AddMachineSheet(props: {
         {step?.kind === "code" ? (
           <CodeSteps flow={flow} step={step} disabled={props.disabled} onClose={props.onClose} />
         ) : null}
+        <AttemptMessages statusCard={flow.statusCard} error={flow.error} />
         {step?.kind === "ssh" && flow.needsAuth !== null ? (
           <View className="gap-2">
-            <Text className="font-sans text-sm leading-5 text-foreground-muted">{flow.needsAuth}</Text>
             <TextInput
               accessibilityLabel={`SSH password for ${step.sshTarget}`}
               placeholder="Password or key passphrase"
@@ -394,7 +424,6 @@ function AddMachineSheet(props: {
             />
           </View>
         ) : null}
-        <AttemptMessages progress={flow.progress} error={flow.error} />
         <Button
           label={props.disabled ? "Adding…" : flow.error !== null ? "Try again" : "Add"}
           disabled={props.disabled || !flow.ready}
@@ -527,16 +556,12 @@ function CodeSteps(props: {
   );
 }
 
-/** The step the session host is on, and why the last attempt failed. */
-function AttemptMessages(props: { readonly progress: string | null; readonly error: string | null }) {
+/** The steps of the sent add, or why the last attempt failed when nothing was sent. */
+function AttemptMessages(props: { readonly statusCard: StatusCardState | null; readonly error: string | null }) {
   return (
     <>
-      {props.progress ? (
-        <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
-          {props.progress}
-        </Text>
-      ) : null}
-      {props.error !== null ? (
+      {props.statusCard ? <AddMachineSteps card={props.statusCard} /> : null}
+      {props.statusCard === null && props.error !== null ? (
         <Text
           accessibilityRole="alert"
           accessibilityLiveRegion="polite"

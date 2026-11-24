@@ -1181,18 +1181,13 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // progress is published as typed host events.
   server.register('prGenerateGuides', async (args, handlerCtx) => {
     const [ctx, numbers] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
-    const repoRoot = await repoRootOrScope(ctx)
-    requestPrGuides({
+    const { repo } = await reviewTargetFor(ctx)
+    void requestPrGuides({
       dispatcher: deps.dispatcher,
       // Guides run on the requester's own provider login, as their turns do.
       seatFor: (agent) => deps.dispatcher.seatForTurn(handlerCtx.actor, agent),
-      checkouts,
       ctx,
-      repoRoot,
       repo,
-      provider,
-      isWorktreeInUse: deps.isWorktreeInUse,
       guides: deps.guides,
     }, numbers)
   })

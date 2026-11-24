@@ -52,6 +52,7 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),
     trackWork: (work) => sessionRuntime.trackUpdateWork(work),
     repliesEnded: (senderSessionId) => sessionRuntime.providerEvents.endBackgroundWait(senderSessionId),
+    delegatedRequestChanged: (sessionId) => sessionRuntime.statuses.delegatedRequestChanged(sessionId),
   }, {
     findPullRequest: async (checkout, projectScope) => {
       if (!checkout.branch) return null

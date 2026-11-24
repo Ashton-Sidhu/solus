@@ -19,6 +19,17 @@ describe('sidebar session attention', () => {
     expect(executionAttention(completed)).toBeNull()
   })
 
+  test('a session waiting on its agents shows what one of them asks the person', () => {
+    // WHY: a session an agent started often has no row and no tab here. Its
+    // request holds the work of the session that started it, so that row must
+    // stop reading as Delegating and say a person must answer.
+    const delegating: SessionExecution = { ...completed, current: { runId: 'current', startedAt: 4, phase: 'background', waitingForAgents: true } }
+    expect(executionAttention(delegating)).toBe('background')
+    expect(executionAttention({ ...delegating, delegatedRequest: 'question' })).toBe('awaiting')
+    expect(executionAttention({ ...delegating, delegatedRequest: 'permission' })).toBe('approval')
+    expect(executionAttention({ ...delegating, delegatedRequest: 'plan' })).toBe('awaiting_plan')
+  })
+
   test('a prior failed turn cannot make a new background turn look failed', () => {
     const failed: SessionExecution = { ...completed, lastTurn: { ...completed.lastTurn!, outcome: 'failed' } }
     expect(executionAttention(failed)).toBe('error')

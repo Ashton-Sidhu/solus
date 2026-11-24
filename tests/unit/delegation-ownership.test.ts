@@ -19,6 +19,7 @@ function harness() {
     emit: () => {}, invalidatePlanCaches: () => {}, recordActivity: async () => { throw new Error('No activity expected') },
     trackWork: promise => { work.push(promise); return promise },
     repliesEnded: () => {},
+    delegatedRequestChanged: () => {},
   }
   const orchestrator = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   return { orchestrator, created, stopped, drain: () => Promise.all(work) }

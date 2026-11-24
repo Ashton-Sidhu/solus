@@ -260,3 +260,32 @@ the codebase of the project folder and the new folder, unless the call has
 `sessionFolder` and `addedToCodebase`. If the folder could not become a
 folder of the session, the result has `sessionFolderError` with the reason:
 the project still exists.
+
+Four more tools read and change the projects of the host, as a person does in
+the project chip and in Settings. They send the same RPCs as a client
+(`listProjects`, `projectConfigLoad`, `projectConfigSave`, `untrackProject`), as
+the person whose turn calls them. A member's turn sees only the projects in the
+member's own folder. A guest's turn is refused. A folder that is the container
+root of a codebase is not a project, so these tools do not show it: use the
+codebase tools ([Codebases](codebases.md#agent-tools)).
+
+- `list_projects` lists the projects, most recently used first, with `path`,
+  `name`, `repository`, and `lastUsedAt`. It takes `limit` (1 to 200, 50 when
+  omitted) and `cursor` (the `nextCursor` of the last page). A new project can
+  move the rows of a page.
+- `read_project` takes `path` (a project folder or a folder in one; the project
+  of the session when omitted). It returns the project, the settings of its
+  `.solus/config.json`, and the codebases that hold it.
+- `update_project` takes `path` and the settings to change:
+  `task_done_on_merge`, `worktree_branch_naming`, `codebase_naming`,
+  `server_urls`, `ignore_repositories`, and `worktree_layout`. An omitted field
+  does not change. `null` removes the setting. The file is in the repository,
+  so the change shows in Git. To change `deviceRuns`, the agent edits the file.
+- `delete_project` takes the project folder as `path`. It takes the project off
+  the list of the host, as **Remove** does. The folder, its files, its sessions,
+  and its tasks stay, and adding the folder again lists it again. When sessions
+  in the person's session list work in the project, the call needs
+  `force: true`.
+
+`update_project` and `delete_project` need an approval in a supervised
+session.

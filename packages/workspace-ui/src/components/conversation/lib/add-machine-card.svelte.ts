@@ -1,8 +1,10 @@
-import { addMachineOutcomeAnswers, PAIR_APPROVAL_TTL_MS } from '@solus/contracts/add-machine'
+import { addMachineOutcomeAnswers, PAIR_APPROVAL_TTL_MS, type AddMachineWay } from '@solus/contracts/add-machine'
 import type { HostListing } from '@solus/contracts/host-list'
 import type { HostPairRequest } from '@solus/contracts/host-pairing'
 import type { SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import type { AddMachineCandidate } from '@solus/client-core/add-machine-candidates'
+import { addMachineStatusCard } from '@solus/client-core/add-machine-progress'
+import type { StatusCardState } from '@solus/contracts/types'
 import {
   addressAttempt,
   ANOTHER_ADDRESS_KEY,
@@ -12,6 +14,7 @@ import {
   outcomeWay,
   pairRequest,
   sshCardOutcome,
+  targetName,
   type CardAttempt,
   type CardField,
 } from './add-machine-card'
@@ -40,6 +43,16 @@ export type AddMachineCardPhase = 'choose' | 'sending' | 'added' | 'closed'
 
 type Added = { installationId: string; label: string; attempt: CardAttempt }
 
+/** The add that runs, or the last one sent: what its setup card shows. */
+interface SentAttempt {
+  id: string
+  way: AddMachineWay
+  name: string
+  sshTarget?: string
+  /** SSH refused the key: the card asks for a password. */
+  needsPassword: boolean
+}
+
 /**
  * One Add machine card (docs/plans/add-machine-card.md). The typed values live
  * only here, are cleared after each send, and go to the session host only in
@@ -58,9 +71,11 @@ export class AddMachineCardState {
   failure = $state<{ field: CardField; message: string } | null>(null)
   /** An approval request waits on the target's owner. */
   approval = $state<{ checkCode: string; expiresAt: number } | null>(null)
-  sshProgress = $state<SshAddProgress | null>(null)
+  /** The steps the host reported for the SSH add of the sent attempt. */
+  sshSteps = $state<SshAddProgress[]>([])
   addedLabel = $state('')
   #pickedKey = $state<string | null>(null)
+  #sent = $state<SentAttempt | null>(null)
 
   constructor(private readonly deps: AddMachineCardDeps) {}
 
@@ -77,6 +92,30 @@ export class AddMachineCardState {
   /** The selected candidate; null on "Another address…". */
   get selected(): AddMachineCandidate | null {
     return this.deps.candidates().find((candidate) => candidate.key === this.selectedKey) ?? null
+  }
+
+  /**
+   * The sent attempt as a setup card, the card a run's setup draws: its steps
+   * while it runs and where it stopped when it failed. Null before a send, and
+   * after the person changes the machine or the way.
+   */
+  get statusCard(): StatusCardState | null {
+    const sent = this.#sent
+    if (!sent) return null
+    const standing = this.phase === 'sending' ? 'running'
+      : this.phase === 'added' ? 'done'
+      : this.failure ? (sent.needsPassword ? 'needs-auth' : 'failed')
+      : null
+    if (!standing) return null
+    return addMachineStatusCard({
+      attemptId: sent.id,
+      way: sent.way,
+      name: sent.name,
+      sshTarget: sent.sshTarget,
+      sshSteps: this.sshSteps,
+      standing,
+      error: this.failure?.message ?? '',
+    })
   }
 
   get showsCodeField(): boolean {
@@ -109,16 +148,27 @@ export class AddMachineCardState {
     const selected = this.selected
     const build = selected ? candidateAttempt(selected, this.code, this.useCode) : addressAttempt(this.address, this.code, this.useCode)
     if ('error' in build) {
+      // Nothing was sent, so no setup card shows: the message is at its field.
+      this.#sent = null
       this.failure = { field: build.field, message: build.error }
       return
     }
     const hasPassword = build.attempt.way === 'ssh' && !!this.password
     const issue = hasPassword ? this.deps.passwordIssue() : ''
     if (issue) {
+      this.#sent = null
       this.password = ''
       this.failure = { field: 'password', message: issue }
       return
     }
+    this.#sent = {
+      id: crypto.randomUUID(),
+      way: outcomeWay(build.attempt),
+      name: targetName(selected, this.address),
+      sshTarget: build.attempt.way === 'ssh' ? build.attempt.sshTarget : undefined,
+      needsPassword: false,
+    }
+    this.sshSteps = []
     this.phase = 'sending'
     this.failure = null
     try {
@@ -135,7 +185,6 @@ export class AddMachineCardState {
       this.code = ''
       this.password = ''
       this.approval = null
-      this.sshProgress = null
       if (this.phase === 'sending') this.phase = 'choose'
     }
   }
@@ -172,6 +221,8 @@ export class AddMachineCardState {
 
   async #pair(attempt: Extract<CardAttempt, { way: 'approve' | 'code' }>): Promise<Added> {
     const checkCode = attempt.way === 'approve' ? newCheckCode() : ''
+    // A code this client could not make falls back to an approval request.
+    if (this.#sent) this.#sent.way = outcomeWay(attempt)
     // The check code shows before the request goes, so the person can compare it on the target.
     if (checkCode) this.approval = { checkCode, expiresAt: Date.now() + PAIR_APPROVAL_TTL_MS }
     const listing = await this.deps.pair(pairRequest(attempt, checkCode))
@@ -180,7 +231,7 @@ export class AddMachineCardState {
 
   async #addOverSsh(attempt: Extract<CardAttempt, { way: 'ssh' }>): Promise<Added | null> {
     const requestId = crypto.randomUUID()
-    const stop = this.deps.watchSshProgress(requestId, (progress) => { this.sshProgress = progress })
+    const stop = this.deps.watchSshProgress(requestId, (progress) => { this.sshSteps.push(progress) })
     try {
       const request: SshAddRequest = { sshTarget: attempt.sshTarget, deviceLabel: this.deps.deviceLabel(), requestId }
       if (this.password) request.authSecret = this.password
@@ -189,6 +240,7 @@ export class AddMachineCardState {
       const outcome = sshCardOutcome(result)
       if (outcome.kind === 'ask-password') {
         this.isPasswordAsked = true
+        if (this.#sent) this.#sent.needsPassword = true
         this.failure = { field: 'password', message: outcome.message }
         return null
       }

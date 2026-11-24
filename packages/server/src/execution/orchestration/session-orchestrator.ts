@@ -16,6 +16,7 @@ import {
   type SessionOutput,
   type SessionReport,
 } from '@solus/contracts/session-exchange'
+import type { DelegatedRequest } from '@solus/contracts/session-execution'
 import type {
   AgentConversationUpdate,
   AgentId,
@@ -63,6 +64,15 @@ function sentMessage(exchangeId: string, result: PromptDisposition, rateLimitRel
   if (rateLimitReleased !== undefined) sent.rateLimitReleased = rateLimitReleased
   if (waited !== undefined) sent.waited = waited
   return sent
+}
+
+/** The sidebar's order for what waits on the person: lower is louder. */
+const REQUEST_RANK: Record<DelegatedRequest, number> = { permission: 0, question: 1, plan: 2 }
+
+/** What the exchange's target turn waits on the person for, while it waits.
+ *  An independent session has its own row, so its request is never its sender's. */
+function waitingRequestOf(exchange: Exchange): DelegatedRequest | undefined {
+  return exchange.kind !== 'independent' && exchange.state === 'awaiting_input' ? exchange.request?.kind : undefined
 }
 
 export class SessionOrchestrator {
@@ -766,6 +776,26 @@ export class SessionOrchestrator {
     return false
   }
 
+  /** What a session that `sessionId` started, at any depth, waits on the
+   *  person for: the request its card in this conversation shows. A permission
+   *  outranks a question, and a question a plan, as the sidebar ranks them.
+   *  An independent session has its own row, so it is left out. */
+  delegatedRequestOf(sessionId: string, seen = new Set([sessionId])): DelegatedRequest | undefined {
+    let found: DelegatedRequest | undefined
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.kind === 'independent' || exchange.senderSessionId !== sessionId || !isOpenExchange(exchange)) continue
+      const target = exchange.targetSessionId
+      let request = waitingRequestOf(exchange)
+      if (!request && target && !seen.has(target)) {
+        seen.add(target)
+        request = this.delegatedRequestOf(target, seen)
+      }
+      if (request && (!found || REQUEST_RANK[request] < REQUEST_RANK[found])) found = request
+      if (found === 'permission') return found
+    }
+    return found
+  }
+
   /** The sender's turn ended: a tool call it left waiting has no reader now.
    *  Its waits end, so a later report goes to the sender's queue and wakes it. */
   senderTurnEnded(senderSessionId: string): void {
@@ -836,9 +866,24 @@ export class SessionOrchestrator {
   }
 
   private apply(exchange: Exchange, event: ExchangeEvent): boolean {
+    const waitedFor = waitingRequestOf(exchange)
     const changed = this.ledger.apply(exchange, event)
     if (changed) log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: event.type, state: exchange.state })
+    if (changed && waitingRequestOf(exchange) !== waitedFor) this.delegatedRequestChanged(exchange.senderSessionId)
     return changed
+  }
+
+  /** A request of a session that `sessionId` started began or stopped waiting:
+   *  `sessionId` and every session above it learn of it. */
+  private delegatedRequestChanged(sessionId: string, seen = new Set<string>()): void {
+    if (seen.has(sessionId)) return
+    seen.add(sessionId)
+    this.runtime.delegatedRequestChanged(sessionId)
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.kind !== 'independent' && exchange.targetSessionId === sessionId && isOpenExchange(exchange)) {
+        this.delegatedRequestChanged(exchange.senderSessionId, seen)
+      }
+    }
   }
 
   private publish(exchange: Pick<Exchange, 'senderSessionId'>, update: AgentConversationUpdate): void {
@@ -904,6 +949,9 @@ export class SessionOrchestrator {
     if (run) settled.runId = run.runId
     const stoppedBySender = this.stoppedBySender.has(exchange.exchangeId)
     const settledAt = Date.now()
+    // A settle ends the wait of the target, and of every session below it.
+    const waitedFor = exchange.kind !== 'independent'
+      && (waitingRequestOf(exchange) ?? (exchange.targetSessionId ? this.delegatedRequestOf(exchange.targetSessionId) : undefined))
     // The result, its full reply, and its delivery state are one write.
     const changed = this.ledger.update(exchange, (draft) => {
       if (silenced) { draft.notify = false; draft.revising = false }
@@ -927,6 +975,7 @@ export class SessionOrchestrator {
     })
     if (!changed) return
     log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: 'settled', state: exchange.state })
+    if (waitedFor) this.delegatedRequestChanged(exchange.senderSessionId)
     this.stoppedBySender.delete(exchange.exchangeId)
     this.remoteFollows.get(exchange.exchangeId)?.stop()
     this.remoteFollows.delete(exchange.exchangeId)

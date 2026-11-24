@@ -4,6 +4,7 @@ import type { HostRoute } from '@solus/contracts/host-routes'
 import type { SshAddResult } from '@solus/contracts/remote-machines'
 import type { AddMachineCandidate, ReachableMachine } from '@solus/client-core/add-machine-candidates'
 import { classifyPairSecret, normalizeServerUrl, urlHost } from '@solus/client-core/pairing'
+import type { HostOperatingSystem } from '@solus/contracts/types'
 
 /**
  * The rules of the Add machine card (docs/plans/add-machine-card.md): the words
@@ -146,18 +147,23 @@ export interface KnownMachine {
   routes: readonly HostRoute[]
   /** How the host admitted this client; undefined until it answers. */
   principal?: string
+  os?: HostOperatingSystem
 }
 
 /** This client's hosts as Add machine sources. The session's own host is left out. */
 export function reachableMachines(machines: readonly KnownMachine[], sessionHostId: string): ReachableMachine[] {
   return machines
     .filter((machine) => machine.id !== sessionHostId)
-    .map((machine) => ({
-      serverId: machine.id,
-      label: machine.label,
-      url: sessionHostDialUrl(machine.routes, sessionHostId),
-      canMint: machine.principal === 'local-owner' || machine.principal === 'remote-owner',
-    }))
+    .map((machine) => {
+      const reachable: ReachableMachine = {
+        serverId: machine.id,
+        label: machine.label,
+        url: sessionHostDialUrl(machine.routes, sessionHostId),
+        canMint: machine.principal === 'local-owner' || machine.principal === 'remote-owner',
+      }
+      if (machine.os) reachable.os = machine.os
+      return reachable
+    })
 }
 
 /** The steps to get a code on the target. */
@@ -168,6 +174,17 @@ export function codeSteps(targetName: string): string {
 /** The line under the check code while the target's owner decides. */
 export function approveSteps(targetName: string, checkCode: string): string {
   return `Approve it in Solus on ${targetName}, or run \`solus host approve ${checkCode}\` there.`
+}
+
+/** One part of a line of steps: the text between backticks is a command, which shows as code. */
+export interface StepTextPart {
+  text: string
+  isCode: boolean
+}
+
+/** A line of steps in parts, so a command in backticks shows as code and not with its backticks. */
+export function stepTextParts(text: string): StepTextPart[] {
+  return text.split('`').map((part, index) => ({ text: part, isCode: index % 2 === 1 })).filter((part) => part.text)
 }
 
 /** The name the card uses for a target: its row's name, or the host of its address. */

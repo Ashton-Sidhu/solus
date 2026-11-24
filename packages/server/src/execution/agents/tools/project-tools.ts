@@ -5,6 +5,7 @@ import type { Principal } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { startsAtHome } from '../../../files/host-path'
 import type { AgentTool } from './agent-tool'
+import type { PersonRpcHost } from './person-rpc'
 
 /** The admitted turn's caller, forwarded to the same RPC gate the clients use. */
 export interface ProjectToolCaller {
@@ -22,6 +23,8 @@ export interface ProjectToolHost {
    * (docs/plans/codebases.md decision 11).
    */
   adopt(sessionId: string, path: string, addToCodebase: boolean): Promise<{ addedToCodebase: boolean }>
+  /** The RPCs of a person's client that the project and codebase record tools send, through its gate. */
+  rpc: PersonRpcHost
 }
 
 let host: ProjectToolHost | null = null
@@ -29,6 +32,11 @@ let host: ProjectToolHost | null = null
 /** Bound to this host's project handlers at boot. */
 export function setProjectToolHost(next: ProjectToolHost | null): void {
   host = next
+}
+
+/** The host the project tools act through; null before boot. */
+export function projectToolHost(): ProjectToolHost | null {
+  return host
 }
 
 const hostPath = z.string().trim().min(1)

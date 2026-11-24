@@ -93,9 +93,11 @@ export interface HostEventMap {
   /** `hasPendingQuestion` is set while a question that does not block the turn
    *  waits for the person: the session needs input whatever its status. Absent means none.
    *  `awaitingApproval` is set while the status is `awaiting_input` and the newest
-   *  input that waits is a permission request, not a question. Absent means a question. */
+   *  input that waits is a permission request, not a question. Absent means a question.
+   *  `delegatedRequest` is what a session this one started, at any depth, waits
+   *  on the person for. Absent means none waits. */
   'session.executionChanged': { sessionId: string; toolId?: string; runnerHostId?: string; execution: import('./session-execution').SessionExecution }
-  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true; awaitingApproval?: true }
+  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true; awaitingApproval?: true; delegatedRequest?: import('./session-execution').DelegatedRequest }
   /** What the agent does now inside a running turn, from its top-level events
    *  only. At most one for each session in 250 ms; null when the turn settled.
    *  Live only: a client that reconnects knows none until the next one

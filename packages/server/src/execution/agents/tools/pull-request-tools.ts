@@ -649,3 +649,6 @@ const ciRerun = tool(
 )
 
 export const pullRequestTools = { prRead, prList, prCreate, prUpdate, prRespond, prReview, prMerge, ciLogs, ciRerun, threadLinks }
+
+/** The admission, checkout, and target rules of the PR tools, for the PR guide tools (`pull-request-guide-tools.ts`). */
+export { tool as pullRequestTool, targetFields, environmentFields, targetNumber, type ToolSession }

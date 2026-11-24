@@ -1,5 +1,6 @@
 import type { AddMachineAsk, AddMachineWay } from '@solus/contracts/add-machine'
 import type { SshTargetCandidate } from '@solus/contracts/remote-machines'
+import type { HostOperatingSystem } from '@solus/contracts/types'
 
 /**
  * The machines an Add machine card offers (docs/plans/add-machine-card.md), in
@@ -16,6 +17,8 @@ export interface ReachableMachine {
   url?: string
   /** This client may make a pairing code there (`connectionsGeneratePairToken`). */
   canMint: boolean
+  /** The operating system the host reported, for the row's mark. */
+  os?: HostOperatingSystem
 }
 
 /** A Solus server found on the network. */
@@ -44,6 +47,8 @@ export interface AddMachineCandidate {
   serverId?: string
   /** The candidate matches the agent's address or the person's words. */
   isMatch: boolean
+  /** A host this client reaches: the operating system it reported. */
+  os?: HostOperatingSystem
 }
 
 const WAY_ORDER = { minted: 0, ssh: 1, approve: 2, code: 3 } as const
@@ -74,7 +79,9 @@ export function rankAddMachineCandidates(ask: AddMachineAsk, sources: AddMachine
   const all: AddMachineCandidate[] = []
   for (const machine of sources.reachable) {
     if (!machine.url) continue
-    all.push({ key: `host:${machine.serverId}`, label: machine.label, detail: machine.url, way: machine.canMint ? 'code' : 'approve', minted: machine.canMint, url: machine.url, serverId: machine.serverId, isMatch: false })
+    const row: AddMachineCandidate = { key: `host:${machine.serverId}`, label: machine.label, detail: machine.url, way: machine.canMint ? 'code' : 'approve', minted: machine.canMint, url: machine.url, serverId: machine.serverId, isMatch: false }
+    if (machine.os) row.os = machine.os
+    all.push(row)
   }
   for (const target of sources.ssh) {
     all.push({ key: `ssh:${target.target}`, label: target.label, detail: target.hostName ? `${target.target} · ${target.hostName}` : target.target, way: 'ssh', minted: false, sshTarget: target.target, isMatch: false })

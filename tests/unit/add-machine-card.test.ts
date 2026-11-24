@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { readAddMachineOutcome } from '@solus/contracts/add-machine'
 import type { HostPairRequest } from '@solus/contracts/host-pairing'
 import type { HostListing } from '@solus/contracts/host-list'
-import type { SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
+import type { SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import type { AddMachineCandidate } from '@solus/client-core/add-machine-candidates'
 import {
   ANOTHER_ADDRESS_KEY,
@@ -11,6 +11,7 @@ import {
   reachableMachines,
   sessionHostDialUrl,
   sshCardOutcome,
+  stepTextParts,
   typedCodeAttempt,
   wayLabel,
 } from '@solus/workspace-ui/components/conversation/lib/add-machine-card'
@@ -36,13 +37,14 @@ function harness(candidates: AddMachineCandidate[], overrides: Partial<{
   pair: (request: HostPairRequest) => Promise<HostListing>
   mint: (serverId: string) => Promise<string>
   passwordIssue: () => string
+  watchSshProgress: (requestId: string, onProgress: (progress: SshAddProgress) => void) => () => void
 }> = {}) {
   const calls = { ssh: [] as SshAddRequest[], pair: [] as HostPairRequest[], answers: [] as Record<string, string>[], added: [] as string[] }
   const card = new AddMachineCardState({
     candidates: () => candidates,
     addOverSsh: async (request) => { calls.ssh.push({ ...request }); return overrides.addOverSsh ? overrides.addOverSsh(request) : { status: 'linked', installationId: 'win', label: 'Windows' } },
     pair: async (request) => { calls.pair.push({ ...request }); return overrides.pair ? overrides.pair(request) : listing('target', 'Target') },
-    watchSshProgress: () => () => {},
+    watchSshProgress: overrides.watchSshProgress ?? (() => () => {}),
     mint: overrides.mint ?? (async () => '123456'),
     answer: async (answers) => { calls.answers.push(answers); return true },
     passwordIssue: overrides.passwordIssue ?? (() => ''),
@@ -60,6 +62,16 @@ describe('Add machine card words', () => {
     expect(wayLabel(windows)).toBe('Over SSH')
     expect(wayLabel(nearby)).toBe('Ask it to approve')
     expect(wayLabel({ way: 'code', minted: false })).toBe('Needs a code')
+  })
+})
+
+describe('step text', () => {
+  test('a command in backticks is code, without its backticks', () => {
+    expect(stepTextParts('Approve it, or run `solus host approve K7QM-2XFD` there.')).toEqual([
+      { text: 'Approve it, or run ', isCode: false },
+      { text: 'solus host approve K7QM-2XFD', isCode: true },
+      { text: ' there.', isCode: false },
+    ])
   })
 })
 
@@ -191,6 +203,53 @@ describe('the card', () => {
     expect(calls.pair[0]).toEqual({ url: studio.url!, code: '123456' })
     expect(calls.answers[0].way).toBe('code')
     expect(calls.added).toEqual(['Target'])
+  })
+
+  test('SSH: the host steps show as a setup card while the add runs, and stay where it stopped when it fails', async () => {
+    // WHY: the person must see which step is slow or failed, not one line that each step replaces.
+    let report!: (progress: SshAddProgress) => void
+    let fail!: (error: Error) => void
+    const { card } = harness([windows, nearby], {
+      watchSshProgress: (requestId, onProgress) => { report = (progress) => onProgress({ ...progress, requestId }); return () => {} },
+      addOverSsh: () => new Promise((_, reject) => { fail = reject }),
+    })
+    expect(card.statusCard).toBeNull()
+    const adding = card.add()
+    report({ requestId: '', step: 'connect', message: 'Connecting to solus-windows' })
+    report({ requestId: '', step: 'install', message: 'Installing Solus', percent: 40 })
+    expect(card.statusCard?.status).toBe('active')
+    expect(card.statusCard?.steps.map((step) => [step.id, step.status])).toEqual([['connect', 'done'], ['install', 'active'], ['connected', 'pending']])
+
+    fail(new Error('Port 7420 is in use on the machine.'))
+    await adding
+    expect(card.phase).toBe('choose')
+    expect(card.statusCard?.status).toBe('error')
+    expect(card.statusCard?.steps.at(-1)).toEqual({ id: 'install', label: 'Installing Solus', status: 'error', detail: 'Port 7420 is in use on the machine.' })
+
+    // Another machine is a new choice: the old add no longer shows.
+    card.select(nearby.key)
+    expect(card.statusCard).toBeNull()
+  })
+
+  test('a value refused before anything is sent shows at its field, not as a setup card', async () => {
+    const { card, calls } = harness([nearby])
+    card.enterCode()
+    card.code = 'hunter2'
+    await card.add()
+    expect(calls.pair).toEqual([])
+    expect(card.failure?.field).toBe('code')
+    expect(card.statusCard).toBeNull()
+  })
+
+  test('minted: a code refused by the target turns the setup card into a wait for approval', async () => {
+    let approve!: (value: HostListing) => void
+    const { card } = harness([studio], { mint: async () => { throw new Error('refused') }, pair: () => new Promise((resolve) => { approve = resolve }) })
+    const adding = card.add()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(card.statusCard?.steps[0]).toEqual({ id: 'approve', label: 'Waiting for approval on Studio', status: 'active' })
+    approve(listing('studio', 'Studio'))
+    await adding
   })
 
   test('arrow keys move the selection through the rows to "Another address…"', () => {

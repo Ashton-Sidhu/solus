@@ -476,4 +476,6 @@ show stacks inferred from branch names. Only a native GitHub stack can use
 Solus checks the head of each open layer it will land. Use `base` on
 `pull_request_create` to open a PR onto the branch of a lower layer.
 CI log reads and reruns work with GitHub Actions jobs. Use
-`watch_pull_request` to wait for changes.
+`watch_pull_request` to wait for changes. `pull_request_guide_read` and
+`pull_request_guide_write` read and write the review guides of PRs
+([Review guides](review-guides.md#agent-tools)).

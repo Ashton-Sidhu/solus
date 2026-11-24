@@ -24,17 +24,18 @@ export class SessionExecutionRecorder {
       if (event.status === 'idle' && runId && previous.current?.runId === runId) {
         // A rate-limit release allows the held prompt to resume with its same id.
         if (previous.current.phase === 'rate_limited') {
-          return { current: null, lastTurn: previous.lastTurn, hasPendingQuestion: event.hasPendingQuestion }
+          return { current: null, lastTurn: previous.lastTurn, hasPendingQuestion: event.hasPendingQuestion, delegatedRequest: event.delegatedRequest }
         }
-        return settle({ ...previous, hasPendingQuestion: event.hasPendingQuestion, awaitingApproval: undefined }, runId, 'interrupted', event.at)
+        return settle({ ...previous, hasPendingQuestion: event.hasPendingQuestion, awaitingApproval: undefined, delegatedRequest: event.delegatedRequest }, runId, 'interrupted', event.at)
       }
       const current = phase.success && runId && (previous.lastTurn?.runId !== runId || event.at > previous.lastTurn.endedAt)
         ? { runId, phase: phase.data, startedAt: previous.current?.runId === runId ? previous.current.startedAt : event.at, ...details }
         : previous.current
       if (current?.runId === previous.current?.runId && current?.phase === previous.current?.phase
         && current?.waitingForAgents === previous.current?.waitingForAgents && current?.rateLimitResetsAt === previous.current?.rateLimitResetsAt
-        && previous.hasPendingQuestion === event.hasPendingQuestion && previous.awaitingApproval === event.awaitingApproval) return
-      return { current, lastTurn: previous.lastTurn, hasPendingQuestion: event.hasPendingQuestion, awaitingApproval: event.awaitingApproval }
+        && previous.hasPendingQuestion === event.hasPendingQuestion && previous.awaitingApproval === event.awaitingApproval
+        && previous.delegatedRequest === event.delegatedRequest) return
+      return { current, lastTurn: previous.lastTurn, hasPendingQuestion: event.hasPendingQuestion, awaitingApproval: event.awaitingApproval, delegatedRequest: event.delegatedRequest }
     })
   }
 

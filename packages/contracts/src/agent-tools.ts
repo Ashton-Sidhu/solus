@@ -94,6 +94,7 @@ export const SOLUS_TOOL_GROUPS = [
     'read_config',
     'update_config',
     'read_theme',
+    'update_theme',
   ] },
   { id: 'browser', label: 'Browser', tools: [
     'browser_status',
@@ -148,6 +149,8 @@ export const SOLUS_TOOL_GROUPS = [
     'pull_request_merge',
     'ci_logs',
     'ci_rerun',
+    'pull_request_guide_read',
+    'pull_request_guide_write',
     'unlink',
     'list_links',
     'link',
@@ -159,6 +162,14 @@ export const SOLUS_TOOL_GROUPS = [
   { id: 'projects', label: 'Projects', tools: [
     'create_project',
     'clone_project',
+    'list_projects',
+    'read_project',
+    'update_project',
+    'delete_project',
+    'list_codebases',
+    'read_codebase',
+    'update_codebase',
+    'delete_codebase',
   ] },
   { id: 'tasks', label: 'Tasks', tools: [
     'list_tasks',

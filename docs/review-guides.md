@@ -61,6 +61,24 @@ One job manager on the host (`ReviewGuideJobs` in
 requests and for local changes. Pull request guides run one at a time; local
 guides run in parallel.
 
+## Agent tools
+
+An agent reads and writes pull request guides with two tools:
+
+- `pull_request_guide_read` reads the stored guide of a PR (without its hunks)
+  and the state of its run against the live head. `guide` is null when there is
+  no guide. The tool never starts a run.
+- `pull_request_guide_write` starts runs for 1 to 20 PRs of the checkout's
+  repository and returns when they start. It uses `requestPrGuides`, the same
+  owner as the `prGenerateGuides` RPC of the PR list, so a PR whose guide is
+  being written joins that run. Each run uses the review agent, model, and
+  reasoning in the settings of the person the turn works for. The host asks one
+  of that person's clients for those settings, as `read_config` does. The tool
+  fails on a host that does not run agents, because guide runs are off there.
+
+Both tools act with the access of the person the turn works for. Guides are
+host use, so a guest's turn is refused.
+
 ## Ask about a section
 
 On a pull request guide, each section has **Ask about this section**. It opens

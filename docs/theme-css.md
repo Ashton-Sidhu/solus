@@ -19,12 +19,19 @@ it does not show it. The phone app follows `themeMode` only.
 1. The agent calls `read_theme`. The tool returns the person's current
    `themeMode` and `themeCss`, and the guide. The guide lists the color tokens and
    the stable selectors (`THEME_GUIDE` in `packages/contracts/src/theme-css.ts`).
-2. The agent writes the whole CSS with `update_config`, as
-   `{ personal: { themeCss } }`. It can set `themeMode` in the same call.
+2. The agent calls `update_theme` with `css`, the whole CSS. It can set
+   `appearance` (light, dark, or system) in the same call, or alone.
+   `update_config` with `{ personal: { themeCss, themeMode } }` does the same.
 3. The host sends the change to one of the person's clients. That client applies
    it as a local edit, and sync sends it to the other clients (docs/settings.md).
 
 An empty string removes the CSS. The person can also select **Clear** in Settings.
+The tool description tells the agent to change the theme only when the person asks.
+
+T3 Code can publish a theme under an id and switch between themes by id. Solus
+does not have this: each person has one custom theme, and no gallery of saved
+themes. `update_theme` replaces that one theme. A change goes to all clients of
+the person through sync, not only to the clients on one machine.
 
 ## What theme CSS can rely on
 

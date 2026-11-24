@@ -67,6 +67,19 @@ function hasPendingPlanQuestion(plans: Record<string, Plan>): boolean {
   return false
 }
 
+/** What a session this one started, at any depth, waits on the person for, as
+ *  this session's attention. The host reads it from the sessions it started
+ *  (`SessionExecution.delegatedRequest`), so a session with no row or tab here
+ *  still marks the row of the session that started it. */
+export function delegatedAttention(execution: SessionExecution | undefined): 'approval' | 'awaiting' | 'awaiting_plan' | null {
+  switch (execution?.delegatedRequest) {
+    case 'permission': return 'approval'
+    case 'question': return 'awaiting'
+    case 'plan': return 'awaiting_plan'
+    default: return null
+  }
+}
+
 export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string, Plan>, execution?: SessionExecution): AttentionState {
   const status = execution ? sessionExecutionStatus(execution) : sess.status
   if (status === 'awaiting_plan') return 'awaiting_plan'
@@ -91,6 +104,8 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
       if (p?.status === 'pending' && p.questionId) return 'awaiting_plan'
     }
   }
+  const delegated = delegatedAttention(execution)
+  if (delegated) return delegated
   if (status === 'rate_limited') return 'limited'
   if (status === 'connecting') return 'starting'
   if (status === 'running') return 'running'

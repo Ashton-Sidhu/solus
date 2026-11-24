@@ -23,7 +23,7 @@ function pendingQuestionFact(sessionId: string): { hasPendingQuestion?: true } {
 }
 
 /** What the status feed says waits for the person. */
-type WaitFacts = Pick<HostEventMap['session.statusChanged'], 'hasPendingQuestion' | 'awaitingApproval'>
+type WaitFacts = Pick<HostEventMap['session.statusChanged'], 'hasPendingQuestion' | 'awaitingApproval' | 'delegatedRequest'>
 
 /** The newest permission or question that waits. A backwards scan without
  *  the copy and reverse allocations: this runs on every status transition,
@@ -308,10 +308,22 @@ export class SessionStatuses {
     this.rt.emit('session-question', { sessionId, agentSessionId, status, at: Date.now(), ...this.waitFacts(sessionId) })
   }
 
+  /** What a session this one started waits on the person for changed. The
+   *  status does not change, and this session's own attention does not
+   *  either: the session that asks has its own. Only readers of the status
+   *  feed (a sidebar row, the mobile list) learn of it. */
+  delegatedRequestChanged(sessionId: string): void {
+    const session = this.rt.activeSessions.get(sessionId)
+    const status = session?.status ?? 'completed'
+    this.rt.emit('session-question', { sessionId, agentSessionId: session?.agentSessionId ?? null, status, at: Date.now(), ...this.waitFacts(sessionId) })
+  }
+
   /** The `session.statusChanged` fields that say what waits for the person. */
   private waitFacts(sessionId: string): WaitFacts {
     const facts: WaitFacts = pendingQuestionFact(sessionId)
     if (this.approvalWaits.has(sessionId)) facts.awaitingApproval = true
+    const delegatedRequest = this.rt.orchestration?.delegatedRequestOf(sessionId)
+    if (delegatedRequest) facts.delegatedRequest = delegatedRequest
     return facts
   }
 

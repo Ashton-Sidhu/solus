@@ -65,7 +65,7 @@ const TURN_LOG_MAX_EVENTS = 2000
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
   | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy' | 'senderTurnEnded'
-  | 'backgroundExchangeIds' | 'backgroundEnded' | 'childrenAtWork' | 'stopChildren'>
+  | 'backgroundExchangeIds' | 'backgroundEnded' | 'childrenAtWork' | 'stopChildren' | 'delegatedRequestOf'>
 
 export interface SessionRunLifecycle {
   agentSessionId: Promise<{ agentSessionId: string; taskId?: string }>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import {
     Check as CheckIcon,
     TriangleAlert as WarningIcon,
@@ -31,9 +32,11 @@
     onConnectSeat?: () => void;
     /** "Connect Claude" or "Connect Codex". */
     connectSeatLabel?: string;
+    /** What the person needs under a step while it runs, such as the check code of an approval request. It renders its own `<li>`. */
+    stepAddon?: Snippet<[StatusCardStep]>;
   }
 
-  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel, onConnectSeat, connectSeatLabel = "Connect" }: Props = $props();
+  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel, onConnectSeat, connectSeatLabel = "Connect", stepAddon }: Props = $props();
   const syncAction = $derived(card.status === "error" && card.syncFailureReason ? sessionSyncFailureAction(card.syncFailureReason) : null);
 
   // A card the client makes has no host times: its step times are what this
@@ -175,6 +178,7 @@
               {step.detail}
             </li>
           {/if}
+          {@render stepAddon?.(step)}
           <!-- The part of each repository in the step: the row of a step, one level in. -->
           {#each step.substeps ?? [] as substep, substepIndex (substep.id)}
             {@const note = substepNote(substep)}

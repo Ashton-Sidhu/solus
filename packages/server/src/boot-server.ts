@@ -201,7 +201,7 @@ import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
-import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
+import { DEFAULT_SERVER_PORT, isSessionBusyStatus, projectScopeOf } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
 import { registerSessionRepositoryHandlers } from './transport/handlers/session-repository-handlers'
@@ -261,6 +261,7 @@ import { registerSettingsHandlers } from './transport/handlers/settings-handlers
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './transport/lan-discovery'
 import { registerGoogleHandlers } from './transport/handlers/google-handlers'
 import { installPullRequestToolHost } from './execution/agents/tools/pull-request-tools'
+import { installPullRequestGuideToolHost } from './execution/agents/tools/pull-request-guide-tools'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
 import { liveCheckouts, sessionFolderCheckouts } from './prs/pr-sync-interest'
@@ -1460,6 +1461,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     prSync,
     isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
   })
+  // The PR guide tools start runs through the same owner as the prGenerateGuides RPC.
+  installPullRequestGuideToolHost({
+    guides,
+    dispatcher: opts.sessionRuntime,
+    servesExecution: () => server.servesExecution(),
+    projectOf: (sessionId) => {
+      const run = opts.sessionRuntime.activeSessions.get(sessionId)?.runInput
+      return run ? projectScopeOf(run) : undefined
+    },
+    personal: (sessionId, request) => personalRequests.send(sessionId, request),
+  })
   registerChecksHandlers(server)
   // The clients that run on one seat; a seat's facts go to them and nobody else.
   const clientsForSeat = (seat: Seat): string[] =>
@@ -1565,6 +1577,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clone: (request, caller) => server.handle('setupCloneProject', [request], caller),
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
+    },
+    // The project and codebase tools send the RPC of a person's client, through its gate.
+    rpc: {
+      listProjects: (args, caller) => server.handle('listProjects', args, caller),
+      projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
+      projectConfigSave: (args, caller) => server.handle('projectConfigSave', args, caller),
+      untrackProject: (args, caller) => server.handle('untrackProject', args, caller),
+      codebaseList: (args, caller) => server.handle('codebaseList', args, caller),
+      codebaseSave: (args, caller) => server.handle('codebaseSave', args, caller),
+      codebaseMembers: (args, caller) => server.handle('codebaseMembers', args, caller),
+      codebaseScanFolder: (args, caller) => server.handle('codebaseScanFolder', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).

@@ -267,6 +267,14 @@ scope.
 - No Merging mark: the client has no merge-in-progress state (a merge
   writes `merged` at once and takes it back on a refusal). The orbit
   pattern means Delegating instead.
+- A row shows what a session it started waits on the person for, at any
+  depth: Approval for a permission, Plan for a plan, and Input for a
+  question. The started session needs no row or tab here. Its host reads the
+  open exchanges of the session (`SessionOrchestrator.delegatedRequestOf`) and
+  sets `SessionExecution.delegatedRequest`; `delegatedAttention` gives the
+  row its mark. The request outranks Delegating and every mark of work. A
+  request of the session itself outranks it. An independent session has its
+  own row, so its request stays there.
 
 ### Agent rows (desktop and web)
 
@@ -304,7 +312,9 @@ one mark everywhere.
   Failed and Done show the glyph only. Mobile shows a plan to approve as
   Approval, so it has no Plan glyph.
 - `ThreadListState` keeps the agent activity and `awaitingApproval` of each
-  thread from the host events. Offline comes from the host's readiness
+  thread from the host events.
+- A row whose started session waits on the person (`delegatedRequest`) shows
+  Input, whatever the request is: a mobile row has one mark for a request. Offline comes from the host's readiness
   (`away`).
 - `DotMatrix` runs one native-driver `Animated.loop` for each mark, not
   Reanimated: the app turns off Reanimated's commit pausing, and a perpetual

@@ -132,6 +132,20 @@ A task's link belongs to the task, so `read_session` names the session's task.
 Use the optional `kind` filter to select one type. PRs include their last known
 state. Removed PRs stay excluded from automatic linking until explicitly linked again. See [Session pull requests](plans/session-pull-requests.md).
 
+The Sessions group also holds the PR guide tools. `pull_request_guide_read`
+reads the stored review guide of a PR and the state of its run. It never starts
+a run. `pull_request_guide_write` starts guide runs for 1 to 20 PRs of the
+checkout's repository and returns when they start. A PR whose guide is being
+written joins that run. The tool fails on a host that does not run agents.
+Both tools need the access that a person's client needs for the same RPC
+(`readGuide` and `prGenerateGuides`), so a guest's turn is refused. See
+[Review guides](review-guides.md#agent-tools).
+
+The Configuration group holds `read_config`, `update_config`, `read_theme`, and
+`update_theme`. `update_theme` sets the appearance (light, dark, or system) and
+the custom theme CSS of the person the turn works for, only when that person
+asks. See [Theme CSS](theme-css.md).
+
 GitHub and Jira own every task (see
 [Provider-owned tasks](plans/provider-owned-tasks.md)). The Tasks group reads
 the host's copy of the tasks and writes to the provider, with the connection of
@@ -176,6 +190,17 @@ status, pending input, and history. There is no separate task-session read tool.
 
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
+
+The Projects group has `create_project`, `clone_project`, `list_projects`,
+`read_project`, `update_project`, `delete_project`, `list_codebases`,
+`read_codebase`, `update_codebase`, and `delete_codebase` (docs/projects.md and
+docs/codebases.md). A project and a codebase have separate tools, because a
+project is never also a codebase and their fields are different. Each tool sends
+the RPC that the person's client sends, through the same access gate, so a
+member's turn reaches only the member's projects and a guest's turn is refused.
+A delete never deletes a folder on disk. `delete_project` takes the project off
+the host's list and needs `force: true` when the project has sessions;
+`delete_codebase` saves a tombstone.
 
 Apps (docs/apps.md) have seven tools. `save_app` commits an app project (a
 project from the `create-app` skill) as a new revision. It takes the

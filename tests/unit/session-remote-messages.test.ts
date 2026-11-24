@@ -92,6 +92,7 @@ function orchestrator() {
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise); return promise },
     repliesEnded: () => {},
+    delegatedRequestChanged: () => {},
   }
   const orchestration = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   const settled = async () => {
