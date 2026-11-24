@@ -41,6 +41,7 @@ import { LiveActivityPreference } from '../features/live-activity/live-activity-
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
 import { followPersonalDocumentHosts } from '../features/settings/personal-document-hosts'
+import { SettingsSync } from '../features/settings/settings-sync'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
@@ -154,6 +155,8 @@ export class SolusApp {
   readonly appearance: AppearancePreference
   /** Each host's own, host-owned settings. */
   readonly hostSettings: HostSettings
+  /** Signed out: the Sync settings switch of each host, and the copy and spread of the server settings. */
+  readonly settingsSync: SettingsSync
   /** Each host's link to the person's Solus Cloud account. */
   readonly hostCloudLink: HostCloudLink
   /** The SSH forwards each connected host holds (docs/plans/host-routes.md D7). */
@@ -260,6 +263,17 @@ export class SolusApp {
     this.account.changes.subscribe(() => this.followAccount())
     // A person's settings and agent profile on their hosts (docs/plans/personal-settings-source.md):
     // signed out, the phone's first host is their source; signed in, the account is.
+    // Signed out, the person's server settings are the same on each host whose Sync settings is on (docs/plans/settings-sync-hosts.md).
+    this.settingsSync = new SettingsSync({
+      hostIds: () => this.registry.hosts().map((host) => host.id),
+      readyConnections: () => this.connections.readyConnections(),
+      connectionChanges: this.connections.changes,
+      mayWriteHostConfig: (hostId) => this.connections.may(hostId, 'host.admin'),
+      isSignedIn: () => this.personal.isSignedIn,
+      homeHostId: () => this.registry.hosts()[0]?.id ?? null,
+      storage,
+    })
+    this.accountSync.settingsCopyChanges.subscribe(() => this.settingsSync.refresh())
     followPersonalDocumentHosts({
       personal: this.personal,
       agentProfile: this.agentProfile,
@@ -268,8 +282,9 @@ export class SolusApp {
       defaultHostId: () => this.registry.hosts()[0]?.id ?? null,
       settingsCopyChanges: this.accountSync.settingsCopyChanges,
       storage,
+      onPersonalChange: (fromHostId, change) => this.settingsSync.personalChanged(fromHostId, change),
     })
-    this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
+    this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId), (hostId, patch) => this.settingsSync.hostConfigChanged(hostId, patch))
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
@@ -425,8 +440,13 @@ export class SolusApp {
     return previewHost(this.platform.nativeGet ?? this.platform.fetch, url)
   }
 
-  /** Pairs a host: its credential stays on this phone, its listing goes to the person's list (`listError` when it did not). */
-  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string): Promise<PairOutcome> {
+  /**
+   * Pairs a host: its credential stays on this phone, its listing goes to the person's list (`listError` when it did not).
+   * Signed out, the person's Sync settings checkbox (`syncSettings`) says whether the host takes their server
+   * settings (docs/plans/settings-sync-hosts.md). Null: a pairing the person did not ask for now (a trusted host
+   * nearby, a dev auto-connect), which copies nothing and leaves the host's switch as it is.
+   */
+  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string, syncSettings: boolean | null = null): Promise<PairOutcome> {
     const { server, sessionToken } = await pairServer({
       url: preview.url,
       pairToken,
@@ -436,7 +456,7 @@ export class SolusApp {
       fetchImpl: this.platform.fetch,
       onTailnet: preview.onTailnet,
     })
-    return this.registry.savePaired({
+    const outcome = await this.registry.savePaired({
       id: server.id,
       label: server.label || urlHost(preview.url),
       hasUserLabel: server.hasUserLabel,
@@ -445,6 +465,8 @@ export class SolusApp {
       identityKey: server.identityKey,
       onTailnet: preview.onTailnet,
     }, sessionToken)
+    if (syncSettings !== null) this.settingsSync.hostAdded(outcome.host.id, syncSettings)
+    return outcome
   }
 
   /** The open conversation for a saved session or a new one. One store per
@@ -661,6 +683,7 @@ export class SolusApp {
     this.runHosts.forgetHost(hostId)
     this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)
+    this.settingsSync.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)
     this.forwardedHosts.forgetHost(hostId)
     this.codebases.forgetHost(hostId)

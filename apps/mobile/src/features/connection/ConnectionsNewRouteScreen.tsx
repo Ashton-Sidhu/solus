@@ -36,6 +36,7 @@ import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../layout/workspace/workspace-selection-store";
 import { NearbyHosts } from "../../solus/NearbyHosts";
 import { m } from "../../i18n/messages";
+import { SyncSettingsChoice } from "../../solus/SyncSettingsRows";
 
 type ConnectionsNewRouteParams = {
   readonly mode?: string;
@@ -85,6 +86,8 @@ function PairingForm({
   const [needsCode, setNeedsCode] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Signed out: the new host takes this person's server settings (docs/plans/settings-sync-hosts.md).
+  const [syncSettings, setSyncSettings] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // The user's own edit or submit dismisses the dev auto-connect report.
   const [ownAttempt, setOwnAttempt] = useState(false);
@@ -185,7 +188,8 @@ function PairingForm({
     setSubmitError(null);
     setIsSubmitting(true);
     onChangeConnectionPairingUrl(pairingUrl);
-    const outcome = await onConnectPress(pairingUrl, routeFor, discoveredId);
+    // A new route for a saved host adds no host: its Sync settings stay as they are.
+    const outcome = await onConnectPress(pairingUrl, routeFor, discoveredId, routeFor ? null : syncSettings);
     setIsSubmitting(false);
     setSubmitError(outcome.error);
     setNeedsCode(outcome.needsCode === true);
@@ -309,6 +313,14 @@ function PairingForm({
                     ))}
             </Text>
           </View>
+
+          {routeFor ? null : (
+            <SyncSettingsChoice
+              value={syncSettings}
+              onValueChange={setSyncSettings}
+              disabled={connecting}
+            />
+          )}
 
           {hasCloudPublicConfig() ? <T3ConnectSection /> : null}
         </View>

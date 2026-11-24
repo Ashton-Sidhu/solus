@@ -43,6 +43,7 @@ import { Button } from "../../components/ui/Button";
 import { StepRail } from "../../components/ui/StepRail";
 import { Sheet } from "../../components/ui/Sheet";
 import { AddMachineSteps } from "./AddMachineSteps";
+import { SyncSettingsChoice } from "../../solus/SyncSettingsRows";
 import { nearbyUrl } from "../../solus/discovery";
 import { nearby, solus, useSolusWorkspace } from "../../solus/runtime";
 
@@ -246,6 +247,8 @@ function useAddMachine(
   const [sshSteps, setSshSteps] = useState<readonly SshAddProgress[]>([]);
   const [sent, setSent] = useState<SentAttempt | null>(null);
   const [waiting, setWaiting] = useState<WaitingApproval | null>(null);
+  // Signed out: the new machine takes this person's server settings (docs/plans/settings-sync-hosts.md).
+  const [syncSettings, setSyncSettings] = useState(true);
   // Two taps can both run before a re-render; this guard is synchronous.
   const inFlight = useRef(false);
   const mounted = useRef(true);
@@ -327,7 +330,10 @@ function useAddMachine(
     setPassword("");
     const attempt = await attemptOnSessionHost(sessionHostId, step, input);
     stopProgress();
-    if (attempt.kind === "added") await onAnswer(addMachineOutcomeAnswers(attempt.outcome));
+    if (attempt.kind === "added") {
+      solus.settingsSync.hostAdded(attempt.outcome.installationId, syncSettings);
+      await onAnswer(addMachineOutcomeAnswers(attempt.outcome));
+    }
     inFlight.current = false;
     if (mounted.current) finish(attempt);
   };
@@ -359,6 +365,8 @@ function useAddMachine(
     select,
     add,
     setIsOpen,
+    syncSettings,
+    setSyncSettings,
   };
 }
 
@@ -424,6 +432,11 @@ function AddMachineSheet(props: {
             />
           </View>
         ) : null}
+        <SyncSettingsChoice
+          value={flow.syncSettings}
+          onValueChange={flow.setSyncSettings}
+          disabled={props.disabled}
+        />
         <Button
           label={props.disabled ? "Adding…" : flow.error !== null ? "Try again" : "Add"}
           disabled={props.disabled || !flow.ready}

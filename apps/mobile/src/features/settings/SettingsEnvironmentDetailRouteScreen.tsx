@@ -34,6 +34,7 @@ import { useRemoteConnections } from "../../state/use-remote-environment-registr
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { EnvironmentRoutesSection } from "./EnvironmentRoutesSection";
 import { OutdatedServerUpdateSection } from "./OutdatedServerUpdateSection";
+import { HostSyncSettingsSection } from "../../solus/SyncSettingsRows";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -215,6 +216,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 onUpdate={connections.onUpdateEnvironment}
               />
             </SettingsSection>
+            <HostSyncSettingsSection hostId={environmentId} />
             <EnvironmentRoutesSection
               environmentId={environmentId}
               connected={connected}

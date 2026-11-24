@@ -98,6 +98,20 @@ export class PersonalSettingsStore {
     this.changes.notify()
   }
 
+  /**
+   * Signed out, while Settings shows one host: that host, whose copy is on screen in
+   * place of the home host's (docs/plans/settings-sync-hosts.md decision 7). Null when
+   * Settings shows none.
+   */
+  settingsHostId: string | null = null
+  readonly settingsHostChanges = new Listeners()
+
+  showSettingsHost(hostId: string | null): void {
+    if (hostId === this.settingsHostId) return
+    this.settingsHostId = hostId
+    this.settingsHostChanges.notify()
+  }
+
   get explicitThemeMode() { return this.profile.settings.themeMode }
 
   /** Only the keys the person set: what a sync seed carries. */

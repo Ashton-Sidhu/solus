@@ -1,7 +1,7 @@
 import { PersonalSettingsHosts, personalSettingsHomeId } from '@solus/client-core/host-personal-settings'
 import { agentProfileHomeHost } from '@solus/client-core/agent-profile-sync'
 import type { DocumentSyncStorage } from '@solus/client-core/document-sync'
-import type { PersonalDocumentKind } from '@solus/contracts/settings'
+import type { PersonalDocumentKind, PersonalSettingsPatch } from '@solus/contracts/settings'
 import type { HostConnection } from '../hosts/host-connections'
 import type { Listeners } from '../../lib/listeners'
 import type { AgentProfileLocalStore } from './agent-profile-local'
@@ -19,6 +19,8 @@ export interface PersonalDocumentHostsDeps {
   /** Fires when the documents on screen move to another source, or the account's settings change. */
   settingsCopyChanges: Listeners
   storage: DocumentSyncStorage
+  /** Signed out, the person's own change on the host on screen; Sync settings spreads it (docs/plans/settings-sync-hosts.md). */
+  onPersonalChange?(fromHostId: string | null, change: PersonalSettingsPatch): void
 }
 
 /**
@@ -32,10 +34,12 @@ export interface PersonalDocumentHostsDeps {
 export function followPersonalDocumentHosts(deps: PersonalDocumentHostsDeps): () => void {
   const { personal, agentProfile } = deps
   const homeHostId = () => personalSettingsHomeId({ deviceHostId: null, defaultServerId: deps.defaultHostId() })
+  // While Settings shows one host, the copy on screen is that host's (docs/plans/settings-sync-hosts.md decision 7).
+  const shownHostId = () => personal.settingsHostId ?? homeHostId()
   const readyConnection = (hostId: string) => deps.readyConnections().find((connection) => connection.hostId === hostId) ?? null
   const settings = new PersonalSettingsHosts({
     readyHosts: () => deps.readyConnections().map((connection) => ({ hostId: connection.hostId, api: connection.api })),
-    homeHostId,
+    homeHostId: shownHostId,
     isSignedIn: () => personal.isSignedIn,
     document: () => personal.document(),
     adoptHostCopy: (copy) => personal.adoptHostCopy(copy),
@@ -49,8 +53,9 @@ export function followPersonalDocumentHosts(deps: PersonalDocumentHostsDeps): ()
     storage: deps.storage,
   })
   const hostChanged = (hostId: string, kind: PersonalDocumentKind) => {
+    // The Sync settings switch is `SettingsSync`'s.
     if (kind === 'settings') settings.hostChanged(hostId)
-    else profile.hostChanged(hostId)
+    else if (kind === 'agent-profile') profile.hostChanged(hostId)
   }
   // The home host tells the person's connections when another client changed their copy there.
   let listening: { connection: HostConnection; stop: () => void } | null = null
@@ -71,13 +76,18 @@ export function followPersonalDocumentHosts(deps: PersonalDocumentHostsDeps): ()
   }
   const stops = [
     deps.connectionChanges.subscribe(refresh),
+    personal.settingsHostChanges.subscribe(refresh),
     deps.settingsCopyChanges.subscribe(() => {
       settings.accountChanged()
       profile.forget()
       refresh()
     }),
     // Signed in, the person's own change goes to the account, and the hosts follow it.
-    personal.onLocalChange((change) => { if (!personal.isSignedIn) settings.recordLocalChange(change) }),
+    personal.onLocalChange((change) => {
+      if (personal.isSignedIn) return
+      settings.recordLocalChange(change)
+      deps.onPersonalChange?.(settings.homeHostId, change)
+    }),
     agentProfile.onLocalChange((change) => { if (!agentProfile.isSignedIn) profile.recordLocalChange(change) }),
   ]
   refresh()
