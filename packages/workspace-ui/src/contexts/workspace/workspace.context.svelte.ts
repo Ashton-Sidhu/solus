@@ -989,7 +989,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  the watch did not ask, so nothing here changes. */
   applyRuntimeAttach(tabId: string, info: RuntimeSessionInfo | null | undefined): void {
     const session = this.sessionFor(tabId)
-    if (!session?.agentSessionId || info === undefined) return
+    if (!session || info === undefined || (!info && !session.agentSessionId)) return
     if (info) {
       applyRuntimeConfig(session, info)
       session.status = info.status

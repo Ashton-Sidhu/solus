@@ -26,6 +26,12 @@ describe('ownership', () => {
     expect(personalSettingsSchema.safeParse(DEFAULT_PERSONAL_SETTINGS).success).toBe(true)
   })
 
+  test('changed files stay hidden unless the profile enables the card', () => {
+    expect(personalSettingsWithDefaults({}).showDiffSummaryAfterTurn).toBe(false)
+    expect(personalSettingsWithDefaults({ showToolCalls: false }).showDiffSummaryAfterTurn).toBe(false)
+    expect(personalSettingsWithDefaults({ showDiffSummaryAfterTurn: true }).showDiffSummaryAfterTurn).toBe(true)
+  })
+
   test('a profile with no lens choice starts with Show me, but a saved choice is preserved', () => {
     const lenses = personalSettingsWithDefaults({}).savedLenses
     expect(lenses).toHaveLength(1)

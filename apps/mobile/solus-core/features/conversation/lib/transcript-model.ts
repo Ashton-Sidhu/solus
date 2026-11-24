@@ -1,3 +1,5 @@
+import { providerStartupAfter } from '@solus/client-core/provider-startup'
+import type { ProviderStartup } from '@solus/contracts/provider-startup'
 import { EMPTY_THREAD_HISTORY_META, applyHistoryPageMeta, type ThreadHistoryMeta } from "@t3tools/client-runtime/state/thread-history-merge"
 import { backgroundCommandWake, type BackgroundCommandWake } from '@solus/client-core/background-command-wake'
 import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-activity'
@@ -18,7 +20,7 @@ import type { AgentSwitch } from './provider-handoff'
 import type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
 import { ToolRowIndex, type ToolItem } from './tool-item'
 
-export { permissionForFeedback, type PendingPermission, type PendingQuestion, type QueuedPrompt } from './pending-requests'
+export type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
 export type { ToolItem } from './tool-item'
 
 /**
@@ -92,6 +94,14 @@ export class TranscriptModel {
   private metaChanged = false
 
   status: SessionStatus = 'idle'
+  providerStartup: ProviderStartup | null = null
+  latestSettledTurnId: string | null = null
+
+  setProviderStartup(startup: ProviderStartup | null): void {
+    if (this.providerStartup === startup) return
+    this.providerStartup = startup
+    this.metaChanged = true
+  }
   /** Background work of the session runs on its host, held or not (`background_work`). */
   backgroundWorkRunning = false
   backgroundTasks: readonly { taskId: string; description?: string }[] = []
@@ -358,6 +368,7 @@ export class TranscriptModel {
       this.childTranscript(parentToolUseId, (child) => child.apply(childEvent))
       return
     }
+    this.setProviderStartup(providerStartupAfter(this.providerStartup, event) ?? null)
     this.trackActivity(event)
     // The sub-agent's last tool goes on its call; the turn's task list below reads the same event.
     if (event.type === 'background_task_progress') this.applyBackgroundProgress(event)
@@ -517,7 +528,11 @@ export class TranscriptModel {
         this.clearRequests()
         return true
       case 'turn_settled':
-        if (!this.settledTurns.has(event.turnId)) this.finishStream()
+        if (!this.settledTurns.has(event.turnId)) {
+          this.finishStream()
+          this.latestSettledTurnId = event.turnId
+          this.metaChanged = true
+        }
         this.settledTurns.add(event.turnId)
         return true
       case 'error':
@@ -782,6 +797,7 @@ export class TranscriptModel {
   setStatus(status: SessionStatus): void {
     if (this.status === status) return
     this.status = status
+    if (status !== 'connecting' && status !== 'running') this.setProviderStartup(null)
     if (status !== 'connecting') this.settleSetupCards(status)
     if (status === 'idle' || status === 'interrupted') this.finishStream()
     if (status === 'idle') this.clearRequests()

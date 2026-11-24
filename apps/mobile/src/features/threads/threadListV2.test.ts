@@ -444,6 +444,12 @@ describe("buildThreadListV2Items", () => {
       .toMatchObject({ type: "v2-thread", timeLabel: "" });
     const search = buildThreadListV2Items({ ...input, searchQuery: "Pinned while settled" });
     expect(search.items[0]).toMatchObject({ variant: "slim", pinned: true });
+
+    const queued = buildThreadListV2Items({
+      ...input,
+      queuedThreadKeys: new Set([`${environmentId}:pinned-settled`]),
+    });
+    expect(queued.items[0]).toMatchObject({ variant: "card", pinned: true });
   });
 
   it("snooze hides a pinned thread and wake restores it to the pinned block", () => {
@@ -1211,11 +1217,12 @@ describe("thread drag destinations", () => {
         assignments,
       });
       expect(pending.orderedIds).toEqual([ids[3], ids[0], ids[1], ids[2]]);
+      const field = section === "pinned" ? "pinOrderKey" : "activeOrderKey";
       const confirmed = ordered.map((row) => ({
         ...row,
-        [section === "pinned" ? "pinOrderKey" : "activeOrderKey"]: assignments.find(
-          (a) => a.id === `${row.environmentId}:${row.id}`,
-        )!.orderKey,
+        [field]:
+          assignments.find((a) => a.id === `${row.environmentId}:${row.id}`)?.orderKey ??
+          row[field],
       }));
       expect(
         getThreadListV2OrderedSection({ threads: confirmed, section, now: NOW }).map(
@@ -1228,7 +1235,7 @@ describe("thread drag destinations", () => {
     },
   );
 
-  it("refuses a drop that would need to rewrite an old server's keyless row", () => {
+  it("moves past an old server's keyless row by writing only the moved row", () => {
     const old = EnvironmentId.make("old-server");
     const ordered = [environmentId, old, environmentId].map((env, index) =>
       makeThread({
@@ -1243,11 +1250,11 @@ describe("thread drag destinations", () => {
         section: "active",
         reorderableEnvironmentIds: new Set([environmentId]),
       })(`${environmentId}:2`, { targetId: `${environmentId}:0`, placement: "before" }),
-    ).toBeNull();
+    ).toEqual([{ id: `${environmentId}:2`, orderKey: expect.any(String) }]);
   });
 });
 
-it("allows a long drop past an old server even when both adjacent moves fail", () => {
+it("moves past an old server one step or in a long drop", () => {
   const old = EnvironmentId.make("old-server");
   const ordered = [
     makeThread({ id: ThreadId.make("a"), title: "a" }),
@@ -1262,7 +1269,7 @@ it("allows a long drop past an old server even when both adjacent moves fail", (
   });
   const movedId = `${environmentId}:a`;
   expect(planner(movedId, "up")).toBeNull();
-  expect(planner(movedId, "down")).toBeNull();
+  expect(planner(movedId, "down")?.map(({ id }) => id)).toEqual([movedId]);
   const assignments = planner(movedId, { targetId: `${environmentId}:d`, placement: "after" });
   expect(assignments).toHaveLength(1);
   expect(assignments![0]!.id).toBe(movedId);

@@ -1,4 +1,4 @@
-import { taskEditCandidates, updateIssue } from "../solus/source-control-actions";
+import { moveIssue, taskEditCandidates, updateIssue } from "../solus/source-control-actions";
 import { hostQueryScope, useHostQueryTargets } from "./host-query-scope";
 import { useEffect } from "react";
 import { solus } from "../solus/runtime";
@@ -24,6 +24,7 @@ export const issueEnvironment = {
   candidates: solusIssueCandidates,
   editCandidates: taskEditCandidates,
   update: updateIssue,
+  setState: moveIssue,
 };
 
 const mergedIssueLists = createMergedIssueListAtoms(

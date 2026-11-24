@@ -1,3 +1,4 @@
+import type { ProviderStartup } from './provider-startup'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
@@ -1157,6 +1158,7 @@ export interface Session {
   status: SessionStatus
   messages: Message[]
   currentActivity: string
+  providerStartup?: ProviderStartup | null
   /** Renderer-only context for wording the live activity row without making an
    *  established session sound like it reconnects before every turn. */
   currentTurnStart: TurnStartKind | null
@@ -2058,6 +2060,7 @@ export interface ToolResultAudio {
 }
 
 export type NormalizedEvent =
+  | { type: 'provider_startup'; startup: ProviderStartup }
   | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }

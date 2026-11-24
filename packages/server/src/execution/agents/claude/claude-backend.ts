@@ -377,6 +377,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         abortController,
         onMcpApp: request.persistence === 'session' ? claudeAppSaver(() => handle.sessionId) : undefined,
         cliSkip: request.cliSkip,
+        reportStartupPhase: sessionState?.reportStartupPhase,
         onTurnComplete: checkpointTarget
           ? (facts) => endTurnCheckpoint(checkpointTarget, { ...facts, traceId: sessionState?.turnTraceId })
           : undefined,

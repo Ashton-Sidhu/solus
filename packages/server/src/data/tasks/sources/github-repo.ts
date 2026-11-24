@@ -1,10 +1,13 @@
 import { z } from 'zod'
 import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate } from '@solus/contracts/task-types'
-import { createRepoIssue, GitHubTaskProvider, listRepoAssignees, withoutProjectScope } from '../providers/github'
+import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
+import { createRepoIssue, GitHubTaskProvider, listRepoAssignees } from '../providers/github'
+import { readGithubIssues, searchGithubIssues } from '../providers/github-planning-status'
 import {
   issueToTask,
+  planningColumn,
+  planningStatusesOf,
   repoSourceItem,
   restIssueToTask,
   type ListIssuesResponse,
@@ -27,13 +30,12 @@ function repoSource(source: TaskSource): RepoSource {
   return source
 }
 
-function closesIssue(columnId: string): boolean {
-  if (columnId === 'closed') return true
-  if (columnId === 'open') return false
-  throw new Error(`A GitHub repository has the columns Open and Closed only, not ${columnId}.`)
-}
+const LEGACY_COLUMNS: TaskColumn[] = [
+  { id: 'open', name: 'Open', category: 'open' },
+  { id: 'closed', name: 'Closed', category: 'done' },
+]
 
-/** The issues of one GitHub repository. Its columns are the two states of an issue. */
+/** The issues of one GitHub repository, grouped by its own states. */
 export class GitHubRepoSource implements TaskSourceAdapter {
   readonly kind = 'github-repo' as const
 
@@ -50,20 +52,23 @@ export class GitHubRepoSource implements TaskSourceAdapter {
       : { state: 'OPEN' as const, cursor: null }
     return this.run('list_github_tasks', async ({ graphql }) => {
       const items: SourceItem[] = []
+      let columns = LEGACY_COLUMNS
       let state = start.state
       let cursor = start.cursor
       let nextCursor: string | null = null
       // Four physical pages bound a click even if GitHub returns short pages.
       for (let pageIndex = 0; pageIndex < 4; pageIndex++) {
-        const res: ListIssuesResponse = await withoutProjectScope((queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor }))
+        const res: ListIssuesResponse = await readGithubIssues((queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor }))
+        const statuses = planningStatusesOf(res.repository)
+        if (pageIndex === 0 && statuses.length) columns = statuses.map(planningColumn)
         const page = res.repository.issues
-        items.push(...page.nodes.map((node) => repoSourceItem(issueToTask(node))))
+        items.push(...page.nodes.map((node) => repoSourceItem(issueToTask(node), columns !== LEGACY_COLUMNS)))
         if (page.pageInfo.hasNextPage) cursor = page.pageInfo.endCursor
         else if (state === 'OPEN') { state = 'CLOSED'; cursor = null }
         else { nextCursor = null; break }
         nextCursor = JSON.stringify({ state, cursor })
       }
-      return { label: `${owner}/${repo}`, columns: [{ id: 'open', name: 'Open', category: 'open' }, { id: 'closed', name: 'Closed', category: 'done' }], writeState: null, items, truncated: nextCursor !== null, nextCursor }
+      return { label: `${owner}/${repo}`, columns, writeState: null, items, truncated: nextCursor !== null, nextCursor }
     })
   }
 
@@ -74,9 +79,12 @@ export class GitHubRepoSource implements TaskSourceAdapter {
    */
   async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     const { owner, repo } = repoSource(source)
-    return this.run('search_github_tasks', async ({ rest }) => {
+    return this.run('search_github_tasks', async ({ rest, graphql }) => {
+      const q = [`repo:${owner}/${repo}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : involvement === 'mentioned' ? 'mentions:@me' : '', query.trim()].filter(Boolean).join(' ')
+      const results = await searchGithubIssues(graphql, q)
+      if (results) return results
       const response = await rest.search.issuesAndPullRequests({
-        q: [`repo:${owner}/${repo}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : involvement === 'mentioned' ? 'mentions:@me' : '', query.trim()].filter(Boolean).join(' '),
+        q,
         sort: 'updated',
         order: 'desc',
         per_page: 100,
@@ -96,13 +104,17 @@ export class GitHubRepoSource implements TaskSourceAdapter {
     if (draft.priority || draft.dueDate) {
       throw new Error('A new GitHub issue takes no priority or due date. Set them on a GitHub Project.')
     }
-    const closed = draft.columnId !== undefined && closesIssue(draft.columnId)
-    return repoSourceItem(await createRepoIssue(this.run, { owner, repo }, draft, closed))
+    const { columnId } = draft
+    const statusId = columnId && columnId !== 'open' && columnId !== 'closed' ? columnId : undefined
+    return repoSourceItem(await createRepoIssue(this.run, { owner, repo }, draft, columnId === 'closed', statusId))
   }
 
   async move(input: SourceMove): Promise<ProviderTask | null> {
     repoSource(input.source)
-    return this.provider.setState(input.home, closesIssue(input.columnId) ? 'done' : 'open')
+    if (input.columnId === 'open' || input.columnId === 'closed') {
+      return this.provider.setState(input.home, input.columnId === 'closed' ? 'done' : 'open')
+    }
+    return this.provider.setNamedStatus(input.home, input.columnId)
   }
 
   async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {

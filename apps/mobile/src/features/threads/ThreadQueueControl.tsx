@@ -1,8 +1,8 @@
-import { hostQueuedRuns, hostQueueMessage } from "../../solus/queue-messages";
+import { beginHostQueuedRunEdit, hostQueueMessage } from "../../solus/queue-messages";
 import { isUploadImage, uploadImagePreview } from "../../solus/upload-images";
 import { resolveConversationImage } from "../../solus/ConversationMedia";
-import { solus } from "../../solus/runtime";
-import { isSessionBusyStatus } from "@solus/contracts/types";
+import { useSessionStore } from "../../solus/use-session-controller";
+import { isSteerableStatus } from "@solus/contracts/types";
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { useAtomValue } from "@effect/atom-react";
@@ -139,7 +139,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const insets = useSafeAreaInsets();
   const gt = useGT();
   const m = useMessages();
-  const store = solus.openConversation(target.environmentId, target.threadId);
+  const store = useSessionStore(target);
   const meta = useSyncExternalStore(
     store?.meta.subscribe ?? (() => () => {}),
     store?.metaSnapshotOf ?? (() => null),
@@ -149,7 +149,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     ? {
         isHeld: meta.queue.held,
         canSendNow: false,
-        canPromoteToSteer: !meta.queue.held && isSessionBusyStatus(meta.status),
+        canPromoteToSteer: !meta.queue.held && isSteerableStatus(meta.status),
         promoteSkipsCompaction: false,
       }
     : upstream;
@@ -158,7 +158,8 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const pendingRequests = useAtomValue(environmentThreadDetails.pendingRequestsAtom(target));
   const editBlockedReason = queuedRunEditBlockedReason(
     {
-      openQuestionCount: meta?.questions.length ?? pendingRequests?.userInputs.length ?? 0,
+      openQuestionCount: meta?.questions.filter((question) => !question.expired).length ??
+        pendingRequests?.userInputs.length ?? 0,
     },
     m,
   );
@@ -173,24 +174,27 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const [busyRunId, setBusyRunId] = useState<RunId | null>(null);
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const busyRef = useRef(false);
+  const mayChangeQueue = store?.controller.mayDrive ?? true;
   const queuedRuns = meta
-    ? meta.queue.entries.map((entry) => {
-        const message = hostQueueMessage(
-          target.environmentId,
-          target.threadId,
-          entry,
-          (path, refresh) =>
-            resolveConversationImage(store!, path, refresh).then((source) => source.uri),
-        );
-        return {
-          run: { id: RunId.make(entry.queueId), freshContext: false },
-          text: entry.text,
-          messageId: message.messageId,
-          context: undefined,
-          message: null,
-          attachments: message.hostQueue.attachments,
-        };
-      })
+    ? meta.queue.entries
+        .filter((entry) => entry.kind !== "provider_switch")
+        .map((entry) => {
+          const message = hostQueueMessage(
+            target.environmentId,
+            target.threadId,
+            entry,
+            (path, refresh) =>
+              resolveConversationImage(store!, path, refresh).then((source) => source.uri),
+          );
+          return {
+            run: { id: RunId.make(entry.queueId), freshContext: false },
+            text: entry.text,
+            messageId: message.messageId,
+            context: undefined,
+            message: null,
+            attachments: message.hostQueue.attachments,
+          };
+        })
     : (upstream?.queuedRuns ?? []);
 
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
@@ -204,11 +208,20 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   }, [navigation, queuedRuns.length]);
 
   const act = async (runId: RunId, action: QueueAction) => {
-    if (busyRef.current) return;
+    if (busyRef.current || (store && !store.controller.mayDrive)) return;
     const index = queuedRuns.findIndex(({ run }) => run.id === runId);
     if (index < 0) return;
     if (action === "edit") {
       if (editBlockedReason !== null) return;
+      if (store) {
+        if (beginHostQueuedRunEdit(store, target, runId, (path, refresh) =>
+          resolveConversationImage(store, path, refresh).then((source) => source.uri),
+        )) {
+          void Haptics.selectionAsync();
+          navigation.goBack();
+        }
+        return;
+      }
       const entry = queuedRuns[index]!;
       void Haptics.selectionAsync();
       beginQueuedRunEdit(
@@ -217,21 +230,17 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
           runId,
           messageId: entry.messageId,
           originalText: entry.text,
-          hostRevision: meta?.queue.entries[index]?.revision ?? 0,
           existingAttachments: entry.attachments,
           ...(entry.context ? { context: entry.context } : {}),
         },
-        store
-          ? hostQueuedRuns(store)
-          : makeQueuedRunsAtom({
-              threadId: target.threadId,
-              snapshot: threadEnvironment.snapshotAtom(target.environmentId),
-              detailStatus: environmentThreadDetails.statusAtom(target),
-              runs: Atom.make(
-                (get) =>
-                  get(environmentThreadDetails.quietThreadAtom(target))?.projection.runs ?? null,
-              ),
-            }),
+        makeQueuedRunsAtom({
+          threadId: target.threadId,
+          snapshot: threadEnvironment.snapshotAtom(target.environmentId),
+          detailStatus: environmentThreadDetails.statusAtom(target),
+          runs: Atom.make(
+            (get) => get(environmentThreadDetails.quietThreadAtom(target))?.projection.runs ?? null,
+          ),
+        }),
       );
       navigation.goBack();
       return;
@@ -242,10 +251,11 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
     void Haptics.selectionAsync();
     if (store && meta) {
       try {
+        if (!hostEntry) return;
         await store.controller.changeQueue({
           kind: action,
           queueId: runId,
-          revision: meta.queue.entries[index]?.revision ?? 0,
+          revision: hostEntry.revision ?? 0,
         });
       } catch (error) {
         Dialog.alert(gt("Queue"), String(error));
@@ -297,9 +307,9 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
           </Text>
           <Button
             label={gt("Resume queue")}
-            disabled={resuming || busyRunId !== null}
+            disabled={resuming || busyRunId !== null || !mayChangeQueue}
             onPress={async () => {
-              if (busyRef.current) return;
+              if (busyRef.current || (store && !store.controller.mayDrive)) return;
               busyRef.current = true;
               setResuming(true);
               if (store) {
@@ -341,7 +351,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
       ) : null}
       {queuedRuns.map(({ run, text, attachments, context, message }, index) => {
         const controls = resolveThreadQueueRowControls({
-          busy: busyRunId !== null,
+          busy: busyRunId !== null || !mayChangeQueue,
           // A fresh message starts its own turn: it may skip compaction, but not steer into a turn.
           canPromoteToSteer:
             (workflow?.canPromoteToSteer ?? false) &&

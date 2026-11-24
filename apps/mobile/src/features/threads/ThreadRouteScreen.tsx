@@ -25,7 +25,11 @@ import { InspectorContentScope, ThreadInspectorPreview } from "./thread-inspecto
 import { ThreadInspectorHeader, type ThreadInspectorPresentation } from "./thread-inspector-header";
 import type { ThreadInspectorTarget } from "./thread-inspector-navigation";
 import { submittedThreadParams, type NewTaskDraftRouteParams } from "./thread-route-state";
-import { OpeningThreadLoadingScreen, ThreadUnavailableScreen } from "./ThreadRouteStateScreens";
+import {
+  InspectorHeaderShownContext,
+  OpeningThreadLoadingScreen,
+  ThreadUnavailableScreen,
+} from "./ThreadRouteStateScreens";
 
 type ThreadRouteScreenRouteProps = StaticScreenProps<{
   readonly environmentId?: string;
@@ -70,6 +74,7 @@ function ThreadRouteContent(props: ThreadRouteScreenProps) {
   const route = props.route.params;
   const navigation = useNavigation();
   const goBack = useAndroidWorkspaceBack();
+  const gt = useGT();
   const savedHost =
     session.kind === "ready" && session.isDraft && session.saved ? session.hostId : null;
   const savedThread = session.kind === "ready" ? session.id : null;
@@ -99,22 +104,38 @@ function ThreadRouteContent(props: ThreadRouteScreenProps) {
           />
         ) : null}
         <ThreadScreenHost>
-          {session.kind === "loading" ? (
-            <OpeningThreadLoadingScreen />
-          ) : session.kind === "unavailable" ? (
-            <ThreadUnavailableScreen
-              detail={session.detail}
-              actionLabel={session.hostId ? "Back to sessions" : "Connect an environment"}
-              onAction={
-                session.hostId ? goBack : () => navigation.navigate("SettingsEnvironmentNew")
-              }
-            />
-          ) : (
+          {session.kind === "ready" ? (
             <ThreadContent
               key={JSON.stringify([session.hostId, session.id])}
               session={session}
               route={props}
             />
+          ) : (
+            <InspectorHeaderShownContext value={props.inspectorPresentation !== undefined}>
+              {props.inspectorPresentation ? (
+                <ThreadInspectorHeader title={gt("Thread")} {...props.inspectorPresentation} />
+              ) : null}
+              {session.kind === "loading" ? (
+                <OpeningThreadLoadingScreen />
+              ) : (
+                <ThreadUnavailableScreen
+                  detail={session.detail}
+                  actionLabel={
+                    session.recovery?.kind === "reconnect"
+                      ? gt("Reconnect environment")
+                      : session.recovery?.kind === "retry"
+                        ? gt("Try again")
+                        : session.hostId
+                          ? gt("Back to sessions")
+                          : gt("Connect an environment")
+                  }
+                  onAction={
+                    session.recovery?.run ??
+                    (session.hostId ? goBack : () => navigation.navigate("SettingsEnvironmentNew"))
+                  }
+                />
+              )}
+            </InspectorHeaderShownContext>
           )}
         </ThreadScreenHost>
       </TurnDiffReader.Provider>

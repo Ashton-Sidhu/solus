@@ -17,8 +17,9 @@ import type { PendingApproval } from "../../lib/threadActivity";
 
 export interface PendingApprovalCardProps {
   readonly canOperateThread: boolean;
-  readonly approval: PendingApproval;
+  readonly approval: Omit<PendingApproval, "createdAt">;
   readonly respondingApprovalId: RuntimeRequestId | null;
+  readonly expiredReason?: string;
   readonly onRespond: (
     requestId: RuntimeRequestId,
     decision: ProviderApprovalDecision,
@@ -47,6 +48,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
       reason={props.approval.reason}
       warning={warning}
       canRespond={canRespond}
+      expiredReason={props.expiredReason}
       mayApprove={props.canOperateThread}
       disabled={disabled}
       options={options.map((option) => ({

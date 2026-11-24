@@ -1,5 +1,6 @@
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 import type { RunLedger } from '../../data/sessions/run-ledger'
 import { SessionRequestQueue, type QueuedRequest } from './session-request-queue'
 import { sessionQueueMutationSchema, type SessionQueueMutation, type SessionQueueSnapshot } from '@solus/contracts/session-queue'
@@ -11,7 +12,7 @@ import { runInputFromContext } from '../agents/run-input'
 import { actingPreferences } from '../person-preferences'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import type { NormalizedEvent, IpcContext, QueuedPromptSnapshot, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
+import type { BackendSession, NormalizedEvent, IpcContext, QueuedPromptSnapshot, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
 import { isSessionBusyStatus, isSteerableStatus, MODEL_PROFILES } from '@solus/contracts/types'
 import { HOST_ACTOR, type Actor } from '../../admission/actor'
 import type { ActivityKind } from '@solus/contracts/activity'
@@ -212,12 +213,15 @@ export class RunScheduler {
       this.requestQueue.save(sessionId)
       this.processQueueForSession(sessionId)
     } else {
+      const policy = mutation.kind === 'edit' && mutation.selection
+        ? hostPolicies().forWork(await organizationOfSession(sessionId))
+        : undefined
       const entry = this.requestQueue.get(sessionId)?.find((item) => item.queueId === mutation.queueId)
       if (!entry || (entry.revision ?? 0) !== mutation.revision) {
         throw new Error('This queue entry changed or started. Refresh the queue before editing it.')
       }
       if (this.reservedQueueEntries.has(entry.queueId)) throw new Error('This queue entry is being delivered. Wait for the provider to answer.')
-      await this.changeQueueEntry(entry, mutation, actor)
+      await this.changeQueueEntry(entry, mutation, actor, policy)
     }
     this.publishQueue(sessionId)
     return this.queueSnapshot(sessionId)
@@ -228,7 +232,7 @@ export class RunScheduler {
   }
 
   private async changeQueueEntry(entry: QueuedRequest,
-    mutation: Exclude<SessionQueueMutation, { kind: 'switch' | 'resume' }>, actor: Actor): Promise<void> {
+    mutation: Exclude<SessionQueueMutation, { kind: 'switch' | 'resume' }>, actor: Actor, policy?: WorkPolicy): Promise<void> {
     if (mutation.kind === 'remove') {
       this.cancelQueued(entry.sessionId, entry.queueId, actor)
       this.processQueueForSession(entry.sessionId)
@@ -236,13 +240,16 @@ export class RunScheduler {
       this.requestQueue.move(entry.sessionId, entry.queueId, mutation.beforeQueueId)
       this.rebindQueue(entry.sessionId)
     } else if (mutation.kind === 'edit') {
-      this.requestQueue.edit(entry, mutation)
+      this.requestQueue.edit(entry, mutation, undefined, this.defaultModelForEdit(entry, mutation, policy))
       this.recordHeldPromptChange(entry, actor, 'edited')
     } else {
       if (entry.kind === 'provider_switch' || entry.held) throw new Error('Resume the queue before steering a prompt.')
       const active = this.rt.activeSessions.get(entry.sessionId)
       if (!active?.agentSessionId || !isSteerableStatus(active.status)) throw new Error('There is no active turn to steer.')
       if (entry.run.input.provider !== active.backendId) throw new Error('A prompt cannot steer across a queued provider switch.')
+      if (entry.hasEditedModel && !usesActiveModel(entry.run.input, active.runInput)) {
+        throw new Error('This prompt has different model settings. It can run after the active turn.')
+      }
       const author = entry.run.actor?.user ?? entry.author
       if (author && (!actor.user || !sameUser(author.id, actor.user.id))) throw new Error('Only its author can promote a prompt to steering.')
       // Reserve the entry while the provider answers. A concurrent edit cannot
@@ -266,6 +273,17 @@ export class RunScheduler {
       this.rt.publish(entry.sessionId, { type: 'prompt_dequeued', queueId: entry.queueId })
       void accepted.done.then(() => entry.resolve(), (error) => entry.reject(error))
     }
+  }
+
+  private defaultModelForEdit(entry: QueuedRequest, mutation: Extract<SessionQueueMutation, { kind: 'edit' }>, policy: WorkPolicy | undefined): string | undefined {
+    if (!mutation.selection) return undefined
+    if (!policy) throw new Error('A model edit requires the session policy.')
+    const { provider, modelConfig } = mutation.selection
+    if (modelConfig.modelId === AUTO_MODEL_ID) throw new Error('Choose a specific model for this queued prompt.')
+    const metadata = this.rt.backendFor(provider).metadata
+    enforce(policy.runDenial({ provider, model: modelConfig.modelId ?? metadata.defaultModel, mode: entry.run.input.permissionMode }))
+    if (metadata.available === false) throw new Error(metadata.unavailableReason ?? 'This provider is unavailable on the host.')
+    return metadata.defaultModel
   }
 
   /** @deprecated plans/021: a provider change happens when a prompt on another
@@ -436,6 +454,14 @@ export class RunScheduler {
       const session = this.rt.activeSessions.get(req.sessionId)
       if (session && (isSessionBusyStatus(session.status) || (!!session.agentSessionId && this.rt.backendFor(session.backendId).isSessionRunning(session.agentSessionId)))) return false
     }
+    // An open query uses the current model options. A prompt with a new choice
+    // waits for the query to close before it can start with its own settings.
+    if (req.hasEditedModel) {
+      const session = this.rt.activeSessions.get(req.sessionId)
+      if (session?.agentSessionId && session.backendId === req.run.input.provider
+        && hasOpenBackgroundQuery(session) && !usesActiveModel(req.run.input, session.runInput)
+        && this.rt.backendFor(session.backendId).isSessionRunning(session.agentSessionId)) return false
+    }
     if (req.reason !== 'rate_limit') return true
     if (!req.rateLimitSessionId) return true
     const event = this.rt.rateLimitPark.rateLimits.current(req.rateLimitSessionId, Date.now() / 1000)
@@ -498,8 +524,9 @@ export class RunScheduler {
     // A session with background work still has its provider query open. A
     // second run would resume the same thread beside it, so the prompt goes into
     // the open query; a fresh run is only the fallback once that query has closed.
-    const lifecycle = dispatchSession && hasOpenBackgroundQuery(dispatchSession) && dispatchSession.agentSessionId && dispatchSession.backendId === freshProvider
-      ? this.rt.launcher.steerActiveTurn(run, dispatchSession.agentSessionId, dispatchSession)
+    const backgroundThreadId = dispatchSession && queuedBackgroundThread(req, dispatchSession)
+    const lifecycle = dispatchSession && backgroundThreadId
+      ? this.rt.launcher.steerActiveTurn(run, backgroundThreadId, dispatchSession)
         .then((steered) => steered ?? this.rt.launcher.startRunLifecycle(run))
       : this.rt.launcher.startRunLifecycle(run)
     lifecycle
@@ -537,4 +564,15 @@ export class RunScheduler {
         author: r.run.actor?.user ?? r.author,
       }))
   }
+}
+
+function usesActiveModel(input: SessionRunInput, active: SessionRunInput | undefined): boolean {
+  return !!active && input.model === active.model && input.reasoningEffort === active.reasoningEffort
+    && input.contextWindow === active.contextWindow && input.fastMode === active.fastMode
+}
+
+function queuedBackgroundThread(entry: QueuedRequest, session: BackendSession): string | null {
+  if (!hasOpenBackgroundQuery(session) || session.backendId !== entry.run.input.provider) return null
+  if (entry.hasEditedModel && !usesActiveModel(entry.run.input, session.runInput)) return null
+  return session.agentSessionId
 }

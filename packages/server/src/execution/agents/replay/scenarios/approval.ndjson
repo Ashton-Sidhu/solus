@@ -1,0 +1,7 @@
+{"kind":"scenario","label":"Write approval"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"tool_call","toolName":"Bash","toolId":"write-probe","index":0}}
+{"kind":"event","event":{"type":"tool_call_complete","index":0,"toolId":"write-probe","toolInput":"{\"command\":\"printf 'codex app-server approval fixture' > .codex-probe-write-action.txt\"}"}}
+{"kind":"event","event":{"type":"permission_request","questionId":"write-probe-approval","toolName":"Bash","toolUseId":"write-probe","toolDescription":"Write probe file","toolInput":{"command":"printf 'codex app-server approval fixture' > .codex-probe-write-action.txt"},"options":[{"id":"allow","label":"Allow once","kind":"allow"},{"id":"allow-session","label":"Allow for session","kind":"allow"},{"id":"deny","label":"Reject","kind":"deny"}]}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"write-probe","content":"Command exited with code 0."}}
+{"kind":"event","event":{"type":"text_chunk","text":"Created the requested probe file."}}

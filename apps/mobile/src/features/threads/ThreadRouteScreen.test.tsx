@@ -2,7 +2,13 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
-const state = vi.hoisted(() => ({ draft: true, navigate: vi.fn() }));
+type SessionKind = "ready" | "loading" | "unavailable";
+
+const state = vi.hoisted(() => ({
+  draft: true,
+  sessionKind: "ready" as SessionKind,
+  navigate: vi.fn(),
+}));
 vi.mock("@react-navigation/native", () => ({
   useNavigation: () => ({ navigate: state.navigate }),
   StackActions: {},
@@ -13,15 +19,19 @@ vi.mock("@solus-mobile/app/app-context", () => ({
 }));
 vi.mock("../../solus/runtime", () => ({ solus: {} }));
 vi.mock("../../solus/use-thread-session", () => ({
-  useThreadSession: () => ({
-    kind: "ready",
-    hostId: "host",
-    id: "session",
-    store: { controller: {} },
-  }),
+  useThreadSession: () =>
+    state.sessionKind === "ready"
+      ? {
+          kind: "ready",
+          hostId: "host",
+          id: "session",
+          store: { controller: {} },
+        }
+      : { kind: state.sessionKind, hostId: "host" },
 }));
 vi.mock("../layout/workspace/useAndroidWorkspaceNavigation", () => ({
   useAndroidWorkspaceBack: () => () => {},
+  useWorkspaceBackNavigation: () => () => {},
 }));
 vi.mock("../../solus/use-thread-screen-data", () => ({
   useThreadScreenData: () => ({
@@ -60,10 +70,22 @@ vi.mock("../../components/ui/ScreenContent", () => ({
 vi.mock("./thread-inspector-preview", () => ({
   InspectorContentScope: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock("./thread-inspector-header", () => ({ ThreadInspectorHeader: () => null }));
-vi.mock("./ThreadRouteStateScreens", () => ({
-  OpeningThreadLoadingScreen: () => null,
-  ThreadUnavailableScreen: () => null,
+vi.mock("./thread-inspector-header", () => ({
+  ThreadInspectorHeader: ({ onClose }: { onClose: () => void }) => (
+    <button onClick={onClose}>Close thread</button>
+  ),
+}));
+vi.mock("../../components/ui/AppBar", () => ({
+  AppBar: () => <button>Back to list</button>,
+}));
+vi.mock("../../components/ui/ScreenScrollView", () => ({
+  ScreenScrollView: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock("../../components/ui/EmptyState", () => ({
+  EmptyState: ({ title }: { title: string }) => <span>{title}</span>,
+}));
+vi.mock("../../components/LoadingScreen", () => ({
+  LoadingScreen: ({ message }: { message: string }) => <span>{message}</span>,
 }));
 vi.mock("./NewTaskHero", () => ({
   draftHeroContent: () => () => null,
@@ -116,5 +138,39 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
     });
   } finally {
     act(() => root.unmount());
+    state.draft = true;
+  }
+});
+
+it("keeps the inspector close control while a thread loads or is unavailable", () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const onClose = vi.fn();
+  const render = (sessionKind: SessionKind) => {
+    state.sessionKind = sessionKind;
+    act(() =>
+      root.render(
+        <ThreadRouteScreen
+          route={{ params: { environmentId: "host", threadId: "session" } }}
+          inspectorPresentation={{ onClose }}
+        />,
+      ),
+    );
+  };
+  try {
+    render("loading");
+    expect(container.textContent).toContain("Opening thread");
+    expect(container.querySelector("button")?.textContent).toBe("Close thread");
+    render("unavailable");
+    expect(container.textContent).toContain("Thread unavailable");
+    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+      "Close thread",
+    ]);
+    act(() => container.querySelector("button")!.click());
+    expect(onClose).toHaveBeenCalledOnce();
+  } finally {
+    act(() => root.unmount());
+    state.sessionKind = "ready";
   }
 });

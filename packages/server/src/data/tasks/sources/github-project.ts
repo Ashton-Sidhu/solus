@@ -3,11 +3,13 @@ import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
 import { githubProjectOptionCategory } from '../status-category'
 import { githubUserId, readDraftItem } from '../providers/github'
+import { searchGithubIssues, withPlanningStatus } from '../providers/github-planning-status'
 import {
   ADD_DRAFT_MUTATION,
   draftToTask,
   issueToTask,
   PROJECT_QUERY,
+  PROJECT_STATUS_QUERY,
   pushToCap,
   restIssueToTask,
   SET_PROJECT_FIELD_MUTATION,
@@ -75,7 +77,8 @@ export class GitHubProjectSource implements TaskSourceAdapter {
       let pages = 0
       for (;;) {
         pages++
-        const res: ProjectResponse = await graphql<ProjectResponse>(PROJECT_QUERY, { owner, number, cursor })
+        const res: ProjectResponse = await withPlanningStatus((preview) =>
+          graphql<ProjectResponse>(preview ? PROJECT_STATUS_QUERY : PROJECT_QUERY, { owner, number, cursor }))
         const project = res.repositoryOwner?.projectV2
         if (!project) {
           throw new TaskProviderError(
@@ -118,8 +121,11 @@ export class GitHubProjectSource implements TaskSourceAdapter {
   async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     if (involvement !== 'all') {
       const { owner, number } = projectSource(source)
-      return this.run('search_github_project_involvement', async ({ rest }) => {
-        const response = await rest.search.issuesAndPullRequests({ q: [`project:${owner}/${number}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : 'mentions:@me', query.trim()].filter(Boolean).join(' '), per_page: 100, sort: 'updated' })
+      return this.run('search_github_project_involvement', async ({ rest, graphql }) => {
+        const q = [`project:${owner}/${number}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : 'mentions:@me', query.trim()].filter(Boolean).join(' ')
+        const results = await searchGithubIssues(graphql, q)
+        if (results) return results
+        const response = await rest.search.issuesAndPullRequests({ q, per_page: 100, sort: 'updated' })
         return response.data.items.map((issue) => {
           const match = /\/repos\/([^/]+)\/([^/]+)$/.exec(issue.repository_url)
           if (!match) throw new Error('GitHub returned an issue without a repository.')

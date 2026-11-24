@@ -16,18 +16,6 @@ export interface PendingPermission {
   expired?: RequestExpiry
 }
 
-/**
- * The permission the composer's text denies, as feedback to the agent that
- * asked: the one the card shows, while it is open and its provider takes a
- * denial message (Claude). Any other request leaves the composer ordinary.
- */
-export function permissionForFeedback(permissions: readonly PendingPermission[]): { questionId: string; denyOptionId: string } | null {
-  const request = permissions[0]
-  if (!request || request.expired || !request.supportsFeedback) return null
-  const deny = request.options.find((option) => option.kind === 'deny')
-  return deny ? { questionId: request.questionId, denyOptionId: deny.id } : null
-}
-
 export interface PendingQuestion {
   questionId: string
   questions: QuestionItem[]

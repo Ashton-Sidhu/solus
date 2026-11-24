@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -44,6 +45,45 @@ function heldClient(held: string, response: object) {
 }
 
 describe('Codex Stop before the turn starts', () => {
+  test('reports resume and thread-scoped MCP startup only before the turn opens', async () => {
+    const backend = new CodexBackend()
+    const client = heldClient('thread/resume', { thread: { id: 'thread-1' } })
+    Reflect.set(backend, 'client', client)
+    const phases: ProviderStartupPhase[] = []
+    const initialized = Promise.withResolvers<void>()
+    const notification = Reflect.get(backend, 'onNotification')
+    const mcp = (threadId: string, name: string, status: 'starting' | 'ready') => notification.call(backend, {
+      method: 'mcpServer/startupStatus/updated', params: { threadId, name, status },
+    }, client)
+    backend.on('normalized', (_id, event) => {
+      if (event.type === 'session_init') initialized.resolve()
+    })
+    const handle = backend.startRun({ ...request, conversation: { kind: 'resume', threadId: 'thread-1' } }, {
+      sessionId: 'session', reportStartupPhase: (phase) => phases.push(phase),
+    })
+    await client.reached
+    mcp('thread-2', 'other', 'starting')
+    mcp('thread-1', 'one', 'starting')
+    mcp('thread-1', 'two', 'starting')
+    expect(phases).toEqual(['resuming'])
+    client.release()
+    await initialized.promise
+    expect(phases.at(-1)).toBe('mcp')
+    mcp('thread-1', 'one', 'ready')
+    expect(phases.at(-1)).toBe('mcp')
+    notification.call(backend, {
+      method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+    }, client)
+    expect(phases.at(-1)).toBe('waiting')
+    const beforeLateStatus = phases.length
+    mcp('thread-1', 'late', 'starting')
+    expect(phases).toHaveLength(beforeLateStatus)
+    notification.call(backend, {
+      method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'interrupted' } },
+    }, client)
+    await handle.runPromise
+  })
+
   test('Stop during thread/start settles the run so its app-server and launcher are released', async () => {
     const backend = new CodexBackend()
     const client = heldClient('thread/start', { thread: { id: 'thread-1' }, model: 'gpt-5.6-sol' })

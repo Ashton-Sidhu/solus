@@ -962,6 +962,7 @@ export class RunLauncher {
       settledTurnId: existingSession?.settledTurnId,
     })
     this.rt.statuses.setStatus(sessionId, newStatus, true)
+    this.rt.publish(sessionId, { type: 'provider_startup', startup: { provider, phase: 'starting' } })
     this.rt.statuses.notifyActiveWork()
     // A prompt is work: a settled session is active again, and back in the
     // list of the person the turn is for.
@@ -1108,6 +1109,7 @@ export class RunLauncher {
       // `await`: the call is synchronous, and suspending here would move
       // handle registration into a later microtask, which the dispatch
       // sequence around it depends on not happening.
+      const launchedSession = this.rt.activeSessions.get(sessionId)
       const agentRun = dispatchStepSync('agent_launch', {
         provider,
         model: effectiveInput.model ?? '',
@@ -1157,6 +1159,11 @@ export class RunLauncher {
         sessionId,
         // Empty when tracing is off; the snapshot then records no trace.
         turnTraceId: turnTraceId || undefined,
+        reportStartupPhase: (phase) => {
+          if (turn.signal.aborted || !launchedSession || this.rt.activeSessions.get(sessionId) !== launchedSession
+            || (launchedSession.status !== 'connecting' && launchedSession.status !== 'running')) return
+          this.rt.publish(sessionId, { type: 'provider_startup', startup: { provider, phase } })
+        },
       }))
       handle = agentRun.handle
       this.stopsWithTurn(turn, sessionId, backend, handle)

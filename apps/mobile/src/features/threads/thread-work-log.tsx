@@ -1,3 +1,6 @@
+import type { ProviderStartup } from "@solus/contracts/provider-startup";
+import { providerStartupLabel } from "@solus/client-core/provider-startup";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import { Button } from "../../components/ui/Button";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -218,6 +221,7 @@ function ShimmerWorkContent(props: {
   readonly environmentId?: EnvironmentId;
   readonly highlighted: boolean;
   readonly icon: WorkContentIcon;
+  readonly iconNode?: ReactNode;
   readonly iconSubtleColor: ColorValue;
   readonly label: string;
   readonly onTextLayout?: ComponentProps<typeof Text>["onTextLayout"];
@@ -229,7 +233,9 @@ function ShimmerWorkContent(props: {
     <View className="flex-row items-center gap-1.5">
       {props.showIcon ? (
         <View className="h-6 w-6 shrink-0 items-center justify-center">
-          {props.toolIcon && props.environmentId ? (
+          {props.iconNode !== undefined ? (
+            props.iconNode
+          ) : props.toolIcon && props.environmentId ? (
             <ToolActivityIconView
               environmentId={props.environmentId}
               icon={props.toolIcon}
@@ -268,6 +274,7 @@ export function ShimmeringWorkContent(props: {
   readonly compact?: boolean;
   readonly environmentId?: EnvironmentId;
   readonly icon: WorkContentIcon;
+  readonly iconNode?: ReactNode;
   readonly iconSubtleColor: ColorValue;
   readonly label: string;
   readonly showIcon: boolean;
@@ -289,7 +296,7 @@ export function ShimmeringWorkContent(props: {
 
   // Uses a native Animated value instead of Reanimated, whose per-frame commits
   // starve React's while commit pausing is disabled (package.json). See
-  // docs/internals/performance-regressions.md.
+  // docs/internals/16_performance-regressions.md.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- steps the native shimmer value on timers while visible and active, and stops them on cleanup
   useEffect(() => {
     progress.setValue(0);
@@ -319,6 +326,7 @@ export function ShimmeringWorkContent(props: {
         environmentId={props.environmentId}
         highlighted={false}
         icon={props.icon}
+        iconNode={props.iconNode}
         iconSubtleColor={props.iconSubtleColor}
         label={props.label}
         showIcon={props.showIcon}
@@ -370,6 +378,7 @@ export function ShimmeringWorkContent(props: {
                 environmentId={props.environmentId}
                 highlighted
                 icon={props.icon}
+                iconNode={props.iconNode}
                 iconSubtleColor={props.iconSubtleColor}
                 label={props.label}
                 showIcon={props.showIcon}
@@ -1551,9 +1560,17 @@ export function ThreadThinkingRow(props: {
   readonly label?: string;
   /** Replaces "Thinking" while the provider has not started a turn. */
   readonly providerStartingLabel?: string | undefined;
+  readonly providerStartingDriver?: string | undefined;
+  readonly providerStartup?: ProviderStartup | null;
 }) {
   const gt = useGT();
-  const label = props.providerStartingLabel ?? props.label ?? gt("Thinking");
+  const startup = props.providerStartup;
+  const label = startup
+    ? providerStartupLabel(startup)
+    : (props.providerStartingLabel ?? props.label ?? gt("Thinking"));
+  const driver = startup
+    ? (startup.provider === "claude-code" ? "claudeAgent" : startup.provider)
+    : props.providerStartingDriver;
   return (
     <View
       accessible
@@ -1563,9 +1580,15 @@ export function ThreadThinkingRow(props: {
     >
       <ShimmeringWorkContent
         icon="brain"
+        iconNode={
+          driver === undefined ? undefined : (
+            <View style={{ opacity: 0.7 }}>
+              <ProviderIcon provider={driver} size={14} />
+            </View>
+          )
+        }
         iconSubtleColor={props.iconSubtleColor}
         label={label}
-        showIcon
       />
     </View>
   );

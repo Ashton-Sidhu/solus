@@ -109,6 +109,30 @@ test('moving and removing switches changes subsequent prompt providers', () => {
   expect(queue.get('session')?.[0]?.run.input.model).toBe('claude-sonnet-5')
 })
 
+test('an explicit model edit survives reload and a legacy provider switch ahead of it', () => {
+  const { store } = storage()
+  const queue = new SessionRequestQueue(store)
+  const change = entry('switch', { kind: 'provider_switch' })
+  change.run.input = { ...input, provider: 'codex', model: 'gpt-6-astra', preferredModel: 'gpt-6-astra' }
+  const prompt = entry('prompt')
+  queue.enqueue(change)
+  queue.enqueue(prompt)
+  queue.rebind('session', input)
+  expect(prompt.run.input.provider).toBe('codex')
+  queue.edit(prompt, {
+    kind: 'edit', queueId: prompt.queueId, revision: prompt.revision!, text: prompt.prompt,
+    selection: {
+      provider: 'claude-code',
+      modelConfig: { modelId: 'claude-sonnet-5', reasoningEffort: 'high', contextWindow: 200_000, fastMode: false },
+    },
+  })
+  const restored = new SessionRequestQueue(store)
+  restored.rebind('session', input)
+  expect(restored.get('session')?.[1]?.run.input).toMatchObject({
+    provider: 'claude-code', model: 'claude-sonnet-5', reasoningEffort: 'high',
+  })
+})
+
 test('a failed disk write cannot consume or silently change an accepted prompt', () => {
   class FailingStore extends RunLedger {
     fail = false
@@ -124,7 +148,15 @@ test('a failed disk write cannot consume or silently change an accepted prompt',
   store.fail = true
   expect(() => queue.claim('session')).toThrow('Disk full')
   expect(() => queue.remove('session', 'first')).toThrow('Disk full')
-  expect(() => queue.edit(pending, { kind: 'edit', queueId: 'first', revision: 0, text: 'Changed' })).toThrow('Disk full')
+  expect(() => queue.edit(pending, {
+    kind: 'edit', queueId: 'first', revision: 0, text: 'Changed',
+    selection: {
+      provider: 'codex',
+      modelConfig: { modelId: 'gpt-6-astra', reasoningEffort: 'high', contextWindow: 1_050_000, fastMode: true },
+    },
+  })).toThrow('Disk full')
+  expect(pending.requestedInput).toEqual(input)
+  expect(pending.hasEditedModel).toBeUndefined()
   expect(queue.get('session')?.[0]?.run.options.prompt).toBe('first')
   expect(queue.get('session')?.[0]?.revision).toBe(0)
   expect(() => queue.rebind('session', { ...input, provider: 'codex', model: 'gpt-6-astra' })).toThrow('Disk full')

@@ -1,3 +1,4 @@
+import type { QueuedModelSelection } from "@solus/contracts/session-queue";
 import type {
   ChatAttachment,
   MessageId,
@@ -30,6 +31,9 @@ import {
 
 export interface QueuedRunEdit {
   readonly hostRevision?: number;
+  readonly hostInitialModel?: QueuedModelSelection;
+  readonly hostModelSelection?: QueuedModelSelection;
+  readonly recoverHostModel?: (selection: QueuedModelSelection) => void;
   readonly runId: RunId;
   readonly messageId: MessageId;
   readonly originalText: string;
@@ -82,7 +86,8 @@ function exitQueuedRunEdit(threadKey: string, edit: QueuedRunEdit): void {
     editChanged:
       editDraft.text !== edit.originalText ||
       editDraft.attachments.length > 0 ||
-      edit.removedExistingAttachment === true,
+      edit.removedExistingAttachment === true ||
+      edit.hostModelSelection !== undefined,
     // A cleared edit has nothing to put back, so it can only be discarded.
     threadDraftEmpty:
       editRestorable &&
@@ -90,6 +95,7 @@ function exitQueuedRunEdit(threadKey: string, edit: QueuedRunEdit): void {
       threadDraft.attachments.length === 0,
   });
   if (recovery === "kept") {
+    if (edit.hostModelSelection) edit.recoverHostModel?.(edit.hostModelSelection);
     // The merge publishes the draft before writing it, so a failed write only delays persistence to the next one.
     mergeComposerDraftContent(threadKey, {
       text: editDraft.text,
@@ -130,6 +136,18 @@ export function beginQueuedRunEdit(
     threadKey,
     { ...edit, originalText },
     { runs, onRunLeftQueue: exitQueuedRunEdit },
+  );
+}
+
+export function selectQueuedRunModel(
+  threadKey: string,
+  draftKey: string,
+  selection: QueuedModelSelection,
+): void {
+  queuedRunEdits.update(threadKey, (edit) =>
+    queuedEditDraftKey(threadKey, edit.runId) === draftKey
+      ? { ...edit, hostModelSelection: selection }
+      : edit,
   );
 }
 

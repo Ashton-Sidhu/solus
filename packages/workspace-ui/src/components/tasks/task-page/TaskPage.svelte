@@ -204,7 +204,7 @@
   // lists the task owns the columns it can move to.
   const locks = $derived(externalIssue ? taskFieldLocks(externalIssue.details.task, true) : storedTask ? taskFieldLocks(storedTask) : null);
   const placements = $derived(task ? taskPlacementLabels(task, taskSourcesStore.sourceByKey) : []);
-  const moveGroups = $derived(task && !externalIssue ? taskMoveGroups(task, taskSourcesStore.sourceByKey) : []);
+  const moveGroups = $derived(task && !externalIssue ? taskMoveGroups(task, taskSourcesStore.sourceByKey, details?.statusOptions) : []);
   const assigneeTarget = $derived({ taskId });
   const labelCandidates = $derived(store.knownLabels);
 

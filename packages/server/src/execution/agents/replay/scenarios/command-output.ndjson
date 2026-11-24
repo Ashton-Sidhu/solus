@@ -1,0 +1,6 @@
+{"kind":"scenario","label":"Command output"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"tool_call","toolName":"Bash","toolId":"command-output-json","index":0}}
+{"kind":"event","event":{"type":"tool_call_complete","index":0,"toolId":"command-output-json","toolInput":"{\"command\":\"node -e 'process.stdout.write(JSON.stringify({stdout:\\\"line 1\\\\n行 2 🚀\\\",stderr:\\\"é warning\\\",interrupted:false,requestId:\\\"keep-me\\\"})+\\\"\\\\n\\\")'\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"command-output-json","content":"{\"stdout\":\"line 1\\n行 2 🚀\",\"stderr\":\"é warning\",\"interrupted\":false,\"requestId\":\"keep-me\"}\n"},"afterMs":300}
+{"kind":"event","event":{"type":"text_chunk","text":"The command printed one JSON line."}}

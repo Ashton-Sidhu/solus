@@ -10,6 +10,17 @@ For an upstream update, compare the new T3 revision with the previous import ove
 
 The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`.
 
+
+## Public T3 Code partial import through 2026-11-24
+
+This import compares public T3 Code main at `a7a6126a7d9b364c0fbef3f7fe1a087c4b004393` with the last full import at `620cf4770d992d642f822a13dc2539c2605a3500`. The full comparison base stays at `620cf4770d992d642f822a13dc2539c2605a3500`. The fork revision records the earlier fork import. The composer path fixes and Live Activity fixes already listed here were reconciled with the public changes.
+
+This import includes file-backed composer photos, the iOS paste preparation and original image formats, media actions on each image page, Android language refresh, the Favorites only model filter, session ordering with disconnected hosts, swipe label spacing, the larger Viewed control in PR diffs, and limits on which links can open in previews. The Solus adapters keep signed resources and the trusted host registry. A manual pairing code uses the shown address. The review sheet passes the revision the user reviewed to the Solus host. The feed keeps the Solus conversation cards, collapsed tool calls, and changed-files summaries.
+
+Pending upstream work includes Workflows and the T3 agent feedback screens, full-text downloads past the host's file preview, the T3 linked-thread paging presentation, and model changes for queued messages. Those paths need the corresponding Solus host operations or adapter behavior. The import keeps the Solus thread route and live checkout confirmation. It takes the Unicode branch label change from the Git menu.
+
+The frozen dependency install, focused mobile tests, native iOS composer tests, and production Expo exports for iOS and Android passed. Both app identifiers were `sh.solus.mobile`. The broad mobile suite, mobile type check, and two host test files still report failures that also occur on the clean Solus revision used for this import.
+
 The model picker sheet, its catalog filter, and its iOS and Android rows match T3 Code revision `9b7f5eb4479c5287340a863407ad083e2fdbeb7a`. The Solus adapter gives the sheet the host's model groups. The default list hides legacy models unless they are selected or favorited. Search and the Show legacy models filter can include them. The picker reads the selected host’s reasoning and Fast Mode options and saves catalog preferences on the project’s provider instance. The scheduled-task picker uses the same host catalog.
 
 The mobile New session project selection and draft headings follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa`. Project picker rows use the upstream icon component and thumbnail cache. The selected Solus host supplies the signed favicon URL.
@@ -28,13 +39,21 @@ The Files routes for drafts and sessions open the same T3 tree and preview scree
 
 Video links in a session use the same Solus host and file access rules as the Files preview. T3's iOS, Android, and inline video players request a fresh signed URL for playback.
 
-The thread route owns the screen host, header, draft layout, and inspector. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
+The thread route owns the screen host, header, draft layout, and inspector. Saved sessions use T3's loading rule and inspector fallback. A session from the phone cache opens through the same account-scoped watch as a session from the list. After the selected host's phone cache has been read, a direct link outside the list uses the scoped session record query. The fallback can retry that query or reconnect the host. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
 
-The composer follows T3's Stop rule. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. The local outbox can show a busy state while the host has yet to take the prompt.
+The composer follows T3's Stop and follow-up dispatch rules. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. T3 chooses between queue and steer at send time. The Solus outbox saves the prompt and the host admits it to the session. The local outbox can show a busy state while the host has yet to take the prompt.
 
 Session navigation now uses the T3 opening hold and queued-creation check. The selected Solus host supplies one account-scoped read and watch to that hold and the screen. Home uses T3's visibility subscription. Home, the tablet sidebar, and arrangement controls share the result of T3's multi-environment shell release rules. The only change to the upstream release algorithm is its TypeScript snapshot type parameter.
 
 The conversation adapter translates messages and ordinary tools into T3 turn items. Solus cards enter at their row position. T3's `buildThreadFeed` handles history and streamed row updates with the same restart cache. Media URLs, tool details, host permissions, and the host replay cursor remain Solus operations. Earlier pages use T3's history metadata and retry state.
+
+Chat uses the provider startup behavior from T3 Code PR #41928. Solus supplies
+the active provider and startup step through the session event stream. Claude
+receives Solus MCP servers as query options and can report its first API request.
+Codex reports thread resume and pre-turn MCP startup. The changed-files card
+from before T3 Code PR #41317 is available in Chat settings. It is off by
+default. Solus supplies the active checkout's turn summary through the host's
+snapshot read. The card opens native Review at that turn.
 
 Solus background command notices mark the start of a turn in the T3 feed. Live notices use the host's origin tag. Saved history uses the same text parser as desktop and web. The compact row opens to show the command and the available output in the thread and in read-only history.
 
@@ -54,6 +73,12 @@ The session review picker follows T3's Changes and Uncommitted choices. The Solu
 
 The mobile Issues list can open a pasted issue URL in the T3 issue screen. The selected Solus host resolves the address and supplies the read-only issue details. The Issues list keeps its existing sources.
 
+The mobile issue screen uses the T3 State menu for GitHub planning statuses.
+The Solus host supplies the status names, checks the viewer's permission and
+accepts the status ID through the task move operation. The Issues list can
+filter loaded rows by planning status. Issue comment author rows already use
+the T3 heading role on iOS and Android.
+
 Solus uses GitHub Octicons for issue and pull request navigation and status icons. The native iOS PNGs and Android drawables match the shared SVG paths in `packages/client-core/src/github-octicons.ts`.
 
 Mobile hides the Usage tab on phones and tablets. The Usage command still opens provider usage limits and uses a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
@@ -66,7 +91,11 @@ Solus keeps pinned sessions at the top of the phone list and tablet sidebar afte
 
 Hosts advertise support for personal session order and the shared auto-settle setting. The list uses T3’s move planner and writes each rank to its owning host. Guest sharing uses a Solus viewer link with a 24-hour lifetime for newly created links. A linked session reads from its paired host or from the signed-in organization’s transcript mirror. The terminal has no Solus host operation.
 
-The queue sheet and T3 pending feed rows read the same Solus queue snapshot. The Agents sheet and its route match T3 Code revision `2fe7febc8d73dda7dcc912e8cca3cd65660a0c9d`. Solus uses live and saved provider results to show the final state and elapsed time when a completion time is available. The row preview skips the provider’s hand-back instructions. A provider-native agent opens T3’s read-only transcript list from the Agents sheet. The execution host resolves the provider call in its parent session and supplies each history page.
+The queue sheet and T3 pending feed rows read the same Solus queue snapshot and start edits through T3's queued-edit store. T3 handles attachment-only draft text and recovery when a run leaves the queue. Solus preserves host file references and submits the opened revision with an edit.
+
+Standard tool approvals use T3's approval card and feedback action. Solus maps each decision back to the original host option ID. Provider-specific choices keep their original buttons. Typing during an approval can send denial feedback only when the provider accepts it. Secret and Add machine requests keep their own host operations.
+
+The Agents sheet and its route match T3 Code revision `2fe7febc8d73dda7dcc912e8cca3cd65660a0c9d`. Solus uses live and saved provider results to show the final state and elapsed time when a completion time is available. The row preview skips the provider’s hand-back instructions. A provider-native agent opens T3’s read-only transcript list from the Agents sheet. The execution host resolves the provider call in its parent session and supplies each history page.
 
 The mobile PR list, detail, activity, diff pages, change breakdown, and review guide use T3’s persisted query lifecycle. A saved query can show its answer while the host reconnects or refreshes it. Solus stores each answer in the phone’s bounded PR cache under the account, organization, host, and query input. Removing a host clears its saved answers. The live list still reads the host’s projects, PRs, and provider viewer.
 
@@ -120,3 +149,8 @@ The Add machine card (`add_host`, question kind `host-link`; `docs/plans/add-mac
 - T3's Connect device approval (`ConnectDeviceApprovalCoordinator`, `connectDeviceApproval.ts`) shows Solus approval requests: `solus.pairApprovals` (`solus-core/features/settings/pair-approvals.ts`) watches each connected host where this phone holds `host.local.reach`. The alert adds **Review**, which opens the host's page. The host's page (`SolusHostDetail`) shows the pairing code and the open requests (`src/solus/HostAccessSection.tsx`). Its `pairCode: "new"` parameter makes a code when the page opens; the card's "Show a code on <name>" link uses it.
 
 The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text. Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
+
+Queued message edits use T3's queue sheet, composer, and model picker. Solus
+loads the queued message's saved options and submits explicit picks with the
+message's revision. A text-only edit keeps the host's saved choice. Runtime mode
+stays with the session.

@@ -53,6 +53,16 @@ function passTurn(slot: ScreenshotSlot): void {
   slot.waiting.shift()?.()
 }
 
+/** A paint request must not queue behind a screenshot or take its place in line. */
+export function nudgeIfIdle(
+  guest: ScreenshotGuest,
+  timeoutMs: number,
+  copy: () => Promise<Electron.NativeImage>,
+): void {
+  if (slotFor(guest).holder !== null) return
+  void captureInTurn(guest, 'capturePage', timeoutMs, copy).catch(() => {})
+}
+
 /**
  * Run `copy` when the guest has no other copy in flight. Rejects after
  * `timeoutMs`, counted from the call, whether the capture waited or ran.

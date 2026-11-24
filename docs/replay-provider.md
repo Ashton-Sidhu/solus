@@ -37,6 +37,13 @@ The scenarios are in `packages/server/src/execution/agents/replay/scenarios/`. T
 | `subagent` | Background sub-agent | `tests/unit/__fixtures__/claude-async-subagent.jsonl` through the Claude normalizer. |
 | `codex-plan` | Codex plan mode | `tests/unit/__fixtures__/codex-plan-mode.jsonl` through the Codex normalizer in plan mode. |
 | `codex-command` | Codex command | `tests/unit/__fixtures__/codex-normal-turn.jsonl` through the Codex normalizer. |
+| `todo-list` | Plan and reads | T3 Code's `todo_list` fixture. Shows a to-do list and two file reads. |
+| `approval` | Write approval | T3 Code's `tool_call_read_only_on_request` fixture. Holds a recorded write for approval. |
+| `question` | Question | T3 Code's `acp_elicitation` fixture. Asks a standalone question with two choices. |
+| `multi-turn` | Multi turn | T3 Code's `multi_turn` fixture. Gives a different answer on each of two turns, then repeats. |
+| `command-output` | Command output | T3 Code's `command_output_transcript.ndjson`. Shows a literal JSON line with Unicode output. |
+
+The five T3 Code scenarios are snapshots of the [upstream model fixtures at `f8d09515`](https://github.com/pingdotgg/t3code/blob/f8d095151c82cd5dee38922e9aa11bdd31e73ec3/apps/server/scripts/dev-replay-agent.ts#L43), translated from ACP frames to Solus events. They use Solus approval option IDs and display recorded tool input and output. Replay does not execute the commands or write the files shown in the recording. The upstream source is covered by the [T3 Tools MIT license](../apps/mobile/LICENSE).
 
 Rate limits are not replayed: a recorded `rate_limit` would park a real session on a reset time that has already passed.
 

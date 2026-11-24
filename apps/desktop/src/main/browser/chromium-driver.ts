@@ -32,6 +32,9 @@ import {
 } from '@solus/server/browser/surface-driver'
 import { BROWSER_GUEST_MARK_SCRIPT } from '@solus/server/browser/guest-mark'
 import { browserGuestStyleScript } from '@solus/server/browser/guest-style'
+import { withTimeout } from './cdp-timeout'
+import { beforeGuestClick, GuestClick, restoreGuestClickFocus } from './guest-click'
+import { GuestPaint } from './guest-paint'
 import { captureInTurn } from './screenshot-slot'
 
 /** Console and log text is rung-buffered and shipped to clients and agents, so
@@ -199,6 +202,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   private guestEvents: BrowserGuestEvents | null = null
   /** The left button between a `down` and an `up`. */
   private mouseButtons = 0
+  private readonly guestClick: GuestClick
+  private readonly guestPaint: GuestPaint
 
   /** Say why, rather than letting the raw debugger throw "Debugger is not
    *  attached" at a user who has an inspector open in front of them. */
@@ -216,6 +221,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     private readonly ownership: GuestOwnership,
   ) {
     this.kind = ownership.kind
+    this.guestClick = new GuestClick(contents)
+    this.guestPaint = new GuestPaint(contents)
   }
 
   /**
@@ -247,6 +254,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     })
     const driver = new ChromiumBrowserDriver(contents, cdp, ownership)
     cdp.on('message', driver.onProtocolMessage)
+    cdp.on('message', driver.guestClick.onTargetMessage)
+    cdp.on('detach', driver.onDebuggerDetach)
     // Downloads land on the host and every client offers them, the pane's own
     // guest included: one place for a page's files, whoever is watching.
     contents.session.on('will-download', driver.onWillDownload)
@@ -326,6 +335,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     await Promise.all(
       DOMAINS.map((method) => withTimeout(this.cdp.sendCommand(method), method, CDP_TIMEOUT_MS)),
     )
+    await withTimeout(this.guestClick.attachFrames(), 'Target.setAutoAttach', SCREENSHOT_TIMEOUT_MS).catch(() => {})
     // A hidden window has no picker a person could see, so its file chooser
     // waits for the files a client sends instead.
     if (this.kind === 'headless') {
@@ -460,16 +470,18 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
    * the page's size, whatever the page shows. So a webview asks its own
    * surface for one fresh frame through a screencast, which disturbs neither.
    *
-   * A capture is a bounded reason to wake a guest only after that read fails.
+   * A capture is a bounded reason to wake a guest only after that read stalls.
    * Disabling background throttling on one webview makes Electron draw the
    * whole BrowserWindow. Doing that before every capture made a quick
    * annotation comment look like both the page and conversation refreshed.
    * Parked pages still get the bounded wake-up and fallbacks below.
    */
   async captureScreenshot(): Promise<string> {
+    this.refuseWhileInspected('Page.captureScreenshot')
     try {
-      if (this.kind === 'webview') return await this.captureScreencastFrame()
-      this.refuseWhileInspected('Page.captureScreenshot')
+      if (this.kind === 'webview') {
+        return await this.guestPaint.whileWaiting(() => this.captureScreencastFrame())
+      }
       const params: CdpCommandParams = { format: 'png', captureBeyondViewport: false, fromSurface: true, optimizeForSpeed: true }
       const capture = () => captureInTurn(
         this.contents,
@@ -662,15 +674,35 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   }
 
   async clickAt(x: number, y: number): Promise<void> {
-    for (const type of ['mousePressed', 'mouseReleased'] as const) {
-      await this.send('Input.dispatchMouseEvent', {
-        type,
-        x,
-        y,
-        button: 'left',
-        buttons: type === 'mousePressed' ? 1 : 0,
-        clickCount: 1,
+    const method = 'Input.dispatchMouseEvent'
+    this.refuseWhileInspected(method)
+    const host = this.kind === 'webview' ? this.contents.hostWebContents : null
+    try {
+      const isForeground = host && !host.isDestroyed()
+        ? await withTimeout(beforeGuestClick(host, this.contents.id), 'read browser pane focus', 1_000).catch(() => false)
+        : false
+      await this.guestPaint.whileWaiting(async () => {
+        const point = await this.guestClick.locate({ x, y }, isForeground)
+        for (const type of ['mousePressed', 'mouseReleased'] as const) {
+          this.refuseWhileInspected(method)
+          const detached = point.frame?.detached.signal
+          if (detached?.aborted) {
+            throw new Error('The frame under the pointer went away during the click.')
+          }
+          await withTimeout(this.cdp.sendCommand(method, {
+            type,
+            x: point.x,
+            y: point.y,
+            button: 'left',
+            buttons: type === 'mousePressed' ? 1 : 0,
+            clickCount: 1,
+          }, point.frame?.sessionId), method, CDP_TIMEOUT_MS, detached)
+        }
       })
+    } finally {
+      if (host && !host.isDestroyed()) {
+        await withTimeout(restoreGuestClickFocus(host, this.contents.id), 'restore browser pane focus', 1_000).catch(() => {})
+      }
     }
   }
 
@@ -764,7 +796,10 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     this.guestEvents = null
     this.dialogTracker.listener = null
     this.fileChooser.listener = null
+    this.onDebuggerDetach()
     this.cdp.off('message', this.onProtocolMessage)
+    this.cdp.off('message', this.guestClick.onTargetMessage)
+    this.cdp.off('detach', this.onDebuggerDetach)
     if (this.contents.isDestroyed()) return
     this.contents.session.off('will-download', this.onWillDownload)
     this.contents.off('did-start-navigation', this.onNavigationStart)
@@ -779,7 +814,9 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
 
   /** Bound so `off` can remove it — a leaked listener per attach would keep
    *  every closed page's ring alive for the life of the app. */
-  private onProtocolMessage = (_event: Electron.Event, method: string, params: CdpEventParams): void => {
+  private onProtocolMessage = (_event: Electron.Event, method: string, params: CdpEventParams, sessionId?: string): void => {
+    // Electron sends an empty session id for the root debugger.
+    if (sessionId) return
     if (method === 'Runtime.consoleAPICalled') this.recordConsoleApi(params)
     else if (method === 'Log.entryAdded') this.recordLogEntry(params)
     else if (method === 'Network.responseReceived') this.recordResponse(params)
@@ -788,6 +825,11 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     else if (method === 'Page.javascriptDialogOpening') this.recordDialogOpening(params)
     else if (method === 'Page.javascriptDialogClosed') this.recordDialogClosed(params)
     else if (method === 'Page.fileChooserOpened') this.recordFileChooser(params)
+  }
+
+  private onDebuggerDetach = (): void => {
+    this.guestClick.clear()
+    this.guestPaint.stop()
   }
 
   private recordFileChooser(params: CdpEventParams): void {
@@ -897,31 +939,6 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   private pushNetwork(entry: BrowserNetworkEntry): void {
     this.network.push(entry)
     if (this.network.length > BROWSER_RING_LIMIT) this.network.splice(0, this.network.length - BROWSER_RING_LIMIT)
-  }
-}
-
-/**
- * Reject rather than wait forever.
- *
- * `Debugger.sendCommand` has no timeout of its own, and a guest that stops
- * answering leaves the promise pending for the life of the process. Every CDP
- * call in this file goes through here so a stall becomes an error someone can
- * see, report, and retry.
- */
-export async function withTimeout<T>(work: Promise<T>, method: string, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`The browser guest did not answer ${method} within ${timeoutMs}ms.`)),
-          timeoutMs,
-        )
-      }),
-    ])
-  } finally {
-    clearTimeout(timer)
   }
 }
 

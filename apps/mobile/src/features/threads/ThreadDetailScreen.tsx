@@ -1,3 +1,4 @@
+import type { ProviderStartup } from "@solus/contracts/provider-startup";
 import { ChildThreadApprovals } from "./ChildThreadApprovals";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { useOpenThreadInspector } from "./thread-inspector-navigation";
@@ -230,6 +231,7 @@ import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input"
 
 export interface ThreadDetailScreenProps {
   readonly modelDisplayName?: string | undefined;
+  readonly composerModelSelection?: EnvironmentThreadShell["modelSelection"];
   readonly header?: React.ReactNode;
   readonly requestPanels?: React.ReactNode;
   readonly composerCards?: React.ReactNode;
@@ -266,6 +268,7 @@ export interface ThreadDetailScreenProps {
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
   readonly runlessWorkActive?: boolean;
+  readonly providerStartup?: ProviderStartup | null;
   readonly providerSubagentStatus?: ProviderSubagentStatus | null;
   readonly extensionStatuses?: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>;
   readonly isCompacting: boolean;
@@ -282,6 +285,9 @@ export interface ThreadDetailScreenProps {
   readonly activePendingApproval: PendingApproval | null;
   readonly activePendingApprovals: ReadonlyArray<PendingApproval>;
   readonly respondingApprovalId: RuntimeRequestId | null;
+  readonly approvalExpiryReason?: string | undefined;
+  /** Some hosts accept typed feedback but require an explicit button for other approvals. */
+  readonly approvalFeedbackOnly?: boolean;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
@@ -301,7 +307,7 @@ export interface ThreadDetailScreenProps {
   readonly environmentId: EnvironmentId;
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
-  readonly editHostQueuedMessage?: ((message: QueuedThreadMessage) => void) | null;
+  readonly editHostQueuedMessage?: ((message: QueuedThreadMessage) => boolean) | null;
   readonly selectedThreadQueueCount: number;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
@@ -1327,6 +1333,12 @@ function ThreadDetailBody(
       : (appAtomRegistry.get(
           environmentThreadDetails.pendingRequestsAtom(props.selectedThreadDetailRef),
         )?.approvals ?? []);
+  const redirectsApproval =
+    props.activePendingUserInput === null &&
+    (props.approvalFeedbackOnly
+      ? props.activePendingApproval?.supportsFeedback === true &&
+        props.activePendingApproval.responseCapability === "live"
+      : props.activePendingApprovals.length > 0);
   const handleSendMessage = async (
     followUp?: ActiveTurnComposerAction,
     stillSendable?: () => boolean,
@@ -1340,7 +1352,7 @@ function ThreadDetailBody(
     // empty submit, a queued-message edit, or `/feedback` leaves approvals alone.
     const approvalsToDecline = props.activePendingApprovals;
     const declineBeforeDispatch =
-      approvalsToDecline.length > 0 && props.activePendingUserInput === null
+      redirectsApproval
         ? async (text: string, hasAttachmentsOrContext: boolean) => {
             if (scope.aborted || stillSendable?.() === false || props.respondingApprovalId !== null)
               return false;
@@ -1425,13 +1437,12 @@ function ThreadDetailBody(
 
   const handleEditPendingMessage = async (message: QueuedThreadMessage) => {
     if (pendingMessageEditBlocked) return;
-    if (props.editHostQueuedMessage) {
-      props.editHostQueuedMessage(message);
-      composerEditorRef.current?.focus();
-      return;
-    }
     const scope = threadScope.current.signal;
-    const edited = await settlePromise(() => editPendingThreadMessage(message));
+    const edited = await settlePromise(async () =>
+      props.editHostQueuedMessage
+        ? props.editHostQueuedMessage(message)
+        : editPendingThreadMessage(message),
+    );
     if (AsyncResult.isFailure(edited)) {
       const error = squashAtomCommandFailure(edited);
       Dialog.alert(
@@ -1604,6 +1615,7 @@ function ThreadDetailBody(
                   latestRun={props.activityRun}
                   activeWorkStartedAt={props.activeWorkStartedAt}
                   runlessWorkActive={props.runlessWorkActive ?? false}
+                  providerStartup={props.providerStartup}
                   listRef={listRef}
                   freeze={freeze}
                   anchorMessageId={anchorMessageId}
@@ -1887,8 +1899,9 @@ function ThreadDetailBody(
                             nestedScrollEnabled
                           >
                             <PendingApprovalCard
-                              canOperateThread={props.canOperateThread}
+                              canOperateThread={props.mayAnswerRequests ?? props.canOperateThread}
                               approval={props.activePendingApproval}
+                              expiredReason={props.approvalExpiryReason}
                               respondingApprovalId={props.respondingApprovalId}
                               onRespond={props.onRespondToApproval}
                             />
@@ -1972,13 +1985,14 @@ function ThreadDetailBody(
                     <>
                       <ThreadComposer
                         modelDisplayName={props.modelDisplayName}
+                        composerModelSelection={props.composerModelSelection}
                         isDraft={Boolean(props.draftMode)}
                         canOperateThread={props.canOperateThread}
-                        reportedModelSelection={reportedModelSelection}
+                        reportedModelSelection={props.queuedRunEdit ? null : reportedModelSelection}
                         editorRef={composerEditorRef}
                         placeholder={
-                          props.activePendingApproval
-                            ? props.activePendingApproval.supportsFeedback
+                          redirectsApproval
+                            ? props.activePendingApproval?.supportsFeedback
                               ? gt("Send feedback to decline this request")
                               : gt("Send a message to decline and redirect the agent")
                             : gt("Ask anything")
@@ -2008,10 +2022,7 @@ function ThreadDetailBody(
                         serverConfig={props.serverConfig}
                         queueCount={props.selectedThreadQueueCount}
                         activeThreadBusy={props.activeThreadBusy}
-                        redirectsApproval={
-                          props.activePendingApprovals.length > 0 &&
-                          props.activePendingUserInput === null
-                        }
+                        redirectsApproval={redirectsApproval}
                         canStopThread={props.canStopThread}
                         environmentId={props.environmentId}
                         projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
@@ -2026,12 +2037,7 @@ function ThreadDetailBody(
                         }
                         interactionLocked={props.draftMode?.interactionLocked}
                         draftKey={props.composerDraftKey ?? undefined}
-                        followUpBehavior={
-                          props.activePendingApprovals.length > 0 &&
-                          props.activePendingUserInput === null
-                            ? "steer"
-                            : props.followUpBehavior
-                        }
+                        followUpBehavior={redirectsApproval ? "steer" : props.followUpBehavior}
                         canSteerActiveTurn={props.canSteerActiveTurn}
                         hidden={composerSlotHidden}
                         queuedEdit={

@@ -1,8 +1,9 @@
 import type { QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
 import type { User } from '@solus/contracts/user'
-import type { SessionQueueMutation } from '@solus/contracts/session-queue'
+import type { QueuedModelSelection, SessionQueueMutation } from '@solus/contracts/session-queue'
 import type { RunLedger, SavedQueueEntry } from '../../data/sessions/run-ledger'
 import type { SessionRunRequest } from '../session-runtime'
+import { instructionsFor } from '../agents/run-input'
 
 export interface QueuedRequest {
   queueId: string
@@ -25,6 +26,7 @@ export interface QueuedRequest {
   author?: User
   requestedInput?: SessionRunInput
   started?: boolean
+  hasEditedModel?: boolean
 }
 
 /** Owns ordered entries. The run ledger keeps their crash receipts; live
@@ -78,18 +80,26 @@ export class SessionRequestQueue {
       ?? this.claimed.get(sessionId)?.findLast((entry) => entry.kind === 'provider_switch')?.run.input
   }
 
-  edit(entry: QueuedRequest, mutation: Extract<SessionQueueMutation, { kind: 'edit' }>, reports?: { reportExchangeIds?: string[]; exchangeIds?: string[] }): void {
+  edit(entry: QueuedRequest, mutation: Extract<SessionQueueMutation, { kind: 'edit' }>, reports?: { reportExchangeIds?: string[]; exchangeIds?: string[] }, defaultModel?: string): void {
     if (entry.kind === 'provider_switch') throw new Error('Remove the switch and queue a new provider choice.')
     const options = entry.run.options
     const oldText = options.displayPrompt ?? entry.prompt
     const last = options.prompt.lastIndexOf(oldText)
-    let prompt = last >= 0 ? options.prompt.slice(0, last) + mutation.text + options.prompt.slice(last + oldText.length) : mutation.text
+    let prompt = mutation.text === oldText ? options.prompt : last >= 0 ? options.prompt.slice(0, last) + mutation.text + options.prompt.slice(last + oldText.length) : mutation.text
     if (mutation.attachmentContext !== undefined) {
       const oldContext = options.queueAttachmentContext ?? ''
       if (oldContext && prompt.startsWith(oldContext + '\n\n')) prompt = prompt.slice(oldContext.length + 2)
       if (mutation.attachmentContext) prompt = mutation.attachmentContext + '\n\n' + prompt
     }
-    const previousOptions = { ...options }
+    const previousInput = entry.run.input
+    const previousRequestedInput = entry.requestedInput
+    const hadEditedModel = entry.hasEditedModel
+    const { selection } = mutation
+    if (selection) {
+      entry.run.input = entry.requestedInput = editedRunInput(previousRequestedInput ?? previousInput, selection, defaultModel)
+      entry.hasEditedModel = true
+    }
+    const previousOptions = options
     const previousReportIds = entry.run.reportExchangeIds
     const previousExchangeIds = entry.run.exchangeIds
     const previousText = entry.prompt
@@ -104,6 +114,9 @@ export class SessionRequestQueue {
     if (reports?.reportExchangeIds) entry.run.reportExchangeIds = reports.reportExchangeIds
     if (reports?.exchangeIds) entry.run.exchangeIds = reports.exchangeIds
     try { this.save(entry.sessionId) } catch (error) {
+      entry.run.input = previousInput
+      entry.requestedInput = previousRequestedInput
+      entry.hasEditedModel = hadEditedModel
       entry.run.options = previousOptions
       entry.run.reportExchangeIds = previousReportIds
       entry.run.exchangeIds = previousExchangeIds
@@ -121,8 +134,10 @@ export class SessionRequestQueue {
     for (const entry of this.queues.get(sessionId) ?? []) {
       if (entry.kind === 'provider_switch') { target = entry.run.input; continue }
       const requested = entry.requestedInput ?? entry.run.input
-      // A prompt keeps its own provider (plans/021); only a deprecated queued switch ahead of it changes it.
-      const effective = target ?? requested
+      // A deprecated queued switch can change a legacy prompt's provider.
+      // An explicit edit takes precedence over that inherited choice.
+      const pendingSwitch = entry.hasEditedModel ? undefined : target
+      const effective = pendingSwitch ?? requested
       const input = entry.run.input
       if (input.provider !== effective.provider || input.model !== effective.model || input.reasoningEffort !== effective.reasoningEffort || input.fastMode !== effective.fastMode || input.contextWindow !== effective.contextWindow) {
         entry.revision = (entry.revision ?? 0) + 1
@@ -130,7 +145,7 @@ export class SessionRequestQueue {
       entry.run.input = { ...requested, provider: effective.provider, model: effective.model,
         preferredModel: effective.preferredModel, reasoningEffort: effective.reasoningEffort,
         contextWindow: effective.contextWindow, fastMode: effective.fastMode,
-        agentSessionId: target ? null : requested.provider === current.provider ? current.agentSessionId : requested.agentSessionId }
+        agentSessionId: pendingSwitch ? null : requested.provider === current.provider ? current.agentSessionId : requested.agentSessionId }
     }
     try { this.save(sessionId) } catch (error) {
       for (const saved of previous) {
@@ -236,7 +251,7 @@ export class SessionRequestQueue {
       queueId: entry.queueId, sessionId, prompt: entry.prompt, enqueuedAt: entry.enqueuedAt,
       reason: entry.reason, revision: entry.revision ?? 0, kind: entry.kind ?? 'prompt', held: !!entry.held,
       error: entry.error, input: entry.run.input, options: entry.run.options,
-      requestedInput: entry.requestedInput,
+      requestedInput: entry.requestedInput, hasEditedModel: entry.hasEditedModel,
       author: entry.run.actor?.user ?? entry.author, sourceSessionId: entry.sourceSessionId,
       rateLimitSessionId: entry.rateLimitSessionId, releaseAt: entry.releaseAt, rateLimitType: entry.rateLimitType,
       runId: entry.run.runId, exchangeIds: entry.run.exchangeIds, reportExchangeIds: entry.run.reportExchangeIds, started: entry.started || active.includes(entry),
@@ -244,5 +259,23 @@ export class SessionRequestQueue {
     this.ledger?.saveQueue(sessionId, entries)
     if (!pending.length) this.queues.delete(sessionId)
     if (!active.length) this.claimed.delete(sessionId)
+  }
+}
+
+function editedRunInput(source: SessionRunInput, selection: QueuedModelSelection, defaultModel?: string): SessionRunInput {
+  const { provider, modelConfig } = selection
+  const model = modelConfig.modelId ?? defaultModel ?? ''
+  return {
+    ...source,
+    provider,
+    agentSessionId: provider === source.provider ? source.agentSessionId : null,
+    model,
+    preferredModel: modelConfig.modelId,
+    reasoningEffort: modelConfig.reasoningEffort,
+    contextWindow: modelConfig.contextWindow,
+    fastMode: modelConfig.fastMode,
+    modelInstructions: model === source.model
+      ? source.modelInstructions
+      : instructionsFor(source.executionPreferences, model).modelInstructions,
   }
 }

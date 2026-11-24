@@ -338,6 +338,11 @@ export class PromptDispatch {
         provider: model.provider, reasoningEffort: model.reasoningEffort, fastMode: false,
       })
     }
+    // Claude can read child results at its next decision point. The runtime's
+    // usual steer path queues a report if the active turn cannot accept it.
+    if (input.provider === 'claude-code' && promptOrigin.via === 'session-report' && reportExchangeIds?.length) {
+      delivery = 'steer'
+    }
     await this.rt.seatForTurn(actor, input.provider)
     const lifecycle = await this.rt.runTurn({
       input,

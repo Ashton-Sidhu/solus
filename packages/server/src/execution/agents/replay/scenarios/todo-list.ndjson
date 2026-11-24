@@ -1,0 +1,12 @@
+{"kind":"scenario","label":"Plan and reads"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"text_chunk","text":"I'll track the three steps and inspect both files."}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect package.json","status":"in_progress"},{"content":"Inspect tsconfig.json","status":"pending"},{"content":"Report completion","status":"pending"}]}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Read","toolId":"read-package","index":0}}
+{"kind":"event","event":{"type":"tool_call_complete","index":0,"toolId":"read-package","toolInput":"{\"file_path\":\"<workspace>/package.json\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"read-package","content":"{\"name\":\"t3\"}"}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Read","toolId":"read-tsconfig","index":1}}
+{"kind":"event","event":{"type":"tool_call_complete","index":1,"toolId":"read-tsconfig","toolInput":"{\"file_path\":\"<workspace>/tsconfig.json\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"read-tsconfig","content":"{\"compilerOptions\":{}}"}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect package.json","status":"completed"},{"content":"Inspect tsconfig.json","status":"completed"},{"content":"Report completion","status":"completed"}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"todo list fixture complete"}}

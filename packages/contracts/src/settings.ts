@@ -308,7 +308,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   showToolCalls: true,
   autoOpenArtifacts: false,
   artifactChipSize: 'medium',
-  showDiffSummaryAfterTurn: true,
+  showDiffSummaryAfterTurn: false,
   keepDiffSummaryOnEarlierTurns: true,
   collapseComposerWhenIdle: true,
   fontFamily: 'system',

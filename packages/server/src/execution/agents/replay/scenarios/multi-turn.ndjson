@@ -1,0 +1,5 @@
+{"kind":"scenario","label":"Multi turn"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"text_chunk","text":"first fixture turn complete"}}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"text_chunk","text":"second fixture turn complete"}}

@@ -29,7 +29,7 @@ export type ApprovalResponder = (
 
 /** Feedback belongs to the displayed request, which may be a native child's tool call. */
 export async function sendApprovalFeedback(
-  approval: ThreadPendingApproval,
+  approval: Pick<ThreadPendingApproval, "requestId" | "supportsFeedback" | "responseCapability">,
   feedback: string,
   respond: ApprovalResponder,
 ): Promise<boolean> {

@@ -19,14 +19,17 @@ import type { ProviderTask, SourceRead } from './providers/types'
 
 /**
  * The column of a task in a source whose columns are the task's own state: a
- * repository (`Open` / `Closed`), a Jira project (the status), a Jira board
+ * repository, a Jira project (the status), a Jira board
  * (the column that lists the status). Undefined for a GitHub Project: its
  * column is a field of the board item, which a read of the task does not give.
  */
 export function stateColumnOf(source: StoredTaskSource, task: ProviderTask): string | null | undefined {
   switch (source.source.kind) {
     case 'github-repo':
-      return task.state.category === 'done' ? 'closed' : 'open'
+      if (source.columns.some(({ id }) => id === 'open' || id === 'closed')) {
+        return task.state.category === 'done' ? 'closed' : 'open'
+      }
+      return source.columns.some(({ id }) => id === task.stateId) ? task.stateId ?? null : null
     case 'jira-project':
       return task.stateId ?? null
     case 'jira-board': {
