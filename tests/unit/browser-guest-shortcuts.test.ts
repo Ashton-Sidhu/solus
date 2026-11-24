@@ -107,6 +107,16 @@ describe.skipIf(process.platform === 'win32')('the shortcuts a browser page give
     expect(guestShortcuts({ 'global.new-chat': null }, true)).not.toContainEqual(newChat)
   })
 
+  test('uses the saved New chat shortcut in a focused page', () => {
+    const rebound = guestShortcuts({ 'global.new-chat': { mod: true, shift: true, code: 'F9' } }, true)
+    expect(matchGuestShortcut(input({ code: 'KeyN', meta: true, shift: true }), rebound)).toBeNull()
+    expect(matchGuestShortcut(input({ code: 'F9', meta: true, shift: true }), rebound))
+      .toEqual({ code: 'F9', alt: false, shift: true, meta: true, ctrl: false })
+
+    const printable = guestShortcuts({ 'global.new-chat': { code: 'KeyN', shift: true } }, true)
+    expect(matchGuestShortcut(input({ code: 'KeyN', shift: true }), printable)).toBeNull()
+  })
+
   test('a rebound shortcut is forwarded under its new keys, and a removed one is not', () => {
     const rebound = guestShortcuts({ 'global.command-palette': { alt: true, shift: true, code: 'KeyJ', mod: true } }, false)
     expect(rebound).toContainEqual({ code: 'KeyJ', alt: true, shift: true, meta: false, ctrl: true })

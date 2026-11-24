@@ -1,6 +1,7 @@
 import type { GuestShortcut } from '@solus/contracts/host-api'
 import { KEYBINDINGS, type BindingId } from './manifest'
 import { effectiveCombo, type BindingOverrides } from './editing'
+import { comboIsTextInput } from './match'
 import type { BindingDef, KeyCombo, Scope } from './types'
 
 /** The scopes that still apply while a browser page has focus. */
@@ -9,10 +10,8 @@ const GUEST_SCOPES: ReadonlySet<Scope> = new Set(['global', 'browser-pane'])
 /**
  * The Solus shortcuts a focused browser page gives up.
  *
- * Forward Solus combos with ⌥ and the default New chat combo. Leave other
- * combos with the page so its own shortcuts, such as ⌘K, still work.
- *
- * Follows the user's overrides, so a rebound shortcut is the one forwarded.
+ * Forward the active Solus combos with ⌥ and the active New chat shortcut.
+ * Leave ordinary typing and other page shortcuts with the page.
  */
 export function guestShortcuts(overrides: BindingOverrides, mac: boolean): GuestShortcut[] {
   const shortcuts: GuestShortcut[] = []
@@ -22,11 +21,11 @@ export function guestShortcuts(overrides: BindingOverrides, mac: boolean): Guest
     const def: BindingDef = KEYBINDINGS[id]
     if (!GUEST_SCOPES.has(def.scope)) continue
     const combo = effectiveCombo(id, overrides)
-    const forwardsNewChat = id === 'global.new-chat' && overrides[id] === undefined
     // A removed shortcut drops its aliases too, as in the dispatcher.
     const combos = overrides[id] === null ? [] : [combo, ...(def.aliases ?? [])]
     for (const candidate of combos) {
-      if (!candidate || (!candidate.alt && !forwardsNewChat)) continue
+      if (!candidate) continue
+      if (!candidate.alt && (id !== 'global.new-chat' || comboIsTextInput(candidate))) continue
       const shortcut = resolve(candidate, mac)
       const key = JSON.stringify(shortcut)
       if (seen.has(key)) continue
