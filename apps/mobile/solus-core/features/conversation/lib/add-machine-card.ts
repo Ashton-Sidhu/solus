@@ -4,7 +4,7 @@ import { classifyPairSecret, normalizeServerUrl } from '@solus/client-core/pairi
 import type { AddMachineCandidate, ReachableMachine } from '@solus/client-core/add-machine-candidates'
 import { formatCheckCode, type AddMachineOutcome, type AddMachineWay } from '@solus/contracts/add-machine'
 import type { HostRoute } from '@solus/contracts/host-routes'
-import type { SshAddProgress } from '@solus/contracts/remote-machines'
+import type { SshAddProgress, SshAddRequest } from '@solus/contracts/remote-machines'
 
 /**
  * The rules of the phone's Add machine card (docs/plans/add-machine-card.md).
@@ -162,10 +162,6 @@ export interface AddMachineInput {
   code?: string
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /** Runs one step on the session host. Every refusal becomes a message on the card. */
 export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineStep, input: AddMachineInput): Promise<AddMachineAttempt> {
   const added = (installationId: string, label: string): AddMachineAttempt => ({
@@ -177,12 +173,9 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
     switch (step.kind) {
       case 'ssh': {
         if (!input.requestId) return { kind: 'failed', message: 'The SSH add has no request id.' }
-        const result = await deps.session.hostsAddOverSsh({
-          sshTarget: step.sshTarget,
-          requestId: input.requestId,
-          deviceLabel: deps.deviceLabel,
-          ...(input.authSecret ? { authSecret: input.authSecret } : {}),
-        })
+        const request: SshAddRequest = { sshTarget: step.sshTarget, requestId: input.requestId, deviceLabel: deps.deviceLabel }
+        if (input.authSecret) request.authSecret = input.authSecret
+        const result = await deps.session.hostsAddOverSsh(request)
         if (result.status === 'needs-auth') return { kind: 'needs-auth', message: result.message }
         if (result.status === 'needs-target') return { kind: 'failed', message: result.message }
         if (result.status === 'forwarded') return added(result.host.installationId, result.host.label)
@@ -195,7 +188,8 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
         try {
           code = (await target.connectionsGeneratePairToken()).code
         } catch (error) {
-          return { kind: 'failed', message: `${step.name} did not make a code for this device: ${messageOf(error)}. Ask it to approve instead.`, mintRefused: step.serverId }
+          const reason = error instanceof Error ? error.message : String(error)
+          return { kind: 'failed', message: `${step.name} did not make a code for this device: ${reason}. Ask it to approve instead.`, mintRefused: step.serverId }
         }
         const listing = await deps.session.hostsPair({ url: step.url, code })
         return added(listing.installationId, listing.label)
@@ -212,7 +206,7 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
       }
     }
   } catch (error) {
-    return { kind: 'failed', message: messageOf(error) }
+    return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
   }
 }
 

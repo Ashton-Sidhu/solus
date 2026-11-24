@@ -801,7 +801,7 @@ export interface QuestionRequest {
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
   /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
-   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; it is answered with `hostLinkAnswer` (docs/plans/add-machine-card.md). */
+   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md). */
   kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'
   /** `host-link` only: what the agent asks to add. */
   hostLink?: AddMachineAsk

@@ -8,7 +8,7 @@ import {
   PAIR_APPROVAL_TTL_MS,
   type AddMachineAsk,
 } from "@solus/contracts/add-machine";
-import type { SshTargetCandidate } from "@solus/contracts/remote-machines";
+import type { SshAddProgress, SshTargetCandidate } from "@solus/contracts/remote-machines";
 import { requestExpiryText } from "@solus/contracts/types";
 import {
   approveInstructions,
@@ -22,6 +22,8 @@ import {
   watchSshProgress,
   wayLabel,
   type AddMachineAttempt,
+  type AddMachineInput,
+  type AddMachineStep,
 } from "@solus-mobile/features/conversation/lib/add-machine-card";
 import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { timeLeft } from "@solus-mobile/lib/time";
@@ -51,6 +53,27 @@ const NO_ASK: AddMachineAsk = { reason: "" };
 const MACHINE_SYMBOL: AppSymbolName = "desktopcomputer";
 
 const failedAttempt = (message: string): AddMachineAttempt => ({ kind: "failed", message });
+
+/** A host this phone is connected to, to make a code there. */
+const readyApi = (serverId: string) =>
+  solus.connections.state(serverId)?.readiness === "ready"
+    ? (solus.connections.connection(serverId)?.api ?? null)
+    : null;
+
+/** One attempt on the session's host, which runs SSH and pairs. */
+function attemptOnSessionHost(
+  sessionHostId: string,
+  step: AddMachineStep,
+  input: AddMachineInput,
+): Promise<AddMachineAttempt> {
+  const session = solus.connections.connection(sessionHostId);
+  if (!session) return Promise.resolve(failedAttempt("The session's host cannot be reached now."));
+  const deviceLabel = solus.registry.host(sessionHostId)?.label ?? "Solus";
+  return attemptAddMachine({ session: session.api, target: readyApi, deviceLabel }, step, input);
+}
+
+const progressText = (event: SshAddProgress) =>
+  event.percent === undefined ? event.message : `${event.message} ${event.percent}%`;
 
 /** An approval request in progress: the card shows its check code until the target answers. */
 interface WaitingApproval {
@@ -89,20 +112,7 @@ export function LinkRequestCard(props: {
         </Text>
       ) : null}
       {flow.waiting ? <ApprovalWait waiting={flow.waiting} /> : null}
-      {flow.progress && !open ? (
-        <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
-          {flow.progress}
-        </Text>
-      ) : null}
-      {flow.error !== null && !open ? (
-        <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          className="font-sans text-sm text-danger-foreground"
-        >
-          {flow.error}
-        </Text>
-      ) : null}
+      {open ? null : <AttemptMessages progress={flow.progress} error={flow.error} />}
       {!canRespond ? null : props.mayDrive ? (
         <>
           <Button
@@ -130,7 +140,6 @@ export function LinkRequestCard(props: {
       )}
       {open ? (
         <AddMachineSheet
-          ask={ask}
           flow={flow}
           disabled={busy}
           onClose={() => setOpen(false)}
@@ -253,66 +262,45 @@ function useAddMachine(
     setError(null);
   };
 
+  const finish = (attempt: AddMachineAttempt) => {
+    setBusy(false);
+    setWaiting(null);
+    setProgress(null);
+    if (attempt.kind === "added") return onAdded();
+    if (attempt.kind === "needs-auth") return setNeedsAuth(attempt.message);
+    setError(attempt.message);
+    const refused = attempt.mintRefused;
+    if (refused) setMintRefused((current) => new Set(current).add(refused));
+  };
+
   const add = async () => {
     if (inFlight.current || !step || !ready) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     setProgress(null);
-    const session = solus.connections.connection(sessionHostId);
     const requestId = solus.platform.uuid();
-    const stopProgress =
-      step.kind === "ssh" && session
-        ? watchSshProgress(session.events, requestId, (event) => {
-            if (mounted.current)
-              setProgress(event.percent === undefined ? event.message : `${event.message} ${event.percent}%`);
-          })
-        : () => {};
+    const events = step.kind === "ssh" ? solus.connections.connection(sessionHostId)?.events : null;
+    const stopProgress = events
+      ? watchSshProgress(events, requestId, (event) => {
+          if (mounted.current) setProgress(progressText(event));
+        })
+      : () => {};
     const checkCode =
       step.kind === "approve" ? makeCheckCode(solus.platform.accountCrypto?.randomBytes) : undefined;
     // The check code shows at once, so the person can compare it while the target asks.
     if (checkCode) setWaiting({ checkCode, expiresAt: Date.now() + PAIR_APPROVAL_TTL_MS, name: step.name });
-    const input = {
-      requestId,
-      checkCode,
-      code: step.kind === "code" ? (typedCodeValue(code) ?? undefined) : undefined,
-      authSecret: needsAuth !== null && password ? password : undefined,
-    };
+    const input: AddMachineInput = { requestId, checkCode };
+    if (step.kind === "code") input.code = typedCodeValue(code) ?? undefined;
+    if (needsAuth !== null && password) input.authSecret = password;
     // No value is kept after it is sent.
     setCode("");
     setPassword("");
-    const attempt = session
-      ? await attemptAddMachine(
-          {
-            session: session.api,
-            target: (serverId) =>
-              solus.connections.state(serverId)?.readiness === "ready"
-                ? (solus.connections.connection(serverId)?.api ?? null)
-                : null,
-            deviceLabel: solus.registry.host(sessionHostId)?.label ?? "Solus",
-          },
-          step,
-          input,
-        )
-      : failedAttempt("The session's host cannot be reached now.");
+    const attempt = await attemptOnSessionHost(sessionHostId, step, input);
     stopProgress();
-    if (attempt.kind === "added") {
-      await onAnswer(addMachineOutcomeAnswers(attempt.outcome));
-    }
+    if (attempt.kind === "added") await onAnswer(addMachineOutcomeAnswers(attempt.outcome));
     inFlight.current = false;
-    if (!mounted.current) return;
-    setBusy(false);
-    setWaiting(null);
-    setProgress(null);
-    if (attempt.kind === "added") {
-      onAdded();
-    } else if (attempt.kind === "needs-auth") {
-      setNeedsAuth(attempt.message);
-    } else {
-      setError(attempt.message);
-      const refused = attempt.mintRefused;
-      if (refused) setMintRefused((current) => new Set(current).add(refused));
-    }
+    if (mounted.current) finish(attempt);
   };
 
   return {
@@ -347,14 +335,12 @@ function useAddMachine(
 type AddMachineFlow = ReturnType<typeof useAddMachine>;
 
 function AddMachineSheet(props: {
-  readonly ask: AddMachineAsk;
   readonly flow: AddMachineFlow;
   readonly disabled: boolean;
   readonly onClose: () => void;
 }) {
   const { flow } = props;
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   // The machine list reads the session host's SSH targets only while the sheet is open.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the card that its sheet is open
   useEffect(() => {
@@ -362,22 +348,16 @@ function AddMachineSheet(props: {
     return () => flow.setIsOpen(false);
   }, []);
   const step = flow.step;
-  const name = step?.name ?? null;
-  // This phone reaches the target: its page makes the code there.
-  const codeHostId =
-    flow.candidate?.serverId &&
-    solus.connections.state(flow.candidate.serverId)?.readiness === "ready"
-      ? flow.candidate.serverId
-      : null;
-  const typesAddress = flow.selectedKey === ANOTHER_ADDRESS;
-  const offersCode = step !== null && (step.kind === "approve" || (step.kind === "ssh" && !!flow.candidate?.url));
+  const offersCode =
+    step?.kind === "approve" || (step?.kind === "ssh" && flow.candidate?.url !== undefined);
+  // An SSH add or a code cannot be stopped once it is sent; an approval request waits on the card.
+  const mayClose = !props.disabled || flow.waiting !== null;
 
   return (
     <Sheet
-      title={name === null ? "Add a machine" : `Add ${name}`}
+      title={step ? `Add ${step.name}` : "Add a machine"}
       onClose={props.onClose}
-      // An SSH add or a code cannot be stopped once it is sent; an approval request waits on the card.
-      dismissDisabled={props.disabled && flow.waiting === null}
+      dismissDisabled={!mayClose}
     >
       <ScrollView
         nestedScrollEnabled
@@ -391,92 +371,10 @@ function AddMachineSheet(props: {
           The session's host can then start, message, and wait on sessions there. It appears with
           the other paired devices on that machine, where it can be revoked.
         </Text>
-        <SettingsSection title="Machine">
-          {flow.candidates.map((candidate, index) => (
-            <MachineRow
-              key={candidate.key}
-              candidate={candidate}
-              selected={flow.selectedKey === candidate.key}
-              separated={index > 0}
-              disabled={props.disabled}
-              onPress={() => flow.select(candidate.key)}
-            />
-          ))}
-          <SettingsChoiceRow
-            label="Another address…"
-            description="Add a machine by its address on your network or tailnet."
-            selected={typesAddress}
-            separated={flow.candidates.length > 0}
-            disabled={props.disabled}
-            onPress={() => flow.select(ANOTHER_ADDRESS)}
-          />
-        </SettingsSection>
-        {typesAddress ? (
-          <TextInput
-            accessibilityLabel="Address"
-            placeholder="http://10.0.0.5:4810"
-            value={flow.address}
-            onChangeText={flow.setAddress}
-            editable={!props.disabled}
-            autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="url"
-            spellCheck={false}
-          />
-        ) : null}
+        <MachineList flow={flow} disabled={props.disabled} />
         {flow.waiting ? <ApprovalWait waiting={flow.waiting} /> : null}
         {step?.kind === "code" ? (
-          <StepRail
-            steps={[
-              {
-                title: `Make a code on ${step.name}`,
-                hint: codeSteps(step.name),
-                state: flow.code.trim() ? "done" : "current",
-              },
-              {
-                title: "Enter the code here",
-                state: flow.code.trim() ? "current" : "next",
-              },
-            ]}
-            renderDetail={(_step, index) =>
-              index === 0 && codeHostId ? (
-                <Pressable
-                  accessibilityRole="link"
-                  hitSlop={8}
-                  className="mt-2 self-start active:opacity-60"
-                  onPress={() => {
-                    props.onClose();
-                    openSettings(navigation, "SettingsEnvironmentDetail", {
-                      environmentId: EnvironmentId.make(codeHostId),
-                      pairCode: "new",
-                    });
-                  }}
-                >
-                  <Text className="font-t3-bold text-sm text-foreground underline">
-                    Show a code on {step.name}
-                  </Text>
-                </Pressable>
-              ) : index === 1 ? (
-                <View className="mt-2 gap-1">
-                  <TextInput
-                    accessibilityLabel="Pairing code"
-                    placeholder="123456"
-                    value={flow.code}
-                    onChangeText={flow.setCode}
-                    editable={!props.disabled}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    autoComplete="one-time-code"
-                    textContentType="oneTimeCode"
-                    spellCheck={false}
-                  />
-                  {flow.codeError ? (
-                    <Text className="font-sans text-xs text-danger-foreground">{flow.codeError}</Text>
-                  ) : null}
-                </View>
-              ) : null
-            }
-          />
+          <CodeSteps flow={flow} step={step} disabled={props.disabled} onClose={props.onClose} />
         ) : null}
         {step?.kind === "ssh" && flow.needsAuth !== null ? (
           <View className="gap-2">
@@ -496,20 +394,7 @@ function AddMachineSheet(props: {
             />
           </View>
         ) : null}
-        {flow.progress ? (
-          <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
-            {flow.progress}
-          </Text>
-        ) : null}
-        {flow.error !== null ? (
-          <Text
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
-            className="font-sans text-sm text-danger-foreground"
-          >
-            {flow.error}
-          </Text>
-        ) : null}
+        <AttemptMessages progress={flow.progress} error={flow.error} />
         <Button
           label={props.disabled ? "Adding…" : flow.error !== null ? "Try again" : "Add"}
           disabled={props.disabled || !flow.ready}
@@ -529,12 +414,138 @@ function AddMachineSheet(props: {
         <Button
           label="Cancel"
           tone="secondary"
-          disabled={props.disabled && flow.waiting === null}
+          disabled={!mayClose}
           onPress={props.onClose}
           fullWidth
         />
       </ScrollView>
     </Sheet>
+  );
+}
+
+/** The ranked machines, then "Another address…" with its field. */
+function MachineList(props: { readonly flow: AddMachineFlow; readonly disabled: boolean }) {
+  const { flow } = props;
+  const typesAddress = flow.selectedKey === ANOTHER_ADDRESS;
+  return (
+    <>
+      <SettingsSection title="Machine">
+        {flow.candidates.map((candidate, index) => (
+          <MachineRow
+            key={candidate.key}
+            candidate={candidate}
+            selected={flow.selectedKey === candidate.key}
+            separated={index > 0}
+            disabled={props.disabled}
+            onPress={() => flow.select(candidate.key)}
+          />
+        ))}
+        <SettingsChoiceRow
+          label="Another address…"
+          description="Add a machine by its address on your network or tailnet."
+          selected={typesAddress}
+          separated={flow.candidates.length > 0}
+          disabled={props.disabled}
+          onPress={() => flow.select(ANOTHER_ADDRESS)}
+        />
+      </SettingsSection>
+      {typesAddress ? (
+        <TextInput
+          accessibilityLabel="Address"
+          placeholder="http://10.0.0.5:4810"
+          value={flow.address}
+          onChangeText={flow.setAddress}
+          editable={!props.disabled}
+          autoCorrect={false}
+          autoCapitalize="none"
+          keyboardType="url"
+          spellCheck={false}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** Where to get a code on the target, a link to make one there when this phone reaches it, and the field. */
+function CodeSteps(props: {
+  readonly flow: AddMachineFlow;
+  readonly step: Extract<AddMachineStep, { kind: "code" }>;
+  readonly disabled: boolean;
+  readonly onClose: () => void;
+}) {
+  const { flow, step } = props;
+  const navigation = useNavigation();
+  const serverId = flow.candidate?.serverId;
+  const codeHostId =
+    serverId && solus.connections.state(serverId)?.readiness === "ready" ? serverId : null;
+  const hasCode = flow.code.trim().length > 0;
+  return (
+    <StepRail
+      steps={[
+        { title: `Make a code on ${step.name}`, hint: codeSteps(step.name), state: hasCode ? "done" : "current" },
+        { title: "Enter the code here", state: hasCode ? "current" : "next" },
+      ]}
+      renderDetail={(_step, index) =>
+        index === 0 && codeHostId ? (
+          <Pressable
+            accessibilityRole="link"
+            hitSlop={8}
+            className="mt-2 self-start active:opacity-60"
+            onPress={() => {
+              props.onClose();
+              openSettings(navigation, "SettingsEnvironmentDetail", {
+                environmentId: EnvironmentId.make(codeHostId),
+                pairCode: "new",
+              });
+            }}
+          >
+            <Text className="font-t3-bold text-sm text-foreground underline">
+              Show a code on {step.name}
+            </Text>
+          </Pressable>
+        ) : index === 1 ? (
+          <View className="mt-2 gap-1">
+            <TextInput
+              accessibilityLabel="Pairing code"
+              placeholder="123456"
+              value={flow.code}
+              onChangeText={flow.setCode}
+              editable={!props.disabled}
+              autoCorrect={false}
+              autoCapitalize="none"
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              spellCheck={false}
+            />
+            {flow.codeError ? (
+              <Text className="font-sans text-xs text-danger-foreground">{flow.codeError}</Text>
+            ) : null}
+          </View>
+        ) : null
+      }
+    />
+  );
+}
+
+/** The step the session host is on, and why the last attempt failed. */
+function AttemptMessages(props: { readonly progress: string | null; readonly error: string | null }) {
+  return (
+    <>
+      {props.progress ? (
+        <Text accessibilityLiveRegion="polite" className="font-sans text-sm text-foreground-muted">
+          {props.progress}
+        </Text>
+      ) : null}
+      {props.error !== null ? (
+        <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          className="font-sans text-sm text-danger-foreground"
+        >
+          {props.error}
+        </Text>
+      ) : null}
+    </>
   );
 }
 

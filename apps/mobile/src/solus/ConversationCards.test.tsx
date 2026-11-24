@@ -73,7 +73,21 @@ vi.mock("./runtime", () => ({
 // The dots read app state and screen focus; these tests are about what a card opens.
 vi.mock("../components/ProviderIcon", () => ({ ProviderIcon: () => null }));
 vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
-vi.mock("../features/threads/LinkRequestCard", () => ({ LinkRequestCard: () => null }));
+vi.mock("../features/threads/LinkRequestCard", () => ({
+  LinkRequestCard: ({
+    sessionHostId,
+    onAnswer,
+  }: {
+    sessionHostId: string;
+    onAnswer: (answers: Record<string, string>) => void;
+  }) => (
+    <button
+      onClick={() => onAnswer({ status: "added", installationId: "win", way: "ssh" })}
+    >
+      Add machine on {sessionHostId}
+    </button>
+  ),
+}));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
 }));
@@ -216,6 +230,27 @@ it("sends an opaque permission option unchanged, and private answers only to the
   vi.spyOn(store.controller, "mayApprove", "get").mockReturnValue(false);
   await act(async () => submit!.click());
   expect(secret).toHaveBeenCalledTimes(1);
+});
+// The Add machine card does its work with host RPCs, then answers like a question: only the outcome goes back.
+it("answers the Add machine card with its outcome through the question answer", async () => {
+  const { store, root, container } = await fixture();
+  const publicAnswer = vi.spyOn(store.controller, "answerQuestion").mockResolvedValue(true);
+  const secret = vi.spyOn(store.controller, "answerSecretRequest");
+  const send = vi.spyOn(store.controller, "send");
+  const question: PendingQuestion = {
+    kind: "host-link",
+    questionId: "add",
+    questions: [],
+    hostLink: { reason: "To run the tests there." },
+  };
+  const meta = { ...store.metaSnapshotOf(), questions: [question] };
+  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  const [add] = container.querySelectorAll("button");
+  expect(add!.textContent).toBe("Add machine on host");
+  await act(async () => add!.click());
+  expect(publicAnswer).toHaveBeenCalledWith("add", { status: "added", installationId: "win", way: "ssh" });
+  expect(secret).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
 });
 it("expands the actual tool row to show host input, the error and returned images", async () => {
   const { store, root, container } = await fixture();

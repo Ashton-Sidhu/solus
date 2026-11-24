@@ -10,6 +10,10 @@ mock.module('@solus/workspace-ui/contexts/workspace/session-bootstrap', () => ({
 mock.module('@solus/workspace-ui/contexts/connections/host-stall-toasts', () => ({
   startHostStallToasts: () => () => {},
 }))
+// The approval notices have their own test (pair-approvals-store.test.ts); here they only add a listener.
+mock.module('@solus/workspace-ui/contexts/connections/pair-approvals.store.svelte', () => ({
+  pairApprovalsStore: { start: () => () => {} },
+}))
 
 import { serverConnections } from '@solus/client-core/server-connections'
 

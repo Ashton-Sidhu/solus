@@ -47,7 +47,7 @@ export function HostAccessSection({
   const generate = () =>
     void solus.hostAccess
       .generatePairCode(hostId)
-      .catch((error: unknown) => Alert.alert("Could not make a code", String(error)));
+      .catch((e) => Alert.alert("Could not make a code", String(e)));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the link from an Add machine card makes one code when the page can
   useEffect(() => {
     if (!makeCode || !mayPair || madeCode.current) return;
@@ -61,10 +61,10 @@ export function HostAccessSection({
         if (!done)
           Alert.alert("Request no longer waiting", "It expired or was answered elsewhere.");
       })
-      .catch((error: unknown) =>
+      .catch((e) =>
         Alert.alert(
-          decision === "approve" ? "Could not approve the device" : "Could not deny the device",
-          String(error),
+          decision === "approve" ? "Could not approve the machine" : "Could not deny the machine",
+          String(e),
         ),
       );
   const openApprovals = approvals.filter((request) => request.expiresAt > now);
