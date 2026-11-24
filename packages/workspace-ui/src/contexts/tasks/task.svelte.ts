@@ -310,7 +310,7 @@ export class Task implements TaskRecord {
       : undefined
     const previousColumnId = placement?.columnId
     if ('category' in target) this.category = target.category
-    else if (placement) placement.columnId = target.columnId
+    else if ('columnId' in target && placement) placement.columnId = target.columnId
     try {
       this.hydrate(await this.#api.tasksMove(this.id, target))
     } catch (error) {
@@ -616,7 +616,7 @@ export class Task implements TaskRecord {
     // A `$state` write of an equal primitive notifies nobody, so only the
     // composite fields need a guard of their own — each read hands us a fresh
     // array or object whose identity would otherwise read as a change.
-    if (this.state.name !== record.state.name || this.state.category !== record.state.category) {
+    if (this.state.id !== record.state.id || this.state.name !== record.state.name || this.state.category !== record.state.category) {
       this.state = record.state
     }
     if (!samePlacements(this.placements, record.placements)) this.placements = record.placements

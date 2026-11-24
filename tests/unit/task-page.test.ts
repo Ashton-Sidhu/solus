@@ -521,6 +521,34 @@ describe('the move menu', () => {
     expect(groups[1]?.options[1]?.target).toEqual({ sourceKey: 'github-repo:acme/app', columnId: 'closed' })
   })
 
+  test('offers the issue status separately and keeps Project moves available without status permission', () => {
+    const namedRepo = {
+      ...repo,
+      source: { kind: 'github-repo' as const, owner: 'acme', repo: 'app' },
+      columns: [
+        { id: 'PS_review', name: 'In review', category: 'active' as const },
+        { id: 'PS_done', name: 'Done', category: 'done' as const },
+      ],
+    }
+    const mixed = new Map(sources).set('github-repo:acme/app', namedRepo)
+    const task = {
+      state: { id: 'PS_review', name: 'In review', category: 'active' as const },
+      category: 'active' as const,
+      placements: [
+        { sourceKey: 'github-project:acme/1', columnId: 'c2' },
+        { sourceKey: 'github-repo:acme/app', columnId: 'PS_review' },
+      ],
+    }
+    const options = { columns: namedRepo.columns, canSetStatus: true }
+
+    const groups = taskMoveGroups(task, mixed, options)
+    expect(groups.map(({ label }) => label)).toEqual(['Issue status', 'Roadmap'])
+    expect(groups[0]?.options.map(({ current, target }) => [current, target])).toEqual([
+      [true, { statusId: 'PS_review' }], [false, { statusId: 'PS_done' }],
+    ])
+    expect(taskMoveGroups(task, mixed, { ...options, canSetStatus: false }).map(({ label }) => label)).toEqual(['Roadmap'])
+  })
+
   test('marks the column the task is in, and none for a board item with no column', () => {
     const placed = taskMoveGroups({ category: 'active', placements: [{ sourceKey: 'github-project:acme/1', columnId: 'c2' }] }, sources)
     expect(placed[0]?.options.filter((option) => option.current).map((option) => option.label)).toEqual(['Doing'])

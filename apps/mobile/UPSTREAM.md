@@ -65,6 +65,12 @@ The session review picker follows T3's Changes and Uncommitted choices. The Solu
 
 The mobile Issues list can open a pasted issue URL in the T3 issue screen. The selected Solus host resolves the address and supplies the read-only issue details. The Issues list keeps its existing sources.
 
+The mobile issue screen uses the T3 State menu for GitHub planning statuses.
+The Solus host supplies the status names, checks the viewer's permission and
+accepts the status ID through the task move operation. The Issues list can
+filter loaded rows by planning status. Issue comment author rows already use
+the T3 heading role on iOS and Android.
+
 Solus uses GitHub Octicons for issue and pull request navigation and status icons. The native iOS PNGs and Android drawables match the shared SVG paths in `packages/client-core/src/github-octicons.ts`.
 
 Mobile hides the Usage tab on phones and tablets. The Usage command still opens provider usage limits and uses a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.

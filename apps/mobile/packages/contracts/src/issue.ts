@@ -128,6 +128,7 @@ export const IssueListEntry = Schema.Struct({
   ...IssueSummary.fields,
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
+  solusPlanningStatus: Schema.optionalKey(Schema.String),
 });
 export type IssueListEntry = typeof IssueListEntry.Type;
 

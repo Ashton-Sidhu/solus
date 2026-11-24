@@ -1,5 +1,5 @@
 import { hostQueryScope } from "../state/host-query-scope";
-import { labelPr, reviewPr, updateIssue } from "./source-control-actions";
+import { labelPr, moveIssue, reviewPr, updateIssue } from "./source-control-actions";
 import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
@@ -25,6 +25,7 @@ const host = vi.hoisted(() => ({
   prOpenReview: vi.fn(),
   prGetDiffFileContents: vi.fn(),
   tasksUpdate: vi.fn(),
+  tasksMove: vi.fn(),
   generation: 1,
   accountScope: "account",
   readiness: "ready",
@@ -252,6 +253,59 @@ it("opens a provider search result by its Solus task id even if it is outside th
   }
 });
 
+it("shows named GitHub statuses and sends the picked status ID through the selected host", async () => {
+  const task = {
+    id: "github:planning42",
+    kind: "issue",
+    providerId: "github",
+    writableFields: [],
+    title: "Crash",
+    body: "Steps to reproduce",
+    url: "https://github.com/team/app/issues/42",
+    state: { id: "PS_backlog", name: "Backlog", category: "open" },
+    updatedAt: 1700000000000,
+    labels: [],
+  };
+  const columns = [
+    { id: "PS_backlog", name: "Backlog", category: "open" },
+    { id: "PS_review", name: "In review", category: "active" },
+  ];
+  const target = {
+    environmentId,
+    input: {
+      projectId: ProjectId.make("/repo"),
+      tracker: IssueTrackerKind.make("github"),
+      host: "github.com",
+      scope: "team/app",
+      key: "42",
+      taskId: task.id,
+    },
+  };
+  const detail = { task, comments: [], statusOptions: { columns, canSetStatus: true } };
+  host.tasksGet.mockResolvedValueOnce(detail).mockResolvedValueOnce(detail)
+    .mockResolvedValue({ ...detail, statusOptions: { columns, canSetStatus: false } });
+  host.tasksSearch.mockResolvedValueOnce([task]);
+  host.tasksMove.mockClear();
+  const registry = AtomRegistry.make();
+  try {
+    expect(await executeAtomQuery(registry, solusIssueList({
+      environmentId, input: { state: "open", query: "Planning filter" },
+    }))).toMatchObject({ _tag: "Success", value: { entries: [{ solusPlanningStatus: "Backlog" }] } });
+    expect(await executeAtomQuery(registry, solusIssueDetail(target))).toMatchObject({
+      _tag: "Success",
+      value: { writable: true, states: [{ name: "Backlog" }, { name: "In review" }], viewerPermissions: { setState: true } },
+    });
+    const move = { ...target, input: { ...target.input, state: "In review" } };
+    expect(await runAtomCommand(registry, moveIssue, move, quiet)).toMatchObject({ _tag: "Success" });
+    expect(host.tasksMove).toHaveBeenCalledWith(task.id, { statusId: "PS_review" });
+    expect(await runAtomCommand(registry, moveIssue, move, quiet)).toMatchObject({ _tag: "Failure" });
+    expect(host.tasksMove).toHaveBeenCalledTimes(1);
+  } finally {
+    host.tasksGet.mockReset();
+    registry.dispose();
+  }
+});
+
 const pullRequest = {
   projectId: ProjectId.make("/repo"),
   repository: "team/app",
@@ -444,6 +498,10 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
         writableFields: ["title", "body", "labels", "assignee"],
       },
       comments: [{ id: "1", body: "A comment", createdAt: 1700000000000 }],
+      statusOptions: {
+        canSetStatus: true,
+        columns: [{ id: "PS_review", name: "In review", category: "active" }],
+      },
     },
     readOnly: true,
   });
@@ -487,7 +545,8 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
         providerTaskId: taskId,
         writable: false,
         writableFields: [],
-        viewerPermissions: { edit: false, comment: false, labels: false, assignees: false },
+        viewerPermissions: { edit: false, comment: false, labels: false, assignees: false, setState: false },
+        states: [],
       },
     });
     const activity = await executeAtomQuery(

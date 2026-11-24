@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TaskEpic, TaskField, TaskPriority, TaskState } from '@solus/contracts/task-types'
+import type { TaskColumn, TaskEpic, TaskField, TaskPriority, TaskState } from '@solus/contracts/task-types'
 import { githubIssueCategory, githubProjectOptionCategory } from '../status-category'
 import { MAX_SOURCE_TASKS, type ProviderComment, type ProviderTask, type SourceItem } from './types'
 import { ISSUE_PROVIDER_FIELDS, ISSUE_REACTION_FIELDS, type GitHubIssueMetadataSelection } from './github-issue-metadata'
@@ -64,6 +64,15 @@ const ISSUE_FIELDS = `
   }
 `
 
+export const PLANNING_STATUSES_FIELDS = `
+  planningStatuses(first: 50) { nodes { id name category { key state stateReason } } }
+`
+const PLANNING_STATUS_FIELDS = `status { id name category { key state stateReason } }`
+const ISSUE_STATUS_OPTIONS = `
+  viewerCanSetStatus
+  repository { ${PLANNING_STATUSES_FIELDS} }
+`
+
 const DRAFT_FIELDS = `
   id
   title
@@ -76,7 +85,7 @@ const DRAFT_FIELDS = `
 /**
  * The issue queries in two variants: with the Projects v2 values of each issue,
  * and without them for a connection that lacks the `read:project` scope
- * (`withoutProjectScope` in `providers/github.ts`).
+ * (`readGithubIssues` in `github-planning-status.ts`).
  */
 export interface IssueQueries {
   listIssues: string
@@ -86,19 +95,22 @@ export interface IssueQueries {
   taskNodeWithMetadata: string
 }
 
-function issueQueries(issueFields: string, draftFields: string): IssueQueries {
+function issueQueries(issueFields: string, draftFields: string, withStatus = false): IssueQueries {
+  const row = withStatus ? `${issueFields} ${PLANNING_STATUS_FIELDS}` : issueFields
+  const detail = withStatus ? `${row} ${ISSUE_STATUS_OPTIONS}` : row
   return {
-    listIssues: listIssuesQuery(issueFields),
-    issueByNumber: issueByNumberQuery(issueFields),
-    issueDetailsByNumber: issueByNumberQuery(issueFields, ISSUE_DETAIL_METADATA),
-    taskNode: taskNodeQuery(issueFields, draftFields),
-    taskNodeWithMetadata: taskNodeQuery(issueFields, draftFields, ISSUE_DETAIL_METADATA),
+    listIssues: listIssuesQuery(row, withStatus ? PLANNING_STATUSES_FIELDS : ''),
+    issueByNumber: issueByNumberQuery(detail),
+    issueDetailsByNumber: issueByNumberQuery(detail, ISSUE_DETAIL_METADATA),
+    taskNode: taskNodeQuery(detail, draftFields),
+    taskNodeWithMetadata: taskNodeQuery(detail, draftFields, ISSUE_DETAIL_METADATA),
   }
 }
 
-const listIssuesQuery = (issueFields: string) => `
+const listIssuesQuery = (issueFields: string, repositoryFields: string) => `
   query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String) {
     repository(owner: $owner, name: $repo) {
+      ${repositoryFields}
       issues(
         first: ${PAGE_SIZE}
         after: $cursor
@@ -170,6 +182,16 @@ const DRAFT_NODE_FIELDS = `
 export const ISSUE_QUERIES = issueQueries(ISSUE_FIELDS, DRAFT_NODE_FIELDS)
 /** The issue queries a connection without `read:project` can run. */
 export const PLAIN_ISSUE_QUERIES = issueQueries(ISSUE_BASE_FIELDS, '')
+export const ISSUE_STATUS_QUERIES = issueQueries(ISSUE_FIELDS, DRAFT_NODE_FIELDS, true)
+export const PLAIN_ISSUE_STATUS_QUERIES = issueQueries(ISSUE_BASE_FIELDS, '', true)
+
+export const SEARCH_ISSUES_WITH_STATUS = `
+  query($query: String!) {
+    search(query: $query, type: ISSUE, first: 100) {
+      nodes { ... on Issue { ${ISSUE_BASE_FIELDS} ${PLANNING_STATUS_FIELDS} } }
+    }
+  }
+`
 
 /** One board item with its draft, for a write to a draft (the draft id is not in `TaskHome`). */
 export const DRAFT_ITEM_QUERY = `
@@ -185,7 +207,7 @@ export const DRAFT_ITEM_QUERY = `
   }
 `
 
-export const PROJECT_QUERY = `
+const projectQuery = (issueFields: string) => `
   query($owner: String!, $number: Int!, $cursor: String) {
     repositoryOwner(login: $owner) {
       ... on ProjectV2Owner {
@@ -207,7 +229,7 @@ export const PROJECT_QUERY = `
               ${FIELD_VALUES}
               content {
                 __typename
-                ... on Issue { ${ISSUE_FIELDS} }
+                ... on Issue { ${issueFields} }
                 ... on DraftIssue { ${DRAFT_FIELDS} }
               }
             }
@@ -217,6 +239,9 @@ export const PROJECT_QUERY = `
     }
   }
 `
+
+export const PROJECT_QUERY = projectQuery(ISSUE_FIELDS)
+export const PROJECT_STATUS_QUERY = projectQuery(`${ISSUE_FIELDS} ${PLANNING_STATUS_FIELDS}`)
 
 /** The field ids and option ids of one Project, which a field write needs. */
 export const PROJECT_FIELDS_QUERY = `
@@ -326,6 +351,28 @@ export interface CommentNode {
   createdAt: string
 }
 
+export interface PlanningStatus {
+  id: string
+  name: string
+  category: { key: string; state: 'OPEN' | 'CLOSED'; stateReason: string | null }
+}
+
+export interface PlanningStatuses {
+  planningStatuses?: { nodes: Array<PlanningStatus | null> | null } | null
+}
+
+export function planningStatusesOf(repository: PlanningStatuses): PlanningStatus[] {
+  return repository.planningStatuses?.nodes?.filter((status) => status !== null) ?? []
+}
+
+export function planningColumn(status: PlanningStatus): TaskColumn {
+  return {
+    id: status.id,
+    name: status.name,
+    category: status.category.state === 'CLOSED' ? 'done' : status.category.key === 'started' ? 'active' : 'open',
+  }
+}
+
 export interface IssueNode extends GitHubIssueMetadataSelection {
   id: string
   number: number
@@ -336,7 +383,9 @@ export interface IssueNode extends GitHubIssueMetadataSelection {
   createdAt: string
   updatedAt: string
   /** The repository the issue is in now, which is not the source's after a transfer. */
-  repository: { owner: { login: string }; name: string }
+  repository: { owner: { login: string }; name: string } & PlanningStatuses
+  status?: PlanningStatus | null
+  viewerCanSetStatus?: boolean
   labels: { nodes: Array<{ name: string }> }
   assignees: AssigneeNodes
   /** The epic. Only a read of one task selects `body`. */
@@ -364,7 +413,7 @@ export interface DraftItemNode {
 }
 
 export interface ListIssuesResponse {
-  repository: {
+  repository: PlanningStatuses & {
     issues: {
       pageInfo: { hasNextPage: boolean; endCursor: string | null }
       nodes: IssueNode[]
@@ -538,7 +587,7 @@ function issueWritableFields(items: IssueProjectItemNode[]): TaskField[] {
 
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
-/** An issue is open or closed. GitHub has no other state of an issue. */
+/** Legacy state for a repository without planning statuses. */
 export function issueState(state: 'OPEN' | 'CLOSED'): TaskState {
   return { name: state === 'CLOSED' ? 'Closed' : 'Open', category: githubIssueCategory(state) }
 }
@@ -571,7 +620,8 @@ export function issueToTask(node: IssueNode): ProviderTask {
     url: node.url,
     title: node.title,
     body: node.body ?? '',
-    state: issueState(node.state),
+    state: node.status ? planningState(node.status) : issueState(node.state),
+    stateId: node.status?.id,
     assignees: node.assignees.nodes,
     assignee: assignee?.login,
     assigneeAvatarUrl: assignee?.avatarUrl,
@@ -659,9 +709,13 @@ export function commentFromNode(comment: CommentNode): ProviderComment {
   }
 }
 
-/** A repository source has two columns, and an issue is in the one of its state. */
-export function repoSourceItem(task: ProviderTask): SourceItem {
-  return { task, columnId: task.state.category === 'done' ? 'closed' : 'open', itemId: null }
+export function planningState(status: PlanningStatus): TaskState {
+  const { name, category } = planningColumn(status)
+  return { name, category }
+}
+
+export function repoSourceItem(task: ProviderTask, hasPlanningStatuses = !!task.stateId): SourceItem {
+  return { task, columnId: hasPlanningStatuses ? task.stateId ?? null : task.state.category === 'done' ? 'closed' : 'open', itemId: null }
 }
 
 /**

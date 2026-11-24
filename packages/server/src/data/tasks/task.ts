@@ -114,7 +114,7 @@ export async function getTask(
     const ref = refOf(taskId)
     const answer = options?.resolved ?? await taskAdapters().provider(ref.provider).fetch(ref, options)
     const task = await storeTaskDetails(answer)
-    if (!before || before.updatedAt !== task.updatedAt || before.category !== task.category) emitChanged(taskId)
+    if (!before || before.updatedAt !== task.updatedAt || before.category !== task.category || before.state.name !== task.state.name || before.state.id !== task.state.id) emitChanged(taskId)
     if (personKey && before && task.assignee && task.assignee !== before.assignee) {
       const assignment = { taskId, title: task.title, provider: task.providerId, assignee: task.assignee, updatedAt: task.updatedAt }
       await notifyTaskAssignments([assignment], personKey).catch((error) => {
@@ -122,7 +122,11 @@ export async function getTask(
       })
     }
     const details = await taskDetails(scope, taskId)
-    return answer.providerMetadata ? { ...details, providerMetadata: answer.providerMetadata } : details
+    return {
+      ...details,
+      ...(answer.providerMetadata && { providerMetadata: answer.providerMetadata }),
+      ...(answer.statusOptions && { statusOptions: answer.statusOptions }),
+    }
   } catch (error) {
     if (!before) throw taskWriteError(error)
     log.warn('task_read_from_cache', { taskId, error: error instanceof Error ? error.message : String(error) })
@@ -221,7 +225,9 @@ async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task
         source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId,
       })
       if (moved) await storeProviderTask(moved)
-      await storeTaskColumn(taskId, target.sourceKey, target.columnId)
+      if (source.source.kind !== 'github-repo') await storeTaskColumn(taskId, target.sourceKey, target.columnId)
+    } else if ('statusId' in target) {
+      await moveToRepositoryStatus(home, target.statusId)
     } else if (home.provider !== 'github') {
       if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category))
     } else {
@@ -247,6 +253,13 @@ async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task
   const moved = await loadTask(taskId)
   if (!moved) throw new Error(`Task ${taskId} not found.`)
   return moved
+}
+
+async function moveToRepositoryStatus(home: TaskHome, statusId: string): Promise<void> {
+  const provider = taskAdapters().provider(home.provider)
+  const moved = await provider.setNamedStatus?.(home, statusId)
+  if (!moved) throw new Error('This task does not take a repository issue status.')
+  await storeProviderTask(moved)
 }
 
 const STATUS_CATEGORIES: readonly TaskStatusCategory[] = ['open', 'active', 'done']

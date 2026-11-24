@@ -60,6 +60,10 @@ function fakeGithub(answer: (call: GraphqlCall) => unknown, rest: FakeRest = {})
   return { run, graphqlCalls, restCalls }
 }
 
+const previewError = Object.assign(new Error('GitHub refused the status field'), {
+  errors: [{ message: "Field 'status' doesn't exist on type 'Issue'" }],
+})
+
 const STATUS_FIELD = {
   __typename: 'ProjectV2SingleSelectField',
   id: 'FIELD_status',
@@ -634,7 +638,7 @@ describe('a GitHub repository source', () => {
 
   test('search asks GitHub, in the repository, for issues only', async () => {
     // WHY: a filter of the capped list answers "not found" for an older issue.
-    const { run, restCalls } = fakeGithub(() => ({}), {
+    const { run, restCalls } = fakeGithub(() => { throw previewError }, {
       issuesAndPullRequests: () => ({
         total_count: 1,
         items: [{
@@ -871,7 +875,7 @@ test('writing multiple assignees retains the complete written set despite a stal
 
 
 test('authored and assigned task searches remain distinct for repositories and Projects', async () => {
-  const { run, restCalls } = fakeGithub(() => ({}), { issuesAndPullRequests: () => ({ items: [] }) })
+  const { run, restCalls } = fakeGithub(() => { throw previewError }, { issuesAndPullRequests: () => ({ items: [] }) })
   for (const [source, adapter] of [[REPO_SOURCE, new GitHubRepoSource(run)], [PROJECT_SOURCE, new GitHubProjectSource(run)]] as const) {
     await adapter.search(source, 'fix', 'authored')
     expect(restCalls.at(-1)?.params.q).toContain('author:@me')
@@ -879,4 +883,107 @@ test('authored and assigned task searches remain distinct for repositories and P
     expect(restCalls.at(-1)?.params.q).toContain('assignee:@me')
     expect(restCalls.at(-1)?.params.q).not.toContain('author:@me')
   }
+})
+
+const PLANNING_STATUSES = [
+  { id: 'PS_backlog', name: 'Backlog', category: { key: 'backlog', state: 'OPEN', stateReason: null } },
+  { id: 'PS_review', name: 'In review', category: { key: 'started', state: 'OPEN', stateReason: null } },
+  { id: 'PS_duplicate', name: 'Duplicate', category: { key: 'duplicate', state: 'CLOSED', stateReason: 'DUPLICATE' } },
+]
+
+test('repository columns use GitHub planning status IDs, order and categories', async () => {
+  const { run } = fakeGithub(({ variables }) => ({
+    repository: {
+      planningStatuses: { nodes: PLANNING_STATUSES },
+      issues: {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: variables.states?.toString() === 'OPEN' ? [issueNode({ status: PLANNING_STATUSES[1] })] : [],
+      },
+    },
+  }))
+
+  const read = await new GitHubRepoSource(run).read(REPO_SOURCE)
+  expect(read.columns.map(({ id, name, category }) => [id, name, category])).toEqual([
+    ['PS_backlog', 'Backlog', 'open'],
+    ['PS_review', 'In review', 'active'],
+    ['PS_duplicate', 'Duplicate', 'done'],
+  ])
+  expect(read.items[0]).toMatchObject({ columnId: 'PS_review', task: { state: { name: 'In review', category: 'active' } } })
+})
+
+test('issue details advertise planning statuses and GitHub controls who can use them', async () => {
+  let canSetStatus = false
+  const { run, graphqlCalls, restCalls } = fakeGithub(({ query }) => {
+    if (query.includes('mutation SetIssueStatus')) return {}
+    const issue = issueNode({
+      repository: { owner: { login: 'acme' }, name: 'app', planningStatuses: { nodes: PLANNING_STATUSES } },
+      status: PLANNING_STATUSES[1],
+      viewerCanSetStatus: canSetStatus,
+    })
+    return { node: issue, repository: { issue } }
+  }, { update: () => ({}) })
+  const provider = new GitHubTaskProvider(run)
+  const details = await provider.fetch({ provider: 'github', id: 'I_node7' })
+
+  expect(details.statusOptions).toMatchObject({ canSetStatus: false, columns: [{ id: 'PS_backlog' }, { id: 'PS_review' }, { id: 'PS_duplicate' }] })
+  await expect(provider.setNamedStatus(ISSUE_HOME, 'PS_backlog')).rejects.toThrow(/cannot change/)
+  expect(graphqlCalls.some(({ query }) => query.includes('mutation SetIssueStatus'))).toBe(false)
+  expect(restCalls).toHaveLength(0)
+
+  canSetStatus = true
+  await expect(provider.setNamedStatus(ISSUE_HOME, 'unknown')).rejects.toThrow(/no such issue status/)
+  const source = new GitHubRepoSource(run)
+  const moved = await source.move({ source: REPO_SOURCE, writeState: null, home: ISSUE_HOME, itemId: null, columnId: 'PS_backlog' })
+  expect(moved).toMatchObject({ stateId: 'PS_backlog', state: { name: 'Backlog', category: 'open' } })
+  expect(graphqlCalls.at(-1)?.variables).toEqual({ issueId: 'I_node7', statusId: 'PS_backlog' })
+  const duplicate = await provider.setNamedStatus(ISSUE_HOME, 'PS_duplicate')
+  expect(duplicate.state).toEqual({ name: 'Duplicate', category: 'done' })
+  expect(restCalls[0]?.params).toMatchObject({ issue_number: 7, state: 'closed', state_reason: 'duplicate' })
+})
+
+test('refused preview fields retry legacy issue reads with GitHub Project data', async () => {
+  const project = boardItem([{ name: 'Priority', dataType: 'SINGLE_SELECT' }],
+    [{ __typename: 'ProjectV2ItemFieldSingleSelectValue', name: 'High', field: { name: 'Priority' } }])
+  const { run, graphqlCalls } = fakeGithub(({ query }) => {
+    if (query.includes('viewerCanSetStatus')) throw previewError
+    return { node: issueNode({ projectItems: { nodes: [project] } }) }
+  })
+  const detail = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'I_node7' })
+
+  expect(detail.statusOptions).toBeUndefined()
+  expect(detail.task).toMatchObject({ state: { name: 'Open', category: 'open' }, priority: 'high' })
+  expect(graphqlCalls).toHaveLength(2)
+  expect(graphqlCalls[1]?.query).toContain('projectItems')
+  expect(graphqlCalls[1]?.query).not.toContain('planningStatuses')
+})
+
+test('GitHub search returns named statuses and keeps the search qualifiers', async () => {
+  const { run, graphqlCalls, restCalls } = fakeGithub(() => ({
+    search: { nodes: [null, {}, issueNode({ status: PLANNING_STATUSES[1] })] },
+  }))
+  const results = await new GitHubRepoSource(run).search(REPO_SOURCE, 'payment', 'assigned')
+  expect(results).toHaveLength(1)
+  expect(results[0]?.state).toEqual({ name: 'In review', category: 'active' })
+  expect(graphqlCalls[0]?.variables.query).toBe('repo:acme/app is:issue assignee:@me payment sort:updated-desc')
+  expect(restCalls).toHaveLength(0)
+})
+
+test('a new issue can start in the repository column chosen in the composer', async () => {
+  const { run, graphqlCalls, restCalls } = fakeGithub(({ query }) => {
+    if (query.includes('mutation SetIssueStatus')) return {}
+    return { repository: { planningStatuses: { nodes: PLANNING_STATUSES } } }
+  }, {
+    create: () => ({
+      node_id: 'I_created', number: 8, title: 'Work', state: 'open', html_url: 'https://github.com/acme/app/issues/8',
+      labels: [], created_at: '2026-07-30T10:00:00Z', updated_at: '2026-07-30T10:00:00Z',
+    }),
+  })
+  const source = new GitHubRepoSource(run)
+  const create = { source: REPO_SOURCE, writeState: null, draft: { title: 'Work', columnId: 'PS_review' } }
+  const item = await source.create(create)
+  expect(item).toMatchObject({ columnId: 'PS_review', task: { state: { name: 'In review', category: 'active' } } })
+  expect(graphqlCalls.at(-1)?.variables).toEqual({ issueId: 'I_created', statusId: 'PS_review' })
+
+  await expect(source.create({ ...create, draft: { title: 'Work', columnId: 'missing' } })).rejects.toThrow(/no such issue status/)
+  expect(restCalls).toHaveLength(1)
 })

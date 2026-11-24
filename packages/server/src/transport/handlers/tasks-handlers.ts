@@ -58,6 +58,11 @@ const taskSidebarFilterSchema = z.object({
 }).nullish()
 /** The task sources a client sends from the person's settings: the host reads each one with a provider. */
 const taskSourcesSchema = z.array(taskSourceSchema).max(MAX_TASK_SOURCES)
+const taskMoveTargetSchema = z.union([
+  z.strictObject({ sourceKey: z.string().min(1), columnId: z.string().min(1) }),
+  z.strictObject({ category: z.enum(['open', 'active', 'done']) }),
+  z.strictObject({ statusId: z.string().min(1).max(512) }),
+])
 
 /**
  * The task RPCs (docs/plans/provider-owned-tasks.md §5). GitHub and Jira own
@@ -154,7 +159,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
 
   server.register('tasksMove', (args) => {
     const [id, target] = args
-    return moveTask(id, target)
+    return moveTask(id, taskMoveTargetSchema.parse(target))
   })
 
   server.register('tasksDelete', (args) => {

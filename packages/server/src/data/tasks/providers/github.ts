@@ -7,7 +7,7 @@ import {
   uploadGithubAsset,
 } from '../../../providers/github/asset-upload'
 import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
-import { isInsufficientScopes } from './failures'
+import { readGithubIssues, readRepositoryPlanningStatuses, writePlanningStatus } from './github-planning-status'
 import { githubIssueMetadata } from './github-issue-metadata'
 import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
 import {
@@ -17,8 +17,9 @@ import {
   DRAFT_ITEM_QUERY,
   draftToTask,
   DUE_FIELD_RE,
-  ISSUE_QUERIES,
-  PLAIN_ISSUE_QUERIES,
+  planningColumn,
+  planningState,
+  planningStatusesOf,
   issueState,
   issueToTask,
   priorityFromLabels,
@@ -28,7 +29,6 @@ import {
   restIssueToTask,
   SET_PROJECT_FIELD_MUTATION,
   statusValueOf,
-  type IssueQueries,
   UPDATE_DRAFT_MUTATION,
   USER_ID_QUERY,
   type DraftItemResponse,
@@ -56,21 +56,6 @@ type Graphql = GitHubClient['graphql']
 type IssueHome = Extract<TaskHome, { provider: 'github'; kind: 'issue' }>
 type DraftHome = Extract<TaskHome, { provider: 'github'; kind: 'draft' }>
 
-/**
- * Run an issue read with the Projects v2 values, and again without them when
- * the connection lacks the `read:project` scope. A repository and an issue do
- * not need that scope; only their board values do. The issue then reads as off
- * every board, so it takes no priority or due date write.
- */
-export async function withoutProjectScope<Result>(read: (queries: IssueQueries) => Promise<Result>): Promise<Result> {
-  try {
-    return await read(ISSUE_QUERIES)
-  } catch (error) {
-    if (!isInsufficientScopes(error)) throw error
-    return read(PLAIN_ISSUE_QUERIES)
-  }
-}
-
 function githubHome(home: TaskHome): IssueHome | DraftHome {
   if (home.provider !== 'github') throw new Error(`The GitHub task provider cannot write to a ${home.provider} task.`)
   return home
@@ -84,7 +69,7 @@ function issueReference(home: IssueNumber): string {
 
 /** Read one issue by its number. GitHub reads follow a repository rename. */
 export async function readIssueNode(graphql: Graphql, home: IssueNumber, includeComments = false): Promise<IssueNode> {
-  const res = await withoutProjectScope((queries) => graphql<IssueByNumberResponse>(includeComments ? queries.issueDetailsByNumber : queries.issueByNumber, {
+  const res = await readGithubIssues((queries) => graphql<IssueByNumberResponse>(includeComments ? queries.issueDetailsByNumber : queries.issueByNumber, {
     owner: home.owner,
     repo: home.repo,
     number: home.number,
@@ -103,8 +88,10 @@ export async function githubIssueDetails(node: IssueNode, graphql: Graphql): Pro
   const comments = node.comments ?? { totalCount: 0, nodes: [] }
   // A failing closing-PR page must not hide the issue. Activity retries the metadata read.
   const providerMetadata = await githubIssueMetadata(node, graphql).catch(() => undefined)
+  const columns = planningStatusesOf(node.repository).map(planningColumn)
   return {
     task: issueToTask(node),
+    ...(columns.length > 0 && { statusOptions: { columns, canSetStatus: node.viewerCanSetStatus === true } }),
     comments: comments.nodes.map(commentFromNode),
     commentsTruncated: comments.totalCount > comments.nodes.length,
     ...(providerMetadata && { providerMetadata }),
@@ -187,8 +174,14 @@ export function createRepoIssue(
   repository: { owner: string; repo: string },
   draft: TaskDraft,
   closed: boolean,
+  statusId?: string,
 ): Promise<ProviderTask> {
-  return run('create_github_task', async ({ rest }) => {
+  return run('create_github_task', async (client) => {
+    const { rest, graphql } = client
+    const status = statusId
+      ? (await readRepositoryPlanningStatuses(graphql, repository)).find(({ id }) => id === statusId)
+      : undefined
+    if (statusId && !status) throw new Error('This repository has no such issue status.')
     const base = { owner: repository.owner, repo: repository.repo }
     const created = await rest.issues.create({
       ...base,
@@ -200,7 +193,18 @@ export function createRepoIssue(
     const issue = closed
       ? (await rest.issues.update({ ...base, issue_number: created.data.number, state: 'closed' })).data
       : created.data
-    return restIssueToTask(issue, base)
+    const task = restIssueToTask(issue, base)
+    if (status) {
+      try {
+        await writePlanningStatus(client, { ...base, number: issue.number }, task.ref.id, status)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        throw new Error(`GitHub created ${task.reference}, but could not set its planning status. ${detail}`, { cause: error })
+      }
+      task.state = planningState(status)
+      task.stateId = status.id
+    }
+    return task
   })
 }
 
@@ -241,7 +245,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
   async fetch(ref: TaskRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
     return this.run('get_github_task', async ({ graphql }) => {
-      const { node } = await withoutProjectScope((queries) => graphql<TaskNodeResponse>(
+      const { node } = await readGithubIssues((queries) => graphql<TaskNodeResponse>(
         options?.providerMetadata ? queries.taskNodeWithMetadata : queries.taskNode,
         { id: ref.id }
       ))
@@ -409,22 +413,46 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     await graphql(CLEAR_PROJECT_FIELD_MUTATION, { projectId: item.project.id, itemId: item.id, fieldId })
   }
 
-  async setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
-    const target = githubHome(home)
-    if (target.kind === 'draft') {
+  setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
+    return this.moveIssue(home, { category })
+  }
+
+  setNamedStatus(home: TaskHome, statusId: string): Promise<ProviderTask> {
+    return this.moveIssue(home, { statusId })
+  }
+
+  private async moveIssue(home: TaskHome, target: { category: TaskStatusCategory } | { statusId: string }): Promise<ProviderTask> {
+    const issue = githubHome(home)
+    if (issue.kind === 'draft') {
       throw new Error('A draft item has no state of its own. Move it on its GitHub Project.')
     }
-    return this.run('set_github_task_state', async ({ rest, graphql }) => {
-      const closed = category === 'done'
-      await rest.issues.update({
-        owner: target.owner,
-        repo: target.repo,
-        issue_number: target.number,
-        state: closed ? 'closed' : 'open',
-      })
-      // The GraphQL read can lag the REST write, so the written state replaces it.
-      const task = issueToTask(await readIssueNode(graphql, target))
-      task.state = issueState(closed ? 'CLOSED' : 'OPEN')
+    return this.run('set_github_task_state', async (client) => {
+      const node = await readIssueNode(client.graphql, issue)
+      const task = issueToTask(node)
+      const statuses = planningStatusesOf(node.repository)
+      if (statuses.length || 'statusId' in target) {
+        const status = statuses.find((candidate) => 'statusId' in target
+          ? candidate.id === target.statusId
+          : planningColumn(candidate).category === target.category)
+          ?? ('category' in target && target.category === 'active'
+            ? statuses.find((candidate) => planningColumn(candidate).category === 'open')
+            : undefined)
+        if (!status) throw new Error(statuses.length
+          ? 'This repository has no such issue status.'
+          : 'This repository has the columns Open and Closed only.')
+        if (node.viewerCanSetStatus !== true) throw new Error('This GitHub connection cannot change the issue status.')
+        if (node.status?.id === status.id) return task
+        await writePlanningStatus(client, issue, node.id, status)
+        task.state = planningState(status)
+        task.stateId = status.id
+      } else {
+        const closed = target.category === 'done'
+        await client.rest.issues.update({
+          owner: issue.owner, repo: issue.repo, issue_number: issue.number, state: closed ? 'closed' : 'open',
+        })
+        task.state = issueState(closed ? 'CLOSED' : 'OPEN')
+        task.stateId = undefined
+      }
       return task
     })
   }

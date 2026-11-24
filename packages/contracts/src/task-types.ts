@@ -20,15 +20,17 @@ export type TaskKind = 'issue' | 'draft'
 export type TaskSessionRole = 'working' | 'referenced'
 
 /** The provider's own state of a task, in the provider's words: a Jira status,
- *  or `Open` / `Closed` on GitHub. */
+ *  a GitHub repository planning status, or `Open` / `Closed` on GitHub. */
 export interface TaskState {
+  /** The GitHub planning status ID, when the repository supplies one. */
+  id?: string
   name: string
   category: TaskStatusCategory
 }
 
 /** A status grouping that a task source owns: a GitHub Project Status option, a
- *  Jira board column, `Open` / `Closed` for a repository, a workflow status of
- *  a Jira project. Solus shows the provider's names in the provider's order. */
+ *  Jira board column, repository planning status or legacy Open / Closed, or a
+ *  workflow status of a Jira project. Solus shows the provider's names in the provider's order. */
 export interface TaskColumn {
   id: string
   name: string
@@ -197,11 +199,12 @@ export interface TaskUpdatePatch {
   labels?: string[]
 }
 
-/** Where to move a task: to one column of one source that lists it, or to a
- *  status category, where the host chooses the column of each source. */
+/** Move to a source column, a GitHub repository status, or a status category
+ *  where the host chooses the column of each source. */
 export type TaskMoveTarget =
   | { sourceKey: string; columnId: string }
   | { category: TaskStatusCategory }
+  | { statusId: string }
 
 /** A comment on a task. Each comment is a provider comment; one that Solus
  *  could not send yet is `unsent` and stays on this host until it is sent or
@@ -334,6 +337,8 @@ export interface TaskDetails {
   task: Task
   /** Provider fields already included in the detail read. */
   providerMetadata?: TaskProviderMetadata
+  /** Repository planning statuses and the acting viewer’s permission. */
+  statusOptions?: TaskStatusOptions
   comments: TaskComment[]
   links: TaskLink[]
   /** The task's `task_changed` activity, newest last, capped at
@@ -341,6 +346,11 @@ export interface TaskDetails {
   activity: Activity[]
   /** The provider did not answer, so `task` and `comments` are the host's last copy. */
   fromCache?: boolean
+}
+
+export interface TaskStatusOptions {
+  columns: TaskColumn[]
+  canSetStatus: boolean
 }
 
 /** What Solus holds about a task on one host: the answer of a host that has

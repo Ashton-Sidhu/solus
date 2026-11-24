@@ -13,8 +13,8 @@ adds only its own attachments. Tasks belong to no project. The design is in
 - **Board.** A GitHub Project or a Jira board: a task source that has columns
   of its own.
 - **Column.** A status grouping that the source owns: a Status option of a
-  GitHub Project, a column of a Jira board, `Open` and `Closed` of a
-  repository, a workflow status of a Jira project. Solus shows the provider's
+  GitHub Project, a column of a Jira board, a GitHub repository planning status
+  or legacy Open and Closed, or a workflow status of a Jira project. Solus shows the provider's
   names in the provider's order.
 - **Status category.** `Open`, `Active` or `Done`. This is the one coarse fact
   that Solus derives from a column, for views that mix sources and for agent
@@ -137,7 +137,9 @@ The Tasks page shows every task of your task sources. It has no project
 filter, and a row names no project. The row of sources above the search field
 shows each source with how many tasks it holds. **All** shows every source
 together, grouped by status category. A source chip shows that source in the
-provider's own columns. You also narrow the list by column or status, and with the filters **Agent running**,
+provider's own columns. A GitHub repository with planning statuses uses its
+status names and order. Other repositories use Open and Closed. GitHub Projects
+use the Status field of the Project. You also narrow the list by column or status, and with the filters **Agent running**,
 **Overdue**, **Has an assignee** and **Snoozed**. **Involvement** uses
 **Authored by me** and **Assigned to me**, with the account that reads the source.
 GitHub also supports **Mentioning me**; Jira and Linear explain that their APIs
@@ -165,10 +167,14 @@ names the host that reads it when that host is not this computer.
 - **Moves.** A move in one source's view sets that column on the provider. A
   move in **All sources**, from the bulk bar, from a swipe or from the context
   menu, sets a status category, and the host chooses the column: it closes or
-  reopens a GitHub issue and moves it to the first column of that category on
+  reopens a GitHub issue (or selects a repository planning status) and moves it to the first column of that category on
   each GitHub Project that is a task source on the host; a Jira issue makes a
   legal workflow transition. If the provider refuses, Solus shows the error
   and the task goes back to where it was.
+- **Issue status.** On a task page, a GitHub issue can move to a named repository
+  status when the GitHub connection grants permission. On mobile, the Issues
+  list can filter its results by a planning status and the issue screen uses
+  its State menu to move the issue.
 - **Card order.** The order of cards inside a column is yours. Solus keeps it
   on this client for each view. It does not change the provider.
 - **New task.** The composer creates the task on the provider, in the default

@@ -1,5 +1,5 @@
 // What the task page's move menu offers.
-import type { Task, TaskMoveTarget, TaskSourceState } from '@solus/contracts/task-types'
+import type { Task, TaskMoveTarget, TaskSourceState, TaskState, TaskStatusOptions } from '@solus/contracts/task-types'
 import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import { CATEGORY_META, TASK_CATEGORIES, taskPlacementLabels } from '../../lib/tasks-api'
 
@@ -30,11 +30,13 @@ export interface TaskMoveGroup {
  * the three status categories and the host chooses the column.
  */
 export function taskMoveGroups(
-  task: Pick<Task, 'category' | 'placements'>,
-  sourceByKey: ReadonlyMap<string, Pick<TaskSourceState, 'label' | 'columns'>>,
+  task: Pick<Task, 'category' | 'placements'> & { state?: TaskState },
+  sourceByKey: ReadonlyMap<string, Pick<TaskSourceState, 'label' | 'columns'> & Partial<Pick<TaskSourceState, 'source'>>>,
+  statusOptions?: TaskStatusOptions,
 ): TaskMoveGroup[] {
   const groups = taskPlacementLabels(task, sourceByKey)
-    .filter((placement) => placement.columns.length > 0)
+    .filter((placement) => placement.columns.length > 0 &&
+      !(statusOptions && sourceByKey.get(placement.sourceKey)?.source?.kind === 'github-repo'))
     .map((placement): TaskMoveGroup => ({
       id: placement.sourceKey,
       label: placement.sourceLabel,
@@ -46,7 +48,20 @@ export function taskMoveGroups(
         target: { sourceKey: placement.sourceKey, columnId: column.id },
       })),
     }))
-  if (groups.length) return groups
+  if (statusOptions?.canSetStatus) {
+    groups.unshift({
+      id: 'issue-status',
+      label: 'Issue status',
+      options: statusOptions.columns.map((column) => ({
+        id: column.id,
+        label: column.name,
+        category: column.category,
+        current: column.id === task.state?.id,
+        target: { statusId: column.id },
+      })),
+    })
+  }
+  if (groups.length || statusOptions) return groups
   return [{
     id: 'categories',
     label: null,

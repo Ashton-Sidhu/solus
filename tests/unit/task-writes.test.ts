@@ -110,6 +110,28 @@ describe('a task write goes to the provider first', () => {
 })
 
 describe('moving a task', () => {
+  test('an issue status update follows the repository placement and leaves its Project column intact', async () => {
+    const { storeProviderTask, storeSourceRead } = await import('@solus/server/data/tasks/task-cache')
+    const backlog = { id: 'PS_backlog', name: 'Backlog', category: 'open' as const }
+    const review = { id: 'PS_review', name: 'In review', category: 'active' as const }
+    const issue = { ...githubIssue(1), stateId: backlog.id, state: { name: backlog.name, category: backlog.category } }
+    await storeSourceRead(REPO, {
+      ...repoRead([issue]),
+      columns: [backlog, review],
+      items: [{ task: issue, columnId: backlog.id, itemId: null }],
+    })
+    await storeSourceRead(BOARD, boardRead([{ task: issue, columnId: 'opt-todo' }]))
+    await storeProviderTask({ ...issue, stateId: review.id, state: { name: review.name, category: review.category } })
+    expect(await store.loadTask(ISSUE)).toMatchObject({
+      state: review,
+      category: 'active',
+      placements: expect.arrayContaining([
+        { sourceKey: REPO_KEY, columnId: review.id },
+        { sourceKey: BOARD_KEY, columnId: 'opt-todo' },
+      ]),
+    })
+  })
+
   test('a move to a column of a board writes that board and changes the category', async () => {
     const issue = githubIssue(1)
     host.providers.answer(REPO, repoRead([issue]))

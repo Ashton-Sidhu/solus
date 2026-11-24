@@ -132,6 +132,11 @@ export function IssuesScreen(
   const debouncedQuery = useDebouncedValue(tab.query.trim(), 300);
   const query = tab.searchMode === "resting" ? "" : debouncedQuery;
   const [state, setState] = useState<IssueListState>("open");
+  const [planningStatus, setPlanningStatus] = useState<string | null>(null);
+  const selectState = (state: IssueListState) => {
+    setState(state);
+    setPlanningStatus(null);
+  };
   const [involvement, setInvolvement] = useState<IssueInvolvement>("all");
   const navigation = useNavigation();
   const [{ labels, assignee }, setFilters] = useAtom(issueListFiltersAtom);
@@ -199,7 +204,18 @@ export function IssuesScreen(
   };
 
   const groups = groupIssues(held, query, projects, sort);
-  const entries = groups.flatMap((group) => group.rows).sort(issueOrder(sort));
+  const rows = groups.flatMap((group) => group.rows);
+  const planningStatuses = [...new Set(rows.flatMap(({ solusPlanningStatus }) =>
+    solusPlanningStatus !== undefined ? [solusPlanningStatus] : [],
+  ))].sort((a, b) => a.localeCompare(b));
+  const planningStatusActions = [
+    { id: "status", title: gt("All planning statuses"), state: planningStatus === null ? "on" as const : "off" as const },
+    ...planningStatuses.map((name) => ({
+      id: `status:${name}`, title: name, state: name === planningStatus ? "on" as const : "off" as const,
+    })),
+  ];
+  const entries = rows.filter((row) => planningStatus === null ||
+    row.solusPlanningStatus === planningStatus).sort(issueOrder(sort));
   const filterScopes = issueFilterScopes(held, projects);
   const notices = [
     // An environment that failed while another answered: its issues are missing from the rows.
@@ -256,6 +272,7 @@ export function IssuesScreen(
 
   const customized =
     state !== "open" ||
+    planningStatus !== null ||
     involvement !== "all" ||
     sort !== "updated" ||
     labels.length > 0 ||
@@ -270,6 +287,11 @@ export function IssuesScreen(
               title: gt("State", { $context: "issue state filter" }),
               subactions: choices(STATES, state, messages, "state"),
             },
+            ...(planningStatuses.length || planningStatus !== null ? [{
+              id: "planningStatus",
+              title: gt("Planning status"),
+              subactions: planningStatusActions,
+            }] : []),
             {
               id: "involvement",
               title: gt("Involvement"),
@@ -302,13 +324,14 @@ export function IssuesScreen(
           ],
           onSelect: (id) => {
             const [field, value] = id.split(":");
-            if (field === "state") setState(value as IssueListState);
+            if (field === "state") selectState(value as IssueListState);
+            if (field === "status") setPlanningStatus(id.startsWith("status:") ? id.slice(7) : null);
             if (field === "involvement") setInvolvement(value as IssueInvolvement);
             if (field === "sort") setSort(value as IssueListSort);
             if (field === "labels" || field === "assignee")
               navigation.navigate("IssueFilterSearch", { kind: field, scopes: filterScopes });
             if (field === "reset") {
-              setState("open");
+              selectState("open");
               setInvolvement("all");
               setSort("updated");
               setFilters({ labels: [], assignee: null });
@@ -394,7 +417,7 @@ export function IssuesScreen(
                   assignee,
                 }}
                 onApply={(view) => {
-                  setState(view.state);
+                  selectState(view.state);
                   setInvolvement(view.involvement);
                   setSort(view.sort);
                   setFilters({ labels: view.labels, assignee: view.assignee });
@@ -414,10 +437,22 @@ export function IssuesScreen(
                 accessibilityLabel={gt("Filter by state")}
                 actions={choices(STATES, state, messages)}
                 onSelect={(id) => {
-                  setState(id as IssueListState);
+                  selectState(id as IssueListState);
                   scrollToTop();
                 }}
               />
+              {planningStatuses.length || planningStatus !== null ? (
+                <ListFilterMenu
+                  label={planningStatus ?? gt("Planning status")}
+                  accessibilityLabel={gt("Filter by planning status")}
+                  active={planningStatus !== null}
+                  actions={planningStatusActions}
+                  onSelect={(id) => {
+                    setPlanningStatus(id.startsWith("status:") ? id.slice(7) : null);
+                    scrollToTop();
+                  }}
+                />
+              ) : null}
               <ListFilterMenu
                 label={messages(INVOLVEMENT[involvement])}
                 active={involvement !== "all"}
