@@ -110,7 +110,7 @@
     >
       <AllIcon size={15} class="shrink-0" />
       <span class="min-w-0 flex-1 truncate">{allLabel}</span>
-      {#if allActive}<CheckIcon size={13} class="mr-1.5 shrink-0 text-(--solus-accent)" />{/if}
+      {#if allActive}{@render selectedCheck()}{/if}
     </DropdownMenu.Item>
   {/if}
   {#if onSelectCurrent && !query.trim()}
@@ -121,9 +121,12 @@
   {/if}
   {#each matches as project (project.key)}
     {@const isActive = project.key === activeKey}
+    {@const remove = project.removable && onRemoveProject
+      ? () => onRemoveProject?.(project)
+      : undefined}
     <div class="group/project-row relative">
       <DropdownMenu.Item
-        class="pr-9 pointer-coarse:pr-11 {project.available ? '' : 'cursor-not-allowed opacity-50'}"
+        class="{remove ? 'pr-9 pointer-coarse:pr-11' : ''} {project.available ? '' : 'cursor-not-allowed opacity-50'}"
         disabled={!project.available}
         data-menu-current={isActive ? "" : undefined}
         title={project.available
@@ -136,16 +139,15 @@
           {project.label}
         </span>
         {#if project.count !== undefined}
-          <span class="shrink-0 text-xs text-muted-foreground tabular-nums">{project.count}</span>
+          <span class="min-w-4 shrink-0 text-center text-xs text-muted-foreground tabular-nums {remove || isActive ? '' : 'pointer-coarse:mr-1'}">
+            {project.count}
+          </span>
         {/if}
+        {#if isActive && !remove}{@render selectedCheck()}{/if}
       </DropdownMenu.Item>
-      <ProjectRowAction
-        selected={isActive}
-        label={project.label}
-        onRemove={project.removable && onRemoveProject
-          ? () => onRemoveProject?.(project)
-          : undefined}
-      />
+      {#if remove}
+        <ProjectRowAction selected={isActive} label={project.label} onRemove={remove} />
+      {/if}
     </div>
   {/each}
   {#if matches.length === 0}
@@ -156,6 +158,12 @@
   <DropdownMenu.Separator />
   {@render addRow()}
 {/if}
+
+{#snippet selectedCheck()}
+  <span class="flex w-4 shrink-0 justify-center pointer-coarse:mr-1">
+    <CheckIcon size={13} class="text-(--solus-accent)" />
+  </span>
+{/snippet}
 
 {#snippet addRow()}
   <DropdownMenu.Item data-testid="project-filter-add" onSelect={onAddProject ?? (() => openAddProjectPicker(onSelect))}>
