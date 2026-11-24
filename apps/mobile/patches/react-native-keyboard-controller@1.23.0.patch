@@ -185,9 +185,18 @@ index 4d33b3fe426070cf312fc493ce902b2c24d853ea..6a787d3054ba09e90c54b615ab302df5
  //# sourceMappingURL=helpers.js.map
 \ No newline at end of file
 diff --git a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
-index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e5378311638c437fc 100644
+index 8ac5904..dff51e4 100644
 --- a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 +++ b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
+@@ -12,7 +12,7 @@ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e
+ /**
+  * Hook that manages keyboard-driven scrolling for chat-style scroll views.
+  * Calculates padding (extra scrollable space) and content shift values,
+- * using iOS-specific strategy (contentOffset set once in onStart).
++ * keeping animated openings in step with the keyboard's presentation frame.
+  *
+  * @param scrollViewRef - Animated ref to the scroll view.
+  * @param options - Configuration for inverted and keyboardLiftBehavior.
 @@ -32,7 +32,9 @@ function useChatKeyboard(scrollViewRef, options) {
      freeze,
      offset,
@@ -199,7 +208,32 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
    } = options;
    const padding = (0, _reactNativeReanimated.useSharedValue)(0);
    const currentHeight = (0, _reactNativeReanimated.useSharedValue)(0);
-@@ -67,6 +69,9 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -49,10 +51,24 @@ function useChatKeyboard(scrollViewRef, options) {
+     onLayout,
+     onContentSizeChange
+   } = (0, _useScrollState.default)(scrollViewRef, options.initialContentOffsetY);
++  const opening = (0, _reactNativeReanimated.useSharedValue)(null);
++  const applyOpeningFrame = (height) => {
++    "worklet";
++
++    const anchor = opening.value;
++    if (anchor === null) return;
++
++    padding.value = height;
++    if (anchor.scroll === null) return;
++
++    contentOffsetY.value = (0, _helpers.computeIOSContentOffset)(anchor.scroll, (0, _helpers.getScrollEffective)(height, anchor.absorbed), size.value.height, layout.value.height, inverted, Math.max(blankSpace.value, height + extraContentPadding.value) + adjustedInsetCompensation, adjustedStartInsetCompensation);
++  };
++
+   (0, _hooks.useKeyboardHandler)({
+     onStart: e => {
+       "worklet";
+
++      opening.value = null;
+       if (freeze.value) {
+         // eslint-disable-next-line react-compiler/react-compiler
+         lastTransitionFrozen.value = true;
+@@ -67,6 +83,9 @@ function useChatKeyboard(scrollViewRef, options) {
          prevAbsorption.value = padding.value;
        }
        const effective = (0, _helpers.getEffectiveHeight)(e.height, targetKeyboardHeight.value, offset);
@@ -209,7 +243,7 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
        const atEnd = (0, _helpers.isScrollAtEnd)(scroll.value, layout.value.height, size.value.height, inverted);
  
        // Scale minimum padding absorption by how much of it is visible.
-@@ -75,7 +80,7 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -75,7 +94,7 @@ function useChatKeyboard(scrollViewRef, options) {
        const visiblePadding = visibleFraction * blankSpace.value;
        const minimumPaddingAbsorbed = Math.max(0, visiblePadding - extraContentPadding.value);
        const scrollEffective = (0, _helpers.getScrollEffective)(effective, minimumPaddingAbsorbed);
@@ -218,7 +252,7 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
  
        // `onInteractive` owns the native scroll offset. When its final
        // keyboardWillHide event arrives, consume the marker so this
-@@ -95,8 +100,8 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -95,8 +114,8 @@ function useChatKeyboard(scrollViewRef, options) {
            const maxScroll = Math.max(size.value.height - layout.value.height, 0);
            contentOffsetY.value = Math.max(-actualTotalPadding, Math.min(scroll.value, maxScroll));
          } else {
@@ -229,7 +263,7 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
          }
          return;
        }
-@@ -110,8 +115,8 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -110,8 +129,8 @@ function useChatKeyboard(scrollViewRef, options) {
            const maxScroll = Math.max(size.value.height - layout.value.height, 0);
            contentOffsetY.value = Math.max(-actualTotalPadding, Math.min(scroll.value, maxScroll));
          } else {
@@ -240,7 +274,24 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
          }
          return;
        }
-@@ -137,17 +142,25 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -122,6 +141,16 @@ function useChatKeyboard(scrollViewRef, options) {
+       // the unwind matches the shift that was originally applied.
+       const prevScrollEffective = (0, _helpers.getScrollEffective)(padding.value, prevAbsorption.value);
+       const relativeScroll = inverted ? scroll.value + prevScrollEffective : scroll.value - prevScrollEffective;
++      // Keep the inset and offset in the same frame as the rising composer.
++      if (e.height > 0 && e.duration > 0 && padding.value === 0) {
++        opening.value = {
++          scroll: (0, _helpers.shouldShiftContent)(keyboardLiftBehavior, atEnd) ? relativeScroll : null,
++          absorbed: minimumPaddingAbsorbed,
++        };
++        prevAbsorption.value = minimumPaddingAbsorbed;
++        return;
++      }
++
+       padding.value = effective;
+       prevAbsorption.value = minimumPaddingAbsorbed;
+       if (!(0, _helpers.shouldShiftContent)(keyboardLiftBehavior, atEnd)) {
+@@ -137,17 +166,27 @@ function useChatKeyboard(scrollViewRef, options) {
          contentOffsetY.value = scroll.value;
          return;
        }
@@ -256,12 +307,14 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
 +        return;
 +      }
 +      currentHeight.value = (0, _helpers.getEffectiveHeight)(e.height, targetKeyboardHeight.value, offset);
++      applyOpeningFrame(currentHeight.value);
      },
 -    onMove: () => {
 +    onInteractive: e => {
        "worklet";
  
 -      // iOS doesn't need per-frame updates (contentOffset handles it)
++      opening.value = null;
 +      isInteractiveDismissal.value = true;
 +
 +      if (freeze.value) {
@@ -271,11 +324,13 @@ index 8ac59042f670460fa822b1a36d971e4c0d5abe2f..480b60f7b55d7a4945bf163e53783116
      },
      onEnd: e => {
        "worklet";
-@@ -156,9 +169,10 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -156,9 +195,12 @@ function useChatKeyboard(scrollViewRef, options) {
          return;
        }
        const effective = (0, _helpers.getEffectiveHeight)(e.height, targetKeyboardHeight.value, offset);
 +      currentHeight.value = effective;
++      applyOpeningFrame(effective);
++      opening.value = null;
        padding.value = effective;
      }
 -  }, [inverted, keyboardLiftBehavior, offset, extraContentPadding]);
@@ -497,9 +552,18 @@ index 295e2219b560519b8d033968b5105d1da3e77315..2f7b87e6c68956f757db94a8197c1c61
  //# sourceMappingURL=helpers.js.map
 \ No newline at end of file
 diff --git a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
-index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da185e4373 100644
+index 6a941e8..11a91eb 100644
 --- a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 +++ b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
+@@ -5,7 +5,7 @@ import { computeIOSContentOffset, getEffectiveHeight, getScrollEffective, getVis
+ /**
+  * Hook that manages keyboard-driven scrolling for chat-style scroll views.
+  * Calculates padding (extra scrollable space) and content shift values,
+- * using iOS-specific strategy (contentOffset set once in onStart).
++ * keeping animated openings in step with the keyboard's presentation frame.
+  *
+  * @param scrollViewRef - Animated ref to the scroll view.
+  * @param options - Configuration for inverted and keyboardLiftBehavior.
 @@ -25,7 +25,9 @@ function useChatKeyboard(scrollViewRef, options) {
      freeze,
      offset,
@@ -511,7 +575,32 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
    } = options;
    const padding = useSharedValue(0);
    const currentHeight = useSharedValue(0);
-@@ -60,6 +62,9 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -42,10 +44,24 @@ function useChatKeyboard(scrollViewRef, options) {
+     onLayout,
+     onContentSizeChange
+   } = useScrollState(scrollViewRef, options.initialContentOffsetY);
++  const opening = useSharedValue(null);
++  const applyOpeningFrame = (height) => {
++    "worklet";
++
++    const anchor = opening.value;
++    if (anchor === null) return;
++
++    padding.value = height;
++    if (anchor.scroll === null) return;
++
++    contentOffsetY.value = computeIOSContentOffset(anchor.scroll, getScrollEffective(height, anchor.absorbed), size.value.height, layout.value.height, inverted, Math.max(blankSpace.value, height + extraContentPadding.value) + adjustedInsetCompensation, adjustedStartInsetCompensation);
++  };
++
+   useKeyboardHandler({
+     onStart: e => {
+       "worklet";
+
++      opening.value = null;
+       if (freeze.value) {
+         // eslint-disable-next-line react-compiler/react-compiler
+         lastTransitionFrozen.value = true;
+@@ -60,6 +76,9 @@ function useChatKeyboard(scrollViewRef, options) {
          prevAbsorption.value = padding.value;
        }
        const effective = getEffectiveHeight(e.height, targetKeyboardHeight.value, offset);
@@ -521,7 +610,7 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
        const atEnd = isScrollAtEnd(scroll.value, layout.value.height, size.value.height, inverted);
  
        // Scale minimum padding absorption by how much of it is visible.
-@@ -68,7 +73,7 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -68,7 +87,7 @@ function useChatKeyboard(scrollViewRef, options) {
        const visiblePadding = visibleFraction * blankSpace.value;
        const minimumPaddingAbsorbed = Math.max(0, visiblePadding - extraContentPadding.value);
        const scrollEffective = getScrollEffective(effective, minimumPaddingAbsorbed);
@@ -530,7 +619,7 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
  
        // `onInteractive` owns the native scroll offset. When its final
        // keyboardWillHide event arrives, consume the marker so this
-@@ -88,8 +93,8 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -88,8 +107,8 @@ function useChatKeyboard(scrollViewRef, options) {
            const maxScroll = Math.max(size.value.height - layout.value.height, 0);
            contentOffsetY.value = Math.max(-actualTotalPadding, Math.min(scroll.value, maxScroll));
          } else {
@@ -541,7 +630,7 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
          }
          return;
        }
-@@ -103,8 +108,8 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -103,8 +122,8 @@ function useChatKeyboard(scrollViewRef, options) {
            const maxScroll = Math.max(size.value.height - layout.value.height, 0);
            contentOffsetY.value = Math.max(-actualTotalPadding, Math.min(scroll.value, maxScroll));
          } else {
@@ -552,7 +641,24 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
          }
          return;
        }
-@@ -130,17 +135,25 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -115,6 +134,16 @@ function useChatKeyboard(scrollViewRef, options) {
+       // the unwind matches the shift that was originally applied.
+       const prevScrollEffective = getScrollEffective(padding.value, prevAbsorption.value);
+       const relativeScroll = inverted ? scroll.value + prevScrollEffective : scroll.value - prevScrollEffective;
++      // Keep the inset and offset in the same frame as the rising composer.
++      if (e.height > 0 && e.duration > 0 && padding.value === 0) {
++        opening.value = {
++          scroll: shouldShiftContent(keyboardLiftBehavior, atEnd) ? relativeScroll : null,
++          absorbed: minimumPaddingAbsorbed,
++        };
++        prevAbsorption.value = minimumPaddingAbsorbed;
++        return;
++      }
++
+       padding.value = effective;
+       prevAbsorption.value = minimumPaddingAbsorbed;
+       if (!shouldShiftContent(keyboardLiftBehavior, atEnd)) {
+@@ -130,17 +159,27 @@ function useChatKeyboard(scrollViewRef, options) {
          contentOffsetY.value = scroll.value;
          return;
        }
@@ -568,12 +674,14 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
 +        return;
 +      }
 +      currentHeight.value = getEffectiveHeight(e.height, targetKeyboardHeight.value, offset);
++      applyOpeningFrame(currentHeight.value);
      },
 -    onMove: () => {
 +    onInteractive: e => {
        "worklet";
  
 -      // iOS doesn't need per-frame updates (contentOffset handles it)
++      opening.value = null;
 +      isInteractiveDismissal.value = true;
 +
 +      if (freeze.value) {
@@ -583,11 +691,13 @@ index 6a941e83d1c4a9c5cc57be4881ffe7121cd2b9a6..753893680fd20f207491f0c2dbca49da
      },
      onEnd: e => {
        "worklet";
-@@ -149,9 +162,10 @@ function useChatKeyboard(scrollViewRef, options) {
+@@ -149,9 +188,12 @@ function useChatKeyboard(scrollViewRef, options) {
          return;
        }
        const effective = getEffectiveHeight(e.height, targetKeyboardHeight.value, offset);
 +      currentHeight.value = effective;
++      applyOpeningFrame(effective);
++      opening.value = null;
        padding.value = effective;
      }
 -  }, [inverted, keyboardLiftBehavior, offset, extraContentPadding]);
@@ -930,9 +1040,18 @@ index 37eacd10857cd70c51b3468c4b466e4959d0a415..3d77ab27c614f44b64da8270823942cb
 +  );
  };
 diff --git a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
-index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e3cb63d7d 100644
+index f67fc0d..7a716a6 100644
 --- a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
 +++ b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
+@@ -19,7 +19,7 @@ import type Reanimated from "react-native-reanimated";
+ /**
+  * Hook that manages keyboard-driven scrolling for chat-style scroll views.
+  * Calculates padding (extra scrollable space) and content shift values,
+- * using iOS-specific strategy (contentOffset set once in onStart).
++ * keeping animated openings in step with the keyboard's presentation frame.
+  *
+  * @param scrollViewRef - Animated ref to the scroll view.
+  * @param options - Configuration for inverted and keyboardLiftBehavior.
 @@ -43,6 +43,8 @@ function useChatKeyboard(
      offset,
      blankSpace,
@@ -942,7 +1061,42 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
    } = options;
  
    const padding = useSharedValue(0);
-@@ -90,6 +92,10 @@ function useChatKeyboard(
+@@ -62,11 +64,34 @@ function useChatKeyboard(
+     onContentSizeChange,
+   } = useScrollState(scrollViewRef, options.initialContentOffsetY);
+
++  const opening = useSharedValue<{ scroll: number | null; absorbed: number } | null>(null);
++  const applyOpeningFrame = (height: number) => {
++    "worklet";
++
++    const anchor = opening.value;
++    if (anchor === null) return;
++
++    padding.value = height;
++    if (anchor.scroll === null) return;
++
++    contentOffsetY.value = computeIOSContentOffset(
++      anchor.scroll,
++      getScrollEffective(height, anchor.absorbed),
++      size.value.height,
++      layout.value.height,
++      inverted,
++      Math.max(blankSpace.value, height + extraContentPadding.value) +
++        adjustedInsetCompensation,
++      adjustedStartInsetCompensation,
++    );
++  };
++
+   useKeyboardHandler(
+     {
+       onStart: (e) => {
+         "worklet";
+
++        opening.value = null;
+         if (freeze.value) {
+           // eslint-disable-next-line react-compiler/react-compiler
+           lastTransitionFrozen.value = true;
+@@ -90,6 +115,10 @@ function useChatKeyboard(
            offset,
          );
  
@@ -953,7 +1107,7 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
          const atEnd = isScrollAtEnd(
            scroll.value,
            layout.value.height,
-@@ -115,10 +121,12 @@ function useChatKeyboard(
+@@ -115,10 +144,12 @@ function useChatKeyboard(
            effective,
            minimumPaddingAbsorbed,
          );
@@ -970,7 +1124,7 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
  
          // `onInteractive` owns the native scroll offset. When its final
          // keyboardWillHide event arrives, consume the marker so this
-@@ -152,11 +160,11 @@ function useChatKeyboard(
+@@ -152,11 +183,11 @@ function useChatKeyboard(
            } else {
              const maxScroll = Math.max(
                size.value.height - layout.value.height + actualTotalPadding,
@@ -984,7 +1138,7 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
                Math.min(scroll.value, maxScroll),
              );
            }
-@@ -187,11 +195,11 @@ function useChatKeyboard(
+@@ -187,11 +218,11 @@ function useChatKeyboard(
            } else {
              const maxScroll = Math.max(
                size.value.height - layout.value.height + actualTotalPadding,
@@ -998,7 +1152,26 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
                Math.min(scroll.value, maxScroll),
              );
            }
-@@ -241,17 +249,36 @@ function useChatKeyboard(
+@@ -211,6 +242,18 @@ function useChatKeyboard(
+           ? scroll.value + prevScrollEffective
+           : scroll.value - prevScrollEffective;
+
++        // Keep the inset and offset in the same frame as the rising composer.
++        if (e.height > 0 && e.duration > 0 && padding.value === 0) {
++          opening.value = {
++            scroll: shouldShiftContent(keyboardLiftBehavior, atEnd)
++              ? relativeScroll
++              : null,
++            absorbed: minimumPaddingAbsorbed,
++          };
++          prevAbsorption.value = minimumPaddingAbsorbed;
++          return;
++        }
++
+         padding.value = effective;
+         prevAbsorption.value = minimumPaddingAbsorbed;
+
+@@ -241,17 +284,38 @@ function useChatKeyboard(
            layout.value.height,
            inverted,
            actualTotalPadding,
@@ -1019,12 +1192,14 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
 +          targetKeyboardHeight.value,
 +          offset,
 +        );
++        applyOpeningFrame(currentHeight.value);
        },
 -      onMove: () => {
 +      onInteractive: (e) => {
          "worklet";
  
 -        // iOS doesn't need per-frame updates (contentOffset handles it)
++        opening.value = null;
 +        isInteractiveDismissal.value = true;
 +
 +        if (freeze.value) {
@@ -1039,11 +1214,13 @@ index f67fc0d1706bc7ab9169da533514a961799a5551..a599edb77c094574c57adcb217d8404e
        },
        onEnd: (e) => {
          "worklet";
-@@ -266,10 +293,18 @@ function useChatKeyboard(
+@@ -266,10 +330,20 @@ function useChatKeyboard(
            offset,
          );
  
 +        currentHeight.value = effective;
++        applyOpeningFrame(effective);
++        opening.value = null;
          padding.value = effective;
        },
      },

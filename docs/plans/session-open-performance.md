@@ -758,6 +758,11 @@ The mobile typecheck passes. A new recording is pending: the device-control
 service stopped responding during verification. The earlier video does not
 show these follow-up changes.
 
+On iOS, the transcript applies its bottom inset and scroll offset with each
+frame of the keyboard opening. The latest message moves with the composer.
+When the user reads earlier messages, the inset grows and their scroll
+position stays fixed.
+
 ### Native session loading and reconnect
 
 The mobile comparison used T3 Code `0591d32888dbd2f2f25915c245e6f1fe93dc4755` and the Solus backend. A row update at the same list position keeps the other row objects. Workspace consumers such as Settings subscribe to the host and project state. The directory can reuse a complete saved list when the host confirms its revision for the current caller.
