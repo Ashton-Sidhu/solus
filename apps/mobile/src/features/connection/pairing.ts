@@ -23,6 +23,8 @@ export function buildPairingUrl(host: string, code: string): string {
 
   try {
     const url = new URL(normalizeServerUrl(h));
+    // A typed code uses the address shown, even if its query names another host.
+    url.search = "";
     url.hash = new URLSearchParams([["token", c]]).toString();
     return url.toString();
   } catch {

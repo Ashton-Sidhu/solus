@@ -10,6 +10,17 @@ For an upstream update, compare the new T3 revision with the previous import ove
 
 The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`.
 
+
+## Public T3 Code partial import through 2026-11-24
+
+This import compares public T3 Code main at `a7a6126a7d9b364c0fbef3f7fe1a087c4b004393` with the last full import at `620cf4770d992d642f822a13dc2539c2605a3500`. The full comparison base stays at `620cf4770d992d642f822a13dc2539c2605a3500`. The fork revision records the earlier fork import. The composer path fixes and Live Activity fixes already listed here were reconciled with the public changes.
+
+This import includes file-backed composer photos, the iOS paste preparation and original image formats, media actions on each image page, Android language refresh, the Favorites only model filter, session ordering with disconnected hosts, swipe label spacing, the larger Viewed control in PR diffs, and limits on which links can open in previews. The Solus adapters keep signed resources and the trusted host registry. A manual pairing code uses the shown address. The review sheet passes the revision the user reviewed to the Solus host. The feed keeps the Solus conversation cards, collapsed tool calls, and changed-files summaries.
+
+Pending upstream work includes Workflows and the T3 agent feedback screens, full-text downloads past the host's file preview, the T3 linked-thread paging presentation, and model changes for queued messages. Those paths need the corresponding Solus host operations or adapter behavior. The import keeps the Solus thread route and live checkout confirmation. It takes the Unicode branch label change from the Git menu.
+
+The frozen dependency install, focused mobile tests, native iOS composer tests, and production Expo exports for iOS and Android passed. Both app identifiers were `sh.solus.mobile`. The broad mobile suite, mobile type check, and two host test files still report failures that also occur on the clean Solus revision used for this import.
+
 The model picker sheet, its catalog filter, and its iOS and Android rows match T3 Code revision `9b7f5eb4479c5287340a863407ad083e2fdbeb7a`. The Solus adapter gives the sheet the host's model groups. The default list hides legacy models unless they are selected or favorited. Search and the Show legacy models filter can include them. The picker reads the selected host’s reasoning and Fast Mode options and saves catalog preferences on the project’s provider instance. The scheduled-task picker uses the same host catalog.
 
 The mobile New session project selection and draft headings follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa`. Project picker rows use the upstream icon component and thumbnail cache. The selected Solus host supplies the signed favicon URL.
