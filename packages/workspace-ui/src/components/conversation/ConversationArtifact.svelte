@@ -2,6 +2,7 @@
   import { ChevronLeft, ChevronRight, LayoutTemplate as ArtifactIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import ArtifactView from "../artifact/ArtifactView.svelte";
+  import type { ArtifactVersions } from "../artifact/ArtifactRail.svelte";
   import { Button } from "../ui/button";
   import HtmlBlock from "./HtmlBlock.svelte";
   import TranscriptCard from "./TranscriptCard.svelte";
@@ -40,6 +41,20 @@
   // all a revision whose HTML is still on its host knows about itself.
   const heightKey = $derived(selected?.workRef?.contentVersion ? `work:${selected.workRef.workId}:${selected.workRef.contentVersion}` : undefined);
   const pendingHtml = $derived(expanded ? selected?.pendingHtml?.artifact?.historyHtml : undefined);
+  // A saved version that renders has the rail: the version line and its
+  // controls go in that row. Otherwise the card or the line keeps them.
+  const hasRail = $derived(expanded && !update && !!selected?.workRef && !pendingHtml);
+  const versions = $derived.by((): ArtifactVersions | undefined => {
+    if (!selected || revisions.length < 2) return undefined;
+    return {
+      number: selectedIndex + 1,
+      count: revisions.length,
+      isLatest: selected === latest,
+      showPrevious: () => (disclosure.pickedId = revisions[selectedIndex - 1].messageId),
+      showNext: () => (disclosure.pickedId = revisions[selectedIndex + 1].messageId),
+      showLatest: () => { disclosure.pickedId = latest.messageId; disclosure.expanded = true; },
+    };
+  });
 
   // An open card whose HTML the history page left on its host reads it now.
   $effect(() => {
@@ -64,7 +79,7 @@
       {#snippet glyph()}<ArtifactIcon />{/snippet}
       {#snippet rail()}v{selectedIndex + 1}{/snippet}
       {#snippet actions()}
-        {#if expanded && selected}
+        {#if expanded && selected && !hasRail}
           <TranscriptCardAction
             kind="icon"
             label="Previous version"
@@ -86,7 +101,7 @@
         {/if}
       {/snippet}
     </TranscriptCard>
-  {:else if update || revisions.length > 1}
+  {:else if (update || revisions.length > 1) && !hasRail}
     <!-- A slim version line, no shell: the render below is the object. -->
     <div class="flex h-8 min-w-0 items-center gap-2 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:h-12">
       <span class="inline-flex w-5.5 shrink-0 justify-center text-primary"><ArtifactIcon size={13} /></span>
@@ -138,7 +153,7 @@
     {:else if pendingHtml}
       <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px"></div>
     {:else if selected.workRef}
-      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
+      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} {versions} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
     {:else}
       <HtmlBlock html={selected.html} />
     {/if}

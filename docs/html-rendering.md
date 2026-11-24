@@ -86,6 +86,13 @@ scrolls away and back, and when the reader switches tabs. A pane too narrow for
 the gutters, or the Full conversation width, shows no Widen. An app frame and
 a render in a pane or a document do not have it.
 
+A render that has a work has one header row: the artifact rail. It shows the
+artifact icon, the title, and the version ("v2 of 3 · latest" in a chain of
+versions). At its end are two pills: the version controls (View latest,
+Previous, Next), and the controls of the work and the frame (Link, Share, Open
+in split, the frame's actions, Widen, and Expand). A render with no work keeps
+its controls in a pill over its top-right corner, shown on hover.
+
 An HTML block can show a local image by its absolute path (`src="/tmp/shot.png"`,
 a `file:` URL, or CSS `url()`). The client asks the session's host for each file
 through a signed asset URL and writes it into the page as a `data:` URL before
