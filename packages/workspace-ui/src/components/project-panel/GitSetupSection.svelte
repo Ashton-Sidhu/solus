@@ -47,9 +47,10 @@
   const draftMembers = $derived(
     folder || isStarted
       ? []
-      : codebaseId
-        ? membersOnHost(codebasesStore.membersOf(codebaseId), serverId).members
-        : (codebasesStore.newCodebaseAt(serverId, cwd)?.members ?? []),
+      : [
+          ...(codebasesStore.projectScanAt(serverId, cwd)?.members ?? []),
+          ...(codebaseId ? membersOnHost(codebasesStore.membersOf(codebaseId), serverId).members : []),
+        ],
   );
   const repositoryCount = $derived(
     folder ? 0 : repositoriesInFolder(cwd, panelSession?.sessionFolders ?? [], draftMembers),

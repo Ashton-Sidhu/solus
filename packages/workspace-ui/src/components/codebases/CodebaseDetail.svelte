@@ -7,7 +7,7 @@
   import { CODEBASE_ROOTS_MAX } from "@solus/contracts/codebases";
   import { ArrowLeft as ArrowLeftIcon, Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
   import { codebasesStore } from "../../contexts";
-  import { codebaseRootKey, rootRefusalText } from "@solus/client-core/codebases";
+  import { codebaseRootKey, rootRefusalText, rootRemovalRefusal } from "@solus/client-core/codebases";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -28,6 +28,8 @@
   const isListLoading = $derived(codebasesStore.hosts.some((host) => host.isReady && host.status !== "ready" && host.status !== "unavailable"));
   const isRefreshing = $derived(groups.some((group) => group.state === "loading"));
   const isFull = $derived((codebase?.roots.length ?? 0) >= CODEBASE_ROOTS_MAX);
+  // A codebase has two or more folders: one of the last two cannot be removed.
+  const removalRefusal = $derived(codebase ? rootRemovalRefusal(codebase.roots) : null);
 
   $effect(() => {
     const shownId = codebaseId;
@@ -198,6 +200,9 @@
       {#if isFull}
         <p class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText("limit")}</p>
       {/if}
+      {#if removalRefusal}
+        <p id="codebase-removal-refusal" class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText(removalRefusal)}</p>
+      {/if}
 
       {#if isAdding}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -243,6 +248,7 @@
                 {entry}
                 canAdd={group.presence === "ready" && !isFull}
                 {isBusy}
+                canRemove={!removalRefusal}
                 onRemove={() => removeRoot(entry.root.installationId, entry.root.path)}
                 onAddSuggestion={(path) => addSuggestion(group.serverId, path)}
               />

@@ -85,6 +85,24 @@ export async function addCodebaseFolder(
   await solus.codebases.addRoot(codebaseId, { hostId: environmentId, path });
 }
 
+/**
+ * Make a codebase of two folders on one host: the folder of a project and a
+ * second folder that the person chose. A codebase has two or more folders
+ * (docs/plans/codebases.md decision 14).
+ */
+export async function makeCodebase(
+  environmentId: EnvironmentId,
+  name: string,
+  folders: readonly [string, string],
+) {
+  if (!solus.connections.may(environmentId, "host.use"))
+    throw new Error("This connection cannot change codebases on this host.");
+  await solus.codebases.create(
+    name,
+    folders.map((path) => ({ hostId: environmentId, path })),
+  );
+}
+
 export async function cloneProject(environmentId: EnvironmentId, cloneUrl: string, path: string) {
   const api = projectApi(environmentId);
   const existing = findExistingAddProject({

@@ -190,7 +190,7 @@ describe('the plan of a task folder', () => {
 
   test('a named path that cannot be in the task folder is refused with its reason', () => {
     const all = [member('/code/api'), member('/code/notes', { state: 'plain' })]
-    expect(() => plan('/code/api', all, ['/code/elsewhere'])).toThrow('/code/elsewhere is not a folder of this session\'s codebase.')
+    expect(() => plan('/code/api', all, ['/code/elsewhere'])).toThrow('/code/elsewhere is not a folder of this session\'s project or codebase.')
     expect(() => plan('/code/api', all, ['/code/notes'])).toThrow('/code/notes is not a Git repository')
 
     // WHY: a task folder keeps relative places, and two Windows drives have no folder that holds both.

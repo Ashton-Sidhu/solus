@@ -151,6 +151,18 @@ async function readGitFacts(members: CodebaseMember[]): Promise<void> {
 }
 
 /**
+ * The folders that a project covers by itself, with no codebase
+ * (docs/plans/codebases.md decision 14): the project folder, then the
+ * repositories inside it. The same members that a root at `projectFolder`
+ * gives.
+ */
+export async function membersOfProject(projectFolder: string): Promise<CodebaseMember[]> {
+  const { members } = await readFolder(projectFolder, '')
+  await readGitFacts(members)
+  return members
+}
+
+/**
  * The folders that `codebase` covers on the host `installationId`: each root
  * on this host, then the repositories inside it. A root on a different host is
  * not read and is not in the answer. A root that is not a folder is a member
@@ -219,12 +231,12 @@ async function workspaceSuggestions(folder: string): Promise<CodebaseFolderSugge
  */
 export async function scanFolder(path: string): Promise<CodebaseFolderScan> {
   const resolved = resolve(resolveHomePath(path))
-  const read = await readFolder(resolved, '')
-  await readGitFacts(read.members)
+  const members = await membersOfProject(resolved)
+  const [{ state }] = members
   return {
     path: resolved,
-    state: read.state,
-    members: read.members,
-    suggestions: read.state === 'missing' ? [] : await workspaceSuggestions(resolved),
+    state,
+    members,
+    suggestions: state === 'missing' ? [] : await workspaceSuggestions(resolved),
   }
 }

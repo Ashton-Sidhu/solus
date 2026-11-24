@@ -1,4 +1,5 @@
-import { createProject, cloneProject, addLocalProject, addCodebaseFolder, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
+import { createProject, cloneProject, addLocalProject, addCodebaseFolder, makeCodebase, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 import { useEnvironmentQuery } from "../../state/query";
 import { useCheckoutAccess } from "../../solus/use-checkout-files";
 import { solus, useSolusWorkspace } from "../../solus/runtime";
@@ -1025,10 +1026,14 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
 export function AddProjectLocalFolderScreen(props: {
   readonly environmentId?: string | string[];
   readonly codebaseId?: string | string[];
+  readonly codebaseWith?: string | string[];
 }) {
   const environment = useEnvironmentFromParam(props.environmentId);
   // Solus: with a codebase, the chosen folder becomes a root of it and no project is added.
   const codebaseId = stringParam(props.codebaseId);
+  // Solus: with the first folder of a new codebase, the chosen folder is its second folder, and the codebase is made.
+  const codebaseWith = stringParam(props.codebaseWith);
+  const addsFolder = codebaseId !== null || codebaseWith !== null;
   const canCreateProject = environment?.connectionState === "connected";
   const navigation = useNavigation();
   const openNewTaskDraft = useOpenNewTaskDraft();
@@ -1050,6 +1055,26 @@ export function AddProjectLocalFolderScreen(props: {
     );
     if (!resolved.ok) {
       setError(resolved.error);
+      return;
+    }
+
+    if (codebaseWith !== null) {
+      const environmentId = environment.environmentId;
+      Dialog.prompt({
+        title: gt("Make a codebase"),
+        message: gt("Give the codebase a name."),
+        initialValue: `${hostPathBaseName(codebaseWith)} + ${hostPathBaseName(resolved.path)}`,
+        confirmText: gt("Make", { $context: "verb, makes a new codebase" }),
+        onConfirm: (name) => {
+          setIsSubmitting(true);
+          void makeCodebase(environmentId, name, [codebaseWith, resolved.path])
+            .then(
+              () => navigation.goBack(),
+              (failure) => setError(errorMessage(failure)),
+            )
+            .then(() => setIsSubmitting(false));
+        },
+      });
       return;
     }
 
@@ -1082,14 +1107,22 @@ export function AddProjectLocalFolderScreen(props: {
   };
 
   return (
-    <AddProjectShell title={codebaseId !== null ? gt("Add folder") : gt("Local folder")}>
+    <AddProjectShell
+      title={
+        codebaseWith !== null
+          ? gt("Second folder")
+          : codebaseId !== null
+            ? gt("Add folder")
+            : gt("Local folder")
+      }
+    >
       {error ? <ErrorBanner message={error} /> : null}
       {environment ? (
         <>
           {!canCreateProject ? (
             <ErrorBanner
               message={
-                codebaseId !== null
+                addsFolder
                   ? gt("This connection cannot add folders.")
                   : gt("This connection cannot add projects.")
               }
@@ -1097,7 +1130,13 @@ export function AddProjectLocalFolderScreen(props: {
           ) : null}
           <ProjectPathInput value={pathInput} onChangeText={setPathInput} onSubmit={submitPath} />
           <PrimaryActionButton
-            label={codebaseId !== null ? gt("Add folder") : gt("Add project")}
+            label={
+              codebaseWith !== null
+                ? gt("Make codebase")
+                : codebaseId !== null
+                  ? gt("Add folder")
+                  : gt("Add project")
+            }
             disabled={!canCreateProject || isSubmitting}
             onPress={submitPath}
             loading={isSubmitting}

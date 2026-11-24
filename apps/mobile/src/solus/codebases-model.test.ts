@@ -1,7 +1,7 @@
 import { CodebaseRootRefused } from "@solus/client-core/codebases";
 import { CODEBASE_ROOTS_MAX } from "@solus/contracts/codebases";
 import { expect, it, vi } from "vite-plus/test";
-import { codebase, FakeHost, FakePhone, settle } from "./codebases.test-support";
+import { codebase, ELSEWHERE, FakeHost, FakePhone, settle } from "./codebases.test-support";
 
 it("sends the newest copy one time to a host that has an older one", async () => {
   const laptop = new FakeHost("laptop");
@@ -50,7 +50,7 @@ it("removes a codebase when a host has its tombstone, and sends the tombstone on
   const laptop = new FakeHost("laptop");
   const server = new FakeHost("server");
   laptop.copies.set("shop", codebase("shop", 10));
-  server.copies.set("shop", codebase("shop", 30, [], 30));
+  server.copies.set("shop", codebase("shop", 30, undefined, 30));
   const phone = new FakePhone(laptop, server);
   const stop = phone.codebases.watch();
   await settle();
@@ -97,13 +97,20 @@ it("sends a change by the person to each connected host, and a delete as a tombs
   const laptop = new FakeHost("laptop");
   const server = new FakeHost("server");
   laptop.disk.set("/code/shop", { state: "plain" });
+  laptop.disk.set("/code/ui", { state: "git" });
   const phone = new FakePhone(laptop, server);
   const stop = phone.codebases.watch();
   await settle();
 
-  const made = await phone.codebases.create(" Shop ", [{ hostId: "laptop", path: "/code/shop" }]);
+  const made = await phone.codebases.create(" Shop ", [
+    { hostId: "laptop", path: "/code/shop" },
+    { hostId: "laptop", path: "/code/ui" },
+  ]);
   expect(made).toMatchObject({ name: "Shop", updatedAt: 1_000, deletedAt: null });
-  expect(made.roots).toEqual([{ installationId: "laptop", path: "/code/shop", name: "shop" }]);
+  expect(made.roots).toEqual([
+    { installationId: "laptop", path: "/code/shop", name: "shop" },
+    { installationId: "laptop", path: "/code/ui", name: "ui" },
+  ]);
   expect(server.copies.get(made.id)).toEqual(made);
 
   // The clock of this phone is behind the copy: the change is still the newer one.
@@ -120,9 +127,11 @@ it("sends a change by the person to each connected host, and a delete as a tombs
   stop();
 });
 
-it("stores the path that the scan resolved, and refuses a duplicate, a missing folder, and a full codebase", async () => {
+it("stores the path that the scan resolved, and refuses a duplicate, a folder in a root, a missing folder, and a full codebase", async () => {
   const laptop = new FakeHost("laptop", "installation-laptop");
   laptop.disk.set("/Users/ada/shop", { state: "plain" });
+  laptop.disk.set("/Users/ada/shop/api", { state: "git" });
+  laptop.disk.set("/Users/ada/ui", { state: "git" });
   laptop.disk.set("/Users/ada/libs", { state: "git" });
   laptop.resolved.set("~/shop", "/Users/ada/shop");
   laptop.resolved.set("~/libs", "/Users/ada/libs");
@@ -130,13 +139,24 @@ it("stores the path that the scan resolved, and refuses a duplicate, a missing f
   const stop = phone.codebases.watch();
   await settle();
 
-  const made = await phone.codebases.create("Shop", [{ hostId: "laptop", path: "~/shop" }]);
+  const made = await phone.codebases.create("Shop", [
+    { hostId: "laptop", path: "~/shop" },
+    { hostId: "laptop", path: "/Users/ada/ui" },
+  ]);
   // The root names the host by its installation id, never by the id of this phone.
   expect(made.roots).toEqual([
     { installationId: "installation-laptop", path: "/Users/ada/shop", name: "shop" },
+    { installationId: "installation-laptop", path: "/Users/ada/ui", name: "ui" },
   ]);
   const added = await phone.codebases.addRoot(made.id, { hostId: "laptop", path: "~/libs" });
-  expect(added.roots.map((root) => root.path)).toEqual(["/Users/ada/shop", "/Users/ada/libs"]);
+  expect(added.roots.map((root) => root.path)).toEqual([
+    "/Users/ada/shop",
+    "/Users/ada/ui",
+    "/Users/ada/libs",
+  ]);
+  // A root covers the folders inside it.
+  const nested = phone.codebases.addRoot(made.id, { hostId: "laptop", path: "/Users/ada/shop/api" });
+  await expect(nested).rejects.toMatchObject({ refusal: "nested" });
 
   // A different spelling of a root is the same root.
   const duplicate = phone.codebases.addRoot(made.id, { hostId: "laptop", path: "~/shop" });
@@ -164,7 +184,36 @@ it("stores the path that the scan resolved, and refuses a duplicate, a missing f
     installationId: "installation-laptop",
     path: "/Users/ada/libs/",
   });
-  expect(removed.roots.map((root) => root.path)).toEqual(["/Users/ada/shop"]);
+  expect(removed.roots.map((root) => root.path)).toEqual(["/Users/ada/shop", "/Users/ada/ui"]);
+  stop();
+});
+
+it("makes no codebase of one folder, and removes no folder when two are left", async () => {
+  // WHY: one folder is a project, and a project is never also a codebase (decision 14). The person deletes
+  // the codebase to take one of its last two folders out.
+  const laptop = new FakeHost("laptop");
+  laptop.disk.set("/code/shop", { state: "plain" });
+  laptop.disk.set("/code/ui", { state: "git" });
+  laptop.copies.set("old", codebase("old", 5, [{ installationId: "laptop", path: "/code/old", name: "old" }]));
+  const phone = new FakePhone(laptop);
+  const stop = phone.codebases.watch();
+  await settle();
+
+  // A copy with one folder that a host kept is not a codebase.
+  expect(phone.codebases.codebases()).toEqual([]);
+  expect(phone.codebases.codebasesOfFolder("laptop", "/code/old")).toEqual([]);
+
+  await expect(
+    phone.codebases.create("Shop", [{ hostId: "laptop", path: "/code/shop" }]),
+  ).rejects.toThrow(/at least 2 folders/);
+  const made = await phone.codebases.create("Shop", [
+    { hostId: "laptop", path: "/code/shop" },
+    { hostId: "laptop", path: "/code/ui" },
+  ]);
+  const refused = phone.codebases.removeRoot(made.id, { installationId: "laptop", path: "/code/ui" });
+  await expect(refused).rejects.toMatchObject({ refusal: "last-two" });
+  await expect(refused).rejects.toThrow(/delete the codebase/);
+  expect(phone.codebases.codebaseOf(made.id)?.roots).toHaveLength(2);
   stop();
 });
 
@@ -216,8 +265,8 @@ it("answers the codebases that hold a project folder on a host", async () => {
   const laptop = new FakeHost("laptop", "installation-laptop");
   const server = new FakeHost("server", "installation-server");
   const onLaptop = { installationId: "installation-laptop", path: "/code/shop", name: "shop" };
-  laptop.copies.set("shop", codebase("shop", 10, [onLaptop]));
-  laptop.copies.set("gone", codebase("gone", 10, [onLaptop], 10));
+  laptop.copies.set("shop", codebase("shop", 10, [onLaptop, ELSEWHERE]));
+  laptop.copies.set("gone", codebase("gone", 10, [onLaptop, ELSEWHERE], 10));
   const phone = new FakePhone(laptop, server);
   const stop = phone.codebases.watch();
   await settle();
@@ -261,7 +310,7 @@ it("drops what a removed host gave, and tells its listeners about each change", 
   server.disk.set("/srv/infra", { state: "git" });
   laptop.copies.set(
     "shop",
-    codebase("shop", 10, [{ installationId: "server", path: "/srv/infra", name: "infra" }]),
+    codebase("shop", 10, [{ installationId: "server", path: "/srv/infra", name: "infra" }, ELSEWHERE]),
   );
   const phone = new FakePhone(laptop, server);
   const stopHosts = phone.codebases.watch();
@@ -280,33 +329,31 @@ it("drops what a removed host gave, and tells its listeners about each change", 
   stopHosts();
 });
 
-it("answers the codebase that the host makes for the folder of a draft, and none after a person deleted it", async () => {
-  // WHY: the host makes a codebase for a folder that holds repositories (decision 13). The draft shows
-  // the repositories of that codebase before Send, and it must not promise one that the host does not make.
+it("answers what the folder of a project holds, also when a codebase holds the folder", async () => {
+  // WHY: a project covers the repositories inside it with no codebase (decision 14). The project page and
+  // the repositories of a new worktree read them from the scan of the folder.
   const laptop = new FakeHost("laptop");
   laptop.disk.set("/code/store", { state: "plain", found: ["/code/store/api", "/code/store/web"] });
-  laptop.disk.set("/code/notes", { state: "plain" });
+  laptop.disk.set("/code/ui", { state: "git" });
   const phone = new FakePhone(laptop);
   const stop = phone.codebases.watch();
   await settle();
 
   // Before the folder is read, the phone knows nothing about it.
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/store")).toBeNull();
+  expect(phone.codebases.projectScanAt("laptop", "/code/store")).toBeNull();
   await phone.codebases.readFolder("laptop", "/code/store");
-  await phone.codebases.readFolder("laptop", "/code/notes");
-  expect(
-    phone.codebases.newCodebaseAt("laptop", "/code/store")?.members.map((member) => member.path),
-  ).toEqual(["/code/store/api", "/code/store/web"]);
-  // A folder with no repository inside it is one folder: the host makes nothing.
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/notes")).toBeNull();
+  const found = () =>
+    phone.codebases
+      .projectScanAt("laptop", "/code/store")
+      ?.members.filter((member) => member.discovered)
+      .map((member) => member.path);
+  expect(found()).toEqual(["/code/store/api", "/code/store/web"]);
 
-  // A codebase holds the folder: the draft gets that codebase, not a new one.
-  const made = await phone.codebases.create("store", [{ hostId: "laptop", path: "/code/store" }]);
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/store")).toBeNull();
-  // The person deleted it: the host keeps that "no", and so does the draft.
-  await phone.codebases.delete(made.id);
-  expect(phone.codebases.codebasesOfFolder("laptop", "/code/store")).toEqual([]);
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/store")).toBeNull();
+  await phone.codebases.create("store + ui", [
+    { hostId: "laptop", path: "/code/store" },
+    { hostId: "laptop", path: "/code/ui" },
+  ]);
+  expect(found()).toEqual(["/code/store/api", "/code/store/web"]);
   stop();
 });
 
@@ -317,11 +364,11 @@ it("forgets what a folder holds when the account changes", async () => {
   const stop = phone.codebases.watch();
   await settle();
   await phone.codebases.readFolder("laptop", "/code/store");
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/store")).not.toBeNull();
+  expect(phone.codebases.projectScanAt("laptop", "/code/store")).not.toBeNull();
 
   phone.scope = "other-account organization";
   await phone.changed();
   await settle();
-  expect(phone.codebases.newCodebaseAt("laptop", "/code/store")).toBeNull();
+  expect(phone.codebases.projectScanAt("laptop", "/code/store")).toBeNull();
   stop();
 });

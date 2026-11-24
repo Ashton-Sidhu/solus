@@ -7,6 +7,7 @@ import { attachmentsRoot } from '../../data/assets/attachment-store'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { isInsideRoot } from '../../paths'
 import { dataDir, resolveHomePath, solusDir } from '../../platform/paths'
+import { listProjects } from '../../project-config/projects-manifest'
 
 /** The folder that a path names for an attach, or why no folder can be attached for it. */
 export type AttachTarget = { folder: string } | { refused: string }
@@ -14,6 +15,20 @@ export type AttachTarget = { folder: string } | { refused: string }
 /** The path that the file system gives for `path`, or `path` resolved when nothing is there. */
 export function realPathOf(path: string): Promise<string> {
   return realpath(path).catch(() => resolve(path))
+}
+
+/**
+ * The project that this host lists and that is `folder`, or holds it: the
+ * deepest one. Null when no listed project holds the folder.
+ */
+export async function listedProjectHolding(folder: string): Promise<string | null> {
+  const realFolder = await realPathOf(folder)
+  let deepest: { path: string; realPath: string } | null = null
+  for (const project of await listProjects()) {
+    const realPath = await realPathOf(project.path)
+    if (isInsideRoot(realPath, realFolder) && (!deepest || realPath.length > deepest.realPath.length)) deepest = { path: project.path, realPath }
+  }
+  return deepest?.path ?? null
 }
 
 /**

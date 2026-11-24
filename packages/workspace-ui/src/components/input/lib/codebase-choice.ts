@@ -1,6 +1,5 @@
 import type { Codebase, CodebaseFolderScan } from '@solus/contracts/codebases'
 import { repositoriesFoundIn } from '@solus/client-core/codebases'
-import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { Place } from '@solus/contracts/types'
 import { isInsideHostPath } from '@solus/contracts/host-path'
 
@@ -10,6 +9,11 @@ import { isInsideHostPath } from '@solus/contracts/host-path'
  * run that has a codebase shows the codebase, and each other run shows the
  * project. The chip never shows the two names, and its list never marks two
  * rows.
+ *
+ * A codebase has two or more folders, so a project is never also a codebase:
+ * the Codebases group lists only codebases that a person or the host made
+ * from two folders. A project that holds repositories is a project. Its row
+ * can say how many it holds.
  *
  * A choice of a codebase sets the codebase of the run. The folder of the run
  * stays when the codebase holds it; else the run opens the first root of the
@@ -51,24 +55,6 @@ export interface CodebaseChipOption {
   note: string | null
 }
 
-/**
- * The codebase that the host makes for the project folder of a draft at its
- * first prompt (docs/plans/codebases.md decision 13). It has no record yet,
- * so it is not in the list of the store.
- */
-export interface NewCodebaseOption {
-  /** The name of the project folder. The host adds a number when a codebase has that name. */
-  name: string
-  /** The row note: that the codebase is new, and how many repositories the folder holds. */
-  note: string
-  /**
-   * The host makes it at the first prompt. False when the person chose "No
-   * codebase": the row is then the way back. The row is never the current row
-   * of the list, because the run is in the project until the codebase exists.
-   */
-  willForm: boolean
-}
-
 /** What a choice of one codebase row does next. */
 export type CodebaseChoiceStep =
   /** Set the codebase. The folder of the run stays. */
@@ -82,10 +68,6 @@ export type CodebaseChoiceStep =
 
 export const NO_FOLDER_ON_HOST_NOTE = 'No folder on this host'
 export const NO_FOLDER_ON_CLIENT_NOTE = 'No folder on a connected host'
-/** The note of the chip beside the project of a draft whose folder gets a new codebase. */
-export const NEW_CODEBASE_LABEL = 'New codebase'
-/** The full sentence for the tooltip of the chip and the title of the row. */
-export const NEW_CODEBASE_HINT = 'Solus makes this codebase when you send the first prompt.'
 
 export function repositoryCountNote(count: number): string {
   return `${count} ${count === 1 ? 'repository' : 'repositories'}`
@@ -142,17 +124,14 @@ export function codebaseChipOptions(
 }
 
 /**
- * The row of the codebase that the host makes for the folder of a draft.
- * `scan` is `CodebasesStore.newCodebaseAt`: null when the host makes none.
- * `refuses` says that the person chose "No codebase" for the run.
+ * The note of a row of the Projects group: how many repositories the project
+ * holds, when this client has the scan of its folder. A project covers them
+ * with no codebase. Null for a project with no repository inside it, and for
+ * one that was not read.
  */
-export function newCodebaseOption(scan: CodebaseFolderScan | null, refuses: boolean): NewCodebaseOption | null {
-  if (!scan) return null
-  return {
-    name: hostPathBaseName(scan.path) || scan.path,
-    note: `New · ${repositoryCountNote(repositoriesFoundIn(scan).length)}`,
-    willForm: !refuses,
-  }
+export function projectRowNote(scan: Pick<CodebaseFolderScan, 'members'> | null): string | null {
+  const count = scan ? repositoriesFoundIn(scan).length : 0
+  return count > 0 ? repositoryCountNote(count) : null
 }
 
 /**
@@ -186,9 +165,9 @@ export interface ChipAtRest {
   kind: 'codebase' | 'project'
   name: string
   /**
-   * Said beside the name of a project, never beside a codebase: that the host
-   * makes a codebase at the first prompt, or that the person must choose one.
-   * It is a note about the project, not a second name.
+   * Said beside the name of a project, never beside a codebase: that more
+   * than one codebase holds the folder, so the person must choose one. It is
+   * a note about the project, not a second name.
    */
   note: string | null
 }
@@ -197,8 +176,6 @@ export interface ChipAtRest {
 export interface ChipProjectRun {
   /** The codebases that hold the project folder on the run host. */
   holding?: readonly Codebase[]
-  /** The codebase that the host makes for the folder at the first prompt. */
-  newCodebase?: NewCodebaseOption | null
   /** The person chose "No codebase": the chip shows the project with no note. */
   refuses?: boolean
 }
@@ -215,7 +192,7 @@ export function chipAtRest(projectLabel: string, current: Codebase | undefined, 
   return {
     kind: 'project',
     name: projectLabel,
-    note: run.newCodebase?.willForm ? NEW_CODEBASE_LABEL : asksChoice ? 'Choose codebase' : null,
+    note: asksChoice ? 'Choose codebase' : null,
   }
 }
 
@@ -231,10 +208,8 @@ export function marksProjectRow(chip: ChipAtRest, rowKey: string, currentProject
 /**
  * The sentence of the chip tooltip after its first one. The chip of a
  * codebase run does not show the working folder, so the tooltip says where
- * the run works. For a draft whose folder gets a new codebase, it says that
- * the host makes the codebase.
+ * the run works.
  */
 export function chipHint(chip: ChipAtRest, works: { folder: string; host: string }): string | null {
-  if (chip.kind === 'codebase') return `Works in ${works.folder} on ${works.host}.`
-  return chip.note === NEW_CODEBASE_LABEL ? NEW_CODEBASE_HINT : null
+  return chip.kind === 'codebase' ? `Works in ${works.folder} on ${works.host}.` : null
 }

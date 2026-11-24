@@ -23,7 +23,7 @@ interface CodebaseStartReads {
     codebasesOfFolder(serverId: string, path: string): Codebase[]
     readFolder(serverId: string, path: string): Promise<void>
   }
-  /** The project folder of the run: the root of its repository, else its folder. The host makes a codebase for this folder. */
+  /** The project folder of the run: the root of its repository, else its folder. The project covers the repositories inside it. */
   readonly projectFolder: string
   decisions: Pick<CodebaseDecisions, 'isDecided' | 'note'>
   applyLocation(next: RunLocation): void
@@ -56,9 +56,9 @@ function decidableFolder(run: RunConfig | undefined, isStarted: boolean): Place 
  * choice. The directory picker moves a draft outside the strip, so the run is
  * observed, not the click on the project chip.
  *
- * A folder that is in no codebase can hold repositories. The host then makes
- * a codebase at the first prompt (decision 13), so the folder is read here,
- * one time for each folder, and the strip shows that codebase before Send.
+ * A project covers the repositories inside it, with no codebase (decision
+ * 14). The project folder is read here, one time for each folder, so the
+ * start control lists those repositories for a new worktree before Send.
  *
  * The worktree shortcut asks for a new worktree with no menu open. A folder
  * with no repository has no branch for that worktree, so the start control
@@ -97,9 +97,8 @@ export function useCodebaseStart(reads: CodebaseStartReads): void {
   $effect(() => {
     const { run, projectFolder } = reads
     const folder = decidableFolder(run, reads.isStarted)
-    if (!folder || !projectFolder || codebaseOf(run)) return
-    const isHostRead = reads.store.hosts.some((host) => host.serverId === folder.serverId && host.status === 'ready')
-    if (!isHostRead || reads.store.codebasesOfFolder(folder.serverId, projectFolder).length > 0) return
+    if (!folder || !projectFolder) return
+    if (!reads.store.hosts.some((host) => host.serverId === folder.serverId && host.status === 'ready')) return
     const key = `${folder.serverId}\n${hostPathKey(projectFolder)}`
     if (key === readFolderKey) return
     readFolderKey = key

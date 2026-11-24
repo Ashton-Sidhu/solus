@@ -33,13 +33,12 @@
   } from "./lib/project-chip-options";
   import { untrack } from "svelte";
   import {
-    NEW_CODEBASE_HINT,
     chipAtRest,
     chipHint,
     codebaseChipOptions,
     codebaseChoiceStep,
     marksProjectRow,
-    newCodebaseOption,
+    projectRowNote,
     type CodebaseChipOption,
   } from "./lib/codebase-choice";
   import { membersOnHost } from "../../contexts/codebases/host-members";
@@ -73,9 +72,8 @@
     /** Start with a codebase, or with none (`codebaseId` null). With `root`,
      *  the run also opens that folder: the first root of the codebase on the
      *  run host, or a root on another host.
-     *  `isNew` chooses the codebase that the host makes at the first prompt.
      *  Unset where the chip does not choose a run (the settings scope). */
-    onSelectCodebase?: (choice: { codebaseId: string | null; root?: Place; isNew?: true }) => void;
+    onSelectCodebase?: (choice: { codebaseId: string | null; root?: Place }) => void;
   }
   let {
     run,
@@ -137,26 +135,18 @@
         )
       : [],
   );
-  // The codebase that the host makes for this folder at the first prompt
-  // (decision 13). It has no record yet, so it is a row of its own.
-  const newCodebase = $derived(
-    onSelectCodebase && projectOnRunHost && !codebaseId
-      ? newCodebaseOption(codebasesStore.newCodebaseAt(selectedHostId, projectOnRunHost), refusesCodebase(run))
-      : null,
-  );
   const currentCodebase = $derived(onSelectCodebase && codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
   // The one choice: a run that has a codebase shows the codebase, and each
   // other run shows the project. The list marks the same one row.
   const chip = $derived(
     chipAtRest(label, currentCodebase, {
       holding: onSelectCodebase && projectOnRunHost ? codebasesStore.codebasesOfFolder(selectedHostId, projectOnRunHost) : [],
-      newCodebase,
       refuses: refusesCodebase(run),
     }),
   );
   const hint = $derived(chipHint(chip, { folder: label, host: serversStore.hostFor(hostId)?.label ?? hostId }));
-  // "No codebase" takes away the codebase of the run, and the one that the host would make.
-  const offersNoCodebase = $derived(!!codebaseId || !!newCodebase?.willForm);
+  // "No codebase" takes away the codebase of the run. The run is then in its project.
+  const offersNoCodebase = $derived(!!codebaseId);
   // The second step of a codebase with no folder on the run host: the folders
   // on the hosts that have one. The run moves to the host of the choice.
   let codebaseStep = $state<CodebaseChipOption | null>(null);
@@ -174,7 +164,6 @@
   const shownProjects = $derived(projects.filter((project) => matchesSearch(`${project.label} ${project.key}`, query)));
   const shownCodebases = $derived(codebases.filter((codebase) => matchesSearch(`codebase ${codebase.name}`, query)));
   const shownStepRoots = $derived(stepRoots.filter((root) => matchesSearch(`${root.name} ${root.path} ${root.hostLabel}`, query)));
-  const showsNewCodebase = $derived(!!newCodebase && matchesSearch(`codebase new ${newCodebase.name}`, query));
   const showsNoCodebase = $derived(offersNoCodebase && matchesSearch("no codebase", query));
   let commandEl = $state<HTMLDivElement | null>(null);
 
@@ -269,12 +258,6 @@
   function clearCodebase() {
     open = false;
     onSelectCodebase?.({ codebaseId: null });
-  }
-
-  /** The person takes back "No codebase": the host makes the codebase at the first prompt. */
-  function chooseNewCodebase() {
-    open = false;
-    if (!newCodebase?.willForm) onSelectCodebase?.({ codebaseId: null, isNew: true });
   }
 
   function focusSearch() {
@@ -418,6 +401,7 @@
         <Command.Group heading="Projects">
           {#each shownProjects as project (project.key)}
             {@const isCurrent = marksProjectRow(chip, project.key, currentKey)}
+            {@const repositoriesNote = onSelectCodebase ? projectRowNote(codebasesStore.projectScanAt(project.checkout.serverId, project.checkout.projectRoot)) : null}
             <Command.Item
               value="{project.label} {project.key}"
               onSelect={() => activate(project.checkout)}
@@ -428,6 +412,10 @@
               <span class="min-w-0 flex-1 {onAllProjects ? 'whitespace-normal break-words' : 'truncate'}">
                 {project.label}
               </span>
+              {#if repositoriesNote}
+                <!-- A project covers the repositories inside it, with no codebase. -->
+                <span class="max-w-28 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{repositoriesNote}</span>
+              {/if}
               {#if project.hostLabel}
                 <span class="{onAllProjects ? 'max-w-40 whitespace-normal break-words' : 'max-w-24 truncate'} shrink-0 text-xs text-(--solus-text-tertiary)">{project.hostLabel}</span>
               {/if}
@@ -445,26 +433,12 @@
         </Command.Group>
         {/if}
 
-        {#if onSelectCodebase && (shownCodebases.length > 0 || showsNewCodebase || showsNoCodebase)}
-        <!-- A codebase is a set of folders that one piece of work covers. A
-             choice sets the codebase of the run. The folder of the run stays
-             when the codebase holds it; else its first folder on the run host
-             opens. -->
+        {#if onSelectCodebase && (shownCodebases.length > 0 || showsNoCodebase)}
+        <!-- A codebase is a set of two or more folders that one piece of work
+             covers. A choice sets the codebase of the run. The folder of the
+             run stays when the codebase holds it; else its first folder on
+             the run host opens. -->
         <Command.Group heading="Codebases">
-          {#if newCodebase && showsNewCodebase}
-            <Command.Item
-              value="codebase new {newCodebase.name}"
-              title={NEW_CODEBASE_HINT}
-              aria-label="{newCodebase.name}: {NEW_CODEBASE_HINT}"
-              onSelect={chooseNewCodebase}
-              class="menu-item-stagger"
-            >
-              <!-- No mark: the run is in the project until the host makes the codebase. -->
-              <CodebaseIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-              <span class="min-w-0 flex-1 truncate">{newCodebase.name}</span>
-              <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{newCodebase.note}</span>
-            </Command.Item>
-          {/if}
           {#each shownCodebases as codebase (codebase.id)}
             {@const step = codebaseChoiceStep(codebase)}
             <Command.Item

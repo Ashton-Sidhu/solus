@@ -2,11 +2,23 @@ import { CODEBASE_WORKTREE_DEFAULT_MAX, type CodebaseMember } from '@solus/contr
 import { hostPathKey, isWindowsHostPath, sameHostPath } from '@solus/contracts/host-path'
 
 /**
- * The repositories of a codebase that get a worktree when a run starts a new
- * worktree (docs/plans/codebases.md §7, "Which repositories"). The host makes
- * the plan (`planTaskFolder`). This is the same rule on the client, so the
- * start control shows what the host will do before Send.
+ * The repositories of a run that get a worktree when it starts a new worktree
+ * (docs/plans/codebases.md §7, "Which repositories"): those that its host
+ * found in its project folder, and those of its codebase. The host makes the
+ * plan (`planTaskFolder`). This is the same rule on the client, so the start
+ * control shows what the host will do before Send.
  */
+
+/**
+ * True when a new worktree of the folder `workingPath`, which has no
+ * repository of its own, is a task folder: the run has a codebase, or the
+ * folder holds a repository. A folder with no repository and no codebase gets
+ * no worktree.
+ */
+export function plainFolderGetsTaskFolder(members: readonly CodebaseMember[], workingPath: string, hasCodebase: boolean): boolean {
+  const working = members.find((member) => sameHostPath(member.path, workingPath))
+  return working?.state === 'plain' && (hasCodebase || members.some((member) => member.state === 'git'))
+}
 
 /** The text of the start control for a working folder that is not a repository. */
 export const PLAIN_MEMBER_LINKS_NOTE =
@@ -34,7 +46,7 @@ export interface WorktreeRepositoryRow {
 export interface WorktreeRepositoryChoice {
   /** The folder the run works in. It is not in `rows`: the run always starts there. */
   working: { path: string; name: string; isRepository: boolean }
-  /** The other repositories of the codebase on the run host, by name. */
+  /** The other repositories of the run on its host, by name. */
   rows: WorktreeRepositoryRow[]
   /** The person made no choice: the host uses the default set. */
   isDefault: boolean
@@ -58,7 +70,7 @@ function refusalOf(member: CodebaseMember, workingPath: string): WorktreeRefusal
  * The choice for a run in `workingPath` with the members that its host read.
  * `chosen` is `worktreeRepositories(run)`: member paths, or null for the
  * default set. Null when `workingPath` is not a member on this host: such a
- * run gets one worktree inside its repository, as a run with no codebase does.
+ * run gets one worktree inside its repository.
  */
 export function worktreeRepositoryChoice(
   members: readonly CodebaseMember[],
@@ -85,7 +97,7 @@ export function worktreeRepositoryChoice(
     })),
     isDefault: chosen === null,
     note: chosen === null && !fitsDefault
-      ? `This codebase has more than ${CODEBASE_WORKTREE_DEFAULT_MAX} repositories, so none gets a worktree unless you choose it.`
+      ? `This work has more than ${CODEBASE_WORKTREE_DEFAULT_MAX} repositories, so none gets a worktree unless you choose it.`
       : null,
   }
 }

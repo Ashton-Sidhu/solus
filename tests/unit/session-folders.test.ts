@@ -151,17 +151,18 @@ describe('the folders of a session at a turn start', () => {
     }
   })
 
-  test('the members inside a plain working directory are folders, and the provider gets no grant for them', async () => {
+  test('the repositories inside a plain working directory are folders of the project, and the provider gets no grant for them', async () => {
     // WHY: `~/shop` holds the repositories `api` and `web`. Git status, diff, and checkpoints work for each
     // repository only when it is a session folder. The provider reaches them through the working directory.
+    // The project covers them (`project`); the codebase adds only what is outside the project folder.
     const codebase = await savedCodebase(['shop', 'libs/ui'])
     const { runtime } = runtimeFor('inside')
     try {
       const folders = await runtime.sessionFolders.resolve('inside', { workingDirectory: at('shop'), codebaseId: codebase.id, actor: HOST_ACTOR })
       expect(folders.map(({ path, source, granted }) => ({ path, source, granted }))).toEqual([
         { path: at('libs/ui'), source: 'codebase', granted: true },
-        { path: at('shop/api'), source: 'codebase', granted: true },
-        { path: at('shop/web'), source: 'codebase', granted: true },
+        { path: at('shop/api'), source: 'project', granted: true },
+        { path: at('shop/web'), source: 'project', granted: true },
       ])
       expect(paths(runtime.sessionFolders.checkpointTargets('inside'))).toEqual([at('libs/ui'), at('shop/api'), at('shop/web')])
       expect(runtime.sessionFolders.grantedPaths('inside')).toEqual([at('libs/ui')])
@@ -385,7 +386,10 @@ describe('a session that a different host starts', () => {
     // WHY: this host has no copy of a codebase that a person made on the host of the sender.
     const { receiveSessionCodebase } = await import('@solus/server/transport/handlers/codebase-handlers')
     const host = { principal: HOST_ACTOR.principal, actor: HOST_ACTOR }
-    const sent: Codebase = { id: 'codebase-from-laptop', name: 'shop', roots: [{ installationId, path: at('libs/ui'), name: '' }], updatedAt: 5_000, deletedAt: null }
+    const sent: Codebase = {
+      id: 'codebase-from-laptop', name: 'shop', updatedAt: 5_000, deletedAt: null,
+      roots: [{ installationId, path: at('libs/ui'), name: '' }, { installationId: 'installation-laptop', path: '/Users/me/shop', name: '' }],
+    }
 
     expect(await receiveSessionCodebase(sent, host)).toBe(sent.id)
     expect(await codebases.getCodebase('local', sent.id)).toEqual(sent)

@@ -3,7 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { codebaseFolders, readProjectCodebases } from "./codebase-folders";
-import { codebase, FakeHost, FakePhone, settle } from "./codebases.test-support";
+import { codebase, ELSEWHERE, FakeHost, FakePhone, settle } from "./codebases.test-support";
 
 interface MockedRuntime {
   phone: FakePhone | null;
@@ -38,7 +38,7 @@ function phoneWithShop() {
   laptop.resolved.set("~/libs", "/code/libs");
   laptop.copies.set(
     "shop",
-    codebase("shop", 10, [{ installationId: "laptop", path: "/code/shop", name: "shop" }]),
+    codebase("shop", 10, [{ installationId: "laptop", path: "/code/shop", name: "shop" }, ELSEWHERE]),
   );
   host.phone = new FakePhone(laptop);
   host.mayUse = true;
@@ -96,6 +96,7 @@ it("adds a folder through the scan of its host and takes a root out, as one chan
     expect(added._tag).toBe("Success");
     expect(laptop.copies.get("shop")?.roots.map((root) => root.path)).toEqual([
       "/code/shop",
+      ELSEWHERE.path,
       "/code/libs",
     ]);
     await settle();
@@ -107,13 +108,19 @@ it("adds a folder through the scan of its host and takes a root out, as one chan
 
     const removed = await update({ codebaseId: "shop", untrackFolders: ["/code/shop"] });
     expect(removed._tag).toBe("Success");
-    expect(laptop.copies.get("shop")?.roots.map((root) => root.path)).toEqual(["/code/libs"]);
+    expect(laptop.copies.get("shop")?.roots.map((root) => root.path)).toEqual([
+      ELSEWHERE.path,
+      "/code/libs",
+    ]);
+    // A codebase has two or more folders: one of the last two stays.
+    const lastTwo = await update({ codebaseId: "shop", untrackFolders: ["/code/libs"] });
+    expect(lastTwo._tag).toBe("Failure");
 
     // A connection that lost the permission to use the host makes no change.
     host.mayUse = false;
     const refused = await update({ codebaseId: "shop", untrackFolders: ["/code/libs"] });
     expect(refused._tag).toBe("Failure");
-    expect(laptop.copies.get("shop")?.roots).toHaveLength(1);
+    expect(laptop.copies.get("shop")?.roots).toHaveLength(2);
     close();
   } finally {
     registry.dispose();

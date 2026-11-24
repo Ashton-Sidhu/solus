@@ -119,15 +119,25 @@ it("gives the project overview one section for each codebase that holds the proj
     sections: [],
   });
 
-  const shop = await phone.codebases.create("Shop", [{ hostId: "laptop", path: "/code/shop" }]);
+  laptop.disk.set("/libs/ui", { state: "git" });
+  const shop = await phone.codebases.create("Shop", [
+    { hostId: "laptop", path: "/code/shop" },
+    { hostId: "laptop", path: "/libs/ui" },
+  ]);
   const one = projectCodebases(phone.codebases, "laptop", "/code/shop");
   expect(one.sections.map((section) => section.codebase.name)).toEqual(["Shop"]);
-  expect(one.sections[0]?.folders).toEqual([{ path: "/code/shop", name: "shop" }]);
+  expect(one.sections[0]?.folders).toEqual([
+    { path: "/code/shop", name: "shop" },
+    { path: "/libs/ui", name: "ui" },
+  ]);
   expect(one.sections[0]?.otherHosts).toEqual([]);
 
   // One folder can be in several codebases: each one is a section, by name.
   laptop.disk.set("/code", { state: "plain", found: ["/code/shop"] });
-  await phone.codebases.create("All code", [{ hostId: "laptop", path: "/code" }]);
+  await phone.codebases.create("All code", [
+    { hostId: "laptop", path: "/code" },
+    { hostId: "laptop", path: "/libs/ui" },
+  ]);
   const two = projectCodebases(phone.codebases, "laptop", "/code/shop");
   expect(two.sections.map((section) => section.codebase.name)).toEqual(["All code", "Shop"]);
   // A folder outside each root is in no codebase.

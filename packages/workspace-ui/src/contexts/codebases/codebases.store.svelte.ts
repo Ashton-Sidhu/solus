@@ -6,19 +6,22 @@ import type {
   CodebaseMember,
   CodebaseRoot,
 } from '@solus/contracts/codebases'
+import { CODEBASE_ROOTS_MIN } from '@solus/contracts/codebases'
 import { hostPathKey } from '@solus/contracts/host-path'
 import {
   CodebaseRootRefused,
   codebasesHolding,
-  formsCodebaseFor,
   hostRootsKey,
+  isLiveCodebase,
   isSameRoot,
   liveCodebases,
   mergeCodebases,
+  NEW_CODEBASE_NEEDS_FOLDERS,
   nextUpdatedAt,
   rootFor,
   rootInstallationIds,
   rootRefusal,
+  rootRemovalRefusal,
 } from '@solus/client-core/codebases'
 import { liveCodebaseHostAccess, type CodebaseHostAccess, type CodebaseMachine } from './codebase-host-access'
 
@@ -174,7 +177,7 @@ export class CodebasesStore {
   /** One codebase that is not deleted. */
   codebaseOf(codebaseId: string): Codebase | undefined {
     const codebase = this.newest.get(codebaseId)
-    return codebase && codebase.deletedAt === null ? codebase : undefined
+    return codebase && isLiveCodebase(codebase) ? codebase : undefined
   }
 
   /** True when a host of this client said that the codebase is deleted. False for a codebase that no host named. */
@@ -256,8 +259,8 @@ export class CodebasesStore {
 
   /**
    * Read what the folder of a draft holds, and keep the answer for
-   * `newCodebaseAt`. A failure keeps the last answer: the folder then shows
-   * as it did, and the host decides at the first prompt.
+   * `projectScanAt`. A failure keeps the last answer: the folder then shows
+   * as it did.
    */
   async readFolder(serverId: string, path: string): Promise<void> {
     const key = `${serverId}\n${hostPathKey(path)}`
@@ -268,20 +271,23 @@ export class CodebasesStore {
   }
 
   /**
-   * The codebase that the host makes for a folder at the first prompt of a
-   * session there (docs/plans/codebases.md decision 13): the scan of the
-   * folder, whose members are the members of that codebase. Null when the
-   * folder was not read, and when the host makes none.
+   * What the project folder of a draft holds, as its host last read it: the
+   * folder, then the repositories inside it. A project covers these with no
+   * codebase (docs/plans/codebases.md decision 14), so a session there gets
+   * them, and a new worktree can isolate each one. Null when the folder was
+   * not read.
    */
-  newCodebaseAt(serverId: string, path: string): CodebaseFolderScan | null {
-    const scan = this.folderScans.get(`${serverId}\n${hostPathKey(path)}`)
-    const installationId = this.installationIdOf(serverId)
-    return scan && installationId && formsCodebaseFor(this.newest.values(), installationId, scan) ? scan : null
+  projectScanAt(serverId: string, path: string): CodebaseFolderScan | null {
+    return this.folderScans.get(`${serverId}\n${hostPathKey(path)}`) ?? null
   }
 
-  /** Make a codebase. Each root is scanned on its host, and the resolved path is stored. */
+  /**
+   * Make a codebase of two or more folders. Each root is scanned on its host,
+   * and the resolved path is stored. One folder is refused: it is a project.
+   */
   async create(name: string, roots: readonly CodebaseRootChoice[]): Promise<Codebase> {
     const codebaseName = requiredName(name)
+    if (roots.length < CODEBASE_ROOTS_MIN) throw new Error(NEW_CODEBASE_NEEDS_FOLDERS)
     const scannedRoots: CodebaseRoot[] = []
     for (const choice of roots) {
       const root = await this.scannedRoot(choice)
@@ -302,7 +308,8 @@ export class CodebasesStore {
   /**
    * Add a folder on a host of this client. The host scans it, and the resolved
    * path is stored. Throws `CodebaseRootRefused` for a folder that is already a
-   * root, for a folder that does not exist, and when the codebase is full.
+   * root, for a folder that is inside a root or holds one, for a folder that
+   * does not exist, and when the codebase is full.
    */
   async addRoot(codebaseId: string, choice: CodebaseRootChoice): Promise<Codebase> {
     this.requiredCodebase(codebaseId)
@@ -316,11 +323,17 @@ export class CodebasesStore {
     return saved
   }
 
-  /** Take a root out of the codebase. No file is deleted. */
+  /**
+   * Take a root out of the codebase. No file is deleted. Throws
+   * `CodebaseRootRefused` when only two roots are left: a codebase has two or
+   * more folders, so the person deletes the codebase.
+   */
   async removeRoot(codebaseId: string, root: Pick<CodebaseRoot, 'installationId' | 'path'>): Promise<Codebase> {
     const current = this.requiredCodebase(codebaseId)
     const roots = current.roots.filter((existing) => !isSameRoot(existing, root))
     if (roots.length === current.roots.length) return current
+    const refusal = rootRemovalRefusal(current.roots)
+    if (refusal) throw new CodebaseRootRefused(refusal)
     const saved = await this.commit({ ...current, roots, updatedAt: nextUpdatedAt(current, this.now()) })
     this.readChangedMembers(saved)
     return saved

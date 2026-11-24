@@ -1,6 +1,6 @@
 import type { CodebaseFolderScan, CodebaseRoot } from '@solus/contracts/codebases'
 import { codebasesStore, type CodebaseHost, type CodebaseRootChoice } from '../../../contexts/codebases/codebases.store.svelte'
-import { rootRefusal, type CodebaseRootRefusal } from '@solus/client-core/codebases'
+import { rootFor, rootRefusal, type CodebaseRootRefusal } from '@solus/client-core/codebases'
 
 /**
  * The choice of one folder for a codebase, before it is a root: the host, the
@@ -16,7 +16,7 @@ export class RootPickerState {
   error = $state('')
   private scanCount = 0
 
-  /** `existingRoots`: the roots that the codebase has now. A folder that is one of them is refused. */
+  /** `existingRoots`: the roots that the codebase has now. A folder that is one of them, is inside one, or holds one is refused. */
   constructor(private readonly existingRoots: () => readonly CodebaseRoot[]) {}
 
   /** The hosts that can get a folder now: ready, and known by their installation id. */
@@ -66,6 +66,12 @@ export class RootPickerState {
   get choice(): CodebaseRootChoice | null {
     const host = this.host
     return this.scan && host && !this.refusal ? { serverId: host.serverId, path: this.scan.path } : null
+  }
+
+  /** The chosen folder as the root that it becomes: none, or one. The second folder of a new codebase reads the first one here. */
+  get chosenRoots(): CodebaseRoot[] {
+    const host = this.host
+    return this.choice && host?.installationId ? [rootFor(host.installationId, this.choice.path)] : []
   }
 
   clear(): void {

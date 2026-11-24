@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { sql } from 'drizzle-orm'
 import { CODEBASE_ROOTS_MAX, type Codebase, type CodebaseRoot } from '@solus/contracts/codebases'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
@@ -10,7 +11,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/codebases.md decision 6: each host keeps the full record of a
 // codebase. A copy moves between hosts as a whole, the newest `updatedAt`
-// wins, and a delete is a tombstone so that it also moves.
+// wins, and a delete is a tombstone so that it also moves. Decision 14: a
+// codebase has two or more folders, because one folder is a project.
 
 type CodebasesModule = typeof import('@solus/server/data/codebases/codebases')
 type PrincipalModule = typeof import('@solus/server/admission/principal')
@@ -45,8 +47,10 @@ afterAll(() => {
 const LAPTOP = 'installation-laptop'
 const SERVER = 'installation-server'
 const root = (path: string, installationId = LAPTOP): CodebaseRoot => ({ installationId, path, name: '' })
+/** The second folder of each fixture: a codebase has two or more. */
+const UI = root('/Users/me/ui')
 const shop = (overrides: Partial<Codebase> = {}): Codebase => ({
-  id: 'codebase-shop', name: 'shop', roots: [root('/Users/me/shop')], updatedAt: 1_000, deletedAt: null, ...overrides,
+  id: 'codebase-shop', name: 'shop', roots: [root('/Users/me/shop'), UI], updatedAt: 1_000, deletedAt: null, ...overrides,
 })
 
 describe('the newest copy wins', () => {
@@ -153,12 +157,12 @@ describe('validation', () => {
   test('refuses a path that is not absolute', async () => {
     // WHY: a root is read on its host with no working directory to resolve against, and `~` is a different folder for each person.
     for (const path of ['shop', './shop', '~/shop', '~']) {
-      await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root(path)] }))).rejects.toThrow(/absolute/)
+      await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root(path), UI] }))).rejects.toThrow(/absolute/)
     }
   })
 
   test('accepts an absolute path of a Windows host', async () => {
-    const kept = await codebases.saveCodebase('local', 'alice', shop({ roots: [root('C:\\code\\shop')] }))
+    const kept = await codebases.saveCodebase('local', 'alice', shop({ roots: [root('C:\\code\\shop'), root('C:\\code\\ui')] }))
     expect(kept.roots[0].path).toBe('C:\\code\\shop')
   })
 
@@ -176,6 +180,42 @@ describe('validation', () => {
     await expect(codebases.saveCodebase('local', 'alice', shop({ roots: many }))).rejects.toThrow(/at most/)
     const limit = await codebases.saveCodebase('local', 'alice', shop({ roots: many.slice(0, CODEBASE_ROOTS_MAX) }))
     expect(limit.roots).toHaveLength(CODEBASE_ROOTS_MAX)
+  })
+
+  test('refuses a codebase with fewer than two folders', async () => {
+    // WHY: one folder is a project. A project and a codebase with the same
+    // folder are two rows of the project picker that read as one thing, and a
+    // session of a project gets the repositories inside it with no codebase.
+    await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop')] }))).rejects.toThrow(/at least 2 folders/)
+    await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [] }))).rejects.toThrow(/at least 2 folders/)
+    expect(await codebases.listCodebases('local')).toEqual([])
+  })
+
+  test('a tombstone can have fewer than two folders', async () => {
+    // WHY: a delete keeps the roots that its codebase had, and it must move to each host.
+    const deleted = shop({ roots: [root('/Users/me/shop')], updatedAt: 5_000, deletedAt: 5_000 })
+    expect(await codebases.saveCodebase('local', 'alice', deleted)).toEqual(deleted)
+  })
+
+  test('refuses a folder that is inside a different folder of the same host', async () => {
+    // WHY: a root covers the folders inside it, as a project covers its repositories.
+    await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop'), root('/Users/me/shop/api')] }))).rejects.toThrow(/is inside/)
+    // The same place on a different host is a different folder.
+    const kept = await codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop'), root('/Users/me/shop/api', SERVER)] }))
+    expect(kept.roots).toHaveLength(2)
+  })
+
+  test('a stored record with one folder that is not deleted is not a codebase', async () => {
+    // WHY: development data of the rule before this one. No read answers it,
+    // so no session takes it and no client lists it.
+    const { getDatabase } = await import('@solus/server/db/database')
+    await getDatabase().run(sql`
+      INSERT INTO codebases (id, organization_id, created_by, name, roots, updated_at, deleted_at)
+      VALUES ('codebase-old', 'local', 'alice', 'old', ${JSON.stringify([root('/Users/me/old')])}, 1000, NULL)
+    `)
+    expect(await codebases.listCodebases('local', { includeDeleted: true })).toEqual([])
+    expect(await codebases.getCodebase('local', 'codebase-old')).toBeNull()
+    expect(await codebases.codebasesOfFolder('local', LAPTOP, '/Users/me/old')).toEqual([])
   })
 
   test('a refused copy stores nothing', async () => {
@@ -214,10 +254,10 @@ describe('organization scope', () => {
 
 describe('the codebases of a folder', () => {
   test('a folder is in each codebase that has it as a root or holds it in a root, on that host only', async () => {
-    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-shop', name: 'shop', roots: [root('/Users/me/shop')] }))
-    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-api', name: 'api only', roots: [root('/Users/me/shop/api')] }))
-    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-remote', name: 'remote', roots: [root('/Users/me/shop', SERVER)] }))
-    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-gone', name: 'gone', roots: [root('/Users/me/shop')], updatedAt: 5_000, deletedAt: 5_000 }))
+    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-shop', name: 'shop', roots: [root('/Users/me/shop'), UI] }))
+    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-api', name: 'api only', roots: [root('/Users/me/shop/api'), UI] }))
+    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-remote', name: 'remote', roots: [root('/Users/me/shop', SERVER), UI] }))
+    await codebases.saveCodebase('local', 'alice', shop({ id: 'codebase-gone', name: 'gone', roots: [root('/Users/me/shop'), UI], updatedAt: 5_000, deletedAt: 5_000 }))
 
     const idsOf = async (path: string) => (await codebases.codebasesOfFolder('local', LAPTOP, path)).map((codebase) => codebase.id).sort()
     // Decision 5: one folder can be in several codebases.

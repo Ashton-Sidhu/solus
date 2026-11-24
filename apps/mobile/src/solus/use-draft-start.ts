@@ -38,14 +38,13 @@ export function useDraftStart(store: ConversationStore) {
   useEffect(() => {
     if (canChoose) controller.followFolderCodebase(automatic);
   }, [automatic, canChoose, controller]);
-  // A folder in no codebase can hold repositories. The host then makes a codebase at the first prompt
-  // (decision 13), so the folder is read here, and its repositories are the list of a new worktree.
-  const formsNew = canChoose && sections.length === 0 && !meta.run.isCodebasePicked;
+  // A project covers the repositories inside it, with no codebase (decision 14). The folder is read
+  // here, and its repositories are in the list of a new worktree.
   useEffect(() => {
-    if (formsNew && projectDirectory) void solus.codebases.readFolder(hostId, projectDirectory);
-  }, [formsNew, hostId, projectDirectory]);
+    if (canChoose && projectDirectory) void solus.codebases.readFolder(hostId, projectDirectory);
+  }, [canChoose, hostId, projectDirectory]);
   const foundMembers = useListened(solus.codebases.changes, () =>
-    formsNew ? (solus.codebases.newCodebaseAt(hostId, projectDirectory)?.members ?? null) : null,
+    canChoose ? (solus.codebases.projectScanAt(hostId, projectDirectory)?.members ?? null) : null,
   );
   const choices = useWorktreeRepositoryChoices(
     canChoose && (codebase.codebaseId !== null || foundMembers !== null)

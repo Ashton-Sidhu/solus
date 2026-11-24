@@ -13,7 +13,7 @@ export interface TaskFolderPlanInput {
   codebaseId: string | null
   /** The member that the session works in. It must be in `members`. */
   workingMember: string
-  /** The members on this host, the working member with them. */
+  /** The members of the session on this host (its project and its codebase), the working member with them. */
   members: readonly CodebaseMember[]
   /** The repositories that a person chose, as member paths. Null is the default set. */
   repositories: readonly string[] | null
@@ -91,7 +91,7 @@ export function planTaskFolder(input: TaskFolderPlanInput): TaskFolderPlan | nul
   } else {
     chosen = input.repositories.map((named) => {
       const member = input.members.find((each) => sameHostPath(each.path, named))
-      if (!member) throw new Error(`${named} is not a folder of this session's codebase.`)
+      if (!member) throw new Error(`${named} is not a folder of this session's project or codebase.`)
       if (isOther(member) && member.state !== 'git') throw new Error(`${named} is not a Git repository, so it cannot get a worktree.`)
       if (!sharesFolder(member)) throw new Error(`${named} and ${working.path} share no folder, so one task folder cannot hold both.`)
       return member

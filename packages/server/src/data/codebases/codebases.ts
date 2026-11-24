@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { CODEBASE_ROOTS_MAX, codebaseRootSchema, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
+import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
 import { hostPathKey, isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
@@ -14,6 +14,11 @@ import { codebases } from './schema'
  * changes the copy it stores: two hosts that have the same `updatedAt` have
  * the same record. A delete is a tombstone (`deletedAt`): a client makes it
  * and saves it as each other copy, so it moves as a save does.
+ *
+ * A codebase that is not deleted has two or more roots (decision 14): one
+ * folder is a project, and a project is never also a codebase. A stored row
+ * that is not deleted and has fewer roots is not a codebase, so no read
+ * answers it.
  *
  * A read names its scope. A write names one organization. The id of a
  * codebase names one row, and its organization never changes.
@@ -44,6 +49,11 @@ function codebaseFromRow(row: CodebaseRow): Codebase {
   return { id: row.id, name: row.name, roots: row.roots, updatedAt: row.updated_at, deletedAt: row.deleted_at }
 }
 
+/** A row that a read answers: a tombstone, or a codebase with the least number of roots. */
+function isCodebase(codebase: Codebase): boolean {
+  return codebase.deletedAt !== null || codebase.roots.length >= CODEBASE_ROOTS_MIN
+}
+
 type CodebaseListener = () => void
 const changedListeners = new Set<CodebaseListener>()
 
@@ -64,16 +74,22 @@ export async function listCodebases(scope: RecordScope, options: CodebaseListOpt
     WHERE ${scopeClause(scope)}${options.includeDeleted ? sql`` : sql` AND deleted_at IS NULL`}
     ORDER BY name, id
   `))
-  return rows.map(codebaseFromRow)
+  return rows.map(codebaseFromRow).filter(isCodebase)
 }
 
-/** One codebase in the scope of the reader, deleted or not. Null when the host has no copy. */
-export async function getCodebase(scope: RecordScope, codebaseId: string): Promise<Codebase | null> {
+/** The stored row of an id in the scope of the reader, whatever it holds. */
+async function storedCodebase(scope: RecordScope, codebaseId: string): Promise<Codebase | null> {
   const row = codebaseRowSchema.nullish().parse(await getDatabase().get(sql`
     SELECT ${CODEBASE_COLUMNS} FROM ${codebases}
     WHERE ${scopeClause(scope)} AND id = ${codebaseId}
   `))
   return row ? codebaseFromRow(row) : null
+}
+
+/** One codebase in the scope of the reader, deleted or not. Null when the host has no copy. */
+export async function getCodebase(scope: RecordScope, codebaseId: string): Promise<Codebase | null> {
+  const stored = await storedCodebase(scope, codebaseId)
+  return stored && isCodebase(stored) ? stored : null
 }
 
 /** The rules of a codebase that the wire schema does not check. Throws a message for the person. */
@@ -86,6 +102,15 @@ function assertValidCodebase(codebase: Codebase): void {
     const key = `${root.installationId}\0${hostPathKey(root.path)}`
     if (seen.has(key)) throw new Error(`"${root.path}" is in the codebase two times.`)
     seen.add(key)
+  }
+  // A tombstone keeps the roots that its codebase had: the rules below are for a codebase that is not deleted.
+  if (codebase.deletedAt !== null) return
+  if (codebase.roots.length < CODEBASE_ROOTS_MIN) {
+    throw new Error(`A codebase has at least ${CODEBASE_ROOTS_MIN} folders. One folder is a project: a session there gets the repositories inside it with no codebase.`)
+  }
+  for (const root of codebase.roots) {
+    const holder = codebase.roots.find((other) => other !== root && other.installationId === root.installationId && isInsideHostPath(other.path, root.path))
+    if (holder) throw new Error(`"${root.path}" is inside "${holder.path}", which is in the codebase. A folder of a codebase covers the folders inside it.`)
   }
 }
 
@@ -108,7 +133,7 @@ export async function saveCodebase(organizationId: string, createdBy: string, co
       deleted_at = excluded.deleted_at
     WHERE codebases.organization_id = excluded.organization_id AND excluded.updated_at > codebases.updated_at
   `)
-  const kept = await getCodebase(organizationId, codebase.id)
+  const kept = await storedCodebase(organizationId, codebase.id)
   if (!kept) throw new Error('That codebase belongs to a different organization on this host.')
   if (written.changes) emitChanged()
   return kept

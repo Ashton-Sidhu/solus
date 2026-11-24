@@ -2,7 +2,9 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { useListened } from "@solus-mobile/app/app-context";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { repositoriesFoundIn } from "@solus/client-core/codebases";
 import type { Codebase } from "@solus/contracts/codebases";
+import { relativeHostPath } from "@solus/contracts/host-path";
 import { EnvironmentId } from "@t3tools/contracts";
 import { useGT, useMessages } from "gt-react-native";
 import { Fragment, useEffect, useState } from "react";
@@ -24,12 +26,15 @@ import { solus } from "./runtime";
 type CodebaseChange = () => Promise<Codebase | void>;
 
 /**
- * The codebases of one project in the project overview (docs/plans/codebases.md
- * §10). A Solus project is one folder on one host, and a codebase is a named
- * set of folders that can hold it. Each codebase that holds the folder gets
- * T3's repositories section for the host of the project, then one section for
- * each other host of the codebase. A project in no codebase gets one action
- * that makes a codebase.
+ * The repositories and the codebases of one project in the project overview
+ * (docs/plans/codebases.md §10). A Solus project is one folder on one host,
+ * and it covers the repositories inside it with no codebase: they show in one
+ * Repositories section, as a project and its found repositories do in T3
+ * Code. A codebase is a named set of two or more folders that can hold the
+ * project. Each codebase that holds the folder gets T3's repositories section
+ * for the host of the project, then one section for each other host of the
+ * codebase. A project in no codebase gets one action that makes a codebase
+ * with a second folder.
  */
 export function ProjectCodebases(props: {
   readonly project: Pick<EnvironmentProject, "environmentId" | "title" | "workspaceRoot">;
@@ -37,7 +42,8 @@ export function ProjectCodebases(props: {
   readonly hostLabel?: string;
 }) {
   const gt = useGT();
-  const { environmentId, title, workspaceRoot } = props.project;
+  const navigation = useNavigation();
+  const { environmentId, workspaceRoot } = props.project;
   useEffect(() => solus.codebases.watch(), []);
   const { status, sections } = useListened(solus.codebases.changes, () =>
     readProjectCodebases(environmentId, workspaceRoot),
@@ -59,9 +65,13 @@ export function ProjectCodebases(props: {
       .then(() => setIsBusy(false));
   };
 
+  const projectRepositories = (
+    <ProjectRepositories environmentId={environmentId} workspaceRoot={workspaceRoot} />
+  );
   if (sections.length > 0) {
     return (
       <>
+        {projectRepositories}
         {sections.map((section) => (
           <CodebaseSections
             key={section.codebase.id}
@@ -87,30 +97,69 @@ export function ProjectCodebases(props: {
     ) : null;
   }
   return (
+    <>
+      {projectRepositories}
+      <SettingsSection
+        title={gt("Codebase")}
+        footer={gt(
+          "A codebase is a named set of two or more folders that one piece of work covers. The folders can be on more than one host. This project works in the repositories inside its folder with no codebase.",
+        )}
+      >
+        <ListActionRow
+          icon="plus"
+          label={gt("Make a codebase")}
+          description={gt("Choose a second folder. The folder of this project is the first one.")}
+          disabled={!canEdit || isBusy}
+          onPress={() =>
+            navigation.navigate("AddProjectLocal", { environmentId, codebaseWith: workspaceRoot })
+          }
+        />
+      </SettingsSection>
+    </>
+  );
+}
+
+/**
+ * The repositories that the host found inside the folder of a project. The
+ * project covers them with no codebase (docs/plans/codebases.md decision 14),
+ * so the section has no Add and no Remove: a repository is there for as long
+ * as it is on the disk. A project that holds no repository has no section.
+ */
+function ProjectRepositories(props: {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string;
+}) {
+  const gt = useGT();
+  const m = useMessages();
+  const { environmentId, workspaceRoot } = props;
+  useEffect(() => {
+    void solus.codebases.readFolder(environmentId, workspaceRoot);
+  }, [environmentId, workspaceRoot]);
+  const scan = useListened(solus.codebases.changes, () =>
+    solus.codebases.projectScanAt(environmentId, workspaceRoot),
+  );
+  const found = scan ? repositoriesFoundIn(scan) : [];
+  if (found.length === 0) return null;
+  return (
     <SettingsSection
-      title={gt("Codebase")}
+      title={gt("Repositories")}
       footer={gt(
-        "A codebase is a named set of folders that one piece of work covers. The folders can be on more than one host.",
+        "Repositories inside the folder of this project are part of it as soon as they are there. A session of the project works in each one.",
       )}
     >
-      <ListActionRow
-        icon="plus"
-        label={gt("Make a codebase")}
-        description={gt("The folder of this project is its first folder.")}
-        disabled={!canEdit || isBusy}
-        onPress={() =>
-          Dialog.prompt({
-            title: gt("Make a codebase"),
-            message: gt("Give the codebase a name."),
-            initialValue: title,
-            confirmText: gt("Make", { $context: "verb, makes a new codebase" }),
-            onConfirm: (name) =>
-              void run(gt("Failed to make the codebase"), () =>
-                solus.codebases.create(name, [{ hostId: environmentId, path: workspaceRoot }]),
-              ),
-          })
-        }
-      />
+      {found.map((repository) => (
+        <ListRowLayout
+          key={repository.path}
+          icon="folder"
+          label={repository.name}
+          description={relativeHostPath(workspaceRoot, repository.path) || repository.path}
+          meta={
+            <Text textRole="footnote" className="text-foreground-muted">
+              {m(FOLDER_STATE_LABELS[repository.state])}
+            </Text>
+          }
+        />
+      ))}
     </SettingsSection>
   );
 }

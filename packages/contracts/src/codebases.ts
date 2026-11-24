@@ -1,21 +1,26 @@
 /**
  * Codebases (docs/plans/codebases.md §2 and §4). A codebase is a named set of
- * folders, on one or more hosts, that one piece of work covers. The record
- * holds roots only: a host reads the members of a codebase from its own disk.
- * Each host keeps the full record. The newest `updatedAt` wins when two hosts
- * have different copies, and a delete is a tombstone, so it also moves.
+ * two or more folders, on one or more hosts, that one piece of work covers.
+ * One folder is a project, never a codebase: a project covers the
+ * repositories inside it with no record. The record holds roots only: a host
+ * reads the members of a codebase from its own disk. Each host keeps the full
+ * record. The newest `updatedAt` wins when two hosts have different copies,
+ * and a delete is a tombstone, so it also moves.
  */
 
 import { z } from 'zod'
 
 export const CODEBASE_ROOTS_MAX = 128
+/** A codebase that is not deleted has at least this many roots. One folder is a project. */
+export const CODEBASE_ROOTS_MIN = 2
 /** A new worktree session isolates every repository only up to this many. */
 export const CODEBASE_WORKTREE_DEFAULT_MAX = 8
 
 /**
  * A folder that a person put in a codebase. The schema checks the shape that
  * crosses the RPC boundary. The store checks the rules of a codebase (a name,
- * absolute paths, no root twice, the limit of roots).
+ * absolute paths, no root twice, no root inside a different root, the least
+ * and the largest number of roots).
  */
 export const codebaseRootSchema = z.object({
   /** The host the folder is on (decision 2): its installation id, never `local`. */
@@ -78,13 +83,25 @@ export interface CodebaseFolderScan {
   suggestions: CodebaseFolderSuggestion[]
 }
 
-export const sessionFolderSourceSchema = z.enum(['codebase', 'attached', 'created', 'observed'])
+/**
+ * Where a session folder comes from:
+ * - `project`: a repository that the host found inside the project folder of
+ *   the session. A project covers these with no codebase.
+ * - `codebase`: a member of the codebase of the session that is not in the
+ *   project folder.
+ * - `attached`: a person, the agent, or a trigger attached it.
+ * - `created`: a project tool made it in the session.
+ * - `observed`: a tool of the agent wrote there. Solus only shows it.
+ */
+export const sessionFolderSourceSchema = z.enum(['project', 'codebase', 'attached', 'created', 'observed'])
 export type SessionFolderSource = z.infer<typeof sessionFolderSourceSchema>
 
 /** One folder that a session record keeps besides its working directory (`session_records.attached_folders`). */
 export const sessionAttachedFolderSchema = z.object({
   path: z.string().min(1).max(4096),
   source: sessionFolderSourceSchema,
+  /** A person or the agent asked for this folder by its name. An automatic trigger did not. */
+  byName: z.boolean().optional(),
 }).strict()
 export type SessionAttachedFolder = z.infer<typeof sessionAttachedFolderSchema>
 

@@ -76,7 +76,7 @@ interface TaskFolderSetup extends Pick<CreateSessionTaskFolder, 'actor' | 'namin
 }
 
 /** What the worktree setup of a turn gives the creation of its worktree. */
-interface WorktreeSetup extends TaskFolderSetup, Pick<TaskFolderTurn, 'codebaseId' | 'projectFolder' | 'repositories'> {}
+interface WorktreeSetup extends TaskFolderSetup, Pick<TaskFolderTurn, 'codebaseId' | 'projectFolder' | 'repositoryRoot' | 'repositories'> {}
 
 /** What the worktree setup of a turn made. */
 interface MadeWorktree {
@@ -328,7 +328,7 @@ export class RunLauncher {
    */
   private async makeWorktree(sessionId: string, setup: WorktreeSetup): Promise<MadeWorktree> {
     const { projectFolder, baseBranch } = setup
-    const plan = await this.rt.taskFolders.plan(sessionId, { codebaseId: setup.codebaseId, projectFolder, repositories: setup.repositories, actor: setup.actor })
+    const plan = await this.rt.taskFolders.plan(sessionId, { codebaseId: setup.codebaseId, projectFolder, repositoryRoot: setup.repositoryRoot, repositories: setup.repositories, actor: setup.actor })
     if (plan) {
       const { taskFolder, checkout } = await this.makeTaskFolder(sessionId, plan, setup)
       return { taskFolder, gitContext: checkout && this.rt.checkouts.attach(taskFolder.primaryPath, checkout) }
@@ -727,7 +727,7 @@ export class RunLauncher {
         }
       }
       try {
-        // The codebase of the session is known before the plan: the first worktree session of a folder gets its task folder (decision 13).
+        // The codebase of the session is known before the plan, so the plan reads its members (decision 13).
         await this.rt.sessionFolders.settleCodebase(sessionId, {
           workingDirectory: resolvedProjectPath,
           repositoryRoot: effectiveGitCtx?.repoRoot,
@@ -739,6 +739,7 @@ export class RunLauncher {
         const made = await this.makeWorktree(sessionId, {
           codebaseId: input.codebaseId,
           projectFolder: resolvedProjectPath,
+          repositoryRoot: effectiveGitCtx?.repoRoot,
           repositories: input.worktreeRepositories ?? null,
           actor: turnActor,
           naming: input.executionPreferences?.worktreeBranchNaming,

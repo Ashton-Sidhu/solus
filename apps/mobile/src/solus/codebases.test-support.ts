@@ -159,10 +159,23 @@ export async function settle(): Promise<void> {
   for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** A folder on a host that no test connects: the second folder of a codebase, which has two or more. */
+export const ELSEWHERE: Codebase["roots"][number] = {
+  installationId: "installation-elsewhere",
+  path: "/srv/elsewhere",
+  name: "elsewhere",
+};
+
+/** The roots of a codebase whose folders a test does not read. */
+const TWO_ROOTS: Codebase["roots"] = [
+  { installationId: "installation-elsewhere", path: "/srv/one", name: "one" },
+  { installationId: "installation-elsewhere", path: "/srv/two", name: "two" },
+];
+
 export function codebase(
   id: string,
   updatedAt: number,
-  roots: Codebase["roots"] = [],
+  roots: Codebase["roots"] = TWO_ROOTS,
   deletedAt: number | null = null,
 ): Codebase {
   return { id, name: id, roots, updatedAt, deletedAt };

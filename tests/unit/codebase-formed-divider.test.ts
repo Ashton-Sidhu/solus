@@ -43,24 +43,21 @@ function dividerText(activity: Extract<Activity, { kind: 'codebase_formed' }>, r
 }
 
 describe('the text of the divider', () => {
-  // Rule 2: the codebase has one root, the project folder.
-  test('a codebase made from one folder names the codebase and the folder, with no end period', () => {
-    expect(dividerText(formed('shop', ['shop']))).toBe('Made the codebase shop from the folder shop')
+  // The host makes a codebase from two folders: the project folder and the second project that was attached.
+  // The name of the codebase has both names, so it does not read as the project.
+  test('the line names the codebase and the two folders, with no end period', () => {
+    expect(dividerText(formed('solus + solus-cloud', ['solus', 'solus-cloud']))).toBe('Made the codebase solus + solus-cloud from the folders solus and solus-cloud')
   })
 
-  // Rule 4: the project folder and the attached folder.
-  test('a codebase made from two folders names the two', () => {
-    expect(dividerText(formed('solus', ['solus', 'solus-cloud']))).toBe('Made the codebase solus from the folders solus and solus-cloud')
-    expect(dividerText(formed('solus', ['solus', 'solus-cloud', 'site']))).toBe('Made the codebase solus from the folders solus, solus-cloud and site')
-  })
-
-  test('a record with no folder name names only the codebase', () => {
+  // A person can rename the codebase and add folders after it formed: the record keeps the names of that time.
+  test('a record with fewer than two folder names names only the codebase', () => {
     expect(dividerText(formed('shop', []))).toBe('Made the codebase shop')
+    expect(dividerText(formed('shop', ['shop']))).toBe('Made the codebase shop')
   })
 
   // The codebase formed in a turn of Alice. As each divider, the line names the person only for a different reader.
   test('the line is the news of the thread: each reader sees it, and no fold hides it', () => {
-    const activity = formed('shop', ['shop'])
+    const activity = formed('shop + ui', ['shop', 'ui'])
     expect(activityLine(activity, ALICE.id)).toMatchObject({ person: null, who: '', predicate: 'Made the codebase' })
     expect(activityLine(activity, BOB.id)).toMatchObject({ person: ALICE, predicate: 'made the codebase' })
     // A session that an automation or an agent started has no person: the line names none.
@@ -105,7 +102,7 @@ describe('the place of the divider in the conversation', () => {
   // The host makes the codebase at the turn start, after the bubble of the prompt is on screen.
   // The history has the divider before that prompt, so the live client puts it there too.
   test('a codebase made at a turn start goes before the prompt of that turn, live and after a reload', () => {
-    const activity = formed('shop', ['shop'], 5)
+    const activity = formed('shop + ui', ['shop', 'ui'], 5)
     const { session, reducer, rows } = conversation([{ id: 'prompt', role: 'user', content: 'do the work', timestamp: 1 }])
     const prompt = session.messages[0]
     reducer.apply('session', { type: 'activity', activity })
@@ -134,7 +131,7 @@ describe('the place of the divider in the conversation', () => {
 
   // A client that joins gets a replay of the turn. Its history can have the divider already.
   test('a replay of the record adds no second divider', () => {
-    const activity = formed('shop', ['shop'])
+    const activity = formed('shop + ui', ['shop', 'ui'])
     const { reducer, rows } = conversation([{ id: 'prompt', role: 'user', content: 'do the work', timestamp: 1 }])
     reducer.apply('session', { type: 'activity', activity })
     reducer.apply('session', { type: 'activity', activity })

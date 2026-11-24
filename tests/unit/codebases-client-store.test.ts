@@ -22,8 +22,13 @@ function root(installationId: string, path: string): CodebaseRoot {
   return { installationId, path, name: path.split('/').at(-1)! }
 }
 
+/** A folder on a host that no test connects: the second folder of a codebase, which has two or more. */
+const ELSEWHERE = root('inst-elsewhere', '/srv/elsewhere')
+/** The roots of a codebase whose folders a test does not read. */
+const TWO_ROOTS = [root('inst-elsewhere', '/srv/one'), root('inst-elsewhere', '/srv/two')]
+
 function codebase(id: string, updatedAt: number, patch: Partial<Codebase> = {}): Codebase {
-  return { id, name: id, roots: [], updatedAt, deletedAt: null, ...patch }
+  return { id, name: id, roots: TWO_ROOTS, updatedAt, deletedAt: null, ...patch }
 }
 
 function member(path: string, rootPath: string, patch: Partial<CodebaseMember> = {}): CodebaseMember {
@@ -184,12 +189,12 @@ describe('codebase commands', () => {
 
     const saved = await store.addRoot('shop', { serverId: 'local', path: '~/shop' })
 
-    expect(saved.roots).toEqual([{ installationId: 'inst-mac', path: '/Users/me/shop', name: 'shop' }])
+    expect(saved.roots).toEqual([...TWO_ROOTS, { installationId: 'inst-mac', path: '/Users/me/shop', name: 'shop' }])
     expect(mac.kept.get('shop')?.roots).toEqual(saved.roots)
   })
 
   test('addRoot refuses a folder that is already a root, also in a different spelling', async () => {
-    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots: [root('inst-mac', '/Users/me/shop')] })])
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots: [root('inst-mac', '/Users/me/shop'), ELSEWHERE] })])
     mac.scans.set('~/shop/', { path: '/Users/me/shop/', state: 'plain', members: [], suggestions: [] })
     const { store } = setup([mac])
     await store.load('local')
@@ -219,7 +224,7 @@ describe('codebase commands', () => {
   // WHY: the newest `updatedAt` wins on each host. A change must be newer than
   // the copy it replaces, also when a host with a faster clock wrote that copy.
   test('each command raises updatedAt above the current copy', async () => {
-    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 5_000, { roots: [root('inst-mac', '/code/shop')] })])
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 5_000, { roots: [root('inst-mac', '/code/shop'), ELSEWHERE] })])
     const { store, clock } = setup([mac], 1_000)
     await store.load('local')
 
@@ -247,6 +252,50 @@ describe('codebase commands', () => {
     expect(server.kept.get(created.id)).toEqual(created)
     expect(store.codebasesOfFolder('build', '/srv/infra/modules').map((entry) => entry.id)).toEqual([created.id])
     expect(store.codebasesOfFolder('local', '/srv/infra')).toEqual([])
+  })
+
+  // WHY: one folder is a project, and a project is never also a codebase (decision 14).
+  // A codebase of one folder had the name of its project, so the project picker showed one thing two times.
+  test('create refuses one folder, and a copy with one folder is not a codebase', async () => {
+    const mac = new FakeHost('local', 'inst-mac', [codebase('old', 20, { roots: [root('inst-mac', '/code/old')] })])
+    const { store } = setup([mac])
+    await store.load('local')
+
+    await expect(store.create('Shop', [{ serverId: 'local', path: '/code/shop' }])).rejects.toThrow(/at least 2 folders/)
+    expect(mac.saves).toEqual([])
+    // The copy of a host that kept a codebase of one folder is not listed, and holds no folder.
+    expect(store.codebases).toEqual([])
+    expect(store.codebaseOf('old')).toBeUndefined()
+    expect(store.codebasesOfFolder('local', '/code/old')).toEqual([])
+  })
+
+  test('removeRoot refuses when two folders are left, and the text says to delete the codebase', async () => {
+    const roots = [root('inst-mac', '/code/shop'), root('inst-mac', '/code/ui'), ELSEWHERE]
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots })])
+    const { store } = setup([mac])
+    await store.load('local')
+
+    expect((await store.removeRoot('shop', roots[1]!)).roots).toEqual([roots[0]!, ELSEWHERE])
+    const refused = await store.removeRoot('shop', roots[0]!).catch((error: unknown) => error)
+    expect((refused as CodebaseRootRefused).refusal).toBe('last-two')
+    expect((refused as CodebaseRootRefused).message).toContain('delete the codebase')
+    expect(store.codebaseOf('shop')?.roots).toHaveLength(2)
+  })
+
+  // WHY: a folder covers the folders inside it, as a project covers its repositories.
+  test('addRoot refuses a folder inside a root, and a folder that holds a root, on the same host only', async () => {
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots: [root('inst-mac', '/code/shop'), ELSEWHERE] })])
+    const server = new FakeHost('build', 'inst-build')
+    const { store } = setup([mac, server])
+    await store.load('local')
+    await store.load('build')
+
+    for (const path of ['/code/shop/api', '/code']) {
+      const refused = await store.addRoot('shop', { serverId: 'local', path }).catch((error: unknown) => error)
+      expect((refused as CodebaseRootRefused).refusal).toBe('nested')
+    }
+    // The same path on a different host is a different folder.
+    expect((await store.addRoot('shop', { serverId: 'build', path: '/code/shop/api' })).roots).toHaveLength(3)
   })
 
   // WHY: the list must not show a change that no host keeps.
@@ -310,7 +359,7 @@ describe('codebase members', () => {
   // WHY: a host reads its members from the roots of the copy it keeps. A host
   // with no copy would answer an error for a codebase that the person sees.
   test('a host with no copy gets the copy before its members are read', async () => {
-    const shop = codebase('shop', 20, { roots: [root('inst-build', '/srv/infra')] })
+    const shop = codebase('shop', 20, { roots: [root('inst-build', '/srv/infra'), ELSEWHERE] })
     const mac = new FakeHost('local', 'inst-mac', [shop])
     const server = new FakeHost('build', 'inst-build')
     server.members = [member('/srv/infra', '/srv/infra')]
@@ -337,7 +386,7 @@ describe('codebase members', () => {
   // current. The view must be able to say so, and get a current answer when
   // the host is ready again.
   test('the members of a host that goes away stay with a stale mark, and are read again when it is ready', async () => {
-    const shop = codebase('shop', 20, { roots: [root('inst-build', '/srv/infra')] })
+    const shop = codebase('shop', 20, { roots: [root('inst-build', '/srv/infra'), ELSEWHERE] })
     const server = new FakeHost('build', 'inst-build', [shop])
     server.members = [member('/srv/infra', '/srv/infra'), member('/srv/infra/modules', '/srv/infra')]
     const { store, setReady } = setup([server])
@@ -363,7 +412,7 @@ describe('codebase members', () => {
   })
 
   test('a host that cannot read its members keeps the last answer with a stale mark and the error', async () => {
-    const shop = codebase('shop', 20, { roots: [root('inst-mac', '/code/shop')] })
+    const shop = codebase('shop', 20, { roots: [root('inst-mac', '/code/shop'), ELSEWHERE] })
     const mac = new FakeHost('local', 'inst-mac', [shop])
     mac.members = [member('/code/shop', '/code/shop')]
     const { store } = setup([mac])

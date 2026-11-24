@@ -1,7 +1,8 @@
 <script lang="ts">
-  /** The form of a new codebase: a name and a first folder. The folder is
-   *  scanned on its host before the codebase is made, so the person sees what
-   *  it holds. */
+  /** The form of a new codebase: a name and two folders. A codebase has two
+   *  or more folders, because one folder is a project. Each folder is scanned
+   *  on its host before the codebase is made, so the person sees what it
+   *  holds. */
   import { ArrowLeft as ArrowLeftIcon } from "@lucide/svelte";
   import { codebasesStore } from "../../contexts";
   import { Button } from "../ui/button";
@@ -16,17 +17,20 @@
   let name = $state("");
   let isBusy = $state(false);
   let error = $state("");
-  const picker = new RootPickerState(() => []);
+  const firstPicker = new RootPickerState(() => []);
+  // The second folder is refused when it is the first one, is inside it, or holds it.
+  const secondPicker = new RootPickerState(() => firstPicker.chosenRoots);
 
-  const canCreate = $derived(!isBusy && name.trim() !== "" && picker.choice !== null);
+  const canCreate = $derived(!isBusy && name.trim() !== "" && firstPicker.choice !== null && secondPicker.choice !== null);
 
   async function create() {
-    const choice = picker.choice;
-    if (!canCreate || !choice) return;
+    const first = firstPicker.choice;
+    const second = secondPicker.choice;
+    if (!canCreate || !first || !second) return;
     isBusy = true;
     error = "";
     try {
-      const created = await codebasesStore.create(name, [choice]);
+      const created = await codebasesStore.create(name, [first, second]);
       onCreated(created.id);
     } catch (failure) {
       error = failure instanceof Error ? failure.message : "Could not make the codebase.";
@@ -52,11 +56,21 @@
 
   <SettingsSection
     label="First folder"
-    description="After you make the codebase, you can add more folders, on this host or on a different one."
+    description="A codebase has two or more folders. One folder is a project: a session there gets the repositories inside it with no codebase."
     plain
   >
     <div class="rounded-xl border border-border bg-background p-4 dark:bg-card">
-      <CodebaseRootPicker {picker} disabled={isBusy} />
+      <CodebaseRootPicker picker={firstPicker} disabled={isBusy} />
+    </div>
+  </SettingsSection>
+
+  <SettingsSection
+    label="Second folder"
+    description="A different folder, on this host or on a different one. After you make the codebase, you can add more folders."
+    plain
+  >
+    <div class="rounded-xl border border-border bg-background p-4 dark:bg-card">
+      <CodebaseRootPicker picker={secondPicker} disabled={isBusy} />
     </div>
   </SettingsSection>
 

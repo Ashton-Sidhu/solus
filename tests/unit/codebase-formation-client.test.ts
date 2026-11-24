@@ -4,18 +4,19 @@ import type { RunConfig, Session, Tab } from '@solus/contracts/types'
 import type { CodebaseHostAccess, CodebaseHostApi } from '@solus/workspace-ui/contexts/codebases/codebase-host-access'
 import type { IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '@solus/contracts/types'
-import { worktreeRepositoryChoice } from '@solus/workspace-ui/components/input/lib/worktree-repositories'
+import { startMembers } from '@solus/client-core/codebases'
+import { plainFolderGetsTaskFolder, worktreeRepositoryChoice } from '@solus/workspace-ui/components/input/lib/worktree-repositories'
 import { repositoriesInFolder, repositoriesInFolderLabel } from '@solus/workspace-ui/components/project-panel/lib/git-setup'
 import { projectRowTrailing } from '@solus/workspace-ui/components/project-panel/lib/project-row'
 import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/content'
 import { chooseStart, codebaseOf, folderLocation, refuseCodebase, refusesCodebase, startsWorktree } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
- * The client side of "a codebase forms by itself" (docs/plans/codebases.md
- * decision 13): the session event that gives the run its codebase, and what a
- * draft shows before the host makes the codebase at the first prompt. The
- * divider that the conversation shows for a codebase that the host made is in
- * `codebase-formed-divider.test.ts`.
+ * The client side of decisions 13 and 14 of docs/plans/codebases.md: the
+ * session event that gives the run its codebase, and what a draft reads of
+ * its project folder (a project covers the repositories inside it, with no
+ * codebase). The divider that the conversation shows for a codebase that the
+ * host made is in `codebase-formed-divider.test.ts`.
  */
 
 mock.module('@solus/client-core/server-connections', () => ({
@@ -99,7 +100,7 @@ const STORE_SCAN: CodebaseFolderScan = {
   suggestions: [],
 }
 
-describe('the folder of a draft, before its codebase exists', () => {
+describe('the project folder of a draft', () => {
   function storeWith(copies: Codebase[], scans: Record<string, CodebaseFolderScan>) {
     const scanned: string[] = []
     const api: CodebaseHostApi = {
@@ -123,34 +124,23 @@ describe('the folder of a draft, before its codebase exists', () => {
     return { store: new CodebasesStore(access, () => 1_000), scanned }
   }
 
-  test('the store answers the scan of a folder that gets a new codebase, after the folder was read', async () => {
-    const { store } = storeWith([], { '/code/store': STORE_SCAN })
+  // A project covers the repositories inside it with no codebase: the scan is the list, whatever codebases exist.
+  test('the store answers the scan of the folder after it was read, also for a folder that a codebase holds', async () => {
+    const roots = [{ installationId: 'install-laptop', path: '/code/store', name: 'store' }, { installationId: 'install-laptop', path: '/code/ui', name: 'ui' }]
+    const { store } = storeWith([{ id: 'live', name: 'store + ui', roots, updatedAt: 5, deletedAt: null }], { '/code/store': STORE_SCAN })
     await store.load('laptop')
-    expect(store.newCodebaseAt('laptop', '/code/store')).toBeNull()
+    expect(store.projectScanAt('laptop', '/code/store')).toBeNull()
     await store.readFolder('laptop', '/code/store')
-    expect(store.newCodebaseAt('laptop', '/code/store')).toBe(STORE_SCAN)
-  })
-
-  // The host forms nothing for a folder whose codebase a person deleted, so the draft must not promise one.
-  test('the store answers none for a folder whose codebase was deleted, and for a folder that a codebase holds', async () => {
-    const root = { installationId: 'install-laptop', path: '/code/store', name: 'store' }
-    const deleted = storeWith([{ id: 'gone', name: 'store', roots: [root], updatedAt: 5, deletedAt: 5 }], { '/code/store': STORE_SCAN })
-    await deleted.store.load('laptop')
-    await deleted.store.readFolder('laptop', '/code/store')
-    expect(deleted.store.newCodebaseAt('laptop', '/code/store')).toBeNull()
-
-    const held = storeWith([{ id: 'live', name: 'store', roots: [root], updatedAt: 5, deletedAt: null }], { '/code/store': STORE_SCAN })
-    await held.store.load('laptop')
-    await held.store.readFolder('laptop', '/code/store')
-    expect(held.store.newCodebaseAt('laptop', '/code/store')).toBeNull()
+    expect(store.projectScanAt('laptop', '/code/store')).toBe(STORE_SCAN)
   })
 
   // A run whose codebase is deleted has none. A codebase that no host named yet is not a deleted one.
   test('the store says that a codebase is deleted only when a host named its deleted record', async () => {
     const root = { installationId: 'install-laptop', path: '/code/store', name: 'store' }
+    const second = { installationId: 'install-laptop', path: '/code/ui', name: 'ui' }
     const { store } = storeWith([
-      { id: 'gone', name: 'store', roots: [root], updatedAt: 5, deletedAt: 5 },
-      { id: 'live', name: 'shop', roots: [{ ...root, path: '/code/shop' }], updatedAt: 5, deletedAt: null },
+      { id: 'gone', name: 'store', roots: [root, second], updatedAt: 5, deletedAt: 5 },
+      { id: 'live', name: 'shop', roots: [{ ...root, path: '/code/shop' }, second], updatedAt: 5, deletedAt: null },
     ], {})
     expect(store.isDeleted('gone')).toBe(false)
     await store.load('laptop')
@@ -166,15 +156,33 @@ describe('the folder of a draft, before its codebase exists', () => {
     await store.readFolder('laptop', '/code/store')
     delete scans['/code/store']
     await store.readFolder('laptop', '/code/store')
-    expect(store.newCodebaseAt('laptop', '/code/store')).toBe(STORE_SCAN)
+    expect(store.projectScanAt('laptop', '/code/store')).toBe(STORE_SCAN)
   })
 
-  // The repositories of a new worktree come from the scan: its members are the members of the codebase that the host makes.
-  test('the repositories of a new worktree are the repositories that the scan found', () => {
-    const choice = worktreeRepositoryChoice(STORE_SCAN.members, '/code/store', null)!
+  // The host plans a new worktree from the repositories of the project, with no codebase. The start control shows the same list.
+  test('the repositories of a new worktree are the repositories that the scan found, with no codebase', () => {
+    const choice = worktreeRepositoryChoice(startMembers(STORE_SCAN.members, []), '/code/store', null)!
     expect(choice.working).toEqual({ path: '/code/store', name: 'store', isRepository: false })
     expect(choice.rows.map((row) => [row.name, row.isChosen])).toEqual([['api', true], ['web', true]])
     expect(choice.isDefault).toBe(true)
+  })
+
+  test('a codebase adds its members to the repositories of the project, each one time', () => {
+    const ofCodebase = [member('/code/store', '/code/store', { state: 'plain' }), member('/code/store/api', '/code/store'), member('/code/ui', '/code/ui')]
+    const members = startMembers(STORE_SCAN.members, ofCodebase)
+    expect(members.map((each) => each.path)).toEqual(['/code/store', '/code/store/api', '/code/store/web', '/code/ui'])
+    expect(worktreeRepositoryChoice(members, '/code/store', null)!.rows.map((row) => row.name)).toEqual(['api', 'ui', 'web'])
+  })
+
+  // The host makes a task folder for a folder with no repository only when there is a repository to isolate, or a codebase.
+  test('a folder with no repository gets a new worktree only when it holds a repository or the run has a codebase', () => {
+    const empty = [member('/code/notes', '/code/notes', { state: 'plain' })]
+    expect(plainFolderGetsTaskFolder(STORE_SCAN.members, '/code/store', false)).toBe(true)
+    expect(plainFolderGetsTaskFolder(empty, '/code/notes', false)).toBe(false)
+    expect(plainFolderGetsTaskFolder(empty, '/code/notes', true)).toBe(true)
+    // A repository is not a folder with no repository, and a folder that was not read is not known.
+    expect(plainFolderGetsTaskFolder([member('/code/api', '/code/api')], '/code/api', true)).toBe(false)
+    expect(plainFolderGetsTaskFolder([], '/code/store', true)).toBe(false)
   })
 
   test('"No codebase" reaches the host with the prompt, and a run that refuses none sends nothing', () => {

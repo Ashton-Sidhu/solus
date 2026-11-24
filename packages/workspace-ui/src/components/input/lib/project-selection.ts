@@ -32,19 +32,15 @@ export async function aimRunAtCheckout(
 
 /**
  * A codebase that the person chose for a run: its id and the root to open
- * when the folder changes too. A null id is "No codebase", unless `isNew`
- * says that the person chose the codebase that the host makes at the first
- * prompt (docs/plans/codebases.md decision 13).
+ * when the folder changes too. A null id is "No codebase".
  */
 export interface CodebaseSelection {
   codebaseId: string | null
   root?: Place
-  isNew?: true
 }
 
 /**
- * Start the run of `sourceId` with a codebase, with none, or with the new
- * codebase that the host makes. With a root, the
+ * Start the run of `sourceId` with a codebase, or with none. With a root, the
  * run opens that folder first, as a project choice does: a root on another
  * host moves the run there. The choice is the person's, so `decisions` keeps
  * it: the automatic choice does not replace "No codebase" for the same folder.
@@ -65,7 +61,7 @@ export async function aimRunAtCodebase(
   workspace.moveRun(sourceId, selection.codebaseId
     ? chooseCodebase(run.location, selection.codebaseId)
     // "No codebase" also tells the host to make none and to take none for this session.
-    : refuseCodebase(run.location, !selection.isNew))
+    : refuseCodebase(run.location, true))
 }
 
 /**

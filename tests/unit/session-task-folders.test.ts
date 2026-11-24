@@ -134,14 +134,18 @@ interface Shop {
 }
 
 let nextShop = 0
-/** A plain folder `shop` with the repositories `api` and `web` and a file, and a codebase whose one root is `shop`. */
+/**
+ * A plain folder `shop` with the repositories `api` and `web` and a file, and
+ * a codebase of `shop` and a folder on a different host. The second root adds
+ * no member on this host: a codebase has two or more folders.
+ */
 async function shopCodebase(): Promise<Shop> {
   const shop = join(root, `work-${++nextShop}`, 'shop')
   mkdirSync(shop, { recursive: true })
   writeFileSync(join(shop, 'NOTES.md'), 'the shop\n')
   const codebase = await codebases.saveCodebase('local', 'owner', {
     id: `task-folder-codebase-${nextShop}`, name: 'shop', updatedAt: 1_000, deletedAt: null,
-    roots: [{ installationId, path: shop, name: '' }],
+    roots: [{ installationId, path: shop, name: '' }, { installationId: 'installation-build-server', path: '/srv/infra', name: 'infra' }],
   })
   return { shop, api: repository(join(shop, 'api')), web: repository(join(shop, 'web')), codebase }
 }
@@ -215,8 +219,8 @@ describe('the launch of a new worktree session', () => {
       // The folders of the session are the worktrees. The repository of each one stays the member.
       const folders = runtime.sessionFolders.foldersOf('plain-member')
       expect(folders).toEqual([
-        { path: worktrees.api, name: 'api', state: 'git', repositoryPath: api, source: 'codebase', granted: true },
-        { path: worktrees.web, name: 'web', state: 'git', repositoryPath: web, source: 'codebase', granted: true },
+        { path: worktrees.api, name: 'api', state: 'git', repositoryPath: api, source: 'project', granted: true },
+        { path: worktrees.web, name: 'web', state: 'git', repositoryPath: web, source: 'project', granted: true },
       ])
       expect(foldersPublishedFor('plain-member').at(-1)).toEqual(folders)
       // A turn checkpoint is made in each worktree, not in the shared checkout.
@@ -227,7 +231,7 @@ describe('the launch of a new worktree session', () => {
         name: 'shop',
         workingDirectory: { name: 'shop', path: run.cwd, state: 'plain' },
         folders: [{ name: 'api', path: worktrees.api, state: 'git' }, { name: 'web', path: worktrees.web, state: 'git' }],
-        otherHosts: [],
+        otherHosts: [{ name: 'infra', path: '/srv/infra', host: 'installation-build-server' }],
       })
       // The worktrees are in the working directory. The provider gets only the Git data of each repository, to commit there.
       expect(run.additionalDirectories).toEqual([join(api, '.git'), join(web, '.git')])
@@ -310,10 +314,10 @@ describe('the launch of a new worktree session', () => {
     const { runtime, start, cardsOf } = plane()
     try {
       await expect(start('refused-plan', input(shop, { codebaseId: codebase.id, worktreeRepositories: [join(root, 'not-a-member')] })))
-        .rejects.toThrow("is not a folder of this session's codebase")
+        .rejects.toThrow("is not a folder of this session's project or codebase")
       const card = cardsOf('refused-plan').at(-1)!
       expect(card.status).toBe('error')
-      expect(card.steps.find((step) => step.status === 'error')?.detail).toContain("is not a folder of this session's codebase")
+      expect(card.steps.find((step) => step.status === 'error')?.detail).toContain("is not a folder of this session's project or codebase")
     } finally {
       runtime.shutdown()
     }
@@ -431,7 +435,31 @@ describe('a session in a task folder', () => {
       expect(branchOf(join(run.cwd, 'web'))).toBe(store.findTaskFolderContaining(run.cwd)!.branch)
       expect(await runtime.taskFolders.candidates('added', HOST_ACTOR)).toEqual([])
       await expect(runtime.taskFolders.addRepository('added', web, HOST_ACTOR)).rejects.toThrow('has no worktree in its task folder')
-      await expect(runtime.taskFolders.addRepository('added', join(root, 'lone'), HOST_ACTOR)).rejects.toThrow("not a repository of this session's codebase")
+      await expect(runtime.taskFolders.addRepository('added', join(root, 'lone'), HOST_ACTOR)).rejects.toThrow('is not a repository of this session')
+    } finally {
+      runtime.shutdown()
+    }
+  }, LONG)
+
+  test('a session with no codebase adds a repository of its project to its task folder', async () => {
+    // WHY: a project covers the repositories inside it with no codebase (decision 14). The task folder of such a
+    // session reads the repositories of the project, at its creation and for each later repository.
+    const shop = join(root, `work-${++nextShop}`, 'shop')
+    const api = repository(join(shop, 'api'))
+    const web = repository(join(shop, 'web'))
+    const { runtime, start } = plane()
+    try {
+      const run = await start('project-added', input(shop, { worktreeRepositories: [api] }))
+      expect(isTaskFolderPath(run.cwd)).toBe(true)
+      expect(await runtime.sessionFolders.codebaseIdOf('project-added')).toBeNull()
+      expect((await runtime.taskFolders.candidates('project-added', HOST_ACTOR)).map((member) => member.path)).toEqual([web])
+
+      const folders = await runtime.taskFolders.addRepository('project-added', web, HOST_ACTOR)
+      expect(folders.map(({ path, repositoryPath, source }) => ({ path, repositoryPath, source }))).toEqual([
+        { path: join(run.cwd, 'api'), repositoryPath: api, source: 'project' },
+        { path: join(run.cwd, 'web'), repositoryPath: web, source: 'project' },
+      ])
+      expect(await codebases.listCodebases('local')).not.toContainEqual(expect.objectContaining({ roots: expect.arrayContaining([expect.objectContaining({ path: shop })]) }))
     } finally {
       runtime.shutdown()
     }

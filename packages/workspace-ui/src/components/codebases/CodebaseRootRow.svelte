@@ -15,10 +15,12 @@
     /** The host can get a folder now. */
     canAdd: boolean;
     isBusy: boolean;
+    /** False when the codebase has only two folders left: the page says to delete the codebase. */
+    canRemove: boolean;
     onRemove: () => Promise<void>;
     onAddSuggestion: (path: string) => void;
   }
-  let { entry, canAdd, isBusy, onRemove, onAddSuggestion }: Props = $props();
+  let { entry, canAdd, isBusy, canRemove, onRemove, onAddSuggestion }: Props = $props();
 
   let isConfirmingRemove = $state(false);
   let isRemoving = $state(false);
@@ -62,7 +64,8 @@
       size="sm"
       variant="ghost"
       class="shrink-0"
-      disabled={isBusy}
+      disabled={isBusy || !canRemove}
+      aria-describedby={canRemove ? undefined : "codebase-removal-refusal"}
       aria-label="Remove {entry.root.name} from the codebase"
       onclick={() => {
         removeError = "";
