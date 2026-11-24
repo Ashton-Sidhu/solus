@@ -816,6 +816,12 @@ export interface SolusAPI {
   personalSettingsPatch(change: PersonalSettingsPatch): Promise<PersonalSettingsPatchResult>
   /** The caller's account copy changed: the host pulls it now when it holds a token for them, and answers with its copy. */
   personalSettingsChanged(): Promise<HostPersonalSettings>
+  /**
+   * Turns the caller's Sync settings switch on this host on or off
+   * (docs/plans/settings-sync-hosts.md). It changes no setting. `personalDocument.changed`
+   * tells the caller's other clients.
+   */
+  personalSettingsSyncSet(syncSettings: boolean): Promise<HostPersonalSettings>
   /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
   presenceSnapshot(): Promise<PresenceSnapshotResult>
   /** What this client is looking at; a hint for "jump to", never an authorization. */

@@ -62,6 +62,11 @@ export interface PersonSettingsAccount {
 }
 
 const copies = new Map<string, Copy>()
+/**
+ * Each person's Sync settings switch on this host (docs/plans/settings-sync-hosts.md),
+ * by person key. A person with no entry has it on.
+ */
+const syncSwitches = new Map<string, boolean>()
 /** The last write of each person, so two writes reach the database in the order they were made. */
 const writes = new Map<string, Promise<void>>()
 let account: PersonSettingsAccount | null = null
@@ -83,6 +88,9 @@ const accountAnswerSchema = z.object({
 })
 
 /** A client's change, read leniently: a key or value this host does not know is named, never a refusal. */
+/** The stored switch: `{ "syncSettings": false }`. Anything else reads as on, the default. */
+const syncSwitchSchema = z.object({ syncSettings: z.boolean() })
+
 const patchSchema = z.object({
   set: sentSettingsSchema.default({}),
   reset: z.array(z.string().max(200)).max(1_000).default([]),
@@ -100,11 +108,24 @@ export function usePersonSettingsAccount(next: PersonSettingsAccount | null): vo
 /** Reads every person's copy from the database. Called once at boot, before the first request. */
 export async function loadPersonSettings(): Promise<void> {
   copies.clear()
+  syncSwitches.clear()
+  for (const row of await listPersonalDocuments(SCOPE, 'settings-sync')) {
+    syncSwitches.set(row.personKey, readSyncSwitch(row.content))
+  }
   for (const row of await listPersonalDocuments(SCOPE, 'settings')) {
     const { settings, ignored } = knownPersonalSettings(parseContent(row.content))
     // A key that an older or a newer version stored: left out, the others stay.
     if (ignored.length) log.info('person_settings_stored_keys_ignored', { keys: ignored })
     copies.set(row.personKey, { settings, source: row.source, accountRevision: row.accountRevision, updatedAt: row.updatedAt })
+  }
+}
+
+function readSyncSwitch(content: string): boolean {
+  try {
+    const parsed = syncSwitchSchema.safeParse(JSON.parse(content))
+    return parsed.success ? parsed.data.syncSettings : true
+  } catch {
+    return true
   }
 }
 
@@ -132,6 +153,7 @@ function snapshotOf(personKey: string): HostPersonalSettings {
     followsAccount: account?.userFor(personKey) != null,
     accountRevision: copy?.accountRevision ?? null,
     updatedAt: copy?.updatedAt ?? null,
+    syncSettings: syncSwitches.get(personKey) ?? true,
   }
 }
 
@@ -181,6 +203,27 @@ export async function patchActingPersonalSettings(sent: PersonalSettingsPatch | 
   // Only key names are logged: the values are the person's.
   if (ignored.length) log.info('person_settings_keys_ignored', { keys: [...new Set(ignored)].sort(), source: 'client' })
   return { settings: snapshotOf(personKey), ignored: [...new Set(ignored)].sort() }
+}
+
+/**
+ * `personalSettingsSyncSet`: turns the Sync settings switch of the person the
+ * current call acts for on or off on this host. It changes no setting: the
+ * person's clients copy and spread the settings (docs/plans/settings-sync-hosts.md).
+ */
+export async function setActingSettingsSync(sent: boolean | undefined): Promise<HostPersonalSettings> {
+  const personKey = actingPersonKey()
+  const syncSettings = z.boolean().parse(sent)
+  syncSwitches.set(personKey, syncSettings)
+  await writePersonalDocument(SCOPE, {
+    personKey,
+    kind: 'settings-sync',
+    content: JSON.stringify({ syncSettings }),
+    source: 'host',
+    accountRevision: null,
+    updatedAt: now(),
+  })
+  log.info('person_settings_sync_changed', { syncSettings })
+  return snapshotOf(personKey)
 }
 
 /** `personalSettingsChanged`: the person's account copy changed. The host pulls it now when it can, and answers. */
@@ -266,6 +309,7 @@ export function setPersonSettingsForTests(personKey: string, settings: PersonalS
 /** For tests: forget every copy in memory (a restart), and set the clock. */
 export function resetPersonSettingsForTests(clock: () => number = Date.now): void {
   copies.clear()
+  syncSwitches.clear()
   writes.clear()
   now = clock
 }

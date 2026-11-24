@@ -434,6 +434,7 @@ export const RPC_INVOKE_METHODS = [
   'personalSettingsGet',
   'personalSettingsPatch',
   'personalSettingsChanged',
+  'personalSettingsSyncSet',
   // Presence: who is here, what they are looking at, and whether they are typing
   'presenceSnapshot',
   'presenceSetFocus',

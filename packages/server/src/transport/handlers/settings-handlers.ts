@@ -19,7 +19,7 @@ import type { OtelSettingsSnapshot, TextGenerationSettingsSnapshot } from '@solu
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { enrichAgentMetadata } from './session-handlers'
-import { actingPersonalSettings, patchActingPersonalSettings, pullActingPersonalSettings } from '../../execution/person-settings'
+import { actingPersonalSettings, patchActingPersonalSettings, pullActingPersonalSettings, setActingSettingsSync } from '../../execution/person-settings'
 
 export function registerSettingsHandlers(
   server: SolusServer,
@@ -39,6 +39,7 @@ export function registerSettingsHandlers(
   server.register('personalSettingsGet', () => actingPersonalSettings())
   server.register('personalSettingsPatch', ([change]) => patchActingPersonalSettings(change))
   server.register('personalSettingsChanged', () => pullActingPersonalSettings())
+  server.register('personalSettingsSyncSet', ([syncSettings]) => setActingSettingsSync(syncSettings))
 
   // The caller's own key (docs/plans/access-model.md §2.6), read and changed in their acting scope.
   server.register('typeSafeKeyStatus', () => typeSafeKeyStatus())

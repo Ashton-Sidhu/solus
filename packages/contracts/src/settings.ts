@@ -494,8 +494,12 @@ export const executionPreferenceSnapshotSchema = z.object({
 
 // ─── A person's settings on a host ───
 
-/** The personal documents a host keeps for each person: their settings, and their agent profile while signed out. */
-export const PERSONAL_DOCUMENT_KINDS = ['settings', 'agent-profile'] as const
+/**
+ * The personal documents a host keeps for each person: their settings, their agent
+ * profile while signed out, and their Sync settings switch for this host
+ * (docs/plans/settings-sync-hosts.md).
+ */
+export const PERSONAL_DOCUMENT_KINDS = ['settings', 'agent-profile', 'settings-sync'] as const
 export type PersonalDocumentKind = (typeof PERSONAL_DOCUMENT_KINDS)[number]
 
 /**
@@ -517,6 +521,12 @@ export interface HostPersonalSettings {
   accountRevision: number | null
   /** When this host last changed its copy; null before the person had one here. */
   updatedAt: number | null
+  /**
+   * The person's Sync settings switch on this host (docs/plans/settings-sync-hosts.md).
+   * On: this host takes the server settings that the person changes on another synced
+   * host. Off: it keeps its own. On when the person never chose.
+   */
+  syncSettings: boolean
 }
 
 /** A change to a host's copy: keys to set, and keys to return to their default. */
