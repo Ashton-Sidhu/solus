@@ -34,5 +34,20 @@
 {"kind":"event","afterMs":850,"event":{"type":"context_compaction","state":"stop","trigger":"auto","preTokens":12000,"postTokens":3200,"durationMs":850}}
 {"kind":"event","event":{"type":"question_request","questionId":"layout-question","questions":[{"id":"layout","header":"Layout","question":"Which layout should the sample use?","options":[{"label":"Compact","description":"Show more rows at once."},{"label":"Spacious","description":"Use more room for each row."}],"multiSelect":false}]}}
 {"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect the project","status":"completed"},{"content":"Review the change","status":"completed"},{"content":"Summarize the result","status":"completed"}]}}
+{"kind":"event","event":{"type":"agent_conversation_update","update":{"phase":"dispatched","sessionId":"replay-layout-reviewer","messageId":"layout-review","origin":"created","provider":"replay","title":"Layout reviewer","cwd":"<workspace>","prompt":"Review the recorded layout checks.","dispatchedAt":0}}}
+{"kind":"event","event":{"type":"agent_conversation_update","update":{"phase":"accepted","sessionId":"replay-layout-reviewer","messageId":"layout-review","state":"running"}}}
+{"kind":"event","afterMs":900,"event":{"type":"agent_conversation_update","update":{"phase":"settled","sessionId":"replay-layout-reviewer","messageId":"layout-review","status":"completed","replyText":"Both layouts passed the recorded checks.","durationMs":900,"toolCallCount":1,"settledAt":0}}}
+{"kind":"event","event":{"type":"user_message","via":"pull-request-watch","text":"Update on pull request #42 (https://example.invalid/replay/pull/42), which Solus is watching for you:\n\n- Every check that gates the merge passed: layout tests."}}
+{"kind":"event","event":{"type":"text_chunk","text":"The pull request watch reports that the layout checks passed."}}
+{"kind":"event","event":{"type":"user_message","via":"resource-watch","text":"A watched MCP resource changed: Replay MCP · Layout settings\n\nThe sample layout changed from wide to compact."}}
+{"kind":"event","event":{"type":"text_chunk","text":"The resource watch reports that the sample now defaults to compact layout."}}
+{"kind":"event","event":{"type":"user_message","via":"background-command","text":"A background command finished after your turn ended (exit 0): bun test src/example.test.ts\n\nOutput (last part):\n2 pass, 0 fail"}}
+{"kind":"event","event":{"type":"text_chunk","text":"The background test command finished successfully."}}
+{"kind":"event","event":{"type":"user_message","via":"mcp-task","text":"An MCP task ended (completed): Replay MCP · Check layout\n\nBoth sample layouts are valid."}}
+{"kind":"event","event":{"type":"text_chunk","text":"The background MCP task confirmed that both layouts are valid."}}
+{"kind":"event","event":{"type":"user_message","via":"automation","sender":{"kind":"automation","automationId":"replay-layout-check","name":"Daily layout check"},"text":"Summarize the recorded daily layout checks."}}
+{"kind":"event","event":{"type":"text_chunk","text":"Daily layout check: both test cases passed and there are no new failures."}}
+{"kind":"event","event":{"type":"user_message","sender":{"kind":"agent","sessionId":"replay-layout-coordinator","provider":"replay","title":"Layout coordinator"},"text":"Send me the recorded layout results for the handoff."}}
+{"kind":"event","event":{"type":"text_chunk","text":"The recorded results are ready for the layout coordinator.\n\n"}}
 {"kind":"event","event":{"type":"text_chunk","text":"## Recorded result\n\n| Check | Result |\n| --- | --- |\n| Default layout | Passed |\n| Compact layout | Passed |\n\n```ts\nexport const layout = 'compact'\n```\n\nA sample proposed plan follows.\n\n"}}
 {"kind":"event","afterMs":1500,"event":{"type":"plan","planContent":"# Review the sample layout\n\n1. Compare the compact and spacious layouts.\n2. Check that the controls stay visible.\n3. Keep the layout that fits the device.","planFilePath":"","questionId":"layout-plan","options":[]}}

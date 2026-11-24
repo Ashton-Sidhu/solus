@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent } from '@solus/contracts/types'
+import { backgroundCommandWake } from '@solus/client-core/background-command-wake'
+import { pullRequestWatchWake } from '@solus/client-core/pull-request-watch-wake'
+import { resourceWatchWake } from '@solus/contracts/integrations/resource-watch'
+import { mcpTaskWake } from '@solus/contracts/integrations/mcp-task'
 import type { AgentRunRequest, ProviderConversation } from '@solus/server/execution/agents/agent-runner'
 import type { ReplayClock } from '@solus/server/execution/agents/replay/replay-backend'
 
@@ -12,6 +16,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { ReplayBackend, REPLAY_CHUNK_DELAY_MS, REPLAY_EVENT_DELAY_MS, REPLAY_MAX_RECORDED_DELAY_MS } = await import('@solus/server/execution/agents/replay/replay-backend')
 const { loadReplayScenarios, parseReplayScenario, streamChunks } = await import('@solus/server/execution/agents/replay/replay-scenario')
 const { replayBackendAllowed } = await import('@solus/server/execution/agents/replay/replay-gate')
+const { projectSessionHistory } = await import('@solus/server/data/sessions/result-projection')
 
 const SCENARIO_DIR = resolve(import.meta.dir, '../../packages/server/src/execution/agents/replay/scenarios')
 const directories: string[] = []
@@ -316,6 +321,38 @@ describe('ReplayBackend', () => {
       expect.objectContaining({ type: 'plan', options: [] }),
     ]))
     expect(run.events.at(-1)).toMatchObject({ type: 'task_complete' })
+  })
+
+  test('conversation cards keeps watch and reply examples when the session reopens', async () => {
+    const { backend } = backendWith()
+    const run = await play(backend, {
+      model: 'conversation-cards',
+      onEvent: (event) => {
+        if (event.type === 'permission_request') backend.permissions.respondToPermission(event.questionId, 'allow')
+        if (event.type === 'question_request') backend.permissions.respondToQuestion(event.questionId, { layout: 'Compact' })
+      },
+    })
+    const userEvents = run.events.filter((event) => event.type === 'user_message')
+    expect(userEvents.map((event) => event.via)).toEqual([
+      'pull-request-watch', 'resource-watch', 'background-command', 'mcp-task', 'automation', undefined,
+    ])
+    const exchanges = run.events.filter((event) => event.type === 'agent_conversation_update')
+    expect(exchanges.map((event) => event.update.phase)).toEqual(['dispatched', 'accepted', 'settled'])
+    const page = await backend.loadSessionPage(run.nativeSessionId!, undefined, 20)
+    const history = projectSessionHistory(page.messages)
+    expect(history.some((row) => pullRequestWatchWake(row.content)?.number === 42)).toBe(true)
+    expect(history.some((row) => resourceWatchWake(row.content)?.label === 'Replay MCP · Layout settings')).toBe(true)
+    expect(history.some((row) => backgroundCommandWake(row.content)?.exitCode === 0)).toBe(true)
+    expect(history.some((row) => mcpTaskWake(row.content)?.outcome === 'completed')).toBe(true)
+    expect(history.find((row) => row.sender?.kind === 'automation')?.sender)
+      .toMatchObject({ name: 'Daily layout check' })
+    expect(history.find((row) => row.sender?.kind === 'agent')?.sender)
+      .toMatchObject({ title: 'Layout coordinator' })
+    expect(history.flatMap((row) => row.agentConversationResults ?? [])).toEqual([
+      expect.objectContaining({
+        report: expect.objectContaining({ reply: 'Both layouts passed the recorded checks.' }),
+      }),
+    ])
   })
 
   test('a denied permission fails the tool and ends the turn there', async () => {

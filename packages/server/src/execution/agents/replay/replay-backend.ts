@@ -7,6 +7,7 @@ import { resolveHomePath } from '../../../platform/paths'
 import { createLogger } from '../../../logger'
 import { startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
 import { formatExchangeTag, formatSessionReport } from '@solus/contracts/session-exchange'
+import { attributionSchema } from '@solus/contracts/user'
 import type { AgentConversationUpdate, AgentId, AgentMetadata, NormalizedEvent, PermissionOption, PlanDescriptor, PluginCommandsResult } from '@solus/contracts/types'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
@@ -82,6 +83,9 @@ const historySchema = z.array(z.object({
   isSubagent: z.boolean().optional(),
   subagentType: z.string().optional(),
   parentToolUseId: z.string().optional(),
+  sender: attributionSchema.transform((sender) =>
+    sender.kind === 'agent' || sender.kind === 'automation' ? sender : undefined,
+  ).optional(),
   planContent: z.string().optional(),
   planToolUseId: z.string().optional(),
 }))
@@ -408,6 +412,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
 class TurnHistory {
   private readonly messages: SessionLoadMessage[] = []
   private readonly tools = new Map<string, SessionLoadMessage>()
+  private readonly exchanges = new Map<string, SessionLoadMessage>()
   private text: SessionLoadMessage | null = null
   /** The turn's own prose, which is its result. */
   resultText = ''
@@ -418,6 +423,9 @@ class TurnHistory {
 
   record(event: NormalizedEvent): void {
     if (event.type === 'text_chunk') this.recordText(event)
+    else if (event.type === 'user_message') {
+      this.push({ role: 'user', content: event.text, sender: event.sender, timestamp: Date.now() })
+    } else if (event.type === 'agent_conversation_update') this.recordExchange(event.update)
     else if (event.type === 'tool_call') this.recordToolCall(event)
     else if (event.type === 'tool_call_update' || event.type === 'tool_call_complete' || event.type === 'tool_result') this.recordToolProgress(event)
     else if (event.type === 'thinking' && event.state === 'stop' && event.text) this.push({ role: 'reasoning', content: event.text, timestamp: Date.now() })
@@ -425,6 +433,44 @@ class TurnHistory {
       const row: SessionLoadMessage = { role: 'plan', content: '', planContent: event.planContent, timestamp: Date.now() }
       if (event.planToolUseId) row.planToolUseId = event.planToolUseId
       this.push(row)
+    }
+  }
+
+  /** Store the same tool receipt that the history projection uses to rebuild an agent card. */
+  private recordExchange(update: AgentConversationUpdate): void {
+    if (update.phase === 'dispatched') {
+      const started = update.origin === 'created'
+      const row: SessionLoadMessage = {
+        role: 'tool',
+        toolId: update.messageId,
+        toolName: started ? 'start_sessions' : 'send_session',
+        toolStatus: 'completed',
+        toolInput: JSON.stringify(started
+          ? { sessions: [{ title: update.title, prompt: update.prompt, agent_provider: update.provider }] }
+          : { session_id: update.sessionId, message: update.prompt }),
+        content: formatExchangeTag({
+          messageId: update.messageId,
+          sessionId: update.sessionId,
+          provider: update.provider,
+          serverId: update.serverId,
+          item: started ? 0 : undefined,
+        }),
+        timestamp: update.dispatchedAt,
+      }
+      this.exchanges.set(update.messageId, row)
+      this.push(row)
+    } else if (update.phase === 'settled') {
+      const row = this.exchanges.get(update.messageId)
+      if (!row) return
+      row.content += '\n\n' + formatSessionReport({
+        messageId: update.messageId,
+        sessionId: update.sessionId,
+        status: update.status,
+        durationMs: update.durationMs,
+        outputs: update.outputs ?? [],
+        reply: update.replyText,
+      })
+      this.exchanges.delete(update.messageId)
     }
   }
 

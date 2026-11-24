@@ -47,6 +47,8 @@ The five T3 Code scenarios are snapshots of the [upstream model fixtures at `f8d
 
 To finish the Conversation cards tour, allow the sample edit and answer the layout question. The approval also accepts typed denial feedback, which ends the turn. The proposed plan at the end is a display sample. Cards that need real host resources or lifecycle changes, including browser captures, MCP apps, linked worktrees, secret requests, and rate-limit recovery, need separate fixtures.
 
+After the layout answer, the tour shows recorded pull request and MCP resource watch updates, replies to a finished background command and MCP task, a child agent report, and replies to prompts from an agent and an automation. It uses sample updates without starting a watch, agent, or automation.
+
 Rate limits are not replayed: a recorded `rate_limit` would park a real session on a reset time that has already passed.
 
 ### File format
