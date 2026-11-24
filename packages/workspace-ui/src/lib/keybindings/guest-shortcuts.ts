@@ -9,10 +9,8 @@ const GUEST_SCOPES: ReadonlySet<Scope> = new Set(['global', 'browser-pane'])
 /**
  * The Solus shortcuts a focused browser page gives up.
  *
- * Only combos with ⌥ qualify: that is the Solus shortcut namespace (⌥⇧ for
- * global commands, ⌥ for a sub-page). ⌘ and ⌃ combos stay with the page,
- * because pages bind them themselves — ⌘K, ⌘F, ⌘B in an editor — and a
- * person working in a page expects the page to answer them.
+ * Forward Solus combos with ⌥ and the default New chat combo. Leave other
+ * combos with the page so its own shortcuts, such as ⌘K, still work.
  *
  * Follows the user's overrides, so a rebound shortcut is the one forwarded.
  */
@@ -24,10 +22,11 @@ export function guestShortcuts(overrides: BindingOverrides, mac: boolean): Guest
     const def: BindingDef = KEYBINDINGS[id]
     if (!GUEST_SCOPES.has(def.scope)) continue
     const combo = effectiveCombo(id, overrides)
+    const forwardsNewChat = id === 'global.new-chat' && overrides[id] === undefined
     // A removed shortcut drops its aliases too, as in the dispatcher.
     const combos = overrides[id] === null ? [] : [combo, ...(def.aliases ?? [])]
     for (const candidate of combos) {
-      if (!candidate?.alt) continue
+      if (!candidate || (!candidate.alt && !forwardsNewChat)) continue
       const shortcut = resolve(candidate, mac)
       const key = JSON.stringify(shortcut)
       if (seen.has(key)) continue

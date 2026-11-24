@@ -192,8 +192,10 @@ change that repository. Solus checks only that folder, not its parents.
 
 To start a chat:
 
-- **Command palette or `⌘⌥N`.** **New chat** opens a new chat. It runs on the
-  host of the conversation in front of you, else on the default machine.
+- **Command palette or keyboard shortcut.** **New chat** opens a new chat.
+  Press `⌘⇧N` in the desktop app or `⌘⌥N` on the web. Use Ctrl in place of
+  Command on Windows and Linux. The chat runs on the host of the conversation
+  in front of you, else on the default machine.
 - **Project chip.** When a draft has a project, the last item of its menu is
   **Switch to chat**, which removes the project and keeps what you typed.
 - **The composer's + menu.** A chat has no strip of project, host, and branch

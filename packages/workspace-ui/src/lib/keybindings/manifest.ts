@@ -9,10 +9,9 @@ export const KEYBINDINGS = {
   // session on its own; `global.new-task` opens the composer of the Tasks page.
   // It has no default key.
   'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
-  'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
-  // A chat has no project. ⌘⌥N sits beside the new-session family, and no
-  // browser claims it, so web keeps the same combo.
-  'global.new-chat':          { combo: { mod: true, alt: true, code: 'KeyN' },            scope: 'global',             label: 'New chat',                 group: 'Tasks' },
+  'global.new-session-without-task': { combo: { mod: true, alt: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
+  // Browsers reserve the desktop combo for a private window.
+  'global.new-chat':          { combo: { mod: true, shift: true, code: 'KeyN' }, web: { mod: true, alt: true, code: 'KeyN' }, scope: 'global', label: 'New chat', group: 'Tasks' },
   'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in task',      group: 'Tasks' },
   'global.new-task':          { combo: null,                                             scope: 'global',             label: 'New task',                 group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
