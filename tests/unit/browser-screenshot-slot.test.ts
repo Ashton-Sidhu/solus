@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
 import type { WebContents } from 'electron'
 import { ChromiumBrowserDriver } from '../../apps/desktop/src/main/browser/chromium-driver'
-import { captureInTurn } from '../../apps/desktop/src/main/browser/screenshot-slot'
+import { captureInTurn, nudgeIfIdle } from '../../apps/desktop/src/main/browser/screenshot-slot'
 
 /**
  * Chromium below 157 crashes the whole app when a guest's renderer dies with a
@@ -53,6 +53,20 @@ function fakeGuest() {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('one screenshot at a time per guest', () => {
+  test('a repaint request skips a guest with a capture in flight', async () => {
+    const guest = fakeGuest()
+    const pending = Promise.withResolvers<string>()
+    const shot = captureInTurn(guest.contents, 'Page.captureScreenshot', 1_000, () => pending.promise)
+    let nudges = 0
+    nudgeIfIdle(guest.contents, 1_000, () => {
+      nudges++
+      return guest.contents.capturePage()
+    })
+    pending.resolve('shot')
+    expect(await shot).toBe('shot')
+    expect(nudges).toBe(0)
+  })
+
   test('a second capture waits until the first one answers', async () => {
     const guest = fakeGuest()
     const driver = await ChromiumBrowserDriver.attach(guest.contents, { kind: 'headless', releaseGuest: async () => {} })

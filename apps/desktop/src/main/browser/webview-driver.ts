@@ -6,7 +6,8 @@ import {
   setBrowserWebviewHost,
   type BrowserProfileCookie,
 } from '@solus/server/browser/surface-driver'
-import { ChromiumBrowserDriver, withTimeout } from './chromium-driver'
+import { withTimeout } from './cdp-timeout'
+import { ChromiumBrowserDriver } from './chromium-driver'
 
 const log = createLogger('browser', 'webview-driver.ts')
 
@@ -28,7 +29,7 @@ export function registerBrowserWebviewHost(): void {
   setBrowserWebviewHost({
     attach: async (webContentsId) => {
       const contents = webContents.fromId(webContentsId)
-      if (!contents || contents.isDestroyed()) {
+      if (!contents || contents.isDestroyed() || contents.getType() !== 'webview' || !contents.hostWebContents) {
         throw new Error(`No live browser surface for webContents ${webContentsId}`)
       }
       log.info('browser_surface_attached', { webContentsId })
