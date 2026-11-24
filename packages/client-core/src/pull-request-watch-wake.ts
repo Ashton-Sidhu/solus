@@ -13,6 +13,7 @@ export type PullRequestWatchNewsKind =
   | 'remarks'
   | 'conflicting'
   | 'closed'
+  | 'merged'
 
 export interface PullRequestWatchNews {
   kind: PullRequestWatchNewsKind
@@ -44,6 +45,7 @@ const NEWS_LINES: ReadonlyArray<readonly [RegExp, PullRequestWatchNewsKind]> = [
   [/^- No checks have reported on this head after (\d+) minutes/, 'no-checks'],
   [/^- New comments and reviews:/, 'remarks'],
   [/^- The branch now conflicts with its base\./, 'conflicting'],
+  [/^- The pull request merged\./, 'merged'],
   [/^- The pull request was closed without merging\./, 'closed'],
 ]
 
@@ -142,6 +144,8 @@ function newsWords(item: PullRequestWatchNews): string {
       return 'merge conflict'
     case 'closed':
       return 'closed'
+    case 'merged':
+      return 'merged'
   }
 }
 
@@ -176,6 +180,7 @@ const MARK_TONE = {
   remarks: 'review',
   conflicting: 'failing',
   closed: 'failing',
+  merged: 'passing',
 } satisfies { [Kind in PullRequestWatchNewsKind]: PullRequestWatchMarkTone }
 
 /** The wake as marks: ✕ 2 · 💬 3 · stopped, in the order the wake lists it. */

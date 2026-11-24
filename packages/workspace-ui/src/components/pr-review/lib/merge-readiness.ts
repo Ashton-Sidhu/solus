@@ -107,9 +107,13 @@ function mergeStatusPending(detail: PullRequest): boolean {
   return detail.mergeStateStatus === null || detail.mergeStateStatus === 'unknown'
 }
 
+function belongsToStack(detail: PullRequest & { fullStack?: { layers: Array<{ number: number }> } | null }): boolean {
+  return detail.stack !== null && (!!detail.stack || detail.fullStack?.layers.some((layer) => layer.number === detail.number) === true)
+}
+
 function viewerMayMerge(detail: PullRequest): boolean {
   return (
-    detail.capabilities.actions.includes('merge') &&
+    !belongsToStack(detail) && detail.capabilities.actions.includes('merge') &&
     detail.viewerPermissions.actions.includes('merge') &&
     detail.capabilities.mergeMethods.length > 0
   )
@@ -142,7 +146,7 @@ function mergeAction(detail: PullRequest): MergeAction | null {
  */
 function viewerMayAutoMerge(detail: PullRequest): boolean {
   return (
-    (detail.mergeStateStatus === 'blocked' || detail.mergeStateStatus === 'behind') &&
+    !belongsToStack(detail) && (detail.mergeStateStatus === 'blocked' || detail.mergeStateStatus === 'behind') &&
     detail.capabilities.actions.includes('enable-auto-merge') &&
     detail.viewerPermissions.actions.includes('enable-auto-merge') &&
     detail.capabilities.mergeMethods.length > 0
@@ -205,7 +209,7 @@ export function prMenuHostActions(detail: PullRequest, primary: MergeAction | nu
         : defaultMergeMethod(detail.capabilities)
   return {
     enableAutoMerge: landable && !armed && primary?.kind !== 'enable-auto-merge' && viewerMayAutoMerge(detail),
-    disableAutoMerge: open && armed && may('disable-auto-merge'),
+    disableAutoMerge: !belongsToStack(detail) && open && armed && may('disable-auto-merge'),
     mergeNow: landable && waiting && viewerMayMerge(detail),
     revert: detail.state === 'merged' && may('revert'),
     method,

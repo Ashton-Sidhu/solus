@@ -78,6 +78,8 @@ The T3 pull request and issue sheets use the selected host for edits, labels, re
 
 Mobile keeps T3's review draft file on the device. Solus scopes it by account and host. The PR Activity author rows already expose native headings for reviews, comments, and discussions, as in T3 Code PR #39648.
 
+The native PR merge controls use Solus host RPCs for stack membership, immediate merge, and auto-merge. The selected host checks permissions and the heads that the confirmation showed. GitHub reports stack auto-merge on the layer where it was turned on.
+
 The session review picker follows T3's Changes and Uncommitted choices. The Solus host supplies both comparisons and uses its own target branch selection. The picker also offers Session for the session's accumulated changes.
 
 The mobile Issues list can open a pasted issue URL in the T3 issue screen. The selected Solus host resolves the address and supplies the read-only issue details. The Issues list keeps its existing sources.

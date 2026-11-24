@@ -70,6 +70,8 @@ const CLEARED = sql`watch_id = NULL, watch_started_at = NULL, watch_user_id = NU
 
 type ChangeListener = (sessionId: string) => void
 const listeners = new Set<ChangeListener>()
+const mergeWakes = new Set<string>()
+
 const storedStates = new WeakMap<PullRequestWatch, string>()
 
 /** Hear each session whose watches started or stopped. */
@@ -139,6 +141,22 @@ export async function endPullRequestWatch(watch: PullRequestWatch): Promise<bool
   return ended
 }
 
+/** Keep settlement on hold between claiming a merge notice and admitting its prompt. */
+export async function claimPullRequestMergeWake(watch: PullRequestWatch, wake: () => Promise<void>): Promise<void> {
+  if (mergeWakes.has(watch.sessionId)) return
+  mergeWakes.add(watch.sessionId)
+  try {
+    if (await endPullRequestWatch(watch)) await wake()
+  } finally {
+    mergeWakes.delete(watch.sessionId)
+    emitPullRequestWatchesChanged(watch.sessionId)
+  }
+}
+
+export function isDeliveringPullRequestMergeWake(sessionId: string): boolean {
+  return mergeWakes.has(sessionId)
+}
+
 /** Store what a read told the agent. Does nothing when the watch was stopped
  *  or started over while the read ran, and answers whether it wrote. The
  *  watcher already holds the new state, so this emits no change. */
@@ -165,6 +183,18 @@ export async function reopenPullRequestWatchChecks(
   `)).changes > 0
   if (changed) emitPullRequestWatchesChanged(watch.sessionId)
   return changed
+}
+
+/** Whether this merge is still owed to one of the task's working sessions. */
+export async function isPullRequestWatchedBySessions(repository: string, number: number, sessionIds: readonly string[]): Promise<boolean> {
+  if (!sessionIds.length) return false
+  return !!await getDatabase().get(sql`
+    SELECT 1 FROM ${resourceLinks}
+    WHERE ${WATCHABLE} AND resource_links.watch_id IS NOT NULL
+      AND resource_links.repository = ${repository} AND resource_links.number = ${number}
+      AND resource_links.source_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})
+    LIMIT 1
+  `)
 }
 
 /** The watches of the named sessions, or of every session. */

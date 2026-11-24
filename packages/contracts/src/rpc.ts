@@ -590,6 +590,8 @@ export const RPC_INVOKE_METHODS = [
   'prUpdateBranch',
   'prRevert',
   'prMergeStack',
+  'prEnableStackAutoMerge',
+  'prDisableStackAutoMerge',
   'prMediaUrl',
   'prPendingWorkflowRuns',
   'prApproveWorkflowRuns',

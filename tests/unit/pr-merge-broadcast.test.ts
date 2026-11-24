@@ -79,7 +79,7 @@ function serverWithEvents(sessionRole: ResourceRole = 'owner'): { server: SolusS
     dispatcher: {} as AgentDispatcher,
     events,
     prSync,
-    resources: { roleFor: async () => sessionRole },
+    resources: { standingFor: async () => ({ role: sessionRole }) },
   })
   return { server, broadcasts, applied }
 }

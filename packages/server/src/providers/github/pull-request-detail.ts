@@ -222,7 +222,7 @@ function toDetailPullRequest(
     author: pr.author?.login ?? '',
     ...githubRepositorySettings(repository),
     branchMergeMethods: branch.mergeMethods,
-  })
+  }, repo.host)
   const pullRequest: PullRequest = {
     number: pr.number,
     url: pr.url,

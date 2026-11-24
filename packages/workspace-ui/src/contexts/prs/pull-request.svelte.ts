@@ -670,8 +670,11 @@ export class PullRequest implements Contracts.PullRequest {
       this.api.prEnableAutoMerge(await this.ref(), method, expectedHeadSha))
   }
 
-  async disableAutoMerge(): Promise<PullRequest> {
-    return this.#setAutoMerge(undefined, async () => this.api.prDisableAutoMerge(await this.ref()))
+  async disableAutoMerge(stackNumber?: number): Promise<PullRequest> {
+    return this.#setAutoMerge(undefined, async () => {
+      const ref = await this.ref()
+      return stackNumber === undefined ? this.api.prDisableAutoMerge(ref) : this.api.prDisableStackAutoMerge(ref, stackNumber)
+    })
   }
 
   #setAutoMerge(
@@ -714,9 +717,10 @@ export class PullRequest implements Contracts.PullRequest {
    * read again whatever the answer, so a refusal because the stack moved
    * shows the stack as it is now.
    */
-  async mergeStack(request: Omit<PrStackMergeRequest, 'number' | 'repo'>): Promise<PrStackMergeResult> {
+  async mergeStack(request: Omit<PrStackMergeRequest, 'number' | 'repo'>, auto = false): Promise<PrStackMergeResult> {
     try {
-      const result = await this.api.prMergeStack({ ...request, ...(await this.ref()) })
+      const input = { ...request, ...(await this.ref()) }
+      const result = auto ? await this.api.prEnableStackAutoMerge(input) : await this.api.prMergeStack(input)
       for (const pullRequest of result.pullRequests) this.store.applyPullRequest(pullRequest)
       return result
     } finally {

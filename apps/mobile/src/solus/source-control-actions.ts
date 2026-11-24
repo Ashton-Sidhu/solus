@@ -1,6 +1,7 @@
 import type {
   IssueRef,
   PullRequestRef,
+  PullRequestActionInput,
   IssueUpdateInput,
   IssueSetStateInput,
   PullRequestUpdateInput,
@@ -142,6 +143,36 @@ function prCommand<I extends PullRequestRef>(
     }
   });
 }
+export const runPrAction = prCommand<PullRequestActionInput>("pullRequests.runAction", async ({ api, ref, pr }, input) => {
+  const { action, stackNumber, expectedHeadSha, mergeMethod: method } = input;
+  if (action === "close" || action === "reopen" || action === "ready" || action === "draft") {
+    await api.prUpdateLifecycle(ref, action, expectedHeadSha ?? pr.headSha);
+    return;
+  }
+  if (action === "disable-auto-merge") {
+    if (stackNumber === undefined) await api.prDisableAutoMerge(ref);
+    else await api.prDisableStackAutoMerge(ref, stackNumber);
+    return;
+  }
+  if (action !== "merge" && action !== "enable-auto-merge")
+    throw new Error("This host does not support this pull request action.");
+  if (!method || method === "fast-forward") throw new Error("Select a supported merge method.");
+  if (stackNumber !== undefined) {
+    const request = { ...ref, stackNumber, method, expectedHeads: [...(input.expectedStackHeads ?? [])] };
+    if (action === "enable-auto-merge") await api.prEnableStackAutoMerge(request);
+    else await api.prMergeStack(request);
+    return;
+  }
+  if (pr.capabilities.actions.includes("merge-stack") && await api.prGetStack(ref))
+    throw new Error("Open the stack controls to merge this pull request.");
+  if (!expectedHeadSha) throw new Error("Refresh the pull request before merging.");
+  if (action === "enable-auto-merge") await api.prEnableAutoMerge(ref, method, expectedHeadSha);
+  else {
+    const result = await api.prMerge(ref, method, expectedHeadSha);
+    if (!result.merged) throw new Error(result.message ?? "The code host refused the merge.");
+  }
+});
+
 export const editPr = prCommand<PullRequestUpdateInput>(
   "pullRequests.update",
   ({ api, ref }, i) => {

@@ -256,7 +256,7 @@ const EXCERPT_LENGTH = 200
 export function wakeText(
   pullRequest: Pick<PullRequest, 'number' | 'url' | 'headSha'>,
   news: WatchNews[],
-  end: 'closed' | 'remark-limit' | 'unreadable' | null,
+  end: 'merged' | 'closed' | 'remark-limit' | 'unreadable' | null,
 ): string {
   const label = `pull request #${pullRequest.number} (${pullRequest.url})`
   if (end === 'unreadable') {
@@ -265,7 +265,10 @@ export function wakeText(
   const lines = [`Update on ${label}, which Solus is watching for you (head ${pullRequest.headSha.slice(0, 7)}):`, '']
   for (const item of news) lines.push(...newsLines(item))
   lines.push('')
-  if (end === 'closed') {
+  if (end === 'merged') {
+    lines.push('- The pull request merged. Solus stopped watching it.')
+    lines.push('Report the merge and any remaining work to the user.')
+  } else if (end === 'closed') {
     lines.push('The pull request was closed, so Solus stopped watching it. If it is reopened, call watch_pull_request to watch it again.')
   } else if (end === 'remark-limit') {
     lines.push(`Solus stopped watching after ${REMARK_ONLY_WAKE_LIMIT} updates in a row that were only comments. Act on these, then call watch_pull_request to watch it again if you still need to.`)

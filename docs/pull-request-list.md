@@ -221,6 +221,17 @@ Solus sends the head of each layer as the stack read showed it. If one layer
 moved, the host refuses the merge. When the stack read does not give a head for
 a layer, the item is off: refresh the pull request.
 
+### Auto-merge a stack
+
+On GitHub.com, select **Auto-merge stack** in the stack menu on desktop or web,
+or in the merge controls on mobile. GitHub waits for the requirements of the
+selected pull request and the open layers below it. If those layers can merge
+now, Solus checks their heads again and starts the immediate stack merge.
+Select **Cancel stack auto-merge** on the pull request where you turned it on.
+
+Agents can set `stack: true` and `auto: true` in `pull_request_merge` to enable
+it. Set `stack: true` and `cancelAuto: true` on the armed pull request to cancel it.
+
 ## The pull request's action
 
 In an open pull request, the `#number` in the top row is also the pull

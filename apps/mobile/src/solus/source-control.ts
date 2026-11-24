@@ -18,6 +18,8 @@ import {
   type PullRequestRef,
   PullRequestDetail,
   PullRequestActivity,
+  type PullRequestAction,
+  type PullRequestStack,
   PullRequestChangeBreakdown,
   type PullRequestDiffInput,
   type PullRequestDiffFileContentsInput,
@@ -367,6 +369,32 @@ export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; 
   return issueProviderActivity(inspection);
 });
 
+const SOLUS_PR_ACTIONS = [
+  "merge", "close", "reopen", "ready", "draft", "enable-auto-merge", "disable-auto-merge",
+] satisfies PullRequestAction[];
+
+export const solusPrStack = hostQuery(
+  async (id, input: PullRequestRef): Promise<PullRequestStack | null> => {
+    const api = sourceControlApi(id);
+    const repo = await solus.pullRequests.repository(id, input.projectId);
+    if (`${repo.owner}/${repo.repo}`.toLowerCase() !== input.repository.toLowerCase() || (input.host && repo.host !== input.host))
+      throw new Error("The project now points to a different repository.");
+    const stack = await api.prGetStack({ repo, number: input.number });
+    return stack && {
+      ...stack,
+      id: String(stack.number),
+      layers: stack.layers.map((layer) => ({
+        number: layer.number,
+        title: layer.title,
+        state: layer.state,
+        isDraft: layer.draft,
+        headBranch: layer.headRef,
+        headSha: layer.headSha,
+      })),
+    };
+  },
+);
+
 export const solusPrDetail = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestDetail> => {
     const api = sourceControlApi(id);
@@ -418,14 +446,24 @@ export const solusPrDetail = hostQuery(
         name: null,
         avatarUrl: r.avatarUrl ?? null,
       })),
-      mergeCapabilities: { merge: false, squash: false, rebase: false },
+      autoMergeEnabled: pr.autoMergeEnabled,
+      autoMergeMethod: pr.autoMergeMethod,
+      mergeCapabilities: {
+        merge: pr.capabilities.mergeMethods.includes("merge"),
+        squash: pr.capabilities.mergeMethods.includes("squash"),
+        rebase: pr.capabilities.mergeMethods.includes("rebase"),
+      },
       capabilities: {
         diff: true,
         comment: true,
         labels: pr.capabilities.labelManagement,
         edit: { changeRequest: true, maintainerEdits: false, comment: false },
-        actions: [],
-        mergeMethods: [],
+        actions: SOLUS_PR_ACTIONS.filter((action) => pr.capabilities.actions.includes(action)),
+        mergeMethods: pr.capabilities.mergeMethods,
+        stacks: pr.capabilities.actions.includes("merge-stack"),
+        stackActions: pr.capabilities.actions.includes("merge-stack"),
+        stackAutoMerge: pr.capabilities.actions.includes("enable-stack-auto-merge")
+          && pr.viewerPermissions.actions.includes("enable-stack-auto-merge"),
         search: true,
         review: {
           inlineComment: pr.capabilities.inlineComments,
@@ -440,7 +478,7 @@ export const solusPrDetail = hostQuery(
         },
       },
       viewerPermissions: {
-        actions: [],
+        actions: SOLUS_PR_ACTIONS.filter((action) => pr.viewerPermissions.actions.includes(action)),
         comment: pr.viewerPermissions.comment,
         labels: pr.viewerPermissions.manageLabels,
         editChangeRequest: pr.viewerPermissions.editPullRequest ?? false,

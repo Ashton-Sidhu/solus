@@ -16,7 +16,7 @@ import { PlaneDisabledError } from '../../host/roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { ReviewGuideJobs } from '../../review/guide-jobs'
 import type { PrPageRequest, Provider } from '../../providers/types'
-import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, PrRef, RepoRef } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PrReviewTarget, PrStackMergeRequest, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, PrRef, RepoRef } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 import { recordScopeOf, type Principal } from '../../admission/principal'
@@ -936,18 +936,29 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
-  server.register('prDisableAutoMerge', async (args, handlerCtx) => {
-    const [ref] = args
+  const disableAutoMerge = (ref: PrRef, principal: Principal, stackNumber?: number) => {
     const { number } = ref
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
-      if (!current.viewerPermissions.actions.includes('disable-auto-merge')) {
+      const action = stackNumber === undefined ? 'disable-auto-merge' : 'disable-stack-auto-merge'
+      if (stackNumber !== undefined && (current.state !== 'open' || !current.autoMergeEnabled || !current.capabilities.actions.includes(action))) {
+        throw new Error('Stack auto-merge is not active on this pull request.')
+      }
+      if (!current.viewerPermissions.actions.includes(action)) {
         throw new Error('You do not have permission to turn off auto-merge for this pull request.')
       }
-      const disarmed = await provider.review.disablePullRequestAutoMerge(repo, number)
+      const disarmed = stackNumber === undefined
+        ? await provider.review.disablePullRequestAutoMerge(repo, number)
+        : await provider.review.disablePullRequestAutoMerge(repo, number, stackNumber)
       await deps.prSync.apply({ repo, provider }, disarmed)
       return disarmed
     })
+  }
+
+  server.register('prDisableAutoMerge', ([ref], { principal }) => disableAutoMerge(ref, principal))
+  server.register('prDisableStackAutoMerge', ([ref, stackNumber], { principal }) => {
+    if (!Number.isSafeInteger(stackNumber) || stackNumber <= 0) throw new Error('A stack number is required.')
+    return disableAutoMerge(ref, principal, stackNumber)
   })
 
   // The host's "Update branch". A merge commit unless the base branch only
@@ -996,21 +1007,37 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // One host operation lands the target and every open layer below it. Each
   // layer is then read again and handed to PR sync, like a single merge.
-  server.register('prMergeStack', async (args, handlerCtx): Promise<PrStackMergeResult> => {
-    const [request] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, request, async ({ repo, provider, pullRequest }) => {
+  const mergeStack = (request: PrStackMergeRequest, principal: Principal, auto = false): Promise<PrStackMergeResult> => {
+    return writePullRequest({ principal, resources: deps.resources }, request, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
-      if (!current.capabilities.actions.includes('merge-stack')) throw new Error('This code host cannot merge a stack.')
-      if (!current.viewerPermissions.actions.includes('merge-stack')) {
+      const action = auto ? 'enable-stack-auto-merge' : 'merge-stack'
+      if (!current.capabilities.actions.includes(action)) throw new Error(auto ? 'This code host cannot auto-merge a stack.' : 'This code host cannot merge a stack.')
+      if (!current.viewerPermissions.actions.includes(action)) {
         throw new Error('You do not have permission to merge this stack.')
       }
       if (!current.capabilities.mergeMethods.includes(request.method)) throw new Error(`The repository does not allow ${request.method} merges.`)
-      const merged = await provider.review.mergePullRequestStack(repo, request)
+      if (auto) {
+        if (current.autoMergeEnabled) throw new Error('Auto-merge is already active on this pull request.')
+        for (const layer of request.expectedHeads) {
+          if (layer.number !== request.number) {
+            await assertMayChangePullRequest({ principal, resources: deps.resources }, repoKeyOf(repo), layer.number)
+          }
+        }
+      }
+      const merged = await provider.review.mergePullRequestStack(repo, {
+        repo, number: request.number, stackNumber: request.stackNumber, method: request.method,
+        expectedHeads: request.expectedHeads, ...(auto && { auto }),
+      })
+      if (merged.armed) {
+        const armed = { ...current, ...merged.armed }
+        await deps.prSync.apply({ repo, provider }, armed)
+        return { status: merged.status, pullRequests: [armed] }
+      }
       log.info('pr_stack_merged', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: request.number, stackNumber: request.stackNumber, status: merged.status, layers: merged.layers.length })
       const pullRequests = await Promise.all(merged.layers.map((number) => prIndex.pullRequest(repo, provider, number).readFresh()))
       for (const layer of pullRequests) {
         if (layer.state === 'merged') {
-          await completeTasksForMergedPullRequest(recordScopeOf(handlerCtx.principal), repoKeyOf(repo).toLowerCase(), layer.number, {
+          await completeTasksForMergedPullRequest(recordScopeOf(principal), repoKeyOf(repo).toLowerCase(), layer.number, {
             mergedAt: layer.updatedAt,
             isSessionBusy: deps.isSessionBusy,
           })
@@ -1019,7 +1046,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       }
       return { status: merged.status, pullRequests }
     })
-  })
+  }
+
+  server.register('prMergeStack', ([request], { principal }) => mergeStack(request, principal))
+  server.register('prEnableStackAutoMerge', ([request], { principal }) => mergeStack(request, principal, true))
 
   // Read fresh: the approval is checked against this head, so a remembered
   // head would list the runs of a commit that is gone.

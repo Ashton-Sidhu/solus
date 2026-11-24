@@ -41,6 +41,7 @@
     remarks: RemarksIcon,
     conflicting: ConflictIcon,
     closed: ClosedIcon,
+    merged: PassedIcon,
     stopped: StoppedIcon,
   };
   const TONE_CLASS = {

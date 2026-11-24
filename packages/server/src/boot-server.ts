@@ -266,7 +266,7 @@ import { registerProviderHandlers } from './transport/handlers/provider-handlers
 import { PrSync } from './prs/pr-sync'
 import { liveCheckouts, sessionFolderCheckouts } from './prs/pr-sync-interest'
 import { PrWatcher } from './prs/pr-watcher'
-import { SessionWake } from './execution/sessions/session-wake'
+import { isPullRequestMergeWake, SessionWake } from './execution/sessions/session-wake'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { registerVaultHandlers } from './transport/handlers/vault-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
@@ -803,9 +803,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // every needs-review answer the server reads: a list read's review-requested
   // search, or PR sync's read for the sidebar count. No poller asks the code host.
   const prObserver = hostPrObserver()
+  const isBusyForPullRequestSettlement = (sessionId: string) =>
+    opts.sessionRuntime.statuses.isSessionBusy(sessionId)
+    || opts.sessionRuntime.scheduler.requestQueue.hasPromptMatching(sessionId, isPullRequestMergeWake)
   const prSync = new PrSync({
     publish: (change) => events.broadcast('pr.changed', change),
-    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
+    isSessionBusy: isBusyForPullRequestSettlement,
     observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
     // The branch of a session folder can name a pull request too (docs/plans/codebases.md §8).
     liveCheckouts: (now, ofLiveTasks) => liveCheckouts(now, ofLiveTasks, sessionFolderCheckouts(
@@ -1451,7 +1454,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     dispatcher: opts.sessionRuntime,
     events,
     isWorktreeInUse: (path) => opts.sessionRuntime.sessionCheckouts.listGitContexts().some((context) => context.worktreePath === path),
-    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
+    isSessionBusy: isBusyForPullRequestSettlement,
     prSync,
     guides,
     resources: shares,
@@ -1459,7 +1462,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   installPullRequestToolHost({
     resources: shares,
     prSync,
-    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
+    isSessionBusy: isBusyForPullRequestSettlement,
   })
   // The PR guide tools start runs through the same owner as the prGenerateGuides RPC.
   installPullRequestGuideToolHost({

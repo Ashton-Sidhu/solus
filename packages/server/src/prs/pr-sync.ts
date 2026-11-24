@@ -6,6 +6,7 @@ import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/done-on-merge'
+import { onPullRequestWatchesChanged } from '../data/sessions/pull-request-watches'
 import { settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { readPrLinkInterests, recordPullRequestObservation } from '../data/tasks/task-links'
 import { onTasksChanged } from '../data/tasks/task-store'
@@ -274,6 +275,7 @@ export class PrSync {
       // A link a person or an agent made can be the first interest.
       onTasksChanged(() => this.hearLinksChanged()),
       onSessionPullRequestsChanged(() => this.hearLinksChanged()),
+      onPullRequestWatchesChanged(() => this.hearLinksChanged()),
     ]
     // The first look reads the interest that the database holds.
     this.armClock(this.now() + CLOCK_MS)

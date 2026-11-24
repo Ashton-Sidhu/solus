@@ -1,6 +1,7 @@
 import type { PrConversationItem, PullRequest, ReviewThread } from '@solus/contracts/providers'
 import { createLogger } from '../logger'
 import {
+  claimPullRequestMergeWake,
   endPullRequestWatch,
   onPullRequestWatchesChanged,
   readPullRequestWatches,
@@ -209,7 +210,7 @@ export class PrWatcher {
     const key = pullRequestKey(group, number)
     const plan = this.planRead(key, fingerprint, watches)
     if (!plan) return
-    let answer: { read: WatchRead; pullRequest: PullRequest }
+    let answer: { read: WatchRead | null; pullRequest: PullRequest }
     try {
       answer = await this.read(host, number, plan.remarks, fingerprint)
     } catch (error) {
@@ -223,6 +224,12 @@ export class PrWatcher {
     }
     const { read, pullRequest } = answer
     this.readFailures.delete(key)
+    if (!read) {
+      // A failed claim must be retried even if the merged fingerprint stays the same.
+      this.lastReads.delete(key)
+      for (const watch of watches) await this.evaluate(watch, null, pullRequest)
+      return
+    }
     const last = this.lastReads.get(key)
     this.lastReads.set(key, {
       fingerprint,
@@ -267,7 +274,7 @@ export class PrWatcher {
     number: number,
     withRemarks: boolean,
     fingerprint: PullRequestWatchFingerprint | null,
-  ): Promise<{ read: WatchRead; pullRequest: PullRequest }> {
+  ): Promise<{ read: WatchRead | null; pullRequest: PullRequest }> {
     const { repo, provider } = host
     const entity = prIndex.pullRequest(repo, provider, number)
     const held = entity.lastRead()
@@ -278,6 +285,7 @@ export class PrWatcher {
     }
     const pullRequest = entity.lastRead()
     if (!pullRequest) throw new Error(`The code host has no pull request #${number}.`)
+    if (pullRequest.state === 'merged') return { read: null, pullRequest }
     const summaries = await provider.review.listChecks(repo, [number])
     prIndex.absorbChecks(repo, provider, summaries)
     const checks = summaries[0]
@@ -289,13 +297,17 @@ export class PrWatcher {
     return { read: { pullRequest, checks: checks.summary, remarks, viewer, readAt: this.now() }, pullRequest }
   }
 
-  private async evaluate(watch: PullRequestWatch, read: WatchRead, pullRequest: PullRequest): Promise<void> {
-    const evaluation = evaluateWatch(watch.state, read)
-    if (evaluation.end === 'merged') {
+  private async evaluate(watch: PullRequestWatch, read: WatchRead | null, pullRequest: PullRequest): Promise<void> {
+    if (!read) {
       await recordSessionPullRequestObservation(watch.repository, watch.number, pullRequest)
-      await this.end(watch, 'merged', null)
+      await claimPullRequestMergeWake(watch, async () => {
+        this.watches.delete(watchKey(watch))
+        log.info('pr_watch_ended', { sessionId: watch.sessionId, repository: watch.repository, number: watch.number, reason: 'merged' })
+        await this.wake(watch, wakeText(pullRequest, [], 'merged'), watch.watchId)
+      })
       return
     }
+    const evaluation = evaluateWatch(watch.state, read)
     if (evaluation.end) {
       if (evaluation.end === 'closed') await recordSessionPullRequestObservation(watch.repository, watch.number, pullRequest)
       await this.end(watch, evaluation.end, wakeText(pullRequest, evaluation.news, evaluation.end))
@@ -331,9 +343,9 @@ export class PrWatcher {
     if (text) await this.wake(watch, text)
   }
 
-  private async wake(watch: PullRequestWatch, text: string): Promise<void> {
+  private async wake(watch: PullRequestWatch, text: string, completionWatchId?: string): Promise<void> {
     try {
-      await this.deps.sessionWake.send({ sessionId: watch.sessionId, personKey: watch.actingUserKey }, 'pull-request-watch', text)
+      await this.deps.sessionWake.send({ sessionId: watch.sessionId, personKey: watch.actingUserKey, ...(completionWatchId && { completionWatchId }) }, 'pull-request-watch', text)
     } catch (error) {
       // A session that cannot take a prompt cannot act on news either, and a
       // guest's watch cannot wake an agent (docs/plans/pr-watch.md §13).

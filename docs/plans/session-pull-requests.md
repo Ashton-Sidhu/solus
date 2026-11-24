@@ -93,7 +93,8 @@ The Completed shelf is the name of the place in the list.
    - a person marks it done;
    - every pull request of the session is merged or closed, the last one ended
      after the last prompt and after a person last made the session active, and
-     the session is not mid-turn (`settleSessionsWithEndedPullRequests`);
+     the session is not mid-turn (`settleSessionsWithEndedPullRequests`). A
+     watch on a merged pull request keeps the session active through its final notice;
    - its task finishes, unless another task that is not finished holds it;
    - it had no prompt for 30 days and waits on no open pull request. Since
      `docs/plans/session-archive.md` such a session is archived

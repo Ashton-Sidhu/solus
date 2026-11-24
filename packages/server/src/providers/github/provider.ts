@@ -1325,9 +1325,18 @@ export class GitHubProvider implements ReviewProvider {
     }
   }
 
-  async disablePullRequestAutoMerge(repo: RepoRef, number: number): Promise<PullRequest> {
+  async disablePullRequestAutoMerge(repo: RepoRef, number: number, stackNumber?: number): Promise<PullRequest> {
     try {
-      return await this.writeAutoMerge('disable_pull_request_auto_merge', repo, number, disableGithubAutoMerge)
+      return await this.writeAutoMerge('disable_pull_request_auto_merge', repo, number, async (client, nodeId) => {
+        if (stackNumber !== undefined) {
+          if (repo.host !== 'github.com') throw new GithubStackMergeRefusal('This code host cannot auto-merge a stack.')
+          const stack = await readPullRequestStack(client, repo, number)
+          if (stack?.number !== stackNumber || !stack.layers.some((layer) => layer.number === number)) {
+            throw new GithubStackMergeRefusal('The stack changed. Refresh it before cancelling auto-merge.')
+          }
+        }
+        return disableGithubAutoMerge(client, nodeId, stackNumber !== undefined)
+      })
     } catch (err) {
       throw githubWriteRefusal(
         err,
@@ -1374,7 +1383,7 @@ export class GitHubProvider implements ReviewProvider {
     }
   }
 
-  async mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest, options?: { byStackNumber?: boolean }): Promise<GithubStackMerge> {
+  async mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest & { auto?: boolean }, options?: { byStackNumber?: boolean }): Promise<GithubStackMerge> {
     try {
       return await this.withClient('merge_pull_request_stack', repo.host, (client) =>
         mergeGithubPullRequestStack(client, repo, request, undefined, options))

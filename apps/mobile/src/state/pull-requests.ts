@@ -1,6 +1,7 @@
 import { prGuide, generatePrGuide } from "../solus/pr-guide";
 import {
   editPr,
+  runPrAction,
   labelPr,
   commentPr,
   reviewPr,
@@ -15,12 +16,12 @@ import {
   solusPrActivity,
   solusPrDiff,
   solusPrBreakdown,
+  solusPrStack,
   solusPrFilterOptions,
 } from "../solus/source-control";
 import {
   createPullRequestEnvironmentAtoms,
   editHeldPullRequestListEntries,
-  createPullRequestStackAtomFamily,
   patchPullRequestListEntries,
   pullRequestPendingEditsAtom,
 } from "@t3tools/client-runtime/state/pull-requests";
@@ -165,6 +166,7 @@ export const composerPullRequests = {
   generateReviewGuide: generatePrGuide,
   list: solusPrList,
   update: editPr,
+  runAction: runPrAction,
   setLabels: labelPr,
   comment: commentPr,
   submitReview: reviewPr,
@@ -179,7 +181,4 @@ export const composerPullRequests = {
   changeBreakdown: solusPrBreakdown,
   filterOptions: solusPrFilterOptions,
 };
-export const pullRequestStackAtom = createPullRequestStackAtomFamily(
-  connectionAtomRuntime,
-  upstreamPullRequests.refreshes,
-);
+export const pullRequestStackAtom = solusPrStack;

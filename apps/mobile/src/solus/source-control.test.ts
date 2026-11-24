@@ -1,12 +1,12 @@
 import { hostQueryScope } from "../state/host-query-scope";
-import { labelPr, moveIssue, reviewPr, updateIssue } from "./source-control-actions";
+import { labelPr, moveIssue, reviewPr, runPrAction, updateIssue } from "./source-control-actions";
 import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { issueIdentity, issueTarget } from "../features/issues/issueParams";
 import {
-  prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList,
+  prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList, solusPrStack,
 } from "./source-control";
 
 const host = vi.hoisted(() => ({
@@ -19,6 +19,9 @@ const host = vi.hoisted(() => ({
   prRepository: vi.fn(async (_ctx: { projectRoot: string }) => ({ host: "github.com", owner: "Team", repo: "App" })),
   prGetDetail: vi.fn(),
   prGetOverview: vi.fn(),
+  prGetStack: vi.fn(),
+  prEnableStackAutoMerge: vi.fn(),
+  prDisableStackAutoMerge: vi.fn(),
   prChecks: vi.fn(),
   prSetLabels: vi.fn(),
   prSubmitReview: vi.fn(),
@@ -326,7 +329,9 @@ it("loads the PR summary with reviewers and leaves commits to Activity", async (
   host.prGetOverview.mockResolvedValueOnce({
     pullRequest: {
       ...pr, number: 7, title: "Keep summary fast", url: "https://github.com/team/app/pull/7",
-      state: "open", capabilities: {}, viewerPermissions: {},
+      state: "open", autoMergeEnabled: true, autoMergeMethod: "squash",
+      capabilities: { actions: ["merge", "merge-stack", "enable-stack-auto-merge"], mergeMethods: ["squash"] },
+      viewerPermissions: { actions: ["merge", "enable-stack-auto-merge"] },
     },
     reviewers: [{ login: "reviewer" }],
     commits: [],
@@ -336,7 +341,11 @@ it("loads the PR summary with reviewers and leaves commits to Activity", async (
     const result = await executeAtomQuery(registry, solusPrDetail({ environmentId, input: pullRequest }));
     expect(result).toMatchObject({
       _tag: "Success",
-      value: { title: "Keep summary fast", reviewers: [{ login: "reviewer" }] },
+      value: {
+        title: "Keep summary fast", reviewers: [{ login: "reviewer" }],
+        autoMergeEnabled: true, autoMergeMethod: "squash",
+        capabilities: { stackActions: true, stackAutoMerge: true, mergeMethods: ["squash"] },
+      },
     });
     expect(host.prGetOverview).toHaveBeenCalledWith(hostPr, { includeCommits: false });
     expect(host.prChecks).toHaveBeenCalledWith(hostPr.repo, [7]);
@@ -605,6 +614,39 @@ it("preserves the task identity in edit sheets and updates only the selected fie
       (await runAtomCommand(registry, updateIssue, { environmentId, input }, quiet))._tag,
     ).toBe("Failure");
     expect(host.tasksUpdate).toHaveBeenCalledTimes(1);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("uses the selected host and pins the native stack heads for mobile auto-merge", async () => {
+  const input = { projectId: ProjectId.make("/repo"), repository: "Team/App", host: "github.com", number: 8 };
+  const repo = { host: "github.com", owner: "Team", repo: "App" };
+  host.prGetDetail.mockResolvedValue({ baseRepo: repo, headSha: "second" });
+  host.prGetStack.mockResolvedValue({
+    number: 10, url: "https://github.com/Team/App/stacks/10", base: "main",
+    layers: [
+      { number: 7, title: "First", state: "open", draft: false, headRef: "first-branch", headSha: "first" },
+      { number: 8, title: "Second", state: "open", draft: false, headRef: "second-branch", headSha: "second" },
+    ],
+  });
+  const registry = AtomRegistry.make();
+  try {
+    const stack = await executeAtomQuery(registry, solusPrStack({ environmentId, input }));
+    if (stack._tag !== "Success" || !stack.value) throw new Error("Expected a stack from the selected host");
+    expect(stack.value.layers.map((layer) => layer.headBranch)).toEqual(["first-branch", "second-branch"]);
+    const expectedHeads = stack.value.layers.map((layer) => ({ number: layer.number, headSha: layer.headSha! }));
+    const armed = await runAtomCommand(registry, runPrAction, { environmentId, input: {
+      ...input, action: "enable-auto-merge", stackNumber: stack.value.number,
+      expectedStackHeads: expectedHeads, mergeMethod: "squash",
+    } });
+    expect(armed._tag).toBe("Success");
+    expect(host.prEnableStackAutoMerge).toHaveBeenLastCalledWith({ repo, number: 8, stackNumber: 10, expectedHeads, method: "squash" });
+    const cancelled = await runAtomCommand(registry, runPrAction, { environmentId, input: {
+      ...input, action: "disable-auto-merge", stackNumber: 10,
+    } });
+    expect(cancelled._tag).toBe("Success");
+    expect(host.prDisableStackAutoMerge).toHaveBeenLastCalledWith({ repo, number: 8 }, 10);
   } finally {
     registry.dispose();
   }
