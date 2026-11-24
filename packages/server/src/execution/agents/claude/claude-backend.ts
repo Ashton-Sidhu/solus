@@ -494,9 +494,9 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
   /** Stop one background task the live query is running. The turn is not
    *  interrupted: the SDK settles the task and resumes the agent with it. */
-  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean | 'missing'> {
     const stopTask = this.activeRuns.get(sessionId)?.stopTask
-    return stopTask ? stopTask(taskId) : false
+    return stopTask && await stopTask(taskId) ? true : 'missing'
   }
 
   async loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {

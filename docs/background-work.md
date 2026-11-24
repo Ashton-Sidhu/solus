@@ -79,6 +79,7 @@ that must outlive the session is an automation (`create_automation`). See
 | A background task finishes on its own | The agent wakes with the result in a new turn. That turn settles once, as usual. A nested Codex native sub-agent (one that another sub-agent started) wakes nobody: when the last task has ended, the session settles. |
 | A session the agent sent work to reports | The report wakes the agent in a new turn. While other sessions have still to report, that turn ends in `background` again. When the last message settles with no report to deliver, the session settles as `completed`. |
 | The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. A session that waits on reports stops the sessions it started for that work, stops waiting, and settles as `completed` without a wake. |
+| Stop cannot find a command, or the stop request fails | Solus clears the command from the list of running work. When no other work holds the session, its previous turn settles. A failed request can leave the process alive and shows a stop error. |
 | The background work of a failed Codex turn ends | The session settles as `failed`, once. |
 | The person stops the session (Stop shortcut, `stop_session`) | The tasks stop and the session settles as `interrupted`. |
 | A turn ends while only unmarked shells, Monitors, or Codex commands run | `completed`. The turn settles and notifies. The background row and its Stop stay until the work ends. |
@@ -120,7 +121,11 @@ Stop rule for all work that can wake a session later is not decided yet.
   row keeps no origin. Stopping a task, or the session, calls
   `thread/backgroundTerminals/terminate` for each command. A stopped command
   does not wake the agent. If the app-server exits, its commands settle as
-  `killed`.
+  `killed`. While background commands are tracked, the host also checks
+  `thread/backgroundTerminals/list` on the app-server that owns them. A command
+  absent from two successful checks settles without a wake. This clears work
+  when the app-server missed the exit event, even if the process ended outside
+  Solus.
 - **Codex native sub-agents** run on their own threads, so one can still work
   when the root turn ends, completed or failed. The root run ends at once and
   frees the queue. A child still working becomes a background task

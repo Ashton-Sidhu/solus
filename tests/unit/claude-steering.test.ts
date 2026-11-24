@@ -19,6 +19,7 @@ mock.module('@solus/server/cli-env', () => ({
  *  needed by the MCP servers the backend builds. */
 let scriptedMessages: unknown[] = []
 let capturedOptions: Options | null = null
+let stopTaskError: Error | undefined
 const realSdk = await import('@anthropic-ai/claude-agent-sdk')
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   ...realSdk,
@@ -36,7 +37,7 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
         }
         yield msg
       }
-    })(), { stopTask: async () => {} })
+    })(), { stopTask: async () => { if (stopTaskError) throw stopTaskError } })
   },
 }))
 
@@ -304,6 +305,27 @@ describe('ClaudeAgent turn input lifetime', () => {
     // The steered turn still owns the stream; its own result closes it.
     expect(event.value).toMatchObject({ type: 'background_task_settled' })
     expect(input.closed).toBe(false)
+  })
+
+  test('closes an idle query when Stop fails and no other task remains', async () => {
+    scriptedMessages = [
+      { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
+      { type: 'result', subtype: 'success', result: 'done' },
+    ]
+    const input = new TurnInputChannel(opening('Watch the CI run'), 'Watch the CI run')
+    const { events, stopTask } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+    const stream = events[Symbol.asyncIterator]()
+    expect((await stream.next()).value).toMatchObject({ type: 'background_task_started' })
+    expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
+
+    stopTaskError = new Error('Task not found')
+    try {
+      await expect(stopTask('task-1')).rejects.toThrow('Task not found')
+      expect(input.closed).toBe(true)
+    } finally {
+      stopTaskError = undefined
+      await stream.return?.()
+    }
   })
 
   test('closes the stream at the result when nothing is backgrounded', async () => {

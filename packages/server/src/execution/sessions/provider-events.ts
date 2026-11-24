@@ -8,7 +8,7 @@ import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-
 import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread, sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { emitSessionDigestChanged } from '../../data/sessions/session-digests'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
-import type { SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
+import type { BackendSession, SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
 import { encodePathAsFolder, isSessionBusyStatus } from '@solus/contracts/types'
 import { indexLivePlan } from '../../plans/plan-index'
 import type { SessionRuntime } from '../session-runtime'
@@ -56,12 +56,43 @@ export class ProviderEvents {
    *  session has replaced its record before this runs. */
   endBackgroundWait(sessionId: string): void {
     const session = this.rt.activeSessions.get(sessionId)
-    if (session?.status !== 'background' || session.backgroundTaskIds?.size) return
+    if (session?.status !== 'background' || backgroundWorkHolds(session)) return
     if (this.rt.statuses.holdsOutsideRun(sessionId)) return
     const hasFailed = this.failedBeforeBackground.delete(sessionId)
     this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
-    this.rt.activeSessions.delete(sessionId)
+    if (!session.backgroundTaskIds?.size) this.rt.activeSessions.delete(sessionId)
     this.rt.orchestration?.backgroundEnded(sessionId)
+  }
+
+  forgetBackgroundTask(session: BackendSession, backend: AgentBackend, taskId: string, status: 'failed' | 'killed'): void {
+    const { sessionId, agentSessionId } = session
+    if (this.rt.activeSessions.get(sessionId) !== session || !session.backgroundTaskIds?.has(taskId)) return
+    const event = { type: 'background_task_settled', taskId, status } as const
+    this.settleBackgroundTask(session, event, agentSessionId ? backend.getSessionHandle(agentSessionId) : undefined, true)
+    this.rt.publish(sessionId, event)
+  }
+
+  private settleBackgroundTask(
+    session: BackendSession,
+    event: Extract<NormalizedEvent, { type: 'background_task_settled' }>,
+    eventHandle: RunHandle | undefined,
+    endsWait: boolean,
+  ): void {
+    for (const [toolId, taskId] of session.lineageTaskIds ?? []) {
+      if (taskId === event.taskId) session.lineageTaskIds?.delete(toolId)
+    }
+    if (session.backgroundTaskIds?.delete(event.taskId) && !session.backgroundTaskIds.size) {
+      this.rt.publish(session.sessionId, { type: 'background_work', running: false })
+    }
+    session.awaitableTaskIds?.delete(event.taskId)
+    session.awaitedTaskIds?.delete(event.taskId)
+    log.info('task_settled', { taskId: event.taskId, status: event.status, sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0 })
+    // Claude's open query settles the session on its next result or exit.
+    if (eventHandle) return
+    if (endsWait) this.endBackgroundWait(session.sessionId)
+    if (!session.backgroundTaskIds?.size && !isSessionBusyStatus(session.status) && session.status !== 'background') {
+      this.rt.activeSessions.delete(session.sessionId)
+    }
   }
 
   wire(backend: AgentBackend): void {
@@ -373,23 +404,7 @@ export class ProviderEvents {
         }
 
         if (event.type === 'background_task_settled') {
-          for (const [toolId, taskId] of session.lineageTaskIds ?? []) {
-            if (taskId === event.taskId) session.lineageTaskIds?.delete(toolId)
-          }
-          if (session.backgroundTaskIds?.delete(event.taskId) && !session.backgroundTaskIds.size) {
-            this.rt.publish(session.sessionId, { type: 'background_work', running: false })
-          }
-          session.awaitableTaskIds?.delete(event.taskId)
-          session.awaitedTaskIds?.delete(event.taskId)
-          log.info('task_settled', { taskId: event.taskId, status: event.status, sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0 })
-          // A still-open query (Claude) drives the real terminal status via its
-          // next task_complete or its exit. A provider whose turn already ended
-          // (Codex) has no query: a task that finished wakes the agent with a
-          // new turn, and one that was stopped or killed ends the wait here.
-          if (!eventHandle && (event.status === 'stopped' || event.status === 'killed')) this.endBackgroundWait(session.sessionId)
-          if (!eventHandle && !session.backgroundTaskIds?.size && !isSessionBusyStatus(session.status) && session.status !== 'background') {
-            this.rt.activeSessions.delete(session.sessionId)
-          }
+          this.settleBackgroundTask(session, event, eventHandle, event.status === 'stopped' || event.status === 'killed')
         }
 
         if (event.type === 'task_complete') {

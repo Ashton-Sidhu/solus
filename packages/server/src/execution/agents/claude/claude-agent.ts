@@ -580,7 +580,14 @@ export class ClaudeAgent {
         return true
       }
       stoppedTasks.add(taskId)
-      await activeQuery.stopTask(taskId)
+      try {
+        await activeQuery.stopTask(taskId)
+      } catch (error) {
+        stoppedTasks.delete(taskId)
+        backgroundTasks.delete(taskId)
+        if (sawResult && agentIdle && backgroundTasks.size === 0) input?.close()
+        throw error
+      }
       return true
     }
 

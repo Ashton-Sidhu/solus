@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, mock, test } from 'bun:test'
+import { beforeAll, describe, expect, jest, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
@@ -16,6 +16,7 @@ type BackendInternals = {
   runningCommands: Map<string, RunningCommand>
   activeRuns: Map<string, unknown>
   onNotification: (msg: { method: string; params: unknown }, client: unknown) => void
+  checkBackgroundCommands: () => Promise<void>
   finishCompletedTurn: (handle: unknown, normalized: NormalizedEvent[], partial: boolean, exitCode: 0 | 1 | null, exitSignal: 'SIGINT' | null, turnId: string) => Promise<void>
 }
 
@@ -137,6 +138,74 @@ describe('Codex background command wake', () => {
     expect(requests).toEqual([['thread/backgroundTerminals/terminate', { threadId: 'thread-1', processId: 'proc-1' }]])
     expect(settled).toEqual(['stopped'])
     expect(wakes).toEqual([])
+  })
+
+  test.each([
+    { name: 'terminal missing', terminate: async () => ({ terminated: false }) },
+    { name: 'request failed', terminate: async () => { throw new Error('request timed out') } },
+  ])('Stop clears the background command when $name', async ({ terminate }) => {
+    const backend = new CodexBackend()
+    const internals = backend as unknown as BackendInternals
+    const client = { request: terminate }
+    const settled: NormalizedEvent[] = []
+    backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => settled.push(event))
+    internals.runningCommands.set('item-1', backgroundCommand(client))
+
+    try {
+      await backend.stopBackgroundTask('thread-1', 'item-1')
+      expect(backend.hasBackgroundTasks('thread-1')).toBe(false)
+      expect(settled).toEqual([expect.objectContaining({ type: 'background_task_settled', taskId: 'item-1' })])
+    } finally {
+      backend.shutdown()
+    }
+  })
+
+  test('an external exit clears only the terminal that disappeared without a completion event', async () => {
+    const backend = new CodexBackend()
+    const internals = backend as unknown as BackendInternals
+    const requests: Array<[string, string | undefined]> = []
+    const client = {
+      request: async (method: string, { cursor }: { cursor?: string }) => {
+        requests.push([method, cursor])
+        return cursor
+          ? { data: [{ itemId: 'item-2', processId: 'proc-2' }], nextCursor: null }
+          : { data: [], nextCursor: 'page-2' }
+      },
+    }
+    const otherClient = { request: async () => { throw new Error('list timed out') } }
+    const settled: NormalizedEvent[] = []
+    backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'background_task_settled') settled.push(event)
+    })
+    internals.runningCommands.set('item-1', { ...backgroundCommand(client), isBackground: false })
+    internals.runningCommands.set('item-2', { ...backgroundCommand(client), processId: 'proc-2', isBackground: false })
+    internals.runningCommands.set('item-3', { ...backgroundCommand(otherClient), threadId: 'thread-2' })
+
+    const check = internals.checkBackgroundCommands.bind(backend)
+    let checkFinished = Promise.resolve()
+    internals.checkBackgroundCommands = () => { return checkFinished = check() }
+    const handle = { agentSessionId: 'thread-1', persistent: false, _resolveRun: () => {} }
+    internals.activeRuns.set('thread-1', handle)
+    jest.useFakeTimers()
+    try {
+      await internals.finishCompletedTurn(handle, [], false, 0, null, 'turn-1')
+      jest.advanceTimersByTime(10_000)
+      await checkFinished
+      expect(requests).toHaveLength(2)
+      expect(settled).toEqual([])
+      jest.advanceTimersByTime(10_000)
+      await checkFinished
+      expect(requests).toEqual([
+        ['thread/backgroundTerminals/list', undefined], ['thread/backgroundTerminals/list', 'page-2'],
+        ['thread/backgroundTerminals/list', undefined], ['thread/backgroundTerminals/list', 'page-2'],
+      ])
+      expect(settled).toEqual([{ type: 'background_task_settled', taskId: 'item-1', toolUseId: 'item-1', status: 'killed' }])
+      expect(backend.hasBackgroundTasks('thread-1')).toBe(true)
+      expect(backend.hasBackgroundTasks('thread-2')).toBe(true)
+    } finally {
+      backend.shutdown()
+      jest.useRealTimers()
+    }
   })
 
   test('cancelling a session with no turn running stops the commands its agent left', () => {

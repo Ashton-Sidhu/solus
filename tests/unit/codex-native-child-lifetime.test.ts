@@ -413,8 +413,8 @@ describe('stopping and releasing a Codex native child', () => {
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
-    expect(await backend.stopBackgroundTask('other-thread', CHILD)).toBe(false)
-    expect(await backend.stopBackgroundTask(ROOT, 'unknown-task')).toBe(false)
+    expect(await backend.stopBackgroundTask('other-thread', CHILD)).toBe('missing')
+    expect(await backend.stopBackgroundTask(ROOT, 'unknown-task')).toBe('missing')
     expect(appServer.requests.some(({ method }) => method === 'turn/interrupt')).toBe(false)
   })
 

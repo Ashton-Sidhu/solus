@@ -112,7 +112,7 @@ class Backend extends EventEmitter implements AgentBackend {
     this.cancelled.push(sessionId)
     return this.handles.has(sessionId)
   }
-  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
+  async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean | 'missing'> {
     this.stoppedTasks.push(taskId)
     return this.handles.has(sessionId)
   }
@@ -273,12 +273,12 @@ class TurnEndingBackend extends Backend {
     this.emit('exit', THREAD_ID, 0, null)
   }
 
-  settle(taskId: string, status: 'completed' | 'stopped'): void {
+  settle(taskId: string, status: 'completed' | 'stopped' | 'killed'): void {
     this.liveTasks.delete(taskId)
     this.emit('normalized', THREAD_ID, { type: 'background_task_settled', taskId, status } satisfies NormalizedEvent)
   }
 
-  override async stopBackgroundTask(_sessionId: string, taskId: string): Promise<boolean> {
+  override async stopBackgroundTask(_sessionId: string, taskId: string): Promise<boolean | 'missing'> {
     this.stoppedTasks.push(taskId)
     return this.liveTasks.has(taskId)
   }
@@ -372,6 +372,37 @@ describe.serial('SessionRuntime background status when the turn ends first', () 
       expect(statuses(events).at(-1)).toBe('completed')
       expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
       expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(false)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test.each(['missing', 'error'] as const)('Stop clears a stale task when the provider reports %s', async (outcome) => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      backend.liveTasks.clear()
+      backend.stopBackgroundTask = async () => {
+        if (outcome === 'error') throw new Error('stop failed')
+        return 'missing'
+      }
+
+      await plane.stopBackgroundTasks(SESSION_ID)
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(events.filter((event) => event.type === 'background_work').at(-1)).toEqual({ type: 'background_work', running: false })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('an external exit ends the wait while a command left running stays visible', async () => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      backend.endTurnWithTask('dev-server', true)
+      backend.settle('deploy', 'killed')
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(plane.activeSessions.get(SESSION_ID)?.backgroundTaskIds).toEqual(new Set(['dev-server']))
+      expect(events.filter((event) => event.type === 'background_work').at(-1)).toEqual({ type: 'background_work', running: true })
     } finally {
       plane.shutdown()
     }
