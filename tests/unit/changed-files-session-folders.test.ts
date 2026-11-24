@@ -5,7 +5,8 @@ import {
   extractChangedFilePathsFromMessage,
   toAbsoluteFilePaths,
 } from '@solus/workspace-ui/lib/changedFiles'
-import { hostPathFrom, locateSessionFile, normalizeHostPath } from '@solus/workspace-ui/lib/session-paths'
+import { hostPathFrom, normalizeHostPath } from '@solus/contracts/host-path'
+import { locateSessionFile } from '@solus/workspace-ui/lib/session-paths'
 
 // A session works in `web`. It has two session folders beside it, `api` and
 // `shared`, and one inside `api`: `api/vendor/sdk` is its own repository

@@ -1,7 +1,7 @@
 import type { ChangedFileStat } from '@solus/contracts/git-types'
-import { isAbsoluteHostPath, joinHostPath } from '@solus/contracts/host-path'
+import { hostPathFrom, isAbsoluteHostPath, joinHostPath, normalizeHostPath } from '@solus/contracts/host-path'
 import type { ChangeCounts, ChangedRepository, SessionChangeSummary, SessionDigest } from '@solus/contracts/session-digest'
-import { hostPathFrom, locateSessionFile, normalizeHostPath } from '../../../lib/session-paths'
+import { locateSessionFile } from '../../../lib/session-paths'
 import type { DiffRepository } from '../../diff/lib/diff-repositories'
 
 /**

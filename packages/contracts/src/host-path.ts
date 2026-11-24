@@ -100,3 +100,36 @@ export function joinHostPath(directory: string, name: string, platform?: string 
   const tail = name.replace(/^[\\/]+/, '').split(/[\\/]/).join(separator)
   return base.endsWith(separator) ? `${base}${tail}` : `${base}${separator}${tail}`
 }
+
+/** `path` with each `.` and `..` name applied. A clean path comes back the same. */
+export function normalizeHostPath(path: string): string {
+  const lead = path.startsWith('\\\\') ? '\\\\' : path.startsWith('/') ? '/' : ''
+  const hasDrive = !lead && isWindowsHostPath(path)
+  const names: string[] = []
+  for (const name of hostPathSegments(path)) {
+    if (name === '.') continue
+    if (name !== '..') names.push(name)
+    else if (names.length > (hasDrive ? 1 : 0) && names.at(-1) !== '..') names.pop()
+    // A relative path can start above its folder. A rooted path cannot go above its root.
+    else if (!lead && !hasDrive) names.push(name)
+  }
+  return lead + names.join(hostPathSeparator(path))
+}
+
+/**
+ * The folder `to` as a path from the folder `from`, with `/` separators:
+ * `../api` for a folder beside it, `api` for one inside it, `''` for the
+ * folder itself. A folder on a different drive keeps its absolute path.
+ */
+export function hostPathFrom(from: string, to: string): string {
+  const fromNames = hostPathSegments(hostPathKey(from))
+  const toKeyNames = hostPathSegments(hostPathKey(to))
+  const toNames = hostPathSegments(to)
+  const isWindows = isWindowsHostPath(to)
+  if (isWindows !== isWindowsHostPath(from) || (isWindows && fromNames[0] !== toKeyNames[0])) {
+    return to.replaceAll('\\', '/')
+  }
+  let shared = 0
+  while (shared < fromNames.length && shared < toKeyNames.length && fromNames[shared] === toKeyNames[shared]) shared++
+  return [...fromNames.slice(shared).map(() => '..'), ...toNames.slice(shared)].join('/')
+}

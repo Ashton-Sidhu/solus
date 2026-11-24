@@ -1,8 +1,8 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
 import { patchFileChunks } from "./pierre-diff/patch-files";
-import { hostPathSegments, isAbsoluteHostPath, joinHostPath, relativeHostPath } from "@solus/contracts/host-path";
-import { locateSessionFile, normalizeHostPath } from "./session-paths";
+import { hostPathSegments, isAbsoluteHostPath, joinHostPath, normalizeHostPath, relativeHostPath } from "@solus/contracts/host-path";
+import { locateSessionFile } from "./session-paths";
 
 const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;
 
