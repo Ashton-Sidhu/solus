@@ -227,12 +227,43 @@ describe('the folders of a session at a turn start', () => {
       const turn = { workingDirectory: at('shop/api'), actor: HOST_ACTOR }
       await runtime.sessionFolders.resolve('attached', turn)
       mkdirSync(at('temporary'))
-      await runtime.sessionFolders.attach('attached', at('temporary'), 'attached', HOST_ACTOR)
+      // A person attached the folder: `sessionAttachFolder` is a request by name.
+      await runtime.sessionFolders.attach('attached', at('temporary'), 'attached', HOST_ACTOR, { byName: true })
       expect(paths(await runtime.sessionFolders.resolve('attached', turn))).toEqual([at('temporary')])
 
       rmSync(at('temporary'), { recursive: true })
       expect(await runtime.sessionFolders.resolve('attached', turn)).toEqual([])
       expect(published.map(paths)).toEqual([[at('temporary')], []])
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
+  test('a turn start removes a folder in a temporary directory that no person and no agent asked for', async () => {
+    // WHY: before the automatic triggers had their rule, the path of a pasted screenshot attached the temporary
+    // directory of the system, and the record of the session keeps it. The next turn must not grant it again.
+    // A folder that a person or the agent asked for by its name stays, and so does a folder in a different place.
+    for (const folder of ['system-temp/screens', 'system-temp/asked', 'downloads']) mkdirSync(at(folder), { recursive: true })
+    await records.upsertOwnSessionRecord({
+      sessionId: 'cleans', provider: 'codex', projectPath: '-shop-api', lastActivityAt: 1_000,
+      attachedFolders: [
+        { path: at('system-temp/screens'), source: 'attached' },
+        { path: at('system-temp/asked'), source: 'attached', byName: true },
+        { path: at('downloads'), source: 'attached' },
+      ],
+    })
+    const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [at('system-temp')] })
+    try {
+      const folders = await runtime.sessionFolders.resolve('cleans', { workingDirectory: at('shop/api'), actor: HOST_ACTOR })
+      expect(paths(folders)).toEqual([at('downloads'), at('system-temp/asked')])
+      expect(runtime.sessionFolders.grantedPaths('cleans')).not.toContain(at('system-temp/screens'))
+      // The record lost the folder, so a restart of the host does not bring it back.
+      expect((await records.storedSessionFolders('cleans'))?.attachedFolders).toEqual([
+        { path: at('system-temp/asked'), source: 'attached', byName: true },
+        { path: at('downloads'), source: 'attached' },
+      ])
+      // The folder that stayed can be detached by the person.
+      expect(paths(await runtime.sessionFolders.detach('cleans', at('downloads'), HOST_ACTOR))).toEqual([at('system-temp/asked')])
     } finally {
       runtime.shutdown()
     }

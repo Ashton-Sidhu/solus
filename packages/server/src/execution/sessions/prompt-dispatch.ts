@@ -65,6 +65,17 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
 }
 
 /**
+ * True for a prompt that a person wrote in a client. A prompt with a sender
+ * is from an agent session or an automation (docs/plans/prompt-sender.md),
+ * and a prompt with `via` is a message that Solus made: a report of a
+ * session, the end of a background command, an answer to a question, news of
+ * a watch.
+ */
+export function isWrittenByAPerson(options: Pick<PromptOptions, 'sender' | 'via'>): boolean {
+  return !options.sender && !options.via
+}
+
+/**
  * Turns from each kind of sender — a client, an agent, a watch, an
  * automation — built into run requests for `SessionRuntime.runTurn`.
  */
@@ -91,20 +102,28 @@ export class PromptDispatch {
   constructor(private readonly rt: SessionRuntime) {}
 
   /**
-   * The prompt trigger of the attach rule (docs/plans/codebases.md §6). In the
-   * modes that ask nothing (`full-access`, `auto`), a folder that the prompt
-   * names outside the folders of the session is attached before the launch,
-   * and so is the folder of a file that the person pointed at with an `@`
-   * mention (`attachablePromptPaths`). The path of an attachment attaches
-   * nothing: a pasted or dropped file is not a request to work in a folder.
-   * In the other modes the agent asks with `attach_folder`. A path that names
-   * nothing on this host, a temporary directory of the system, and the data
-   * of Solus are ignored (`attachTargetOf`), and no failure here stops the
-   * prompt.
+   * The prompt trigger of the attach rule (docs/plans/codebases.md §6). It
+   * reads only a prompt that a person wrote: `submitPrompt` calls it for a
+   * prompt with no sender and no `via` (`isWrittenByAPerson`). A report or a
+   * message from a different session, the prompt of an automation, a queued
+   * system message, and a retry name paths that no person asked to work in,
+   * so they attach nothing.
+   *
+   * In the modes that ask nothing (`full-access`, `auto`), a project that the
+   * prompt names outside the folders of the session is attached before the
+   * launch, and so is the project of a file that the person pointed at with
+   * an `@` mention (`attachablePromptPaths`). Only a Git repository and a
+   * project that the host lists are attached (`automaticAttachTarget`): a
+   * sentence that names `~/Downloads` attaches nothing. The path of an
+   * attachment attaches nothing: a pasted or dropped file is not a request to
+   * work in a folder. In the other modes the agent asks with `attach_folder`.
+   * A path that names nothing on this host and the data of Solus are ignored
+   * (`attachTargetOf`), and no failure here stops the prompt.
    */
-  private async attachNamedFolders(sessionId: string, input: SessionRunInput, prompt: string, actor: Actor | undefined): Promise<void> {
+  private async attachNamedFolders(sessionId: string, input: SessionRunInput, options: PromptOptions, actor: Actor | undefined): Promise<void> {
+    if (!isWrittenByAPerson(options)) return
     if (input.permissionMode !== 'full-access' && input.permissionMode !== 'auto') return
-    for (const path of await attachablePromptPaths(prompt)) {
+    for (const path of await attachablePromptPaths(options.prompt)) {
       try {
         const outcome = await this.rt.sessionFolders.requestAttach(sessionId, path, 'attached', actor ?? HOST_ACTOR, {
           mode: input.permissionMode,
@@ -190,7 +209,7 @@ export class PromptDispatch {
       : { kind: 'new-session' }
     let lifecycle: SessionRunLifecycle
     try {
-      await this.attachNamedFolders(sessionId, input, options.prompt, origin?.actor)
+      await this.attachNamedFolders(sessionId, input, options, origin?.actor)
       lifecycle = await this.rt.runTurn({
         input,
         target,
@@ -302,7 +321,6 @@ export class PromptDispatch {
     const { input } = await this.unattendedRunInput(sessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.rt.seatForTurn(actor, input.provider)
-    await this.attachNamedFolders(sessionId, input, prompt, actor)
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'session', sessionId },
@@ -394,7 +412,6 @@ export class PromptDispatch {
           createdAt: req.delegation.createdAt,
         }
       : undefined
-    await this.attachNamedFolders(sessionId, input, req.prompt, runActor)
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },

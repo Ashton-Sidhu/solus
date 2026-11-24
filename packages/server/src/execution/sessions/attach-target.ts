@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:p
 import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
 import { TASK_FOLDER_ROOT_NAME } from '@solus/contracts/codebases'
 import { attachmentsRoot } from '../../data/assets/attachment-store'
+import { folderStateOf } from '../../files/codebase-members'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { isInsideRoot } from '../../paths'
 import { dataDir, resolveHomePath, solusDir } from '../../platform/paths'
@@ -76,24 +77,41 @@ export async function refusalForSolusData(resolved: string, realFolder: string):
   return null
 }
 
+/** True when `folder` is one of the temporary directories `places`, or is inside one. */
+export async function isInTemporaryPlace(folder: string, places: readonly string[]): Promise<boolean> {
+  return isInPlace(places, await realPathOf(folder))
+}
+
 /**
  * The rule of each automatic trigger (docs/plans/codebases.md decision 8):
- * why Solus does not attach `folder` when nobody asked for it by its name, or
- * null. An automatic trigger is a path that Solus read in a prompt, in a
- * permission request, or in a write. Such a path in a temporary directory of
- * the system (the file of a pasted screenshot) is not a request to work
- * there, and a folder that cannot be read is not a folder of the work. A
- * person and the agent can still ask for the folder by its name.
+ * the folder that Solus attaches when nobody asked for a folder by its name,
+ * or why it attaches none. An automatic trigger is a path that Solus read in
+ * a prompt, in a permission request, or in a write. `folder` is the target of
+ * that path (`attachTargetOf`).
+ *
+ * Such a trigger attaches only a real project of the work: a Git repository,
+ * or the project that this host lists and that holds the folder. A different
+ * folder (`~/Downloads`, the directory of a file that the agent read) is not
+ * a request to work there: the trigger attaches nothing, and the permission
+ * flow of the provider answers for that one call. A temporary directory of
+ * the system (the file of a pasted screenshot) and a folder that cannot be
+ * read are refused also. A person and the agent can still ask for each such
+ * folder by its name.
  *
  * `temporaryPlaces` is `systemTemporaryPlaces()` on a host. A test that makes
  * its folders in the temporary directory gives its own list.
  */
-export async function refusalForAutomaticTrigger(folder: string, temporaryPlaces: readonly string[]): Promise<string | null> {
-  if (await isInPlace(temporaryPlaces, await realPathOf(folder))) {
-    return `"${folder}" is in a temporary directory of the system. Solus attaches such a folder only when a person or the agent asks for it.`
+export async function automaticAttachTarget(folder: string, temporaryPlaces: readonly string[]): Promise<AttachTarget> {
+  if (await isInTemporaryPlace(folder, temporaryPlaces)) {
+    return { refused: `"${folder}" is in a temporary directory of the system. Solus attaches such a folder only when a person or the agent asks for it.` }
   }
   const isReadable = await access(folder, constants.R_OK).then(() => true, () => false)
-  return isReadable ? null : `"${folder}" cannot be read.`
+  if (!isReadable) return { refused: `"${folder}" cannot be read.` }
+  if (await folderStateOf(folder) === 'git') return { folder }
+  const project = await listedProjectHolding(folder)
+  // The listed project is the folder of the work. It passes the same rule as each other target.
+  if (project) return attachTargetOf(project)
+  return { refused: `"${folder}" is not a Git repository and is not in a project of this host. Solus attaches such a folder only when a person or the agent asks for it.` }
 }
 
 /**
@@ -105,7 +123,7 @@ export async function refusalForAutomaticTrigger(folder: string, temporaryPlaces
  * The root of the file system and the home directory of the person are never
  * a target: they hold much more than one piece of work. The data folder of
  * Solus and the attachment store of the host are never a target: they are not
- * a place of work. An automatic trigger also asks `refusalForAutomaticTrigger`
+ * a place of work. An automatic trigger also asks `automaticAttachTarget`
  * about the folder.
  */
 export async function attachTargetOf(path: string): Promise<AttachTarget> {

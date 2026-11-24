@@ -14,7 +14,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let root: string
 let attachTargetOf: typeof import('@solus/server/execution/sessions/attach-target')['attachTargetOf']
-let refusalForAutomaticTrigger: typeof import('@solus/server/execution/sessions/attach-target')['refusalForAutomaticTrigger']
+let automaticAttachTarget: typeof import('@solus/server/execution/sessions/attach-target')['automaticAttachTarget']
 let systemTemporaryPlaces: typeof import('@solus/server/execution/sessions/attach-target')['systemTemporaryPlaces']
 const at = (path: string): string => join(root, path)
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -23,7 +23,7 @@ beforeAll(async () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'solus-attach-target-')))
   // The data folder of Solus for this file: the rule must refuse it, and it must not hold the other folders of the file.
   process.env.SOLUS_DATA_DIR = at('solus-data')
-  ;({ attachTargetOf, refusalForAutomaticTrigger, systemTemporaryPlaces } = await import('@solus/server/execution/sessions/attach-target'))
+  ;({ attachTargetOf, automaticAttachTarget, systemTemporaryPlaces } = await import('@solus/server/execution/sessions/attach-target'))
   // The rule asks Git for the repository of a path; with no caller, it acts as the host.
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   const { git } = await import('@solus/server/git/exec')
@@ -33,6 +33,9 @@ beforeAll(async () => {
   mkdirSync(at('plain/docs'), { recursive: true })
   writeFileSync(at('plain/docs/notes.md'), 'notes\n')
   symlinkSync(at('repo'), at('link-to-repo'))
+  // A project that this host lists, with no repository.
+  mkdirSync(at('listed/specs'), { recursive: true })
+  await (await import('@solus/server/project-config/projects-manifest')).recordProject(at('listed'))
 })
 
 afterAll(() => {
@@ -95,21 +98,40 @@ describe('the places that are never a session folder', () => {
 })
 
 describe('the rule of an automatic trigger', () => {
+  test('a Git repository is attached, and a folder in a listed project attaches the project', async () => {
+    // WHY: a path that Solus only read is a request to work somewhere only when it is in a real project of the work.
+    expect(await automaticAttachTarget(at('repo'), [])).toEqual({ folder: at('repo') })
+    expect(await automaticAttachTarget(at('listed'), [])).toEqual({ folder: at('listed') })
+    // The folder of a file in a subfolder of the project: the project is the folder of the work.
+    expect(await automaticAttachTarget(at('listed/specs'), [])).toEqual({ folder: at('listed') })
+  })
+
+  test('a folder that is no repository and is in no listed project is refused', async () => {
+    // WHY: a prompt named `~/Downloads` in a sentence, and a read of a file there was blocked. Each attached the full
+    // folder of downloads of the person.
+    expect(await automaticAttachTarget(at('plain/docs'), [])).toEqual({ refused: expect.stringContaining('not a Git repository and is not in a project of this host') })
+    expect(await automaticAttachTarget(at('plain'), [])).toEqual({ refused: expect.stringContaining('only when a person or the agent asks for it') })
+  })
+
   test('a folder in a temporary directory of the system is refused, by its name and by its real path', async () => {
     // WHY: a pasted screenshot is a file in a temporary directory. Its path attached that directory, and a codebase formed from it.
-    mkdirSync(at('system-temp/screens'), { recursive: true })
+    const { git } = await import('@solus/server/git/exec')
+    mkdirSync(at('system-temp/clone'), { recursive: true })
+    git(['init', '-b', 'main'], at('system-temp/clone'))
     symlinkSync(at('system-temp'), at('link-to-temp'))
-    expect(await refusalForAutomaticTrigger(at('system-temp/screens'), [at('system-temp')])).toContain('temporary directory of the system')
-    expect(await refusalForAutomaticTrigger(at('system-temp'), [at('system-temp')])).toContain('temporary directory of the system')
+    const refused = { refused: expect.stringContaining('temporary directory of the system') }
+    // A repository there is refused also: the place decides before the kind of the folder.
+    expect(await automaticAttachTarget(at('system-temp/clone'), [at('system-temp')])).toEqual(refused)
+    expect(await automaticAttachTarget(at('system-temp'), [at('system-temp')])).toEqual(refused)
     // The list names the place through a link, as `/tmp` is a link on macOS.
-    expect(await refusalForAutomaticTrigger(at('system-temp/screens'), [at('link-to-temp')])).toContain('temporary directory of the system')
-    expect(await refusalForAutomaticTrigger(at('plain/docs'), [at('system-temp')])).toBeNull()
+    expect(await automaticAttachTarget(at('system-temp/clone'), [at('link-to-temp')])).toEqual(refused)
+    expect(await automaticAttachTarget(at('repo'), [at('system-temp')])).toEqual({ folder: at('repo') })
   })
 
   test('the default list has the temporary directory of this machine', async () => {
     // Each folder of this file is in `os.tmpdir()`, on each machine that runs the test.
     expect(systemTemporaryPlaces()).toContain(tmpdir())
-    expect(await refusalForAutomaticTrigger(at('plain/docs'), systemTemporaryPlaces())).toContain('temporary directory of the system')
+    expect(await automaticAttachTarget(at('repo'), systemTemporaryPlaces())).toEqual({ refused: expect.stringContaining('temporary directory of the system') })
   })
 
   // The user `root` reads each folder, so the rule cannot be shown for it.
@@ -117,7 +139,7 @@ describe('the rule of an automatic trigger', () => {
     mkdirSync(at('locked'))
     chmodSync(at('locked'), 0o000)
     try {
-      expect(await refusalForAutomaticTrigger(at('locked'), [])).toContain('cannot be read')
+      expect(await automaticAttachTarget(at('locked'), [])).toEqual({ refused: expect.stringContaining('cannot be read') })
     } finally {
       chmodSync(at('locked'), 0o700)
     }

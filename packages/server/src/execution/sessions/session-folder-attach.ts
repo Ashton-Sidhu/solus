@@ -12,7 +12,7 @@ import { readHostList } from '../../host/host-list'
 import { hostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
-import { attachTargetOf, realPathOf, refusalForAutomaticTrigger } from './attach-target'
+import { attachTargetOf, automaticAttachTarget, realPathOf } from './attach-target'
 import { answerToolQuestionWith } from './input-requests'
 
 const log = createLogger('SessionRuntime', 'session-folder-attach.ts')
@@ -47,8 +47,8 @@ export interface AttachRequestOptions {
   workingDirectory?: string
   /**
    * The agent asked for this folder by its name (the `attach_folder` tool).
-   * Without it, the request is an automatic trigger, which gets no temporary
-   * directory of the system (`refusalForAutomaticTrigger`).
+   * Without it, the request is an automatic trigger, which attaches only a
+   * Git repository or a project that the host lists (`automaticAttachTarget`).
    */
   byName?: boolean
 }
@@ -106,10 +106,11 @@ export interface AttachSession {
  * - A path in a root of the codebase on a different host, which is not on
  *   this host, is not attached: the answer names the host.
  * - A folder in the data of Solus is not attached (`attachTargetOf`).
- * - A request that is an automatic trigger attaches no temporary directory of
- *   the system and no folder that cannot be read, in each mode
- *   (`refusalForAutomaticTrigger`). A member of the codebase is not such a
- *   request: a person put it in the codebase.
+ * - A request that is an automatic trigger attaches only a Git repository or
+ *   a project that the host lists, never a temporary directory of the system
+ *   or a folder that cannot be read, in each mode (`automaticAttachTarget`).
+ *   A member of the codebase is not such a request: a person put it in the
+ *   codebase.
  * - Modes `full-access` and `auto` attach with no card.
  * - The other modes show one card for the folder. A second request for the
  *   same folder waits for the same answer, and a refused folder is not asked
@@ -124,7 +125,7 @@ export async function requestAttach(session: AttachSession, path: string, source
   if (holder) return { kind: 'available', folder: holder }
   const target = await attachTargetOf(named)
   if ('refused' in target) return { kind: 'invalid', message: target.refused }
-  const { folder } = target
+  let { folder } = target
 
   if (state.codebase && await isMember(state.codebase, folder)) {
     const standIn = await session.standInFor(folder)
@@ -135,8 +136,10 @@ export async function requestAttach(session: AttachSession, path: string, source
     return attachNow(session, folder, source, actor, false)
   }
   if (!options.byName) {
-    const refusal = await refusalForAutomaticTrigger(folder, session.temporaryPlaces)
-    if (refusal) return { kind: 'invalid', message: refusal }
+    const automatic = await automaticAttachTarget(folder, session.temporaryPlaces)
+    if ('refused' in automatic) return { kind: 'invalid', message: automatic.refused }
+    // The project that the host lists is the folder of the work, not the folder of the path inside it.
+    folder = automatic.folder
   }
   const mode = options.mode ?? session.mode
   if (mode === 'full-access' || mode === 'auto') return attachNow(session, folder, source, actor, false)

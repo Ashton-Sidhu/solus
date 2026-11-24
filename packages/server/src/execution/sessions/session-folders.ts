@@ -19,7 +19,7 @@ import { resolveHomePath } from '../../platform/paths'
 import type { CodebaseBlock } from '../agents/runtime-instructions'
 import type { SessionFolderGate } from '../agents/session-folder-gate'
 import type { SessionRuntime } from '../session-runtime'
-import { attachTargetOf, realPathOf, refusalForAutomaticTrigger, refusalForSolusData, systemTemporaryPlaces } from './attach-target'
+import { attachTargetOf, automaticAttachTarget, isInTemporaryPlace, realPathOf, refusalForSolusData, systemTemporaryPlaces } from './attach-target'
 import { ObservedWrites } from './observed-writes'
 import { sessionMembers } from './project-members'
 import { codebaseForAttachedFolder, codebaseOfProjectFolder, formationActivity, projectFolderOf, type SessionCodebase } from './session-codebase-formation'
@@ -138,12 +138,36 @@ export class SessionFolders implements SessionFolderGate {
     const state = await this.stateOf(sessionId)
     state.actor = turn.actor
     state.place = { workingDirectory: resolve(resolveHomePath(turn.workingDirectory)), repositoryRoot: turn.repositoryRoot ?? null }
+    await this.dropTemporaryFolders(sessionId, state)
     if (!turn.isCodebaseSettled) await this.settleCodebase(sessionId, turn)
     // A turn that stopped before its end left its writes: they are read now.
     await this.attachObserved(sessionId)
     state.refused.clear()
     await this.refresh(sessionId, state, turn.actor)
     return this.foldersOf(sessionId)
+  }
+
+  /**
+   * Clean what an earlier rule left (decision 8): an automatic trigger
+   * attached the temporary directory of a pasted file, and the record of the
+   * session keeps it. At a turn start, an attached folder in a temporary
+   * directory of the system that nobody asked for by its name leaves the
+   * record. A folder that a person or the agent asked for by its name stays,
+   * and so does each folder in a different place: a person detaches it.
+   */
+  private async dropTemporaryFolders(sessionId: string, state: SessionFoldersState): Promise<void> {
+    const kept: SessionAttachedFolder[] = []
+    for (const attached of state.attached) {
+      const isAutomatic = !attached.byName && (attached.source === 'attached' || attached.source === 'observed')
+      if (isAutomatic && await isInTemporaryPlace(attached.path, this.temporaryPlaces)) {
+        log.info('session_folder_dropped', { sessionId, path: attached.path, reason: 'temporary_place' })
+        continue
+      }
+      kept.push(attached)
+    }
+    if (kept.length === state.attached.length) return
+    state.attached = kept
+    await setSessionRecordFolders(sessionId, { attachedFolders: kept })
   }
 
   /**
@@ -355,15 +379,19 @@ export class SessionFolders implements SessionFolderGate {
    * docs/plans/codebases.md decision 8 goes in front of it. A folder in the
    * data of Solus is refused for each caller. A session with no codebase can
    * get one from the attach (decision 13, rule 2).
+   *
+   * `byName`: a person or the agent asked for this folder by its name. The
+   * record keeps that, so the turn start does not take the folder away as a
+   * folder that an automatic trigger left (`dropTemporaryFolders`).
    */
-  async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor): Promise<SessionFolder[]> {
-    const attached = await this.addFolder(sessionId, path, source, actor)
+  async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor, options: { byName?: boolean } = {}): Promise<SessionFolder[]> {
+    const attached = await this.addFolder(sessionId, path, source, actor, options.byName)
     await this.formForAttached(sessionId, await this.stateOf(sessionId), attached, actor)
     return this.foldersOf(sessionId)
   }
 
   /** Add a folder to the session and its record. No rule, and no codebase is made. */
-  private async addFolder(sessionId: string, path: string, source: SessionFolderSource, actor: Actor): Promise<SessionAttachedFolder> {
+  private async addFolder(sessionId: string, path: string, source: SessionFolderSource, actor: Actor, byName = false): Promise<SessionAttachedFolder> {
     const folderPath = resolve(resolveHomePath(path))
     // The check a working directory passes: a guest stays in the checkout of the shared session.
     assertPathInScope('sessionAttachFolder', actor.principal, folderPath)
@@ -382,14 +410,15 @@ export class SessionFolders implements SessionFolderGate {
     const isShownOnly = (entry: FolderEntry): boolean => entry.realPath === realPath && !entry.folder.granted
     const holder = (state.entries ?? []).find((entry) => isInsideRoot(entry.realPath, realPath) && !isShownOnly(entry))
     if (holder) throw new Error(`"${folderPath}" is already in the session folder "${holder.folder.path}".`)
-    state.attached = [...state.attached.filter((entry) => resolve(entry.path) !== folderPath), { path: folderPath, source }]
+    const attached: SessionAttachedFolder = byName ? { path: folderPath, source, byName } : { path: folderPath, source }
+    state.attached = [...state.attached.filter((entry) => resolve(entry.path) !== folderPath), attached]
     const reached = workingDirectory !== null && isInsideRoot(workingDirectory, realPath)
     const entry: FolderEntry = { folder: attachedFolder(folderPath, folderState, source), realPath, reached }
     // The list changes before the record is written: a second attach of the folder at the same time finds it.
     this.setEntries(sessionId, state, [...(state.entries ?? []).filter((each) => !isShownOnly(each)), entry])
     await setSessionRecordFolders(sessionId, { attachedFolders: state.attached })
-    log.info('session_folder_attached', { sessionId, path: folderPath, source })
-    return { path: folderPath, source }
+    log.info('session_folder_attached', { sessionId, path: folderPath, source, byName })
+    return attached
   }
 
   /**
@@ -414,7 +443,7 @@ export class SessionFolders implements SessionFolderGate {
       refresh: () => this.refresh(sessionId, state, actor),
       holderOf: (held) => this.holderOf(state, held),
       grantedHolderOf: (realPath) => (state.entries ?? []).find((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))?.folder.path ?? null,
-      attach: async (folder, folderSource) => { await this.attach(sessionId, folder, folderSource, actor) },
+      attach: async (folder, folderSource) => { await this.attach(sessionId, folder, folderSource, actor, { byName: options.byName }) },
       standInFor: (member) => this.standInFor(sessionId, state, member, actor),
     }
     return requestAttach(session, path, source, actor, options)
@@ -502,9 +531,9 @@ export class SessionFolders implements SessionFolderGate {
   /**
    * Attach the folder that `path` names, with no card, when the session does
    * not have it. This is an automatic trigger: nobody asked for the folder by
-   * its name, so a temporary directory of the system is not attached. A
-   * session that no turn started in this process has no person to act for,
-   * and gets nothing.
+   * its name, so only a Git repository or a project that the host lists is
+   * attached (`automaticAttachTarget`). A session that no turn started in this
+   * process has no person to act for, and gets nothing.
    */
   private async attachFolderOf(sessionId: string, path: string, source: 'attached' | 'observed'): Promise<void> {
     const state = await this.stateOf(sessionId)
@@ -516,9 +545,10 @@ export class SessionFolders implements SessionFolderGate {
     if (await this.holderOf(state, named, isObserved)) return
     const target = await attachTargetOf(named)
     if ('refused' in target || await this.holderOf(state, target.folder, isObserved)) return
-    if (await refusalForAutomaticTrigger(target.folder, this.temporaryPlaces)) return
-    if (isObserved && await folderStateOf(target.folder) !== 'git') return
-    await this.attach(sessionId, target.folder, source, actor)
+    const automatic = await automaticAttachTarget(target.folder, this.temporaryPlaces)
+    if ('refused' in automatic || await this.holderOf(state, automatic.folder, isObserved)) return
+    if (isObserved && await folderStateOf(automatic.folder) !== 'git') return
+    await this.attach(sessionId, automatic.folder, source, actor)
   }
 
   /**

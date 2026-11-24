@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Codebase, SessionFolder } from '@solus/contracts/codebases'
-import type { AgentId, NormalizedEvent, PermissionMode, SessionRunInput } from '@solus/contracts/types'
+import type { AgentId, NormalizedEvent, PermissionMode, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import type { Actor } from '@solus/server/admission/actor'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
@@ -16,8 +16,10 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/codebases.md decision 8: a folder outside the folders of a session
 // is attached with no card only in the modes that ask nothing. In each other
-// mode a person decides, one time for one folder. Each rule here decides what
-// an agent can reach without a person.
+// mode a person decides, one time for one folder. An automatic trigger attaches
+// only a real project (a Git repository, a project that the host lists), and
+// the prompt trigger reads only a prompt that a person wrote. Each rule here
+// decides what an agent can reach without a person.
 
 type Runtime = import('@solus/server/execution/session-runtime').SessionRuntime
 type Question = Extract<NormalizedEvent, { type: 'question_request' }>
@@ -52,7 +54,10 @@ beforeAll(async () => {
     git(['init', '-b', 'main'], join(root, repository))
     writeFileSync(join(root, repository, 'src', 'main.ts'), 'export {}\n')
   }
-  for (const folder of ['notes', 'scratch', 'drafts']) mkdirSync(join(root, folder))
+  for (const folder of ['notes', 'scratch', 'drafts', 'designs/specs']) mkdirSync(join(root, folder), { recursive: true })
+  writeFileSync(join(root, 'designs', 'specs', 'login.md'), 'login\n')
+  // `designs` is a project that this host lists, with no repository. `notes` is a folder that is no project.
+  await (await import('@solus/server/project-config/projects-manifest')).recordProject(join(root, 'designs'))
   writeFileSync(join(root, 'notes', 'todo.md'), 'todo\n')
   for (const picture of ['shot.png', 'annotated.png']) writeFileSync(join(root, 'scratch', picture), '')
 
@@ -118,6 +123,7 @@ interface Live {
   asker: { emit: (event: NormalizedEvent) => void; signal: AbortSignal }
   stop: AbortController
   answer(card: Question, choice: string): Promise<boolean>
+  /** A request by name with a way to show a card, as the `attach_folder` tool makes it. */
   request(path: string): ReturnType<Runtime['sessionFolders']['requestAttach']>
 }
 
@@ -157,7 +163,7 @@ async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?:
   return {
     runtime, sessionId, cards, shown, asker, stop,
     answer: (card, choice) => runtime.inputRequests.respondToQuestion(sessionId, card.questionId, { [folders.ATTACH_QUESTION_ID]: choice }, HOST_ACTOR),
-    request: (path) => runtime.sessionFolders.requestAttach(sessionId, path, 'attached', HOST_ACTOR, { asker }),
+    request: (path) => runtime.sessionFolders.requestAttach(sessionId, path, 'attached', HOST_ACTOR, { asker, byName: true }),
   }
 }
 
@@ -205,7 +211,7 @@ describe('the attach rule in each permission mode', () => {
   test('a caller with no way to show a card attaches nothing in a card mode', async () => {
     const live = await liveSession('no-asker', 'supervised')
     try {
-      expect(await live.runtime.sessionFolders.requestAttach(live.sessionId, at('notes'), 'attached', HOST_ACTOR)).toEqual({ kind: 'not-asked', folder: at('notes') })
+      expect(await live.runtime.sessionFolders.requestAttach(live.sessionId, at('libs/ui'), 'attached', HOST_ACTOR)).toEqual({ kind: 'not-asked', folder: at('libs/ui') })
       expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toEqual([])
     } finally {
       live.runtime.shutdown()
@@ -540,6 +546,46 @@ describe('what a provider adapter asks (SessionFolderGate)', () => {
   })
 })
 
+describe('a path that is in no project', () => {
+  // WHY: a read of `~/Downloads/a.pdf` in Auto attached the full folder of downloads, and a read of `~/.ssh/config`
+  // attached `~/.ssh`. One blocked path is not a request to work in its folder. The permission flow of the provider
+  // answers for that one call, as it did before session folders.
+  test('a blocked path in `auto` (attachUnasked) attaches nothing, so the provider shows its permission card', async () => {
+    const live = await liveSession('plain-unasked', 'auto')
+    try {
+      const gate = live.runtime.sessionFolders
+      expect(await gate.attachUnasked(live.sessionId, at('notes/todo.md'))).toBeNull()
+      expect(await gate.attachUnasked(live.sessionId, at('drafts'))).toBeNull()
+      expect(gate.foldersOf(live.sessionId)).toEqual([])
+      // A file in a project that the host lists attaches the project, not the folder of the file.
+      expect(await gate.attachUnasked(live.sessionId, at('designs/specs/login.md'))).toBe(at('designs'))
+      expect(paths(gate.foldersOf(live.sessionId))).toEqual([at('designs')])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('"Allow for session" and an observed write attach nothing there', async () => {
+    const live = await liveSession('plain-allowed', 'supervised')
+    try {
+      const { sessionFolders } = live.runtime
+      const attached = new Promise<string[]>((done) => {
+        live.runtime.on('event', (id: string, event: NormalizedEvent) => {
+          if (id === live.sessionId && event.type === 'session_folders') done(paths(event.folders))
+        })
+      })
+      // The paths are read in their order: only the last one is in a project.
+      sessionFolders.attachAllowed(live.sessionId, [at('notes/todo.md'), at('drafts/a.md'), at('libs/ui/src/main.ts')])
+      expect(await attached).toEqual([at('libs/ui')])
+      sessionFolders.observe(live.sessionId, { type: 'tool_call', toolName: 'Write', toolId: 'write-1', index: 0, toolInput: JSON.stringify({ file_path: at('notes/todo.md'), content: '' }) })
+      await sessionFolders.attachObserved(live.sessionId)
+      expect(paths(sessionFolders.foldersOf(live.sessionId))).toEqual([at('libs/ui')])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+})
+
 describe('a folder that a tool wrote in', () => {
   test('a repository outside the folders of the session is shown for review, and the provider gets no grant', async () => {
     const live = await liveSession('observed', 'full-access')
@@ -727,29 +773,89 @@ describe('a prompt that names a path', () => {
     gitContext: null, worktreeBaseBranch: null, contextWindow: null, model: 'model-test', preferredModel: 'model-test',
     reasoningEffort: 'medium', fastMode: false, permissionMode, rateLimitBehavior: 'queue', extraInstructions: '',
   })
-  /** The prompt trigger, which each prompt entry of `PromptDispatch` runs before its launch. */
-  const attachNamed = (runtime: Runtime, sessionId: string, mode: PermissionMode, prompt: string): Promise<void> => {
-    return Reflect.apply(Reflect.get(runtime.dispatch, 'attachNamedFolders'), runtime.dispatch, [sessionId, runInput(mode), prompt, HOST_ACTOR])
+  type PromptOrigin = Pick<PromptOptions, 'sender' | 'via'>
+  /** The prompt trigger, which `PromptDispatch.submitPrompt` runs before the launch of a prompt from a client. */
+  const attachNamed = (runtime: Runtime, sessionId: string, mode: PermissionMode, prompt: string, origin: PromptOrigin = {}): Promise<void> => {
+    return Reflect.apply(Reflect.get(runtime.dispatch, 'attachNamedFolders'), runtime.dispatch, [sessionId, runInput(mode), { prompt, ...origin }, HOST_ACTOR])
   }
 
-  test('attaches its folder before the launch in the modes that ask nothing', async () => {
+  test('attaches the project of a path before the launch in the modes that ask nothing', async () => {
     for (const mode of ['full-access', 'auto'] as const) {
       const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [] })
       try {
         const sessionId = `prompt-${mode}`
         // No turn of the session started: the working directory of the prompt says what the session has already.
         await attachNamed(runtime, sessionId, mode, [
-          `Make the change in ${at('libs/ui/src')} and read @"${at('notes/todo.md')}".`,
+          `Make the change in ${at('libs/ui/src')} and read @"${at('designs/specs/login.md')}".`,
           `The log names ${at('tools/cli/src/main.ts')}. Ignore ${at('nowhere/else.ts')} and ${at('shop/api/src/main.ts')}.`,
           `[Attached image: ${at('data/attachments/bucket/shot.png')}]`,
         ].join('\n'))
-        // A folder in a repository gives the root of the repository, and a mentioned file in a plain folder gives
-        // the folder. A file path in the text, a path that does not exist, a path in the working directory, and an
-        // uploaded file give nothing.
-        expect(paths(runtime.sessionFolders.foldersOf(sessionId))).toEqual([at('libs/ui'), at('notes')])
+        // A folder in a repository gives the root of the repository, and a mentioned file in a listed project gives
+        // the project, not the folder of the file. A file path in the text, a path that does not exist, a path in the
+        // working directory, and an uploaded file give nothing.
+        expect(paths(runtime.sessionFolders.foldersOf(sessionId))).toEqual([at('designs'), at('libs/ui')])
       } finally {
         runtime.shutdown()
       }
+    }
+  })
+
+  test('a folder that is no repository and no listed project attaches nothing', async () => {
+    // WHY: a prompt said "the file is in ~/Downloads", and the full folder of downloads of the person became a
+    // folder of the session. Only a real project is attached with no request by name.
+    for (const mode of ['full-access', 'auto'] as const) {
+      const live = await liveSession(`prompt-plain-${mode}`, mode)
+      try {
+        await attachNamed(live.runtime, live.sessionId, mode, `The export is in ${at('notes')}. Read @"${at('notes/todo.md')}" and look in ${at('drafts')}.`)
+        expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toEqual([])
+        // The agent and a person can still ask for the folder by its name.
+        expect(await live.request(at('notes'))).toEqual({ kind: 'attached', folder: at('notes'), addedToCodebase: false })
+      } finally {
+        live.runtime.shutdown()
+      }
+    }
+  })
+
+  test('a prompt that no person wrote attaches nothing', async () => {
+    // WHY: the report of a child session named a directory in a sentence, and that directory became a folder of the
+    // parent session. Only a prompt that a person wrote in a client is a request of a person.
+    const text = `The work is done. The change is in ${at('libs/ui')}, and @"${at('tools/cli/src/main.ts')}" has the test.`
+    const notByAPerson: PromptOrigin[] = [
+      { sender: { kind: 'agent', sessionId: 'parent-session', name: 'Coordinator' } },
+      { via: 'automation', sender: { kind: 'automation', automationId: 'nightly', name: 'Nightly check' } },
+      { via: 'session-report' },
+      { via: 'background-command' },
+      { via: 'pull-request-watch' },
+    ]
+    const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [] })
+    try {
+      for (const origin of notByAPerson) await attachNamed(runtime, 'prompt-sender', 'full-access', text, origin)
+      expect(runtime.sessionFolders.foldersOf('prompt-sender')).toEqual([])
+      // The same text from a person attaches the two projects.
+      await attachNamed(runtime, 'prompt-sender', 'full-access', text)
+      expect(paths(runtime.sessionFolders.foldersOf('prompt-sender'))).toEqual([at('libs/ui'), at('tools/cli')])
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
+  test('a message that an agent or Solus sends to a session attaches nothing, also with no sender', async () => {
+    // WHY: `promptSession` is the entry of each prompt that no client typed: a report, `send_session`, a watch, a webhook.
+    // A caller that names no sender (a session on a different host) is still not a person at the composer.
+    const live = await liveSession('prompt-session', 'full-access')
+    try {
+      const { runtime, sessionId } = live
+      runtime.activeSessions.get(sessionId)!.runInput = runInput('full-access')
+      const turns: string[] = []
+      runtime.runTurn = (async (request: { options: PromptOptions }) => { turns.push(request.options.prompt); return { disposition: 'queued' } }) as never
+      runtime.seatForTurn = (async () => undefined) as never
+      const text = `Please continue in ${at('libs/ui')}.`
+      await runtime.dispatch.promptSession(sessionId, text, 'queue')
+      await runtime.dispatch.promptSession(sessionId, text, 'queue', { via: 'session-report' })
+      expect(turns).toEqual([text, text])
+      expect(runtime.sessionFolders.foldersOf(sessionId)).toEqual([])
+    } finally {
+      live.runtime.shutdown()
     }
   })
 

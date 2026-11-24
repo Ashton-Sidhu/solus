@@ -18,12 +18,18 @@ export interface SessionFolderGate {
   /**
    * Run the attach rule for a path outside the folders of the session, with
    * no card. Answers the folder when the session has it after the call: the
+   * path is in a Git repository or in a project that the host lists and the
    * mode asks nothing (`auto`, `full-access`), or the folder is a member of
-   * the session's codebase. Null in each other case.
+   * the session's codebase. Null in each other case: the permission flow of
+   * the provider then answers for that one call.
    */
   attachUnasked(sessionId: string, path: string): Promise<string | null>
   /** The `git` folders of the session at this moment: each one gets its own turn checkpoint. */
   checkpointTargets(sessionId: string): SessionFolder[]
-  /** A person allowed, for the session, a request that names `paths`: attach the folder of each path. */
+  /**
+   * A person allowed, for the session, a request that names `paths`: attach
+   * the project of each path. A path in no repository and in no listed
+   * project attaches nothing: the person allowed the call, not a folder.
+   */
   attachAllowed(sessionId: string, paths: readonly string[]): void
 }

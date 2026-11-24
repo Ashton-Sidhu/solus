@@ -71,7 +71,7 @@ export function registerCodebaseHandlers(
   // The folders of a session (§6). A person attaches with no card: a card is for an agent that asks.
   server.register('sessionFolders', ([sessionId], ctx) => sessionFolders.read(sessionIdSchema.parse(sessionId), ctx.actor))
   server.register('sessionAttachFolder', ([sessionId, path], ctx) => {
-    return sessionFolders.attach(sessionIdSchema.parse(sessionId), folderPathSchema.parse(path), 'attached', ctx.actor)
+    return sessionFolders.attach(sessionIdSchema.parse(sessionId), folderPathSchema.parse(path), 'attached', ctx.actor, { byName: true })
   })
   server.register('sessionDetachFolder', ([sessionId, path], ctx) => {
     return sessionFolders.detach(sessionIdSchema.parse(sessionId), folderPathSchema.parse(path), ctx.actor)
