@@ -7,6 +7,7 @@
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
+    hosts,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { isProjectRailOpen, projectRailWidth } from "./lib/rail-width";
@@ -32,6 +33,7 @@
   import RunningServers from "./RunningServers.svelte";
   import ServerUrlsEditor from "./ServerUrlsEditor.svelte";
   import { runningServerFolderPaths } from "@solus/client-core/running-servers";
+  import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
@@ -232,6 +234,17 @@
   const serverCheckoutPaths = $derived(
     runningServerFolderPaths(panelEnvironment.cwd, panelSession?.sessionFolders),
   );
+  const serverStore = $derived(runningServers.forHost(serverHostId));
+  const canShowServers = $derived(serversShown && active && open && hosts.get(serverHostId).me.may("host.use"));
+  const serverRows = $derived(canShowServers
+    ? serverStore.rowsForScope({ checkoutPaths: serverCheckoutPaths, sessionId: panelSession?.id })
+    : null);
+  let otherServersSourceId = $state<string | null>(null);
+  const isShowingOtherServers = $derived(otherServersSourceId === sourceId && !!serverRows?.otherRows.length);
+  const visibleServerRows = $derived(isShowingOtherServers ? serverRows?.otherRows : serverRows?.sessionRows);
+  $effect(() => {
+    if (canShowServers) return serverStore.retainCheckouts(serverCheckoutPaths);
+  });
   const draftCodebaseId = $derived(
     !hasStarted && !panelEnvironment.repoRoot ? codebaseOf(panelRun) : null,
   );
@@ -554,16 +567,20 @@
         />
       </PanelSection>
     {/if}
-    {#if serversShown && active && open}
-      <RunningServers
-        hostId={serverHostId}
-        checkoutPaths={serverCheckoutPaths}
-        sessionId={panelSession?.id}
-        {initialRowCount}
-        collapsed={collapsedSections.servers}
-        onToggle={() => toggleSection("servers")}
-        onResizePointerDown={startResize}
-      />
+    {#if visibleServerRows?.length && serverRows}
+      {#key isShowingOtherServers}
+        <RunningServers
+          hostId={serverHostId}
+          rows={visibleServerRows}
+          otherCheckoutCount={serverRows.otherRows.length}
+          isShowingOther={isShowingOtherServers}
+          onToggleOther={() => { otherServersSourceId = isShowingOtherServers ? null : sourceId; }}
+          {initialRowCount}
+          collapsed={collapsedSections.servers}
+          onToggle={() => toggleSection("servers")}
+          onResizePointerDown={startResize}
+        />
+      {/key}
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card
          because the header controls share edit/confirm state with the body. -->
@@ -605,6 +622,12 @@
   <ProjectPanelItemsMenu
     bind:open={itemsMenuOpen}
     anchor={itemsMenuAnchor}
+    onShowOtherServers={serverRows?.otherRows.length && !serverRows.sessionRows.length && !isShowingOtherServers
+      ? () => {
+          otherServersSourceId = sourceId;
+          if (collapsedSections.servers) toggleSection("servers");
+        }
+      : undefined}
     onConfigureServerUrls={serverCheckoutPaths.length > 0
       ? () => {
           serverUrlsOpen = true;

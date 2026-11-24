@@ -8,8 +8,7 @@
   import { sessionListStore } from '../../contexts/workspace/session-list.store.svelte';
   import { hostPathBaseName } from '@solus/contracts/host-path';
   import { stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
-  import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
-  import type { RunningServers } from '@solus/client-core/running-servers';
+  import type { RunningServers, RunningServersRow } from '@solus/client-core/running-servers';
   import { hostSettingsStore } from '../../contexts/app/host-settings.store.svelte';
   import { hosts, getWorkspaceContext } from '../../contexts';
   import { browserStore } from '../../contexts/browser/browser.store.svelte';
@@ -17,10 +16,12 @@
   import { requestInputFocus } from '../../lib/inputFocus';
   import { copyText, toasts } from '../../lib/toasts';
 
-  let { hostId, checkoutPaths, sessionId, initialRowCount, collapsed, onToggle, onResizePointerDown }: {
+  let { hostId, rows, otherCheckoutCount, isShowingOther, onToggleOther, initialRowCount, collapsed, onToggle, onResizePointerDown }: {
     hostId: string;
-    checkoutPaths: readonly string[];
-    sessionId?: string;
+    rows: readonly RunningServersRow[];
+    otherCheckoutCount: number;
+    isShowingOther: boolean;
+    onToggleOther: () => void;
     initialRowCount: number;
     collapsed: boolean;
     onToggle: () => void;
@@ -29,8 +30,6 @@
   const workspace = getWorkspaceContext();
   const host = $derived(hosts.get(hostId));
   const forwardingEnabled = $derived(hostSettingsStore.states.get(host.id)?.previewTunnelEnabled !== false);
-  const store = $derived(runningServers.forHost(hostId));
-  let showOther = $state(false);
   let busy = $state<string | null>(null);
   /** The one row action in flight or just confirmed, as `action:endpointId`. */
   let pendingAction = $state<string | null>(null);
@@ -38,13 +37,8 @@
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => () => clearTimeout(copiedTimer));
   let expanded = $state(false);
-  const { sessionRows, otherRows } = $derived(store.rowsForScope({ checkoutPaths, sessionId }));
-  const isShowingOther = $derived(showOther && otherRows.length > 0);
-  const rows = $derived(isShowingOther ? otherRows : sessionRows);
-  const otherCheckoutCount = $derived(otherRows.length);
   const extraRowCount = $derived(rows.length - initialRowCount);
   const visibleRows = $derived(expanded ? rows : rows.slice(0, initialRowCount));
-  $effect(() => { if (host.me.may('host.use')) return store.retainCheckouts(checkoutPaths); });
 
   async function external(server: RunningServers, endpoint: ServerEndpoint) {
     try { await server.openExternal(endpoint, { isLocalHost: host === hosts.device }); }
@@ -112,7 +106,6 @@
   </Tooltip.Root>
 {/snippet}
 
-{#if host.me.may('host.use') && (sessionRows.length > 0 || otherCheckoutCount > 0)}
 <PanelSection title="Running servers" {collapsed} {onToggle} {onResizePointerDown}>
 <section class="flex flex-col gap-0.5 px-1.5" aria-label="Running servers">
     {#each visibleRows as row (`${row.server.serverId}:${row.endpoint.endpointId}`)}
@@ -153,10 +146,9 @@
           <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { expanded = !expanded; requestInputFocus(); }}>{expanded ? 'Show less' : `Show ${extraRowCount} more`}</button>
         {/if}
         {#if otherCheckoutCount > 0}
-          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { showOther = !isShowingOther; expanded = false; requestInputFocus(); }}>{isShowingOther ? 'Session folders' : `${otherCheckoutCount} in other checkouts`}</button>
+          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { onToggleOther(); requestInputFocus(); }}>{isShowingOther ? 'Session folders' : `${otherCheckoutCount} in other checkouts`}</button>
         {/if}
       </div>
     {/if}
 </section>
 </PanelSection>
-{/if}

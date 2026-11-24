@@ -23,8 +23,9 @@
     /** Where focus goes on close: the prompt from the panel, the trigger from Settings. */
     focusOnClose?: "input" | "anchor";
     onConfigureServerUrls?: () => void;
+    onShowOtherServers?: () => void;
   }
-  let { open = $bindable(), anchor, side = "left", align = "start", focusOnClose = "input", onConfigureServerUrls }: Props = $props();
+  let { open = $bindable(), anchor, side = "left", align = "start", focusOnClose = "input", onConfigureServerUrls, onShowOtherServers }: Props = $props();
 
   const settings = getSettingsContext();
   const sections = projectPanelSections(getClientShellContext().supportsNativeSettings);
@@ -89,6 +90,9 @@
     <DropdownMenu.Separator />
     {#if onConfigureServerUrls}
       <DropdownMenu.Item onSelect={onConfigureServerUrls}>Server URLs…</DropdownMenu.Item>
+    {/if}
+    {#if onShowOtherServers}
+      <DropdownMenu.Item onSelect={onShowOtherServers}>Servers in other checkouts</DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item
       disabled={hidden.length === 0}

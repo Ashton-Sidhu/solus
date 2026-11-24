@@ -5,11 +5,12 @@ It lists servers in the working folder and the session's attached and codebase
 folders on the run host. It also lists servers that the session started outside
 those folders. Each row names its project or folder when Solus has that path.
 Select **2 in other checkouts** to see the other servers on the run host,
-including servers with no assigned folder. The link is available even if the
-session has no servers. Select **Session folders** to return.
+including servers with no assigned folder. If the session has no servers, the
+card stays hidden. Select **Servers in other checkouts** from the project panel
+menu to see those servers. Select **Session folders** to return.
 
-The card has collapse and visibility controls. It stays hidden when the host
-has no server rows and returns when discovery finds a server. The mobile
+The card has collapse and visibility controls. It appears when discovery finds
+a server for the session or when the user opens other checkouts. The mobile
 server screen shows loading, connection, and retry status. On desktop and web,
 a row shows its copy, forward,
 and stop buttons when the pointer is on it or keyboard focus is in it. Stop turns
