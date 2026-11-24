@@ -15,6 +15,7 @@ export type ThreadInspectorTarget = {
   readonly threadId: string;
   readonly linked?: {
     readonly viaEnvironmentId: string;
+    readonly parentSessionId?: string;
     readonly label: string;
     readonly title?: string;
   };

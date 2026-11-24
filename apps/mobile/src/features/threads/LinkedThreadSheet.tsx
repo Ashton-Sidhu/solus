@@ -1,5 +1,4 @@
 import {
-  StackActions,
   useIsFocused,
   useNavigation,
   type StaticScreenProps,
@@ -19,6 +18,10 @@ import { Button } from "../../components/ui/Button";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SelectableMarkdownText } from "../../native/SelectableMarkdownText";
 import { useLinkedSession } from "../../solus/use-linked-session";
+import { useConnectSolusMachine } from "../../solus/use-connect-solus-machine";
+import { solus } from "../../solus/runtime";
+import { rememberSession } from "../../solus/session-record";
+import { pairedHostRoute } from "@solus/client-core/host-linking";
 import {
   formatItemFullDetail,
   type ThreadFeedActivity,
@@ -227,6 +230,7 @@ const appIsActive = () => AppState.currentState === "active";
  */
 export function LinkedThreadView(props: {
   readonly target: LinkedThreadTarget;
+  readonly parentSessionId?: string;
   /** Closes the screen by going back when absent. */
   readonly presentation?: ThreadInspectorPresentation;
 }) {
@@ -238,17 +242,30 @@ export function LinkedThreadView(props: {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
   const appActive = useSyncExternalStore(subscribeAppState, appIsActive);
-  const view = useLinkedSession(target, focused && appActive);
+  const view = useLinkedSession(target, focused && appActive, props.parentSessionId);
   const label = target.label;
-  const via = view.connected ? gt("direct connection") : "Solus Cloud";
+  const via = view.connected ? gt("direct connection") : view.relayed
+    ? solus.registry.host(target.viaEnvironmentId)?.label ?? target.viaEnvironmentId
+    : "Solus Cloud";
   const openThread = useOpenLinkedThread();
+  const connection = useConnectSolusMachine();
+  const open = () => {
+    if (!inInspector) navigation.goBack();
+    openThread({ environmentId: target.environmentId, threadId: target.threadId });
+  };
   const connect = () => {
     if (view.canOpen) {
-      if (!inInspector) navigation.goBack();
-      openThread({ environmentId: target.environmentId, threadId: target.threadId });
-    } else if (inInspector) navigation.navigate("ConnectionsNew", { linked: target.environmentId });
-    else
-      navigation.dispatch(StackActions.replace("ConnectionsNew", { linked: target.environmentId }));
+      open();
+    } else {
+      const pairing = solus.connections.machineLinks()
+        .flatMap(({ snapshot }) => snapshot?.hosts ?? [])
+        .find(({ listing }) => listing.installationId === target.environmentId);
+      const url = pairing ? pairedHostRoute(pairing)?.url : solus.registry.host(target.environmentId)?.routes[0]?.url;
+      void connection.connect(target.environmentId, label, url ?? null, async () => {
+        await rememberSession(target.environmentId, target.threadId);
+        open();
+      });
+    }
   };
   return (
     <View collapsable={false} className={inInspector ? "flex-1 bg-screen" : "flex-1 bg-sheet"}>
@@ -271,6 +288,8 @@ export function LinkedThreadView(props: {
                 <Button
                   tone="secondary"
                   label={view.canOpen ? gt("Open session") : gt("Connect to interact")}
+                  loading={connection.connecting}
+                  disabled={connection.connecting}
                   onPress={connect}
                 />
               ) : undefined
@@ -359,10 +378,11 @@ export function ReadOnlyThreadHistory({
 
 /** The read-only view as its own screen: a sheet, or the whole screen when maximized from the inspector. */
 export function LinkedThreadSheet({ route }: StaticScreenProps<LinkedThreadRouteParams>) {
-  const { viaEnvironmentId, environmentId, threadId, label, title } = route.params;
+  const { viaEnvironmentId, environmentId, threadId, label, title, parentSessionId } = route.params;
   return (
     <LinkedThreadView
       key={`${viaEnvironmentId}:${environmentId}:${threadId}`}
+      parentSessionId={parentSessionId}
       target={{
         viaEnvironmentId: EnvironmentId.make(viaEnvironmentId),
         environmentId: EnvironmentId.make(environmentId),

@@ -1,11 +1,11 @@
-import type { HostPairing } from '@solus/contracts/host-pairing'
+import type { HostPairing, HostPairingsSnapshot } from '@solus/contracts/host-pairing'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { permissionsAllow } from '@solus/contracts/permissions'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { KnownHost } from './known-host'
 import { answersAsSavedHost } from './host-link'
-import { pairServer } from './pairing'
+import { pairServer, withPairingTimeout } from './pairing'
 
 /**
  * Owner clients keep their own credentials for hosts added from chat or the CLI.
@@ -24,6 +24,9 @@ export class HostPairingFollower {
   /** installationId → the `pairedAt` of the owner pairing that this device failed to follow. */
   private readonly failedPairings = new Map<string, number>()
   private readonly unsubscribe: () => void
+  private current: HostPairingsSnapshot | null = null
+  private generation = 0
+  private readonly listeners = new Set<() => void>()
 
   constructor(private readonly options: {
     api: Pick<HostApi, 'hostsListPaired' | 'hostsPairClient'>
@@ -39,8 +42,23 @@ export class HostPairingFollower {
     deviceLabel(): string
     onError?(message: string): void
     fetchImpl?: typeof fetch
+    healthNonce?: () => string
   }) {
     this.unsubscribe = options.events.subscribe('host.listChanged', () => this.refresh())
+  }
+
+  snapshot = (): HostPairingsSnapshot | null => this.current
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  clear(): void {
+    this.generation++
+    if (!this.current) return
+    this.current = null
+    for (const listener of this.listeners) listener()
   }
 
   refresh(): Promise<void> {
@@ -60,33 +78,37 @@ export class HostPairingFollower {
   async pairAgain(installationId: string): Promise<boolean> {
     await this.running
     if (this.disposed) return false
+    const generation = this.generation
     const self = await this.ownerInstallationId().catch(() => null)
     if (!self || self === installationId) return false
     const snapshot = await this.options.api.hostsListPaired().catch(() => null)
     const pairing = snapshot?.hosts.find(({ listing }) => listing.installationId === installationId)
-    return !!pairing && !this.disposed && this.pair(pairing)
+    return !!pairing && !this.disposed && generation === this.generation && this.pair(pairing, true)
   }
 
-  dispose(): void { this.disposed = true; this.unsubscribe() }
+  dispose(): void { this.disposed = true; this.unsubscribe(); this.clear(); this.listeners.clear() }
 
   private async read(): Promise<void> {
     this.dirty = false
+    const generation = this.generation
     const self = await this.ownerInstallationId()
-    if (!self) return
+    if (!self) { this.clear(); return }
     const snapshot = await this.options.api.hostsListPaired()
-    if (this.disposed) return
+    if (this.disposed || generation !== this.generation) return
+    this.current = snapshot
+    for (const listener of this.listeners) listener()
     for (const installationId of snapshot.forgotten) {
       const saved = this.savedHost(installationId)
       if (saved && installationId !== self) {
         try { await this.options.forget(saved.id) }
         catch { this.report(`Could not remove ${saved.label} from your host list. Other hosts can still pair.`) }
       }
-      if (this.disposed) return
+      if (this.disposed || generation !== this.generation) return
     }
     for (const pairing of snapshot.hosts) {
-      if (this.disposed) return
+      if (this.disposed || generation !== this.generation) return
       if (pairing.listing.installationId === self || this.failedPairings.get(pairing.listing.installationId) === pairing.pairedAt) continue
-      if (this.needsPairing(pairing)) await this.pair(pairing)
+      if (pairing.clientConnect !== 'on-request' && this.needsPairing(pairing)) await this.pair(pairing)
     }
   }
 
@@ -106,20 +128,25 @@ export class HostPairingFollower {
     return this.options.isRefused(saved.id) && (saved.ownerPairedAt ?? 0) < pairedAt
   }
 
-  private async pair({ listing, pairedAt }: HostPairing): Promise<boolean> {
+  private async pair({ listing, pairedAt, clientConnect }: HostPairing, explicit?: true): Promise<boolean> {
+    const generation = this.generation
     try {
-      const credential = await this.options.api.hostsPairClient(listing.installationId)
-      if (this.disposed) return false
-      const fetchImpl: typeof fetch = (input, init) => (this.options.fetchImpl ?? fetch)(input, { ...init, redirect: 'error', signal: AbortSignal.timeout(5_000) })
-      if (!await answersAsSavedHost(fetchImpl, { url: credential.url }, listing, AbortSignal.timeout(5_000))) throw new Error('The remote host did not prove its identity.')
-      if (this.disposed) return false
+      const credential = explicit
+        ? await this.options.api.hostsPairClient(listing.installationId, true)
+        : await this.options.api.hostsPairClient(listing.installationId)
+      if (this.disposed || generation !== this.generation) return false
+      const fetchImpl: typeof fetch = (input, init) => withPairingTimeout((signal) => (this.options.fetchImpl ?? fetch)(input, { ...init, redirect: 'error', signal }))
+      const route = { url: credential.url, source: clientConnect === 'on-request' ? 'user' as const : undefined }
+      const verified = await withPairingTimeout((signal) => answersAsSavedHost(fetchImpl, route, listing, signal, this.options.healthNonce))
+      if (!verified) throw new Error('The remote host did not prove its identity.')
+      if (this.disposed || generation !== this.generation) return false
       const replaced = this.savedHost(listing.installationId)?.sessionToken || undefined
       const paired = await pairServer({ url: credential.url, pairToken: credential.code, deviceLabel: this.options.deviceLabel(), serverLabel: listing.hasUserLabel ? listing.label : undefined, reportedName: listing.label, replacesSessionToken: replaced, fetchImpl })
       if (paired.installationId !== listing.installationId || paired.server.identityKey !== listing.identityKey) throw new Error('A different host answered the client pairing request.')
       if (this.disposed) return false
       // A remove while the HTTP request was in flight must not restore access.
       const current = await this.options.api.hostsListPaired()
-      if (this.disposed || !current.hosts.some((host) => host.listing.installationId === listing.installationId)) return false
+      if (this.disposed || generation !== this.generation || !current.hosts.some((host) => host.listing.installationId === listing.installationId && host.pairedAt === pairedAt)) return false
       const { listError } = await this.options.save({ ...paired.server, ownerPairedAt: pairedAt })
       this.failedPairings.delete(listing.installationId)
       if (listError) this.report(`${listing.label} is paired on this device, but its host list could not be saved. Solus will try again.`)

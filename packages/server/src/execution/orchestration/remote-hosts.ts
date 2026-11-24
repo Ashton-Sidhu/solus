@@ -135,7 +135,7 @@ export class RemoteHosts {
     private readonly selfInstallationId: () => string | null = () => null,
     private readonly forwarded: ForwardedHostSource = { list: () => [], credential: () => null },
     private readonly fetchImpl: typeof fetch = fetch,
-    private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
+    private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> & Partial<Pick<HostPairings, 'renewOnUse'>> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
     /** The person's host list as this host keeps it (`host_list`), the list its clients read while signed out. */
     private readonly hostList: () => HostListing[] = () => [],
   ) {}
@@ -154,15 +154,26 @@ export class RemoteHosts {
     })
   }
 
+  private pairedTarget(host: HostListing): HostTarget {
+    return {
+      hostId: host.installationId, installationId: host.installationId, label: host.label,
+      routes: host.routes, identityKey: host.identityKey, source: 'paired',
+      connectionKey: `paired:${host.installationId}`, credential: () => this.pairings.credential(host.installationId),
+    }
+  }
+
+  connectPaired(installationId: string): RemoteHost | { error: string } {
+    const pairing = this.pairings.snapshot().hosts.find(({ listing }) => listing.installationId === installationId)
+    return pairing ? this.connect(this.pairedTarget(pairing.listing)) : { error: 'This host is no longer linked to that machine.' }
+  }
+
   /** The hosts work can start on: the account's first, then each introduced host the account does not list. */
   async list(request: ReachRequest, includeUnroutable = false): Promise<HostTarget[] | { error: string }> {
     const account = await this.accountTargets(request.account, includeUnroutable)
     const listed = new Set(account.map((host) => host.installationId))
-    const paired: HostTarget[] = request.isOwner ? this.pairings.snapshot().hosts.map(({ listing }) => listing).filter((host) => !listed.has(host.installationId)).map((host) => ({
-      hostId: host.installationId, installationId: host.installationId, label: host.label,
-      routes: host.routes, identityKey: host.identityKey, source: 'paired',
-      connectionKey: `paired:${host.installationId}`, credential: () => this.pairings.credential(host.installationId),
-    })) : []
+    const paired = request.isOwner ? this.pairings.snapshot().hosts
+      .filter(({ listing }) => !listed.has(listing.installationId))
+      .map(({ listing }) => this.pairedTarget(listing)) : []
     for (const host of paired) listed.add(host.installationId)
     const introduced: HostTarget[] = request.isOwner
       ? this.introduced.list().hosts.filter((host) => !listed.has(host.installationId)).map((host) => ({
@@ -358,11 +369,18 @@ export class RemoteHosts {
         reconnected.add(listener)
         return () => { reconnected.delete(listener) }
       },
-      call: (what, request) => withTimeout(request(), () => {
-        const refused = host.source === 'introduced' ? ' It refused this host\'s introduction. Connect to both hosts from one of your devices again.' : ' It refused the token from your Solus account.'
-        const blocked = link.refusedReason === 'auth' ? refused : ''
-        return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
-      }),
+      call: async (what, request) => {
+        if (host.source === 'paired' && this.pairings.renewOnUse && !await this.pairings.renewOnUse(host.installationId)) {
+          throw new Error(`Access to ${host.label} ended. Pair it again.`)
+        }
+        return withTimeout(request(), () => {
+          const refused = host.source === 'introduced'
+            ? ' It refused this host\'s introduction. Connect to both hosts from one of your devices again.'
+            : host.source === 'paired' ? ' It refused this host\'s pairing. Pair it again.' : ' It refused the token from your Solus account.'
+          const blocked = link.refusedReason === 'auth' ? refused : ''
+          return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
+        })
+      },
     }
     this.connections.set(host.connectionKey, { routing, host: remote, link })
     return remote
@@ -375,6 +393,12 @@ export class RemoteHosts {
       open.link.destroy()
       this.connections.delete(key)
     }
+  }
+
+  disconnectPairing(installationId: string): void {
+    const key = `paired:${installationId}`
+    this.connections.get(key)?.link.destroy()
+    this.connections.delete(key)
   }
 
   close(): void {

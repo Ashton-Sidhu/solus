@@ -120,3 +120,11 @@ The Add machine card (`add_host`, question kind `host-link`; `docs/plans/add-mac
 - T3's Connect device approval (`ConnectDeviceApprovalCoordinator`, `connectDeviceApproval.ts`) shows Solus approval requests: `solus.pairApprovals` (`solus-core/features/settings/pair-approvals.ts`) watches each connected host where this phone holds `host.local.reach`. The alert adds **Review**, which opens the host's page. The host's page (`SolusHostDetail`) shows the pairing code and the open requests (`src/solus/HostAccessSection.tsx`). Its `pairCode: "new"` parameter makes a code when the page opens; the card's "Show a code on <name>" link uses it.
 
 The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text. Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
+
+The Linked environments section and batch sheet use Solus owner pairings and
+the host directory. They show the route and owner access for each link. A
+single confirmation authorizes one pairing per selected target. The linked
+session sheet uses the Solus Cloud copy when available and the source host's
+read-only transcript pages for linked machines or remote child sessions.
+Connect uses a separate device pairing through a known machine where possible
+and the existing add-environment form when a code is needed.

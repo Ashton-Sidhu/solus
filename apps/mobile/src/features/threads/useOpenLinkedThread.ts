@@ -58,7 +58,13 @@ export function useOpenLinkedThreadRead() {
       readonly replace?: boolean;
     },
   ) => {
-    const params = linkedThreadRouteParams(thread, linked, title);
+    const source =
+      options?.source ??
+      (route.name === "Thread" && route.params?.environmentId && route.params.threadId
+        ? { environmentId: route.params.environmentId, threadId: route.params.threadId }
+        : null);
+    const parentSessionId = source?.environmentId === linked.viaEnvironmentId ? source.threadId : undefined;
+    const params = linkedThreadRouteParams(thread, { ...linked, parentSessionId }, title);
     const target: ThreadInspectorTarget = {
       type: "linkedThread",
       environmentId: params.environmentId,
@@ -66,6 +72,7 @@ export function useOpenLinkedThreadRead() {
       linked: {
         viaEnvironmentId: params.viaEnvironmentId,
         label: params.label,
+        ...(parentSessionId === undefined ? {} : { parentSessionId }),
         ...(params.title === undefined ? {} : { title: params.title }),
       },
     };
@@ -73,11 +80,6 @@ export function useOpenLinkedThreadRead() {
       openInInspector(target);
       return;
     }
-    const source =
-      options?.source ??
-      (route.name === "Thread" && route.params?.environmentId && route.params.threadId
-        ? { environmentId: route.params.environmentId, threadId: route.params.threadId }
-        : null);
     if (source !== null && openInspector(source, target)) return;
     navigation.dispatch(
       options?.replace

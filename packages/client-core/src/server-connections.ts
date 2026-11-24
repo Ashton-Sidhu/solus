@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { HostPairingFollower } from './host-pairing-follower'
+import { connectThroughMachine, pairedHostRoute } from './host-linking'
 import { defaultDeviceLabel } from './device-label'
 import { forgetHostConnections, type HostConnectionOwner } from './forget-host'
 import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'
@@ -221,11 +222,27 @@ export class ServerConnections {
    */
   async pairAgain(serverId: string): Promise<boolean> {
     const installationId = this.catalog.find(this.resolveId(serverId))?.installationId ?? serverId
+    return connectThroughMachine(installationId, [...this.connections.values()].flatMap((connection) =>
+      connection.link.readiness === 'ready' ? connection.pairings ?? [] : [],
+    ))
+  }
+
+  pairedUrlFor(installationId: string): string | undefined {
+    installationId = this.catalog.find(this.resolveId(installationId))?.installationId ?? installationId
     for (const connection of this.connections.values()) {
-      if (connection.link.readiness !== 'ready' || !connection.pairings) continue
-      if (await connection.pairings.pairAgain(installationId)) return true
+      if (connection.link.readiness !== 'ready') continue
+      const pairing = connection.pairings?.snapshot()?.hosts.find(({ listing }) => listing.installationId === installationId)
+      if (pairing) return pairedHostRoute(pairing)?.url
     }
-    return false
+  }
+
+  pairedSourceFor(installationId: string, preferredId?: string): string | undefined {
+    installationId = this.catalog.find(this.resolveId(installationId))?.installationId ?? installationId
+    const sources = [...this.connections.values()]
+    const isSource = (connection: ManagedConnection) => connection.link.readiness === 'ready' &&
+      connection.pairings?.snapshot()?.hosts.some(({ listing }) => listing.installationId === installationId)
+    const preferred = preferredId ? this.connectionFor(preferredId) : undefined
+    return preferred && isSource(preferred) ? preferred.serverId : sources.find(isSource)?.serverId
   }
 
   private refreshPairings(): void {
@@ -410,7 +427,10 @@ export class ServerConnections {
         if (link.refusedReason === 'auth') this.refreshPairings()
       },
       onReadinessChange: (readiness, attempt) => {
-        if (wasReady && readiness !== 'ready') this.clearConnectionReads(serverId)
+        if (wasReady && readiness !== 'ready') {
+          this.clearConnectionReads(serverId)
+          pairings?.clear()
+        }
         wasReady = readiness === 'ready'
         for (const listener of this.readinessListeners) listener(serverId, readiness, attempt)
         if (readiness === 'ready') {

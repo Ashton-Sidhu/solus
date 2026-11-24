@@ -120,11 +120,13 @@ function LinkedThread(props: {
     {
       viaEnvironmentId: EnvironmentId.make(props.linked.viaEnvironmentId),
       label: props.linked.label,
+      parentSessionId: props.linked.parentSessionId,
     },
     props.linked.title ?? null,
   );
   return (
     <LinkedThreadView
+      parentSessionId={params.parentSessionId}
       target={{
         viaEnvironmentId: EnvironmentId.make(params.viaEnvironmentId),
         environmentId: EnvironmentId.make(params.environmentId),

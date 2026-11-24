@@ -1,7 +1,7 @@
 import { requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { materializeSessionTranscript } from '../workspace/session-transcript'
 import { loadArtifactFileBodies, worksArtifactHtmlSources } from '../workspace/artifact-history'
 import type { SurfaceContext } from '../app/surface-context.svelte'
@@ -13,6 +13,7 @@ export interface SessionRecordPageRequest {
   /** Tool results of the page above whose calls are in this one. */
   pendingMessages?: WireSessionLoadMessage[]
   viaParentId?: string
+  linkedHostId?: string
 }
 
 export interface SessionRecordPage {
@@ -28,10 +29,12 @@ export interface SessionRecordPage {
  * name rather than from a tab's run, so no tab has to exist. A page is cut at
  * user turns, so pages render one at a time.
  */
-export async function readSessionRecordPage(workspace: SurfaceContext, serverId: string, meta: SessionMeta, request: SessionRecordPageRequest): Promise<SessionRecordPage> {
+export async function readSessionRecordPage(workspace: SurfaceContext, serverId: string, meta: SessionMeta, request: SessionRecordPageRequest, initialPage?: SessionHistoryPage): Promise<SessionRecordPage> {
   const ctx = workspace.ctxForDirectory(meta.cwd)
   const api = serverConnections.apiFor(serverId)
-  const page = request.viaParentId
+  const page = initialPage ?? (request.linkedHostId
+    ? (await api.hostsLinkedSessionPage(request.linkedHostId, meta.sessionId, request.before ?? null, request.turnLimit)).page
+    : request.viaParentId
     ? await api.sessionLineageHistory(request.viaParentId, meta.sessionId, request.before, request.turnLimit)
     : await requestSessionHistoryPage(api, {
     sessionId: meta.sessionId,
@@ -39,7 +42,7 @@ export async function readSessionRecordPage(workspace: SurfaceContext, serverId:
     provider: meta.provider,
     turnLimit: request.turnLimit,
     before: request.before,
-    })
+    }))
   const history = request.pendingMessages?.length ? page.messages.concat(request.pendingMessages) : page.messages
   const result = materializeSessionTranscript(workspace, {
     sessionId: meta.sessionId,

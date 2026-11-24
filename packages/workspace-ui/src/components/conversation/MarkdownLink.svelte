@@ -188,6 +188,14 @@
     } else if (sessionParams) {
       e.preventDefault();
       if (!session) return;
+      const linkedHostId = sessionParams.serverId;
+      if (linkedHostId && serverConnections.readinessFor(linkedHostId).readiness !== "ready") {
+        const source = serverConnections.pairedSourceFor(linkedHostId, sessionLinkContext?.serverId());
+        if (source) {
+          session.openRoute({ name: "sessionRecord", params: { sessionId: sessionParams.sessionId, serverId: source, linkedHostId } });
+          return;
+        }
+      }
       void resolveSessionLinkMeta(sessionParams, sessionLinkContext?.serverId()).then((meta) =>
         session.opening.resumeSession(meta),
       );

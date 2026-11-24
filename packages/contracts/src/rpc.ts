@@ -320,6 +320,8 @@ export const RPC_INVOKE_METHODS = [
   // The hosts the owner connected to themselves, while signed out (plans/031 D7)
   'hostsPair',
   'hostsListPaired',
+  'hostsUnlink',
+  'hostsLinkedSessionPage',
   // Approval requests from machines that ask to pair (docs/plans/add-machine-card.md)
   'hostsPairApprovals',
   'hostsPairApprovalDecide',
