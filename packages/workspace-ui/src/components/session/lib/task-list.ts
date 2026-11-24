@@ -305,6 +305,7 @@ export interface SidebarTask {
   groupKey: string
   /** Real git branch, matched against a PR's head ref. Null off a branch. */
   branchName: string | null
+  worktreePath?: string | null
   /** The host this row's session runs on. */
   serverId: string | null
   status: TaskStatus
@@ -462,6 +463,7 @@ export function reconcileSidebarTasks(
       previous.projectKey === next.projectKey &&
       previous.projectLabel === next.projectLabel &&
       previous.branchName === next.branchName &&
+      previous.worktreePath === next.worktreePath &&
       previous.serverId === next.serverId &&
       previous.status === next.status &&
       previous.attention === next.attention &&
@@ -619,9 +621,11 @@ export function buildProjectSummaries(
 export function resolveProjectFilter(
   savedFilter: string | null,
   allTasks: readonly SidebarTask[],
+  catalogKeys: readonly string[] = [],
 ): string | null {
   if (!savedFilter) return null
-  return allTasks.some((task) => task.groupKey === savedFilter) ? savedFilter : null
+  return catalogKeys.includes(savedFilter) || allTasks.some((task) => task.groupKey === savedFilter)
+    ? savedFilter : null
 }
 
 /** A row of the column's project filter. `key` is the filter's value. */
@@ -639,12 +643,14 @@ export interface ProjectFilterChoice extends ListProjectOption {
 export function projectFilterChoices(
   allTasks: readonly SidebarTask[],
   optionsFor: (projectKeys: string[]) => ListProjectOption[],
+  catalogKeys: readonly string[] = [],
 ): ProjectFilterChoice[] {
   const counts = new Map<string, number>()
   for (const task of allTasks) {
     counts.set(task.groupKey, (counts.get(task.groupKey) ?? 0) + (task.lifecycle === 'active' ? 1 : 0))
   }
-  return optionsFor([...counts.keys()]).map((option) => ({ ...option, count: counts.get(option.key) ?? 0 }))
+  return optionsFor([...new Set([...counts.keys(), ...catalogKeys])])
+    .map((option) => ({ ...option, count: counts.get(option.key) ?? 0 }))
 }
 
 /** `checksFailing`: open, and a required check fails, so it cannot merge. */

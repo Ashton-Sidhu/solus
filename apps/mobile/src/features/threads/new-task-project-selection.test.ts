@@ -126,6 +126,19 @@ describe("getProjectScopeSelectionTarget", () => {
 });
 
 describe("newTaskFilteredProject", () => {
+  it("uses the viewed copy of a filtered project when it is available", () => {
+    const mac = makeProject("t3code", "mac");
+    const server = makeProject("t3code", "server");
+    const viewed = { environmentId: "server", projectId: "t3code" };
+    const remembered = { environmentId: "mac", projectId: "t3code" };
+    const scope = makeScope([mac, server]);
+    expect(newTaskFilteredProject(scope, null, new Set([mac.environmentId, server.environmentId]), remembered, viewed))
+      .toEqual(viewed);
+    expect(newTaskFilteredProject(scope, null, new Set([mac.environmentId]), remembered, viewed))
+      .toEqual(remembered);
+    expect(newTaskFilteredProject(scope, null, new Set(), remembered, viewed)).toBeUndefined();
+  });
+
   it("never starts in an archived copy of the filtered project", () => {
     const mac = { ...makeProject("t3code", "mac"), archivedAt: "2026-01-01T00:00:00.000Z" };
     const server = makeProject("t3code", "server");
@@ -298,7 +311,7 @@ describe("newTaskDestination", () => {
     });
   }
 
-  it("starts in the current thread's project ahead of the filtered and remembered ones", () => {
+  it("starts in the sidebar scope when the current thread belongs to a different project", () => {
     const projects = [makeProject("remembered"), makeProject("current", "other-environment")];
     expect(
       destination({
@@ -309,7 +322,7 @@ describe("newTaskDestination", () => {
         last: { environmentId: "environment", projectId: "remembered" },
       }),
     ).toEqual({
-      draft: { requestId: "request", environmentId: "other-environment", projectId: "current" },
+      draft: { requestId: "request", environmentId: "environment", projectId: "remembered" },
     });
   });
 
@@ -381,7 +394,7 @@ describe("newTaskDestination", () => {
     ).toEqual(picker);
   });
 
-  it("always opens the picker when the preference is off", () => {
+  it("uses an explicit scope even with Use last project disabled", () => {
     const only = makeProject("only");
     expect(
       destination({
@@ -391,7 +404,7 @@ describe("newTaskDestination", () => {
         filtered: only,
         last: { environmentId: "environment", projectId: "only" },
       }),
-    ).toEqual(picker);
+    ).toEqual({ draft: { requestId: "request", environmentId: "environment", projectId: "only" } });
   });
 });
 

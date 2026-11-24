@@ -87,6 +87,39 @@ describe('file preview paths', () => {
     })
   })
 
+  test('reads all pages of a large text file without splitting UTF-8 characters', async () => {
+    const path = join(projectRoot, 'large.txt')
+    const contents = ('a'.repeat(32 * 1024 - 1) + '🌍').repeat(34) + '\nlast line'
+    await writeFile(path, contents)
+    const first = await readFilePreview(ctx, { path, textPage: { index: 0 } })
+    if (!first.ok || first.kind !== 'text' || !first.page) throw new Error('Expected a text page')
+    expect(first.isReadOnly).toBe(true)
+    const legacy = await readFilePreview(ctx, { path })
+    expect(legacy).toMatchObject({ ok: true, kind: 'text', isReadOnly: true, truncated: true })
+    expect(await readFilePreview(ctx, { path, textPage: { index: first.page.count, revision: first.page.revision } }))
+      .toMatchObject({ ok: false, error: 'This preview page is unavailable.' })
+    let combined = first.contents
+    for (let index = 1; index < first.page.count; index++) {
+      const next = await readFilePreview(ctx, { path, textPage: { index, revision: first.page.revision } })
+      if (!next.ok || next.kind !== 'text') throw new Error('Expected the next text page')
+      expect(Buffer.byteLength(next.contents)).toBeLessThanOrEqual(32 * 1024 + 3)
+      combined += next.contents
+    }
+    expect(combined).toBe(contents)
+    await writeFile(path, contents + '\nchanged')
+    expect(await readFilePreview(ctx, { path, textPage: { index: 1, revision: first.page.revision } }))
+      .toMatchObject({ ok: false, error: 'The file changed. Reload the preview.' })
+  })
+
+  test('refuses a file outside the canonical guest scope, including a symlink', async () => {
+    const path = join(projectRoot, 'link.txt')
+    const outside = join(externalRoot, 'outside.txt')
+    await writeFile(outside, 'private')
+    await symlink(outside, path)
+    expect(await readFilePreview(ctx, { path, textPage: { index: 0 } }, projectRoot))
+      .toMatchObject({ ok: false, path })
+  })
+
   test('keeps files outside the project editable', async () => {
     const path = join(externalRoot, 'notes.txt')
     await writeFile(path, 'downloaded notes\n')

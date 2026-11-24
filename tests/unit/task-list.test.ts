@@ -380,6 +380,10 @@ describe('buildProjectSummaries', () => {
 })
 
 describe('resolveProjectFilter', () => {
+  it('keeps a newly added project selected before it has a session', () => {
+    expect(resolveProjectFilter('/repos/new', [], ['/repos/new'])).toBe('/repos/new')
+    expect(projectFilterChoices([], optionsFor, ['/repos/new'])).toMatchObject([{ key: '/repos/new', count: 0 }])
+  })
   it('drops a scope whose project has left the column', () => {
     // A saved filter outlives the project it names. Holding it would leave the
     // column empty and scoped to something no longer in the menu.

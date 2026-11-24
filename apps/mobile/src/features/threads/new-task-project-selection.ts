@@ -31,7 +31,7 @@ function selectOpenProjectScopeMember(
       (project) =>
         project.environmentId === lastProject.environmentId && project.id === lastProject.projectId,
     );
-  if (remembered) return remembered;
+  if (remembered && connectedEnvironmentIds.has(remembered.environmentId)) return remembered;
 
   const rank = (project: EnvironmentProject) =>
     project.environmentId === preferredEnvironmentId ? 0 : project === scope.representative ? 1 : 2;
@@ -210,14 +210,24 @@ export function newTaskFilteredProject(
   preferredEnvironmentId: EnvironmentId | null,
   connectedEnvironmentIds: ReadonlySet<EnvironmentId>,
   lastProject: ProjectRef | undefined,
+  viewedProject?: ProjectRef,
 ): ProjectRef | undefined {
+  const viewed = scope.projects.find((project) =>
+    project.environmentId === viewedProject?.environmentId &&
+    project.id === viewedProject.projectId &&
+    connectedEnvironmentIds.has(project.environmentId) &&
+    isPickableProjectMember(project),
+  );
+  if (viewed) return { environmentId: viewed.environmentId, projectId: viewed.id };
   const project = selectOpenProjectScopeMember(
     scope,
     preferredEnvironmentId,
     connectedEnvironmentIds,
     lastProject,
   );
-  return project && { environmentId: project.environmentId, projectId: project.id };
+  return project && connectedEnvironmentIds.has(project.environmentId)
+    ? { environmentId: project.environmentId, projectId: project.id }
+    : undefined;
 }
 
 export function newTaskDestination(options: {
@@ -235,12 +245,11 @@ export function newTaskDestination(options: {
     );
   // A remembered project that was archived since opens the picker; the current one still wins.
   const last = find(options.lastProject);
-  const project =
-    options.useLastProject === false
+  const project = find(options.filteredProject) ??
+    (options.useLastProject === false
       ? undefined
       : (find(options.currentProject) ??
-        find(options.filteredProject) ??
-        (last?.archivedAt == null ? last : undefined));
+        (last?.archivedAt == null ? last : undefined)));
   return project
     ? {
         draft: {

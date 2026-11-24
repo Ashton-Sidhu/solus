@@ -5,6 +5,8 @@ import { WebView } from "react-native-webview";
 
 import { FilePreviewLoading, FilePreviewNotice } from "../features/files/FilePreviewFeedback";
 import { webViewDecelerationRate } from "../lib/webViewDecelerationRate";
+import { pdfLinkUrl } from "../lib/pdfPreview";
+import { tryOpenExternalUrl } from "../lib/openExternalUrl";
 
 export function PdfPreview(props: { readonly uri: string }) {
   const gt = useGT();
@@ -20,6 +22,18 @@ export function PdfPreview(props: { readonly uri: string }) {
         automaticallyAdjustContentInsets={false}
         decelerationRate={webViewDecelerationRate}
         contentInsetAdjustmentBehavior="never"
+        onShouldStartLoadWithRequest={(request) => {
+          if (request.isTopFrame === false || request.url.split("#", 1)[0] === props.uri.split("#", 1)[0]) {
+            return true;
+          }
+          const target = pdfLinkUrl(request.url, props.uri);
+          if (target) void tryOpenExternalUrl(target, "file-preview");
+          return false;
+        }}
+        onOpenWindow={({ nativeEvent }) => {
+          const target = pdfLinkUrl(nativeEvent.targetUrl, props.uri);
+          if (target) void tryOpenExternalUrl(target, "file-preview");
+        }}
         startInLoadingState
         onError={(event) =>
           setError(event.nativeEvent.description || gt("The PDF could not be loaded."))

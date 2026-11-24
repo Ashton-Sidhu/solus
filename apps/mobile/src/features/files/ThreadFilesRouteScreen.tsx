@@ -1,5 +1,5 @@
 import { useWorkspaceFileAssetUrlState } from "./workspaceFileAssetUrl";
-import { readEntry } from "../../solus/checkout-files";
+import { readEntry, readTextPage } from "../../solus/checkout-files";
 import { useCheckoutAccess, useCheckoutLocation } from "../../solus/use-checkout-files";
 import { fileSizeLabel } from "@solus-mobile/features/files/lib/file-tree";
 import { FilesBrowserHeader, FilesToolbarBottomFade } from "./FilesBrowserHeader";
@@ -22,6 +22,8 @@ import {
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 
 import { ScreenContent } from "../../components/ui/ScreenContent";
+import { ControlPill } from "../../components/ui/ControlPill";
+import { AppText as Text } from "../../components/ui/AppText";
 import { filePreviewDelimiter, parseDelimitedPreview } from "@t3tools/shared/delimitedPreview";
 import { DelimitedFilePreview } from "./DelimitedFilePreview";
 import { AudioFilePreview } from "./AudioFilePreview";
@@ -218,6 +220,7 @@ function FileContent(props: {
   readonly threadId: ThreadId | null;
   readonly initialLine: number | null;
   readonly truncated: boolean;
+  readonly paged?: boolean;
   readonly selectable: boolean;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
@@ -317,7 +320,7 @@ function FileContent(props: {
           contents={props.fileContents}
           path={props.relativePath}
           initialLine={props.initialLine}
-          headerInsetTop={props.truncated ? 0 : undefined}
+          headerInsetTop={props.truncated || props.paged ? 0 : undefined}
           selectable={props.selectable}
           onRefresh={props.onRefresh}
         />
@@ -574,6 +577,26 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const metadataPending = fileQuery.isPending && !fileQuery.data && !fileQuery.error;
   const directoryPath = fileQuery.data?.kind === "directory" ? targetPath : null;
   const fileData = fileQuery.data?.kind === "text" ? fileQuery.data : null;
+  const page = fileData?.page;
+  const pageInset = useContentTopInset();
+  const pageKey = JSON.stringify([fileAccess.accountKey, environmentId, cwd, relativePath, page?.revision]);
+  const [pageSelection, setPageSelection] = useState<{ key: string; index: number }>();
+  const pageIndex = pageSelection?.key === pageKey ? pageSelection.index : 0;
+  const pageQuery = useEnvironmentQuery(
+    canReadFiles && environmentId && cwd && fileData && page && pageIndex > 0
+      ? readTextPage({
+          accountKey: fileAccess.accountKey,
+          environmentId,
+          input: { cwd, path: fileData.path, index: pageIndex, revision: page.revision },
+        })
+      : null,
+  );
+  const fileContents = pageIndex === 0 ? (fileData?.contents ?? null) : pageQuery.data;
+  const selectPage = (index: number) => setPageSelection({ key: pageKey, index });
+  const refreshFile = () => {
+    if (page) selectPage(0);
+    fileQuery.refresh();
+  };
   const [searchQuery, setSearchQuery] = useState("");
   const entriesQuery = useFileTreeEntries({
     environmentId,
@@ -597,6 +620,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const isImageFile =
     relativePath !== null && !isVideoFile && isWorkspaceImagePreviewPath(relativePath);
   const canPreview =
+    !page &&
     relativePath !== null &&
     (isMarkdownPreviewFile(relativePath) ||
       isBrowserFile ||
@@ -649,7 +673,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   };
   // iOS only: Android lays out a whole-file selectable TextView on the UI thread, which stalls.
   const canSelectText =
-    Platform.OS === "ios" && resolvedActiveMode === "source" && fileData?.contents != null;
+    Platform.OS === "ios" && resolvedActiveMode === "source" && fileContents !== null;
   const selectingText = canSelectText && textSelectionPath === relativePath;
 
   const handleSelectFile = (path: string) => {
@@ -778,13 +802,13 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
                 ),
             } as const,
           ]),
-      fileData?.contents != null
+      fileContents !== null
         ? ({
             id: "copy-contents",
-            title: fileData.truncated ? gt("Copy preview") : gt("Copy contents"),
+            title: page ? gt("Copy page") : fileData?.truncated ? gt("Copy preview") : gt("Copy contents"),
             icon: "doc.on.doc",
             inline: false,
-            onPress: () => copyTextWithHaptic(fileData.contents),
+            onPress: () => copyTextWithHaptic(fileContents),
           } as const)
         : null,
       isPdfFile({ name: relativePath }) && previewUri !== null
@@ -935,6 +959,20 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
         actions={fileMenuActions}
       />
       <ScreenContent>
+        {page ? (
+          <View
+            className="flex-row flex-wrap items-center justify-center gap-2 border-b border-border px-2 pb-2"
+            style={{ paddingTop: pageInset }}
+          >
+            <ControlPill label={gt("First")} disabled={pageIndex === 0} onPress={() => selectPage(0)} />
+            <ControlPill label={gt("Previous")} disabled={pageIndex === 0} onPress={() => selectPage(pageIndex - 1)} />
+            <Text className="text-xs tabular-nums text-foreground-muted" accessibilityLiveRegion="polite">
+              {gt("Page {page} of {count}", { page: pageIndex + 1, count: page.count })}
+            </Text>
+            <ControlPill label={gt("Next")} disabled={pageIndex + 1 >= page.count} onPress={() => selectPage(pageIndex + 1)} />
+            <ControlPill label={gt("Last")} disabled={pageIndex + 1 >= page.count} onPress={() => selectPage(page.count - 1)} />
+          </View>
+        ) : null}
         {fileQuery.error ? (
           <EmptyState
             title={gt("File unavailable")}
@@ -942,11 +980,14 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             actionLabel={gt("Try again")}
             onAction={fileQuery.refresh}
           />
+        ) : pageQuery.error ? (
+          <EmptyState title={gt("Page unavailable")} detail={pageQuery.error}
+            actionLabel={gt("Reload file")} onAction={refreshFile} />
         ) : fileQuery.data?.kind === "binary" ? (
           <EmptyState title={gt("Binary file")} detail={fileSizeLabel(fileQuery.data.size)} />
         ) : (
           <FileContent
-            key={previewKey}
+            key={`${previewKey}:${pageIndex}`}
             activeMode={resolvedActiveMode}
             cwd={cwd}
             environmentId={environmentId}
@@ -956,13 +997,14 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             videoSource={videoSource}
             mediaSource={mediaSource}
             resolveVideoUri={assetPreview.resolve}
-            fileContents={fileData?.contents ?? null}
-            initialLine={targetLine}
+            fileContents={fileContents}
+            initialLine={page ? null : targetLine}
             relativePath={relativePath}
             threadId={threadId}
             truncated={fileData?.truncated ?? false}
+            paged={!!page}
             selectable={selectingText}
-            onRefresh={fileQuery.refresh}
+            onRefresh={refreshFile}
           />
         )}
       </ScreenContent>

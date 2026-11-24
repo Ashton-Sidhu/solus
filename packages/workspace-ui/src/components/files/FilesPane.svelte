@@ -16,12 +16,13 @@
     FolderPlus as FolderPlusIcon,
     FolderTree as FileTreeIcon,
     CircleAlert as WarningCircleIcon,
+    Copy as CopyIcon,
   } from "@lucide/svelte";
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { Button } from "../ui/button";
   import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
-  import type { IpcContext, ProjectFileMutation } from "@solus/contracts/types";
+  import type { FilePreviewPage, IpcContext, ProjectFileMutation } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { FILE_TREE_THEME_CSS } from "../../lib/fileTreeTheme";
@@ -34,6 +35,7 @@
   } from "../artifact/FilePreviewStream.svelte";
   import SettingsSelect from "../settings/SettingsSelect.svelte";
   import MarkdownFileSurface from "./MarkdownFileSurface.svelte";
+  import LargeTextFilePreview from "./LargeTextFilePreview.svelte";
   import {
     initialMarkdownFileViewMode,
     isMarkdownFile,
@@ -170,6 +172,7 @@
   let selectedContents = $state<string | null>(null);
   let selectedReadOnly = $state(false);
   let selectedTruncated = $state(false);
+  let selectedPage = $state<FilePreviewPage | null>(null);
   let fileLoading = $state(false);
   // The first open continues the load skeleton. Later switches delay theirs.
   let hasShownFile = $state(false);
@@ -229,6 +232,17 @@
   const reservesSaveStatus = $derived(
     selectedContents !== null && !selectedTruncated && !selectedReadOnly && canWriteFiles,
   );
+
+  async function copyContents() {
+    const contents = markdownSurfaceRef?.currentContents() ?? filePreviewRef?.getCurrentContents() ?? selectedContents;
+    if (contents === null) return;
+    try {
+      await navigator.clipboard.writeText(contents);
+      toasts.success("File contents copied");
+    } catch {
+      toasts.error("Could not copy file contents");
+    }
+  }
 
   const statusClass = $derived(
     saveState === "saved"
@@ -340,11 +354,15 @@
     selectedContents = null;
     selectedReadOnly = false;
     selectedTruncated = false;
+    selectedPage = null;
     fileError = null;
     selectedNonText = null;
     fileLoading = true;
     saveState = "idle";
-    const result = await api.readProjectFile(ctx, { path, cwd });
+    const result = await api.readProjectFile(ctx, { path, cwd, textPage: { index: 0 } }).catch((cause) => ({
+      ok: false as const,
+      error: cause instanceof Error ? cause.message : "The host could not send this file.",
+    }));
     if (generation !== fileLoadGeneration) return;
     if (result.ok && result.kind !== "text") {
       selectedPath = result.displayPath;
@@ -360,9 +378,10 @@
       // save the truncation back over the original.
       selectedReadOnly = result.isReadOnly;
       selectedTruncated = result.truncated === true;
+      selectedPage = result.page ?? null;
       // Half a document previews as a broken page. Both surfaces fall back to
       // the bytes that actually arrived.
-      if (selectedTruncated) {
+      if (selectedTruncated || selectedPage) {
         markdownViewMode = "source";
         htmlViewMode = "source";
       }
@@ -738,7 +757,11 @@
         Files
       </div>
     {/if}
-    {#if isSelectedMarkdown}
+    {#if selectedContents !== null && !selectedTruncated && !selectedPage}
+      {#snippet copyIcon()}<CopyIcon size={14} />{/snippet}
+      {@render chromeAction("Copy contents", copyContents, copyIcon)}
+    {/if}
+    {#if isSelectedMarkdown && !selectedPage}
       {#if selectedContents !== null && !selectedTruncated}
         {@render chromeAction("Save as work", saveSelectedAsWork, saveAsWorkIcon)}
       {/if}
@@ -749,7 +772,7 @@
         ariaLabel="Markdown file view"
         compact
       />
-    {:else if isSelectedHtml && !selectedTruncated}
+    {:else if isSelectedHtml && !selectedTruncated && !selectedPage}
       <SettingsSelect
         options={HTML_FILE_VIEW_OPTIONS}
         value={htmlViewMode}
@@ -821,7 +844,16 @@
             <NonTextFilePreview {serverId} file={selectedNonText} title={selectedPath} />
           {/key}
         {:else if selectedPath && selectedContents !== null}
-          {#if isSelectedMarkdown}
+          {#if selectedPage}
+            {#key revealEpoch}
+              <LargeTextFilePreview
+                initial={selectedPage}
+                contents={selectedContents}
+                read={(index, revision) => api.readProjectFile(ctx, { path: selectedPath!, cwd, textPage: { index, revision } })}
+                reload={() => void openFile(selectedPath!)}
+              />
+            {/key}
+          {:else if isSelectedMarkdown}
             <MarkdownFileSurface
               bind:this={markdownSurfaceRef}
               {api}
@@ -855,7 +887,7 @@
                   line={selectedLine}
                   {revealEpoch}
                   contents={selectedContents}
-                  isReadOnly={selectedReadOnly}
+                  isReadOnly={selectedReadOnly || !canWriteFiles}
                   {isDark}
                   onSaveStateChange={(state) => {
                     saveState = state;
