@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import type { CodebaseMember, SessionFolder, TaskFolder } from '@solus/contracts/codebases'
 import { isTaskFolderPath } from '@solus/contracts/codebases'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
-import { isSessionBusyStatus, type GitCheckout } from '@solus/contracts/types'
+import { isSessionBusyStatus, type GitCheckout, type StatusCardSubstep } from '@solus/contracts/types'
 import {
   generatedWorktreeBranchName, initialWorktreeBranchName, temporaryWorktreeBranchId, type WorktreeBranchNaming,
 } from '@solus/contracts/worktree-branch-naming'
@@ -73,34 +73,98 @@ function checkoutsOf(taskFolder: TaskFolder): { repositoryPath: string; worktree
   ]
 }
 
+/** One change to a step of the setup card of a task folder. A setup of several repositories gives the part of each one. */
+export interface TaskFolderStageUpdate extends WorktreeStageUpdate {
+  substeps?: StatusCardSubstep[]
+}
+
+/** The state of a step from the parts of its repositories: it runs until each repository ended it. */
+function stepStatusOf(substeps: readonly StatusCardSubstep[]): TaskFolderStageUpdate['status'] {
+  if (substeps.some((substep) => substep.status === 'pending' || substep.status === 'active')) return 'active'
+  if (substeps.some((substep) => substep.status === 'warning')) return 'warning'
+  return substeps.every((substep) => substep.status === 'skipped') ? 'skipped' : 'done'
+}
+
+/** Give a sub-step its new state, with the times of the host. A skipped sub-step did no work, so it has no times. */
+function setSubstep(substep: StatusCardSubstep, update: Pick<WorktreeStageUpdate, 'status' | 'detail'>, now: number): void {
+  substep.status = update.status
+  if (update.status === 'skipped') {
+    delete substep.startedAt
+    delete substep.endedAt
+  } else {
+    substep.startedAt ??= now
+    if (update.status !== 'active') substep.endedAt = now
+  }
+  if (update.detail) substep.detail = update.detail
+}
+
 /**
- * One setup card for the worktrees of several repositories. A stage of the
- * card is active while a repository is in it. Its detail names the repository
- * that reported last and how many repositories ended the stage: "web (2 of 3)".
- * The percentage is shown only while one repository is in the stage.
+ * One setup card for the worktrees of several repositories. Each step that
+ * the host runs one time for each repository gets one sub-step for each
+ * repository, from the first report of that step: the state of the
+ * repository, its times on the clock of the host, and the detail of its
+ * warning. The step is active until each repository ended it. The repository
+ * that fails names the error in its sub-step. Each sub-step that ran at that
+ * time did not end, so it is an error with no detail, as the launch does for
+ * the steps. A setup of one repository has no sub-steps: its reports go to
+ * the card as they are.
  */
 export function taskFolderStages(
   repositories: readonly { path: string; name: string }[],
-  onStage: (stage: WorktreeSetupStage, update: WorktreeStageUpdate) => void,
+  onStage: (stage: WorktreeSetupStage, update: TaskFolderStageUpdate) => void,
   /** The files of one repository are checked out: its name, and how many repositories have theirs. */
   onCheckedOut?: (name: string, count: number) => void,
 ): TaskFolderProgress {
-  const stages = new Map<WorktreeSetupStage, Map<string, WorktreeStageUpdate['status']>>()
+  if (repositories.length < 2) {
+    return (repositoryPath, stage, update) => {
+      // A failure is the error of the launch: the card gets it there, with its message.
+      if (update.status === 'error') return
+      if (stage === 'checkout' && update.status === 'done') onCheckedOut?.(repositories[0]?.name ?? repositoryPath, 1)
+      onStage(stage, update)
+    }
+  }
+  const stages = new Map<WorktreeSetupStage, StatusCardSubstep[]>()
+  const substepsOf = (stage: WorktreeSetupStage): StatusCardSubstep[] => {
+    const known = stages.get(stage)
+    if (known) return known
+    const substeps = repositories.map((repository): StatusCardSubstep => ({ id: repository.path, label: repository.name, status: 'pending' }))
+    stages.set(stage, substeps)
+    return substeps
+  }
+  // The card gets a copy: a later report changes the sub-steps here.
+  const report = (stage: WorktreeSetupStage, status: TaskFolderStageUpdate['status']): void => {
+    onStage(stage, { status, substeps: substepsOf(stage).map((substep) => ({ ...substep })) })
+  }
+  /** The sub-step of the repository is an error with its message, and so is each sub-step that ran, with no message. */
+  const fail = (failed: StatusCardSubstep, stage: WorktreeSetupStage, detail: string | undefined, now: number): void => {
+    const stopped = new Set([stage])
+    for (const [openStage, substeps] of stages) {
+      for (const open of substeps.filter((substep) => substep.status === 'active' && substep !== failed)) {
+        setSubstep(open, { status: 'error' }, now)
+        stopped.add(openStage)
+      }
+    }
+    setSubstep(failed, { status: 'error', detail }, now)
+    // The steps stay active: the launch ends them, after the creation is rolled back.
+    for (const stoppedStage of stopped) report(stoppedStage, 'active')
+  }
+  let hasFailed = false
   return (repositoryPath, stage, update) => {
-    const statuses = stages.get(stage) ?? new Map<string, WorktreeStageUpdate['status']>()
-    stages.set(stage, statuses)
-    statuses.set(repositoryPath, update.status)
-    const active = [...statuses.values()].filter((status) => status === 'active').length
-    const ended = statuses.size - active
-    const name = repositories.find((repository) => repository.path === repositoryPath)?.name ?? repositoryPath
-    // A failure is the error of the launch: the card gets it there, with its message.
-    if (update.status === 'error') return
-    if (stage === 'checkout' && update.status === 'done') onCheckedOut?.(name, ended)
-    onStage(stage, {
-      status: active > 0 ? 'active' : update.status,
-      percent: active === 1 && update.status === 'active' ? update.percent : undefined,
-      detail: `${name} (${Math.min(ended + (update.status === 'active' ? 1 : 0), repositories.length)} of ${repositories.length})`,
-    })
+    const substeps = substepsOf(stage)
+    const substep = substeps.find((each) => each.id === repositoryPath)
+    // A checkout that the failure stopped can report after it. The files of a
+    // checkout report many times a second, and the state of the repository is the same.
+    if (hasFailed || !substep || substep.status === update.status) return
+    if (update.status === 'error') {
+      hasFailed = true
+      fail(substep, stage, update.detail, Date.now())
+      return
+    }
+    setSubstep(substep, update, Date.now())
+    if (stage === 'checkout' && update.status === 'done') {
+      onCheckedOut?.(substep.label, substeps.filter((each) => each.status === 'done').length)
+    }
+    report(stage, stepStatusOf(substeps))
   }
 }
 

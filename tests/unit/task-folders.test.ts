@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { CODEBASE_WORKTREE_DEFAULT_MAX, isTaskFolderPath, TASK_FOLDER_ROOT_NAME, type CodebaseMember, type TaskFolder } from '@solus/contracts/codebases'
+import { CODEBASE_WORKTREE_DEFAULT_MAX, isTaskFolderPath, TASK_FOLDER_ROOT_NAME, type Codebase, type CodebaseMember, type TaskFolder } from '@solus/contracts/codebases'
+import type { TaskFolderPlan } from '@solus/server/git/task-folders'
 import { DatabaseSync } from './helpers/bun-sqlite'
 
 // The Git process runner and the record of a task folder use the host database module, which needs `node:sqlite`.
@@ -71,9 +72,16 @@ function member(path: string, overrides: Partial<CodebaseMember> = {}): Codebase
   return { path, name: path.split(/[\\/]/).at(-1) ?? path, state: 'git', repositoryKey: null, rootPath: path, discovered: false, hasCommit: true, submodule: false, ...overrides }
 }
 
-/** The members of a codebase with these roots, read from the disk. */
+/**
+ * The members of a codebase with these roots, read from the disk. A root
+ * with no repository of its own is a container root, so the repositories
+ * inside it are members. A repository root is one project: one member.
+ */
 function membersOfRoots(...roots: string[]): Promise<CodebaseMember[]> {
-  const codebase = { id: 'codebase-test', name: 'test', roots: roots.map((path) => ({ installationId: HERE, path, name: '' })), updatedAt: 1, deletedAt: null }
+  const codebase: Codebase = {
+    id: 'codebase-test', name: 'test', updatedAt: 1, deletedAt: null,
+    roots: roots.map((path) => ({ installationId: HERE, path, name: '', ...(existsSync(join(path, '.git')) ? {} : { container: true as const }) })),
+  }
   return asHost(() => members.membersOf(codebase, HERE))
 }
 
@@ -190,7 +198,7 @@ describe('the plan of a task folder', () => {
 
   test('a named path that cannot be in the task folder is refused with its reason', () => {
     const all = [member('/code/api'), member('/code/notes', { state: 'plain' })]
-    expect(() => plan('/code/api', all, ['/code/elsewhere'])).toThrow('/code/elsewhere is not a folder of this session\'s project or codebase.')
+    expect(() => plan('/code/api', all, ['/code/elsewhere'])).toThrow('/code/elsewhere is not a folder of this session\'s codebase.')
     expect(() => plan('/code/api', all, ['/code/notes'])).toThrow('/code/notes is not a Git repository')
 
     // WHY: a task folder keeps relative places, and two Windows drives have no folder that holds both.
@@ -267,7 +275,8 @@ describe('the layout of a new task folder', () => {
   test('a repository nested in a different one is checked out after it', async () => {
     const mono = repository('nested', 'mono')
     const vendor = repository('nested', 'mono', 'vendor-lib')
-    const plan = taskFolders.planTaskFolder({ codebaseId: null, workingMember: mono, members: await membersOfRoots(mono), repositories: null })
+    // The plan reads no disk: the nested repository is a member that the caller names.
+    const plan = taskFolders.planTaskFolder({ codebaseId: null, workingMember: mono, members: [member(mono), member(vendor, { rootPath: mono, discovered: true })], repositories: null })
     const events: string[] = []
     let recordsAtFirstEvent = -1
 
@@ -344,7 +353,8 @@ describe('a creation that fails', () => {
     git(mono, 'branch', 'feature')
     // Git cannot register a worktree of this repository. It is nested, so its checkout is the second one.
     writeFileSync(join(vendor, '.git', 'worktrees'), 'not a folder\n')
-    const plan = taskFolders.planTaskFolder({ codebaseId: null, workingMember: mono, members: await membersOfRoots(mono), repositories: null })
+    // The plan reads no disk: the nested repository is a member that the caller names.
+    const plan = taskFolders.planTaskFolder({ codebaseId: null, workingMember: mono, members: [member(mono), member(vendor, { rootPath: mono, discovered: true })], repositories: null })
     const events: string[] = []
 
     await expect(asHost(() => taskFolders.createTaskFolder(plan!, {
@@ -362,6 +372,33 @@ describe('a creation that fails', () => {
     // WHY: a failed creation must leave each repository as it was: no new branch, and no branch of the person removed.
     expect(branchesOf(mono).sort()).toEqual(['feature', 'main'])
     expect(branchesOf(vendor)).toEqual(['main'])
+  }, LONG)
+})
+
+describe('the progress of a creation that fails', () => {
+  test('the repository whose worktree fails reports its error, and no other repository reports one', async () => {
+    const { shop, api, web } = shopAt('progress-failure')
+    // Git cannot register a worktree of this repository.
+    writeFileSync(join(web, '.git', 'worktrees'), 'not a folder\n')
+    // The plan is made here: this rule is about the reports of the creation, not about the members.
+    const plan: TaskFolderPlan = {
+      codebaseId: null, anchor: shop, workingMember: shop, workingMemberIsRepository: false,
+      repositories: [{ path: api, name: 'api' }, { path: web, name: 'web' }], otherRepositories: [],
+    }
+    const errors: { repository: string; stage: string; detail: string | undefined }[] = []
+
+    const failure = await asHost(() => taskFolders.createTaskFolder(plan, {
+      baseFolder: dataDir,
+      branch: 'progress-failure',
+      baseBranch: null,
+      onRepository: (repositoryPath, stage, update) => {
+        if (update.status === 'error') errors.push({ repository: repositoryPath, stage, detail: update.detail })
+      },
+    })).then(() => null, (error: Error) => error)
+
+    // WHY: the setup card names the error on the row of the repository that failed. The checkout of `api` was only stopped.
+    expect(failure).toBeInstanceOf(Error)
+    expect(errors).toEqual([{ repository: web, stage: 'checkout', detail: failure!.message }])
   }, LONG)
 })
 

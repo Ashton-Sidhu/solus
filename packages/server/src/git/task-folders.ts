@@ -48,7 +48,11 @@ interface Checkout {
   worktreePath: string
 }
 
-/** The progress of the worktree of one repository, in the stages of `createWorktree`. */
+/**
+ * The progress of the worktree of one repository, in the stages of
+ * `createWorktree`. A repository whose worktree fails reports `error` with
+ * the message in `detail`, for the stage that it was in.
+ */
 export type TaskFolderProgress = (repositoryPath: string, stage: WorktreeSetupStage, update: WorktreeStageUpdate) => void
 
 export interface CreateTaskFolderOptions {
@@ -153,13 +157,27 @@ async function checkOut(
 ): Promise<void> {
   const { baseBranch, onRepository } = options
   const base = !branch.exists && baseBranch && await hasBranch(checkout.repositoryPath, baseBranch) ? baseBranch : undefined
-  // `createWorktree` copies the `.worktreeinclude` files, loads the submodules, and removes what it made when it fails.
-  await createWorktree(checkout.repositoryPath, base, {
-    signal: options.signal,
-    branch,
-    worktreePath: checkout.worktreePath,
-    onStage: onRepository && ((stage, update) => onRepository(checkout.repositoryPath, stage, update)),
-  })
+  // The stages of this repository that started and did not end, the newest last.
+  const openStages = new Set<WorktreeSetupStage>()
+  try {
+    // `createWorktree` copies the `.worktreeinclude` files, loads the submodules, and removes what it made when it fails.
+    await createWorktree(checkout.repositoryPath, base, {
+      signal: options.signal,
+      branch,
+      worktreePath: checkout.worktreePath,
+      onStage: onRepository && ((stage, update) => {
+        if (update.status === 'active') openStages.add(stage)
+        else openStages.delete(stage)
+        onRepository(checkout.repositoryPath, stage, update)
+      }),
+    })
+  } catch (error) {
+    // The repository that failed names its error. A checkout that a person or a different failure stopped did not fail.
+    if (!options.signal?.aborted) {
+      onRepository?.(checkout.repositoryPath, [...openStages].at(-1) ?? 'checkout', { status: 'error', detail: messageOf(error) })
+    }
+    throw error
+  }
 }
 
 /**

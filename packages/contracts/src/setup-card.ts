@@ -1,4 +1,4 @@
-import type { SessionStatus, StatusCardState, StatusCardStep } from './types'
+import type { SessionStatus, StatusCardState, StatusCardStep, StatusCardStepStatus } from './types'
 
 /** The host's card for the worktree it prepares before a new run starts. */
 export function worktreeSetupCardId(sessionId: string): string {
@@ -66,14 +66,19 @@ export function settleSetupCard(card: StatusCardState, status: SessionStatus | u
     title: succeeded
       ? (isWorktree ? 'Worktree ready' : 'Setup complete')
       : (isWorktree ? 'Worktree setup stopped' : 'Setup stopped'),
-    // A skipped step and a step with a warning keep their status: setup went on past them.
+    // The sub-steps of a step settle by the same rule as the step.
     steps: card.steps.map((step) => ({
       ...step,
-      status: step.status === 'active' || step.status === 'pending'
-        ? (succeeded ? 'done' : step.status === 'active' ? 'error' : 'pending')
-        : step.status,
+      status: settledStepStatus(step.status, succeeded),
+      ...(step.substeps && { substeps: step.substeps.map((substep) => ({ ...substep, status: settledStepStatus(substep.status, succeeded) })) }),
     })),
   }
+}
+
+/** A skipped step and a step with a warning keep their status: setup went on past them. */
+function settledStepStatus(status: StatusCardStepStatus, succeeded: boolean): StatusCardStepStatus {
+  if (status !== 'active' && status !== 'pending') return status
+  return succeeded ? 'done' : status === 'active' ? 'error' : 'pending'
 }
 
 /** The host did setup work for this card: a step has the host's start time.
@@ -82,9 +87,9 @@ export function hostReportedSetup(card: StatusCardState): boolean {
   return card.steps.some((step) => step.startedAt !== undefined)
 }
 
-/** How long a step took, from the host's times. Undefined while it runs or
- *  when the card has no times. */
-export function stepDurationMs(step: StatusCardStep): number | undefined {
+/** How long a step or a sub-step took, from the host's times. Undefined while
+ *  it runs or when the card has no times. */
+export function stepDurationMs(step: Pick<StatusCardStep, 'startedAt' | 'endedAt'>): number | undefined {
   return step.startedAt !== undefined && step.endedAt !== undefined ? step.endedAt - step.startedAt : undefined
 }
 

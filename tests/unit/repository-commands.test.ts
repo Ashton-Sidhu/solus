@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { RunConfig, Session } from '@solus/contracts/types'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
-import { activeStepNote } from '@solus/workspace-ui/components/conversation/lib/status-card'
 
 const toastErrors: string[] = []
 mock.module('@solus/workspace-ui/lib/toasts', () => ({
@@ -124,19 +123,5 @@ describe('"Add folder"', () => {
     await Bun.sleep(0)
     expect(toastErrors).toEqual(["Couldn't add the folder"])
     expect(session.sessionFolders).toEqual([])
-  })
-})
-
-// The checkout step of a task folder names the repository it is on, so the
-// person sees that a long setup moves: "web (2 of 3)".
-describe('a running step of the setup card', () => {
-  test('shows the detail of the host, then its percentage', () => {
-    expect(activeStepNote({ detail: 'web (2 of 3)' })).toBe('web (2 of 3)')
-    expect(activeStepNote({ detail: 'web (2 of 3)', percent: 40 })).toBe('web (2 of 3) · 40%')
-  })
-
-  test('a step with no detail keeps its percentage or "running"', () => {
-    expect(activeStepNote({ percent: 40 })).toBe('40%')
-    expect(activeStepNote({})).toBe('running')
   })
 })

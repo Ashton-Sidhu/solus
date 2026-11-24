@@ -348,16 +348,24 @@ export function ConversationCard({
       return (
         <Details title={item.card.title} subtitle={item.card.status}>
           {item.card.steps.map((step) => (
-            <AppText key={step.id}>
-              {[
-                step.label,
-                step.status,
-                step.percent !== undefined ? step.percent + "%" : null,
-                step.detail,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </AppText>
+            <View key={step.id}>
+              <AppText>
+                {[
+                  step.label,
+                  step.status,
+                  step.percent !== undefined ? step.percent + "%" : null,
+                  step.detail,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </AppText>
+              {/* The part of each repository in a step of several repositories. */}
+              {step.substeps?.map((substep) => (
+                <AppText key={substep.id} className="pl-4 text-foreground-secondary">
+                  {[substep.label, substep.status, substep.detail].filter(Boolean).join(" · ")}
+                </AppText>
+              ))}
+            </View>
           ))}
           {item.card.output?.length ? (
             <AppText selectable className="font-mono text-xs">

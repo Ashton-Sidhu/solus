@@ -1,5 +1,5 @@
-import type { StatusCardState, StatusCardStep } from '@solus/contracts/types'
-import { formatStepDuration, setupSpanMs } from '@solus/contracts/setup-card'
+import type { StatusCardState, StatusCardStep, StatusCardSubstep } from '@solus/contracts/types'
+import { formatStepDuration, setupSpanMs, stepDurationMs } from '@solus/contracts/setup-card'
 
 export interface StatusCardLine {
   /** The lowercase type word: the glyph and this word carry the state. */
@@ -35,13 +35,19 @@ export function statusCardLine(card: StatusCardState, clientTotalMs: number): St
   }
 }
 
+/** A failed step or a step with a warning shows its detail below its row. The rule is the same for a sub-step. */
+export function showsStepDetail(step: Pick<StatusCardStep, 'detail' | 'status'>): boolean {
+  return !!step.detail && (step.status === 'error' || step.status === 'warning')
+}
+
 /**
- * What a running step says at the end of its row: its detail when the host
- * sends one (the checkout step of several worktrees names the repository,
- * "web (2 of 3)"), then its percentage, else "running".
+ * What the row of a sub-step says at its end: "running", "skipped", or the
+ * time that its repository took, from the times of the host. A sub-step that
+ * waits says nothing: its mark shows its state.
  */
-export function activeStepNote(step: Pick<StatusCardStep, 'detail' | 'percent'>): string {
-  const progress = step.percent === undefined ? null : `${step.percent}%`
-  if (step.detail) return progress ? `${step.detail} · ${progress}` : step.detail
-  return progress ?? 'running'
+export function substepNote(substep: StatusCardSubstep): string {
+  if (substep.status === 'active') return 'running'
+  if (substep.status === 'skipped') return 'skipped'
+  const durationMs = stepDurationMs(substep)
+  return durationMs === undefined ? '' : formatStepDuration(durationMs)
 }

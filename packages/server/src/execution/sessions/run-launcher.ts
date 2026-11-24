@@ -64,7 +64,7 @@ class WorkLocallyRequest extends Error {
 }
 
 /** One change to a setup step. */
-interface SetupStepUpdate extends Pick<StatusCardStep, 'percent' | 'detail'> {
+interface SetupStepUpdate extends Pick<StatusCardStep, 'percent' | 'detail' | 'substeps'> {
   status: StatusCardStepStatus
 }
 
@@ -546,6 +546,9 @@ export class RunLauncher {
       if (update.status !== 'active') delete step.percent
       else if (update.percent !== undefined) step.percent = update.percent
       if (update.detail) step.detail = update.detail
+      // A step that the launch skips did no work in a repository, so it has no sub-steps.
+      if (update.substeps) step.substeps = update.substeps
+      else if (update.status === 'skipped') delete step.substeps
     }
     // The next step shows as active before its work starts, with no time yet:
     // the client's card at Send shows the same.
@@ -800,7 +803,9 @@ export class RunLauncher {
           const activeSteps = setupSteps.filter((step) => step.status === 'active')
           const failedStepId = activeSteps.at(-1)?.id ?? 'checkout'
           for (const step of activeSteps) setStep(step.id, { status: 'error' })
-          setStep(failedStepId, { status: 'error', detail: message })
+          // The sub-step of the repository that failed names the error (`taskFolderStages`).
+          const isNamedBySubstep = setupSteps.some((step) => step.substeps?.some((substep) => substep.status === 'error' && substep.detail))
+          setStep(failedStepId, { status: 'error', detail: isNamedBySubstep ? undefined : message })
           const card = buildSetupCard()
           card.recovery = 'worktree'
           this.failedSetupPrompts.set(sessionId, options)

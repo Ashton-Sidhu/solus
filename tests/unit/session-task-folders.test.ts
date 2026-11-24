@@ -136,8 +136,8 @@ interface Shop {
 let nextShop = 0
 /**
  * A plain folder `shop` with the repositories `api` and `web` and a file, and
- * a codebase of `shop` and a folder on a different host. The second root adds
- * no member on this host: a codebase has two or more folders.
+ * a codebase of the container `shop` and a folder on a different host. The second root adds
+ * no member on this host.
  */
 async function shopCodebase(): Promise<Shop> {
   const shop = join(root, `work-${++nextShop}`, 'shop')
@@ -145,7 +145,7 @@ async function shopCodebase(): Promise<Shop> {
   writeFileSync(join(shop, 'NOTES.md'), 'the shop\n')
   const codebase = await codebases.saveCodebase('local', 'owner', {
     id: `task-folder-codebase-${nextShop}`, name: 'shop', updatedAt: 1_000, deletedAt: null,
-    roots: [{ installationId, path: shop, name: '' }, { installationId: 'installation-build-server', path: '/srv/infra', name: 'infra' }],
+    roots: [{ installationId, path: shop, name: '', container: true }, { installationId: 'installation-build-server', path: '/srv/infra', name: 'infra' }],
   })
   return { shop, api: repository(join(shop, 'api')), web: repository(join(shop, 'web')), codebase }
 }
@@ -219,8 +219,8 @@ describe('the launch of a new worktree session', () => {
       // The folders of the session are the worktrees. The repository of each one stays the member.
       const folders = runtime.sessionFolders.foldersOf('plain-member')
       expect(folders).toEqual([
-        { path: worktrees.api, name: 'api', state: 'git', repositoryPath: api, source: 'project', granted: true },
-        { path: worktrees.web, name: 'web', state: 'git', repositoryPath: web, source: 'project', granted: true },
+        { path: worktrees.api, name: 'api', state: 'git', repositoryPath: api, source: 'codebase', granted: true },
+        { path: worktrees.web, name: 'web', state: 'git', repositoryPath: web, source: 'codebase', granted: true },
       ])
       expect(foldersPublishedFor('plain-member').at(-1)).toEqual(folders)
       // A turn checkpoint is made in each worktree, not in the shared checkout.
@@ -241,9 +241,17 @@ describe('the launch of a new worktree session', () => {
       const output = cards.at(-1)!.output ?? []
       expect(output.filter((line) => /^Worktree \d of 2: (api|web)$/.test(line)).sort()).toHaveLength(2)
       expect(output.some((line) => line.startsWith('Worktree 2 of 2: '))).toBe(true)
-      const details = cards.flatMap((card) => card.steps.find((step) => step.id === 'checkout')?.detail ?? [])
-      expect(details.some((detail) => /^api \(\d of 2\)$/.test(detail))).toBe(true)
-      expect(details.some((detail) => /^web \(\d of 2\)$/.test(detail))).toBe(true)
+      // WHY: with several repositories, a person must see which one a step is on, so each step has one sub-step for each repository.
+      const stepOf = (id: string) => cards.at(-1)!.steps.find((step) => step.id === id)!
+      for (const id of ['fetch', 'checkout', 'submodules']) {
+        expect(stepOf(id).substeps?.map((substep) => substep.label)).toEqual(['api', 'web'])
+        expect(stepOf(id).detail).toBeUndefined()
+      }
+      // These repositories have no origin and no submodules, so only the checkout did work.
+      expect(stepOf('fetch').substeps?.map((substep) => substep.status)).toEqual(['skipped', 'skipped'])
+      expect(stepOf('checkout')).toMatchObject({ status: 'done', substeps: [{ id: api, status: 'done' }, { id: web, status: 'done' }] })
+      for (const substep of stepOf('checkout').substeps ?? []) expect(substep.endedAt).toBeGreaterThanOrEqual(substep.startedAt!)
+      expect(cards.at(-1)!.steps.find((step) => step.id === 'agent')?.substeps).toBeUndefined()
 
       // The client of this session names the member at the next turn: the session continues in its task folder.
       expect(runtime.taskFolders.ofTurn('plain-member', shop, shop)?.root).toBe(taskFolder.root)
@@ -314,10 +322,50 @@ describe('the launch of a new worktree session', () => {
     const { runtime, start, cardsOf } = plane()
     try {
       await expect(start('refused-plan', input(shop, { codebaseId: codebase.id, worktreeRepositories: [join(root, 'not-a-member')] })))
-        .rejects.toThrow("is not a folder of this session's project or codebase")
+        .rejects.toThrow("is not a folder of this session's codebase")
       const card = cardsOf('refused-plan').at(-1)!
       expect(card.status).toBe('error')
-      expect(card.steps.find((step) => step.status === 'error')?.detail).toContain("is not a folder of this session's project or codebase")
+      expect(card.steps.find((step) => step.status === 'error')?.detail).toContain("is not a folder of this session's codebase")
+    } finally {
+      runtime.shutdown()
+    }
+  }, LONG)
+
+  test('a repository whose checkout fails names the error in its sub-step', async () => {
+    const { shop, web, codebase } = await shopCodebase()
+    // Git cannot register a worktree of this repository.
+    writeFileSync(join(web, '.git', 'worktrees'), 'not a folder\n')
+    const { runtime, start, cardsOf } = plane()
+    try {
+      const failure = await start('failed-repository', input(shop, { codebaseId: codebase.id })).then(() => null, (error: Error) => error)
+      expect(failure).toBeInstanceOf(Error)
+      const card = cardsOf('failed-repository').at(-1)!
+      expect(card.status).toBe('error')
+      expect(card.recovery).toBe('worktree')
+      // WHY: the person must know which repository to repair, so only that row has the message.
+      const substeps = card.steps.flatMap((step) => step.substeps ?? [])
+      const named = substeps.filter((substep) => substep.detail)
+      expect(named.map((substep) => [substep.label, substep.status])).toEqual([['web', 'error']])
+      expect(named[0]!.detail).toBe(failure!.message)
+      // The step of that row failed, and it does not say the message a second time.
+      const failedStep = card.steps.find((step) => step.substeps?.some((substep) => substep.detail))!
+      expect(failedStep).toMatchObject({ id: 'checkout', status: 'error' })
+      expect(failedStep.detail).toBeUndefined()
+      // WHY: a failed card is final, so no row can show work in progress.
+      expect(substeps.some((substep) => substep.status === 'active')).toBe(false)
+    } finally {
+      runtime.shutdown()
+    }
+  }, LONG)
+
+  test('one repository gives a card with no sub-steps', async () => {
+    const lone = repository(join(root, 'lone-card'))
+    const { runtime, start, cardsOf } = plane()
+    try {
+      await start('one-repository-card', input(lone))
+      const cards = cardsOf('one-repository-card')
+      expect(cards.length).toBeGreaterThan(0)
+      expect(cards.flatMap((card) => card.steps).some((step) => step.substeps !== undefined)).toBe(false)
     } finally {
       runtime.shutdown()
     }
@@ -441,25 +489,25 @@ describe('a session in a task folder', () => {
     }
   }, LONG)
 
-  test('a session with no codebase adds a repository of its project to its task folder', async () => {
-    // WHY: a project covers the repositories inside it with no codebase (decision 14). The task folder of such a
-    // session reads the repositories of the project, at its creation and for each later repository.
+  test('a session in a container that had no codebase gets its task folder, and adds a repository of the container later', async () => {
+    // WHY: a container is a codebase (decision 14). The host forms it before the plan of the worktree, so the first
+    // worktree session of the folder is isolated, and a later repository comes from the same members.
     const shop = join(root, `work-${++nextShop}`, 'shop')
     const api = repository(join(shop, 'api'))
     const web = repository(join(shop, 'web'))
     const { runtime, start } = plane()
     try {
-      const run = await start('project-added', input(shop, { worktreeRepositories: [api] }))
+      const run = await start('container-added', input(shop, { worktreeRepositories: [api] }))
       expect(isTaskFolderPath(run.cwd)).toBe(true)
-      expect(await runtime.sessionFolders.codebaseIdOf('project-added')).toBeNull()
-      expect((await runtime.taskFolders.candidates('project-added', HOST_ACTOR)).map((member) => member.path)).toEqual([web])
+      const codebaseId = await runtime.sessionFolders.codebaseIdOf('container-added')
+      expect(await codebases.getCodebase('local', codebaseId!)).toMatchObject({ roots: [{ path: shop, container: true }] })
+      expect((await runtime.taskFolders.candidates('container-added', HOST_ACTOR)).map((member) => member.path)).toEqual([web])
 
-      const folders = await runtime.taskFolders.addRepository('project-added', web, HOST_ACTOR)
+      const folders = await runtime.taskFolders.addRepository('container-added', web, HOST_ACTOR)
       expect(folders.map(({ path, repositoryPath, source }) => ({ path, repositoryPath, source }))).toEqual([
-        { path: join(run.cwd, 'api'), repositoryPath: api, source: 'project' },
-        { path: join(run.cwd, 'web'), repositoryPath: web, source: 'project' },
+        { path: join(run.cwd, 'api'), repositoryPath: api, source: 'codebase' },
+        { path: join(run.cwd, 'web'), repositoryPath: web, source: 'codebase' },
       ])
-      expect(await codebases.listCodebases('local')).not.toContainEqual(expect.objectContaining({ roots: expect.arrayContaining([expect.objectContaining({ path: shop })]) }))
     } finally {
       runtime.shutdown()
     }

@@ -4,12 +4,12 @@
     TriangleAlert as WarningIcon,
   } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import type { StatusCardState } from "@solus/contracts/types";
+  import type { StatusCardState, StatusCardStep, StatusCardStepStatus } from "@solus/contracts/types";
   import TranscriptCard from "./TranscriptCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { TerminalOutput } from "../ui/terminal-output";
   import { SetupStepTiming } from "./lib/setup-timing.svelte";
-  import { activeStepNote, statusCardLine } from "./lib/status-card";
+  import { showsStepDetail, statusCardLine, substepNote } from "./lib/status-card";
   import { sessionSyncFailureAction } from "@solus/client-core/session-sync-card";
   import {
     formatStepDuration,
@@ -55,9 +55,49 @@
   // A step with a warning is what the reader must see, so its card stays open.
   const hasWarning = $derived(card.steps.some((step) => step.status === "warning"));
   const expanded = $derived(userExpanded ?? (!isDone || keepsStepsOpen || hasWarning));
-  // A failed or warned step shows its detail under it, so the rail stops there.
-  const showsDetail = (step: StatusCardState["steps"][number]) => !!step.detail && (step.status === "error" || step.status === "warning");
 </script>
+
+<!-- The mark of a row: the same one for a step and for a sub-step. -->
+{#snippet stepMarker(status: StatusCardStepStatus)}
+  {#if status === "done"}
+    <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
+  {:else if status === "error"}
+    <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
+  {:else if status === "warning"}
+    <WarningIcon size={12} class="shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+  {:else if status === "skipped"}
+    <span class="setup-dash shrink-0" aria-hidden="true"></span>
+  {:else if status === "active"}
+    <!-- The same indeterminate hairline used everywhere else, not a
+         spinner. -->
+    <span class="setup-indet shrink-0" aria-hidden="true"><span></span></span>
+  {:else}
+    <span class="setup-dot" aria-hidden="true"></span>
+  {/if}
+{/snippet}
+
+{#snippet stepLabel(row: Pick<StatusCardStep, "label" | "status">)}
+  <span
+    class="min-w-0 flex-1 truncate text-transcript-card"
+    class:setup-label--done={row.status === "done"}
+    class:setup-label--active={row.status === "active"}
+    class:setup-label--pending={row.status === "pending" || row.status === "skipped"}
+    class:setup-label--error={row.status === "error"}
+    class:setup-label--warning={row.status === "warning"}
+  >
+    {row.label}
+  </span>
+{/snippet}
+
+<!-- A hairline joins a mark to the next one in its column, green below a finished row. -->
+{#snippet stepRail(status: StatusCardStepStatus, left: string)}
+  <span
+    class="absolute top-[calc(50%+0.5625rem)] -bottom-[0.3125rem] w-[1.5px] rounded-full {left} {status === 'done'
+      ? 'bg-[color:color-mix(in_oklch,var(--chart-3)_45%,transparent)]'
+      : 'bg-[color:color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
+    aria-hidden="true"
+  ></span>
+{/snippet}
 
 <div role="status" aria-live="polite">
   <TranscriptCard
@@ -114,54 +154,44 @@
             class:is-active={step.status === "active"}
             style:--step-percent={step.status === "active" && step.percent !== undefined ? `${step.percent}%` : undefined}
           >
-            {#if index < card.steps.length - 1 && !showsDetail(step)}
-              <span
-                class="absolute top-[calc(50%+0.5625rem)] -bottom-[0.3125rem] left-[calc(0.875rem-0.75px)] w-[1.5px] rounded-full {step.status === 'done'
-                  ? 'bg-[color:color-mix(in_oklch,var(--chart-3)_45%,transparent)]'
-                  : 'bg-[color:color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
-                aria-hidden="true"
-              ></span>
+            <!-- A failed or warned step shows its detail under it, and a step of
+                 several repositories shows their rows, so the rail stops there. -->
+            {#if index < card.steps.length - 1 && !showsStepDetail(step) && !step.substeps?.length}
+              {@render stepRail(step.status, "left-[calc(0.875rem-0.75px)]")}
             {/if}
-            {#if step.status === "done"}
-              <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
-            {:else if step.status === "error"}
-              <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
-            {:else if step.status === "warning"}
-              <WarningIcon size={12} class="shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-            {:else if step.status === "skipped"}
-              <span class="setup-dash shrink-0" aria-hidden="true"></span>
-            {:else if step.status === "active"}
-              <!-- The same indeterminate hairline used everywhere else, not a
-                   spinner. -->
-              <span class="setup-indet shrink-0" aria-hidden="true"><span></span></span>
-            {:else}
-              <span class="setup-dot" aria-hidden="true"></span>
-            {/if}
-
-            <span
-              class="min-w-0 flex-1 truncate text-transcript-card"
-              class:setup-label--done={step.status === "done"}
-              class:setup-label--active={step.status === "active"}
-              class:setup-label--pending={step.status === "pending" || step.status === "skipped"}
-              class:setup-label--error={step.status === "error"}
-              class:setup-label--warning={step.status === "warning"}
-            >
-              {step.label}
-            </span>
+            {@render stepMarker(step.status)}
+            {@render stepLabel(step)}
 
             {#if step.status === "active"}
-              <span class="setup-elapsed max-w-[60%] shrink-0 truncate">{activeStepNote(step)}</span>
+              <span class="setup-elapsed shrink-0">{step.percent === undefined ? "running" : `${step.percent}%`}</span>
             {:else if step.status === "skipped"}
               <span class="setup-elapsed shrink-0">skipped</span>
             {:else if stepMs}
               <span class="setup-elapsed shrink-0">{formatStepDuration(stepMs)}</span>
             {/if}
           </li>
-          {#if showsDetail(step)}
+          {#if showsStepDetail(step)}
             <li class="setup-detail px-2 pb-1.5" class:setup-detail--warning={step.status === "warning"}>
               {step.detail}
             </li>
           {/if}
+          <!-- The part of each repository in the step: the row of a step, one level in. -->
+          {#each step.substeps ?? [] as substep, substepIndex (substep.id)}
+            {@const note = substepNote(substep)}
+            <li class="relative flex min-h-7 items-center gap-2.5 py-[0.3125rem] pr-2 pl-[1.875rem]">
+              {#if substepIndex < (step.substeps?.length ?? 0) - 1 && !showsStepDetail(substep)}
+                {@render stepRail(substep.status, "left-[calc(2.25rem-0.75px)]")}
+              {/if}
+              {@render stepMarker(substep.status)}
+              {@render stepLabel(substep)}
+              {#if note}<span class="setup-elapsed shrink-0">{note}</span>{/if}
+            </li>
+            {#if showsStepDetail(substep)}
+              <li class="setup-detail pr-2 pb-1.5 pl-[1.875rem]" class:setup-detail--warning={substep.status === "warning"}>
+                {substep.detail}
+              </li>
+            {/if}
+          {/each}
         {/each}
       </ul>
       {#if isError && card.output?.length}
