@@ -1,3 +1,4 @@
+import { fitsWorktreeDefault } from '@solus/client-core/codebases'
 import { CODEBASE_WORKTREE_DEFAULT_MAX, type CodebaseMember } from '@solus/contracts/codebases'
 import { hostPathKey, isWindowsHostPath, sameHostPath } from '@solus/contracts/host-path'
 
@@ -73,7 +74,7 @@ export function worktreeRepositoryChoice(
     .map((member) => ({ member, refusal: refusalOf(member, working.path) }))
     .sort((a, b) => a.member.name.localeCompare(b.member.name) || a.member.path.localeCompare(b.member.path))
   const candidates = others.filter((each) => !each.refusal)
-  const fitsDefault = candidates.length + (isRepository ? 1 : 0) <= CODEBASE_WORKTREE_DEFAULT_MAX
+  const fitsDefault = fitsWorktreeDefault(candidates.length, isRepository)
   const chosenKeys = chosen ? new Set(chosen.map(hostPathKey)) : null
   return {
     working: { path: working.path, name: working.name, isRepository },

@@ -1,5 +1,6 @@
 import path from 'node:path'
-import { CODEBASE_WORKTREE_DEFAULT_MAX, type CodebaseMember } from '@solus/contracts/codebases'
+import { fitsWorktreeDefault } from '@solus/client-core/codebases'
+import type { CodebaseMember } from '@solus/contracts/codebases'
 import { hostPathKey, isWindowsHostPath, sameHostPath } from '@solus/contracts/host-path'
 
 /**
@@ -87,7 +88,7 @@ export function planTaskFolder(input: TaskFolderPlanInput): TaskFolderPlan | nul
   let chosen: CodebaseMember[]
   if (input.repositories === null) {
     const all = input.members.filter((member) => isOther(member) && canHaveWorktree(member) && sharesFolder(member))
-    chosen = all.length + (workingMemberIsRepository ? 1 : 0) <= CODEBASE_WORKTREE_DEFAULT_MAX ? all : []
+    chosen = fitsWorktreeDefault(all.length, workingMemberIsRepository) ? all : []
   } else {
     chosen = input.repositories.map((named) => {
       const member = input.members.find((each) => sameHostPath(each.path, named))

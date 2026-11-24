@@ -1,4 +1,4 @@
-import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, hasEnoughRoots, isContainerScan, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseRoot } from '@solus/contracts/codebases'
+import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, CODEBASE_WORKTREE_DEFAULT_MAX, hasEnoughRoots, isContainerScan, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseRoot } from '@solus/contracts/codebases'
 import { hostPathBaseName, hostPathKey, isInsideHostPath } from '@solus/contracts/host-path'
 import { hostKey } from './host-key'
 
@@ -170,6 +170,18 @@ export function codebasesHolding(codebases: readonly Codebase[], folder: RootPla
   return codebases.filter((codebase) =>
     isLiveCodebase(codebase)
     && codebase.roots.some((root) => root.installationId === folder.installationId && isInsideHostPath(root.path, folder.path)))
+}
+
+/**
+ * Whether a new worktree session with no choice gives each repository a
+ * worktree (docs/plans/codebases.md §7, "Which repositories"): the worktrees
+ * to make are at most `CODEBASE_WORKTREE_DEFAULT_MAX`. `otherRepositories` is
+ * the count of repositories that can get a worktree besides the working
+ * member, which is counted when it is a repository. Above the limit, none
+ * gets a worktree until the person chooses.
+ */
+export function fitsWorktreeDefault(otherRepositories: number, workingIsRepository: boolean): boolean {
+  return otherRepositories + (workingIsRepository ? 1 : 0) <= CODEBASE_WORKTREE_DEFAULT_MAX
 }
 
 /** The repositories that a scan found inside its folder. The folder itself is not one of them. */

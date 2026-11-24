@@ -919,8 +919,10 @@ repository; none above that. A repository with no commit and a submodule are
 left out. A member that shares no common ancestor with the working member (a
 different Windows drive) cannot be chosen. A choice that names a path that is
 not a member, or not a repository, is refused with a message for the person.
-`components/input/lib/worktree-repositories.ts` has the same rule on the
-client, so the start control shows what the host will do.
+`fitsWorktreeDefault` in `client-core/codebases.ts` is the one limit rule
+that the host, desktop and web, and mobile read.
+`components/input/lib/worktree-repositories.ts` builds the rows of the start
+control from it, so the control shows what the host will do.
 
 **Where.** `<data folder>/solus-task-folders/<branch slug>-<8 hex>`, or the
 member folder of an organization member, as for chats
