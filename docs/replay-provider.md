@@ -35,8 +35,8 @@ The scenarios are in `packages/server/src/execution/agents/replay/scenarios/`. T
 | --- | --- | --- |
 | `showcase` | Showcase | Written by hand. Turn 1: thinking, a to-do plan, a file read, an edit that asks permission (with its diff), a test run with output, and a markdown answer with a code block and a table. Turn 2: a question to the user, then an answer. |
 | `subagent` | Background sub-agent | `tests/unit/__fixtures__/claude-async-subagent.jsonl` through the Claude normalizer. |
-| `codex-plan` | Codex plan mode | `tests/unit/__fixtures__/codex-plan-mode.jsonl` through the Codex normalizer in plan mode. |
 | `codex-command` | Codex command | `tests/unit/__fixtures__/codex-normal-turn.jsonl` through the Codex normalizer. |
+| `conversation-cards` | Conversation cards | A tour of setup, thinking, to-dos, file reads and edits, working and completed sub-agents, tool success and failure, an inline HTML artifact, context compaction, and a proposed plan. |
 | `todo-list` | Plan and reads | T3 Code's `todo_list` fixture. Shows a to-do list and two file reads. |
 | `approval` | Write approval | T3 Code's `tool_call_read_only_on_request` fixture. Holds a recorded write for approval. |
 | `question` | Question | T3 Code's `acp_elicitation` fixture. Asks a standalone question with two choices. |
@@ -44,6 +44,8 @@ The scenarios are in `packages/server/src/execution/agents/replay/scenarios/`. T
 | `command-output` | Command output | T3 Code's `command_output_transcript.ndjson`. Shows a literal JSON line with Unicode output. |
 
 The five T3 Code scenarios are snapshots of the [upstream model fixtures at `f8d09515`](https://github.com/pingdotgg/t3code/blob/f8d095151c82cd5dee38922e9aa11bdd31e73ec3/apps/server/scripts/dev-replay-agent.ts#L43), translated from ACP frames to Solus events. They use Solus approval option IDs and display recorded tool input and output. Replay does not execute the commands or write the files shown in the recording. The upstream source is covered by the [T3 Tools MIT license](../apps/mobile/LICENSE).
+
+To finish the Conversation cards tour, allow the sample edit and answer the layout question. The approval also accepts typed denial feedback, which ends the turn. The proposed plan at the end is a display sample. Cards that need real host resources or lifecycle changes, including browser captures, MCP apps, linked worktrees, secret requests, and rate-limit recovery, need separate fixtures.
 
 Rate limits are not replayed: a recorded `rate_limit` would park a real session on a reset time that has already passed.
 

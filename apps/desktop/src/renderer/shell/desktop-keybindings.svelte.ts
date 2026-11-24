@@ -278,7 +278,7 @@ export function installDesktopKeybindings(
   useKeybinding(
     "global.git-open-terminal",
     () => {
-      void session.apiForContext(session.ctx).openWorktreeTerminal(session.ctx).then((launched) => {
+      void session.apiForContext(session.ctx).openWorktreeTerminal(session.ctx, settings.fallbackTerminal).then((launched) => {
         if (!launched) toasts.error("Could not open the terminal. Check that the terminal and tmux are installed.");
         else if (localApi.getPlatform() === "linux") toasts.info("Command sent to the terminal. Switch to its window to continue.");
       }).catch((error) => toasts.error(error instanceof Error ? error.message : "Could not open the terminal."));

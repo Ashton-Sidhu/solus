@@ -1,10 +1,7 @@
-import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import type { ProviderConversation } from './agent-runner'
 import type { AgentId, IpcContext, SessionRunInput } from '@solus/contracts/types'
 import { MODEL_PROFILES } from '@solus/contracts/types'
-import { z } from 'zod'
-import { DEFAULT_EXECUTION_PREFERENCES, executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
+import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 
 /**
  * The instruction fields for a run with no renderer behind it — an automation,
@@ -48,29 +45,6 @@ export function unattendedModelInputFor(
 }
 
 /**
- * Parses the execution preferences a request carries (plans/018 §6). Strict: an
- * unknown key or a bad value refuses the whole request, with the keys named,
- * rather than running with a choice the person did not make. Undefined only where
- * a request type makes them optional (an automation edit that changes no action).
- */
-export function parseExecutionPreferences(sent: ExecutionPreferences | undefined): ExecutionPreferences | undefined {
-  if (sent === undefined) return undefined
-  const parsed = executionPreferencesSchema.safeParse(sent)
-  if (!parsed.success) throw new Error(`Execution preferences refused: ${z.prettifyError(parsed.error)}`)
-  return parsed.data
-}
-
-/**
- * The preferences a client sent with its context, with the settings a policy of
- * the user's active organization locks laid over them (plans/030 §6.6). The
- * person's stored settings never change.
- */
-export function contextPreferences(ctx: Pick<IpcContext, 'settings'> & { session?: Pick<IpcContext['session'], 'organizationId'> }): ExecutionPreferences {
-  const sent = parseExecutionPreferences(ctx.settings.executionPreferences) ?? {}
-  return hostPolicies().forWork(ctx.session?.organizationId ?? LOCAL_ORGANIZATION_ID).withLocks(sent, EXECUTION_SETTING_KEYS)
-}
-
-/**
  * Converts the renderer's UI snapshot (IpcContext) into the caller-agnostic
  * dispatch contract (SessionRunInput). The renderer naturally holds an
  * IpcContext, so it converts inbound here at the control-plane edge; from there
@@ -78,14 +52,14 @@ export function contextPreferences(ctx: Pick<IpcContext, 'settings'> & { session
  * (automations, future HTTP/MCP entry points) build a SessionRunInput directly
  * and never construct an IpcContext at all.
  *
- * Resolves the provider/model fallbacks the dispatch path used to read from
- * settings/statusBar, so downstream code never reaches back into UI state.
+ * Resolves the provider/model fallbacks from the composer's choices, so
+ * downstream code never reaches back into UI state. `preferences` are the
+ * person's, from this host's copy (`actingPreferences`), never from the client.
  */
-export function runInputFromContext(ctx: IpcContext): SessionRunInput {
-  const { session, settings, statusBar } = ctx
-  const preferences = contextPreferences(ctx)
+export function runInputFromContext(ctx: IpcContext, preferences: ExecutionPreferences): SessionRunInput {
+  const { session, statusBar } = ctx
   return {
-    provider: session.provider ?? settings.activeAgent,
+    provider: session.provider ?? statusBar.activeAgent,
     agentSessionId: session.agentSessionId,
     forked: session.forked ?? false,
     forkExcludeLatestTurn: session.forkExcludeLatestTurn ?? false,

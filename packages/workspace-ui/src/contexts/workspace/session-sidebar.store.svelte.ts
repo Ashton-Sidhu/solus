@@ -1685,7 +1685,7 @@ export class SessionSidebarStore {
       const info = await api.getSessionInfo(pin.sessionId)
       const openingPrompt = info?.firstMessage?.trim()
       if (!openingPrompt) throw new Error("Couldn't find the session's opening prompt.")
-      const metadata = await api.generateSessionMetadata(openingPrompt, info?.cwd || pin.cwd, { sessionId: pin.sessionId, executionPreferences: this.settings.executionPreferences })
+      const metadata = await api.generateSessionMetadata(openingPrompt, info?.cwd || pin.cwd, { sessionId: pin.sessionId })
       if (!metadata) throw new Error("Couldn't generate a new session title.")
       await api.setSessionTitle(pin.sessionId, metadata.title, 'generated')
       await this.loadPinnedSessions()

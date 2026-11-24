@@ -36,7 +36,7 @@ time in the **All sources** view, and in each source's own view with that
 source's column.
 
 The client sends your sources to the host with each read of the Tasks page,
-and with each prompt in the execution preferences, so an agent on the host
+and in the copy of your execution preferences that each host keeps, so an agent on the host
 uses the same sources. The host reads each source with your own provider
 connection. Two people on one host who read one source cause one provider
 read, but each person sees the tasks only after their own connection read

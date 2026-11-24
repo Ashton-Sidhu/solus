@@ -88,8 +88,8 @@ account, and the hosts that the profile applies to pull it. The host never calls
 the account API for this. If no client of the person is connected, the tool says
 so and changes nothing. A refused key, value, or entry refuses the whole call.
 
-A change to the instructions has an effect from the next turn, because a client
-sends the execution preferences with each prompt.
+A change to the instructions has an effect from the next turn, because each
+connected client writes the changed execution preferences to its hosts.
 
 Analytics consent is two settings: `clientAnalyticsEnabled` (device) and the host
 config's `analyticsEnabled`. The client emitter stays off until the person chooses.
@@ -216,12 +216,23 @@ cannot change them.
 
 ### Execution preferences
 
-Clients send the person's `executionPreferences` (`EXECUTION_PREFERENCE_KEYS`) with
-prompts, git actions, reviews, headless sessions, and automations. The host stores
-them with the run or the automation, so background work keeps the
-preferences of the person who started it. If a run has no preferences, the host uses
-the built-in defaults, not its owner's settings. The host refuses a request whose
-preferences contain an unknown key or a bad value. It does not drop the bad value.
+Each host keeps its own copy of each person's execution preferences
+(`EXECUTION_PREFERENCE_KEYS`; [the plan](plans/host-preferences.md)). A client writes
+that copy (`executionPreferencesSet`) when it connects to the host and when the
+preferences change. A request does not carry them: a prompt, a git action, a review,
+or a headless session carries only the session and what the person chose for it
+(the provider, model, reasoning, fast mode, and permission mode). The host reads the
+copy of the person who asks, with the policy locks of the work's organization laid
+over it.
+
+The host keeps the keys that it knows and leaves out an unknown key or a value that
+does not pass its schema; that key reads as its built-in default. So a client that
+is newer than its host never makes a call fail. The host stores the preferences
+with each run, and an automation keeps the snapshot that it was saved with, so
+background work keeps the preferences of the person who started it. A person with
+no copy on the host yet (after a host restart, before their client connects) runs
+with the built-in defaults, never with the host owner's settings or another
+person's.
 
 ## Hosts and the Solus Cloud link
 

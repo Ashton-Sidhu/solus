@@ -29,6 +29,8 @@ let HOST_ACTOR: typeof import('@solus/server/admission/actor')['HOST_ACTOR']
 const projectDir = mkdtempSync(join(tmpdir(), 'solus-queue-author-project-'))
 
 beforeAll(async () => {
+  // A prompt reaches the host from a person's call, in that call's acting scope; here, the host's.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-queue-author-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
@@ -118,8 +120,7 @@ function ctx(sessionId: string, agentSessionId: string | null = null): IpcContex
       gitContext: null, worktreeBaseBranch: null, contextWindow: 1_000_000,
       preferredModel: 'claude-sonnet-5', permissionMode: 'full-access' },
     window: {},
-    settings: { activeAgent: 'claude-code', extraInstructions: '' },
-    statusBar: { model: 'claude-sonnet-5', reasoningEffort: 'medium', permissionMode: 'full-access', fastMode: false },
+    statusBar: { activeAgent: 'claude-code', model: 'claude-sonnet-5', reasoningEffort: 'medium', permissionMode: 'full-access', fastMode: false },
   } as unknown as IpcContext
 }
 

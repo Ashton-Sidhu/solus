@@ -138,6 +138,8 @@ const PERMISSION_OF_METHOD = {
   connectionsGetServerInfo: 'host.connect',
   authRenew: 'host.connect',
   accountPresent: 'host.connect',
+  // A person's own preferences: a guest who prompts a shared session runs with theirs too (docs/plans/host-preferences.md).
+  executionPreferencesSet: 'host.connect',
   // A `/v1` request over the socket: each operation checks its own scope and access, as over HTTP.
   solusApiRequest: 'host.connect',
   serverGetCapabilities: 'host.connect',

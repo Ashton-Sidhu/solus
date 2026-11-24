@@ -1,5 +1,6 @@
-import { hostPolicies, REVIEW_SETTING_KEYS } from '../host/policy/host-policy-store'
-import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
+import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
+import { getHostConfig } from '../host/settings'
+import { actingPreferences } from '../execution/person-preferences'
 import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
@@ -84,9 +85,7 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): Pro
         ctx: request.ctx,
         opts: {
           target: { kind: 'pr', ...request.repo, number },
-          agent: lockedReviewSettings(request.ctx).reviewAgent ?? request.ctx.settings.activeAgent,
-          model: lockedReviewSettings(request.ctx).reviewModel,
-          reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
+          ...reviewChoices(request.ctx),
         },
       })
       return job ? { number, joined: job.joined, status: job.status } : { number, error: 'There is nothing to review.' }
@@ -120,7 +119,7 @@ export async function readPrGuideMetadata(
  * queue; `updatedAt` lets an already-settled PR warm immediately on first sight.
  */
 export function scheduleGuideWarming(input: GuideWarmerInput): void {
-  const enabled = input.ctx.settings.reviewWarmingEnabled === true
+  const enabled = warmsReviews(input.ctx)
   const eligible = input.openPullRequests.filter((pr) => pr.state === 'open' && !pr.draft)
   const latest = { ...input, scope: requireActingScope('review guide warming') }
   let state = repoStates.get(input.repoRoot)
@@ -188,7 +187,7 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
   const state = repoStates.get(repoRoot)
   const input = state?.latest
   const pr = input?.openPullRequests.find((candidate) => candidate.number === number)
-  if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
+  if (!input || !warmsReviews(input.ctx) || pr?.headSha !== headSha || pr.draft) return
   await withActingScope(input.scope, () => warmGuideAs(input, number, headSha, repoRoot))
 }
 
@@ -202,9 +201,7 @@ async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: str
     ctx: input.ctx,
     opts: {
       target,
-      agent: lockedReviewSettings(input.ctx).reviewAgent ?? input.ctx.settings.activeAgent,
-      model: lockedReviewSettings(input.ctx).reviewModel,
-      reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',
+      ...reviewChoices(input.ctx),
     },
   })
   const result = await job?.completion
@@ -214,7 +211,7 @@ async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: str
 async function prefetchWorktree(repoRoot: string, number: number, headSha: string): Promise<void> {
   const input = repoStates.get(repoRoot)?.latest
   const pr = input?.openPullRequests.find((candidate) => candidate.number === number)
-  if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
+  if (!input || !warmsReviews(input.ctx) || pr?.headSha !== headSha || pr.draft) return
   await withActingScope(input.scope, () => prefetchWorktreeAs(input, repoRoot, number, headSha))
 }
 
@@ -251,7 +248,17 @@ function errorMessage(err: Parameters<typeof String>[0]): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** The review settings a request carries, with what its organization's policies lock (plans/030 §6.6). */
-export function lockedReviewSettings(ctx: Pick<IpcContext, 'settings' | 'session'>): IpcContext['settings'] {
-  return hostPolicies().forWork(ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID).withLocks(ctx.settings, REVIEW_SETTING_KEYS)
+/** The review agent, model, and reasoning of the person the current call acts for (plans/030 §6.6 locks included). */
+function reviewChoices(ctx: IpcContext) {
+  const preferences = actingPreferences(ctx.session.organizationId)
+  return {
+    agent: preferences.reviewAgent ?? DEFAULT_EXECUTION_PREFERENCES.reviewAgent,
+    model: preferences.reviewModel ?? DEFAULT_EXECUTION_PREFERENCES.reviewModel,
+    reasoningEffort: preferences.reviewReasoning ?? DEFAULT_EXECUTION_PREFERENCES.reviewReasoning,
+  }
+}
+
+/** Whether this host warms review guides for the project: its own setting, by project path. */
+function warmsReviews(ctx: IpcContext): boolean {
+  return getHostConfig().config.reviewWarmingByProject[ctx.session.projectPath] === true
 }

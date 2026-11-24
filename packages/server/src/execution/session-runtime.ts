@@ -8,6 +8,7 @@ import { CheckoutService } from '../git/checkout-service'
 import { AgentRunner, type AgentRun, type AgentRunRequest, type AgentRunSessionState } from './agents/agent-runner'
 import type { AgentTool } from './agents/tools/agent-tool'
 import { runInputFromContext } from './agents/run-input'
+import { actingPreferences } from './person-preferences'
 import { buildHandoff } from './agents/session-handoff'
 import { isWindowClosed } from './rate-limits'
 import { UsageLimitsStore } from '../usage/usage-store'
@@ -381,7 +382,7 @@ export class SessionRuntime extends EventEmitter {
     if (session) {
       session.agentSessionId = null
       delete session.handoffFrom
-      session.runInput = { ...runInputFromContext(ctx), agentSessionId: null }
+      session.runInput = { ...runInputFromContext(ctx, actingPreferences(ctx.session.organizationId)), agentSessionId: null }
       session.gitContext = ctx.session.gitContext ?? undefined
     }
     this.statuses.setStatus(sessionId, 'idle')

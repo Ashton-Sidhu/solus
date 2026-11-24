@@ -113,8 +113,7 @@ function ctx(sessionId: string, agentSessionId: string | null = null, extra: { f
   return {
     session: { sessionId, provider: extra.provider ?? 'claude-code', agentSessionId, workingDirectory: extra.cwd ?? '/tmp/project', origin: 'user', forked: extra.forked ?? false },
     window: {},
-    settings: { activeAgent: 'claude-code' },
-    statusBar: { model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },
+    statusBar: { activeAgent: 'claude-code', model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },
   } as unknown as IpcContext
 }
 
@@ -378,7 +377,7 @@ describe('a move into a worktree', () => {
       prSync: { apply: async () => {} },
     })
     const bob = actors.memberActor('bob', 'Bob')
-    const ipc = { session: { sessionId: 's1', workingDirectory: repo, gitContext: null }, settings: {} } as unknown as IpcContext
+    const ipc = { session: { sessionId: 's1', workingDirectory: repo, gitContext: null } } as unknown as IpcContext
 
     const result = await handlers.get('continueInWorktree')!([ipc, 'name it'], { actor: bob })
 

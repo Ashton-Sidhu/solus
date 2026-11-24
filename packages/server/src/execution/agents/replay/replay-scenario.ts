@@ -24,6 +24,7 @@ const REPLAYABLE_EVENT_TYPES = [
   'tool_call_update',
   'tool_call_complete',
   'tool_result',
+  'tool_progress',
   'subagent_report',
   'subagent_running',
   'assistant_message',
@@ -36,6 +37,8 @@ const REPLAYABLE_EVENT_TYPES = [
   'question_request',
   'usage',
   'context_compaction',
+  'artifact_created',
+  'status_card',
 ] as const satisfies readonly NormalizedEvent['type'][]
 
 /** Whether a scenario may hold an event of this type. */
@@ -142,5 +145,9 @@ export function materializeEvent(event: NormalizedEvent, live: ReplayLive): Norm
   const text = JSON.stringify(event)
     .replaceAll('<workspace>', workspace)
     .replace(ID_FIELD_PATTERN, `"$1":"${live.turnKey}-`)
-  return replayEventSchema.parse(JSON.parse(text))
+  const materialized = replayEventSchema.parse(JSON.parse(text))
+  if (materialized.type === 'status_card') {
+    return { ...materialized, card: { ...materialized.card, id: `${live.turnKey}-${materialized.card.id}` } }
+  }
+  return materialized
 }

@@ -175,7 +175,6 @@ function cloneRunHarness() {
     activeTabId: 'tab-1',
     focusedSourceId: null,
     drafts: { sessionDrafts: new Map() },
-    settings: { activeAgent: 'claude-code' },
     promptComposer: {
       compose: (prompt: string) => prompt,
       composeImages: () => [],

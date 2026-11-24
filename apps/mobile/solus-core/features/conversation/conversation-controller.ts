@@ -10,7 +10,6 @@ import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, readPrefetchedSessionHistor
 import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { BranchRef } from '@solus/contracts/git-types'
 import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
@@ -28,7 +27,6 @@ import {
   revisePlanPrompt,
   runProjectRoot,
   sessionFolderContext,
-  DEFAULT_RUN_SETTINGS,
   type ConversationRun,
   type RunSettings,
 } from './lib/ipc-context'
@@ -109,8 +107,6 @@ export interface ConversationDeps {
   outbox: SendOutbox
   /** The person's run settings when the conversation opens. */
   runSettings(): Promise<RunSettings>
-  /** The person's execution preferences now, sent with every call (plans/018 §6). */
-  executionPreferences(): ExecutionPreferences
   /** Keeps a model's chosen options as the person's own for next time. */
   saveModelOptions?(provider: AgentId, model: string, options: ModelOptions): void
   /** The person's "name new sessions" setting; absent never names one. */
@@ -1848,7 +1844,7 @@ export class ConversationController {
   context() {
     this.run.status = this.model.status
     this.run.organizationId = this.deps.organizationId()
-    return conversationContext(this.run, this.settings ?? DEFAULT_RUN_SETTINGS, this.deps.executionPreferences())
+    return conversationContext(this.run)
   }
 
   private setPhase(phase: ConversationPhase): void {
@@ -1868,10 +1864,7 @@ export class ConversationController {
     this.openingPrompt = null
     if (!prompt || this.run.title || !this.deps.autoRenameSessions?.()) return
     const { api } = this.deps.connection
-    const metadata = await api.generateSessionMetadata(prompt, this.run.workingDirectory, {
-      sessionId: agentSessionId,
-      executionPreferences: this.deps.executionPreferences(),
-    }).catch(() => null)
+    const metadata = await api.generateSessionMetadata(prompt, this.run.workingDirectory, { sessionId: agentSessionId }).catch(() => null)
     // Renamed by hand, or resumed into another provider thread, meanwhile.
     if (!metadata || this.run.title || this.run.agentSessionId !== agentSessionId) return
     this.run.title = metadata.title

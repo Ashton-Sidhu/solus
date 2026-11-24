@@ -9,6 +9,7 @@ import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
 import { runInputFromContext } from '../agents/run-input'
+import { actingPreferences } from '../person-preferences'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { BackendSession, NormalizedEvent, IpcContext, QueuedPromptSnapshot, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
@@ -186,7 +187,7 @@ export class RunScheduler {
     if (!sessionId) throw new Error('A session is required to change its queue.')
     const mutation = sessionQueueMutationSchema.parse(input)
     if (mutation.kind !== 'switch') return this.changeSessionQueue(sessionId, mutation, actor)
-    await this.queueProviderSwitch(sessionId, runInputFromContext(ctx), mutation, actor)
+    await this.queueProviderSwitch(sessionId, runInputFromContext(ctx, actingPreferences(ctx.session.organizationId)), mutation, actor)
     this.publishQueue(sessionId)
     return this.queueSnapshot(sessionId)
   }

@@ -71,6 +71,8 @@ class FakeDelegations {
 }
 
 beforeAll(async () => {
+  // A prompt reaches the host from a person's call, in that call's acting scope; here, the host's.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   dataDir = mkdtempSync(join(tmpdir(), 'solus-organization-vm-records-'))
   process.env.SOLUS_DATA_DIR = dataDir
   turnOrganization = await import('@solus/server/execution/sessions/turn-organization')

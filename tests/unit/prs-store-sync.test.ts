@@ -35,7 +35,6 @@ const REPO = 'github.com/acme/repo'
 const ctx = {
   session: { projectPath: '/repo', workingDirectory: '/repo' },
   window: {},
-  settings: {},
   statusBar: {},
 } as IpcContext
 

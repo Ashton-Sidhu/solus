@@ -1,0 +1,38 @@
+{"kind":"scenario","label":"Conversation cards"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"status_card","card":{"id":"setup","title":"Replay checkout setup","icon":"git-branch","status":"active","steps":[{"id":"checkout","label":"Prepare checkout","status":"active","percent":65},{"id":"verify","label":"Verify project files","status":"pending"}]}}}
+{"kind":"event","afterMs":1100,"event":{"type":"status_card","card":{"id":"setup","title":"Replay checkout setup","icon":"git-branch","status":"done","steps":[{"id":"checkout","label":"Prepare checkout","status":"done"},{"id":"verify","label":"Verify project files","status":"done"}],"output":["Sample checkout is ready."]}}}
+{"kind":"event","event":{"type":"thinking","state":"start"}}
+{"kind":"event","afterMs":850,"event":{"type":"thinking","state":"stop","text":"I will inspect the example project, ask before making a change, and verify the result."}}
+{"kind":"event","event":{"type":"text_chunk","text":"## Conversation cards\n\nThis tour uses recorded updates. It does not change files or run commands.\n\n"}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect the project","status":"in_progress"},{"content":"Review the change","status":"pending"},{"content":"Summarize the result","status":"pending"}]}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Read","toolId":"manifest","index":0,"toolInput":"{\"file_path\":\"<workspace>/package.json\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"manifest","content":"{\n  \"name\": \"conversation-cards-demo\",\n  \"scripts\": { \"test\": \"bun test\" }\n}"}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Task","toolId":"audit-agent","index":1,"isSubagent":true,"subagentType":"claude","toolInput":"{\"description\":\"Review the sample project\"}"}}
+{"kind":"event","event":{"type":"background_task_started","taskId":"audit-task","toolUseId":"audit-agent"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"audit-agent","content":"The sample reviewer started in the background.","isAsyncLaunch":true}}
+{"kind":"event","event":{"type":"background_task_progress","taskId":"audit-task","toolUseId":"audit-agent","description":"Reviewing the test cases","toolUses":1,"lastToolName":"Read"}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Read","toolId":"agent-test-read","index":0,"parentToolUseId":"audit-agent","toolInput":"{\"file_path\":\"<workspace>/src/example.test.ts\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"agent-test-read","parentToolUseId":"audit-agent","content":"The test covers the default layout."}}
+{"kind":"event","event":{"type":"subagent_report","toolUseId":"audit-agent","text":"Add one test for the compact layout."}}
+{"kind":"event","event":{"type":"background_task_settled","taskId":"audit-task","toolUseId":"audit-agent","status":"completed"}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect the project","status":"completed"},{"content":"Review the change","status":"in_progress"},{"content":"Summarize the result","status":"pending"}]}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Edit","toolId":"change","index":2}}
+{"kind":"event","event":{"type":"tool_call_complete","index":2,"toolId":"change","toolInput":"{\"file_path\":\"<workspace>/src/layout.ts\",\"old_string\":\"export const layout = 'wide'\",\"new_string\":\"export const layout = 'compact'\"}"}}
+{"kind":"event","event":{"type":"permission_request","questionId":"change-approval","toolName":"Edit","toolUseId":"change","toolDescription":"Review the sample layout edit","toolInput":{"old_string":"export const layout = 'wide'","new_string":"export const layout = 'compact'"},"options":[{"id":"allow","label":"Allow once","kind":"allow"},{"id":"allow-session","label":"Allow for session","kind":"allow"},{"id":"deny","label":"Deny","kind":"deny"}],"supportsFeedback":true}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"change","content":"The recorded layout edit was accepted."}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Bash","toolId":"missing-test","index":3,"toolInput":"{\"command\":\"bun test src/missing.test.ts\",\"description\":\"Show a recorded test failure\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"missing-test","content":"No test file matched src/missing.test.ts.","isError":true}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Bash","toolId":"test","index":4,"toolInput":"{\"command\":\"bun test src/example.test.ts\",\"description\":\"Show recorded test output\"}"}}
+{"kind":"event","event":{"type":"tool_call_update","toolId":"test","content":"Running layout tests…\n"}}
+{"kind":"event","afterMs":1500,"event":{"type":"tool_result","toolUseId":"test","content":"✓ shows the default layout\n✓ shows the compact layout\n\n2 pass, 0 fail"}}
+{"kind":"event","event":{"type":"tool_call","toolName":"render_artifact","toolId":"summary","index":5,"toolInput":"{\"kind\":\"html\",\"title\":\"Layout test summary\",\"html\":\"<main style='font:16px system-ui;padding:16px'><h2>Layout test summary</h2><p>2 passed · 0 failed</p></main>\"}"}}
+{"kind":"event","event":{"type":"tool_progress","toolUseId":"summary","progress":1,"total":2,"message":"Rendering the sample result"}}
+{"kind":"event","afterMs":1000,"event":{"type":"artifact_created","toolId":"summary","kind":"html","title":"Layout test summary","html":"<main style='font:16px system-ui;padding:16px'><h2>Layout test summary</h2><p>2 passed · 0 failed</p></main>"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"summary","content":"Sample report rendered."}}
+{"kind":"event","event":{"type":"context_compaction","state":"start","trigger":"auto","preTokens":12000}}
+{"kind":"event","afterMs":850,"event":{"type":"context_compaction","state":"stop","trigger":"auto","preTokens":12000,"postTokens":3200,"durationMs":850}}
+{"kind":"event","event":{"type":"question_request","questionId":"layout-question","questions":[{"id":"layout","header":"Layout","question":"Which layout should the sample use?","options":[{"label":"Compact","description":"Show more rows at once."},{"label":"Spacious","description":"Use more room for each row."}],"multiSelect":false}]}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Inspect the project","status":"completed"},{"content":"Review the change","status":"completed"},{"content":"Summarize the result","status":"completed"}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"## Recorded result\n\n| Check | Result |\n| --- | --- |\n| Default layout | Passed |\n| Compact layout | Passed |\n\n```ts\nexport const layout = 'compact'\n```\n\nA sample proposed plan follows.\n\n"}}
+{"kind":"event","afterMs":1500,"event":{"type":"plan","planContent":"# Review the sample layout\n\n1. Compare the compact and spacious layouts.\n2. Check that the controls stay visible.\n3. Keep the layout that fits the device.","planFilePath":"","questionId":"layout-plan","options":[]}}

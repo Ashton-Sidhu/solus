@@ -9,7 +9,7 @@ import { POLICY_REQUEST_METHODS, type PolicyCloudRequests, type SettingsCloudReq
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import {
   EXECUTION_PREFERENCE_KEYS,
-  executionPreferencesSchema,
+  knownExecutionPreferences,
   type AccountSettingsResponse,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
@@ -281,7 +281,7 @@ describe('a host holds only host settings', () => {
   })
 })
 
-describe('prompts carry the person\'s execution preferences', () => {
+describe('the person\'s execution preferences', () => {
   test('built from the personal store: every execution key, nothing else', () => {
     const personal = new PersonalSettingsStore(memoryKeyValueStore())
     personal.set({ defaultPermissionMode: 'plan', extraInstructions: 'Be brief.', themeMode: 'dark' })
@@ -289,8 +289,8 @@ describe('prompts carry the person\'s execution preferences', () => {
     expect(Object.keys(preferences).sort()).toEqual([...EXECUTION_PREFERENCE_KEYS].sort())
     expect(preferences).toMatchObject({ defaultPermissionMode: 'plan', extraInstructions: 'Be brief.' })
     expect(preferences).not.toHaveProperty('themeMode')
-    // The host parses them strictly: a key or value it refuses fails the prompt.
-    expect(executionPreferencesSchema.safeParse(preferences).success).toBe(true)
+    // The host keeps every one of them.
+    expect(knownExecutionPreferences(preferences).ignored).toEqual([])
   })
 
   async function conversation(prompt: () => unknown) {
@@ -307,7 +307,6 @@ describe('prompts carry the person\'s execution preferences', () => {
       connection,
       outbox: new SendOutbox(() => storage),
       runSettings: async () => personal.runSettings(),
-      executionPreferences: () => personal.executionPreferences(),
       organizationId: () => 'org-acme',
       uuid: () => 'p1',
       onChange: () => {},
@@ -315,14 +314,14 @@ describe('prompts carry the person\'s execution preferences', () => {
     return { api, personal, controller }
   }
 
-  test('the prompt context sends them, read when the prompt goes', async () => {
+  test('the prompt context carries the run the person chose, not their preferences', async () => {
     const { api, personal, controller } = await conversation(() => ({ disposition: 'started' }))
     personal.set({ defaultPermissionMode: 'auto' })
     await controller.load()
-    personal.set({ extraInstructions: 'Changed after opening.' })
     await controller.send('go')
     const [ctx] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(ctx.session.permissionMode).toBe('auto')
-    expect(ctx.settings.executionPreferences).toMatchObject({ defaultPermissionMode: 'auto', extraInstructions: 'Changed after opening.' })
+    // The host reads its own copy of the preferences (docs/plans/host-preferences.md).
+    expect(ctx).not.toHaveProperty('settings')
   })
 })

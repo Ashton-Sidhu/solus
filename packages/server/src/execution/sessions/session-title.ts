@@ -11,7 +11,7 @@ import {
   type SessionMetadataGenerationContext,
 } from '@solus/contracts/types'
 import { resolveTextGenerationModel } from '../../host/settings'
-import { parseExecutionPreferences } from '../agents/run-input'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
 import type { SeatResolver, TurnSeat } from '../seats/seat-manager'
 import { writingBackendFor } from '../agents/writing-backend'
@@ -163,9 +163,11 @@ export function generateSessionMetadata(
   seatFor: SeatResolver | undefined,
   /** The organization of the session the title is for; its policies govern the run (plans/030). */
   organizationId: string,
+  /** The preferences of the person the title is for: their writing model (plans/018 §3.3). */
+  preferences: ExecutionPreferences | undefined,
 ): Promise<SessionGeneratedMetadata | null> {
   const sessionId = context?.sessionId
-  if (!sessionId) return runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId)
+  if (!sessionId) return runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId, preferences)
   // The first-turn name and a regenerate, or two clients, can ask at the same
   // time. Two runs cost twice and the last to finish wins, so a second request
   // joins the run in flight and every caller gets the same answer.
@@ -174,7 +176,7 @@ export function generateSessionMetadata(
     log.info('session_metadata_joined_inflight', { sessionId })
     return running
   }
-  const run = runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId)
+  const run = runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId, preferences)
     .finally(() => metadataRunsBySession.delete(sessionId))
   metadataRunsBySession.set(sessionId, run)
   return run
@@ -189,11 +191,10 @@ async function runSessionMetadata(
   context: SessionMetadataGenerationContext | undefined,
   seatFor: SeatResolver | undefined,
   organizationId: string,
+  preferences: ExecutionPreferences | undefined,
 ): Promise<SessionGeneratedMetadata | null> {
   const trimmed = promptText.trim()
   if (!trimmed) return null
-  // The requester's own writing model (plans/018 §3.3); the built-in default when the client sent none.
-  const preferences = parseExecutionPreferences(context?.executionPreferences)
   const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor, organizationId)
   if (!backend) return null
   return generateMetadataWith(dispatcher, backend.provider, trimmed, cwd, backend.model, context, backend.seat, organizationId)

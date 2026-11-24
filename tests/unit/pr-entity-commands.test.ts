@@ -30,7 +30,6 @@ function ctxFor(projectPath: string): IpcContext {
   return {
     session: { projectPath, workingDirectory: projectPath },
     window: {},
-    settings: {},
     statusBar: {},
   } as IpcContext
 }

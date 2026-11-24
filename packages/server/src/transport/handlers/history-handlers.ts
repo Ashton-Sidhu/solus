@@ -29,6 +29,7 @@ import { generateSessionMetadata } from '../../execution/sessions/session-title'
 import { ensureBackgroundSessionTitle } from '../../execution/sessions/background-session-title'
 import { renameSession } from '../../execution/sessions/session-rename'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
+import { actingPreferences } from '../../execution/person-preferences'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
@@ -342,14 +343,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [promptText, cwd, context] = args
     // The run uses the caller's own provider login, as their turns do.
     const organizationId = context?.sessionId ? await organizationOfSession(context.sessionId) : LOCAL_ORGANIZATION_ID
-    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider), organizationId)
+    // The caller's own writing model, from this host's copy of their preferences.
+    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider), organizationId, actingPreferences(organizationId))
   })
 
   server.register('ensureBackgroundSessionTitle', async (args, ctx) => {
-    const [sessionId, preferences] = args
+    const [sessionId] = args
     return ensureBackgroundSessionTitle(sessionRuntime, events, {
       sessionId,
-      preferences: await sessionExecutionPreferences(sessionId) ?? preferences,
+      // The preferences the session's run carried; else the caller's, from this host's copy.
+      preferences: await sessionExecutionPreferences(sessionId) ?? actingPreferences(await organizationOfSession(sessionId)),
       actor: ctx.actor,
     })
   })

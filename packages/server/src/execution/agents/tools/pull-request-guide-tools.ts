@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { personalSettingsWithDefaults, EXECUTION_PREFERENCE_KEYS, type ExecutionPreferences, type PersonalSettingsDocument } from '@solus/contracts/settings'
+import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import type { ReviewGuide, ReviewGuideStatusEvent } from '@solus/contracts/review'
-import type { IpcContext, SessionCtx, SettingsCtx } from '@solus/contracts/types'
+import type { IpcContext, SessionCtx } from '@solus/contracts/types'
 import { actorFor } from '../../../admission/actor'
 import { recordScopeOf } from '../../../admission/principal'
 import { assertToolMay } from '../../../admission/workspace-tool-authority'
@@ -12,7 +12,6 @@ import { requestPrGuides } from '../../../review/guide-warmer'
 import { readPrGuide } from '../../../review/pr-guide-store'
 import type { SessionRuntime } from '../../session-runtime'
 import type { AgentDispatcher } from '../agent-runner'
-import type { ConfigToolHost } from './config-tools'
 import { environmentFields, pullRequestTool, targetFields, targetNumber, type ToolSession } from './pull-request-tools'
 
 /** What the PR guide tools reach on this host, set once at server start. */
@@ -24,8 +23,6 @@ export interface PullRequestGuideToolHost {
   servesExecution(): boolean
   /** The project folder of a session's run. A PR guide belongs to the project, as on the PR page. */
   projectOf(sessionId: string): string | undefined
-  /** The settings of the person a session works for, through one of their clients (the owner `read_config` uses). */
-  personal: ConfigToolHost['personal']
 }
 
 let host: PullRequestGuideToolHost | undefined
@@ -55,30 +52,16 @@ async function guideSession(session: ToolSession): Promise<SessionCtx> {
   }
 }
 
-/** The review choices a person's client sends with a guide request, from that person's settings. */
-function guideSettings(document: PersonalSettingsDocument): SettingsCtx {
-  const values = personalSettingsWithDefaults(document)
-  const executionPreferences: ExecutionPreferences = {}
-  for (const key of EXECUTION_PREFERENCE_KEYS) Object.assign(executionPreferences, { [key]: values[key] })
-  return {
-    fallbackTerminal: null,
-    activeAgent: values.activeAgent,
-    reviewAgent: values.reviewAgent,
-    reviewModel: values.reviewModel,
-    reviewReasoning: values.reviewReasoning,
-    reviewGuideInstructions: values.reviewGuideInstructions,
-    reviewWarmingEnabled: false,
-    executionPreferences,
-  }
-}
-
-/** A full guide request context. The status bar is not read by a guide run. */
-function guideContext(session: SessionCtx, settings: SettingsCtx): IpcContext {
+/**
+ * A full guide request context. A guide run reads the review choices from the
+ * host's copy of the person's preferences, not from the context, and it reads
+ * no status bar.
+ */
+function guideContext(session: SessionCtx): IpcContext {
   return {
     session,
-    settings,
     statusBar: {
-      workingDirectory: session.workingDirectory, activeAgent: settings.activeAgent, permissionMode: session.permissionMode,
+      workingDirectory: session.workingDirectory, activeAgent: DEFAULT_EXECUTION_PREFERENCES.reviewAgent, permissionMode: session.permissionMode,
       model: '', reasoningEffort: session.reasoningEffort, defaultReasoningEffort: session.reasoningEffort,
       reasoningLevels: [], supportsFastMode: false, fastMode: false, contextWindows: [],
     },
@@ -128,16 +111,14 @@ const guideWrite = pullRequestTool(
   { ...environmentFields, numbers: z.array(z.number().int().positive()).min(1).max(20).describe('PR numbers in this repository.') },
   false, async (input, session) => {
     await assertToolMay('prGenerateGuides')
-    const { guides, dispatcher, servesExecution, personal } = guideHost()
+    const { guides, dispatcher, servesExecution } = guideHost()
     if (!servesExecution()) throw new Error('Review guides are off on this host: it does not run agents. Use a session on a host that does.')
-    const { reply } = await personal(session.sessionId, {})
-    if (!reply.ok) throw new Error(`The review settings of the person are not available. ${reply.error}`)
     const actor = actorFor(session.principal)
     const starts = await requestPrGuides({
       dispatcher,
       // Guides run on the requester's own provider login, as their turns do.
       seatFor: (agent) => dispatcher.seatForTurn(actor, agent),
-      ctx: guideContext(await guideSession(session), guideSettings(reply.settings)),
+      ctx: guideContext(await guideSession(session)),
       repo: session.repo,
       guides,
     }, input.numbers)

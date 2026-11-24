@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from '@solus/contracts/model-routing'
-import { executionPreferencesSchema } from '@solus/contracts/settings'
+import { knownExecutionPreferences } from '@solus/contracts/settings'
 import { FIVE_HOUR_WINDOW_MINS, MODEL_PROFILES, WEEKLY_WINDOW_MINS, type AgentMetadata } from '@solus/contracts/types'
 import { routeModelPrompt, selectModelRoute } from '@solus/server/execution/agents/model-routing'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
@@ -110,8 +110,8 @@ describe('one-time model routing', () => {
 
   test('routing preferences travel whole and reject recursive Auto routes', () => {
     const config = { ...DEFAULT_MODEL_ROUTING, ui: 'gpt-6-astra' }
-    expect(executionPreferencesSchema.parse({ modelRouting: config }).modelRouting).toEqual(config)
+    expect(knownExecutionPreferences({ modelRouting: config }).preferences.modelRouting).toEqual(config)
     expect(modelRoutingSchema.safeParse({ ...config, ui: 'auto' }).success).toBe(false)
-    expect(executionPreferencesSchema.safeParse({ modelRouting: { ...config, ui: 'auto' } }).success).toBe(false)
+    expect(knownExecutionPreferences({ modelRouting: { ...config, ui: 'auto' } }).ignored).toEqual(['modelRouting'])
   })
 })

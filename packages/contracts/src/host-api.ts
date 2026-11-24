@@ -264,8 +264,9 @@ export interface SolusAPI {
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   openInFileManager(path: string): Promise<boolean>
-  openInTerminal(ctx: IpcContext): Promise<boolean>
-  openWorktreeTerminal(ctx: IpcContext): Promise<boolean>
+  /** `fallbackTerminalId` is this device's choice, for a launch on the client's own machine. */
+  openInTerminal(ctx: IpcContext, fallbackTerminalId: TerminalAppId | null): Promise<boolean>
+  openWorktreeTerminal(ctx: IpcContext, fallbackTerminalId: TerminalAppId | null): Promise<boolean>
   resolveTerminal(fallbackTerminalId: TerminalAppId | null): Promise<ResolvedTerminal>
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
@@ -420,8 +421,8 @@ export interface SolusAPI {
     cwd: string,
     context?: SessionMetadataGenerationContext,
   ): Promise<SessionGeneratedMetadata | null>
-  /** Return a worker's saved title, generating one if it is missing and allowed. */
-  ensureBackgroundSessionTitle(sessionId: string, preferences?: ExecutionPreferences): Promise<string | null>
+  /** Return a worker's saved title, generating one if it is missing and the session's person allows it. */
+  ensureBackgroundSessionTitle(sessionId: string): Promise<string | null>
   /** Persist a session name; null clears it back to the derived title. */
   setSessionTitle(
     sessionId: string,
@@ -787,6 +788,13 @@ export interface SolusAPI {
   agentProfilePull(): Promise<AgentProfileStatus>
   /** The caller's profile on this host: where it came from, when, and what it holds. */
   agentProfileStatus(): Promise<AgentProfileStatus>
+  /**
+   * Replaces this host's copy of the caller's execution preferences
+   * (docs/plans/host-preferences.md). A client sends it when it connects and
+   * when the preferences change. The host keeps the keys it knows and answers
+   * with the names of the keys it left out.
+   */
+  executionPreferencesSet(preferences: ExecutionPreferences): Promise<{ ignored: string[] }>
   /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
   presenceSnapshot(): Promise<PresenceSnapshotResult>
   /** What this client is looking at; a hint for "jump to", never an authorization. */
@@ -1253,11 +1261,11 @@ export interface SolusAPI {
   outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>
   outboxApply(ops: OutboxOp[]): Promise<OutboxApplyResult>
 
-  /** `executionPreferences` is the creator's preferences the automation runs with (plans/018 §6); absent from an older client. */
+  /** `executionPreferences` is what the automation runs with (plans/018 §6). The host keeps the keys it knows (`knownExecutionPreferences`). */
   automationCreate(name: string, action: AutomationAction, enabled?: boolean, trigger?: AutomationTrigger, executionPreferences?: ExecutionPreferences): Promise<Automation>
   automationList(): Promise<Automation[]>
   automationRead(id: string): Promise<Automation | null>
-  /** A patch that carries `executionPreferences` replaces the automation's captured snapshot (plans/018 §6). */
+  /** A patch that carries `executionPreferences` replaces the automation's captured snapshot (plans/018 §6), with the keys the host knows. */
   automationUpdate(id: string, patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger; executionPreferences?: ExecutionPreferences }): Promise<Automation | null>
   automationDelete(id: string): Promise<boolean>
   automationSetEnabled(id: string, enabled: boolean): Promise<Automation | null>

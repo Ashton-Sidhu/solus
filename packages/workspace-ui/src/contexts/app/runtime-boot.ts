@@ -16,6 +16,7 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { RunLocation } from '@solus/contracts/types'
 import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
+import { HostPreferencesPublisher } from '@solus/client-core/host-preferences'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
 import { pairApprovalsStore } from '../connections/pair-approvals.store.svelte'
@@ -120,6 +121,17 @@ export function initializeRuntime(
     void sessionListStore.loadConnected(connection.serverId)
   })
 
+  // Each connected host keeps a copy of the person's preferences, which their work there reads (docs/plans/host-preferences.md).
+  const hostPreferences = new HostPreferencesPublisher({
+    preferences: () => session.settings.executionPreferences,
+    readyHosts: () => serverConnections.serverIds()
+      .filter((serverId) => serverConnections.readinessFor(serverId).readiness === 'ready')
+      .map((serverId) => ({ hostId: serverId, api: serverConnections.apiFor(serverId) })),
+  })
+  const stopPreferencesHosts = serverConnections.onReadinessChange(() => hostPreferences.publish())
+  const stopPreferencesChanges = session.settings.personal.onChange(() => hostPreferences.publish())
+  hostPreferences.publish()
+
   // The durable send outbox drains when a host's supervisor reports live:
   // queued work survives a dead host and delivers on the next session.
   const stopReadiness = serverConnections.onReadinessChange((serverId, readiness) => {
@@ -156,6 +168,8 @@ export function initializeRuntime(
     stopCatalog()
     stopProviderInstances()
     stopConnections()
+    stopPreferencesHosts()
+    stopPreferencesChanges()
     stopReadiness()
     stopUnreadRose()
     stopStallToasts()

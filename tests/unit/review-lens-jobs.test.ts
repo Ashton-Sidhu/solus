@@ -15,6 +15,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 let ReviewLensJobs: typeof import('@solus/server/review/lens-jobs')['ReviewLensJobs']
 beforeAll(async () => {
   ;({ ReviewLensJobs } = await import('@solus/server/review/lens-jobs'))
+  // A lens runs for the person who asked; here, as the host.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
 })
 
 // Rules from docs/plans/review-lenses.md: one lens per target, one previous
@@ -27,7 +29,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' }, settings: {} } as IpcContext
+const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 const prTarget: ReviewTarget = { kind: 'pr', host: 'github.com', owner: 'acme', repo: 'app', number: 7, baseSha: 'base', headSha: 'head' }
 const address: ReviewLensAddress = { repoRoot: 'pr:github.com/acme/app', key: 'pr-7' }
 

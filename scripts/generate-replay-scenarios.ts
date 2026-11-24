@@ -47,12 +47,6 @@ const DERIVED: DerivedScenario[] = [
     normalize: (lines) => { const normalizer = new ClaudeTurnNormalizer(); return lines.flatMap((line) => normalizer.push(JSON.parse(line))) },
   },
   {
-    id: 'codex-plan',
-    label: 'Codex plan mode',
-    source: 'codex-plan-mode.jsonl',
-    normalize: (lines) => { const normalizer = new CodexTurnNormalizer({ planMode: true }); return lines.flatMap((line) => normalizer.push(JSON.parse(line))) },
-  },
-  {
     id: 'codex-command',
     label: 'Codex command',
     source: 'codex-normal-turn.jsonl',

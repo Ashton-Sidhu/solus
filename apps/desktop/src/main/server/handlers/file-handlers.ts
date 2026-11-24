@@ -249,24 +249,24 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('openInTerminal', async (args) => {
-    const [ctx] = args
-    const agentId = ctx.settings.activeAgent
+    const [ctx, fallbackTerminal] = args
+    const agentId = ctx.session.provider ?? ctx.statusBar.activeAgent
     const agentBin = AGENT_BIN[agentId] ?? 'claude'
     const sessionId = ctx.session.agentSessionId
     const projectPath = resolveHomePath(ctx.session.workingDirectory || '~')
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
-    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
+    const fallbackTerminalId = fallbackTerminal ?? 'default-terminal'
     const launcher = await terminal.launch({ command, sessionId: ctx.session.sessionId, fallbackTerminalId, cwd: projectPath })
     if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
   })
 
   server.register('openWorktreeTerminal', async (args) => {
-    const [ctx] = args
+    const [ctx, fallbackTerminal] = args
     const targetPath = resolveHomePath(ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory || '~')
     if (!existsSync(targetPath) || !statSync(targetPath).isDirectory()) return false
 
-    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
+    const fallbackTerminalId = fallbackTerminal ?? 'default-terminal'
     const launcher = await terminal.launch({ command: terminal.shellCommand(process.env), sessionId: ctx.session.sessionId, fallbackTerminalId, cwd: targetPath })
     if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
@@ -293,10 +293,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('openInEditor', async (args) => {
-    const [ctx, request] = args
+    const [, request] = args
     const filePaths = request.filePaths.map(resolveHomePath)
     const editorId = request.editorId
-    const fallbackTerminalId = ctx.settings.fallbackTerminal ?? request.fallbackTerminalId
+    const fallbackTerminalId = request.fallbackTerminalId
     const cwd = request.cwd ? resolveHomePath(request.cwd) : (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
     log.info('rpc_open_in_editor', { editorId, fallbackTerminalId, cwd, filePaths })
 

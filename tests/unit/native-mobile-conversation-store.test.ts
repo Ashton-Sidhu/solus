@@ -26,7 +26,6 @@ async function openStore() {
     reasoningEffort: null, title: null, customTitle: null,
   } }, {
     connection,
-    executionPreferences: () => ({}),
     outbox: new SendOutbox(() => storage),
     runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
     organizationId: () => null,

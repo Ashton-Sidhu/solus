@@ -29,7 +29,7 @@ function customOn(sessionId: string, actions: SessionActionLeaf[]) {
   return { standingFor: async (_principal: Principal, resource: ShareResource) => (resource.kind === 'session' && resource.id === sessionId ? { role: 'custom' as const, actions } : { role: 'none' as const }) }
 }
 
-const ctx = (sessionId: string) => ({ session: { sessionId, provider: null, agentSessionId: null }, window: {}, settings: {}, statusBar: {} })
+const ctx = (sessionId: string) => ({ session: { sessionId, provider: null, agentSessionId: null }, window: {}, statusBar: {} })
 
 describe('the action tables', () => {
   test('every registered method needs exactly one action, and every session or work method a resource verb', async () => {

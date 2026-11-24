@@ -1,13 +1,12 @@
 import type { AgentId, IpcContext, PermissionMode, ReasoningEffort, SessionStatus } from '@solus/contracts/types'
 import { sessionProjectRoot } from '@solus/contracts/types'
 import type { SessionFolder } from '@solus/contracts/codebases'
-import type { ExecutionPreferences, PersonalSettings } from '@solus/contracts/settings'
+import type { PersonalSettings } from '@solus/contracts/settings'
 
 /**
- * The context a native conversation sends with each call. The host reads the
- * session, the run, and the person's instructions from it; nothing here is a
- * tab. Window-only settings (fonts, theme) are fixed values the host ignores
- * for a run.
+ * The context a native conversation sends with each call: the session and the
+ * run that the person chose. Nothing here is a tab. The host reads the
+ * person's preferences from its own copy (docs/plans/host-preferences.md).
  */
 
 export interface ConversationRun {
@@ -52,8 +51,7 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   modelOptionsByProvider: {},
 }
 
-/** `executionPreferences` are the person's preferences the host runs this work with (plans/018 §6). */
-export function conversationContext(run: ConversationRun, settings: RunSettings, executionPreferences: ExecutionPreferences): IpcContext {
+export function conversationContext(run: ConversationRun): IpcContext {
   return {
     session: {
       sessionId: run.sessionId,
@@ -76,16 +74,6 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       readOnlyReason: null,
       title: run.title,
       organizationId: run.organizationId ?? undefined,
-    },
-    settings: {
-      fallbackTerminal: null,
-      activeAgent: run.provider,
-      reviewAgent: null,
-      reviewModel: null,
-      reviewReasoning: null,
-      reviewGuideInstructions: '',
-      reviewWarmingEnabled: false,
-      executionPreferences,
     },
     statusBar: {
       workingDirectory: run.workingDirectory,
@@ -136,7 +124,7 @@ export function projectContext(projectPath: string, organizationId: string | nul
     permissionMode: 'supervised',
     title: null,
     organizationId,
-  }, DEFAULT_RUN_SETTINGS, {})
+  })
 }
 
 /** Approving a plan runs it with the host's default mode; a plan mode would only plan again. */

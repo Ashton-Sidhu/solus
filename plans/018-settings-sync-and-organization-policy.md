@@ -72,7 +72,9 @@ Decision 1 is approved by the user. Decisions 2–6 are proposed implementation 
    migrations and compatibility paths in this plan: the legacy client blob import, the
    analytics consent migration, the mobile appearance migration, the host import offer,
    legacy automation snapshots, legacy `server-settings.json` keys, `seeded` host
-   config, and lenient execution preferences. `HostConfig` holds host keys only.
+   config, and lenient execution preferences (a host's own copy of a person's
+   preferences now keeps the keys it knows; see the 2026-11-24 note in §6).
+   `HostConfig` holds host keys only.
    Personal settings own their schemas. Keep the committed database migration history,
    so existing development databases keep working. Fold the uncommitted plan 18
    migrations into one migration per database. The migration steps in §3.5 and Stage 4
@@ -527,6 +529,14 @@ synced.
   actual provider availability are capability state, not synced preferences.
 
 ## 6. Host enforcement and background work
+
+> **2026-11-24.** [Host preferences](../docs/plans/host-preferences.md) replaced the
+> way a host gets a person's execution preferences. A request no longer carries
+> them, and the host no longer parses a client's snapshot strictly. Each host keeps
+> a copy of each person's execution preferences, which their clients write when
+> they connect and when the preferences change. The host keeps the keys that it
+> knows and leaves out the others. The statements below that a request carries the
+> preferences, or that an unknown key refuses it, are history.
 
 Add a focused effective-settings resolver near execution, with pure resolution logic
 in contracts where clients need the same explanation. Do not put policy storage or

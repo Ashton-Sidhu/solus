@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { executionPreferenceSnapshotSchema, executionPreferencesSchema, storedExecutionPreferencesSchema } from '@solus/contracts/settings'
+import { executionPreferenceSnapshotSchema, knownExecutionPreferences, storedExecutionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 
 // A record stored by an older version can hold a key a later version removed.
 const storedBeforeRemoval = { extraInstructions: 'Be brief.', retiredPreference: 'on' }
 
 describe('stored execution preferences', () => {
-  test('a request that sends a removed key is still refused', () => {
-    expect(executionPreferencesSchema.safeParse(storedBeforeRemoval).success).toBe(false)
+  // docs/plans/host-preferences.md: a client newer or older than its host never makes a call fail.
+  test('a host keeps the keys it knows from a set a client writes, and names the others', () => {
+    // SAFETY: a client of another version sends keys this version does not have, and a value it does not accept.
+    const sent = { ...storedBeforeRemoval, rateLimitBehavior: 'later' } as ExecutionPreferences
+    expect(knownExecutionPreferences(sent)).toEqual({ preferences: { extraInstructions: 'Be brief.' }, ignored: ['rateLimitBehavior', 'retiredPreference'] })
   })
 
   test('a stored record drops a removed key and keeps the other choices', () => {

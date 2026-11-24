@@ -1,5 +1,5 @@
 import { createLogger } from '../../logger'
-import { contextPreferences } from '../agents/run-input'
+import { actingPreferences } from '../person-preferences'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
@@ -167,7 +167,7 @@ export class SessionWatchers {
     // A watch is the authorization: any paired device watching a session may act
     // on it. Opening a headless session's card is watching it.
     if (!this.watches.get(sessionId)?.has(clientId)) this.watchSession({ sessionId }, clientId)
-    return this.attachRuntime(sessionId, agentSessionId, clientId, contextPreferences(ctx).rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior)
+    return this.attachRuntime(sessionId, agentSessionId, clientId, actingPreferences(ctx.session.organizationId).rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior)
   }
 
   /** Join a watching client to a session's live runtime: replay the turn so far

@@ -157,7 +157,7 @@ describe('a personal key', () => {
     const { settings } = await load()
     settings.setPersonal('rateLimitBehavior', 'queue')
     settings.setPersonal('extraInstructions', 'Be brief.')
-    expect(settings.ctx.executionPreferences).toMatchObject({ rateLimitBehavior: 'queue', extraInstructions: 'Be brief.' })
+    expect(settings.executionPreferences).toMatchObject({ rateLimitBehavior: 'queue', extraInstructions: 'Be brief.' })
     expect(settings.executionPreferences).not.toHaveProperty('themeMode')
   })
 })

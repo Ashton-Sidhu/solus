@@ -120,7 +120,7 @@ describe('replay scenarios', () => {
     const scenarios = loadReplayScenarios(SCENARIO_DIR)
     expect(scenarios[0]!.id).toBe('showcase')
     expect(scenarios.map((scenario) => scenario.id).sort()).toEqual([
-      'approval', 'codex-command', 'codex-plan', 'command-output', 'multi-turn',
+      'approval', 'codex-command', 'command-output', 'conversation-cards', 'multi-turn',
       'question', 'showcase', 'subagent', 'todo-list',
     ])
   })
@@ -274,6 +274,48 @@ describe('ReplayBackend', () => {
     const result = run.events.find((event) => event.type === 'tool_result')
     expect(result?.content).toBe('{"stdout":"line 1\\n行 2 🚀","stderr":"é warning","interrupted":false,"requestId":"keep-me"}\n')
     expect(clock.waits).toContain(300)
+  })
+
+  test('conversation cards shows passive cards and waits for approval and a question response', async () => {
+    const { backend } = backendWith()
+    const requests: string[] = []
+    const run = await play(backend, {
+      model: 'conversation-cards',
+      onEvent: (event) => {
+        if (event.type === 'permission_request') {
+          requests.push(event.type)
+          expect(backend.permissions.respondToPermission(event.questionId, 'allow')).toBe(true)
+        }
+        if (event.type === 'question_request') {
+          requests.push(event.type)
+          expect(backend.permissions.respondToQuestion(event.questionId, { layout: 'Compact' })).toBe(true)
+        }
+      },
+    })
+    expect(requests).toEqual(['permission_request', 'question_request'])
+    const setup = run.events.filter((event) => event.type === 'status_card').map((event) => event.card)
+    expect(setup.map((card) => card.status)).toEqual(['active', 'done'])
+    expect(setup[0]?.id).toBe(setup[1]?.id)
+    const repeated = await play(backend, {
+      model: 'conversation-cards',
+      onEvent: (event) => {
+        if (event.type === 'permission_request') backend.permissions.respondToPermission(event.questionId, 'allow')
+        if (event.type === 'question_request') backend.permissions.respondToQuestion(event.questionId, { layout: 'Compact' })
+      },
+    })
+    const repeatedSetup = repeated.events.find((event) => event.type === 'status_card')
+    expect(repeatedSetup?.card.id).not.toBe(setup[0]?.id)
+    expect(run.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'thinking', state: 'stop' }),
+      expect.objectContaining({ type: 'progress' }),
+      expect.objectContaining({ type: 'tool_progress' }),
+      expect.objectContaining({ type: 'tool_result', isError: true }),
+      expect.objectContaining({ type: 'background_task_settled', status: 'completed' }),
+      expect.objectContaining({ type: 'artifact_created', kind: 'html' }),
+      expect.objectContaining({ type: 'context_compaction', state: 'stop' }),
+      expect.objectContaining({ type: 'plan', options: [] }),
+    ]))
+    expect(run.events.at(-1)).toMatchObject({ type: 'task_complete' })
   })
 
   test('a denied permission fails the tool and ends the turn there', async () => {

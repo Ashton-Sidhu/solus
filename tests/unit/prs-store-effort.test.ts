@@ -30,7 +30,6 @@ afterEach(() => {
 const ctx = {
   session: { projectPath: '/repo', workingDirectory: '/repo' },
   window: {},
-  settings: {},
   statusBar: {},
 } as IpcContext
 

@@ -79,12 +79,12 @@ describe('the card of an app’s Sessions section', () => {
   test('a new session runs in the app’s project with the person’s default agent and model', () => {
     // WHY: the session is about the app, so it must start where the app's source is, as any new tab would.
     const modelConfig = { modelId: 'gpt-5', reasoningEffort: 'medium' as const, contextWindow: null, fastMode: false }
-    const run = appSessionRun('codex', () => modelConfig, {})
+    const run = appSessionRun('codex', () => modelConfig)
     expect(appSessionStart({ name: 'Release Radar', project: '/work/radar' }, 'Add a digest', run)).toMatchObject({
       prompt: 'Add a digest', provider: 'codex', modelId: 'gpt-5', reasoningEffort: 'medium', cwd: '/work/radar',
     })
     // An app with no known project starts in a new chat folder; an agent this client does not know is Claude Code.
-    expect(appSessionStart({ name: 'Radar', project: null }, 'x', appSessionRun('someone-else', () => modelConfig, {})).cwd).toBe('solus:new-chat')
-    expect(appSessionRun('someone-else', () => modelConfig, {}).provider).toBe('claude-code')
+    expect(appSessionStart({ name: 'Radar', project: null }, 'x', appSessionRun('someone-else', () => modelConfig)).cwd).toBe('solus:new-chat')
+    expect(appSessionRun('someone-else', () => modelConfig).provider).toBe('claude-code')
   })
 })

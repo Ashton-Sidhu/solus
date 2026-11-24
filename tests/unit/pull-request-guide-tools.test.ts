@@ -3,7 +3,6 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { ReviewGuide, ReviewGuideRequestOptions, ReviewGuideStatusEvent } from '@solus/contracts/review'
-import type { PersonalSettingsDocument } from '@solus/contracts/settings'
 import type { Principal } from '@solus/server/admission/principal'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { GuideSource } from '@solus/server/review/guide-jobs'
@@ -25,6 +24,9 @@ const { executeAgentTool } = await import('@solus/server/execution/agents/tools/
 const { installPullRequestToolHost } = await import('@solus/server/execution/agents/tools/pull-request-tools')
 const { installPullRequestGuideToolHost, pullRequestGuideTools } = await import('@solus/server/execution/agents/tools/pull-request-guide-tools')
 const { ReviewGuideJobs } = await import('@solus/server/review/guide-jobs')
+const { withActingScope } = await import('@solus/server/vault/acting-scope')
+const { HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
+const { setPersonPreferences } = await import('@solus/server/execution/person-preferences')
 
 // A guide run acts for whoever asked for it; with no caller, the test acts as the host.
 actAsHostForTests()
@@ -43,7 +45,6 @@ let published: ReviewGuideStatusEvent[]
 let requested: ReviewGuideRequestOptions[]
 let authored: number
 let servesExecution: boolean
-let personal: PersonalSettingsDocument
 
 beforeEach(() => {
   storedGuide = null
@@ -51,7 +52,6 @@ beforeEach(() => {
   requested = []
   authored = 0
   servesExecution = true
-  personal = { reviewAgent: 'codex', reviewModel: 'gpt-6-luna', reviewReasoning: 'high' }
   // A pull request source with no I/O. Its run never ends, so a second request finds it running.
   const source: GuideSource = {
     serial: true,
@@ -73,12 +73,15 @@ beforeEach(() => {
     dispatcher: { seatForTurn: async () => null } as never,
     servesExecution: () => servesExecution,
     projectOf: () => '/projects/app',
-    personal: async () => ({ reply: { ok: true, settings: personal, profile: [], device: null }, fromTurnClient: true }),
   })
 })
 
+/** The turn runs as the owner, and the owner's client wrote their review choices to the host's copy. */
 function run(tool: keyof typeof pullRequestGuideTools, input: object, principal: Principal = owner) {
-  return withWorkspaceToolAuthority(principal, () => executeAgentTool(pullRequestGuideTools[tool] as never, input, context))
+  return withActingScope({ ...HOST_SCOPE, personKey: 'owner-person' }, () => {
+    setPersonPreferences({ reviewAgent: 'codex', reviewModel: 'gpt-6-luna', reviewReasoning: 'high' })
+    return withWorkspaceToolAuthority(principal, () => executeAgentTool(pullRequestGuideTools[tool] as never, input, context))
+  })
 }
 
 describe('pull_request_guide_read', () => {

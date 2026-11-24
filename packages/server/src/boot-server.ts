@@ -1470,7 +1470,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       const run = opts.sessionRuntime.activeSessions.get(sessionId)?.runInput
       return run ? projectScopeOf(run) : undefined
     },
-    personal: (sessionId, request) => personalRequests.send(sessionId, request),
   })
   registerChecksHandlers(server)
   // The clients that run on one seat; a seat's facts go to them and nobody else.

@@ -163,7 +163,7 @@ describe('starting a chat', () => {
   async function startSession(sessionId: string, workingDirectory: string, principal: Principal): Promise<IpcContext> {
     const handlerCtx = { clientId: `ws:${sessionId}`, principal }
     await handlers.get('watchSession')!([{ sessionId }], handlerCtx)
-    const ctx = { session: { sessionId, workingDirectory, projectPath: workingDirectory }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId, workingDirectory, projectPath: workingDirectory }, statusBar: {} } as IpcContext
     await handlers.get('prompt')!([ctx, { prompt: 'hello' }], handlerCtx)
     return prompted.at(-1)!
   }
@@ -202,7 +202,7 @@ describe('starting a chat', () => {
     const project = join(hostRoot, 'alice', 'solus')
     await startSession('project-2', project, alice)
     shareCalls.length = 0
-    const ctx = { session: { sessionId: 'project-2', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId: 'project-2', workingDirectory: project, projectPath: project }, statusBar: {} } as IpcContext
     await handlers.get('prompt')!([ctx, { prompt: 'again' }], { clientId: 'ws:project-2', principal: alice })
     expect(shareCalls).toEqual(['claim project-2'])
   })
@@ -215,7 +215,7 @@ describe('starting a chat', () => {
     claimGate = new Promise((resolve) => { openGate = resolve })
     // The client sends both at once; the host handles them at the same time.
     const watched = handlers.get('watchSession')!([{ sessionId: 'project-3' }], handlerCtx)
-    const ctx = { session: { sessionId: 'project-3', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId: 'project-3', workingDirectory: project, projectPath: project }, statusBar: {} } as IpcContext
     const promptedNow = handlers.get('prompt')!([ctx, { prompt: 'hello' }], handlerCtx)
     await Promise.resolve()
     // Sharing before the owner is named would find no owner and grant nothing.
@@ -227,7 +227,7 @@ describe('starting a chat', () => {
 
   test('a prompt makes its sender a watcher, so the run\'s events reach it before any watch reply', async () => {
     const project = join(hostRoot, 'solus')
-    const ctx = { session: { sessionId: 'project-4', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId: 'project-4', workingDirectory: project, projectPath: project }, statusBar: {} } as IpcContext
     await handlers.get('prompt')!([ctx, { prompt: 'hello' }], { clientId: 'ws:phone', principal: OWNER })
     expect([...watches.get('project-4') ?? []]).toEqual(['ws:phone'])
   })
@@ -235,7 +235,7 @@ describe('starting a chat', () => {
   test('a watch that lands after its prompt does not decide the owner again', async () => {
     const alice = member('alice')
     const handlerCtx = { clientId: 'ws:chat-3', principal: alice }
-    const ctx = { session: { sessionId: 'chat-3', workingDirectory: NEW_CHAT_DIRECTORY, projectPath: '' }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId: 'chat-3', workingDirectory: NEW_CHAT_DIRECTORY, projectPath: '' }, statusBar: {} } as IpcContext
     await handlers.get('prompt')!([ctx, { prompt: 'hello' }], handlerCtx)
     await handlers.get('watchSession')!([{ sessionId: 'chat-3' }], handlerCtx)
     // The prompt named a chat, so it claimed the session private. The late watch
@@ -245,7 +245,7 @@ describe('starting a chat', () => {
 
   test('a chat that binds without a watch first also starts private', async () => {
     const folder = join(projectsRootFor(member('alice')), 'solus-chats', 'chat-2')
-    const ctx = { session: { sessionId: 'chat-2', agentSessionId: 'thread-2', workingDirectory: folder, projectPath: '' }, settings: {}, statusBar: {} } as IpcContext
+    const ctx = { session: { sessionId: 'chat-2', agentSessionId: 'thread-2', workingDirectory: folder, projectPath: '' }, statusBar: {} } as IpcContext
     await handlers.get('bindRuntimeSession')!([ctx], { clientId: 'ws:chat-2', principal: member('alice') })
     expect(shareCalls).toEqual(['claim chat-2 private'])
   })

@@ -23,6 +23,8 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-starter-'))
   process.env.SOLUS_DATA_DIR = dataDir
   ;({ closeDb } = await import('@solus/server/db'))
+  // A prompt reaches the host from a person's call; here, as the host.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
 })
 
 afterAll(() => {
@@ -126,8 +128,7 @@ describe('each way a session starts names its starter on the run', () => {
       gitContext: null, worktreeBaseBranch: null, preferredModel: 'gpt-5.5', reasoningEffort: 'medium', contextWindow: null,
       fastMode: false, permissionMode: 'supervised', readOnlyReason: null,
     },
-    settings: { activeAgent: 'codex' },
-    statusBar: { model: 'gpt-5.5', reasoningEffort: 'medium', fastMode: false },
+    statusBar: { activeAgent: 'codex', model: 'gpt-5.5', reasoningEffort: 'medium', fastMode: false },
   }) as unknown as IpcContext
 
   test('a local prompt that makes a session is the host user\'s; a prompt to a session names no starter', async () => {

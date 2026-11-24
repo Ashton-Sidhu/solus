@@ -461,8 +461,6 @@ export interface HeadlessSessionRequest {
   cwd: string
   /** Start the session in a new worktree from this branch. */
   worktreeBaseBranch?: string | null
-  /** The requester's preferences for this session (plans/018 §6); absent means the built-in defaults. */
-  executionPreferences?: ExecutionPreferences
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionStarterFromHost
   /** Images already uploaded to this host's attachment store, sent with the prompt. */
@@ -851,8 +849,6 @@ export interface SessionMetadataGenerationContext {
   attachments?: SessionMetadataAttachment[]
   imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
   imageAttachmentRefs?: PromptImageRef[]
-  /** The requester's writing preferences (`textGenerationModel`); absent means the built-in default. */
-  executionPreferences?: ExecutionPreferences
 }
 
 export interface Attachment {
@@ -2335,26 +2331,6 @@ export type AppFontFamily = 'inter' | 'dm-sans' | 'system' | 'geist' | 'lora' | 
 export type AppCodeFontFamily = 'sf-mono' | 'geist-mono' | 'fira-code' | 'cascadia-code' | 'jetbrains-mono' | 'system-mono'
 
 /** The sender's choices a host reads for one request. */
-export interface SettingsCtx {
-  /** This device's terminal, for a launch on the client's own machine. Never applied to a remote host. */
-  fallbackTerminal: TerminalAppId | null
-  activeAgent: AgentId
-  /** Effective review-companion choices used by foreground and background guide generation. */
-  reviewAgent: AgentId | null
-  reviewModel: string | null
-  reviewReasoning: ReasoningEffort | null
-  /** User instructions applied only when a review guide is authored. */
-  reviewGuideInstructions: string
-  /** Per-project opt-in resolved by the renderer before crossing IPC. */
-  reviewWarmingEnabled: boolean
-  /**
-   * The sender's personal preferences the host reads while it runs this work
-   * (plans/018 §6), including instructions and rate-limit behavior. Strict: a bad
-   * value refuses the request.
-   */
-  executionPreferences: ExecutionPreferences
-}
-
 export interface StatusBarCtx {
   workingDirectory: string
   activeAgent: AgentId
@@ -2368,9 +2344,14 @@ export interface StatusBarCtx {
   contextWindows: number[]
 }
 
+/**
+ * What a client sends with a call about a session or a project: the session it
+ * means and what the person chose in the composer for this one request. The
+ * person's preferences are not in it: the host reads its own copy of them
+ * (docs/plans/host-preferences.md).
+ */
 export interface IpcContext {
   session: SessionCtx
-  settings: SettingsCtx
   statusBar: StatusBarCtx
 }
 

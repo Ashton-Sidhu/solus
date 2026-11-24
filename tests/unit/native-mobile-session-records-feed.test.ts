@@ -49,7 +49,6 @@ async function open(api: FakeApi) {
     hostId: 'inst-a',
     record: { sessionId: 'thread-1', provider: 'claude-code', projectPath: '/work/app', cwd: '/work/app', model: null, reasoningEffort: null, title: 'Fix it', customTitle: null },
   }, {
-    executionPreferences: () => ({}),
     connection,
     outbox: new SendOutbox(() => outboxStorage),
     runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),

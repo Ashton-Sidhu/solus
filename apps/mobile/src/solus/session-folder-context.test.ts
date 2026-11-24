@@ -1,7 +1,6 @@
 import type { SessionFolder } from "@solus/contracts/codebases";
 import {
   conversationContext,
-  DEFAULT_RUN_SETTINGS,
   runProjectRoot,
   sessionFolderContext,
   type ConversationRun,
@@ -31,7 +30,7 @@ function run(change: Partial<ConversationRun> = {}): ConversationRun {
 }
 
 const context = (change: Partial<ConversationRun> = {}) =>
-  conversationContext(run(change), DEFAULT_RUN_SETTINGS, {});
+  conversationContext(run(change));
 
 it("sends the project root of the record for a session in a task folder", () => {
   // The path of a task folder names no project: the record does.

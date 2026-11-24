@@ -1,6 +1,6 @@
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { TextGenerator } from '../../execution/agents/text-generator'
-import { contextPreferences } from '../../execution/agents/run-input'
+import { actingPreferences } from '../../execution/person-preferences'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { productionLogFilePath } from '../../logger'
 import { distinctValuesSql } from '../../data/insights/distinct-values'
@@ -87,7 +87,7 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     const cwd = ctx.session.workingDirectory && ctx.session.workingDirectory !== '~'
       ? ctx.session.workingDirectory
       : solusDir()
-    const provider = ctx.session.provider ?? ctx.settings.activeAgent
+    const provider = ctx.session.provider ?? ctx.statusBar.activeAgent
     // The question runs on the caller's own provider login, as their turns do.
     const seat = await deps.sessionRuntime.seatForTurn(handlerCtx.actor, provider) ?? undefined
     return compileNlToSql(question, {
@@ -99,7 +99,7 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
         cwd,
         prompt,
         systemPrompt: nlCompileSystemPrompt(),
-        executionPreferences: contextPreferences(ctx),
+        executionPreferences: actingPreferences(ctx.session.organizationId),
         service: SPAN_SERVICES.insights,
         disableReasoning: true,
         unattended: true,

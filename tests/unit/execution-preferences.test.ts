@@ -316,25 +316,3 @@ describe('Solus tools act on the person\'s preferences, not the host\'s', () => 
     expect(JSON.stringify(getHostConfig().config)).not.toContain('defaultPermissionMode')
   })
 })
-
-// ─── Strict preferences ───
-
-describe('execution preferences are parsed strictly where a request carries them', () => {
-  test('a key that is not an execution preference refuses the request and is named', async () => {
-    const runInput = await import('@solus/server/execution/agents/run-input')
-    expect(() => runInput.parseExecutionPreferences({ extraInstructions: 'Mine.', themeMode: 'dark' } as never)).toThrow('themeMode')
-    expect(() => runInput.contextPreferences({ settings: { executionPreferences: { fontSize: 14 } } as never })).toThrow('Execution preferences refused')
-  })
-
-  test('a bad value refuses the request rather than running with a choice the person did not make', async () => {
-    const runInput = await import('@solus/server/execution/agents/run-input')
-    expect(() => runInput.parseExecutionPreferences({ agentTaskLifecyclePolicy: 'unrestricted' } as never)).toThrow('agentTaskLifecyclePolicy')
-    expect(() => runInput.parseExecutionPreferences({ workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: 'extreme' } } as never)).toThrow('Execution preferences refused')
-  })
-
-  test('valid preferences pass whole, and a request with none carries none', async () => {
-    const runInput = await import('@solus/server/execution/agents/run-input')
-    expect(runInput.parseExecutionPreferences(PREFERENCES)).toEqual(PREFERENCES)
-    expect(runInput.parseExecutionPreferences(undefined)).toBeUndefined()
-  })
-})

@@ -5,8 +5,10 @@ import { prSavedViewsSchema } from './pr-views'
 // owner:
 //
 // - Personal: the person's choices. A local profile on each client, and the same
-//   profile in their account when they turn sync on for that client. A host gets
-//   the subset it runs work with (`ExecutionPreferences`) with that work.
+//   profile in their account when they turn sync on for that client. Each host
+//   keeps its own copy of the subset it runs work with (`ExecutionPreferences`):
+//   a client writes it when it connects and when it changes
+//   (docs/plans/host-preferences.md). A request never carries it.
 // - Device: this client only — its microphone, its installed apps and fonts,
 //   its consent to client analytics, its zoom and panes.
 // - Host: the machine (`HostConfig` in `host-config.ts`).
@@ -360,9 +362,10 @@ export function personalSettingsByteLength(document: PersonalSettingsDocument): 
 
 /**
  * The personal keys a host reads while it runs work for a person (plans/018 §6):
- * the subset a client sends with a turn, and a background record (an automation)
- * captures so it runs the same way while the client is absent. The host never
- * reads these from its own config for a person's work.
+ * the subset of which a host keeps a copy for each person
+ * (docs/plans/host-preferences.md), and that a background record (an
+ * automation) captures so it runs the same way later. The host never reads these
+ * from its own config for a person's work.
  */
 export const EXECUTION_PREFERENCE_KEYS = [
   'defaultPermissionMode',
@@ -384,10 +387,15 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'sourceControlWriting',
   'worktreeBranchNaming',
   'codebaseNaming',
+  // A review guide or a warmed guide runs for the person who reads it.
+  'reviewAgent',
+  'reviewModel',
+  'reviewReasoning',
+  'reviewGuideInstructions',
 ] as const satisfies readonly PersonalSettingKey[]
 export type ExecutionPreferenceKey = (typeof EXECUTION_PREFERENCE_KEYS)[number]
 
-/** What a client sends: any subset. An absent key reads as the built-in default. */
+/** Any subset of the keys. An absent key reads as the built-in default. */
 export type ExecutionPreferences = Partial<Pick<PersonalSettings, ExecutionPreferenceKey>>
 
 /** The built-in values for work no person's preference describes (an operation with no accountable actor). */
@@ -398,23 +406,43 @@ function executionPreferenceDefaultsOf(): Pick<PersonalSettings, ExecutionPrefer
   return Object.fromEntries(EXECUTION_PREFERENCE_KEYS.map((key) => [key, DEFAULT_PERSONAL_SETTINGS[key]])) as Pick<PersonalSettings, ExecutionPreferenceKey>
 }
 
-/**
- * Parses execution preferences at the boundary they arrive over (plans/018 §6).
- * Strict: an unknown key or a bad value refuses the request. A value is never
- * healed into a choice the person did not make.
- */
-const executionPreferencesShape = personalSettingsSchema
-  .pick(Object.fromEntries(EXECUTION_PREFERENCE_KEYS.map((key) => [key, true])) as { [K in ExecutionPreferenceKey]: true })
-  .partial()
+function isExecutionPreferenceKey(key: string): key is ExecutionPreferenceKey {
+  return EXECUTION_PREFERENCE_KEYS.some((known) => known === key)
+}
 
-export const executionPreferencesSchema = executionPreferencesShape.strict() satisfies z.ZodType<ExecutionPreferences, unknown>
+/** The keys a reader of execution preferences kept, and the names of the keys it did not. */
+export interface KnownExecutionPreferences {
+  preferences: ExecutionPreferences
+  /** Keys this version does not know, or whose value does not pass the key's schema. */
+  ignored: string[]
+}
+
+/**
+ * Reads execution preferences one key at a time (docs/plans/host-preferences.md).
+ * A key that this version does not know, or a value that does not pass its key's
+ * schema, is left out and named; the other keys stay. So a client that is newer
+ * than its host, or a record that an older version wrote, never refuses the
+ * whole set. A value is never healed: a left-out key reads as its default.
+ */
+export function knownExecutionPreferences(sent: ExecutionPreferences): KnownExecutionPreferences {
+  const preferences: ExecutionPreferences = {}
+  const ignored: string[] = []
+  for (const [key, value] of Object.entries(sent)) {
+    const parsed = isExecutionPreferenceKey(key) ? PERSONAL_SETTING_SCHEMAS[key].safeParse(value) : null
+    if (parsed?.success) Object.assign(preferences, { [key]: parsed.data })
+    else ignored.push(key)
+  }
+  return { preferences, ignored: ignored.sort() }
+}
 
 /**
  * Parses execution preferences this host stored earlier. A key that a later
  * version removed is dropped, so the record keeps
  * the person's other choices. A bad value still refuses the record.
  */
-export const storedExecutionPreferencesSchema = z.object(executionPreferencesShape.shape) satisfies z.ZodType<ExecutionPreferences, unknown>
+export const storedExecutionPreferencesSchema = z.object(personalSettingsSchema
+  .pick(Object.fromEntries(EXECUTION_PREFERENCE_KEYS.map((key) => [key, true])) as { [K in ExecutionPreferenceKey]: true })
+  .partial().shape) satisfies z.ZodType<ExecutionPreferences, unknown>
 
 /** The preferences a background record runs with: the ones its creator or last editor sent. */
 export interface ExecutionPreferenceSnapshot {

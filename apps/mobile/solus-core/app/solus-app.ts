@@ -40,6 +40,7 @@ import { PairApprovals } from '../features/settings/pair-approvals'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
+import { HostPreferencesPublisher } from '@solus/client-core/host-preferences'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
@@ -257,6 +258,13 @@ export class SolusApp {
       clock: timerClock,
     }, () => this.reachableHosts())
     this.account.changes.subscribe(() => this.followAccount())
+    // Each connected host keeps a copy of the person's preferences, which their work there reads (docs/plans/host-preferences.md).
+    const hostPreferences = new HostPreferencesPublisher({
+      preferences: () => this.personal.executionPreferences(),
+      readyHosts: () => this.connections.readyConnections().map((connection) => ({ hostId: connection.hostId, api: connection.api })),
+    })
+    this.connections.changes.subscribe(() => hostPreferences.publish())
+    this.personal.changes.subscribe(() => hostPreferences.publish())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)
@@ -453,7 +461,6 @@ export class SolusApp {
       },
       outbox: this.outbox,
       runSettings: () => this.settingsFor(hostId),
-      executionPreferences: () => this.personal.executionPreferences(),
       saveModelOptions: (provider, model, options) => { this.personal.saveModelOptions(provider, model, options) },
       autoRenameSessions: () => this.personal.current().autoRenameSessions,
       organizationId: () => this.account.organizationId,

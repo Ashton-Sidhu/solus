@@ -27,7 +27,7 @@ import { resolveHomePath } from '../../platform/paths'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { resolveSourceControlWriterModel, sourceControlWritingFor } from '../../host/settings'
-import { contextPreferences } from '../../execution/agents/run-input'
+import { actingPreferences } from '../../execution/person-preferences'
 import { writingBackendFor, type WritingBackend } from '../../execution/agents/writing-backend'
 import type { WorktreeMover } from '../../execution/sessions/worktree-move'
 import type { WorktreeOffers } from '../../execution/sessions/worktree-offers'
@@ -228,7 +228,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!gitContext) throw new Error('No active git branch for this session.')
     const cwd = gitContext.worktreePath || ctx.session.workingDirectory
     // The caller's own writing preferences (plans/018 §3.3), on their own provider seat.
-    const preferences = contextPreferences(ctx)
+    const preferences = actingPreferences(ctx.session.organizationId)
     const policy = await resolveSourceControlWritingPolicy(cwd, sourceControlWritingFor(preferences))
     const writerBackend = await writingBackendFor(
       resolveSourceControlWriterModel(preferences),
@@ -395,7 +395,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       cwd: ctx.session.workingDirectory,
       target: { kind: 'new', baseBranch: ctx.session.gitContext?.targetBranch, namePrompt: namePrompt || undefined },
       actor: handlerCtx.actor,
-      preferences: contextPreferences(ctx),
+      preferences: actingPreferences(ctx.session.organizationId),
     })
   })
 
@@ -404,7 +404,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     log.info('rpc_decide_worktree_offer', { sessionId: ctx.session.sessionId, offerId, decision })
     return deps.worktreeOffers.decide(ctx.session.sessionId, offerId, decision, handlerCtx.actor, {
       cwd: ctx.session.workingDirectory,
-      preferences: contextPreferences(ctx),
+      preferences: actingPreferences(ctx.session.organizationId),
     })
   })
 

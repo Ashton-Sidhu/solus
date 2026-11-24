@@ -25,7 +25,7 @@ import { prIndex } from '../prs/pr-index'
 import { resolvedGuideHead, resolveTarget, resolveTargetBase, type GuideTarget } from './guide-producer'
 import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runLensAgent, type LensAgentInput } from './lens-agent'
-import { contextPreferences } from '../execution/agents/run-input'
+import { actingPreferences } from '../execution/person-preferences'
 import {
   changeLensComments,
   commitLens,
@@ -413,7 +413,7 @@ export class ReviewLensJobs {
         model: runPlan.options.model ?? null,
         seat,
         reasoningEffort: runPlan.options.reasoningEffort ?? null,
-        executionPreferences: contextPreferences(ctx),
+        executionPreferences: actingPreferences(ctx.session.organizationId),
         onWriting: () => step('writing'),
         abortSignal: signal,
       })

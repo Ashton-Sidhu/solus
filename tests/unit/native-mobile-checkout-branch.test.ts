@@ -35,7 +35,6 @@ async function open() {
   const outboxStorage = memoryKeyValueStore()
   let nextId = 0
   const controller = new ConversationController(NEW, {
-    executionPreferences: () => ({}),
     connection,
     outbox: new SendOutbox(() => outboxStorage),
     runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
