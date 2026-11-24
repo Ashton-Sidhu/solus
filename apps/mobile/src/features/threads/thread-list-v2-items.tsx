@@ -1273,6 +1273,32 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </Text>
     </View>
   ) : null;
+  const hostLabel = props.environmentLabel ? (
+    <View className="min-w-0 flex-1 flex-row items-center gap-1">
+      {props.environmentMachine ? (
+        <EnvironmentMachineSymbol
+          kind={props.environmentMachine}
+          size={machineIconSize}
+          tintColorClassName={
+            selected
+              ? selectedThreadRowColors.mutedIconTintClassName
+              : rowAppearance.tertiaryIconTintClassName
+          }
+        />
+      ) : null}
+      <Text
+        className={cn(
+          "shrink text-xs",
+          selected
+            ? selectedThreadRowColors.mutedForegroundClassName
+            : rowAppearance.tertiaryForegroundClassName,
+        )}
+        numberOfLines={1}
+      >
+        {props.environmentLabel}
+      </Text>
+    </View>
+  ) : null;
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
@@ -1441,34 +1467,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.runtime.lastError}
           </Text>
-        ) : props.environmentLabel ? (
-          <View className="min-w-0 flex-1 flex-row items-center gap-1">
-            {props.environmentMachine ? (
-              <EnvironmentMachineSymbol
-                kind={props.environmentMachine}
-                size={machineIconSize}
-                tintColorClassName={
-                  selected
-                    ? selectedThreadRowColors.mutedIconTintClassName
-                    : rowAppearance.tertiaryIconTintClassName
-                }
-              />
-            ) : null}
-            <Text
-              className={cn(
-                "shrink text-xs",
-                selected
-                  ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
-              )}
-              numberOfLines={1}
-            >
-              {props.environmentLabel}
-            </Text>
-          </View>
-        ) : (
-          branchLabel ? null : <View className="flex-1" />
-        )}
+        ) : null}
+        {hostLabel}
+        {!branchLabel && !hostLabel ? <View className="flex-1" /> : null}
         {pr ? (
           <Pressable
             // Padding cancelled by negative margin grows the touch target into
@@ -1639,6 +1640,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               {title}
             </Text>
             {branchLabel}
+            {hostLabel}
             {providerNameLabel ? (
               <Text
                 className={cn(

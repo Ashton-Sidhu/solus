@@ -36,6 +36,10 @@
      *  input bar is in — one explicit step, never automatic
      *  (docs/plans/project-model.md §5). */
     onSelectCurrent?: () => void;
+    addAtTop?: boolean;
+    showAdd?: boolean;
+    onAddProject?: () => void;
+    onSearchSelect?: (option: ListProjectOption) => void;
   }
   let {
     projects,
@@ -45,6 +49,10 @@
     onSelectAll,
     allLabel = "All projects",
     onSelectCurrent,
+    addAtTop = false,
+    showAdd = true,
+    onAddProject,
+    onSearchSelect,
   }: Props = $props();
 
   let query = $state("");
@@ -74,7 +82,17 @@
       autofocus
       type="text"
       data-project-find
-      onkeydown={(event) => event.stopPropagation()}
+      onkeydown={(event) => {
+        if (onSearchSelect && event.key === "Escape") return;
+        if (onSearchSelect && event.key === "Enter" && query.trim()) {
+          const match = matches.find((project) => project.available);
+          if (match) {
+            event.preventDefault();
+            onSearchSelect(match);
+          }
+        }
+        event.stopPropagation();
+      }}
       placeholder="Find a project…"
       aria-label="Find a project"
       class="min-w-0 flex-1 bg-transparent text-menu outline-none placeholder:text-muted-foreground"
@@ -82,6 +100,9 @@
   </div>
 {/if}
 <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+  {#if showAdd && addAtTop && !query.trim()}
+    {@render addRow()}
+  {/if}
   {#if onSelectAll && !query.trim()}
     <DropdownMenu.Item
       onSelect={onSelectAll}
@@ -131,8 +152,14 @@
     <div class="px-2 py-3 text-menu text-muted-foreground">No project matches.</div>
   {/if}
 </div>
-<DropdownMenu.Separator />
-<DropdownMenu.Item data-testid="project-filter-add" onSelect={() => openAddProjectPicker(onSelect)}>
-  <FolderPlusIcon size={14} class="shrink-0 text-muted-foreground" />
-  <span class="min-w-0 flex-1 truncate">Open project…</span>
-</DropdownMenu.Item>
+{#if showAdd && !addAtTop}
+  <DropdownMenu.Separator />
+  {@render addRow()}
+{/if}
+
+{#snippet addRow()}
+  <DropdownMenu.Item data-testid="project-filter-add" onSelect={onAddProject ?? (() => openAddProjectPicker(onSelect))}>
+    <FolderPlusIcon size={14} class="shrink-0 text-muted-foreground" />
+    <span class="min-w-0 flex-1 truncate">{addAtTop ? "Add project…" : "Open project…"}</span>
+  </DropdownMenu.Item>
+{/snippet}

@@ -5,18 +5,23 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
     Plus as PlusIcon,
-    FolderPlus as FolderPlusIcon,
     Search as MagnifyingGlassIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import type { PinnedSession } from "@solus/contracts/types";
   import {
+    CHATS_GROUP_KEY,
     getSettingsContext,
     getWorkspaceContext,
     getSessionSidebarStore,
     hosts,
     runtime,
   } from "../../contexts";
+  import { scopedNewCheckout } from "./lib/scoped-new";
+  import { groupKeyFor } from "../../contexts/projects/projects.store.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { projectHome, runHost } from "../../contexts/workspace/run-location";
+  import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
@@ -122,6 +127,20 @@
   onDestroy(() => automationWatches.forEach((stop) => stop()));
   const isOnDarkSky = $derived(skyScene !== null && isDarkSkyScene(skyScene));
   const canStartSession = $derived(hosts.runOn?.me.may("host.sessions.start") ?? true);
+
+  const scopedCheckout = $derived.by(() => {
+    const scope = sidebarStore.scopedProject;
+    if (!scope) return undefined;
+    const run = session.runFor(session.focusedSourceId ?? session.activeTabId);
+    const home = projectHome(run);
+    const viewedHostId = home && groupKeyFor(home.serverId, home.path) === scope.key ? runHost(run) : undefined;
+    return scopedNewCheckout(
+      scope,
+      session.logicalProjects.find(({ key }) => key === scope.key)?.checkouts ?? [],
+      viewedHostId,
+      (serverId) => serversStore.readinessFor(serverId).readiness === "ready" && hosts.get(serverId).me.may("host.sessions.start"),
+    );
+  });
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let sessionContextMenu = $state<
@@ -349,10 +368,27 @@
     session.drafts.openSessionDraft({ freshTask: true, via: "click" });
   }
 
-  /** The brand in the title bar and the New draft button both start here. */
   function startDraft() {
     newSession();
     requestInputFocus();
+    onSessionSelect?.();
+  }
+
+  function startSidebarDraft(event: MouseEvent) {
+    const scope = sidebarStore.scopedProject;
+    if (!scope || event.shiftKey) {
+      if (canStartSession) startDraft();
+      return;
+    }
+    if (scope.key === CHATS_GROUP_KEY && canStartSession) {
+      openChatDraft(session, "click");
+    } else if (scopedCheckout) {
+      const { projectRoot, serverId } = scopedCheckout;
+      session.drafts.openSessionDraft({ freshTask: true, serverId, via: "click" }, projectRoot);
+      requestInputFocus();
+    } else {
+      return;
+    }
     onSessionSelect?.();
   }
 
@@ -861,6 +897,7 @@
   {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
   {@const automationId = openTabId ? sidebarStore.taskForTab(openTabId)?.automationId : sessionListStore.listed(pin.sessionId)?.automationId}
   <PinnedSessionRow
+    {isGuest}
     {pin}
     isAutomation={!!automationId}
     automationName={sidebarStore.automationName(automationId, pin.serverId)}
@@ -1016,24 +1053,14 @@
       </label>
     {/snippet}
     {#snippet sidebarActions()}
-      {#if !isGuest}
-        <button
-          type="button"
-          class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:tap-area pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
-          aria-label="Add project"
-          title="Add project"
-          onclick={() => window.dispatchEvent(new CustomEvent("solus:open-project"))}
-        >
-          <FolderPlusIcon class="size-4" />
-        </button>
-      {/if}
-      {#if canStartSession}
+      {#if canStartSession || scopedCheckout}
       <button
         type="button"
         class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:tap-area pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="New draft"
         title="New draft"
-        onclick={startDraft}
+        disabled={!!sidebarStore.scopedProject && sidebarStore.scopedProject.key !== CHATS_GROUP_KEY && !scopedCheckout}
+        onclick={startSidebarDraft}
       >
         <PlusIcon class="size-4" />
       </button>
@@ -1043,6 +1070,7 @@
       scopedProject={sidebarStore.scopedProject}
       projectChoices={sidebarStore.projectFilterChoices}
       onFilter={filterToProject}
+      onAddProject={isGuest ? undefined : () => window.dispatchEvent(new CustomEvent("solus:open-project"))}
       leading={taskSearch}
       trailing={sidebarActions}
     />

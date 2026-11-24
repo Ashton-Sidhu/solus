@@ -7,6 +7,7 @@
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import DotMatrix from "../ui/DotMatrix.svelte";
+  import SessionRowHost from "./SessionRowHost.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import {
@@ -252,10 +253,9 @@
     }
   }}
 >
-  <!-- A delegated session is one line: its name and its trailing slot.
-       Its branch and host are in the tooltip. -->
   <span class="flex min-w-0 flex-1 items-center gap-[0.5625rem]">
     {@render title()}
+    {#if !isGuest}<SessionRowHost serverId={session.serverId} />{/if}
     {@render trailing()}
   </span>
 </div>
@@ -267,6 +267,7 @@
     {groupKey}
     {projectLabel}
     branchName={session.branchName}
+    worktreePath={session.worktreePath}
     serverId={session.serverId}
     {isGuest}
     provider={session.provider}

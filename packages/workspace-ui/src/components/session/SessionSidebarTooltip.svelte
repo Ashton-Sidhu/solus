@@ -2,6 +2,7 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     GitBranch as GitBranchIcon,
+    Folder as WorktreeIcon,
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
@@ -26,6 +27,7 @@
     /** The task this session belongs to, when the row names one. */
     taskTitle?: string;
     branchName?: string | null;
+    worktreePath?: string | null;
     serverId?: string | null;
     provider?: AgentId | null;
     modelId?: string | null;
@@ -45,6 +47,7 @@
     projectLabel,
     taskTitle,
     branchName,
+    worktreePath,
     serverId,
     provider,
     modelId,
@@ -62,8 +65,6 @@
   const resolvedProjectLabel = $derived(
     projectLabel ?? (projectKey ? hostPathBaseName(projectKey) : undefined),
   );
-  // The `solus/` namespace is true of every worktree Solus mints, so it names
-  // nothing here either — the tooltip reads the same slug as the row.
   const resolvedBranchLabel = $derived(branchName ? worktreeDisplayName(branchName) : "");
   const providerMark = $derived(
     provider === "claude-code" ? "claude" : provider === "codex" ? "codex" : null,
@@ -126,6 +127,12 @@
         <div class="flex min-w-0 items-center gap-2">
           <GitBranchIcon class="size-3.5 shrink-0" />
           <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
+        </div>
+      {/if}
+      {#if worktreePath}
+        <div class="flex min-w-0 items-center gap-2" title={worktreePath}>
+          <WorktreeIcon class="size-3.5 shrink-0" />
+          <MiddleTruncate value={worktreePath} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
       {#if attention}

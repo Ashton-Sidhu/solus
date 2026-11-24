@@ -3234,6 +3234,14 @@ export interface OpenInEditorRequest {
 export interface FilePreviewRequest {
   path: string
   cwd?: string
+  /** Opt in to bounded, read-only pages when the file exceeds the preview limit. */
+  textPage?: { index: number; revision?: string }
+}
+
+export interface FilePreviewPage {
+  index: number
+  count: number
+  revision: string
 }
 
 export interface ProjectFilesRequest {
@@ -3447,11 +3455,12 @@ export type FilePreviewResult =
       displayPath: string
       contents: string
       size: number
-      /** Files outside the active project can be previewed but not edited. */
+      /** A partial preview is read-only so it cannot replace the complete file. */
       isReadOnly: boolean
       /** `contents` holds only the first slice of the file. Editing is disabled
        *  in this state — saving would write the truncation back to disk. */
       truncated?: boolean
+      page?: FilePreviewPage
       mimeType?: string
     }
   | {

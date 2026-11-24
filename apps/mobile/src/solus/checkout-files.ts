@@ -1,4 +1,5 @@
 import type { HostApi } from "@solus/client-core/host-api";
+import type { FilePreviewRequest } from "@solus/contracts/types";
 import { projectContext } from "@solus-mobile/features/conversation/lib/ipc-context";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -96,11 +97,14 @@ export async function readCheckoutEntry(
   api: Pick<HostApi, "readProjectFile" | "listDirectory">,
   { cwd, relativePath }: { cwd: string; relativePath: string },
   organizationId: string | null,
+  textPage?: FilePreviewRequest["textPage"],
 ) {
-  const result = await api.readProjectFile(projectContext(cwd, organizationId), {
+  const request: FilePreviewRequest = {
     cwd,
     path: relativePath,
-  });
+  };
+  if (textPage) request.textPage = textPage;
+  const result = await api.readProjectFile(projectContext(cwd, organizationId), request);
   if (result.ok) return result;
   // A path opened from a message or markdown link can also name a folder.
   const directory = await api.listDirectory(resolveWorkspaceFilePath(cwd, relativePath), true);
@@ -108,7 +112,26 @@ export async function readCheckoutEntry(
   throw new Error(result.error);
 }
 
-export const readEntry = checkoutQuery(readCheckoutEntry);
+export const readEntry = checkoutQuery(
+  (api, input: { cwd: string; relativePath: string }, organizationId) =>
+    readCheckoutEntry(api, input, organizationId, { index: 0 }),
+);
+
+export const readTextPage = checkoutQuery(
+  async (api, input: { cwd: string; path: string; index: number; revision: string }, organizationId) => {
+    const { cwd, path, index, revision } = input;
+    const result = await api.readProjectFile(projectContext(cwd, organizationId), {
+      cwd,
+      path,
+      textPage: { index, revision },
+    });
+    if (!result.ok) throw new Error(result.error);
+    if (result.kind !== "text" || result.page?.index !== index) {
+      throw new Error("The host could not send this page.");
+    }
+    return result.contents;
+  },
+);
 
 export async function signCheckoutAsset(
   api: Pick<HostApi, "assetCreateUrl">,

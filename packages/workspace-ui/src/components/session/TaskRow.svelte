@@ -4,7 +4,6 @@
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
     ChevronRight as ChevronRightIcon,
-    Laptop as LaptopIcon,
     Workflow as AutomationIcon,
     Moon as MoonIcon,
     Pin as PinIcon,
@@ -15,10 +14,8 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { shouldActivateRenameableRow } from "../../lib/rename-input";
   import { liveActivityClock } from "../../lib/shared-clock";
-  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
-  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../servers/lib/managed-host";
+  import SessionRowHost from "./SessionRowHost.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import PrChip from "./PrChip.svelte";
   import SessionPinButton from "./SessionPinButton.svelte";
@@ -202,18 +199,10 @@
   // under the row there is a single answer and the row states it. Several
   // sessions can sit on different hosts, and no single mark is true of all of
   // them — so the question moves to the task page, where each can answer it.
-  const showsHost = $derived(!isGuest && sessions.length <= 1);
+  const showsHost = $derived(!isGuest && !task.share && sessions.length <= 1 && !!(task.sessionId || tooltipSession));
   // A session that ran on several hosts names the one with its newest turn
   // (docs/plans/portable-sessions.md §10): that is where it continues from.
   const lastRunServerId = $derived(task.sessionId ? sessionListStore.newestHostFor(task.sessionId, task.serverId) : null);
-  const host = $derived(serversStore.hostFor(lastRunServerId ?? task.serverId));
-  const hostTitle = $derived(lastRunServerId ? `Last ran on ${host?.label ?? "Local"}` : host?.label);
-  // A task with no server on it has nothing open, and nothing open runs here.
-  const isRemote = $derived(!!host && !host.local);
-  // A host Solus no longer has a saved entry for names no operating system;
-  // the icon falls back to a globe in that case.
-  const remoteOs = $derived(host && "os" in host ? host.os : undefined);
-
   // With no session listed under it on screen, this row stands for the
   // session you are reading, so it carries the current-session weight and
   // clock itself. A row that lists the session on screen under it leaves both
@@ -659,6 +648,9 @@
         </span>
       {/if}
       {@render rowTitle()}
+      {#if showsHost}
+        <SessionRowHost serverId={lastRunServerId ?? tooltipSession?.serverId ?? task.serverId} lastRun={!!lastRunServerId} />
+      {/if}
       {@render startedSessionsChip()}
       {#if prChip}
         <span
@@ -721,34 +713,9 @@
                 {/if}
               </span>
             {/if}
-            {#if showsHost && !task.share}
-              <!-- The separator is pure decoration, and local is the default
-                   every row would otherwise repeat. A remote session names its
-                   host as well as its operating system: remote and SaaS clients
-                   cannot infer the machine from the icon. The host cluster is
-                   bounded so it yields to the project name, and both labels
-                   truncate before the trailing state or actions. -->
-              <span class="shrink-0 @max-[15rem]:hidden">·</span>
-              {#if isRemote}
-                <span
-                  class="flex min-w-0 max-w-[45%] items-center gap-1"
-                  title={hostTitle}
-                >
-                  <HostOperatingSystemIcon
-                    os={remoteOs}
-                    managed={hostIsManaged(host)}
-                    size={12}
-                    class="size-3 shrink-0"
-                  />
-                  <span class="min-w-0 truncate">{host?.label}</span>
-                </span>
-              {:else}
-                <LaptopIcon
-                  size={12}
-                  class="size-3 shrink-0 @max-[15rem]:hidden"
-                  aria-label={hostTitle ?? "Local"}
-                />
-              {/if}
+            {#if showsHost}
+              <span class="shrink-0">·</span>
+              <SessionRowHost serverId={lastRunServerId ?? tooltipSession?.serverId ?? task.serverId} lastRun={!!lastRunServerId} />
             {/if}
           </span>
           {@render trailingSlot()}
@@ -798,7 +765,8 @@
       projectLabel={task.projectLabel}
       taskTitle={task.linkedTask?.title}
       {branchName}
-      serverId={task.serverId}
+      worktreePath={tooltipSession?.worktreePath ?? task.worktreePath}
+      serverId={lastRunServerId ?? tooltipSession?.serverId ?? task.serverId}
       {isGuest}
       provider={tooltipSession?.provider}
       modelId={tooltipSession?.modelId}

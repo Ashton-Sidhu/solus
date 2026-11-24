@@ -2,7 +2,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
 
 import type { WorkspaceEnvironment } from "../../state/workspaceModel";
-import { homeListFilterEnvironments } from "./home-list-filter-menu";
+import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home-list-filter-menu";
 
 function environment(
   environmentId: string,
@@ -32,4 +32,22 @@ it("offers only switched-on environments, sorted by label", () => {
     { environmentId: "env-desk", label: "Desk", connectionState: "connected" },
     { environmentId: "env-studio", label: "Studio", connectionState: "connected" },
   ]);
+});
+
+it("can add the first project from the sidebar project menu", () => {
+  let opened = false;
+  const items = buildHomeListFilterMenuItems({
+    environments: [],
+    projects: [],
+    selectedEnvironmentId: null,
+    selectedProjectKey: null,
+    onEnvironmentChange: () => {},
+    onProjectChange: () => {},
+    onAddProject: () => { opened = true; },
+  });
+  const project = items.find(({ id }) => id === "project");
+  const add = project && "items" in project ? project.items[0] : undefined;
+  if (!add || !("onPress" in add)) throw new Error("Expected the Add project action");
+  add.onPress();
+  expect(opened).toBe(true);
 });

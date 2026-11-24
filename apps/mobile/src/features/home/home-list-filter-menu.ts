@@ -39,6 +39,7 @@ export function buildHomeListFilterMenuItems(
     readonly selectedProjectKey: string | null;
     readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
     readonly onProjectChange: (projectKey: string | null) => void;
+    readonly onAddProject?: () => void;
   },
   resolve: MessageResolver = m,
 ): AppBarMenuItem[] {
@@ -64,11 +65,17 @@ export function buildHomeListFilterMenuItems(
     },
   ];
 
-  if (props.projects.length > 0) {
+  if (props.projects.length > 0 || props.onAddProject) {
     items.push({
       id: "project",
       title: resolve(msg("Project", { $context: "filter menu heading" })),
       items: [
+        ...(props.onAddProject ? [{
+          id: "project:add",
+          title: resolve(msg("Add project")),
+          icon: "folder.badge.plus",
+          onPress: props.onAddProject,
+        }] : []),
         {
           id: "project:all",
           title: resolve(msg("All projects")),

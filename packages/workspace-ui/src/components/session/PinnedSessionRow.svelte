@@ -5,6 +5,7 @@
   import { groupKeyFor } from "../../contexts";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import SessionRowHost from "./SessionRowHost.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
 
   /** A pinned session with no open conversation. It has the slim shape of a
@@ -12,6 +13,7 @@
   interface Props {
     pin: PinnedSession;
     isAutomation: boolean;
+    isGuest?: boolean;
     automationName?: string;
     /** Its conversation is the one on screen. */
     isCurrentSession: boolean;
@@ -19,7 +21,7 @@
     onUnpin: () => void;
     onMore: (event: MouseEvent) => void;
   }
-  let { pin, isAutomation, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
+  let { pin, isAutomation, isGuest = false, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
 
   const groupKey = $derived(groupKeyFor(pin.serverId ?? "", pin.cwd));
 </script>
@@ -57,11 +59,13 @@
           class="min-w-0 flex-1 truncate text-workspace-chrome {isCurrentSession ? 'font-medium' : ''}"
           >{automationName ?? pin.title}</span
         >
+        {#if !isGuest}<SessionRowHost serverId={pin.serverId} />{/if}
       </div>
     {/snippet}
   </TooltipUI.Trigger>
   <SessionSidebarTooltip
     title={pin.title}
+    {isGuest}
     projectKey={pin.cwd}
     {groupKey}
     serverId={pin.serverId}

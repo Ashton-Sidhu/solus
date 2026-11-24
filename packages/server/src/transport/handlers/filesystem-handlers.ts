@@ -1,4 +1,4 @@
-import { assertPathInScope } from '../../data/sessions/guest-path-scope'
+import { assertPathInScope, pathScopeOf } from '../../data/sessions/guest-path-scope'
 import { relativeHostPath, sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 import { basename, dirname, join, resolve as pathResolve } from 'path'
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'fs/promises'
@@ -351,7 +351,7 @@ export function registerFilesystemHandlers(server: SolusServer): void {
   server.register('readProjectFile', async (args, handlerCtx) => {
     const [ctx, request] = args
     assertPathInScope('readProjectFile', handlerCtx.principal, projectRootForRequest(ctx, request.cwd))
-    return readFilePreview(ctx, request)
+    return readFilePreview(ctx, request, pathScopeOf(handlerCtx.principal))
   })
 
   server.register('writeFile', async (args) => {

@@ -8,6 +8,7 @@ import { useActiveNewTask } from "../../state/active-new-task";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   useAppearancePreferences,
   useAndroidFloatingTabs,
@@ -101,6 +102,7 @@ interface ThreadNavigationSidebarProps {
   readonly onOpenEnvironmentSettings: () => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
+  readonly onAddProject: (environmentId: EnvironmentId | null) => void;
   readonly onOpenPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
@@ -395,9 +397,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             }
             project={projectByKey.get(pendingScopeKey) ?? null}
             environmentLabel={
-              Object.keys(savedConnectionsById).length > 1
-                ? (savedConnectionsById[item.pendingTask.environmentId]?.environmentLabel ?? null)
-                : null
+              savedConnectionsById[item.pendingTask.environmentId]?.environmentLabel ?? null
             }
             environmentMachine={machineByEnvironmentId.get(item.pendingTask.environmentId)}
             pane="sidebar"
@@ -430,9 +430,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             providerInstance={resolveProviderInstance(thread)}
             providers={providersByEnvironmentId.get(thread.environmentId)}
             environmentLabel={
-              Object.keys(savedConnectionsById).length > 1
-                ? (savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)
-                : null
+              savedConnectionsById[thread.environmentId]?.environmentLabel ?? null
             }
             environmentMachine={machineByEnvironmentId.get(thread.environmentId)}
             searchMatch={
@@ -554,6 +552,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             selectedProjectKey,
             onEnvironmentChange: setSelectedEnvironmentId,
             onProjectChange: setSelectedProjectKey,
+            onAddProject: () => props.onAddProject(options.selectedEnvironmentId),
           },
           messages,
         ),

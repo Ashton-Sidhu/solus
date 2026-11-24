@@ -80,7 +80,7 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
         connectionState.hasConnections
           ? [
               {
-                title: gt("Filter threads"),
+                title: gt("Projects and hosts"),
                 icon: workspaceListFilterIcon(props.filter.customized),
                 items: props.filter.items,
               },

@@ -1,4 +1,4 @@
-import { getSolusDirectory } from "../../solus/runtime";
+import { getSolusDirectory, solus } from "../../solus/runtime";
 import { useGT } from "gt-react-native";
 import {
   WorkspaceColumnsRendererContext,
@@ -601,6 +601,7 @@ function AdaptiveWorkspaceLayoutContent(
     // The full index, not the sidebar list: subagent and archived threads are current threads too.
     const directory = getSolusDirectory();
     const projectId = directory.threads.find(thread => thread.environmentId === environmentId && thread.id === threadId)?.projectId;
+    const currentProject = environmentId && projectId ? { environmentId, projectId } : undefined;
     const preferences = appAtomRegistry.get(mobilePreferencesAtom);
     const saved = AsyncResult.isSuccess(preferences) ? preferences.value : undefined;
     // Resolve the thread list's filter as useHomeListOptions does: a removed connection's filter reads as all.
@@ -617,7 +618,8 @@ function AdaptiveWorkspaceLayoutContent(
     );
     const connectedEnvironmentIds = new Set(
       directory.environments
-        .filter((environment) => environment.connectionState === "connected")
+        .filter((environment) => environment.connectionState === "connected" &&
+          solus.connections.may(environment.environmentId, "host.sessions.start"))
         .map((environment) => environment.environmentId),
     );
     handleSelectThreadRoute(
@@ -625,16 +627,17 @@ function AdaptiveWorkspaceLayoutContent(
         projects,
         requestId: uuidv4(),
         useLastProject: saved?.useLastProjectForNewThreads,
-        currentProject: environmentId && projectId ? { environmentId, projectId } : undefined,
+        currentProject: filteredScope ? undefined : currentProject,
         filteredProject: filteredScope
           ? newTaskFilteredProject(
               filteredScope,
               listEnvironmentId,
               connectedEnvironmentIds,
               saved?.lastThreadProject,
+              currentProject,
             )
           : undefined,
-        lastProject: saved?.lastThreadProject,
+        lastProject: filteredScope ? undefined : saved?.lastThreadProject,
       }),
     );
   };

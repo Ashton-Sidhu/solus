@@ -123,6 +123,7 @@ export type SidebarSessionChild = {
   projectKey?: string
   /** Branch or worktree this session works on. Null off a branch. */
   branchName: string | null
+  worktreePath?: string | null
   label: string
   attention: AttentionState
   /** True while this session has output or an error the user has not viewed. */
@@ -280,6 +281,7 @@ export class SessionSidebarStore {
       projectLabel: projectLabel(projectKey),
       groupKey: runGroupKey(session.run, projectKey),
       branchName: environment.branch,
+      worktreePath: environment.worktreePath,
       serverId,
       status: taskStatusFor(attention, isSettled),
       attention,
@@ -324,7 +326,7 @@ export class SessionSidebarStore {
       projectKey,
       projectLabel: projectLabel(projectKey),
       groupKey: groupKeyFor(listed.serverId, projectKey),
-      branchName: null,
+      branchName: listed.branch,
       serverId: listed.serverId,
       status: taskStatusFor(attention, !!state?.settledAt),
       attention,
@@ -545,7 +547,7 @@ export class SessionSidebarStore {
    *  against the column's own contents so a project that has left it never
    *  keeps scoping the list to something no longer there. */
   private openProjectFilter: string | null = $derived.by(() =>
-    resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogTasks),
+    resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogTasks, this.catalogProjectKeys),
   )
 
   /** The saved filter controls the list even when the focused composer is a draft. */
@@ -629,8 +631,14 @@ export class SessionSidebarStore {
   }
 
   /** The filter's own choices, over every project the column knows about. */
+  private catalogProjectKeys = $derived.by(() => this.session.logicalProjects.map(({ key }) => key))
+
   projectFilterChoices: ProjectFilterChoice[] = $derived(
-    projectFilterChoices(this.catalogTasks, (keys) => this.projectOptionsFor(keys)),
+    projectFilterChoices(
+      this.catalogTasks,
+      (keys) => this.projectOptionsFor(keys),
+      this.catalogProjectKeys,
+    ),
   )
 
   private inFilter(tasks: SidebarTask[]): SidebarTask[] {
@@ -1126,6 +1134,7 @@ export class SessionSidebarStore {
     const sess = this.session.sessionFor(tabId)
     const execution = sess ? this.session.sessions.executionFor(runHost(sess.run), sess.id) : undefined
     const attention = tab && sess ? getAttentionState(sess, tab, this.planStore.plans, execution) : null
+    const environment = this.session.environment.environmentFor(sess?.run)
     return {
       tabId,
       label: sess ? sessionTitle(sess) : tabId,
@@ -1136,7 +1145,8 @@ export class SessionSidebarStore {
       modelId: sess ? (sess.sessionModel ?? sess.run.modelConfig.modelId) : null,
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
-      branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
+      branchName: environment.branch,
+      worktreePath: environment.worktreePath,
       runStartedAt: sess && attention === 'running' ? execution?.current?.startedAt ?? turnStartedAt(sess) : 0,
       limitResetsAt: (sess && sessionLimitResetsAt(sess)) ?? undefined,
     }
@@ -1409,6 +1419,7 @@ export class SessionSidebarStore {
       sessionId: link.sessionId,
       projectKey,
       branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
+      worktreePath: checkout?.checkout?.worktreePath,
       label: sessionDisplayName({ link, taskTitle: record.title }),
       attention: attention,
       unread: attention === 'error',

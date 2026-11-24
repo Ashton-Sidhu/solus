@@ -25,6 +25,11 @@ Uploaded documents open in the T3 attachment reader from both drafts and sent me
 Session loading was compared with T3 Code revision `0591d32888dbd2f2f25915c245e6f1fe93dc4755`. T3 screens consume session rows and per-thread updates from the Solus stores. Mobile can show an authorized first page before session details arrive, reuse confirmed history blocks, and resume a retained live turn from its last event. See [Session open performance](../../docs/plans/session-open-performance.md#native-session-loading-and-reconnect) for the measurements and their scope.
 
 The Files routes for drafts and sessions open the same T3 tree and preview screens. The tablet file navigator uses the same file queries. The Solus adapter in `src/solus/checkout-files.ts` supplies directory entries, indexed search results, file contents, and signed preview URLs for the selected host and account.
+Solus reads large checkout text files as read-only source pages through the same
+file permission and account scope. The user can copy one page at a time. The
+sidebar project menu opens the existing Add project screen. A new draft uses
+the sidebar project filter and prefers the viewed host if it has a usable
+checkout of that project.
 
 Video links in a session use the same Solus host and file access rules as the Files preview. T3's iOS, Android, and inline video players request a fresh signed URL for playback.
 

@@ -63,6 +63,14 @@ folder and its Git repository.
 A new project opens on the host the dialog is set to. Use the host chip in the
 dialog header to change it.
 
+## Select a sidebar project
+
+Open the sidebar folder menu to select a project, clear the filter, or add a
+project. New opens a draft in the selected project. If the session on screen
+uses that project, New prefers its host when that host can start a session.
+On desktop and web, Shift-click New follows the session on screen. Session
+rows show their host where the reader has access to that information.
+
 ## Open the project folder
 
 In the project panel, click the project row to open the **Open in** menu:
@@ -84,6 +92,12 @@ entry, also when both names lead to the same file (two links, or a file and a
 link to it). A rename that changes only the case of a name works. Saving an
 open file is a different operation: it saves the file where it is, also
 outside the project.
+
+In Files, **Copy contents** copies the source of a text file. Files over 1 MB
+open as read-only source pages. Use First, Previous, Next, and Last to move
+through the file, or **Copy page** to copy the current page. Reload the file if
+it changes while the preview is open. PDF page links stay in the PDF viewer,
+and web links use the browser.
 
 ## The folder browser
 

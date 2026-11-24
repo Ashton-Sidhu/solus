@@ -175,6 +175,8 @@ export function HomeRouteScreen() {
                 selectedProjectKey,
                 onEnvironmentChange: setSelectedEnvironmentId,
                 onProjectChange: setSelectedProjectKey,
+                onAddProject: () => navigation.navigate("AddProject", selectedEnvironmentId
+                  ? { environmentId: String(selectedEnvironmentId) } : undefined),
               },
               m,
             ),

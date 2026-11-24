@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import * as pdfjsLib from 'pdfjs-dist'
+import { localApi } from '@solus/client-core/local-api'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import 'pdfjs-dist/web/pdf_viewer.css'
 
@@ -51,11 +52,24 @@ export async function openPdfView(
   viewer: HTMLDivElement,
   onChange: (state: PdfViewState) => void,
 ): Promise<PdfView> {
-  const { EventBus, PDFFindController, PDFLinkService, PDFViewer } = await loadViewerModule()
+  const { EventBus, LinkTarget, PDFFindController, PDFLinkService, PDFViewer } = await loadViewerModule()
   const eventBus = new EventBus()
-  const linkService = new PDFLinkService({ eventBus })
+  const linkService = new PDFLinkService({ eventBus, externalLinkTarget: LinkTarget.BLANK })
+  const addLinkAttributes = linkService.addLinkAttributes.bind(linkService)
+  linkService.addLinkAttributes = (link, href, newWindow) => {
+    const target = URL.parse(href)
+    if (target?.protocol !== 'https:' && target?.protocol !== 'http:') return
+    addLinkAttributes(link, href, newWindow)
+    link.onclick = (event) => {
+      event.preventDefault()
+      void localApi.openExternal(href)
+    }
+  }
   const findController = new PDFFindController({ linkService, eventBus })
-  const pdfViewer = new PDFViewer({ container, viewer, eventBus, linkService, findController, removePageBorders: true })
+  const pdfViewer = new PDFViewer({
+    container, viewer, eventBus, linkService, findController, removePageBorders: true,
+    annotationMode: pdfjsLib.AnnotationMode.ENABLE,
+  })
   linkService.setViewer(pdfViewer)
 
   let state: PdfViewState = { pageCount: 0, currentPage: 1, scalePercent: 100, matches: null }
@@ -76,8 +90,8 @@ export async function openPdfView(
   const loadingTask = pdfjsLib.getDocument({ url })
   try {
     const document = await loadingTask.promise
-    pdfViewer.setDocument(document)
     linkService.setDocument(document)
+    pdfViewer.setDocument(document)
   } catch (error) {
     void loadingTask.destroy()
     throw error

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { Funnel as FunnelIcon } from "@lucide/svelte";
+  import { Folder as FolderIcon } from "@lucide/svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import ListProjectRows from "../ui/list-page/ListProjectRows.svelte";
   import type { ProjectFilterChoice } from "./lib/task-list";
@@ -10,6 +11,7 @@
     scopedProject?: ProjectFilterChoice | null;
     projectChoices?: ProjectFilterChoice[];
     onFilter?: (projectKey: string | null) => void;
+    onAddProject?: () => void;
     leading?: Snippet;
     trailing?: Snippet;
   }
@@ -17,6 +19,7 @@
     scopedProject = null,
     projectChoices = [],
     onFilter,
+    onAddProject,
     leading,
     trailing,
   }: Props = $props();
@@ -55,7 +58,11 @@
                   ? `Project: ${scopedProject.label}`
                   : "Filter by project"}
               >
-                <FunnelIcon class="size-4" />
+                {#if scopedProject}
+                  <ProjectFavicon projectKey={scopedProject.key} class="size-4" />
+                {:else}
+                  <FolderIcon class="size-4" />
+                {/if}
               </button>
             {/snippet}
           </DropdownMenu.Trigger>
@@ -81,6 +88,13 @@
               activeKey={scopedProject?.key ?? ""}
               onSelectAll={() => onFilter(null)}
               onSelect={(option) => onFilter(option.key)}
+              onSearchSelect={(option) => {
+                menuOpen = false;
+                onFilter(option.key);
+              }}
+              addAtTop
+              showAdd={!!onAddProject}
+              {onAddProject}
             />
           </DropdownMenu.Content>
         </DropdownMenu.Root>

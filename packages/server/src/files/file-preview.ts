@@ -1,4 +1,5 @@
-import { open, readFile, realpath, stat } from 'fs/promises'
+import { open, realpath, stat, type FileHandle } from 'fs/promises'
+import type { Stats } from 'fs'
 import { isAbsoluteHostPath, relativeHostPath } from '@solus/contracts/host-path'
 import { resolve } from 'path'
 import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '@solus/contracts/types'
@@ -35,16 +36,28 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 
 /** Beyond this the editor is asked to tokenize and render more than it can. */
 const PREVIEW_MAX_BYTES = 1024 * 1024
+const TEXT_PAGE_BYTES = 32 * 1024
 
-async function readFilePrefix(path: string, size: number, cap = 8000): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const sample = Buffer.alloc(Math.min(size, cap))
-    const result = await handle.read(sample, 0, sample.length, 0)
-    return sample.subarray(0, result.bytesRead)
-  } finally {
-    await handle.close()
+async function readBytes(handle: FileHandle, size: number, position = 0): Promise<Buffer> {
+  const buffer = Buffer.alloc(size)
+  let offset = 0
+  while (offset < size) {
+    const { bytesRead } = await handle.read(buffer, offset, size - offset, position + offset)
+    if (!bytesRead) break
+    offset += bytesRead
   }
+  return buffer.subarray(0, offset)
+}
+
+function textRevision(file: Stats): string {
+  return [file.dev, file.ino, file.size, file.mtimeMs, file.ctimeMs].join(':')
+}
+
+// Move both sides of a shared page boundary back to the start of its code point.
+// A valid UTF-8 character has at most three continuation bytes.
+function utf8Boundary(buffer: Buffer, offset: number): number {
+  for (let step = 0; step < 3 && offset > 0 && offset < buffer.length && (buffer[offset]! & 0xc0) === 0x80; step++) offset--
+  return offset
 }
 
 /** The canonical file to read. The literal path wins; only a path that names
@@ -63,9 +76,72 @@ async function canonicalTarget(
   }
 }
 
+async function readTextPage(
+  handle: FileHandle,
+  file: Stats,
+  request: NonNullable<FilePreviewRequest['textPage']>,
+  revision: string,
+) {
+  const { index } = request
+  const count = Math.ceil(file.size / TEXT_PAGE_BYTES)
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count || (index > 0 && !request.revision)) {
+    throw new Error('This preview page is unavailable.')
+  }
+  const start = index * TEXT_PAGE_BYTES
+  const readStart = Math.max(0, start - 3)
+  const end = Math.min(start + TEXT_PAGE_BYTES, file.size)
+  const buffer = await readBytes(handle, Math.min(end + 1, file.size) - readStart, readStart)
+  if (textRevision(await handle.stat()) !== revision) throw new Error('The file changed. Reload the preview.')
+  const contents = buffer.subarray(
+    utf8Boundary(buffer, start - readStart),
+    utf8Boundary(buffer, end - readStart),
+  ).toString('utf-8')
+  return { contents, page: { index, count, revision } }
+}
+
+async function readTextPreview(
+  target: string,
+  displayPath: string,
+  fileStat: Stats,
+  textPage: FilePreviewRequest['textPage'],
+): Promise<FilePreviewResult> {
+  const handle = await open(target, 'r')
+  try {
+    const file = await handle.stat()
+    if (!file.isFile() || file.dev !== fileStat.dev || file.ino !== fileStat.ino) {
+      throw new Error('The file changed. Reload the preview.')
+    }
+    const revision = textRevision(file)
+    if (textPage?.revision !== undefined && textPage.revision !== revision) {
+      throw new Error('The file changed. Reload the preview.')
+    }
+    const sample = await readBytes(handle, Math.min(file.size, 8000))
+    if (isBinaryBuffer(sample)) return { ok: true, kind: 'binary', path: target, displayPath, size: file.size }
+
+    const truncated = file.size > PREVIEW_MAX_BYTES
+    const mimeType = mimeTypeFor(target)
+    if (truncated && textPage) {
+      const { contents, page } = await readTextPage(handle, file, textPage, revision)
+      return { ok: true, kind: 'text', path: target, displayPath, contents, size: file.size,
+        isReadOnly: true, mimeType, page }
+    }
+    const buffer = await readBytes(handle, Math.min(file.size, PREVIEW_MAX_BYTES))
+    if (textRevision(await handle.stat()) !== revision) throw new Error('The file changed. Reload the preview.')
+    const result: FilePreviewResult = {
+      ok: true, kind: 'text', path: target, displayPath, contents: buffer.toString('utf-8'),
+      size: file.size, isReadOnly: truncated, mimeType,
+    }
+    if (truncated) result.truncated = true
+    return result
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function readFilePreview(
   ctx: IpcContext,
   request: FilePreviewRequest,
+  scope: string | null = null,
 ): Promise<FilePreviewResult> {
   const rawRoot = projectRootForRequest(ctx, request.cwd) ?? undefined
   const resolved = resolvePreviewPath(request.path, rawRoot)
@@ -81,6 +157,9 @@ export async function readFilePreview(
       }
     }
     target = await canonicalTarget(resolved, root, request.path)
+    if (scope !== null && (!scope || !isInsideRoot(await realpath(scope), target))) {
+      return { ok: false, path: request.path, error: 'The file is outside the shared checkout.' }
+    }
 
     const fileStat = await stat(target)
     if (!fileStat.isFile()) {
@@ -91,28 +170,7 @@ export async function readFilePreview(
     const media = mediaTypeFor(target)
     if (media) return { ok: true, kind: 'media', path: target, displayPath, size: fileStat.size, media }
 
-    const sample = await readFilePrefix(target, fileStat.size)
-    if (isBinaryBuffer(sample)) return { ok: true, kind: 'binary', path: target, displayPath, size: fileStat.size }
-
-    // Project search can surface a hit in a generated bundle or a large log,
-    // which the editor would otherwise try to tokenize and render whole.
-    const truncated = fileStat.size > PREVIEW_MAX_BYTES
-    const buffer = truncated
-      ? await readFilePrefix(target, PREVIEW_MAX_BYTES, PREVIEW_MAX_BYTES)
-      : await readFile(target)
-    const result: FilePreviewResult = {
-      ok: true,
-      kind: 'text',
-      path: target,
-      displayPath,
-      contents: buffer.toString('utf-8'),
-      size: fileStat.size,
-      // A truncated save would replace the file with its first part.
-      isReadOnly: truncated,
-      mimeType: mimeTypeFor(target),
-    }
-    if (truncated) result.truncated = true
-    return result
+    return await readTextPreview(target, displayPath, fileStat, request.textPage)
   } catch (error) {
     return {
       ok: false,

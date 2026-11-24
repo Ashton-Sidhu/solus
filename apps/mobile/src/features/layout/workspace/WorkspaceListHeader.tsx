@@ -37,9 +37,9 @@ function SidebarColumnHeader(
   });
   const items = createWorkspaceListHeaderItems({
     filter: {
-      accessibilityLabel: gt("Filter threads"),
+      accessibilityLabel: gt("Projects and hosts"),
       icon: workspaceListFilterIcon(props.filter.customized),
-      title: gt("Thread list options"),
+      title: gt("Projects and hosts"),
       items: props.filter.items,
     },
     onOpenSettings: props.onOpenSettings,
