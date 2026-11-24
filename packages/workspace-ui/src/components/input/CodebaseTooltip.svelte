@@ -4,7 +4,7 @@
    *  line, so the lines here are its children, as each other tooltip with
    *  more than one fact. */
   import type { Snippet } from "svelte";
-  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import * as TooltipUI from "../ui/tooltip";
   import type { CodebaseTooltip } from "./lib/codebase-choice";
 
   let {

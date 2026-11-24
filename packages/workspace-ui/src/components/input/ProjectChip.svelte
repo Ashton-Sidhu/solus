@@ -19,7 +19,7 @@
   import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import type { Place, RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import * as TooltipUI from "../ui/tooltip";
   import * as Popover from "../ui/popover";
   import * as Command from "../ui/command";
   import { Button } from "../ui/button";
