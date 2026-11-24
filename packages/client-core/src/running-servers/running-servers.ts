@@ -1,5 +1,5 @@
 import { keepEqual } from '../keep-equal'
-import type { RunningServer, ServerEndpoint, NativeServerForward, NativeServerForwardRequest } from '@solus/contracts/running-servers'
+import { isRunningServerTunnelPath, type RunningServer, type ServerEndpoint, type NativeServerForward, type NativeServerForwardRequest } from '@solus/contracts/running-servers'
 import { isInsideHostPath, sameHostPath } from '@solus/contracts/host-path'
 import type { RunningServersSource } from './controller'
 
@@ -84,10 +84,11 @@ export class RunningServers {
     if (!forwarding) throw new Error('Port forwarding requires the desktop app.')
     if (!this.endpoints.some((candidate) => candidate.endpointId === endpoint.endpointId)) throw new Error('This endpoint is no longer available.')
     const generation = this.#generation
+    const origin = forwarding.origin()
     const ticket = await source.api.runningServerTunnel(this.serverId, endpoint.endpointId)
-    const tunnel = new URL(ticket.relativeUrl, forwarding.origin())
-    tunnel.protocol = tunnel.protocol === 'https:' ? 'wss:' : 'ws:'
-    const view = await forwarding.start({ endpointKey: this.forwardKey(endpoint), tunnelUrl: tunnel.href, targetUrl: endpoint.url, expiresAt: ticket.expiresAt })
+    if (source !== this.commands.source() || origin !== forwarding.origin()) throw new Error('The host connection changed.')
+    const tunnelUrl = runningServerTunnelUrl(origin, ticket.relativeUrl)
+    const view = await forwarding.start({ endpointKey: this.forwardKey(endpoint), tunnelUrl, targetUrl: endpoint.url, expiresAt: ticket.expiresAt })
     if (!this.#present || generation !== this.#generation || source !== this.commands.source() || this.#tokens.get(endpoint.endpointId) !== token) {
       await forwarding.stop(view.forwardId)
       throw new Error('The server or host connection changed.')
@@ -140,4 +141,12 @@ export class RunningServers {
     return source
   }
   private forwardKey(endpoint: ServerEndpoint): string { return `${this.commands.forwarding?.keyPrefix}:${this.serverId}:${endpoint.endpointId}` }
+}
+
+/** Only the connected host receives the capability it issued. */
+export function runningServerTunnelUrl(origin: string, path: string): string {
+  if (!isRunningServerTunnelPath(path)) throw new Error('The host returned an invalid preview tunnel path.')
+  const url = new URL(path, origin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.href
 }

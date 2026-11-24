@@ -2,10 +2,11 @@ import type { RunningServerRegistry } from '../../host/running-servers/registry'
 import type { HandlerCtx, SolusServer } from '../server'
 import { z } from 'zod'
 import { resolveHomePath } from '../../platform/paths'
+import { effectivePreviewTunnelEnabled } from '../../host/settings'
 import { RunningServerTunnels } from '../../host/running-servers/tunnel'
 
 export function registerRunningServerHandlers(server: SolusServer, registry: RunningServerRegistry, isControlPort: (port: number) => boolean): RunningServerTunnels {
-  const tunnels = new RunningServerTunnels(registry, isControlPort)
+  const tunnels = new RunningServerTunnels(registry, isControlPort, effectivePreviewTunnelEnabled)
   const pathsSchema = z.array(z.string().min(1).max(4096)).max(32)
   function clientId(ctx: HandlerCtx): string {
     if (!ctx.clientId) throw new Error('Running server discovery requires a connected client')

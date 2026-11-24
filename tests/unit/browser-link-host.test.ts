@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { BrowserOpenRequest, BrowserPage } from '@solus/contracts/browser-types'
-import { isWebUrl } from '@solus/workspace-ui/components/conversation/lib/external-link'
+import type { BrowserAnnotateOp, BrowserCaptureRequest, BrowserEvidence, BrowserOpenRequest, BrowserPage } from '@solus/contracts/browser-types'
+import { selectedWebUrl } from '@solus/workspace-ui/components/conversation/lib/external-link'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const serverConnectionsMock = singleHostServerConnections()
@@ -28,20 +28,20 @@ afterEach(() => {
 
 describe('which addresses a browser pane can render', () => {
   test('an ordinary web address', () => {
-    expect(isWebUrl('https://example.com/docs')).toBe(true)
-    expect(isWebUrl('http://localhost:5173/')).toBe(true)
+    expect(selectedWebUrl('https://example.com/docs')).toBe('https://example.com/docs')
+    expect(selectedWebUrl('http://localhost:5173/')).toBe('http://localhost:5173/')
   })
 
   test('not a scheme a browser page cannot render', () => {
     // WHY: an affordance that opens nothing is worse than no affordance. Solus's
     // own schemes are among these; whether a routable https link is offered is
     // the link component's call, made where it knows the route.
-    expect(isWebUrl('plan://open?planId=p1')).toBe(false)
-    expect(isWebUrl('work://open?workId=w1')).toBe(false)
-    expect(isWebUrl('file:///Users/dev/app/src/main.ts')).toBe(false)
-    expect(isWebUrl('mailto:dev@example.com')).toBe(false)
-    expect(isWebUrl('not a url')).toBe(false)
-    expect(isWebUrl('')).toBe(false)
+    expect(selectedWebUrl('plan://open?planId=p1')).toBeNull()
+    expect(selectedWebUrl('work://open?workId=w1')).toBeNull()
+    expect(selectedWebUrl('file:///Users/dev/app/src/main.ts')).toBeNull()
+    expect(selectedWebUrl('mailto:dev@example.com')).toBeNull()
+    expect(selectedWebUrl('not a url')).toBeNull()
+    expect(selectedWebUrl('')).toBeNull()
   })
 })
 
@@ -49,22 +49,35 @@ describe('the page opens on the session’s host', () => {
   function installHosts() {
     installStateRune()
     const opened: { serverId: string; request: BrowserOpenRequest }[] = []
+    const annotations: { serverId: string; pageId: string; op: BrowserAnnotateOp }[] = []
+    const captures: { serverId: string; request: BrowserCaptureRequest }[] = []
     const host = (serverId: string) => ({
       browserOpen: async (request: BrowserOpenRequest): Promise<BrowserPage> => {
         opened.push({ serverId, request })
         return { browserPageId: `browser_${serverId}`, createdAt: 1 } as BrowserPage
       },
+      browserAnnotate: async (pageId: string, op: BrowserAnnotateOp) => {
+        annotations.push({ serverId, pageId, op })
+        return { browserPageId: pageId, annotations: [] }
+      },
+      browserCaptureEvidence: async (request: BrowserCaptureRequest): Promise<BrowserEvidence> => {
+        captures.push({ serverId, request })
+        return {
+          browserPageId: request.browserPageId, assetId: 'capture', hostPath: '/captures/page.png',
+          attachedTo: 'Browser snapshots', url: 'http://localhost:5173/', viewport: 'Desktop', capturedAt: 1,
+        }
+      },
     })
     serverConnectionsMock.registerPrimary('laptop', host('laptop'))
     serverConnectionsMock.registerHost('studio', host('studio'))
-    return opened
+    return { opened, annotations, captures }
   }
 
   test('a link from a remote session opens there, not on the primary host', async () => {
     // WHY: `localhost:5173` in a remote agent's output is a dev server on that
     // machine. Opening it here resolves the address against the wrong app, or
     // against nothing at all.
-    const opened = installHosts()
+    const { opened } = installHosts()
     const store = new BrowserStore()
 
     const key = await store.open('studio', { target: { kind: 'url', url: 'http://localhost:5173/' } })
@@ -73,6 +86,19 @@ describe('the page opens on the session’s host', () => {
       { serverId: 'studio', request: { target: { kind: 'url', url: 'http://localhost:5173/' } } },
     ])
     expect(key.startsWith('studio')).toBe(true)
+  })
+
+  test('desktop annotations and screenshots use the host of a remote loopback page', async () => {
+    const { annotations, captures } = installHosts()
+    const store = new BrowserStore()
+    const key = await store.open('studio', { target: { kind: 'url', url: 'http://localhost:5173/' } })
+
+    const op: BrowserAnnotateOp = { kind: 'note', annotationId: 'mark', note: 'Update the heading' }
+    await store.annotate(key, op)
+    await store.captureEvidence(key)
+
+    expect(annotations).toEqual([{ serverId: 'studio', pageId: 'browser_studio', op }])
+    expect(captures).toEqual([{ serverId: 'studio', request: { browserPageId: 'browser_studio' } }])
   })
 
   test('the opened page is mirrored under its own host’s key', async () => {

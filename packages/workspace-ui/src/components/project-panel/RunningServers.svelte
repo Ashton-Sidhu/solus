@@ -10,6 +10,7 @@
   import { SERVER_LIST_PAGE_SIZE, stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
   import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
   import type { RunningServers } from '@solus/client-core/running-servers';
+  import { hostSettingsStore } from '../../contexts/app/host-settings.store.svelte';
   import { hosts, getWorkspaceContext } from '../../contexts';
   import { browserStore } from '../../contexts/browser/browser.store.svelte';
   import { splitHostKey } from '@solus/client-core/host-key';
@@ -25,6 +26,7 @@
   } = $props();
   const workspace = getWorkspaceContext();
   const host = $derived(hosts.get(hostId));
+  const forwardingEnabled = $derived(hostSettingsStore.states.get(host.id)?.previewTunnelEnabled !== false);
   const store = $derived(runningServers.forHost(hostId));
   let showAll = $state(false);
   let busy = $state<string | null>(null);
@@ -119,8 +121,8 @@
       {@const detail = [showAll && row.checkoutPath ? hostPathBaseName(row.checkoutPath) : null, forwarded ? `localhost:${forwarded.localPort}` : null].filter(Boolean).join(' · ')}
       <div class="group flex items-center rounded-md hover:bg-(--solus-surface-hover)" data-active={copied || pendingAction?.endsWith(`:${endpoint.endpointId}`) || undefined}>
         <button type="button" title={`${endpoint.url}\n${server.sourceLabel} · ${server.process.name}${row.checkoutPath ? `\n${row.checkoutPath}` : ''}`} class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 focus-visible:outline-2"
-          onclick={(event) => void (event.metaKey || event.ctrlKey || event.shiftKey ? external(server, endpoint) : open(server, endpoint))}
-          onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); void external(server, endpoint); } }}>
+          onclick={(event) => void ((forwardingEnabled || host === hosts.device) && (event.metaKey || event.ctrlKey || event.shiftKey) ? external(server, endpoint) : open(server, endpoint))}
+          onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); void (forwardingEnabled || host === hosts.device ? external(server, endpoint) : open(server, endpoint)); } }}>
           <span class="flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)" aria-hidden="true">
             {#if agentMark}<ProviderMark mark={agentMark} size={14} transparent />{:else}<SourceIcon size={16} />{/if}
           </span>
@@ -132,7 +134,7 @@
         </button>
         <div class="hidden shrink-0 items-center gap-0.5 pr-1 group-hover:flex group-has-[:focus-visible]:flex group-data-[active]:flex pointer-coarse:flex pointer-coarse:gap-2">
           {@render rowAction(copied ? 'Copied' : forwarded ? 'Copy forwarded URL' : 'Copy URL', copied ? Check : Copy, false, false, false, () => void copy(endpoint, forwarded?.url ?? endpoint.url))}
-          {#if server.canForward && host !== hosts.device}
+          {#if server.canForward && host !== hosts.device && (forwarded || forwardingEnabled)}
             {@render rowAction(forwarded ? `Stop forwarding localhost:${forwarded.localPort}` : 'Forward to this computer', forwarded ? Unplug : Cable, pendingAction === `forward:${endpoint.endpointId}`, false, false, () => void (forwarded ? stopForward(server, endpoint, forwarded.forwardId) : forward(server, endpoint)))}
           {/if}
           {#if server.actions.canStop && host.me.may('host.admin')}

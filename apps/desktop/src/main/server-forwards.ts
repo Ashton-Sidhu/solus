@@ -2,12 +2,20 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { WebSocket, createWebSocketStream } from 'ws'
 import { z } from 'zod'
-import type { NativeServerForward, NativeServerForwardRequest } from '@solus/contracts/running-servers'
+import { isRunningServerTunnelPath, type NativeServerForward, type NativeServerForwardRequest } from '@solus/contracts/running-servers'
 
 export const serverForwardRequestSchema = z.object({
   endpointKey: z.string().min(1).max(8192),
-  tunnelUrl: z.string().url().refine((raw) => { const url = new URL(raw); return ['ws:', 'wss:'].includes(url.protocol) && !url.username && !url.password && /^\/api\/running-servers\/tunnel\/[\w-]{43}$/.test(url.pathname) && !url.search && !url.hash }),
-  targetUrl: z.string().url().refine((raw) => { const url = new URL(raw); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password }),
+  tunnelUrl: z.string().refine((raw) => {
+    const url = URL.parse(raw)
+    return url !== null && ['ws:', 'wss:'].includes(url.protocol) && !url.username && !url.password
+      && isRunningServerTunnelPath(url.pathname) && !url.search && !url.hash
+  }),
+  targetUrl: z.string().refine((raw) => {
+    const url = URL.parse(raw)
+    return url !== null && ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+      && ['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '[::]'].includes(url.hostname)
+  }),
   expiresAt: z.number().finite(),
 })
 interface Forward { view: NativeServerForward; server: Server; sockets: Set<Socket>; request: NativeServerForwardRequest; expiry: ReturnType<typeof setTimeout> }

@@ -24,7 +24,12 @@ echo.on('connection', (socket) => socket.on('message', (message) => socket.send(
 const upstreamPort = await listen(upstream)
 const target = runningServer()
 target.endpoints[0] = { endpointId: 'api', address: '127.0.0.1', port: upstreamPort, url: `http://127.0.0.1:${upstreamPort}/admin?api=v1#health`, response: null }
-const tunnels = new RunningServerTunnels({ list: async () => [target], identityMatches: async () => true }, (port) => port === hostPort)
+let forwardingEnabled = true
+let pauseScan: (() => Promise<void>) | undefined
+const tunnels = new RunningServerTunnels({
+  list: async () => { await pauseScan?.(); return [target] },
+  identityMatches: async () => true,
+}, (port) => port === hostPort, () => forwardingEnabled)
 const host = createServer((_request, response) => { response.writeHead(404); response.end() })
 host.on('upgrade', (request, socket, head) => { if (!tunnels.handleUpgrade(request, socket, head)) socket.destroy() })
 const hostPort = await listen(host)
@@ -45,13 +50,55 @@ try {
   socket.send('HMR and API WebSockets')
   const [message] = await once(socket, 'message')
   assert.equal(message.toString(), 'HMR and API WebSockets')
-  const closed = once(socket, 'close')
-  socket.close()
-  await closed
+  forwardingEnabled = false
+  tunnels.applyPolicy()
+  const revoked = once(socket, 'close')
+  await revoked
+  assert.throws(() => tunnels.issuePort('desktop', upstreamPort), /disabled/)
+  await assert.rejects(tunnels.issue('desktop', target.serverId, 'api'), /disabled/)
+  forwardingEnabled = true
+  // A ticket that was revoked must stay revoked when access is restored.
+  const stale = new WebSocket(request.tunnelUrl)
+  stale.on('error', () => {})
+  const [, staleRejection] = await once(stale, 'unexpected-response')
+  assert.equal(staleRejection.statusCode, 403)
+  staleRejection.destroy()
+  stale.terminate()
+  const renewed = await tunnels.issue('desktop', target.serverId, 'api')
+
+  let finishScan!: () => void
+  const scan = new Promise<void>((resolve) => { finishScan = resolve })
+  pauseScan = () => scan
+  const pending = tunnels.issue('departed-desktop', target.serverId, 'api')
+  tunnels.disconnect('departed-desktop')
+  finishScan()
+  await assert.rejects(pending, /revoked/)
+  pauseScan = undefined
+
+  let scanStarted!: () => void
+  let finishUpgradeScan!: () => void
+  const startedScan = new Promise<void>((resolve) => { scanStarted = resolve })
+  const upgradeScan = new Promise<void>((resolve) => { finishUpgradeScan = resolve })
+  pauseScan = () => { scanStarted(); return upgradeScan }
+  const upgrading = new WebSocket(`ws://127.0.0.1:${hostPort}${renewed.relativeUrl}`)
+  upgrading.on('error', () => {})
+  const upgradeResult = once(upgrading, 'unexpected-response')
+  await startedScan
+  forwardingEnabled = false
+  tunnels.applyPolicy()
+  forwardingEnabled = true
+  finishUpgradeScan()
+  const [, refusedUpgrade] = await upgradeResult
+  assert.equal(refusedUpgrade.statusCode, 403)
+  refusedUpgrade.destroy()
+  upgrading.terminate()
+  pauseScan = undefined
+
+  const beforeDisconnect = await tunnels.issue('desktop', target.serverId, 'api')
   forwards.stop(forward.forwardId)
   assert.deepEqual(forwards.list(), [])
   tunnels.disconnect('desktop')
-  const denied = new WebSocket(request.tunnelUrl)
+  const denied = new WebSocket(`ws://127.0.0.1:${hostPort}${beforeDisconnect.relativeUrl}`)
   denied.on('error', () => {})
   const [, rejection] = await once(denied, 'unexpected-response')
   assert.equal(rejection.statusCode, 403)
@@ -67,6 +114,10 @@ try {
   await close(localReservation)
   try {
     assert.throws(() => tunnels.issuePort('desktop', hostPort), /reserved/)
+    const previous = target.endpoints[0]
+    target.endpoints[0] = { ...previous, port: hostPort }
+    await assert.rejects(tunnels.issue('desktop', target.serverId, 'api'), /reserved/)
+    target.endpoints[0] = previous
     assert.throws(() => tunnels.issuePort('desktop', 65536), /TCP port/)
     const manual = tunnels.issuePort('desktop', unlistedPort)
     const direct = await forwards.start({

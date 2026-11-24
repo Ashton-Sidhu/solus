@@ -7,6 +7,7 @@ const HOST_KEY_LABELS = {
   remoteAccess: 'Remote access',
   trustLocalNetwork: 'Local network trust',
   cloudTunnel: 'The Solus Cloud link',
+  previewTunnelEnabled: 'Preview tunnel',
   analyticsEnabled: 'Analytics',
   otel: 'OpenTelemetry export',
   archivedAutomationRetentionDays: 'Archived automation retention',

@@ -41,6 +41,7 @@ export const HOST_KEY_LABELS = {
   remoteAccess: 'Remote access',
   trustLocalNetwork: 'Local network trust',
   cloudTunnel: 'The Solus Cloud link',
+  previewTunnelEnabled: 'Preview tunnel',
   analyticsEnabled: 'Analytics',
   otel: 'OpenTelemetry export',
   archivedAutomationRetentionDays: 'Archived automation retention',
@@ -192,6 +193,7 @@ function hostKeyValue<K extends ManagedHostKey>(key: K, value: NonNullable<Manag
   if (settings.remoteAccess !== undefined) return settings.remoteAccess === false || settings.remoteAccess === 'off' ? 'This machine only' : 'Allowed'
   if (settings.trustLocalNetwork !== undefined) return settings.trustLocalNetwork ? 'Trusted' : 'Pairing required'
   if (settings.cloudTunnel !== undefined) return settings.cloudTunnel ? 'Allowed' : 'Not allowed'
+  if (settings.previewTunnelEnabled !== undefined) return onOff(settings.previewTunnelEnabled)
   if (settings.analyticsEnabled !== undefined) return onOff(settings.analyticsEnabled)
   if (settings.continueSessionsAfterHostRestart !== undefined) return onOff(settings.continueSessionsAfterHostRestart)
   if (settings.updates !== undefined) return settings.updates.mode === 'off' ? 'Managed by the organization' : 'Automatic'

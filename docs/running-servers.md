@@ -77,12 +77,23 @@ same TCP channel. HTTPS keeps its scheme and certificate behavior.
 Use **Forwarded ports** in the desktop command palette to enter a TCP port on
 a remote host you administer. The remote service can be absent from discovery.
 The dialog shows the local address and can stop either kind of forward. Manual
-forwards target the host's loopback and exclude Solus connection ports.
+forwards target the host's loopback even when another service uses that port on
+the desktop. Both kinds of forward exclude Solus connection ports. Only users
+with host access can forward from a discovered row. Entering a port manually
+requires host administration.
 
-The host issues a short-lived capability for one endpoint. The WebSocket
+The **Preview tunnel** is on by default. A host administrator can turn it off
+in Host settings on desktop, web, or mobile. Device management or a host policy can lock the setting
+with `host.previewTunnelEnabled`. When off, the host refuses new tunnels and
+closes active ones. The Browser pane still opens loopback pages on the selected
+host and streams them to the client. Desktop keeps its annotation and screenshot
+controls for those streamed pages.
+
+The connected host issues a short-lived capability for one endpoint to the authorized client. The WebSocket
 upgrade checks its expiry. Forwards started from a server row also check the
 current endpoint and process identity. The tunnel connects only to loopback.
-Traffic uses stream backpressure and connection limits. The
+Traffic uses stream backpressure and connection limits. Processes on the desktop
+can reach its forwarded loopback port while it is active. The
 client renews the ticket while forwarding is active, including when the card is
 not mounted. Stop forwarding, host disconnection, ticket expiry, and desktop
 shutdown close the relevant local listener and channels. A renderer reload

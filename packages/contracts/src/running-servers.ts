@@ -48,7 +48,12 @@ export const SERVER_LIST_PAGE_SIZE = 4
 
 export function serverUrlsFromText(text: string): string[] { return [...new Set(text.split('\n').map((line) => line.trim()).filter(Boolean))] }
 
-/** Explicit HTTP endpoints, kept in .solus/config.json for this checkout. */
+export const RUNNING_SERVER_TUNNEL_PATH = '/api/running-servers/tunnel/'
+export function isRunningServerTunnelPath(path: string): boolean {
+  return path.startsWith(RUNNING_SERVER_TUNNEL_PATH) && /^[\w-]{43}$/.test(path.slice(RUNNING_SERVER_TUNNEL_PATH.length))
+}
+
+/** A capability addressed to the connected host and scoped to one TCP endpoint. */
 export interface RunningServerTunnel { relativeUrl: string; expiresAt: number }
 export interface NativeServerForward { forwardId: string; endpointKey: string; localPort: number; url: string }
 export interface NativeServerForwardRequest { endpointKey: string; tunnelUrl: string; targetUrl: string; expiresAt: number }

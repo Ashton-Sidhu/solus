@@ -169,6 +169,7 @@ export function getHostConfig(): HostConfigSnapshot {
 /** Host config keys a policy can lock (plans/030 §4.4), with the label a refusal names. */
 const LOCKABLE_HOST_CONFIG: ReadonlyArray<readonly [ManagedHostKey & HostConfigKey, string]> = [
   ['solusTools', 'Solus tools'],
+  ['previewTunnelEnabled', 'Preview tunnel'],
   ['continueSessionsAfterHostRestart', 'Continue sessions after a restart'],
   ['archivedAutomationRetentionDays', 'Archived automation retention'],
   ['unfiledRecordingRetentionDays', 'Unfiled recording retention'],
@@ -194,8 +195,13 @@ function withHostLocks(config: HostConfig): HostConfig {
   next.continueSessionsAfterHostRestart = policies.hostSetting('continueSessionsAfterHostRestart')?.value ?? config.continueSessionsAfterHostRestart
   next.archivedAutomationRetentionDays = policies.hostSetting('archivedAutomationRetentionDays')?.value ?? config.archivedAutomationRetentionDays
   next.unfiledRecordingRetentionDays = policies.hostSetting('unfiledRecordingRetentionDays')?.value ?? config.unfiledRecordingRetentionDays
+  next.previewTunnelEnabled = effectivePreviewTunnelEnabled()
   next.analyticsEnabled = policies.hostSetting('analyticsEnabled')?.value ?? config.analyticsEnabled
   return next
+}
+
+export function effectivePreviewTunnelEnabled(): boolean {
+  return hostPolicies().hostSetting('previewTunnelEnabled')?.value ?? getServerSettings().hostConfig.previewTunnelEnabled
 }
 
 /** Remote access as the policies allow it: a locked value wins over the owner's (plans/030 §6.7). */
@@ -248,8 +254,9 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
   }
   const hostConfig = mergeHostConfig(getServerSettings().hostConfig, patch)
   if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
-  _settings = { ...getServerSettings(), hostConfig }
-  persistSettings(_settings)
+  const next = { ...getServerSettings(), hostConfig }
+  persistSettings(next)
+  _settings = next
   // The values are the user's; only which keys moved is logged.
   log.info('host_config_changed', { keys: Object.keys(patch).sort() })
   return getHostConfig()

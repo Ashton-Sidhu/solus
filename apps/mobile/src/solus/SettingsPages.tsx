@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Alert } from "react-native";
 import {
   type StaticScreenProps,
@@ -10,6 +16,7 @@ import {
   PROVIDERS,
   modelChoices,
 } from "@solus-mobile/features/conversation/lib/run-settings";
+import { hostLockMessage } from "@solus-mobile/features/policy/lib/policy-view";
 import { useListened } from "@solus-mobile/app/app-context";
 import { AppText, AppTextInput } from "../components/ui/AppText";
 import { ScreenScrollView } from "../components/ui/ScreenScrollView";
@@ -291,6 +298,17 @@ export function SolusHostDetail({
   const nav = useNavigation();
   const directory = useSolusWorkspace();
   const host = directory.hostsById[id];
+  const connection = solus.connections.connection(id);
+  const subscribeToPolicy = useCallback((notify: () => void) => {
+    if (!connection) return () => {};
+    const stop = connection.facts.subscribe((key) => {
+      if (key === "policy") notify();
+    });
+    connection.facts.ensure("policy");
+    return stop;
+  }, [connection]);
+  const policies = useSyncExternalStore(subscribeToPolicy, () => connection?.facts.value("policy"));
+  const previewTunnelLock = hostLockMessage(policies, "previewTunnelEnabled");
   const state = useListened(solus.hostSettings.changes, () =>
     solus.hostSettings.stateOf(id),
   );
@@ -367,6 +385,21 @@ export function SolusHostDetail({
             />
           ))
         )}
+        {host?.connectionState === "connected" &&
+        state.kind === "loaded" &&
+        state.settings.previewTunnelEnabled !== undefined ? (
+          <SettingsSwitchRow
+            label="Preview tunnel"
+            subtitle={previewTunnelLock ?? "Allow desktop clients to forward loopback ports from this host."}
+            disabled={!!previewTunnelLock || !solus.connections.may(id, "host.admin")}
+            value={state.settings.previewTunnelEnabled}
+            onValueChange={(previewTunnelEnabled) =>
+              void solus.hostSettings
+                .update(id, { previewTunnelEnabled })
+                .catch((e) => Alert.alert("Could not update host", String(e)))
+            }
+          />
+        ) : null}
       </SettingsSection>
     </SettingsPage>
   );
