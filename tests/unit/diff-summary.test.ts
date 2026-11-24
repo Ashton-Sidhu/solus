@@ -79,8 +79,8 @@ describe('diff summary tree', () => {
     const tree = buildDiffSummaryTree(undefined, [
       { path: 'src/a.ts', additions: 7, deletions: 2, status: 'A' },
     ])
-    expect(tree.total).toBe(1)
-    expect(tree.root.folders[0].files[0]).toMatchObject({ name: 'a.ts', status: 'A' })
+    expect(tree).toMatchObject({ total: 1, additions: 7, deletions: 2 })
+    expect(tree.root.folders[0].files[0]).toMatchObject({ path: 'src/a.ts', name: 'a.ts', status: 'A' })
   })
 })
 

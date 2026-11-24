@@ -49,8 +49,6 @@ export interface WorktreeOffersDeps {
 export class WorktreeOffers {
   /** Watched tool calls in flight, by session and tool id. */
   private readonly calls = new Map<string, WatchedCall>()
-  /** Claude reports a tool's input by content-block index, not by tool id. */
-  private readonly toolIdByIndex = new Map<string, string>()
   /** Offers per session, read from the activity record once. */
   private readonly offers = new Map<string, Promise<Map<string, Offer>>>()
   /** One check at a time per session, so one worktree is offered once. */
@@ -70,13 +68,12 @@ export class WorktreeOffers {
   private onToolCall(sessionId: string, event: Extract<NormalizedEvent, { type: 'tool_call' }>): void {
     if (!WATCHED_TOOLS.has(event.toolName)) return
     this.calls.set(callKey(sessionId, event.toolId), { toolName: event.toolName, input: event.toolInput ?? '' })
-    this.toolIdByIndex.set(callKey(sessionId, String(event.index)), event.toolId)
   }
 
   private onToolComplete(sessionId: string, event: Extract<NormalizedEvent, { type: 'tool_call_complete' }>): void {
-    const toolId = event.toolId ?? this.toolIdByIndex.get(callKey(sessionId, String(event.index)))
-    const call = toolId ? this.calls.get(callKey(sessionId, toolId)) : undefined
-    if (!toolId || !call) return
+    const toolId = event.toolId
+    const call = this.calls.get(callKey(sessionId, toolId))
+    if (!call) return
     if (event.toolInput) call.input = event.toolInput
     // Without an outcome Claude only finished the input; its result follows.
     if (!event.outcome && event.completedAtMs === undefined) return
@@ -189,7 +186,6 @@ export class WorktreeOffers {
   private forgetCalls(sessionId: string): void {
     const prefix = callKey(sessionId, '')
     for (const key of this.calls.keys()) if (key.startsWith(prefix)) this.calls.delete(key)
-    for (const key of this.toolIdByIndex.keys()) if (key.startsWith(prefix)) this.toolIdByIndex.delete(key)
   }
 }
 

@@ -1,4 +1,4 @@
-import type { PrFilter, PrListPage, PrProjectListing } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectListing, RepoRef } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
 import type { PrsStore, ProjectPrs } from '@solus/workspace-ui/contexts/prs/prs.store.svelte'
 
@@ -11,8 +11,11 @@ type PageRead = (ctx: IpcContext, filter?: PrFilter, page?: number) => Promise<P
  */
 export function listingFrom<Api extends { prList: PageRead }>(api: Api): Api & {
   prListProjects: (ctx: IpcContext, projectRoots: string[], filter?: PrFilter) => Promise<PrProjectListing[]>
+  prRepository: (ctx: IpcContext) => Promise<RepoRef>
 } {
   return {
+    // Every project reads one repository unless the suite says otherwise.
+    prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
     ...api,
     prListProjects: (ctx, projectRoots, filter) => Promise.all(projectRoots.map(async (projectRoot): Promise<PrProjectListing> => {
       const projectCtx = { ...ctx, session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot } }

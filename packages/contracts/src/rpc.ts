@@ -13,8 +13,6 @@ import type { DispatchRepository } from './types'
 
 /** Maximum decoded size of one attachment uploaded across a host boundary. */
 export const MAX_ATTACHMENT_UPLOAD_BYTES = 10 * 1024 * 1024
-/** Maximum uploaded attachment files retained for one session. */
-export const MAX_ATTACHMENT_UPLOAD_COUNT = 8
 
 export interface AttachmentUploadRequest {
   name: string
@@ -542,6 +540,7 @@ export const RPC_INVOKE_METHODS = [
   'prListProjects',
   'prFilterOptions',
   'prSetInterest',
+  'prRepository',
   'prGuideMetadata',
   'prOpenReview',
   'prGetDiff',
@@ -550,7 +549,6 @@ export const RPC_INVOKE_METHODS = [
   'prGetDetail',
   'prUpdate',
   'prReact',
-  'prInspectUrl',
   'prGetOverview',
   'prChangedFiles',
   'prListThreads',

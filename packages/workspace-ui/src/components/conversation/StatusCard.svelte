@@ -55,6 +55,8 @@
   // A step with a warning is what the reader must see, so its card stays open.
   const hasWarning = $derived(card.steps.some((step) => step.status === "warning"));
   const expanded = $derived(userExpanded ?? (!isDone || keepsStepsOpen || hasWarning));
+  // A failed or warned step shows its detail under it, so the rail stops there.
+  const showsDetail = (step: StatusCardState["steps"][number]) => !!step.detail && (step.status === "error" || step.status === "warning");
 </script>
 
 <div role="status" aria-live="polite">
@@ -100,17 +102,26 @@
       {/if}
     {/snippet}
     {#snippet body()}
-      <!-- Compact rows, no dividers, no filled discs. -->
+      <!-- Compact rows, no dividers, no filled discs. A hairline rail joins
+           each marker to the next, green below a finished step. -->
       <ul class="flex flex-col" role="list">
-        {#each card.steps as step (step.id)}
+        {#each card.steps as step, index (step.id)}
           {@const stepMs = stepDurationMs(step) ?? timing.msFor(step.id)}
           <!-- A running step that reports its percentage (a clone, an install) fills its
                own tint from the left: the bar is the row, not one more line. -->
           <li
-            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
+            class="setup-step relative flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
             class:is-active={step.status === "active"}
             style:--step-percent={step.status === "active" && step.percent !== undefined ? `${step.percent}%` : undefined}
           >
+            {#if index < card.steps.length - 1 && !showsDetail(step)}
+              <span
+                class="absolute top-[calc(50%+0.5625rem)] -bottom-[0.3125rem] left-[calc(0.875rem-0.75px)] w-[1.5px] rounded-full {step.status === 'done'
+                  ? 'bg-[color:color-mix(in_oklch,var(--chart-3)_45%,transparent)]'
+                  : 'bg-[color:color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
+                aria-hidden="true"
+              ></span>
+            {/if}
             {#if step.status === "done"}
               <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
             {:else if step.status === "error"}
@@ -146,7 +157,7 @@
               <span class="setup-elapsed shrink-0">{formatStepDuration(stepMs)}</span>
             {/if}
           </li>
-          {#if step.detail && (step.status === "error" || step.status === "warning")}
+          {#if showsDetail(step)}
             <li class="setup-detail px-2 pb-1.5" class:setup-detail--warning={step.status === "warning"}>
               {step.detail}
             </li>

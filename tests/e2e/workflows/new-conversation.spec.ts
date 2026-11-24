@@ -3,21 +3,6 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
 test.describe('New conversation workflow', () => {
-  test('user sends a message and receives a streamed response', async ({ page }) => {
-    // Given: app is open with a fresh tab
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    // When: user types and sends a message
-    await conversation.typeAndSend('Hello, how are you?')
-
-    // Then: a response streams in
-    await conversation.waitForResponse()
-    const responseText = await conversation.getLastAssistantMessage()
-    expect(responseText.length).toBeGreaterThan(0)
-  })
-
   test('user can send multiple messages in sequence', async ({ page }) => {
     // Given: app is open
     const app = new AppPage(page)
@@ -27,13 +12,11 @@ test.describe('New conversation workflow', () => {
     // When: user sends two messages
     await conversation.typeAndSend('First message')
     await conversation.waitForResponse()
+    await expect(page.locator('.workspace-shell [data-testid="message-input"] .cm-content')).toHaveText('')
 
     await conversation.typeAndSend('Second message')
-    await conversation.waitForResponse()
 
-    // Then: both responses are visible
-    const messages = await conversation.getAllAssistantMessages()
-    expect(messages.length).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => conversation.getAllAssistantMessages()).toHaveLength(2)
   })
 
   test('send button triggers message submission', async ({ page }) => {

@@ -181,10 +181,12 @@
         {#if filters}{@render filters()}{:else}<span class="flex-1"></span>{/if}
 
         {#if primaryAction}
+          {#if filters}
           <span
             class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[30rem]/pane:hidden"
             aria-hidden="true"
           ></span>
+          {/if}
           <!-- The only filled thing on the page, and it sits nearest the list
                it adds to rather than up in the crumb line. -->
           <button

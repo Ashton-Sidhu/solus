@@ -203,7 +203,9 @@ describe('runtime instructions', () => {
       // agent has no exchange, no report, and no stop_session.
       expect(prompt).toContain('For background agent work, use start_sessions, never a background native subagent')
       expect(prompt).not.toContain('Solus task')
-      expect(prompt).toContain('Permission mode may stay the same or become narrower')
+      // WHY: a child that narrows its mode without reason stops and asks the user,
+      // although the user gave the parent full access.
+      expect(prompt).toContain('Children keep your permission mode. Narrow it only for a clear reason.')
       expect(prompt).not.toContain('claude_subagent')
       expect(prompt).not.toContain('codex_subagent')
     }

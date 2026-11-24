@@ -219,8 +219,10 @@ export class ConnectionsStore {
     }
   }
 
-  async connectProvider(serverId: string, ctx: IpcContext): Promise<void> {
-    if (this.providerConnecting) return
+  /** Signs in to GitHub. True when the sign-in finished; false when one was
+   *  already running or the person cancelled it. */
+  async connectProvider(serverId: string, ctx: IpcContext): Promise<boolean> {
+    if (this.providerConnecting) return false
     this.providerCancelling = false
     this.providerServerId = serverId
     this.providerConnecting = true
@@ -230,8 +232,9 @@ export class ConnectionsStore {
         this.providerStatus = status
         this.providerLoaded = true
       }
+      return true
     } catch (e) {
-      if (this.providerCancelling) return
+      if (this.providerCancelling) return false
       throw e
     } finally {
       this.providerConnecting = false

@@ -109,7 +109,8 @@ You can send a video to an agent in the same ways as an image:
 
 Solus accepts MP4, M4V, MOV, and WebM files up to 50 MB. Images stay limited to
 10 MB. The chip shows upload progress, and **Retry** if the upload fails.
-Cancelled uploads and unused upload URLs do not spend an attachment slot.
+On mobile, desktop, and web, Solus accepts attachment batches of any count the
+device picker supports.
 If the host saved a file but the client lost the reply, Retry uses that file.
 
 Videos pause when their player leaves the screen or their Solus tab is hidden.

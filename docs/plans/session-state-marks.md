@@ -344,6 +344,5 @@ one mark everywhere.
   the clear on `turn_settled`, the tool-name map for Claude and Codex, and the
   `awaitingApproval` field.
 - `tests/unit/dot-marks.test.ts` — the paths stay in the grid and use each cell
-  once, the keyframe offsets are in 0..1 and do not decrease, write-motion
-  letters are empty at the end of a cycle, run-motion letters do not go below
-  0.5, and the reversed S starts at `[2,0]`.
+  once, keyframe offsets stay ordered and in range, a still mark stays visible,
+  and a phase shift preserves a jump at the end of a curve.

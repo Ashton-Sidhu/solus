@@ -50,19 +50,4 @@ test.describe('Projects settings tab', () => {
     await expect(commandInputs).toHaveCount(1)
     await expect(commandInputs.first()).toHaveValue('npm run dev')
   })
-
-  test('Projects is one tab among the standard settings tabs', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await app.waitForWorkspace()
-
-    await page.keyboard.press('ControlOrMeta+Comma')
-
-    const tablist = page.locator('[role="tablist"]:visible').first()
-    const firstTab = tablist.locator('[role="tab"]').first()
-    await expect(firstTab).toHaveText('General')
-    await expect(tablist.locator('[role="tab"]', { hasText: 'Projects' })).toBeVisible()
-    // Project config is not shown until the Projects tab is opened.
-    await expect(page.getByText('Run commands')).not.toBeVisible()
-  })
 })

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PrConversationItem, ReviewThread } from '@solus/contracts/providers'
+import type { PrConversationItem, PrRef, ReviewThread } from '@solus/contracts/providers'
 import type { IpcContext, PrMergeResult } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
 
@@ -51,6 +51,7 @@ describe('a merge indexes what the pull request became', () => {
     const calls: string[] = []
     const refreshed = pullRequestFixture(65, { headSha: 'sha-from-host' })
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prRefresh: async () => {
         calls.push('invalidate')
       },
@@ -74,6 +75,7 @@ describe('a merge indexes what the pull request became', () => {
     installStateRune()
     const merged = pullRequestFixture(65, { state: 'merged', title: 'Landed' })
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prMerge: async (): Promise<PrMergeResult> => ({ merged: true, detail: merged }),
       ...NO_CHECKS,
     })
@@ -92,7 +94,8 @@ describe('a merge indexes what the pull request became', () => {
     installStateRune()
     let sentHeadSha: string | null = null
     const api = asHostApi({
-      prMerge: async (_ctx: IpcContext, _number: number, _method: string, expectedHeadSha: string) => {
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
+      prMerge: async (_pr: PrRef, _method: string, expectedHeadSha: string) => {
         sentHeadSha = expectedHeadSha
         return { merged: false, message: 'refused' }
       },
@@ -111,6 +114,7 @@ describe('a merge indexes what the pull request became', () => {
     installStateRune()
     let called = false
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prMerge: async () => {
         called = true
         return { merged: true }
@@ -145,7 +149,7 @@ describe('a merge shows at once and is taken back on refusal', () => {
   test('the pull request reads as merged before the host answers', async () => {
     installStateRune()
     const host = pendingMerge()
-    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prMerge: () => host.reply, ...NO_CHECKS })
     const project = await projectPrs(api)
     project.absorb(pullRequestFixture(65))
 
@@ -161,7 +165,7 @@ describe('a merge shows at once and is taken back on refusal', () => {
   test('a thrown refusal restores the state the pull request had', async () => {
     installStateRune()
     const host = pendingMerge()
-    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prMerge: () => host.reply, ...NO_CHECKS })
     const project = await projectPrs(api)
     project.absorb(pullRequestFixture(65, { title: 'Keep me' }))
 
@@ -176,6 +180,7 @@ describe('a merge shows at once and is taken back on refusal', () => {
   test('an answered refusal restores the state and rejects with the host reason', async () => {
     installStateRune()
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prMerge: async (): Promise<PrMergeResult> => ({ merged: false, message: 'Required checks have not passed' }),
       ...NO_CHECKS,
     })
@@ -192,7 +197,7 @@ describe('a merge shows at once and is taken back on refusal', () => {
     // to open until the merge answer arrived.
     installStateRune()
     const host = pendingMerge()
-    const api = asHostApi({ prMerge: () => host.reply, ...NO_CHECKS })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prMerge: () => host.reply, ...NO_CHECKS })
     const project = await projectPrs(api)
     project.absorb(pullRequestFixture(65))
 
@@ -215,6 +220,7 @@ describe('a write drops what it made wrong', () => {
     let threadReads = 0
     const threads: ReviewThread[] = []
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListThreads: async (): Promise<ReviewThread[]> => {
         threadReads += 1
         return threads
@@ -243,6 +249,7 @@ describe('a write drops what it made wrong', () => {
     installStateRune()
     let threadReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListThreads: async (): Promise<ReviewThread[]> => {
         threadReads += 1
         return []
@@ -265,6 +272,7 @@ describe('a write drops what it made wrong', () => {
     installStateRune()
     let commentReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListComments: async (): Promise<PrConversationItem[]> => {
         commentReads += 1
         return []
@@ -289,6 +297,7 @@ describe('a write drops what it made wrong', () => {
     let threadReads = 0
     let commentReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListThreads: async (): Promise<ReviewThread[]> => {
         threadReads += 1
         return []

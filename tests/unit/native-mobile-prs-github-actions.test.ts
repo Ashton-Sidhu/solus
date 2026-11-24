@@ -7,7 +7,7 @@ import { PullRequestReviewDrafts } from '../../apps/mobile/solus-core/features/p
 import { shownValue } from '../../apps/mobile/solus-core/features/prs/pull-request-reads'
 import { pullRequestPermissions, stackMergePlan, viewedFilesOnHost } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-permissions'
 import { FakeApi, flushPromises, ManualTimers } from './helpers/native-mobile-fakes'
-import { detailApi, hostWorld, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
+import { detailApi, hostWorld, PR, PR_REF, project, pullRequest, repositoryApi } from './helpers/native-mobile-prs-fixtures'
 
 // Stack merge, workflow approval, revert, and viewed files change GitHub. Each
 // must show only when GitHub and the person's account both allow it, name what
@@ -83,7 +83,7 @@ describe('stack merge', () => {
     const { actions } = await setup(api)
     const result = await actions.mergeStack(PR_REF, { stackNumber: 90, method: 'squash', expectedHeads: [{ number: 7, headSha: 'head-7' }] })
     expect(result.status).toBe('queued')
-    expect(api.callsOf('prMergeStack')[0]![1]).toEqual({ number: 7, stackNumber: 90, method: 'squash', expectedHeads: [{ number: 7, headSha: 'head-7' }] })
+    expect(api.callsOf('prMergeStack')[0]).toEqual([{ ...PR, stackNumber: 90, method: 'squash', expectedHeads: [{ number: 7, headSha: 'head-7' }] }])
     expect(api.callsOf('prGetOverview')).toHaveLength(1)
     expect(api.callsOf('prListProjects')).toHaveLength(1)
   })
@@ -125,7 +125,8 @@ describe('workflow approval', () => {
       .on('prApproveWorkflowRuns', () => ({ approved: 2 }))
     const { actions } = await setup(api)
     expect(await actions.approveWorkflowRuns(PR_REF, 'head-7')).toBe(2)
-    expect(api.callsOf('prApproveWorkflowRuns')[0]!.slice(1)).toEqual([7, 'head-7'])
+    expect(api.callsOf('prApproveWorkflowRuns')[0]).toEqual([PR, 'head-7'])
+    expect(api.callsOf('prPendingWorkflowRuns')[0]).toEqual([PR])
     expect(api.callsOf('prGetOverview')).toHaveLength(1)
     expect(pullRequestPermissions(pullRequest(7, fork), 'me', true).canApproveWorkflows).toBe(true)
     expect(pullRequestPermissions(pullRequest(7, { capabilities: fork.capabilities }), 'me', true).canApproveWorkflows).toBe(false)
@@ -145,15 +146,16 @@ describe('revert', () => {
     const api = listing(detailApi(new FakeApi())).on('prRevert', () => ({ number: 12, url: 'https://github.com/o/r/pull/12' }))
     const { actions } = await setup(api)
     expect(await actions.revert(PR_REF)).toEqual({ hostId: 'inst-a', projectPath: '/work/app', number: 12 })
+    expect(api.callsOf('prRevert')).toEqual([[PR]])
   })
 })
 
 describe('viewed files on GitHub', () => {
   const viewedApi = () => {
     let files = [{ path: 'a.ts', state: 'unviewed' as const }, { path: 'b.ts', state: 'dismissed' as const }]
-    const api = new FakeApi()
+    const api = repositoryApi(new FakeApi())
       .on('prViewedFiles', () => ({ files, complete: true }))
-      .on('prSetFilesViewed', (_ctx: never, _number: never, changes: PrViewedFileChange[]) => {
+      .on('prSetFilesViewed', (_pr: never, changes: PrViewedFileChange[]) => {
         files = files.map((file) => {
           const change = changes.find((entry) => entry.path === file.path)
           return change ? { ...file, state: change.viewed ? 'viewed' : 'unviewed' } : file
@@ -173,8 +175,8 @@ describe('viewed files on GitHub', () => {
     timers.runAll()
     await flushPromises()
     await flushPromises()
-    expect(api.callsOf('prSetFilesViewed')[0]![2]).toEqual([{ path: 'a.ts', viewed: true }, { path: 'b.ts', viewed: true }])
-    expect(api.callsOf('prViewedFiles')).toHaveLength(2)
+    expect(api.callsOf('prSetFilesViewed')[0]).toEqual([PR, [{ path: 'a.ts', viewed: true }, { path: 'b.ts', viewed: true }]])
+    expect(api.callsOf('prViewedFiles')).toEqual([[PR], [PR]])
     expect(shownValue(directory.viewedOf(PR_REF))?.files.every((file) => file.state === 'viewed')).toBe(true)
     expect(actions.viewedMarksOf(PR_REF).size).toBe(0)
   })

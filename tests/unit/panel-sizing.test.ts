@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
 import type { ConversationWidth } from '@solus/contracts/settings'
 import { gutterWidth, hasRoomForRail } from '@solus/workspace-ui/components/conversation/lib/minimap'
 import {
@@ -145,15 +144,6 @@ describe('panel sizing across displays', () => {
     // A full column leaves no gutter for the navigator rail.
     expect(hasRoomForRail(pane, 'full')).toBe(false)
     expect(hasRoomForRail(pane, 'narrow')).toBe(true)
-  })
-
-  test('the stylesheet paints the widths the navigator assumes', () => {
-    // WHY: the navigator rail places itself in the gutter it computes. If the
-    // CSS rule changes alone, the rail sits on the text or leaves a hole.
-    const css = readFileSync(new URL('../../packages/workspace-ui/src/workspace.css', import.meta.url), 'utf8')
-    expect(css).toContain('--solus-reading-max: min(68rem, max(65%, min(100% - 4rem, 46rem)));')
-    expect(css).toMatch(/\[data-conversation-width='narrow'\] \{\s*--solus-reading-max: min\(100% - 4rem, 40rem\);/)
-    expect(css).toMatch(/\[data-conversation-width='full'\] \{\s*--solus-reading-max: 100%;/)
   })
 
   test('a laptop lands inside the band rather than on either bound', () => {

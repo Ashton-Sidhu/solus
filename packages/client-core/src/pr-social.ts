@@ -3,8 +3,7 @@ import type { RepoRef } from '@solus/contracts/providers'
 import type {
   PrReaction,
   PrReactionContent,
-  PrReactions,
-  PrUrlInspection
+  PrReactions
 } from '@solus/contracts/pr-social'
 
 /**
@@ -70,7 +69,7 @@ export class PrReactionWrites {
       .then(async () => {
         if (generation !== this.#generation) return
         try {
-          const value = await this.api().prReact(this.repo, this.number, targetId, content, add)
+          const value = await this.api().prReact({ repo: this.repo, number: this.number }, targetId, content, add)
           // A later toggle of this target is still waiting; its look stands.
           if (generation === this.#generation && this.#overlays.get(key)?.token === token)
             this.#put(key, { base, value, token })
@@ -108,50 +107,6 @@ export function withReaction(reactions: PrReactions, content: PrReactionContent,
     ? reactions.groups.map((group) => (group === held ? { ...group, count, viewerHasReacted: add } : group))
     : [...reactions.groups, { content, count, viewerHasReacted: add, actors: [] }]
   return { ...reactions, groups: groups.filter((group) => group.count > 0) }
-}
-export interface PrUrlState {
-  value: PrUrlInspection | null
-  pending: boolean
-  error: string | null
-}
-/** Explicit URL reads do not participate in project discovery or checkout setup. */
-export class PrUrlInspectionStore {
-  #state: PrUrlState = { value: null, pending: false, error: null }
-  #generation = 0
-  #listeners = new Set<() => void>()
-  constructor(private readonly api: () => Pick<SolusAPI, 'prInspectUrl'>) {}
-  get current(): PrUrlState {
-    return this.#state
-  }
-  subscribe = (listener: () => void): (() => void) => {
-    this.#listeners.add(listener)
-    return () => {
-      this.#listeners.delete(listener)
-    }
-  }
-  #set(value: PrUrlState): void {
-    this.#state = value
-    for (const listener of this.#listeners) listener()
-  }
-  close(): void {
-    this.#generation++
-    this.#set({ value: null, pending: false, error: null })
-  }
-  async open(url: string): Promise<void> {
-    const generation = ++this.#generation
-    this.#set({ value: null, pending: true, error: null })
-    try {
-      const value = await this.api().prInspectUrl(url)
-      if (generation === this.#generation) this.#set({ value, pending: false, error: null })
-    } catch (error) {
-      if (generation === this.#generation)
-        this.#set({
-          value: null,
-          pending: false,
-          error: error instanceof Error ? error.message : String(error)
-        })
-    }
-  }
 }
 export const PR_REACTIONS: Array<{ content: PrReactionContent; label: string; name: string }> = [
   { content: 'THUMBS_UP', label: '👍', name: 'Thumbs up' },

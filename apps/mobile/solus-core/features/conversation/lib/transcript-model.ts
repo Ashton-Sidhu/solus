@@ -120,7 +120,7 @@ export class TranscriptModel {
     if (index === -1) this.agentRows = [...this.agentRows, item]
     else {
       const previous = this.agentRows[index]
-      if (previous === item || (previous?.kind === 'tool' && item.kind === 'tool' && previous.report === item.report && previous.status === item.status)) return
+      if (previous === item || (previous?.kind === 'tool' && item.kind === 'tool' && previous.report === item.report && previous.status === item.status && previous.input === item.input)) return
       const next = this.agentRows.slice()
       next[index] = item
       this.agentRows = next
@@ -373,6 +373,14 @@ export class TranscriptModel {
         return true
       case 'tool_call': {
         this.finishStream()
+        // A client that joins a running turn reads its history, then the host
+        // replays the turn: a call history holds is the same row, live again.
+        const loadedId = this.toolRows.find(this, event.toolId)
+        const loaded = loadedId ? this.items.get(loadedId) : undefined
+        if (loadedId && loaded?.kind === 'tool' && this.order.indexOf(loadedId) > this.order.indexOf(this.latestPromptId ?? '')) {
+          this.replace({ ...loaded, status: 'running', input: event.toolInput ?? loaded.input }, loadedId)
+          return true
+        }
         const item: TranscriptItem = {
           kind: 'tool', id: this.mintId('t'), toolId: event.toolId, toolName: event.toolName,
           input: event.toolInput ?? null, status: 'running', errorHead: null, childCount: 0,
@@ -684,10 +692,11 @@ export class TranscriptModel {
   }
 
   private completeTool(event: Extract<WireNormalizedEvent, { type: 'tool_call_complete' }>): void {
+    // Claude's input arrives whole when it finishes streaming: a sub-agent's name is in it.
+    this.updateToolInput(event.toolId, event.toolInput)
     // Without an outcome Claude only finished streaming the input; the
     // result is the later execution boundary.
     if (!event.outcome && event.completedAtMs === undefined) return
-    if (!event.toolId) return
     const failed = !!event.outcome?.error || (event.outcome?.exitCode ?? 0) !== 0
     this.patchToolById(event.toolId, true, (tool) => ({ ...tool, status: failed ? 'error' : 'completed', errorHead: event.outcome?.error ?? tool.errorHead }))
   }

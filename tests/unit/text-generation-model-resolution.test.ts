@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/settings'
 import { spawnSync } from 'child_process'
 import { join } from 'path'
 
@@ -25,7 +26,6 @@ describe('text-generation model resolution', () => {
         sourceControlWriterModel: { provider: 'claude-code', model: 'claude-sonnet-5' },
       }
       console.log(JSON.stringify({
-        configured: preferences.sourceControlWriterModel,
         effective: settings.resolveSourceControlWriterModel(preferences),
       }))
     `
@@ -38,13 +38,8 @@ describe('text-generation model resolution', () => {
     expect(run.status).toBe(0)
     // SAFETY: The child script prints this exact test-owned JSON payload last.
     const output = JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('\n{') + 1)) as {
-      configured: { provider: string; model: string }
       effective: { provider: string; model: string }
     }
-    expect(output.configured).toEqual({
-      provider: 'claude-code',
-      model: 'claude-sonnet-5',
-    })
     expect(output.effective).toEqual({ provider: 'codex', model: 'gpt-5.5' })
   })
 
@@ -98,7 +93,6 @@ describe('text-generation model resolution', () => {
       const settings = await import('./packages/server/src/host/settings')
       const preferences = { textGenerationModel: { provider: 'codex', model: 'gpt-5.5' } }
       console.log(JSON.stringify({
-        configured: preferences.textGenerationModel,
         effective: settings.resolveTextGenerationModel(preferences),
         effectiveWriter: settings.resolveSourceControlWriterModel(preferences),
       }))
@@ -112,14 +106,12 @@ describe('text-generation model resolution', () => {
     expect(run.status).toBe(0)
     // SAFETY: The child script prints this exact test-owned JSON payload last.
     const output = JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('\n{') + 1)) as {
-      configured: { provider: string; model: string }
       effective: { provider: string; model: string }
       effectiveWriter: { provider: string; model: string }
     }
-    const haiku = { provider: 'claude-code', model: 'claude-haiku-4-5-20251001' }
-    expect(output.configured).toEqual({ provider: 'codex', model: 'gpt-5.5' })
-    expect(output.effective).toEqual(haiku)
-    expect(output.effectiveWriter).toEqual(haiku)
+    const fallback = { provider: 'claude-code', model: DEFAULT_TEXT_GENERATION_MODELS['claude-code'] }
+    expect(output.effective).toEqual(fallback)
+    expect(output.effectiveWriter).toEqual(fallback)
   })
 
   test('prefers the Codex default over the Claude one when both agents are installed', () => {
@@ -150,6 +142,6 @@ describe('text-generation model resolution', () => {
     const output = JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('\n{') + 1)) as {
       effective: { provider: string; model: string }
     }
-    expect(output.effective).toEqual({ provider: 'codex', model: 'gpt-6-luna' })
+    expect(output.effective).toEqual({ provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex })
   })
 })

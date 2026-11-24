@@ -8,13 +8,14 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { NavPage } from "../../../lib/page-nav";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN } from "../../../lib/page-chrome";
+  import { Button } from "../button";
   import CopyButton from "../CopyButton.svelte";
   import ParentPageCrumb from "./ParentPageCrumb.svelte";
   import type { SubPageStepper, SubPageTrailSegment } from "./list-page";
   import {
     SUB_PAGE_CRUMB_BTN,
     SUB_PAGE_CRUMB_TEXT,
-    SUB_PAGE_ROUND_BTN,
   } from "./sub-page-styles";
   import { underStrip } from "../lib/pane-strip";
 
@@ -24,13 +25,13 @@
    * its counterpart one level down, so a reader moving from a task to a pull
    * request to a turn finds the same row in the same order every time:
    *
-   *   <page> / [trail…] / <leaf> [copy]   …   [actions] [stepper] | [window]
+   *   <page> / [trail…] / <leaf> [copy]   …   [actions] (stepper) (tools window)
    *
    * The page segment is the way back. The leaf is where you are; it is plain
    * text unless the host supplies a control (the pull request's switcher).
-   * Actions are the page's own verbs; the stepper walks the list's order; the
-   * window controls act on the pane and sit past a rule so they never read as
-   * part of the record.
+   * Actions are the page's chips and labelled controls; the stepper walks the
+   * list's order. The record's icon verbs (tools) and the window controls share
+   * the last pill, as on the review and pull request panes.
    *
    * Geometry comes from `sub-page-styles`, at the desktop and touch rungs;
    * type comes from the shared chrome rung.
@@ -49,8 +50,11 @@
     /** The record's own id, copied beside the leaf. */
     copyText?: string;
     copyTitle?: string;
-    /** The page's own verbs and chips, before the stepper. */
+    /** The page's own chips and labelled controls, before the stepper. */
     actions?: Snippet;
+    /** The record's icon verbs: `PAGE_PILL_ICON_BTN` buttons that join the
+     *  window controls' pill. */
+    tools?: Snippet;
     stepper?: SubPageStepper;
     onToggleMaximize?: () => void;
     maximized?: boolean;
@@ -77,6 +81,7 @@
     copyText,
     copyTitle = "Copy ID",
     actions,
+    tools,
     stepper,
     onToggleMaximize,
     maximized = false,
@@ -161,82 +166,88 @@
        the controls after it off the edge. -->
   {#if stepper}
     <div
-      class="flex shrink-0 items-center rounded-full shadow-[inset_0_0_0_0.5px_var(--hairline)] @max-[30rem]/pane:hidden"
+      class="{PAGE_PILL_GROUP} @max-[30rem]/pane:hidden"
       role="group"
       aria-label="Step through {stepper.itemLabel}s"
     >
-      <button
-        type="button"
-        class={SUB_PAGE_ROUND_BTN}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class={PAGE_PILL_ICON_BTN}
         onclick={() => stepper.onPrevious?.()}
         disabled={!stepper.onPrevious}
         title="Previous {stepper.itemLabel}{hint(stepper.previousHint)}"
         aria-label="Previous {stepper.itemLabel}"
       >
-        <CaretLeftIcon size={15} strokeWidth={1.5} />
-      </button>
+        <CaretLeftIcon class="size-4" strokeWidth={1.5} />
+      </Button>
       {#if queueLabel}
         <span
           class="px-0.5 text-center tabular-nums whitespace-nowrap text-muted-foreground"
           title="{stepper.itemLabel} {queueLabel}">{queueLabel}</span
         >
       {/if}
-      <button
-        type="button"
-        class={SUB_PAGE_ROUND_BTN}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class={PAGE_PILL_ICON_BTN}
         onclick={() => stepper.onNext?.()}
         disabled={!stepper.onNext}
         title="Next {stepper.itemLabel}{hint(stepper.nextHint)}"
         aria-label="Next {stepper.itemLabel}"
       >
-        <CaretRightIcon size={15} strokeWidth={1.5} />
-      </button>
+        <CaretRightIcon class="size-4" strokeWidth={1.5} />
+      </Button>
     </div>
   {/if}
 
-  {#if hasWindowControls}
-    <!-- Navigation and the record's verbs end here; past the rule everything
-         acts on the pane.
+  {#if tools || hasWindowControls}
+    <!-- The record's verbs and the pane's controls share one pill, the way the
+         review and pull request panes group theirs. A plain group, not
+         ButtonGroup: that primitive squares the inner corners.
 
-         All of it stands down at the record rung. A phone renders one pane, so
-         there is nowhere to swap to and no smaller state to restore from; and
-         the ✕ was the *last* control on a row that already overflowed 393px,
-         which made it the one that got clipped off the edge. The parent crumb
-         at the head of this row is the back control, and it is enough. -->
-    <span
-      class="mx-1 h-4 w-px shrink-0 bg-[var(--hairline-strong)] @max-[30rem]/pane:hidden"
-      aria-hidden="true"
-    ></span>
-    <span class="contents @max-[30rem]/pane:hidden">
+         The window controls stand down at the record rung. A phone renders one
+         pane, so there is nowhere to swap to and no smaller state to restore
+         from; and the ✕ was the *last* control on a row that already
+         overflowed 393px, which made it the one that got clipped off the edge.
+         The parent crumb at the head of this row is the back control. -->
+    <div
+      class="{PAGE_PILL_GROUP} {tools ? '' : '@max-[30rem]/pane:hidden'}"
+      role="group"
+      aria-label="Actions"
+    >
+      {#if tools}{@render tools()}{/if}
 
-    {#if onToggleMaximize}
-      <button
-        type="button"
-        class="{SUB_PAGE_ROUND_BTN} {maximized ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
-        onclick={onToggleMaximize}
-        title={maximized ? restoreLabel : maximizeLabel}
-        aria-label={maximized ? restoreLabel : maximizeLabel}
-        aria-pressed={maximized}
-      >
-        {#if maximized}
-          <ArrowsInIcon size={15} strokeWidth={1.5} />
-        {:else}
-          <ArrowsOutIcon size={15} strokeWidth={1.5} />
-        {/if}
-      </button>
-    {/if}
+      {#if onToggleMaximize}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="{PAGE_PILL_ICON_BTN} @max-[30rem]/pane:hidden"
+          onclick={onToggleMaximize}
+          title={maximized ? restoreLabel : maximizeLabel}
+          aria-label={maximized ? restoreLabel : maximizeLabel}
+          aria-pressed={maximized}
+        >
+          {#if maximized}
+            <ArrowsInIcon class="size-4" strokeWidth={1.5} />
+          {:else}
+            <ArrowsOutIcon class="size-4" strokeWidth={1.5} />
+          {/if}
+        </Button>
+      {/if}
 
-    {#if onClose}
-      <button
-        type="button"
-        class={SUB_PAGE_ROUND_BTN}
-        onclick={onClose}
-        title={closeLabel}
-        aria-label={closeLabel}
-      >
-        <XIcon size={16} strokeWidth={1.5} />
-      </button>
-    {/if}
-    </span>
+      {#if onClose}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="{PAGE_PILL_ICON_BTN} @max-[30rem]/pane:hidden"
+          onclick={onClose}
+          title={closeLabel}
+          aria-label={closeLabel}
+        >
+          <XIcon class="size-4" strokeWidth={1.5} />
+        </Button>
+      {/if}
+    </div>
   {/if}
 </div>

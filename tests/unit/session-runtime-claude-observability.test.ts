@@ -203,8 +203,8 @@ describe.serial('Claude turn capture end to end', () => {
     backend.send(id, { type: 'thinking', state: 'stop' })
     backend.send(id, { type: 'text_chunk', text: 'Running the build now.' })
     backend.send(id, { type: 'tool_call', toolName: 'Bash', toolId: 'toolu_1', index: 0 })
-    // Claude completes tools by index only; the assembled input rides the completion.
-    backend.send(id, { type: 'tool_call_complete', index: 0, toolInput: '{"command":"bun run build"}' })
+    // The assembled input rides the completion.
+    backend.send(id, { type: 'tool_call_complete', index: 0, toolId: 'toolu_1', toolInput: '{"command":"bun run build"}' })
     backend.send(id, { type: 'tool_result', toolUseId: 'toolu_1', content: 'ok', isError: false })
     backend.send(id, {
       type: 'task_complete', result: 'built', costUsd: 0.42, durationMs: 40, numTurns: 1,

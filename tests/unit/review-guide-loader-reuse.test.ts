@@ -185,10 +185,10 @@ describe('PR guide snapshots', () => {
 
   test('reads the PR target and its recorded diff without using the active checkout', async () => {
     const reads: Array<Parameters<HostApi['readGuide']>> = []
-    const patches: Array<Parameters<HostApi['prGetDiff']>[1]> = []
+    const patches: Array<Parameters<HostApi['prGetDiff']>[0]> = []
     const loader = await makePrLoader({
       readGuide: async (...args) => { reads.push(args); return guide() },
-      prGetDiff: async (_ctx, request) => {
+      prGetDiff: async (request) => {
         patches.push(request)
         return { patch: 'PR patch', truncated: false, nextCursor: null }
       },
@@ -197,7 +197,7 @@ describe('PR guide snapshots', () => {
     expect(reads[0][2]).toMatchObject({ kind: 'pr', number: 7, repo: 'project' })
     expect(patches).toEqual([{
       repo: { host: 'github.com', owner: 'team', repo: 'project' },
-      number: 7, baseSha: BRANCH_BASE, headSha: 'head-sha', cursor: undefined,
+      number: 7, baseSha: BRANCH_BASE, headSha: 'head-sha', cursor: undefined, guide: true,
     }])
     expect(loader.patch).toBe('PR patch')
     expect(loader.stale).toBe(false)

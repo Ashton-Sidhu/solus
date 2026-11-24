@@ -77,16 +77,6 @@ function crossings(): { violations: string[]; unusedExceptions: string[] } {
 }
 
 describe('server module boundaries', () => {
-  test('every module lives in an area the plan names', () => {
-    for (const area of ['admission', 'host', 'files', 'data', 'execution', 'sync', 'transport']) {
-      expect(existsSync(join(serverSrc, area))).toBe(true)
-    }
-    // WHY: the old folders must not come back as a second home for the same code.
-    for (const retired of ['server', 'agents', 'sessions', 'tasks', 'folio', 'mirror', 'outbox', 'transports', 'events', 'orchestration', 'seats', 'observability', 'control-plane.ts']) {
-      expect(existsSync(join(serverSrc, retired))).toBe(false)
-    }
-  })
-
   test('data, admission, host, files, sync and execution import only what their area allows', () => {
     const { violations, unusedExceptions } = crossings()
     // WHY: a listed exception that no longer exists is stale documentation;

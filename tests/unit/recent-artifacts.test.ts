@@ -21,27 +21,31 @@ const pr: SessionArtifact = {
 const never = () => null
 
 describe('the Threads row', () => {
-  test('pinned works lead, then the latest opened, changed, or added', () => {
-    // WHY: the row is where a person finds an artifact again. What they pinned
-    // stays in front; after it, whatever moved last, by any of the three.
+  test('what the person opened leads, latest open first, then the rest, latest made first', () => {
+    // WHY: the row is "Recently viewed": it is where a person finds again what
+    // they looked at. A pin or a later edit does not move an item ahead of what
+    // they opened. What they have not opened yet follows, the newest first.
     const owned = ownedArtifacts({
       own: [
-        work('old-pinned', 10, { pinned: true }),
-        work('edited', 20, { updatedAt: 500 }),
+        work('pinned', 10, { pinned: true }),
+        work('edited', 20, { updatedAt: 900 }),
         image('/shot.png', 300),
-        work('opened', 30),
+        work('opened-early', 30),
+        work('opened-late', 5),
       ],
       children: [],
     }, 's1')
-    const opens = new Map([['work:opened', 700]])
+    const opens = new Map([['work:opened-early', 600], ['work:opened-late', 700]])
     const row = recentArtifacts(owned, (artifact) => opens.get(recentArtifactKey(artifact)) ?? null)
     expect(row.map((item) => [recentArtifactKey(item.owned.artifact), item.activity, item.at])).toEqual([
-      ['work:old-pinned', 'linked', 10],
-      ['work:opened', 'opened', 700],
-      ['work:edited', 'updated', 500],
+      ['work:opened-late', 'opened', 700],
+      ['work:opened-early', 'opened', 600],
       ['image:h1:/shot.png', 'linked', 300],
+      ['work:edited', 'linked', 20],
+      ['work:pinned', 'linked', 10],
     ])
-    expect(row[0]!.pinned).toBe(true)
+    // The pin still shows on its card.
+    expect(row.at(-1)!.pinned).toBe(true)
   })
 
   test('pull requests and automations stay in their cards, and an item two sessions linked shows once', () => {
@@ -61,9 +65,9 @@ describe('the Threads row', () => {
   })
 
   test('the time reads as how long ago, and names what happened', () => {
-    const [item] = recentArtifacts(ownedArtifacts({ own: [work('w', 0, { updatedAt: 1_000 })], children: [] }, 's1'), never)
-    expect(recentArtifactTimeLabel(item!, 1_000 + 10 * 60_000)).toBe('Updated 10m ago')
-    expect(recentArtifactTimeLabel(item!, 1_000)).toBe('Updated now')
+    const [item] = recentArtifacts(ownedArtifacts({ own: [work('w', 0)], children: [] }, 's1'), () => 1_000)
+    expect(recentArtifactTimeLabel(item!, 1_000 + 10 * 60_000)).toBe('Opened 10m ago')
+    expect(recentArtifactTimeLabel(item!, 1_000)).toBe('Opened now')
   })
 })
 

@@ -1,7 +1,8 @@
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { combinedChecksState, type PrChecksSummary } from '@solus/contracts/checks-types'
 import type { ChangedFileStat } from '@solus/contracts/git-types'
-import type { PrConversationItem, PrFilter, PrInterest, PrPendingWorkflowRuns, PrProjectListing, PrStack, PrSyncChange, PrUnavailableReason, PrViewedFiles, PullRequest, PullRequestOverview, ReviewThread } from '@solus/contracts/providers'
+import type { PrConversationItem, PrFilter, PrInterest, PrPendingWorkflowRuns, PrProjectListing, PrRef, PrStack, PrSyncChange, PrUnavailableReason, PrViewedFiles, PullRequest, PullRequestOverview, RepoRef, ReviewThread } from '@solus/contracts/providers'
+import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type { NotificationPr } from '@solus/contracts/notification-hub'
 import type { IpcContext, ProjectEntry } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
@@ -11,7 +12,7 @@ import { isGithubAuthError } from './lib/pr-presentation'
 import { pullRequestRepositoryKey } from './lib/pull-request-list'
 import { retainDetail, retainListing } from './lib/pull-request-retain'
 import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
-import { HostReads, IDLE, settle, shownValue, type LoadState, type Settled } from './pull-request-reads'
+import { HostReads, IDLE, settle, shownValue, UNREACHABLE, type LoadState, type Settled } from './pull-request-reads'
 
 /**
  * Pull requests of every host's projects, read through the host (plan 017
@@ -116,6 +117,14 @@ function projectKey(hostId: string, projectPath: string): string {
   return `${hostId}\u0000${projectPath}`
 }
 
+/** The repository a scope names when the scope is a repository key
+ *  (`host/owner/repo`); null for a project folder. */
+function repositoryOfScope(scope: string): RepoRef | null {
+  if (!isRepositoryKey(scope)) return null
+  const match = /^([^/]+)\/([^/]+)\/([^/]+)$/.exec(scope)
+  return match ? { host: match[1]!, owner: match[2]!, repo: match[3]! } : null
+}
+
 /** The answers a detail read has so far. */
 interface DetailAnswers {
   overview?: PullRequestOverview
@@ -198,6 +207,10 @@ export class PullRequestDirectory {
   private readonly readAt = new Map<string, number>()
   /** The repository (`host/owner/repo`) of each project, by `projectKey`. */
   private readonly repositories = new Map<string, string>()
+  /** The repository the host reads each project's pull requests with
+   *  (`prRepository`), by `projectKey`. The host asks Git, not GitHub, and is
+   *  asked once for each project. */
+  private readonly repoRefs = new Map<string, Promise<RepoRef>>()
   private readonly interests = new Map<string, ProjectInterest>()
   /** The checks PR sync reported for a review interest, by `detailKey`: a
    *  detail read takes them from here, since it reads none itself. */
@@ -326,7 +339,6 @@ export class PullRequestDirectory {
     const key = detailKey(ref)
     if (this.isFresh(key, this.details, options.freshFor)) return
     await this.reads.read(this.details, key, ref.hostId, `detail:${ref.projectPath}:${ref.number}`, async (connection, previous, show) => {
-      const ctx = this.context(ref.projectPath)
       const listed = previous ? null : this.listedPullRequest(ref)
       const answers: DetailAnswers = {}
       // What shows now: `previous`, a device copy that came after it, or this read's last part.
@@ -337,11 +349,12 @@ export class PullRequestDirectory {
         if (detail) show(detail)
       }
       if (listed) answered()
-      const overviewRead = connection.api.prGetOverview(ctx, ref.number)
+      const pr = await this.prRef(ref, connection)
+      const overviewRead = connection.api.prGetOverview(pr)
       // Only an open fork pull request can have runs that wait; others skip the call.
-      const workflowRunsRead = overviewRead.then(({ pullRequest: pr }) =>
-        pr.state === 'open' && pr.headRepo.isFork && pr.capabilities.actions.includes('approve-workflows')
-          ? connection.api.prPendingWorkflowRuns(ctx, ref.number)
+      const workflowRunsRead = overviewRead.then(({ pullRequest }) =>
+        pullRequest.state === 'open' && pullRequest.headRepo.isFork && pullRequest.capabilities.actions.includes('approve-workflows')
+          ? connection.api.prPendingWorkflowRuns(pr)
           : null)
       const part = <V>(read: Promise<V>, file: (value: Settled<V>) => void) => settle(read).then((value) => {
         file(value)
@@ -352,10 +365,10 @@ export class PullRequestDirectory {
           answers.overview = overview
           answered()
         }),
-        part(connection.api.prListComments(ctx, ref.number), (value) => { answers.comments = value }),
-        part(connection.api.prListThreads(ctx, ref.number), (value) => { answers.threads = value }),
-        part(connection.api.prChangedFiles(ctx, ref.number), (value) => { answers.files = value }),
-        part(connection.api.prGetStack(ctx, ref.number), (value) => { answers.stack = value }),
+        part(connection.api.prListComments(pr), (value) => { answers.comments = value }),
+        part(connection.api.prListThreads(pr), (value) => { answers.threads = value }),
+        part(connection.api.prChangedFiles(pr), (value) => { answers.files = value }),
+        part(connection.api.prGetStack(pr), (value) => { answers.stack = value }),
         part(workflowRunsRead, (value) => { answers.workflowRuns = value }),
       ])
       return compose()!
@@ -366,8 +379,8 @@ export class PullRequestDirectory {
   /** The viewed state of a pull request's files on the code host. Only a host
    *  whose pull request has `capabilities.viewedFiles` answers it. */
   async loadViewed(ref: PullRequestRef): Promise<void> {
-    await this.reads.read(this.viewed, viewedKey(ref), ref.hostId, `viewed-files:${ref.projectPath}:${ref.number}`, (connection) =>
-      connection.api.prViewedFiles(this.context(ref.projectPath), ref.number), { retain: keepEqual })
+    await this.reads.read(this.viewed, viewedKey(ref), ref.hostId, `viewed-files:${ref.projectPath}:${ref.number}`, async (connection) =>
+      connection.api.prViewedFiles(await this.prRef(ref, connection)), { retain: keepEqual })
   }
 
   /**
@@ -442,6 +455,7 @@ export class PullRequestDirectory {
     for (const key of Array.from(this.linked.keys())) if (key.startsWith(`${hostId}\u0000`)) this.linked.delete(key)
     for (const key of Array.from(this.readAt.keys())) if (key.startsWith(`${hostId}\u0000`)) this.readAt.delete(key)
     for (const key of Array.from(this.checksHeard.keys())) if (key.startsWith(`${hostId}\u0000`)) this.checksHeard.delete(key)
+    for (const key of Array.from(this.repoRefs.keys())) if (key.startsWith(`${hostId}\u0000`)) this.repoRefs.delete(key)
     for (const [key, interest] of Array.from(this.interests)) if (interest.hostId === hostId) this.interests.delete(key)
     this.listening.get(hostId)?.stop()
     this.listening.delete(hostId)
@@ -451,6 +465,31 @@ export class PullRequestDirectory {
   /** The context a call about a project's pull requests sends. */
   context(projectPath: string): IpcContext {
     return projectContext(projectPath, this.organizationId())
+  }
+
+  /**
+   * The repository of a project's pull requests, as the host spells it. A
+   * scope that is a repository key names its repository. For a project
+   * folder, the host answers from its Git remote; the answer is kept, so the
+   * host is asked once for each project. A failed answer is not kept. A read
+   * gives the connection it reads through; the call can wait in its queue.
+   */
+  repository = (hostId: string, projectPath: string, connection = this.connectionFor(hostId)): Promise<RepoRef> => {
+    const named = repositoryOfScope(projectPath)
+    if (named) return Promise.resolve(named)
+    const key = projectKey(hostId, projectPath)
+    const kept = this.repoRefs.get(key)
+    if (kept) return kept
+    if (!connection) return Promise.reject(new Error(UNREACHABLE))
+    const asked = connection.api.prRepository(this.context(projectPath))
+    asked.catch(() => { if (this.repoRefs.get(key) === asked) this.repoRefs.delete(key) })
+    this.repoRefs.set(key, asked)
+    return asked
+  }
+
+  /** The pull request a ref names, with its project's repository. */
+  async prRef(ref: PullRequestRef, connection = this.connectionFor(ref.hostId)): Promise<PrRef> {
+    return { repo: await this.repository(ref.hostId, ref.projectPath, connection), number: ref.number }
   }
 
   private isFresh<T>(key: string, map: Map<string, LoadState<T>>, freshFor: number | undefined): boolean {
@@ -513,7 +552,10 @@ export class PullRequestDirectory {
     const reviewKeys = Array.from(byJson.values()).flatMap((entry) =>
       entry.kind === 'review' ? [detailKey({ hostId: interest.hostId, projectPath: interest.projectPath, number: entry.number })] : [])
     try {
-      const known = await connection.api.prSetInterest(this.context(interest.projectPath), Array.from(byJson.values()))
+      // A repository scope has no checkout, so the host drops its branch interests.
+      const checkout = repositoryOfScope(interest.projectPath) ? undefined : this.context(interest.projectPath)
+      const repo = await this.repository(interest.hostId, interest.projectPath, connection)
+      const known = await connection.api.prSetInterest(repo, Array.from(byJson.values()), checkout)
       this.repositories.set(key, known.repo)
       // A failure heard before is not the answer now; PR sync reads the checks.
       for (const detail of reviewKeys) if (this.checksHeard.get(detail)?.ok === false) this.checksHeard.delete(detail)

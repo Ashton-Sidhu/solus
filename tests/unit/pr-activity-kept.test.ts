@@ -50,6 +50,7 @@ const NO_CHECKS = {
 
 /** A host whose reads never answer: what paints comes from the device alone. */
 const SILENT_HOST = asHostApi({
+  prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
   prGetOverview: () => new Promise(() => {}),
   prListComments: () => new Promise(() => {}),
   ...NO_CHECKS,
@@ -106,6 +107,7 @@ async function afterReload(api: ReturnType<typeof asHostApi>, number: number) {
 /** Open a pull request the way the Activity tab does, then let the write land. */
 async function openAndKeep(number: number, detail = pullRequest(number)) {
   const api = asHostApi({
+    prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
     prGetOverview: async () => ({ pullRequest: detail, commits: [commit], reviewers: [reviewer] }),
     prListComments: async () => [comment],
     prChangedFiles: async () => [file],
@@ -141,7 +143,7 @@ describe('an opened pull request is kept on this device', () => {
   test('a kept copy never replaces what this load of the app already read', async () => {
     await openAndKeep(102)
     const newer = { ...comment, id: 'c2', body: 'One more thing' }
-    const api = asHostApi({ prListComments: async () => [newer], ...NO_CHECKS })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prListComments: async () => [newer], ...NO_CHECKS })
 
     const reloaded = await afterReload(api, 102)
     await reloaded.loadComments()
@@ -167,7 +169,7 @@ describe('an opened pull request is kept on this device', () => {
   test('a pull request whose detail was never read is not kept', async () => {
     // A list row reads its changed files for the change breakdown without
     // anyone opening it; that row is not worth a place on the device.
-    const api = asHostApi({ prChangedFiles: async () => [file], ...NO_CHECKS })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prChangedFiles: async () => [file], ...NO_CHECKS })
     const row = await afterReload(api, 104)
     await row.loadChangedFiles()
     jest.advanceTimersByTime(1_000)

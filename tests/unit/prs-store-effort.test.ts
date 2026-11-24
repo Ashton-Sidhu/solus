@@ -70,6 +70,7 @@ describe('PR list cache', () => {
       writable: true,
       value: {
         solus: {
+          prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
           prList: async (_ctx: IpcContext, filter: { head?: string }) => {
             heads.push(filter.head)
             return { items: [], page: 1, hasMore: false }
@@ -97,6 +98,7 @@ describe('PR list cache', () => {
       writable: true,
       value: {
         solus: {
+          prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
           prGetDetail: async () => {
             detailCalls++
             return pullRequestFixture(33, { title: 'bounded' })
@@ -166,9 +168,11 @@ describe('PR list cache', () => {
     let hostACalls = 0
     let hostBCalls = 0
     serverConnectionsMock.registerPrimary('host-a', {
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
       prGetDetail: async () => pullRequestFixture(33, { title: `Host A ${++hostACalls}` }),
     })
     serverConnectionsMock.registerHost('host-b', {
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
       prGetDetail: async () => pullRequestFixture(33, { title: `Host B ${++hostBCalls}` }),
     })
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
@@ -261,6 +265,9 @@ describe('PR mutation results', () => {
     installWindow()
     const refusals: Array<(error: Error) => void> = []
     const refused = () => new Promise<PullRequest>((_resolve, reject) => refusals.push(reject))
+    const untilSent = async (count: number) => {
+      for (let turn = 0; turn < 50 && refusals.length < count; turn++) await Promise.resolve()
+    }
     Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {
       prEnableAutoMerge: refused,
       prUpdateLifecycle: refused,
@@ -273,6 +280,8 @@ describe('PR mutation results', () => {
     const arming = pullRequest.enableAutoMerge('squash')
     expect(pullRequest.autoMergeEnabled).toBe(true)
     expect(pullRequest.autoMergeMethod).toBe('squash')
+    // The write reaches the host once the store knows the repository it names.
+    await untilSent(1)
     refusals[0](new Error('Auto-merge is not allowed'))
     await expect(arming).rejects.toThrow('Auto-merge is not allowed')
     expect(pullRequest.autoMergeEnabled).toBeUndefined()
@@ -280,6 +289,7 @@ describe('PR mutation results', () => {
 
     const closing = pullRequest.updateLifecycle('close', pullRequest.headSha)
     expect(store.get(api(), serverId, ctx).prFor(33)?.state).toBe('closed')
+    await untilSent(2)
     refusals[1](new Error('Not allowed'))
     await expect(closing).rejects.toThrow('Not allowed')
     expect(pullRequest.state).toBe('open')

@@ -5,7 +5,7 @@ import { PullRequestDirectory } from '../../apps/mobile/solus-core/features/prs/
 import { pullRequestDiffPatch, retainPullRequestDiffPage } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-diff-pages'
 import { shownValue } from '../../apps/mobile/solus-core/features/prs/pull-request-reads'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
-import { deferred, detailApi, hostWorld, PR_REF, pullRequest } from './helpers/native-mobile-prs-fixtures'
+import { deferred, detailApi, hostWorld, PR, PR_REF, pullRequest, repositoryApi } from './helpers/native-mobile-prs-fixtures'
 
 // A pull request diff arrives in pages that the provider's cursor links. The
 // person must never see two revisions mixed, a refreshed page must drop the
@@ -34,18 +34,24 @@ describe('diff pages (ported from T3 pullRequestDiffPages.test.ts)', () => {
   })
 })
 
+/** A diffs store that names each pull request with its project's repository, as the app wires it. */
+function diffsOf(world: Awaited<ReturnType<typeof hostWorld>>): PullRequestDiffs {
+  const connectionFor = (hostId: string) => world.connections.connection(hostId)
+  return new PullRequestDiffs(connectionFor, new PullRequestDirectory(connectionFor, () => null))
+}
+
 describe('pull request diffs store', () => {
   test('reads the shown revision, then follows the provider cursor', async () => {
-    const api = new FakeApi().on('prGetDiff', (_ctx: unknown, request: { cursor?: string }) => request.cursor === 'p2' ? slice('b.ts') : slice('a.ts', 'p2'))
+    const api = repositoryApi(new FakeApi()).on('prGetDiff', (request: { cursor?: string }) => request.cursor === 'p2' ? slice('b.ts') : slice('a.ts', 'p2'))
     const world = await hostWorld(api)
-    const diffs = new PullRequestDiffs((hostId) => world.connections.connection(hostId), () => null)
+    const diffs = diffsOf(world)
     const ref = { ...PR_REF, commitSha: 'c1' }
     await diffs.load(ref, { baseSha: 'base', headSha: 'head-7' })
     expect(diffs.canLoadMore(ref)).toBe(true)
     await diffs.loadMore(ref)
-    expect(api.callsOf('prGetDiff').map((call) => call[1])).toEqual([
-      { number: 7, baseSha: 'base', headSha: 'head-7', commitSha: 'c1' },
-      { number: 7, baseSha: 'base', headSha: 'head-7', commitSha: 'c1', cursor: 'p2' },
+    expect(api.callsOf('prGetDiff')).toEqual([
+      [{ ...PR, baseSha: 'base', headSha: 'head-7', commitSha: 'c1' }],
+      [{ ...PR, baseSha: 'base', headSha: 'head-7', commitSha: 'c1', cursor: 'p2' }],
     ])
     const diff = shownValue(diffs.diffOf(ref))
     expect(diff?.pages.map((page) => page.cursor)).toEqual([null, 'p2'])
@@ -55,9 +61,9 @@ describe('pull request diffs store', () => {
   })
 
   test('a refresh starts again from the first page', async () => {
-    const api = new FakeApi().on('prGetDiff', (_ctx: unknown, request: { cursor?: string }) => request.cursor ? slice('b.ts') : slice('a.ts', 'p2'))
+    const api = repositoryApi(new FakeApi()).on('prGetDiff', (request: { cursor?: string }) => request.cursor ? slice('b.ts') : slice('a.ts', 'p2'))
     const world = await hostWorld(api)
-    const diffs = new PullRequestDiffs((hostId) => world.connections.connection(hostId), () => null)
+    const diffs = diffsOf(world)
     await diffs.load(PR_REF, { baseSha: 'base', headSha: 'head-7' })
     await diffs.loadMore(PR_REF)
     await diffs.load(PR_REF, { baseSha: 'base', headSha: 'head-8' })
@@ -69,9 +75,9 @@ describe('pull request diffs store', () => {
   test('an older read that lands last is dropped (stale-read guard)', async () => {
     const first = deferred<PrDiffSlice>()
     const second = deferred<PrDiffSlice>()
-    const api = new FakeApi().on('prGetDiff', (_ctx: unknown, request: { headSha: string }) => request.headSha === 'old-head' ? first.promise : second.promise)
+    const api = repositoryApi(new FakeApi()).on('prGetDiff', (request: { headSha: string }) => request.headSha === 'old-head' ? first.promise : second.promise)
     const world = await hostWorld(api)
-    const diffs = new PullRequestDiffs((hostId) => world.connections.connection(hostId), () => null)
+    const diffs = diffsOf(world)
     const older = diffs.load(PR_REF, { baseSha: 'base', headSha: 'old-head' })
     await flushPromises()
     expect(api.callsOf('prGetDiff')).toHaveLength(1)
@@ -85,18 +91,18 @@ describe('pull request diffs store', () => {
 
   test('file contents read at the diff revision, and the device copy answers offline', async () => {
     let online = true
-    const api = new FakeApi()
+    const api = repositoryApi(new FakeApi())
       .on('prGetDiff', () => slice('a.ts'))
       .on('prGetDiffFileContents', () => {
         if (!online) throw new Error('socket closed')
         return { oldContents: 'old', newContents: 'new' }
       })
     const world = await hostWorld(api)
-    const diffs = new PullRequestDiffs((hostId) => world.connections.connection(hostId), () => null)
+    const diffs = diffsOf(world)
     await diffs.load(PR_REF, { baseSha: 'base', headSha: 'head-7' })
     const file = { oldPath: 'a.ts', newPath: 'a.ts', changeType: 'change' as const }
     expect(await diffs.fileContents(PR_REF, file)).toEqual({ oldContents: 'old', newContents: 'new' })
-    expect(api.callsOf('prGetDiffFileContents')[0]![1]).toEqual({ number: 7, baseSha: 'base', headSha: 'head-7', commitSha: undefined, ...file })
+    expect(api.callsOf('prGetDiffFileContents')[0]).toEqual([{ ...PR, baseSha: 'base', headSha: 'head-7', commitSha: undefined, ...file }])
     online = false
     expect(await diffs.fileContents(PR_REF, file)).toEqual({ oldContents: 'old', newContents: 'new' })
     await expect(diffs.fileContents(PR_REF, { ...file, newPath: 'b.ts' })).rejects.toThrow('socket closed')

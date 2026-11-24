@@ -80,7 +80,7 @@
       if (announced.has(notice.key)) continue;
       announced.add(notice.key);
       const options = { description: notice.description, id: `notification-source:${notice.key}` };
-      untrack(() => (notice.isError ? toasts.error(notice.message, options) : toasts.info(notice.message, options)));
+      untrack(() => toasts.info(notice.message, options));
     }
   });
 

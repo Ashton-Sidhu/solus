@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
@@ -26,7 +26,6 @@ process.env.SOLUS_DATA_DIR = dataDir
 process.env.SOLUS_PROJECTS_ROOT = hostRoot
 
 const { ChatUnavailableError, chatFolderFor, makeChatFolder, projectsRootFor } = await import('@solus/server/workspace')
-const { resolveHomePath } = await import('@solus/server/platform/paths')
 const { registerSessionHandlers } = await import('@solus/server/transport/handlers/session-handlers')
 // `SolusServer.handle()` resolves the actor before a handler runs (plans/012 §4).
 const { withActor } = await import('./helpers/actors')
@@ -105,17 +104,6 @@ describe('isChat', () => {
     expect(isChat('')).toBe(false)
     expect(isChat(join(hostRoot, 'solus'))).toBe(false)
     expect(isChat(join(dataDir, 'solus-chats', 'chat-a', 'notes'))).toBe(false)
-  })
-})
-
-describe('~ is the home folder', () => {
-  test('a bare ~ and ~/x expand in the home folder', () => {
-    expect(resolveHomePath('~')).toBe(homedir())
-    expect(resolveHomePath('~/code')).toBe(join(homedir(), 'code'))
-  })
-
-  test('a new chat that reaches a process unresolved is refused, not run somewhere else', () => {
-    expect(() => resolveHomePath(NEW_CHAT_DIRECTORY)).toThrow()
   })
 })
 

@@ -15,11 +15,6 @@ export class AppPage {
     await tabs.nth(index).click()
   }
 
-  async closeActiveTab() {
-    const activeTab = this.page.locator('[data-testid="tab-item"][aria-selected="true"]')
-    await activeTab.getByLabel('Close tab').click()
-  }
-
   async getTabCount(): Promise<number> {
     return this.page.getByTestId('tab-item').count()
   }

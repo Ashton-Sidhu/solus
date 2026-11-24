@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_HOST_CONFIG, HOST_CONFIG_KEYS, hostConfigPatchSchema } from '@solus/contracts/host-config'
 import {
+  addShowMeLens,
   accountSettingsPatchRequestSchema,
   CLIENT_DEVICE_LAYOUT_KEYS,
   DEFAULT_DEVICE_SETTINGS,
@@ -33,6 +34,11 @@ describe('ownership', () => {
     expect(personalSettingsWithDefaults({ savedLenses: [] }).savedLenses).toEqual([])
     const custom = [{ id: 'custom', name: 'My lens', prompt: 'Show the data flow.' }]
     expect(personalSettingsWithDefaults({ savedLenses: custom }).savedLenses).toEqual(custom)
+  })
+
+  test('the lens migration keeps an edited Show me prompt without adding a duplicate', () => {
+    const document = { savedLenses: [{ id: 'user-show-me', name: 'Show me', prompt: 'My edited prompt.' }] }
+    expect(addShowMeLens(document)).toEqual(document)
   })
 
   test('a host accepts no personal or device key', () => {

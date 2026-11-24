@@ -117,8 +117,10 @@ describe('fork session ownership and identity', () => {
 
   test('Fork joins the exact durable task and keeps the source and execution hosts', async () => {
     const { context, original } = fixture()
+    original.title = 'Source name'
     const tabId = await context.opening.forkTab('sourceTab')
     const fork = context.sessionFor(tabId) as Session
+    expect(fork.title).toBe('Fork: Source name')
     expect(fork.task).toEqual({ kind: 'existing', taskId: 'same-task' })
     expect(fork.id).not.toBe(original.id)
     expect(runHost(fork.run)).toBe('run-host')

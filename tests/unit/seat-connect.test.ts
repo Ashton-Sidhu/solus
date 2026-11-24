@@ -124,6 +124,30 @@ describe('SeatConnector', () => {
     }
   })
 
+  test('Claude: a link printed as an OSC 8 hyperlink comes back as the bare URL, and only once it has fully arrived', async () => {
+    // WHY: Claude Code 2.1.330 prints `ESC]8;;<url>BEL<url>ESC]8;;BEL`. Left in, the escape
+    // codes glued the URL to its copy and claude.ai rejected the link for a missing client id.
+    const { connector, spawned } = harness()
+    const started = connector.start(BOB, 'claude-code')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const child = spawned[0]!.child
+    const url = 'https://claude.ai/oauth/authorize?z-nmm6Mgh82FwCm8Q11T4X6YYGdNwMUxo34izc9_ZJKy8'
+    const output = `Opening browser to sign in…\nIf the browser didn't open, visit:\n\u001b]8;;${url}\u0007${url}\u001b]8;;\u0007\nPaste code here if prompted > `
+    let settled = false
+    void started.then(() => { settled = true })
+    // Cut inside the opening sequence, then inside the visible link: neither half is a link yet.
+    const cuts = [output.indexOf(url) + 20, output.lastIndexOf(url) + 30, output.length]
+    let from = 0
+    for (const cut of cuts) {
+      child.stdout.emit('data', output.slice(from, cut))
+      from = cut
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (cut < output.length) expect(settled).toBe(false)
+    }
+    expect(await started).toEqual({ verificationUrl: url, requiresCodeInput: true })
+    await connector.cancel(BOB, 'claude-code')
+  })
+
   test('Codex: the device flow answers with URL and code; a clean exit with no credential is a failure, not a seat', async () => {
     const { seats, connector, spawned, events } = harness(false)
     const started = connector.start(BOB, 'codex')

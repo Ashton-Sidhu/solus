@@ -6,11 +6,6 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://solus.sh/demo</loc>
-    <lastmod>2026-10-22</lastmod>
-    <priority>0.6</priority>
-  </url>
-  <url>
     <loc>https://solus.sh/docs</loc>
     <lastmod>2026-08-14</lastmod>
     <priority>0.7</priority>

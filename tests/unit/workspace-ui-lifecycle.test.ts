@@ -88,7 +88,9 @@ test('same-number PRs load once for each host and project scope', async () => {
     import assert from 'node:assert/strict';
     import { flushSync, untrack } from 'svelte';
     import { projectScopeOf } from ${JSON.stringify(new URL('packages/contracts/src/types.ts', root).href)};
-    let activePr = $state({ number: 7 });
+    import { cardPullRequests, checksReads } from ${JSON.stringify(new URL('packages/workspace-ui/src/components/project-panel/lib/card-pull-requests.ts', root).href)};
+    import { pullRequestFixture } from ${JSON.stringify(new URL('tests/unit/__fixtures__/pull-request.ts', root).href)};
+    let activePr = $state(pullRequestFixture(7));
     let prServerId = $state('first-host');
     let env = $state({ cwd: '/first-project', checkout: null });
     const sourceId = 'mounted-tab';
@@ -99,17 +101,21 @@ test('same-number PRs load once for each host and project scope', async () => {
     let sessionEvents = $state(0);
     const session = { ctxForEnvironment(cwd) { void sessionEvents; return { session: { projectPath: cwd, workingDirectory: cwd } } } };
     const prProjectScope = $derived(projectScopeOf(session.ctxForEnvironment(env.cwd).session));
+    const cardPrs = $derived(cardPullRequests({
+      branchPr: activePr, links: [], projectCtx: session.ctxForEnvironment(env.cwd),
+      projectRepository: null, primaryRemoteUrl: null, prIn: () => null,
+    }));
     const pullRequests = { checks: { async load(api, serverId, ctx, numbers) {
       calls.push([serverId, projectScopeOf(ctx.session), numbers[0]]);
     } } };
     const destroy = $effect.root(() => { ${effect} });
     flushSync();
-    activePr = { number: 7 }; flushSync();
+    activePr = pullRequestFixture(7); flushSync();
     sessionEvents++; flushSync();
     assert.equal(calls.length, 1);
     env.cwd = '/second-project'; flushSync();
     prServerId = 'second-host'; flushSync();
-    activePr = { number: 8 }; flushSync();
+    activePr = pullRequestFixture(8); flushSync();
     activePr = null; flushSync();
     assert.deepEqual(calls, [
       ['first-host', '/first-project', 7], ['first-host', '/second-project', 7],

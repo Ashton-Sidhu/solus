@@ -38,10 +38,9 @@ import { htmlFromSavedRenderInput } from './lib/artifacts'
 import { reconcileWatchReplay } from './lib/watch-replay'
 import { queuedMessageAttachments, uploadedMessageAttachments, type MessageAttachment } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
-import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
+import { attachmentSizeProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { ClipboardAttachmentRef } from '@solus/client-core/attachment-clipboard'
-import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { referencedAttachments, refsOnHost } from './lib/pasted-attachments'
 import type { AgentPlanAwaiting } from './lib/agent-plans'
 import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
@@ -1096,7 +1095,7 @@ export class ConversationController {
   async attach(files: readonly PickedFile[]): Promise<void> {
     const io = this.deps.attachmentIo
     if (!io || files.length === 0) return
-    const problem = attachmentLimitProblem(files, this.attachments.length + this.uploading)
+    const problem = attachmentSizeProblem(files)
     if (problem) {
       this.model.addNotice(problem, 'error')
       this.flush()
@@ -1149,7 +1148,6 @@ export class ConversationController {
    */
   async attachHostFiles(refs: readonly ClipboardAttachmentRef[]): Promise<boolean> {
     if (!refsOnHost(refs, this.hostId)) return false
-    if (refs.length + this.attachments.length + this.uploading > MAX_ATTACHMENT_UPLOAD_COUNT) return false
     // An image without its bytes reaches the agent only as a ref the host reads.
     if (refs.some((ref) => ref.type === 'image')
       && !hasHostCapability(await this.deps.connection.facts.when('capabilities'), 'promptImageRefs')) return false
@@ -1179,11 +1177,6 @@ export class ConversationController {
    * why in a notice.
    */
   attachResource(resource: AttachedIntegrationResource): void {
-    if (this.attachments.length + this.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT) {
-      this.model.addNotice(`A message can carry at most ${MAX_ATTACHMENT_UPLOAD_COUNT} attachments.`, 'error')
-      this.flush()
-      return
-    }
     const name = resource.title ?? resource.name
     const landed: Promise<UploadedAttachment | null> = Promise.resolve().then(async () => {
       try {
@@ -1323,10 +1316,10 @@ export class ConversationController {
     this.settleRun()
   }
 
-  async uploadQueueFiles(files: readonly PickedFile[], existingCount = 0): Promise<QueueAttachment[]> {
+  async uploadQueueFiles(files: readonly PickedFile[]): Promise<QueueAttachment[]> {
     const io = this.deps.attachmentIo
     if (!io) throw new Error('File uploads are unavailable.')
-    const problem = attachmentLimitProblem(files, existingCount)
+    const problem = attachmentSizeProblem(files)
     if (problem) throw new Error(problem)
     const result: QueueAttachment[] = []
     for (const file of files) {

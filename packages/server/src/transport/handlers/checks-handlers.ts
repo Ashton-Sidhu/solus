@@ -2,7 +2,7 @@ import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import { createLogger } from '../../logger'
 import type { Provider } from '../../providers/types'
 import type { RepoRef } from '@solus/contracts/providers'
-import { reviewTargetFor } from './provider-handlers'
+import { reviewTargetForRepo } from './provider-handlers'
 import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'
 
@@ -74,7 +74,7 @@ async function readChecks(cache: RepoChecksCache, numbers: readonly number[]): P
 }
 
 interface ChecksHandlersDeps {
-  resolveReviewTarget?: typeof reviewTargetFor
+  resolveReviewTarget?: typeof reviewTargetForRepo
 }
 
 /**
@@ -84,10 +84,10 @@ interface ChecksHandlersDeps {
  * by this handler.
  */
 export function registerChecksHandlers(server: SolusServer, deps: ChecksHandlersDeps = {}): void {
-  const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetFor
+  const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetForRepo
   server.register('prChecks', async (args) => {
-    const [ctx, numbers = []] = args
-    const { repo, provider } = await resolveReviewTarget(ctx)
+    const [requestedRepo, numbers = []] = args
+    const { repo, provider } = resolveReviewTarget(requestedRepo)
     const cache = ensureCache(repo, provider)
     const loadFailed = await readChecks(cache, numbers)
     return {

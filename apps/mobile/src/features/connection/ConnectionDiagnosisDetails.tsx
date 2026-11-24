@@ -17,6 +17,7 @@ import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
+import { StepRail } from "../../components/ui/StepRail";
 import { environmentCatalog } from "../../connection/catalog";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -77,15 +78,11 @@ export function ConnectionDiagnosisDetails(props: {
           </Text>
         ))}
       </View>
-      <View className="gap-0.5">
+      <View className="gap-2">
         <Text className="text-sm font-t3-bold text-foreground">
           <T>What to try</T>
         </Text>
-        {diagnosis.steps.map((step, index) => (
-          <Text key={step} className="text-sm text-foreground-muted">
-            {`${index + 1}. ${step}`}
-          </Text>
-        ))}
+        <StepRail steps={diagnosis.steps.map((step) => ({ title: step }))} />
       </View>
       <Text selectable className="font-mono text-xs text-foreground-muted">
         {diagnosis.facts.map(([label, value]) => `${label}: ${value}`).join("\n")}

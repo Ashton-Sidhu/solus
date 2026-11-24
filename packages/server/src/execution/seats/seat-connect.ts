@@ -12,7 +12,14 @@ const log = createLogger('main', 'seat-connect')
 const CONNECT_TIMEOUT_MS = 15 * 60_000
 /** How long the CLI gets to print where to sign in before the start call gives up. */
 const VERIFICATION_TIMEOUT_MS = 60_000
-const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
+const ESC = String.fromCharCode(27)
+const BEL = String.fromCharCode(7)
+/**
+ * Colors, and OSC sequences: Claude wraps its sign-in link in an OSC 8 hyperlink
+ * (`ESC]8;;<url>BEL<url>ESC]8;;BEL`), which left the URL glued to its own copy.
+ * An OSC still arriving at the end of the output is dropped, so a half-printed link is never taken.
+ */
+const TERMINAL_CODES_RE = new RegExp(`${ESC}\\[[0-9;]*m|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\|$)`, 'g')
 
 export type SpawnProcess = (command: string, args: string[], options: Parameters<typeof nodeSpawn>[2]) => ChildProcess
 
@@ -89,7 +96,7 @@ export class SeatConnector {
     const onOutput = (chunk: Buffer | string) => {
       entry.output = `${entry.output}${chunk.toString()}`.slice(-8_192)
       if (entry.verification) return
-      const parsed = parseAgentSignInVerification(entry.output.replace(ANSI_RE, ''))
+      const parsed = parseAgentSignInVerification(entry.output.replace(TERMINAL_CODES_RE, ''))
       if (!parsed) return
       const result: SeatConnectStartResult = {
         verificationUrl: parsed.url,
@@ -111,7 +118,7 @@ export class SeatConnector {
     const finish = async (outcome: { code: number | null; signal: NodeJS.Signals | null } | { error: Error }): Promise<void> => {
       clearTimeout(timeout)
       if (this.active.get(key) === entry) this.active.delete(key)
-      const tail = entry.output.replace(ANSI_RE, '').trim().split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
+      const tail = entry.output.replace(TERMINAL_CODES_RE, '').trim().split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
       try {
         if ('error' in outcome) {
           await (target ? target.changed('failed', outcome.error.message) : this.deps.seats.markFailed(seat, provider, outcome.error.message))
@@ -198,9 +205,10 @@ function loginCommand(provider: SeatProvider): { command: string; args: string[]
  * output simply returns null while the unmodified lines keep streaming.
  */
 export function parseAgentSignInVerification(output: string): { url: string; code?: string; requiresCodeInput?: boolean } | null {
-  const text = output.replace(ANSI_RE, '')
+  const text = output.replace(TERMINAL_CODES_RE, '')
   const urls = [...text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)]
-  const url = urls.at(-1)?.[0]?.replace(/[.,;:]+$/, '')
+  const lastUrl = urls.at(-1)
+  const url = lastUrl?.[0]?.replace(/[.,;:]+$/, '')
   const codePatterns = [
     /enter\s+(?:this\s+)?(?:one[- ]time\s+)?code(?:[ \t]*\([^)\r\n]*\))?[ \t]*(?:is|:)?[ \t]*\r?\n[ \t]*([A-Z0-9][A-Z0-9-]{3,31})/i,
     /(?:verification|device)\s+code\s*(?:is|:)\s*([A-Z0-9][A-Z0-9-]{3,31})/i,
@@ -210,7 +218,9 @@ export function parseAgentSignInVerification(output: string): { url: string; cod
     .map((pattern) => pattern.exec(text)?.[1])
     .find((candidate): candidate is string => !!candidate)
   if (url && code) return { url, code }
-  if (url && /browser\s+didn['’]?t\s+open,\s*visit/i.test(text)) {
+  // The link may still be arriving: take it only once something follows it.
+  const isUrlComplete = !!lastUrl && lastUrl.index + lastUrl[0].length < text.length
+  if (url && isUrlComplete && /browser\s+didn['’]?t\s+open,\s*visit/i.test(text)) {
     return { url, requiresCodeInput: true }
   }
   return null

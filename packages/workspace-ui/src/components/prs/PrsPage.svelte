@@ -48,6 +48,10 @@
   import type { PrListRead, ProjectPrs } from "../../contexts/prs/prs.store.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { flattenQualifiedProjects, qualifiedKeyOf, qualifiedPrKey, type PrTarget } from "./lib/pr-cross-project";
+  import { prUrlTarget } from "./lib/pr-url-project";
+  import { repositoryContext } from "../../contexts/prs/linked-pr";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { isSolusApiId } from "@solus/contracts/uplink";
   import {
     prInboxFailure,
     type PrInboxFailure,
@@ -396,10 +400,18 @@
       ? aggregateSelectedKey
       : (listView.selectedNumber !== null ? String(listView.selectedNumber) : null),
   );
+  // A stack layer the list is not showing (merged, filtered out, or not paged
+  // in yet) still opens here, read through the project of the layer it came from.
+  // So does a pull request opened by its URL, read through its own repository.
+  // Raw: a deep proxy would wrap `target.api`, and the host registry knows an
+  // API by its identity (`serverIdForApi`).
+  let unlistedOpen = $state.raw<{ key: string; pr: PullRequest; target: PrTarget } | null>(null);
+  // A pull request from outside the one project's list — opened by its URL —
+  // has no row number, so the panel follows its own key.
   const openKey = $derived(
     pageScope.allProjects
       ? aggregateOpenKey
-      : (listView.openNumber !== null ? String(listView.openNumber) : null),
+      : (listView.openNumber !== null ? String(listView.openNumber) : (unlistedOpen?.key ?? null)),
   );
 
   function prByKey(key: string): PullRequest | undefined {
@@ -443,9 +455,6 @@
   // the list narrows and the rows stay on screen so the queue is still readable
   // while one item is being reviewed. Below the width where both floors fit,
   // the panel covers the list instead — a phone cannot hold two columns.
-  // A stack layer the list is not showing (merged, filtered out, or not paged
-  // in yet) still opens here, read through the project of the layer it came from.
-  let unlistedOpen = $state<{ key: string; pr: PullRequest; target: PrTarget } | null>(null);
   const openPr = $derived(
     openKey ? (prByKey(openKey) ?? (unlistedOpen?.key === openKey ? unlistedOpen.pr : null)) : null,
   );
@@ -453,7 +462,7 @@
     openPr && unlistedOpen?.pr === openPr ? unlistedOpen.target : openPr ? targetFor(openPr) : null,
   );
   const openPanel = $derived(
-    openPr && openTarget ? { pr: openPr, target: openTarget } : null,
+    openPr && openTarget && openKey ? { pr: openPr, target: openTarget, key: openKey } : null,
   );
   const panelOpen = $derived(
     showsPrDetailPanel(openPr !== null, openTarget !== null),
@@ -493,6 +502,7 @@
   function clearPanelState() {
     if (pageScope.allProjects) aggregateOpenKey = null;
     else listView.openNumber = null;
+    unlistedOpen = null;
     listView.panelFullScreen = false;
   }
 
@@ -736,6 +746,7 @@
     observedPageScopeKey = nextKey;
     aggregateSelectedKey = null;
     aggregateOpenKey = null;
+    unlistedOpen = null;
     reviewSelection.clear();
     void tick().then(() => searchEl?.focus());
   });
@@ -790,24 +801,72 @@
     return project?.prFor(pr.number) ?? null;
   }
 
+  /** Open pull request `number` of `target`'s project in the panel, whether
+   *  or not the list is showing it. `outsideList` is a pull request no row of
+   *  the one-project list can be. Rejects when its detail cannot be read. */
+  async function openPullRequest(target: PrTarget, key: string, number: number, outsideList = false): Promise<void> {
+    const listed = prByKey(key);
+    if (listed) return selectPr(listed);
+    const layer = store.get(target.api, target.serverId, target.ctx).get(number);
+    const pr = await layer.loadDetail();
+    // With no workspace there is no panel; the pull request opens on the code host.
+    if (!workspace) return void localApi.openExternal(pr.url);
+    unlistedOpen = { key, pr, target };
+    if (pageScope.allProjects) aggregateSelectedKey = aggregateOpenKey = key;
+    else if (outsideList) listView.openNumber = null;
+    else listView.selectedNumber = listView.openNumber = number;
+    pullRequests.view.tab = "activity";
+    layer.prefetchActivity();
+  }
+
   /** Step from a pull request to another layer of its stack, in the panel. */
   async function openStackLayer(from: PullRequest, number: number) {
     const target = targetFor(from);
     const owner = pageScope.allProjects ? qualified.byPr.get(from) : undefined;
     if (!target) return;
     const key = owner ? qualifiedPrKey(owner.serverId, owner.projectRoot, number) : String(number);
-    const listed = prByKey(key);
-    if (listed) return selectPr(listed);
-    const layer = store.get(target.api, target.serverId, target.ctx).get(number);
-    const pr = await layer.loadDetail().catch(() => null);
-    if (!pr) return void toasts.error(`Couldn't open PR #${number}`);
-    // With no workspace there is no panel; the layer opens on the code host.
-    if (!workspace) return void localApi.openExternal(pr.url);
-    unlistedOpen = { key, pr, target };
-    if (pageScope.allProjects) aggregateSelectedKey = aggregateOpenKey = key;
-    else listView.selectedNumber = listView.openNumber = number;
-    pullRequests.view.tab = "activity";
-    layer.prefetchActivity();
+    await openPullRequest(target, key, number).catch(() => toasts.error(`Couldn't open PR #${number}`));
+  }
+
+  /** Open a pasted pull request URL in the panel. A checkout of its repository
+   *  reads it, as the list does; with none, the repository itself does, as a
+   *  linked pull request of another repository is read. Rejects with the
+   *  message the URL field shows. */
+  async function openPrUrl(address: string): Promise<void> {
+    const isReachable = (serverId: string) =>
+      !isSolusApiId(serverId) && serversStore.readinessFor(serverId).readiness === "ready";
+    const { number, url, repository, project } = prUrlTarget(address, pageScope.projectOptions, isReachable);
+    // With no workspace there is no panel; the pull request opens on the code host.
+    if (!workspace) return void localApi.openExternal(url);
+    let target: PrTarget | null;
+    let key: string;
+    let outsideList = false;
+    if (project && pageScope.allProjects) {
+      target = { api: serverConnections.apiFor(project.serverId), serverId: project.serverId, ctx: session.ctxForDirectory(project.projectKey) };
+      key = qualifiedPrKey(project.serverId, project.projectKey, number);
+    } else if (project && project.key === pageScope.pageKey) {
+      target = pageScope.api && pageScope.serverId ? { api: pageScope.api, serverId: pageScope.serverId, ctx: pageScope.ctx() } : null;
+      key = String(number);
+    } else {
+      const serverId = project?.serverId
+        ?? [pageScope.serverId, pullRequests.view.hostFilterId, ...pageScope.projectTargets.map((target) => target.serverId)]
+          .find((candidate): candidate is string => !!candidate && isReachable(candidate));
+      target = serverId
+        ? {
+            api: serverConnections.apiFor(serverId),
+            serverId,
+            ctx: project ? session.ctxForDirectory(project.projectKey) : repositoryContext(session.ctx, repository),
+          }
+        : null;
+      key = qualifiedPrKey(serverId ?? "", project?.projectKey ?? repository, number);
+      outsideList = true;
+    }
+    if (!target) throw new Error("Connect a host to open this pull request.");
+    try {
+      await openPullRequest(target, key, number, outsideList);
+    } catch (error) {
+      throw new Error(`Couldn't open PR #${number}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** A row at rest warms its header. Activity waits for the open. */
@@ -956,10 +1015,12 @@
       onReview={openReviewMode}
     />
   {/if}
+  <!-- Opening one PR by its URL is a page action, not a filter, so it sits
+       in the head row beside Refresh. -->
+  <PrUrlInspector onOpen={openPrUrl} />
 {/snippet}
 
 {#snippet filterBar()}
-  <PrUrlInspector serverId={pageScope.serverId ?? pullRequests.view.hostFilterId} />
   <!-- One row in every shape the list takes, for one project or every one.
        Refresh joins the row only while the crumb line that carries it is gone. -->
   <PrListToolbar
@@ -1147,7 +1208,7 @@
         {/if}
         <!-- One panel per pull request: a step to another one mounts a new
              panel, which opens its review once. -->
-        {#key keyOf(panel.pr)}
+        {#key panel.key}
         <PrDetailPanel
           number={panel.pr.number}
           api={panel.target.api}

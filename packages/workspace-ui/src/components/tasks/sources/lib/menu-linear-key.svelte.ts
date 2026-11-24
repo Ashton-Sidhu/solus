@@ -5,8 +5,9 @@ import { keyConnectionFor } from '../../../settings/key-connections.store'
 const LINEAR_REF = { kind: 'provider', provider: 'linear' } as const
 
 /**
- * The person's Linear key on the task host, for the menu that adds a source:
- * a person connects Linear there and picks a team without going to Settings.
+ * The person's Linear key on the task host, for the menu that adds a source
+ * and its connect dialog: a person connects Linear there and picks a team
+ * without going to Settings.
  * The key goes where Settings › Integrations puts it: the account when signed
  * in, else the host (`KeyConnectionStore`).
  */

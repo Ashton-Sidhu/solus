@@ -39,7 +39,7 @@
   );
 
   async function refreshTarget(): Promise<void> {
-    const next = await api.prOpenReview(routeCtx, params.number);
+    const next = await session.pullRequests.projects.get(api, serverId, routeCtx).get(params.number).openReview();
     session.router.setResolved(ref, next);
   }
 

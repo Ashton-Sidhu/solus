@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import type { IpcContext } from '@solus/contracts/types'
-import { projectScopeOf } from '@solus/contracts/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import type { TaskLink } from '@solus/contracts/task-types'
 import { linkedPrIdentity } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { pullRequestFixture } from './__fixtures__/pull-request'
@@ -45,8 +45,9 @@ describe('linked PR ownership', () => {
     // repository is its own interest set, and closing the page stops them all.
     const sent: Array<{ scope: string; interests: unknown[] }> = []
     const api = asHostApi({
-      prSetInterest: async (context: IpcContext, interests: unknown[]) => {
-        sent.push({ scope: projectScopeOf(context.session), interests })
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
+      prSetInterest: async (repo: RepoRef, interests: unknown[]) => {
+        sent.push({ scope: `${repo.host}/${repo.owner}/${repo.repo}`, interests })
         return { repo: 'github.com/acme/x', pullRequests: [pullRequestFixture(42)], missing: [], checks: [] }
       },
     })

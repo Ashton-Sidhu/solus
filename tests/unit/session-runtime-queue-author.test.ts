@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
+import { storeAttachmentBytes } from '@solus/server/data/assets/attachment-store'
 import type { IpcContext, NormalizedEvent, PromptOptions, QueuedPromptSnapshot } from '@solus/contracts/types'
 import { installTestIdentities } from './helpers/acting-identities'
 
@@ -269,12 +270,29 @@ describe('durable queue controls', () => {
     await expect(plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'remove', queueId: entry.queueId, revision: entry.revision ?? 0 }, HOST_ACTOR)).rejects.toThrow('changed or started')
     const edited = plane.scheduler.sessionQueue(ctx('edit')).entries[0]!
     expect(edited.attachments?.[0]?.name).toBe('notes.md')
+    const screenshots = []
+    for (let index = 0; index < 12; index++) {
+      const name = `screenshot-${index}.png`
+      const mimeType = 'image/png'
+      const hostPath = await storeAttachmentBytes('edit', name, mimeType, Buffer.from(name))
+      screenshots.push({ id: name, type: 'image' as const, name, mimeType, hostPath })
+    }
+    const attachments = [...(edited.attachments ?? []), ...screenshots]
+    await plane.scheduler.sessionQueueChange(ctx('edit'), {
+      kind: 'edit', queueId: edited.queueId, revision: edited.revision ?? 0, text: 'New text',
+      attachments, attachmentContext: '[Attached file: /tmp/notes.md]',
+      imageRefs: screenshots.map(({ mimeType, hostPath, name }) => ({ mimeType, hostPath, name })),
+    }, HOST_ACTOR)
+    expect(plane.scheduler.sessionQueue(ctx('edit')).entries[0]?.attachments).toEqual(attachments)
     await plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'resume' }, HOST_ACTOR)
     expect(backend.requests).toHaveLength(1)
     const started = backend.nextStart()
     backend.releaseOne()
     await started
     expect(backend.requests[1]?.prompt).toBe('[Attached file: /tmp/notes.md]\n\nReference context\n\nNew text')
+    expect(backend.requests[1]?.imageAttachments).toEqual(screenshots.map(({ mimeType, name }) => ({
+      mimeType, dataUrl: `data:${mimeType};base64,${Buffer.from(name).toString('base64')}`,
+    })))
   })
 
   test('provider switches and prompts run in delivery order without stopping the current work', async () => {

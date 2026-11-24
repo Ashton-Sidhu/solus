@@ -26,10 +26,6 @@ const checkedRoots = [
   'apps/client/src/',
 ]
 
-// The demo answers these calls rather than making them: it is a stand-in host,
-// so it is on the far side of this boundary in the same way a preload bridge is.
-const hostSideRoots = ['apps/client/src/demo/']
-
 /**
  * The calls whose argument or result is a pull request fact.
  *
@@ -99,7 +95,6 @@ function repositoryPath(cwd: string, filename: string): string {
 
 function isCheckedFile(path: string): boolean {
   if (path.startsWith(prContextRoot)) return false
-  if (hostSideRoots.some((root) => path.startsWith(root))) return false
   return checkedRoots.some((root) => path.startsWith(root))
 }
 

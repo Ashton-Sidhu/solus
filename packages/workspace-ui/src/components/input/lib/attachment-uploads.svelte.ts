@@ -6,7 +6,6 @@ import type { Attachment, HostCapabilities, IpcContext } from '@solus/contracts/
 import { uuid } from '@solus/contracts/uuid'
 import { attachmentKind } from '@solus/contracts/media-types'
 import {
-  assertUploadCount,
   attachmentUploadRoute,
   postAttachmentBytes,
   readFileDataUrl,
@@ -251,7 +250,6 @@ export async function uploadFileObjects(
   serverId: string,
   files: File[],
 ): Promise<Attachment[]> {
-  assertUploadCount(files.length)
   const capabilities = await serverConnections.capabilitiesFor(serverId)
   const attachments: Attachment[] = []
   for (const file of files) {
@@ -311,7 +309,6 @@ export async function uploadLocalAttachments(
   readBytes: (path: string, mime: string) => Promise<{ dataUrl: string; size: number }>,
   readBlob: (path: string) => Promise<Blob>,
 ): Promise<Attachment[]> {
-  assertUploadCount(attachments.length)
   const capabilities = await serverConnections.capabilitiesFor(serverId)
   const uploaded: Attachment[] = []
   for (const attachment of attachments) {

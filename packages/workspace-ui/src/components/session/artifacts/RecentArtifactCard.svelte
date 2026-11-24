@@ -17,7 +17,7 @@
 
   /**
    * One item of the Threads surface's row: a small picture of it, its name,
-   * and how long ago it was last opened, changed, or added. A written work
+   * and how long ago it was last opened, or else added. A written work
    * shows the start of its text; an artifact shows the host's still of its
    * render, in the current appearance; an image shows itself; anything else,
    * and an artifact before its still is taken, shows its icon. A pin marks a

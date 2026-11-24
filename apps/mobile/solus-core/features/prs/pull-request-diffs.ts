@@ -1,11 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestDiff.ts (MIT, see UPSTREAM.md).
 import type { PrDiffChangeType, PrDiffFileContents, PullRequest } from '@solus/contracts/providers'
 import { Listeners } from '../../lib/listeners'
-import { projectContext } from '../conversation/lib/ipc-context'
 import type { HostConnection } from '../hosts/host-connections'
 import { nextDiffCursor, retainPullRequestDiffPage, type PullRequestDiffPage } from './lib/pull-request-diff-pages'
 import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
-import { detailKey, type PullRequestRef } from './pull-request-directory'
+import { detailKey, type PullRequestDirectory, type PullRequestRef } from './pull-request-directory'
 import { HostReads, IDLE, UNREACHABLE, type LoadState } from './pull-request-reads'
 
 /**
@@ -48,7 +47,8 @@ export class PullRequestDiffs {
 
   constructor(
     private readonly connectionFor: (hostId: string) => HostConnection | null,
-    private readonly organizationId: () => string | null,
+    /** Names the pull request with its project's repository. */
+    private readonly directory: Pick<PullRequestDirectory, 'prRef'>,
     private readonly cache: PullRequestCache = new PullRequestCache(memoryPullRequestCacheDatabase()),
   ) {
     this.reads = new HostReads(this.changes, connectionFor, cache)
@@ -60,7 +60,7 @@ export class PullRequestDiffs {
    *  pull to refresh does. */
   async load(ref: PullRequestDiffRef, revision: PullRequestRevision): Promise<void> {
     await this.reads.read(this.diffs, diffKey(ref), ref.hostId, diffCacheKey(ref), async (connection) => {
-      const slice = await connection.api.prGetDiff(this.context(ref), { number: ref.number, ...revision, commitSha: ref.commitSha })
+      const slice = await connection.api.prGetDiff({ ...await this.directory.prRef(ref, connection), ...revision, commitSha: ref.commitSha })
       return { revision, pages: retainPullRequestDiffPage([], null, slice) }
     })
   }
@@ -76,7 +76,7 @@ export class PullRequestDiffs {
     await this.reads.read(this.diffs, diffKey(ref), ref.hostId, diffCacheKey(ref), async (connection, previous) => {
       const cursor = previous ? nextDiffCursor(previous.pages) : null
       if (!previous || cursor === null) throw new Error('There are no more changes to read.')
-      const slice = await connection.api.prGetDiff(this.context(ref), { number: ref.number, ...previous.revision, commitSha: ref.commitSha, cursor })
+      const slice = await connection.api.prGetDiff({ ...await this.directory.prRef(ref, connection), ...previous.revision, commitSha: ref.commitSha, cursor })
       return { revision: previous.revision, pages: retainPullRequestDiffPage(previous.pages, cursor, slice) }
     })
   }
@@ -93,7 +93,7 @@ export class PullRequestDiffs {
     const connection = this.connectionFor(ref.hostId)
     try {
       if (!connection) throw new Error(UNREACHABLE)
-      const contents = await connection.api.prGetDiffFileContents(this.context(ref), { number: ref.number, ...diff.revision, commitSha: ref.commitSha, ...file })
+      const contents = await connection.api.prGetDiffFileContents({ ...await this.directory.prRef(ref, connection), ...diff.revision, commitSha: ref.commitSha, ...file })
       void this.cache.write(ref.hostId, cacheKey, contents)
       return contents
     } catch (error) {
@@ -106,9 +106,5 @@ export class PullRequestDiffs {
   forgetHost(hostId: string): void {
     this.reads.forgetHost(this.diffs, hostId)
     this.changes.notify()
-  }
-
-  private context(ref: PullRequestRef) {
-    return projectContext(ref.projectPath, this.organizationId())
   }
 }

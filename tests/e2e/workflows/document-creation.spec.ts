@@ -31,7 +31,7 @@ test.describe('Document creation workflow', () => {
     await expect(publishMenu).toContainText('Confluence')
   })
 
-  test('clicking document card opens the document modal', async ({ page }) => {
+  test('opens the document editor from its card and returns to the conversation when closed', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
@@ -47,30 +47,11 @@ test.describe('Document creation workflow', () => {
     const modal = page.getByTestId('document-modal')
     await expect(modal).toBeVisible({ timeout: 5_000 })
 
-    // The document modal is built on the shared DocumentShell — it must render the
-    // same formatting toolbar and editor region that the plan modal does. This is
-    // what would regress if the document path stopped composing the shared shell.
-    await expect(modal.locator('.doc-shell-toolbar')).toBeVisible()
     await expect(modal.locator('[aria-label="Document"]')).toBeVisible()
-  })
 
-  test('document modal can be closed', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
-
-    const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
-    await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
-    await documentCard.click()
-
-    const modal = page.getByTestId('document-modal')
-    await modal.waitFor({ state: 'visible', timeout: 5_000 })
-
-    // Close via button
     await page.getByTestId('document-modal-close').click()
     await expect(modal).toBeHidden({ timeout: 3_000 })
+    await expect(documentCard).toBeVisible()
   })
 })
 

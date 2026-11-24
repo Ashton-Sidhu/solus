@@ -199,8 +199,8 @@ export class PullRequest implements Contracts.PullRequest {
    *  never needs one. */
   get viewedFiles(): PrViewedFiles {
     this.#viewedFiles ??= new PrViewedFiles({
-      read: () => this.api.prViewedFiles(detached(this.ctx), this.number),
-      write: (changes) => this.api.prSetFilesViewed(detached(this.ctx), this.number, changes),
+      read: async () => this.api.prViewedFiles(await this.ref()),
+      write: async (changes) => this.api.prSetFilesViewed(await this.ref(), changes),
     })
     return this.#viewedFiles
   }
@@ -292,7 +292,7 @@ export class PullRequest implements Contracts.PullRequest {
    */
   async loadChecks(): Promise<PrChecksSummary | undefined> {
     if (this.checks?.headSha === this.headSha) return this.checks
-    const snapshot = await this.api.prChecks(detached(this.ctx), [this.number])
+    const snapshot = await this.api.prChecks(await this.store.repository(), [this.number])
     this.checksLoadFailed = snapshot.loadFailed
     const summary = snapshot.checks.find((item) => item.number === this.number)?.summary
     if (summary) this.absorbChecks(summary)
@@ -306,6 +306,17 @@ export class PullRequest implements Contracts.PullRequest {
 
   private get ctx(): IpcContext {
     return this.store.hostContext
+  }
+
+  /** The exact revision to review, from what the host remembers. Reading it
+   *  changes no local Git state. */
+  async openReview(): Promise<Contracts.PrReviewTarget> {
+    return this.api.prOpenReview(await this.ref())
+  }
+
+  /** This pull request as a per-PR call names it. */
+  private ref(): Promise<Contracts.PrRef> {
+    return this.store.ref(this.number)
   }
 
   /** Keyed by number alone: the store this belongs to is the project. */
@@ -389,11 +400,10 @@ export class PullRequest implements Contracts.PullRequest {
    * overview to find out.
    */
   async loadOverview(opts: ReadOptions = {}): Promise<PullRequestOverview> {
-    const ctx = detached(this.ctx)
     const overview = await this.store.mirrors.overview.read(
       this.key,
       !!opts.force,
-      () => this.api.prGetOverview(ctx, this.number),
+      () => this.ref().then((ref) => this.api.prGetOverview(ref)),
     )
     if (!this.store.mirrors.overview.holds(this.key, overview)) return overview
     this.store.mirrors.detail.seed(this.key, overview.pullRequest)
@@ -408,13 +418,12 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadDetail(opts: ReadOptions = {}): Promise<PullRequest> {
-    const ctx = detached(this.ctx)
     // Every detail response feeds the lookups, the same rule list responses
     // follow — no caller has to remember to index what it read.
     const detail = await this.store.mirrors.detail.read(
       this.key,
       !!opts.force,
-      () => this.api.prGetDetail(ctx, this.number),
+      () => this.ref().then((ref) => this.api.prGetDetail(ref)),
     )
     if (!this.store.mirrors.detail.holds(this.key, detail)) return this
     this.#liveDetail = detail
@@ -435,8 +444,7 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadCommits(opts: ReadOptions = {}): Promise<PrCommit[]> {
-    const ctx = detached(this.ctx)
-    const commits = await this.store.mirrors.commits.read(this.key, !!opts.force, () => this.api.prListCommits(ctx, this.number))
+    const commits = await this.store.mirrors.commits.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prListCommits(ref)))
     if (this.store.mirrors.commits.holds(this.key, commits)) {
       this.commits = commits
       this.keep()
@@ -445,15 +453,13 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadStack(opts: ReadOptions = {}): Promise<PrStack | null> {
-    const ctx = detached(this.ctx)
-    const stack = await this.store.mirrors.stacks.read(this.key, !!opts.force, () => this.api.prGetStack(ctx, this.number))
+    const stack = await this.store.mirrors.stacks.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prGetStack(ref)))
     if (this.store.mirrors.stacks.holds(this.key, stack)) this.fullStack = stack
     return stack
   }
 
   async loadReviewers(opts: ReadOptions = {}): Promise<PrReviewer[]> {
-    const ctx = detached(this.ctx)
-    const reviewers = await this.store.mirrors.reviewers.read(this.key, !!opts.force, () => this.api.prListReviewers(ctx, this.number))
+    const reviewers = await this.store.mirrors.reviewers.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prListReviewers(ref)))
     if (this.store.mirrors.reviewers.holds(this.key, reviewers)) {
       this.reviewers = reviewers
       this.keep()
@@ -462,26 +468,23 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadReviewerCandidates(opts: ReadOptions = {}): Promise<PrReviewerCandidate[]> {
-    const ctx = detached(this.ctx)
     const candidates = await this.store.mirrors.reviewerCandidates.read(
       this.key,
       !!opts.force,
-      () => this.api.prListReviewerCandidates(ctx, this.number),
+      () => this.ref().then((ref) => this.api.prListReviewerCandidates(ref)),
     )
     if (this.store.mirrors.reviewerCandidates.holds(this.key, candidates)) this.reviewerCandidates = candidates
     return candidates
   }
 
   async loadThreads(opts: ReadOptions = {}): Promise<ReviewThread[]> {
-    const ctx = detached(this.ctx)
-    const threads = await this.store.mirrors.threads.read(this.key, !!opts.force, () => this.api.prListThreads(ctx, this.number))
+    const threads = await this.store.mirrors.threads.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prListThreads(ref)))
     if (this.store.mirrors.threads.holds(this.key, threads)) this.threads = threads
     return threads
   }
 
   async loadComments(opts: ReadOptions = {}): Promise<PrConversationItem[]> {
-    const ctx = detached(this.ctx)
-    const comments = await this.store.mirrors.comments.read(this.key, !!opts.force, () => this.api.prListComments(ctx, this.number))
+    const comments = await this.store.mirrors.comments.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prListComments(ref)))
     if (this.store.mirrors.comments.holds(this.key, comments)) {
       this.comments = comments
       this.keep()
@@ -496,8 +499,7 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadChangedFiles(opts: ReadOptions = {}): Promise<ChangedFileStat[]> {
-    const ctx = detached(this.ctx)
-    const files = await this.store.mirrors.changedFiles.read(this.key, !!opts.force, () => this.api.prChangedFiles(ctx, this.number))
+    const files = await this.store.mirrors.changedFiles.read(this.key, !!opts.force, () => this.ref().then((ref) => this.api.prChangedFiles(ref)))
     if (this.store.mirrors.changedFiles.holds(this.key, files)) {
       this.changedFileStats = files
       this.keep()
@@ -506,6 +508,7 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadInterdiff(pr: PrReviewContext, opts: ReadOptions = {}): Promise<PrInterdiffResult> {
+    // A project call: the interdiff is read from the review's checkout.
     const ctx = detached(this.ctx)
     const target = detached(pr)
     return this.store.mirrors.interdiff.read(
@@ -528,7 +531,7 @@ export class PullRequest implements Contracts.PullRequest {
   }
 
   async loadPendingWorkflowRuns(): Promise<PrPendingWorkflowRuns> {
-    const runs = await this.api.prPendingWorkflowRuns(detached(this.ctx), this.number)
+    const runs = await this.api.prPendingWorkflowRuns(await this.ref())
     this.pendingWorkflowRuns = runs
     return runs
   }
@@ -537,19 +540,20 @@ export class PullRequest implements Contracts.PullRequest {
 
   /** Rewrite the title or body. */
   async update(patch: PullRequestUpdate): Promise<PullRequest> {
-    const updated = await this.api.prUpdate(detached(this.ctx), this.number, patch)
+    // The session this project is read for, if any, is the one that edits it.
+    const updated = await this.api.prUpdate(await this.ref(), patch, this.ctx.session.agentSessionId ?? undefined)
     return this.store.applyPullRequest(updated)
   }
 
   async requestReviewers(logins: string[]): Promise<PrReviewer[]> {
-    const reviewers = await this.api.prRequestReviewers(detached(this.ctx), this.number, logins)
+    const reviewers = await this.api.prRequestReviewers(await this.ref(), logins)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
     this.reviewers = reviewers
     return reviewers
   }
 
   async removeRequestedReviewer(reviewerId: string, kind: 'user' | 'team' = 'user'): Promise<PrReviewer[]> {
-    const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, reviewerId, kind)
+    const reviewers = await this.api.prRemoveRequestedReviewer(await this.ref(), reviewerId, kind)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
     this.reviewers = reviewers
     this.store.mirrors.reviewerCandidates.delete(this.key)
@@ -560,16 +564,15 @@ export class PullRequest implements Contracts.PullRequest {
    *  host reads the same list whichever pull request asks, and only needs the
    *  number to check that this viewer may manage labels. */
   async loadLabelCandidates(): Promise<PrLabel[]> {
-    const ctx = detached(this.ctx)
     return this.store.mirrors.labelCandidates.read(
       'labels',
       false,
-      () => this.api.prListLabelCandidates(ctx, this.number),
+      () => this.ref().then((ref) => this.api.prListLabelCandidates(ref)),
     )
   }
 
   async setLabels(names: string[]): Promise<PullRequest> {
-    const detail = await this.api.prSetLabels(detached(this.ctx), this.number, [...names])
+    const detail = await this.api.prSetLabels(await this.ref(), [...names])
     // The host wrote a labeled/unlabeled row into the conversation; the next
     // read of it must go and look rather than answer from before the write.
     this.store.mirrors.comments.delete(this.key)
@@ -625,7 +628,7 @@ export class PullRequest implements Contracts.PullRequest {
         this.state = before.state
         this.draft = before.draft
       },
-      () => this.api.prUpdateLifecycle(detached(this.ctx), this.number, action, expectedHeadSha),
+      async () => this.api.prUpdateLifecycle(await this.ref(), action, expectedHeadSha),
     )
   }
 
@@ -651,7 +654,7 @@ export class PullRequest implements Contracts.PullRequest {
         this.state = before
       },
       async () => {
-        const result = await this.api.prMerge(detached(this.ctx), this.number, method, expectedHeadSha)
+        const result = await this.api.prMerge(await this.ref(), method, expectedHeadSha)
         if (!result.merged) throw new Error(result.message ?? 'The code host refused the merge.')
         return result.detail
       },
@@ -663,12 +666,12 @@ export class PullRequest implements Contracts.PullRequest {
   async enableAutoMerge(method: MergeMethod): Promise<PullRequest> {
     const expectedHeadSha = this.headSha
     if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
-    return this.#setAutoMerge(method, () =>
-      this.api.prEnableAutoMerge(detached(this.ctx), this.number, method, expectedHeadSha))
+    return this.#setAutoMerge(method, async () =>
+      this.api.prEnableAutoMerge(await this.ref(), method, expectedHeadSha))
   }
 
   async disableAutoMerge(): Promise<PullRequest> {
-    return this.#setAutoMerge(undefined, () => this.api.prDisableAutoMerge(detached(this.ctx), this.number))
+    return this.#setAutoMerge(undefined, async () => this.api.prDisableAutoMerge(await this.ref()))
   }
 
   #setAutoMerge(
@@ -696,13 +699,13 @@ export class PullRequest implements Contracts.PullRequest {
   async updateBranch(): Promise<PullRequest> {
     const expectedHeadSha = this.headSha
     if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
-    const updated = await this.api.prUpdateBranch(detached(this.ctx), this.number, expectedHeadSha)
+    const updated = await this.api.prUpdateBranch(await this.ref(), expectedHeadSha)
     return this.store.applyPullRequest(updated)
   }
 
   /** Open a pull request that reverses this merged one. */
-  revert(): Promise<PrRevertResult> {
-    return this.api.prRevert(detached(this.ctx), this.number)
+  async revert(): Promise<PrRevertResult> {
+    return this.api.prRevert(await this.ref())
   }
 
   /**
@@ -711,9 +714,9 @@ export class PullRequest implements Contracts.PullRequest {
    * read again whatever the answer, so a refusal because the stack moved
    * shows the stack as it is now.
    */
-  async mergeStack(request: Omit<PrStackMergeRequest, 'number'>): Promise<PrStackMergeResult> {
+  async mergeStack(request: Omit<PrStackMergeRequest, 'number' | 'repo'>): Promise<PrStackMergeResult> {
     try {
-      const result = await this.api.prMergeStack(detached(this.ctx), { ...request, number: this.number })
+      const result = await this.api.prMergeStack({ ...request, ...(await this.ref()) })
       for (const pullRequest of result.pullRequests) this.store.applyPullRequest(pullRequest)
       return result
     } finally {
@@ -725,7 +728,7 @@ export class PullRequest implements Contracts.PullRequest {
   /** Let the waiting workflow runs start, for the head the viewer saw them on. */
   async approveWorkflowRuns(expectedHeadSha: string): Promise<number> {
     try {
-      const result = await this.api.prApproveWorkflowRuns(detached(this.ctx), this.number, expectedHeadSha)
+      const result = await this.api.prApproveWorkflowRuns(await this.ref(), expectedHeadSha)
       return result.approved
     } finally {
       void this.loadPendingWorkflowRuns().catch(() => {})
@@ -740,34 +743,35 @@ export class PullRequest implements Contracts.PullRequest {
    * say. Callers re-read through `loadThreads`.
    */
   async replyToThread(threadId: string, body: string): Promise<ReviewComment> {
-    const comment = await this.api.prReplyThread(detached(this.ctx), this.number, threadId, body)
+    const comment = await this.api.prReplyThread(await this.ref(), threadId, body)
     this.store.mirrors.threads.delete(this.key)
     return comment
   }
 
   async setThreadResolved(threadId: string, resolved: boolean): Promise<void> {
-    const ctx = detached(this.ctx)
-    if (resolved) await this.api.prResolveThread(ctx, this.number, threadId)
-    else await this.api.prUnresolveThread(ctx, this.number, threadId)
+    const ref = await this.ref()
+    if (resolved) await this.api.prResolveThread(ref, threadId)
+    else await this.api.prUnresolveThread(ref, threadId)
     this.store.mirrors.threads.delete(this.key)
   }
 
   /** Post a conversation comment. The comment list is dropped rather than
    *  extended: the host copy is the one that survives a reload. */
   async addComment(body: string): Promise<void> {
-    await this.api.prAddIssueComment(detached(this.ctx), this.number, body)
+    await this.api.prAddIssueComment(await this.ref(), body)
     this.store.mirrors.comments.delete(this.key)
   }
 
   async deleteComment(commentId: string): Promise<void> {
-    await this.api.prDeleteIssueComment(detached(this.ctx), this.number, commentId)
+    await this.api.prDeleteIssueComment(await this.ref(), commentId)
     this.store.mirrors.comments.delete(this.key)
   }
 
   /** Submit a draft review. Its body joins the conversation and its comments
    *  become threads, so both mirrors are dropped. */
   async submitReview(review: DraftReview): Promise<void> {
-    await this.api.prSubmitReview(detached(this.ctx), this.number, review)
+    // The project's checkout keeps the review checkpoint the next interdiff starts from.
+    await this.api.prSubmitReview(await this.ref(), review, detached(this.ctx))
     this.store.mirrors.threads.delete(this.key)
     this.store.mirrors.comments.delete(this.key)
   }

@@ -35,6 +35,17 @@ describe('notification sources', () => {
     expect(sources.map((source) => source.serverId)).toEqual(['vm-lan'])
   })
 
+  test('two installations with one machine name say which host each is', () => {
+    // An old install on the same machine keeps the machine's name. Without the
+    // address, its "unreachable" notice reads as a fault of the machine in use.
+    const { sources } = notificationSources([
+      { serverId: 'local', label: 'Mac mini', installationId: 'inst-new', isLocal: true, url: 'http://127.0.0.1:3001' },
+      { serverId: 'old', label: 'Mac mini', installationId: 'inst-old', url: 'http://100.87.157.17:55640' },
+      { serverId: 'vm', label: 'VM', installationId: 'inst-vm', url: 'http://10.0.0.2:3001' },
+    ], [])
+    expect(sources.map((source) => source.label)).toEqual(['Mac mini (this device)', 'Mac mini (100.87.157.17:55640)', 'VM'])
+  })
+
   test('an organization id two directories list is a conflict, never a source, and the registry dials neither', () => {
     const cloud = workspace('org-same', 'https://app.solus.sh', 'Cloud')
     const selfHosted = workspace('org-same', 'https://solus.example.com', 'Self-hosted')

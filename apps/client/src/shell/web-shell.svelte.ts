@@ -13,7 +13,7 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 export class WebShell extends ClientViewport implements ClientShellContext {
   readonly supportsLocalAttachments = false
   readonly supportsNativeSettings = false
-  readonly hasInsetTitlebar = document.documentElement.classList.contains('solus-demo')
+  readonly hasInsetTitlebar = false
   /** The kinds this shell opens in place; a narrower shell names fewer. */
   protected readonly resourceKinds: ReadonlySet<ResourceRouteKind> = WORKSPACE_RESOURCE_KINDS
   protected workspace: WorkspaceContext | null = null

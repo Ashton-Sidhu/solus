@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'crypto'
 import { chmod, copyFile, mkdir, open, rm, unlink } from 'fs/promises'
-import { basename, dirname, join } from 'path'
+import { basename, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
-import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { VIDEO_FILE_EXTENSIONS, videoMimeType } from '@solus/contracts/media-types'
 import { dataDir } from '../../platform/paths'
 import { memberUsers } from '../../host/member-users'
@@ -155,26 +155,6 @@ export async function namedUploadPath(bucketId: string, name: string, attachment
   return join(folder, safeFileName(name))
 }
 
-/** Reserve when bytes arrive. Release failed uploads, but keep the slot for
- * completed files. The exclusive lock enforces the cap across concurrent calls. */
-export async function reserveAttachmentSlot(bucketDir: string): Promise<() => Promise<void>> {
-  for (let slot = 0; slot < MAX_ATTACHMENT_UPLOAD_COUNT; slot++) {
-    const lockPath = join(bucketDir, `.slot-${slot}`)
-    let lock: Awaited<ReturnType<typeof open>> | undefined
-    try {
-      lock = await open(lockPath, 'wx', 0o600)
-      await lock.close()
-    } catch (error) {
-      await lock?.close().catch(() => {})
-      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') continue
-      throw error
-    }
-    return () => unlink(lockPath).catch(() => {})
-  }
-
-  throw new Error(`A conversation can contain at most ${MAX_ATTACHMENT_UPLOAD_COUNT} uploaded attachments.`)
-}
-
 /** Decode and persist one attachment in a conversation's upload folder. */
 export async function storeAttachment(
   bucketId: string,
@@ -194,7 +174,6 @@ export async function storeAttachmentBytes(
 ): Promise<string> {
   if (buffer.length > MAX_ATTACHMENT_UPLOAD_BYTES) throw new Error('Attachment exceeds the 10 MB limit.')
   const filePath = await attachmentUploadPath(bucketId, name, mime, attachmentsDir)
-  const release = await reserveAttachmentSlot(dirname(filePath))
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
     handle = await open(filePath, 'wx', attachmentFileMode())
@@ -204,7 +183,6 @@ export async function storeAttachmentBytes(
   } catch (error) {
     await handle?.close().catch(() => {})
     await unlink(filePath).catch(() => {})
-    await release()
     throw error
   }
 }

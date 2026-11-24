@@ -212,14 +212,13 @@ export class GuideLoader {
       return { revision, diffScope, patch: "" };
     }
     const patch = target?.kind === "pr"
-      ? await this.#loadPrPatch(api, ctx, target, guide, diffScope.baseSha, current)
+      ? await this.#loadPrPatch(api, target, guide, diffScope.baseSha, current)
       : (await api.diff(ctx, { scope: diffScope }))?.patch ?? "";
     return { revision, diffScope, patch };
   }
 
   async #loadPrPatch(
     api: HostApi,
-    ctx: IpcContext,
     target: Extract<ReviewGuideTarget, { kind: "pr" }>,
     guide: ReviewGuide,
     baseSha: string,
@@ -229,9 +228,9 @@ export class GuideLoader {
     let cursor: string | undefined;
     const pages: string[] = [];
     do {
-      const result = await api.prGetDiff(ctx, {
+      const result = await api.prGetDiff({
         repo: { host: target.host, owner: target.owner, repo: target.repo },
-        number: target.number, baseSha, headSha: guide.headSha, cursor,
+        number: target.number, baseSha, headSha: guide.headSha, cursor, guide: true,
       });
       if (!current()) return "";
       pages.push(result.patch);
@@ -275,9 +274,9 @@ export class GuideLoader {
     const guide = this.guide;
     if (target?.kind === "pr") {
       if (!guide?.baseSha || !guide.headSha) throw new Error("The guide comparison is unavailable.");
-      const result = await this.#opts.getApi().prGetDiffFileContents(this.#opts.getCtx(), {
+      const result = await this.#opts.getApi().prGetDiffFileContents({
         repo: { host: target.host, owner: target.owner, repo: target.repo },
-        number: target.number, baseSha: guide.baseSha, headSha: guide.headSha,
+        number: target.number, baseSha: guide.baseSha, headSha: guide.headSha, guide: true,
         oldPath: fileDiff.prevName ?? fileDiff.name, newPath: fileDiff.name, changeType: fileDiff.type,
       });
       return {

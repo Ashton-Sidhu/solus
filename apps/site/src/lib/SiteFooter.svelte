@@ -12,7 +12,6 @@
 				{ href: "/#data", label: "Integrations" },
 				{ href: "/#workflow", label: "Workflow" },
 				{ href: "/#observability", label: "Observability" },
-				{ href: "/demo", label: "Live demo" },
 			],
 		},
 		{

@@ -1,35 +1,24 @@
 import { describe, expect, test } from 'bun:test'
 import {
   PrReactionWrites,
-  PrUrlInspectionStore,
   reactionSummary,
   shownReactions,
   withReaction
 } from '@solus/client-core/pr-social'
-import type { PrReactions, PrUrlInspection } from '@solus/contracts/pr-social'
+import type { PrReactions } from '@solus/contracts/pr-social'
 import type { RepoRef } from '@solus/contracts/providers'
 import {
   changeGithubPrReaction,
-  prRepoSchema,
   toPrReactions
 } from '@solus/server/providers/github/pr-social'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
-import { inspectPullRequestUrl } from '@solus/server/providers/pr-inspection'
 import type { GitHubClient, GraphQLClient } from '@solus/server/providers/github/octokit'
 import { deferred } from './helpers/native-mobile-prs-fixtures'
-import { pullRequestFixture } from './__fixtures__/pull-request'
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'repo' }
 const hearts = (count: number, viewerHasReacted = count > 0): PrReactions => ({
   viewerCanReact: true,
   groups: count > 0 ? [{ content: 'HEART', count, viewerHasReacted, actors: [] }] : []
 })
-const inspection: PrUrlInspection = {
-  overview: { pullRequest: pullRequestFixture(1), commits: [], reviewers: [] },
-  comments: [],
-  threads: [],
-  readOnly: true,
-  truncated: false
-}
 const group = (content: string, logins: string[], totalCount = logins.length, viewerHasReacted = false) => ({
   content,
   viewerHasReacted,
@@ -175,7 +164,7 @@ describe('GitHub reaction writes', () => {
 
 describe('reaction writes as a page shows them', () => {
   const writes = (prReact: (content: string) => Promise<PrReactions>) =>
-    new PrReactionWrites(() => ({ prReact: (_repo, _number, _target, content) => prReact(content) }), repo, 1)
+    new PrReactionWrites(() => ({ prReact: (_pr, _target, content) => prReact(content) }), repo, 1)
 
   test('a reaction shows at once, the write\'s answer replaces it, and a newer read wins', async () => {
     const answered = deferred<PrReactions>()
@@ -246,76 +235,5 @@ describe('reaction writes as a page shows them', () => {
       'You, ada and bob reacted with heart',
       'ada, bob, cy and 3 others reacted with eyes'
     ])
-  })
-})
-
-describe('read-only PR URL inspection', () => {
-  test('rejects other hosts, credentials in URLs, and invalid repository identities before provider access', async () => {
-    let calls = 0
-    for (const url of [
-      'https://gitlab.com/a/b/pull/1',
-      'https://user@github.com/a/b/pull/1',
-      'https://github.com:444/a/b/pull/1',
-      'https://github.com/a%2Fb/repo/pull/1',
-      'https://github.com/a/b/pull/0'
-    ]) {
-      await expect(
-        inspectPullRequestUrl(url, () => {
-          calls++
-          return null
-        })
-      ).rejects.toThrow()
-    }
-    expect(calls).toBe(0)
-    expect(prRepoSchema.safeParse({ ...repo, repo: '..' }).success).toBe(false)
-  })
-  test('reads with repository identity and no project, with bounded transport output', async () => {
-    const calls: string[] = []
-    const value = await inspectPullRequestUrl(
-      ' https://github.com/acme/repo/pull/1?x=1#comment ',
-      (target) => {
-        expect(target).toEqual(repo)
-        return {
-          getPullRequestOverview: async (_repo, number) => {
-            calls.push('overview')
-            expect(number).toBe(1)
-            return {
-              ...inspection.overview,
-              pullRequest: pullRequestFixture(1, { body: 'a'.repeat(300_000) })
-            }
-          },
-          listComments: async () => {
-            calls.push('comments')
-            return []
-          },
-          listReviewThreads: async () => {
-            calls.push('threads')
-            return []
-          }
-        }
-      }
-    )
-    expect(calls).toEqual(['overview', 'comments', 'threads'])
-    expect(value.readOnly).toBe(true)
-    expect(value.truncated).toBe(true)
-    expect(value.overview.pullRequest.body.length).toBeLessThan(270_000)
-  })
-  test('switching URLs or closing prevents an old response from reopening the inspector', async () => {
-    const old = deferred<PrUrlInspection>()
-    const store = new PrUrlInspectionStore(() => ({
-      prInspectUrl: async (url) => (url === 'old' ? old.promise : inspection)
-    }))
-    const reading = store.open('old')
-    await store.open('new')
-    old.resolve({ ...inspection, readOnly: true })
-    await reading
-    expect(store.current.value).toBe(inspection)
-    const late = deferred<PrUrlInspection>(),
-      other = new PrUrlInspectionStore(() => ({ prInspectUrl: async () => late.promise }))
-    const pending = other.open('url')
-    other.close()
-    late.resolve(inspection)
-    await pending
-    expect(other.current).toEqual({ value: null, pending: false, error: null })
   })
 })

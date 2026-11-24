@@ -227,18 +227,18 @@ export class PrReviewState {
     this.diffError = null
     this.diffTruncated = false
     this.diffLoading = true
-    const context = this.#deps.fallbackCtx()
     void (async () => {
       const patches: string[] = []
       let cursor: string | undefined
       do {
         const request: import('@solus/contracts/providers').PrDiffRequest = {
+          repo: { host: target.host, owner: target.owner, repo: target.repo },
           number: target.number,
           baseSha: target.baseSha,
           headSha: target.headSha,
         }
         if (cursor) request.cursor = cursor
-        const slice: PrDiffSlice = await this.#deps.loadDiff(context, request)
+        const slice: PrDiffSlice = await this.#deps.loadDiff(request)
         if (`${this.pr?.host}/${this.pr?.owner}/${this.pr?.repo}:${this.pr?.number}:${this.pr?.baseSha}:${this.pr?.headSha}` !== key) return
         if (slice.patch) patches.push(slice.patch)
         this.diffTruncated ||= slice.truncated
@@ -277,7 +277,6 @@ export class PrReviewState {
     this.commitDiffError = null
     this.commitDiffTruncated = false
     this.commitDiffLoading = true
-    const context = this.#deps.fallbackCtx()
     // Guarded on the key, not the scope: clearing the scope mid-load lets the
     // load finish into the cache, so re-opening the same commit is instant.
     const current = () => this.#commitDiffKey === key
@@ -286,13 +285,14 @@ export class PrReviewState {
       let cursor: string | undefined
       do {
         const request: import('@solus/contracts/providers').PrDiffRequest = {
+          repo: { host: target.host, owner: target.owner, repo: target.repo },
           number: target.number,
           baseSha: target.baseSha,
           headSha: target.headSha,
           commitSha: commit.sha,
         }
         if (cursor) request.cursor = cursor
-        const slice: PrDiffSlice = await this.#deps.loadDiff(context, request)
+        const slice: PrDiffSlice = await this.#deps.loadDiff(request)
         if (!current()) return
         if (slice.patch) patches.push(slice.patch)
         this.commitDiffTruncated ||= slice.truncated
@@ -340,7 +340,8 @@ export class PrReviewState {
   loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
     const target = this.pr
     if (!target) throw new Error('The pull request is not ready.')
-    const result = await this.api.prGetDiffFileContents(this.#deps.fallbackCtx(), {
+    const result = await this.api.prGetDiffFileContents({
+      repo: { host: target.host, owner: target.owner, repo: target.repo },
       number: target.number,
       baseSha: target.baseSha,
       headSha: target.headSha,
@@ -370,7 +371,8 @@ export class PrReviewState {
     const target = this.pr
     const commit = this.commitScope
     if (!target || !commit) throw new Error('The pull request is not ready.')
-    const result = await this.api.prGetDiffFileContents(this.#deps.fallbackCtx(), {
+    const result = await this.api.prGetDiffFileContents({
+      repo: { host: target.host, owner: target.owner, repo: target.repo },
       number: target.number,
       baseSha: target.baseSha,
       headSha: target.headSha,
@@ -417,7 +419,7 @@ export interface PrReviewDeps {
   fallbackCtx: () => IpcContext
   ctxForDirectory: (path: string) => IpcContext
   threadSource: (ctx: IpcContext, number: number) => ReviewThreadSource
-  loadDiff: (ctx: IpcContext, request: import('@solus/contracts/providers').PrDiffRequest) => Promise<PrDiffSlice>
+  loadDiff: (request: import('@solus/contracts/providers').PrDiffRequest) => Promise<PrDiffSlice>
   prepareCheckout: (ctx: IpcContext, target: PrReviewTarget) => Promise<PrCheckoutContext>
   loadInterdiff: (ctx: IpcContext, pr: PrReviewContext, force: boolean) => Promise<PrInterdiffResult>
   diffStats: (ctx: IpcContext, scope: DiffScope) => Promise<number>

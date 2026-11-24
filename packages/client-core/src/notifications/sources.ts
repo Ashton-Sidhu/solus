@@ -9,6 +9,10 @@ export interface NotificationHostEntry {
   label: string
   /** The installation the host proved; two saved entries of one installation are one source. */
   installationId?: string
+  /** The host this client runs on. */
+  isLocal?: boolean
+  /** The address the host is dialed on. */
+  url?: string
 }
 
 export interface NotificationSourceList {
@@ -25,11 +29,19 @@ export interface NotificationSourceList {
 export function notificationSources(hosts: readonly NotificationHostEntry[], workspaces: readonly KnownWorkspace[]): NotificationSourceList {
   const sources: NotificationSource[] = []
   const seenHosts = new Set<string>()
+  const distinctHosts: NotificationHostEntry[] = []
   for (const host of hosts) {
     const identity = host.installationId ?? host.serverId
     if (seenHosts.has(identity)) continue
     seenHosts.add(identity)
-    sources.push({ sourceId: `host:${identity}`, serverId: host.serverId, kind: 'host', label: host.label })
+    distinctHosts.push(host)
+  }
+  const labelCounts = new Map<string, number>()
+  for (const host of distinctHosts) labelCounts.set(host.label, (labelCounts.get(host.label) ?? 0) + 1)
+  for (const host of distinctHosts) {
+    const identity = host.installationId ?? host.serverId
+    const label = (labelCounts.get(host.label) ?? 0) > 1 ? distinctLabel(host) : host.label
+    sources.push({ sourceId: `host:${identity}`, serverId: host.serverId, kind: 'host', label })
   }
   const ambiguous = ambiguousOrganizationIds(workspaces)
   const seenOrganizations = new Set<string>()
@@ -40,4 +52,24 @@ export function notificationSources(hosts: readonly NotificationHostEntry[], wor
     sources.push({ sourceId: serverId, serverId, kind: 'organization', label: workspace.label, organizationId: workspace.organizationId })
   }
   return { sources, conflicts: [...ambiguous] }
+}
+
+/**
+ * Two installations can have one machine name: an old install on the same
+ * machine, or two machines with the default name. The page names each source
+ * alone, so a label two hosts share says which host it is.
+ */
+function distinctLabel(host: NotificationHostEntry): string {
+  if (host.isLocal) return `${host.label} (this device)`
+  const address = addressOf(host.url)
+  return address ? `${host.label} (${address})` : host.label
+}
+
+function addressOf(url: string | undefined): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).host || null
+  } catch {
+    return null
+  }
 }

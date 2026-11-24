@@ -79,7 +79,7 @@
   const target = $derived({ number, title, host, remoteOwner, repo });
 
   async function refreshTarget(): Promise<void> {
-    pr = await api.prOpenReview(ctx, number);
+    pr = await session.pullRequests.projects.get(api, serverId, ctx).get(number).openReview();
   }
 
   // The review's chat is whichever open tab is rooted in this PR's worktree —

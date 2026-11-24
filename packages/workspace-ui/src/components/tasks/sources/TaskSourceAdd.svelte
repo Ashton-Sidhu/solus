@@ -2,9 +2,10 @@
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
   import type { taskSourceProvider } from "@solus/contracts/task-sources";
-  import { taskHostId, taskSourcesStore } from "../../../contexts";
+  import { connectionsStore, getSurfaceContext, taskHostId, taskSourcesStore } from "../../../contexts";
   import { atlassianStore } from "../../../contexts/atlassian/atlassian.store.svelte";
   import AtlassianConnectForm from "../../atlassian/AtlassianConnectForm.svelte";
+  import GitHubConnectForm from "../../connections/GitHubConnectForm.svelte";
   import IntegrationDialog from "../../settings/IntegrationDialog.svelte";
   import { PROVIDER_LOGOS } from "../../settings/lib/provider-logos";
   import { Button } from "../../ui/button";
@@ -20,7 +21,8 @@
    * one card for each provider, and the menu opens on that provider's
    * choices. The menu stays open after an add, so a person adds several. Every
    * card looks the same; one whose provider is not connected opens the dialog
-   * Settings uses to connect it, and then its menu.
+   * Settings uses to connect it, and then its menu. The menu's footer opens
+   * the same dialogs on both looks.
    */
   interface Props {
     look: "strip" | "providers";
@@ -53,9 +55,11 @@
   // The connections as Settings reads them: quick, so a card opens the
   // connect dialog before the providers have listed any choice. The choices answer only
   // while a connection has not.
-  const linearKey = $derived(look === "providers" && serverId ? new MenuLinearKey(serverId) : null);
+  let connecting = $state<SourceProvider | null>(null);
+  const surface = getSurfaceContext();
+  const linearKey = $derived(serverId && (look === "providers" || connecting === "linear") ? new MenuLinearKey(serverId) : null);
   $effect(() => {
-    if (look === "providers" && serverId) untrack(() => void atlassianStore.ensureStatus(serverId));
+    if (serverId && (look === "providers" || connecting === "jira")) untrack(() => void atlassianStore.ensureStatus(serverId));
   });
   $effect(() => {
     const key = linearKey;
@@ -80,20 +84,32 @@
     return false;
   }
   const cards: Partial<Record<SourceProvider, HTMLElement>> = {};
-  let connecting = $state<"jira" | "linear" | null>(null);
 
   function choose(shown: SourceProvider, button: HTMLElement) {
     if ((shown === "jira" || shown === "linear") && needsConnecting(shown)) connecting = shown;
     else openFor(shown, button);
   }
 
+  // The menu's footer closes the menu and opens the dialog in its place.
+  function connectFromMenu(shown: SourceProvider) {
+    open = false;
+    connecting = shown;
+  }
+
   // Connected: the choices are read again, and the menu opens on them.
-  async function connected(shown: "jira" | "linear") {
+  async function connected(shown: SourceProvider) {
     connecting = null;
     if (shown === "jira" && serverId) void atlassianStore.refreshStatus(serverId);
     await taskSourcesStore.loadOptions();
     const card = cards[shown];
     if (card) openFor(shown, card);
+    else open = true;
+  }
+
+  // A GitHub device sign-in polls until it ends, so closing the dialog stops it.
+  function closeGitHub(host: string) {
+    connecting = null;
+    if (connectionsStore.providerConnecting) void connectionsStore.cancelProviderConnect(host, surface.ctx);
   }
 
   // A browser sign-in in flight holds a loopback port on the host, so closing
@@ -140,7 +156,21 @@
   </div>
 {/if}
 
-{#if look === "providers" && serverId}
+{#if serverId && surface.workspace}
+  <IntegrationDialog
+    isOpen={connecting === "github"}
+    title={options?.github.connected ? "Connect GitHub again" : "Connect GitHub"}
+    description={options?.github.connected
+      ? "Sign in again to let Solus read your GitHub Projects."
+      : "Sign in with a code, then pick the repositories and Projects your tasks come from."}
+    logo={PROVIDER_LOGOS.github}
+    onClose={() => closeGitHub(serverId)}
+  >
+    <GitHubConnectForm {serverId} onconnected={() => void connected("github")} />
+  </IntegrationDialog>
+{/if}
+
+{#if serverId}
   <IntegrationDialog
     isOpen={connecting === "jira"}
     title="Connect Jira"
@@ -201,8 +231,9 @@
     sideOffset={6}
     collisionPadding={8}
     customAnchor={look === "providers" ? providerButton : undefined}
+    onCloseAutoFocus={(event) => { if (connecting) event.preventDefault(); }}
     class="menu-surface z-[10002] w-[min(24rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0"
   >
-    <TaskSourcePicker active={open} {provider} {onChanged} onLeave={() => (open = false)} />
+    <TaskSourcePicker active={open} {provider} {onChanged} onLeave={() => (open = false)} onConnect={connectFromMenu} />
   </Popover.Content>
 </Popover.Root>

@@ -11,7 +11,7 @@ import { toolServerName } from './mcp-tool-label'
 export type ToolOutputPlace = 'strip' | 'tool-detail' | 'outside-fold'
 
 /** The fields of a tool call's message that say what the call is, not what it gave back. */
-export const TOOL_CALL_FACTS = ['toolName', 'toolId', 'toolIndex', 'toolInput', 'toolStatus', 'toolCompletedAt'] as const
+export const TOOL_CALL_FACTS = ['toolName', 'toolId', 'toolInput', 'toolStatus', 'toolCompletedAt'] as const
 
 /** Every field a tool call's message carries for the person to see. */
 export type ToolOutputField = Exclude<Extract<keyof Message, `tool${string}`>, (typeof TOOL_CALL_FACTS)[number]> | 'errorHead'

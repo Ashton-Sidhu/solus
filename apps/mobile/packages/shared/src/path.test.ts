@@ -116,8 +116,12 @@ describe("resolvePastedPath", () => {
 });
 
 describe("workspaceRelativeFilePath", () => {
-  // regression: #9309 POSIX paths compare case-sensitively, Windows paths do not
   it.each([
+    // regression: #12449 workspace root links resolve to "."
+    ["/repo/project", "/repo/project", "."],
+    ["C:/", "c:/", "."],
+    ["/repo/project/a.ts", undefined, null],
+    // regression: #9309 POSIX paths compare case-sensitively, Windows paths do not
     ["/Repo/Project/src/main.ts", "/repo/project", null],
     ["C:/USERS/mike/t3code/main.ts", "c:/users/MIKE/t3code", "main.ts"],
     ["/repo/project-two/a.ts", "/repo/project", null],

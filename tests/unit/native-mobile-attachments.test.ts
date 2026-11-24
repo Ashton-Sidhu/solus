@@ -4,7 +4,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest } from '@sol
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
-import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/solus-core/features/conversation/lib/attachments'
+import { attachmentSizeProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/solus-core/features/conversation/lib/attachments'
 import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
@@ -24,11 +24,10 @@ function fakeIo(status = 204) {
 }
 
 describe('native attachments', () => {
-  test('limits match the host: eight per message, 10 MB a file, 50 MB a video', () => {
-    expect(attachmentLimitProblem([photo], 8)).toContain('up to 8')
-    expect(attachmentLimitProblem([{ ...doc, size: 11 * MB }], 0)).toContain('spec.pdf')
-    expect(attachmentLimitProblem([clip], 0)).toBeNull()
-    expect(attachmentLimitProblem([{ ...clip, size: 51 * MB }], 0)).toContain('50 MB')
+  test('size limits match the host: 10 MB a file, 50 MB a video', () => {
+    expect(attachmentSizeProblem([{ ...doc, size: 11 * MB }])).toContain('spec.pdf')
+    expect(attachmentSizeProblem([clip])).toBeNull()
+    expect(attachmentSizeProblem([{ ...clip, size: 51 * MB }])).toContain('50 MB')
   })
 
   test('a photo goes over the upload RPC as base64 without line breaks', async () => {
@@ -99,7 +98,7 @@ describe('native attachments', () => {
 })
 
 describe('native attachments in a conversation', () => {
-  test('before the first prompt an upload names a draft; the prompt then carries the files', async () => {
+  test('a draft uploads and sends more than eight screenshots in its first prompt', async () => {
     const uploadContexts: IpcContext[] = []
     const api = new FakeApi()
       .on('watchSession', () => ({}))
@@ -124,17 +123,20 @@ describe('native attachments in a conversation', () => {
       onChange: () => {},
     })
     await controller.load()
-    await controller.attach([photo, doc])
-    expect(uploadContexts.map((ctx) => [ctx.session.sessionId, ctx.session.draftId])).toEqual([['', 'new-1'], ['', 'new-1']])
-    expect(controller.attachments.map((attachment) => attachment.name)).toEqual(['photo.jpg', 'spec.pdf'])
+    const photos = Array.from({ length: 12 }, (_, index) => ({ ...photo, name: `photo-${index}.jpg` }))
+    const files = [...photos, doc]
+    await controller.attach(files)
+    expect(uploadContexts.map((ctx) => [ctx.session.sessionId, ctx.session.draftId])).toEqual(files.map(() => ['', 'new-1']))
+    expect(controller.attachments.map((attachment) => attachment.name)).toEqual(files.map((file) => file.name))
 
     await controller.send('What is wrong here?')
     const [, options] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(options).toMatchObject({
       prompt: '[Attached file: /h/spec.pdf]\n\nWhat is wrong here?',
       displayPrompt: 'What is wrong here?',
-      imageAttachmentRefs: [{ mimeType: 'image/jpeg', hostPath: '/h/photo.jpg', name: 'photo.jpg' }],
+      imageAttachmentRefs: photos.map(({ mimeType, name }) => ({ mimeType, name, hostPath: `/h/${name}` })),
     })
+    expect(options.imageAttachmentRefs).toHaveLength(photos.length)
     expect(controller.attachments).toEqual([])
 
     // Once the host has the session, uploads name it.

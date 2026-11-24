@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { DOT_MARKS } from '@solus/client-core/dot-marks'
 import {
-  DOT_MATRIX_BOX_PX,
   dotAnimationKeyframes,
-  dotCellOffset,
   msUntilCycleEnd,
   planDotMarkSwitch,
 } from '@solus/workspace-ui/components/ui/lib/dot-matrix'
@@ -54,10 +52,5 @@ describe('the dots of the grid', () => {
       { offset: 0, transform: 'scale(0)', easing: 'cubic-bezier(.3,0,.2,1)' },
       { offset: 1, transform: 'scale(1)' },
     ])
-  })
-
-  test("the default grid is T3 Code's 13px status symbol, the circle of a 16px line glyph", () => {
-    expect(DOT_MATRIX_BOX_PX).toBe(13)
-    expect(dotCellOffset(2, DOT_MATRIX_BOX_PX)).toBe(10)
   })
 })

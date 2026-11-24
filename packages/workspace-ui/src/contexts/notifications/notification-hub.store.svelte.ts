@@ -41,7 +41,9 @@ class NotificationHubStore {
 
   private get sourceList(): NotificationSourceList {
     return notificationSources(
-      serversStore.servers.map((server) => ({ serverId: server.id, label: server.label, installationId: server.installationId })),
+      serversStore.servers.map((server) => ({
+        serverId: server.id, label: server.label, installationId: server.installationId, isLocal: server.local, url: server.url,
+      })),
       serversStore.workspaces,
     )
   }

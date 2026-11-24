@@ -47,6 +47,7 @@ const emptyChange = (overrides: Partial<PrSyncChange> = {}): PrSyncChange => ({
 function host(serverId: string) {
   const sent: PrInterest[][] = []
   serverConnectionsMock.registerHost(serverId, {
+    prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'repo' }),
     prList: async () => ({ items: [pullRequestFixture(33)], page: 1, hasMore: false }),
     prListProjects: async (_ctx: IpcContext, roots: string[]) =>
       roots.map((projectRoot) => ({ projectRoot, page: { items: [pullRequestFixture(33)], page: 1, hasMore: false } })),

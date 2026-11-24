@@ -67,3 +67,11 @@ export function subagentInputText(input: SubagentInput): string {
   }
   return ''
 }
+
+/** What a sub-agent shows as its name, on every surface: its own description,
+ *  else its prompt, on one line. The host's digest, the conversation's card,
+ *  and the native app read the same call input, so they show the same name. */
+export function subagentTitle(toolInput: string | undefined): string {
+  const input = parseSubagentInput(toolInput)
+  return (input.description?.trim() || subagentInputText(input)).replace(/\s+/g, ' ') || 'Sub-agent'
+}

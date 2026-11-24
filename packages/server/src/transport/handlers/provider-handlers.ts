@@ -1,5 +1,5 @@
-import { inspectPullRequestUrl } from '../../providers/pr-inspection'
-import { changePrReaction, prRepoSchema, prNumberSchema } from '../../providers/github/pr-social'
+import { z } from 'zod'
+import { changePrReaction } from '../../providers/github/pr-social'
 import { createLogger } from '../../logger'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { getProvider, providerForRepo } from '../../providers/registry'
@@ -16,7 +16,7 @@ import { PlaneDisabledError } from '../../host/roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { ReviewGuideJobs } from '../../review/guide-jobs'
 import type { PrPageRequest, Provider } from '../../providers/types'
-import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, PrRef, RepoRef } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 import { recordScopeOf, type Principal } from '../../admission/principal'
@@ -64,15 +64,49 @@ async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
   return getProvider('github') ?? null
 }
 
-/** Resolve the `{ repo, provider }` pair PR-review handlers need. Throws with a
- *  user-facing message when the repo host isn't supported or auth is missing. */
-export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
-  const cwd = projectScopeOf(ctx.session)
-  const repo = cwd ? await repoForScope(cwd) : null
-  if (!repo) throw await noRemoteError(cwd)
+/** The `{ repo, provider }` a repository's pull requests are read through.
+ *  Throws with a user-facing message when the code host isn't supported. */
+export function reviewTargetForRepo(repo: RepoRef): CodeHost {
   const provider = providerForRepo(repo)
   if (!provider) throw new PrUnavailableError('unsupported-host', `PR review isn't supported for ${repo.host} yet.`)
   return { repo, provider }
+}
+
+/** A repository as a client names it: one path segment per part. */
+const repoRefSchema = z.object({
+  host: z.string().min(1).max(253).regex(/^[^/\s]+$/),
+  owner: z.string().min(1).max(100).regex(/^[^/\s]+$/),
+  repo: z.string().min(1).max(100).regex(/^[^/\s]+$/),
+})
+const prRefSchema = z.object({
+  repo: repoRefSchema,
+  number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+})
+
+/** The repository a repository call names, checked and on its code host. */
+function repositoryTarget(repo: RepoRef): CodeHost {
+  return reviewTargetForRepo(repoRefSchema.parse(repo))
+}
+
+/** A pull request and the code host that serves its repository. */
+interface PullRequestTarget extends CodeHost {
+  number: number
+}
+
+/** The pull request a per-PR call names (docs/plans/pr-identity.md), checked,
+ *  with the code host that serves its repository. No project is read. */
+export function reviewTargetForPr(ref: PrRef): PullRequestTarget {
+  const { repo, number } = prRefSchema.parse(ref)
+  return { ...reviewTargetForRepo(repo), number }
+}
+
+/** A project's repository and code host: its primary remote, read from the
+ *  local checkout. Only project calls, which need a folder, resolve this way. */
+export async function reviewTargetFor(ctx: IpcContext): Promise<CodeHost> {
+  const cwd = projectScopeOf(ctx.session)
+  const repo = cwd ? await repoForScope(cwd) : null
+  if (!repo) throw await noRemoteError(cwd)
+  return reviewTargetForRepo(repo)
 }
 
 /**
@@ -112,11 +146,10 @@ async function assertMayChangePullRequest(caller: PullRequestCaller, repository:
 
 async function writePullRequest<T>(
   caller: PullRequestCaller,
-  ctx: IpcContext,
-  number: number,
+  ref: PrRef,
   write: (target: { repo: RepoRef; provider: Provider; pullRequest: PullRequest }) => Promise<T>,
 ): Promise<T> {
-  const { repo, provider } = await reviewTargetFor(ctx)
+  const { repo, provider, number } = reviewTargetForPr(ref)
   await assertMayChangePullRequest(caller, repoKeyOf(repo), number)
   const pullRequest = prIndex.pullRequest(repo, provider, number)
   const result = await write({ repo, provider, pullRequest })
@@ -125,8 +158,8 @@ async function writePullRequest<T>(
 }
 
 /** Resolve the revision to review. Reading a PR must not mutate local git state. */
-export async function openPrReview(ctx: IpcContext, number: number): Promise<PrReviewTarget> {
-  const { repo, provider } = await reviewTargetFor(ctx)
+export async function openPrReview(ref: PrRef): Promise<PrReviewTarget> {
+  const { repo, provider, number } = reviewTargetForPr(ref)
   // Remembered, not fresh: opening a pull request is a read, and the click
   // waits on it. The `headSha` here is only what the reviewer looks at. Every
   // write and checkout reads the host fresh and refuses a revision that moved,
@@ -289,6 +322,9 @@ async function persistReviewCheckpoint(
   number: number,
   review: DraftReview,
 ): Promise<void> {
+  // A checkpoint lives in a checkout of the pull request's own repository.
+  const own = await reviewTargetFor(ctx).catch(() => null)
+  if (!own || repoKeyOf(own.repo).toLowerCase() !== repoKeyOf(repo).toLowerCase()) return
   const repoRoot = await repoRootOrScope(ctx)
   let checkpointBase = review.baseSha ?? null
   if (!checkpointBase) {
@@ -565,17 +601,20 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prSetInterest', async (args, handlerCtx) => {
-    const [ctx, interests] = args
+    const [repo, interests, ctx] = args
+    const host = repositoryTarget(repo)
     // One set per connection and project: two checkouts of one repository on
-    // one client are two sets, and neither replaces the other.
-    const ownerId = `${clientKey(handlerCtx)}#${projectScopeOf(ctx.session)}`
-    const host = await reviewTargetFor(ctx)
+    // one client are two sets, and neither replaces the other. A repository
+    // read with no checkout is its own set.
+    const ownerId = `${clientKey(handlerCtx)}#${ctx ? projectScopeOf(ctx.session) : repoKeyOf(host.repo).toLowerCase()}`
     // A branch is the head it pushes to from this checkout: the name alone
-    // matches every fork's branch of that name.
-    const checkout = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory
+    // matches every fork's branch of that name. With no checkout there is no
+    // branch to resolve.
+    const checkout = ctx ? ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory : null
     // A branch never published has no pull request: it costs no lookup.
     const resolved = (await Promise.all(interests.map(async (interest): Promise<SyncInterest | null> => {
       if (interest.kind !== 'branch') return interest
+      if (!checkout) return null
       const head = await pushHeadFor(host, checkout, interest.head)
       return head ? { kind: 'head', head } : null
     }))).filter((interest): interest is SyncInterest => interest !== null)
@@ -588,20 +627,18 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return readPrGuideMetadata(repo, request)
   })
 
-  server.register('prOpenReview', async (args) => {
-    const [ctx, number] = args
-    return openPrReview(ctx, number)
-  })
+  server.register('prOpenReview', async ([ref]) => openPrReview(ref))
 
-  server.register('prGetDiff', async (args) => {
-    const [ctx, request] = args
+  server.register('prRepository', async ([ctx]) => (await reviewTargetFor(ctx)).repo)
+
+  server.register('prGetDiff', async ([request]) => {
+    const { repo, provider } = reviewTargetForPr(request)
     // A guide's diff is read out of a guide checkout with Git: execution work,
     // even though the pull request itself is read from its code host.
-    if (request.repo) {
+    if (request.guide) {
       if (!server.servesExecution()) throw new PlaneDisabledError('prGetDiff', 'execution')
-      return readPrGuidePatch(request.repo, request)
+      return readPrGuidePatch(repo, request)
     }
-    const { repo, provider } = await reviewTargetFor(ctx)
     // Remembered, not fresh: the guard inside compares against the `headSha`
     // the client got from `prOpenReview`, which read this same field. A push
     // since then surfaces through PR sync, not on every diff page.
@@ -609,13 +646,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.review.getPullRequestDiff(repo, detail, request)
   })
 
-  server.register('prGetDiffFileContents', async (args) => {
-    const [ctx, request] = args
-    if (request.repo) {
+  server.register('prGetDiffFileContents', async ([request]) => {
+    const { repo, provider } = reviewTargetForPr(request)
+    if (request.guide) {
       if (!server.servesExecution()) throw new PlaneDisabledError('prGetDiffFileContents', 'execution')
-      return readPrGuideFileContents(request.repo, request)
+      return readPrGuideFileContents(repo, request)
     }
-    const { repo, provider } = await reviewTargetFor(ctx)
     const detail = await prIndex.pullRequest(repo, provider, request.number).read()
     return provider.review.getPullRequestDiffFileContents(repo, detail, request)
   })
@@ -626,8 +662,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prMerge', async (args, handlerCtx): Promise<PrMergeResult> => {
-    const [ctx, number, method, expectedHeadSha] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, method, expectedHeadSha] = args
+    const { number } = ref
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (detail.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before merging.')
@@ -712,14 +749,13 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     }
   })
 
-  server.register('prRefresh', async (args) => {
-    const [ctx] = args
-    deps.prSync.refresh(await reviewTargetFor(ctx))
+  server.register('prRefresh', async ([repo]) => {
+    deps.prSync.refresh(repositoryTarget(repo))
   })
 
   server.register('prGetDetail', async (args, handlerCtx) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     const pullRequest = prIndex.pullRequest(repo, provider, number)
     const remembered = pullRequest.lastRead()
     const detail = await pullRequest.read()
@@ -729,18 +765,18 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prUpdate', async (args, handlerCtx) => {
-    const [ctx, number, patch] = args
+    const [ref, patch, sessionId] = args
+    const { number } = ref
     const title = patch.title?.trim()
     if (patch.title !== undefined && !title) throw new Error('A pull request title cannot be empty.')
     const updates: PullRequestUpdate = {}
     if (title !== undefined) updates.title = title
     if (patch.body !== undefined) updates.body = patch.body
-    const updated = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider }) => {
+    const updated = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider }) => {
       const detail = await provider.review.updatePullRequest(repo, number, updates)
       await deps.prSync.apply({ repo, provider }, detail)
       return detail
     })
-    const sessionId = ctx.session.agentSessionId
     if (sessionId) {
       await linkSessionPullRequest(sessionId, {
         url: updated.url,
@@ -758,54 +794,53 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return updated
   })
 
-  server.register('prReact', async ([repo, number, targetId, content, add], handlerCtx) => {
-    const target = prRepoSchema.parse(repo); prNumberSchema.parse(number)
-    await assertMayChangePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, repoKeyOf(target), number)
-    const reactions = await changePrReaction(target, number, targetId, content, add)
+  server.register('prReact', async ([ref, targetId, content, add], handlerCtx) => {
+    const { repo, number } = reviewTargetForPr(ref)
+    await assertMayChangePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, repoKeyOf(repo), number)
+    const reactions = await changePrReaction(repo, number, targetId, content, add)
     // The held conversation has the old counts; the next read asks GitHub.
-    prIndex.invalidate(target)
+    prIndex.invalidate(repo)
     return reactions
   })
-  server.register('prInspectUrl', ([address]) => inspectPullRequestUrl(address, (repo) => providerForRepo(repo)?.review ?? null))
   server.register('prGetOverview', async (args) => {
-    const [ctx, number, options] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref, options] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).overview(options)
   })
 
   server.register('prListThreads', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).threads()
   })
 
   server.register('prListComments', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).comments()
   })
 
   server.register('prListCommits', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).commits()
   })
 
   server.register('prGetStack', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).stack()
   })
 
   server.register('prListReviewers', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).reviewers()
   })
 
   server.register('prListReviewerCandidates', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     // Fresh: access taken away since the page loaded is what this guards.
     const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
     if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to request reviewers.')
@@ -816,10 +851,11 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prRequestReviewers', async (args, handlerCtx) => {
-    const [ctx, number, requestedLogins] = args
+    const [ref, requestedLogins] = args
+    const { number } = ref
     const logins = [...new Set(requestedLogins.map((login) => login.trim()).filter(Boolean))]
     if (logins.length === 0) throw new Error('Select at least one reviewer.')
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to request reviewers.')
       return provider.review.requestReviewers(repo, number, logins)
@@ -827,11 +863,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prRemoveRequestedReviewer', async (args, handlerCtx) => {
-    const [ctx, number, requestedReviewerId, kind = 'user'] = args
+    const [ref, requestedReviewerId, kind = 'user'] = args
+    const { number } = ref
     const reviewerId = requestedReviewerId.trim()
     if (!reviewerId) throw new Error('A reviewer is required.')
     if (kind !== 'user' && kind !== 'team') throw new Error('Invalid reviewer kind.')
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
       return provider.review.removeRequestedReviewer(repo, number, reviewerId, kind)
@@ -854,17 +891,18 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prListLabelCandidates', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
     if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
     return provider.review.listLabelCandidates(repo)
   })
 
   server.register('prSetLabels', async (args, handlerCtx) => {
-    const [ctx, number, requestedNames] = args
+    const [ref, requestedNames] = args
+    const { number } = ref
     const names = [...new Set(requestedNames.map((name) => name.trim()).filter(Boolean))]
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
       await provider.review.setLabels(repo, number, names)
@@ -877,9 +915,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prUpdateLifecycle', async (args, handlerCtx) => {
-    const [ctx, number, action, expectedHeadSha] = args
+    const [ref, action, expectedHeadSha] = args
+    const { number } = ref
     if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider }) => {
       const detail = await provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha)
       await deps.prSync.apply({ repo, provider }, detail)
       return detail
@@ -889,8 +928,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // Auto-merge reaches every surface the same way as any lifecycle change:
   // the armed badge belongs wherever this pull request is drawn.
   server.register('prEnableAutoMerge', async (args, handlerCtx) => {
-    const [ctx, number, method, expectedHeadSha] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, method, expectedHeadSha] = args
+    const { number } = ref
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before turning on auto-merge.')
@@ -911,8 +951,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prDisableAutoMerge', async (args, handlerCtx) => {
-    const [ctx, number] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref] = args
+    const { number } = ref
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (!current.viewerPermissions.actions.includes('disable-auto-merge')) {
         throw new Error('You do not have permission to turn off auto-merge for this pull request.')
@@ -926,8 +967,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // The host's "Update branch". A merge commit unless the base branch only
   // takes rebases, where a merge commit on the head could never land.
   server.register('prUpdateBranch', async (args, handlerCtx) => {
-    const [ctx, number, expectedHeadSha] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, expectedHeadSha] = args
+    const { number } = ref
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before updating its branch.')
@@ -950,8 +992,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prRevert', async (args, handlerCtx) => {
-    const [ctx, number] = args
-    const { repo, opened } = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref] = args
+    const { number } = ref
+    const { repo, opened } = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.state !== 'merged') throw new Error('Only a merged pull request can be reverted.')
       if (!current.viewerPermissions.actions.includes('revert')) {
@@ -968,8 +1011,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // One host operation lands the target and every open layer below it. Each
   // layer is then read again and handed to PR sync, like a single merge.
   server.register('prMergeStack', async (args, handlerCtx): Promise<PrStackMergeResult> => {
-    const [ctx, request] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, request.number, async ({ repo, provider, pullRequest }) => {
+    const [request] = args
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, request, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (!current.capabilities.actions.includes('merge-stack')) throw new Error('This code host cannot merge a stack.')
       if (!current.viewerPermissions.actions.includes('merge-stack')) {
@@ -995,8 +1038,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // Read fresh: the approval is checked against this head, so a remembered
   // head would list the runs of a commit that is gone.
   server.register('prPendingWorkflowRuns', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     // Remembered, not fresh: the answer names the head it describes, and the
     // approval reads the pull request fresh and refuses a head that moved.
     const detail = await prIndex.pullRequest(repo, provider, number).read()
@@ -1008,8 +1051,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prApproveWorkflowRuns', async (args, handlerCtx) => {
-    const [ctx, number, expectedHeadSha] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, expectedHeadSha] = args
+    const { number } = ref
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before you approve its workflow runs.')
@@ -1030,29 +1074,30 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // request, so it does not go through `writePullRequest`: nothing a listing
   // remembers is wrong after it.
   server.register('prViewedFiles', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return provider.review.listViewedFiles(repo, number)
   })
 
   server.register('prSetFilesViewed', async (args) => {
-    const [ctx, number, changes] = args
+    const [ref, changes] = args
     if (changes.length > MAX_VIEWED_FILE_CHANGES) throw new Error(`Mark at most ${MAX_VIEWED_FILE_CHANGES} files at a time.`)
     if (changes.some((change) => !change.path)) throw new Error('A file path is required.')
     if (changes.length === 0) return
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const { repo, provider, number } = reviewTargetForPr(ref)
     await provider.review.setFilesViewed(repo, number, changes)
   })
 
   server.register('prChangedFiles', async (args) => {
-    const [ctx, number] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     return prIndex.pullRequest(repo, provider, number).changedFiles()
   })
 
   server.register('prSubmitReview', async (args, handlerCtx) => {
-    const [ctx, number, review] = args
-    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, review, checkout] = args
+    const { number } = ref
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (detail.headSha !== review.commitId) {
         throw new Error('This pull request changed. Refresh the diff before submitting your review.')
@@ -1074,15 +1119,16 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       await provider.review.createReview(repo, number, review)
       // The provider response is the user-visible completion boundary. Persisting
       // the local interdiff checkpoint must not hold the submitted modal open.
-      void persistReviewCheckpoint(ctx, repo, provider, number, review).catch((err) => {
+      if (checkout) void persistReviewCheckpoint(checkout, repo, provider, number, review).catch((err) => {
         log.warn('review_checkpoint_failed', { prNumber: number, error: err instanceof Error ? err.message : String(err) })
       })
     })
   })
 
   server.register('prAddIssueComment', async (args, handlerCtx) => {
-    const [ctx, number, body] = args
-    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
+    const [ref, body] = args
+    const { number } = ref
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.comment) throw new Error('You do not have permission to comment on this pull request.')
       await provider.review.addIssueComment(repo, number, body)
@@ -1090,8 +1136,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prDeleteIssueComment', async (args, handlerCtx) => {
-    const [ctx, number, commentId] = args
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const [ref, commentId] = args
+    const { repo, provider, number } = reviewTargetForPr(ref)
     const [comments, viewer] = await Promise.all([
       prIndex.pullRequest(repo, provider, number).comments(),
       provider.auth.status(),
@@ -1101,7 +1147,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (!viewer.login || comment.author.toLowerCase() !== viewer.login.toLowerCase()) {
       throw new Error('You can only delete your own pull request comments.')
     }
-    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo: writeRepo, provider: writeProvider }) =>
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, ({ repo: writeRepo, provider: writeProvider }) =>
       writeProvider.review.deleteIssueComment(writeRepo, commentId))
   })
 
@@ -1128,20 +1174,20 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   server.register('prReplyThread', async (args, handlerCtx) => {
-    const [ctx, number, threadId, body] = args
-    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
+    const [ref, threadId, body] = args
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, ({ repo, provider }) =>
       provider.review.replyToThread(repo, threadId, body))
   })
 
   server.register('prResolveThread', async (args, handlerCtx) => {
-    const [ctx, number, threadId] = args
-    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
+    const [ref, threadId] = args
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, ({ repo, provider }) =>
       provider.review.resolveThread(repo, threadId))
   })
 
   server.register('prUnresolveThread', async (args, handlerCtx) => {
-    const [ctx, number, threadId] = args
-    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
+    const [ref, threadId] = args
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ref, ({ repo, provider }) =>
       provider.review.unresolveThread(repo, threadId))
   })
 

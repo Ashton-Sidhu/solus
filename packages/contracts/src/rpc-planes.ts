@@ -464,6 +464,7 @@ export const RPC_PLANES = {
   prListProjects: 'collaboration',
   prFilterOptions: 'collaboration',
   prSetInterest: 'collaboration',
+  prRepository: 'collaboration',
   prGuideMetadata: 'collaboration',
   // Reading a pull request asks its code host alone, so the workspace service
   // serves it with no checkout behind it (docs/plans/project-model.md §5).
@@ -474,7 +475,6 @@ export const RPC_PLANES = {
   prGetDetail: 'collaboration',
   prUpdate: 'collaboration',
   prReact: 'collaboration',
-  prInspectUrl: 'collaboration',
   prGetOverview: 'collaboration',
   prChangedFiles: 'collaboration',
   prListThreads: 'collaboration',

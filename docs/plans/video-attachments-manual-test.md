@@ -59,7 +59,7 @@ Check chips, controls, and error text once in both light and dark mode.
 | ☐ | Let an upload fail, then try to send. | Send is refused until you retry or remove the failed upload. |
 | ☐ | Disconnect the test client during upload; reconnect and select Retry. | The error is visible. Retry completes and the video plays. |
 | ☐ | Remove a chip during upload. Then upload a fresh video. | The removed upload stops. No late error or chip returns. The new upload succeeds. |
-| ☐ | Repeat cancellation in a fresh test conversation without keeping successful uploads. | Cancelled attempts do not exhaust the conversation's upload slots. |
+| ☐ | Attach more than eight files to one prompt, then send it. | The host accepts all the files. |
 | ☐ | Attach a video larger than 50 MB. | A size error appears. No unusable attachment is sent. |
 | ☐ | Attach a non-video file larger than 10 MB. | The client refuses it with a size error. |
 | ☐ | Play a video, then scroll its player out of view. | It pauses. It can be played again when brought back into view. |

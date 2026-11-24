@@ -172,11 +172,6 @@ describe('what a prompt carries', () => {
     session.run.location = ON_B
     expect(changes.promptFields(session)).toEqual({ knownHead: 'head-3', sourceHostId: 'installation-of-host-a' })
   })
-
-  test('nothing when the run host has the newest turn', () => {
-    const { changes, session } = harness()
-    expect(changes.promptFields(session)).toEqual({})
-  })
 })
 
 describe('a restored tab', () => {

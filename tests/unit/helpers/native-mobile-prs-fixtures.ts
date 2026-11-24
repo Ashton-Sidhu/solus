@@ -20,9 +20,21 @@ export const pullRequest = (number: number, overrides: Partial<PullRequest> = {}
 
 export const PR_REF = { hostId: 'inst-a', projectPath: '/work/app', number: 7 }
 
+/** The repository the host reads from the project's Git remote. Its spelling
+ *  differs from `baseRepo` on purpose: a call must name the host's spelling. */
+export const REPO = { host: 'github.com', owner: 'O', repo: 'R' }
+
+/** The pull request `PR_REF` names, as a per-PR call sends it. */
+export const PR = { repo: REPO, number: 7 }
+
+/** A host that answers each project's repository (`prRepository`). */
+export function repositoryApi(api: FakeApi): FakeApi {
+  return api.on('prRepository', () => REPO)
+}
+
 /** A detail read that answers every part. */
 export function detailApi(api: FakeApi, pr: () => PullRequest = () => pullRequest(7)): FakeApi {
-  return api
+  return repositoryApi(api)
     .on('prGetOverview', () => ({ pullRequest: pr(), commits: [], reviewers: [] }))
     .on('prListComments', () => [])
     .on('prListThreads', () => [])

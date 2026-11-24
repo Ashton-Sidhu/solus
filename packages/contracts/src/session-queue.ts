@@ -38,9 +38,9 @@ export const queueAttachmentSchema: z.ZodType<QueueAttachment> = z.object({
 const revision = { queueId: z.string().min(1), revision: z.number().int().nonnegative() }
 export const sessionQueueMutationSchema: z.ZodType<SessionQueueMutation> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('edit'), ...revision, text: z.string().min(1), attachmentContext: z.string().optional(),
-    attachments: z.array(queueAttachmentSchema).max(8).optional(),
-    images: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).max(8).optional(),
-    imageRefs: z.array(z.object({ mimeType: z.string(), hostPath: z.string(), name: z.string().optional() })).max(8).optional(),
+    attachments: z.array(queueAttachmentSchema).optional(),
+    images: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).optional(),
+    imageRefs: z.array(z.object({ mimeType: z.string(), hostPath: z.string(), name: z.string().optional() })).optional(),
   }),
   z.object({ kind: z.enum(['remove', 'steer']), ...revision }),
   z.object({ kind: z.literal('move'), ...revision, beforeQueueId: z.string().nullable() }),

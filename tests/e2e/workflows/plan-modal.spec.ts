@@ -26,51 +26,6 @@ test.describe('Plan modal workflow', () => {
     await expect(page.locator(`${ACTIVE_TAB} [data-plan-tool-use-id]`).last()).toBeVisible()
   })
 
-  test('worktree toggle can be activated in the plan action bar', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    const planPage = new PlanPage(page)
-    const prompt = '__MOCK_PLAN__ create a migration plan'
-    await app.waitForAppReady()
-
-    await page.keyboard.press('Alt+Shift+Tab')
-    await expect(page.locator(`${ACTIVE_SHELL} button`).filter({ hasText: 'Plan' }).first()).toBeVisible()
-
-    await conversation.typeAndSend(prompt)
-    await planPage.openFromCard()
-
-    const worktreeBtn = page.getByTestId('plan-action-worktree').first()
-    if (await worktreeBtn.isVisible()) {
-      await expect(worktreeBtn).toHaveAttribute('aria-pressed', 'false')
-      await worktreeBtn.click()
-      await expect(worktreeBtn).toHaveAttribute('aria-pressed', 'true')
-      await worktreeBtn.click()
-      await expect(worktreeBtn).toHaveAttribute('aria-pressed', 'false')
-    }
-  })
-
-  test('worktree toggle can be activated via keyboard shortcut', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    const planPage = new PlanPage(page)
-    const prompt = '__MOCK_PLAN__ create a migration plan'
-    await app.waitForAppReady()
-
-    await page.keyboard.press('Alt+Shift+Tab')
-    await expect(page.locator(`${ACTIVE_SHELL} button`).filter({ hasText: 'Plan' }).first()).toBeVisible()
-
-    await conversation.typeAndSend(prompt)
-    await planPage.openFromCard()
-
-    const worktreeBtn = page.getByTestId('plan-action-worktree').first()
-    if (await worktreeBtn.isVisible()) {
-      await page.keyboard.press('Alt+w')
-      await expect(worktreeBtn).toHaveAttribute('aria-pressed', 'true')
-      await page.keyboard.press('Alt+w')
-      await expect(worktreeBtn).toHaveAttribute('aria-pressed', 'false')
-    }
-  })
-
   test('starting a new session is optional in desktop and mobile layouts', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)

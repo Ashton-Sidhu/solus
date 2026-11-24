@@ -47,7 +47,8 @@ export class PrChecksStore {
    *  the git rail's branch holds a branch interest, which carries no checks. */
   async load(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[]): Promise<void> {
     if (numbers.length === 0) return
-    this.byProject.set(projectPrsKey(serverId, ctx), await api.prChecks(detached(ctx), numbers))
+    const repo = await this.prs.get(api, serverId, ctx).repository()
+    this.byProject.set(projectPrsKey(serverId, ctx), await api.prChecks(repo, numbers))
   }
 
   /** Keep one pull request's check runs fresh while a review pane shows it. */

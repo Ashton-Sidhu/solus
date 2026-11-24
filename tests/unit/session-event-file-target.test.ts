@@ -35,7 +35,7 @@ test('file calls keep their path in the live row until the result arrives', asyn
       ? '{"notebook_path":"/repo/notes.ipynb"}'
       : '{"file_path":"/repo/src/App.svelte"}'
     reducer.apply('session-1', { type: 'tool_call', toolName, toolId, index })
-    reducer.apply('session-1', { type: 'tool_call_complete', index, toolInput })
+    reducer.apply('session-1', { type: 'tool_call_complete', index, toolId, toolInput })
     expect(session.messages[index].toolStatus).toBe('running')
     expect(session.messages[index].toolInput).toBe(toolInput)
     reducer.apply('session-1', { type: 'tool_result', toolUseId: toolId, content: '' })
@@ -66,7 +66,7 @@ test('a Solus integration tool stays live until its result, so its live app card
   reducer.apply('session-1', { type: 'tool_call', toolName: 'mcp__solus__charts__chart', toolId: 'call-1', index: 0 })
   reducer.apply('session-1', { type: 'tool_call_update', toolId: 'call-1', index: 0, toolInput: '{"region":"we', inputPartial: true })
   expect(session.messages[0].toolInput).toBe('{"region":"we')
-  reducer.apply('session-1', { type: 'tool_call_complete', index: 0, toolInput: '{"region":"west"}' })
+  reducer.apply('session-1', { type: 'tool_call_complete', index: 0, toolId: 'call-1', toolInput: '{"region":"west"}' })
   expect(session.messages[0].toolStatus).toBe('running')
   reducer.apply('session-1', { type: 'tool_result', toolUseId: 'call-1', content: '' })
   expect(session.messages[0].toolStatus).toBe('completed')

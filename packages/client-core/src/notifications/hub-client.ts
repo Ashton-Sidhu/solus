@@ -132,14 +132,18 @@ export class NotificationHubClient {
     return this.options.identity
   }
 
-  /** Read these sources. A source no longer listed is forgotten, rows and all. */
+  /** Read these sources. A source no longer listed is forgotten, rows and all; a source still listed takes its new label. */
   setSources(next: readonly NotificationSource[]): void {
     if (this.isStopped) return
     const nextIds = new Set(next.map((source) => source.sourceId))
     for (const sourceId of [...this.runtimes.keys()]) {
       if (!nextIds.has(sourceId)) this.removeSource(sourceId)
     }
-    for (const source of next) if (!this.runtimes.has(source.sourceId)) this.addSource(source)
+    for (const source of next) {
+      const runtime = this.runtimes.get(source.sourceId)
+      if (!runtime) this.addSource(source)
+      else if (runtime.source.label !== source.label) this.relabel(runtime, source.label)
+    }
   }
 
   /** Page lifetime, independent of badges: opening reads history; closing stops
@@ -301,6 +305,11 @@ export class NotificationHubClient {
       void this.refresh(source.sourceId)
     }))
     void this.refresh(source.sourceId)
+  }
+
+  private relabel(runtime: SourceRuntime, label: string): void {
+    runtime.source = { ...runtime.source, label }
+    this.patchSource(runtime.source.sourceId, { source: runtime.source })
   }
 
   private removeSource(sourceId: string): void {

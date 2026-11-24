@@ -1,3 +1,4 @@
+import { modelLabelFor } from '@solus/contracts/types'
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
 import { exchangeRequestText, type ExchangeRequest } from '@solus/contracts/session-exchange'
 import type { SessionExecution } from '@solus/contracts/session-execution'
@@ -198,7 +199,7 @@ export function hostLabelFor(serverId: string | undefined): string | null {
 /** `host · model effort` — provenance on demand only: this lives in the ⋯ menu,
  *  never in the resting card. */
 export function provenanceLine(ref: AgentConversationRef, meta: SessionMeta | undefined, hostLabel: string | null): string {
-  const model = meta?.model ?? ref.model
+  const model = modelLabelFor(meta?.provider ?? ref.provider, meta?.model ?? ref.model)
   const effort = meta?.reasoningEffort ?? ref.reasoningEffort
   return [
     hostLabel,

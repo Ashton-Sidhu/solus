@@ -8,7 +8,7 @@
   import { MenuSearch } from "../../ui/menu";
   import { SourceLogo } from "../../ui/list-page";
   import {
-    connectionProviderNames,
+    SOURCE_PROVIDER_NAMES,
     manualSourceChoice,
     manualSourceKey,
     matchingChoices,
@@ -16,10 +16,10 @@
     sourceConnectionNotes,
     withTaskSource,
     type SourceChoice,
+    type SourceConnectionNote,
   } from "./lib/task-source-setup";
   import { saveTaskSources } from "./lib/save-task-sources.svelte";
   import { MenuLinearKey } from "./lib/menu-linear-key.svelte";
-  import LinearKeyField from "./LinearKeyField.svelte";
 
   /**
    * What a person can add as a task source, with a search that also takes a
@@ -36,10 +36,12 @@
     onChanged?: () => void;
     /** Called before the picker sends the person to Settings. */
     onLeave?: () => void;
+    /** Opens the dialog that connects the provider in place. */
+    onConnect?: (provider: SourceConnectionNote["provider"]) => void;
     /** Only this provider's choices, as its button on the setup asks. */
     provider?: SourceProvider | null;
   }
-  let { active, onChanged, onLeave, provider = null }: Props = $props();
+  let { active, onChanged, onLeave, onConnect, provider = null }: Props = $props();
 
   type SourceProvider = ReturnType<typeof taskSourceProvider>;
   const isProviderShown = (shown: SourceProvider) => provider === null || provider === shown;
@@ -48,7 +50,6 @@
   const session = getSurfaceContext();
 
   let query = $state("");
-  let root = $state<HTMLElement | null>(null);
 
   const config = $derived({ taskSources: settings.taskSources });
   const configured = $derived(config.taskSources);
@@ -69,28 +70,17 @@
       .flatMap((group) => matchingChoices(group, query))
       .filter((choice) => choice.sourceKey !== typedChoice?.sourceKey && isProviderShown(taskSourceProvider(choice.source))),
   );
-  // Linear connects with a pasted key, so the menu takes it in place: the person
-  // picks a team without a trip to Settings. Read again on each open.
+  // Whether this person may save a Linear key here, so its connect action
+  // opens the key dialog instead of Settings. Read again on each open.
   const linearKey = $derived.by(() => {
     const serverId = active ? taskHostId() : null;
     return serverId ? new MenuLinearKey(serverId) : null;
   });
-  const offersLinearKey = $derived(
-    !!linearKey?.canSave && !!options?.linear && !options.linear.connected && !query.trim() && isProviderShown("linear"),
-  );
-  // A connection problem is worth a line only while a person browses, not
-  // while they search for one source by name. Linear's is the key field when
-  // the menu offers it.
+  // A connection problem is worth the footer only while a person browses, not
+  // while they search for one source by name.
   const connectionNotes = $derived(
-    options && !query.trim()
-      ? sourceConnectionNotes(options).filter(
-          (note) => isProviderShown(note.provider) && !(offersLinearKey && note.provider === "linear"),
-        )
-      : [],
+    options && !query.trim() ? sourceConnectionNotes(options).filter((note) => isProviderShown(note.provider)) : [],
   );
-  const connectionNames = $derived(connectionProviderNames(connectionNotes));
-  // The full reasons, for a pointer that rests on the action.
-  const connectionHelp = $derived(connectionNotes.map((note) => note.text).join("\n") || undefined);
   const alreadyConfigured = $derived(
     !typedChoice && !!query.trim() && configured.some((source) => taskSourceKey(source) === manualSourceKey(query)),
   );
@@ -109,15 +99,20 @@
     return stop;
   });
 
-  // The teams read again, and the search takes the keys for the next step.
-  function linearConnected() {
-    void taskSourcesStore.loadOptions();
-    root?.querySelector<HTMLInputElement>("input")?.focus();
-  }
-
   function openIntegrations() {
     onLeave?.();
     session.workspace?.showSettings("integrations");
+  }
+
+  // A provider connects in a dialog: GitHub signs in (again, for the Projects
+  // scope), Jira signs in, and Linear takes a key. Every other repair, such
+  // as an Atlassian site without Jira, is in Settings. The GitHub sign-in
+  // needs the workspace.
+  function connectAction(shown: SourceConnectionNote["provider"]): (() => void) | null {
+    if (onConnect && shown === "github" && session.workspace) return () => onConnect("github");
+    if (onConnect && shown === "jira" && !options?.jira.connected) return () => onConnect("jira");
+    if (onConnect && shown === "linear" && linearKey?.canSave) return () => onConnect("linear");
+    return session.workspace ? openIntegrations : null;
   }
 
   function add(choice: SourceChoice) {
@@ -139,7 +134,7 @@
   </Command.Item>
 {/snippet}
 
-<div bind:this={root} class="flex flex-col rounded-[inherit]">
+<div class="flex flex-col rounded-[inherit]">
   <Command.Root shouldFilter={false}>
     <MenuSearch bind:value={query} placeholder={searchHint} />
     <Command.List class="max-h-[280px] overflow-y-auto p-1.5">
@@ -164,7 +159,7 @@
               You have that source already.
             {:else if query.trim()}
               Nothing matches. Type owner/repo, or paste the URL of a GitHub repository or Project.
-            {:else if connectionNotes.length === 0 && !offersLinearKey}
+            {:else if connectionNotes.length === 0}
               You have every source your connections offer. Paste a GitHub URL to add another.
             {/if}
           </p>
@@ -172,30 +167,34 @@
       {/if}
     </Command.List>
   </Command.Root>
-  {#if offersLinearKey && linearKey}
-    <LinearKeyField {linearKey} problem={options?.linear?.error} onConnected={linearConnected} />
-  {/if}
-  <!-- What keeps a source out of the list, and where to fix it, in one
-       row: each logo carries its own reason as a tooltip. -->
+  <!-- One row: a connect action for each provider that keeps its sources out
+       of the list, with its full reason as a tooltip. -->
   <div
-    class="flex items-center gap-1 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) py-1 pr-1.5 pl-2.5 text-xs text-(--solus-text-tertiary)"
+    class="flex min-w-0 items-center gap-0.5 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) py-1 pr-1.5 pl-1.5 text-xs text-(--solus-text-tertiary)"
   >
     {#if connectionNotes.length > 0}
-      <span class="flex shrink-0 items-center gap-1 pl-1.5">
-        {#each connectionNotes as note (note.text)}
-          <SourceLogo source={note.provider} title={note.text} />
-        {/each}
-      </span>
-    {/if}
-    <!-- Every connection is made in Settings › Integrations, signed in or not.
-         A surface with no workspace has no Settings to open. -->
-    {#if session.workspace}
-    <button
-      type="button"
-      title={connectionHelp}
-      class="min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
-      onclick={openIntegrations}
-    >{connectionNotes.length > 0 ? `Connect ${connectionNames}` : "Manage connections"}</button>
+      <span class="shrink-0 px-1.5">Connect</span>
+      {#each connectionNotes as note (note.provider)}
+        {@const action = connectAction(note.provider)}
+        <button
+          type="button"
+          title={note.text}
+          aria-label={note.text}
+          disabled={!action}
+          class="flex h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:hover:bg-transparent pointer-coarse:h-9"
+          onclick={() => action?.()}
+        >
+          <SourceLogo source={note.provider} />
+          <span class="truncate">{SOURCE_PROVIDER_NAMES[note.provider]}</span>
+        </button>
+      {/each}
+    {:else if session.workspace}
+      <!-- A surface with no workspace has no Settings to open. -->
+      <button
+        type="button"
+        class="h-7 min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent px-1.5 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
+        onclick={openIntegrations}
+      >Manage connections</button>
     {/if}
     <button
       type="button"

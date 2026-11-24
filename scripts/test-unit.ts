@@ -16,7 +16,7 @@ const engineArg = args.find((arg) => arg.startsWith('--engine='))
 const engine = engineArg ? engineArg.slice('--engine='.length) : 'sqlite'
 if (engine !== 'sqlite' && engine !== 'postgres') throw new Error(`Unknown --engine "${engine}"; use sqlite or postgres.`)
 const filters = args.filter((arg) => !arg.startsWith('--'))
-const files = Array.from(new Bun.Glob('**/*.test.ts').scanSync({ cwd: join(root, 'tests/unit') }))
+const files = Array.from(new Bun.Glob('**/*.test.{ts,tsx,js,jsx,mts,mjs,cts,cjs}').scanSync({ cwd: join(root, 'tests/unit') }))
   .map((file) => `tests/unit/${file}`)
   .filter((file) => filters.length === 0 || filters.some((filter) => file.includes(filter)))
   .sort()
@@ -46,16 +46,27 @@ const active = new Map<ChildProcess, string>()
 const startedAt = performance.now()
 let nextFile = 0
 let failed = 0
+let cleanupFailures = 0
 let completed = 0
 
-function stop(child: ChildProcess): void {
+function stop(child: ChildProcess): boolean {
   // These process groups belong only to children started by this runner.
-  if (!child.pid) return
-  if (process.platform === 'win32') child.kill('SIGKILL')
-  else {
-    try { process.kill(-child.pid, 'SIGKILL') } catch (error) {
-      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') throw error
-    }
+  if (!child.pid) return true
+  if (process.platform === 'win32') {
+    child.kill('SIGKILL')
+    return true
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+    return true
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error)) throw error
+    if (error.code === 'ESRCH') return true
+    if (error.code !== 'EPERM') throw error
+    // The OS can refuse a group signal after the test process exits. If the
+    // direct child is still running, use its handle to enforce the deadline.
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    return false
   }
 }
 
@@ -77,7 +88,7 @@ async function run(file: string): Promise<void> {
   const engineEnv = database
     ? { SOLUS_DB: 'postgres', DATABASE_URL: database.url, SOLUS_TEST_DATABASE_URL: database.url }
     : { SOLUS_DB: 'sqlite', DATABASE_URL: '', SOLUS_TEST_DATABASE_URL: '' }
-  const child = spawn(process.execPath, ['test', '--no-orphans', file], {
+  const child = spawn(process.execPath, ['test', '--no-orphans', '--conditions=svelte', file], {
     cwd: root,
     env: {
       ...process.env,
@@ -110,7 +121,10 @@ async function run(file: string): Promise<void> {
     console.error(`\nFAIL ${file}`, error)
   } finally {
     clearTimeout(deadline)
-    stop(child)
+    if (!stop(child)) {
+      cleanupFailures++
+      console.error(`CLEANUP FAIL ${file}: permission denied when stopping the test process group`)
+    }
     active.delete(child)
     closeSync(output)
     rmSync(directory, { recursive: true, force: true })
@@ -125,4 +139,5 @@ await Promise.all(Array.from({ length: Math.min(4, files.length) }, async () => 
 }))
 await admin?.end()
 console.log(`${files.length - failed} passed, ${failed} failed files on ${engine} (${((performance.now() - startedAt) / 1000).toFixed(1)}s)`)
-process.exitCode = failed > 0 ? 1 : 0
+if (cleanupFailures > 0) console.error(`${cleanupFailures} files had process cleanup failures`)
+process.exitCode = failed > 0 || cleanupFailures > 0 ? 1 : 0

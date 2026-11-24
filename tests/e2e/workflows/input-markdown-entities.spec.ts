@@ -22,23 +22,10 @@ test.describe('Input markdown entity serialization', () => {
 
     const input = page.locator(INPUT_EDITOR)
     await input.click()
-    await page.keyboard.type('`code` rest')
+    await page.keyboard.type('before `code` rest')
 
     await expect(input.locator('code')).toHaveCount(0)
-    await expect(input).toHaveText('`code` rest')
-  })
-
-  test('keeps the space before typed inline-code markdown', async ({ page }) => {
-    // WHY: source editing must preserve every typed character exactly,
-    // especially the word-separating space before an opening backtick.
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-
-    const input = page.locator(INPUT_EDITOR)
-    await input.click()
-    await page.keyboard.type('before `code`')
-
-    await expect(input).toHaveText('before `code`')
+    await expect(input).toHaveText('before `code` rest')
   })
 
   test('keeps literal entities inside inline code when sending', async ({ page }) => {

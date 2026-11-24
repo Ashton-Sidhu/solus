@@ -7,7 +7,7 @@ import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { GroupedItem } from './turns'
-import { parseSubagentInput } from './subagent'
+import { parseSubagentInput } from '@solus/contracts/subagent-input'
 import { agentsAwaitingReply, waitingOnLabel } from '../agent-conversation/lib/agent-conversation'
 import { intentAsPurpose, intentInProgress } from './activity-phrase'
 import { hostPathBaseName } from '@solus/contracts/host-path'

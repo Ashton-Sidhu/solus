@@ -44,11 +44,9 @@ Desktop.ini
 # SvelteKit generated
 web/.svelte-kit/
 web/.wrangler
-web/static/demo/
 apps/site/.svelte-kit/
 apps/site/build/
 apps/site/.wrangler
-apps/site/static/demo/
 
 .solus/**
 .solus-local/

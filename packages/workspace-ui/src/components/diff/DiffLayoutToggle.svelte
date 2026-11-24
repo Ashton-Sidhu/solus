@@ -12,9 +12,12 @@
   interface Props {
     diffStyle: DiffStyle;
     onSetStyle: (style: DiffStyle) => void;
+    /** Sits inside a PAGE_PILL_GROUP: a raised pill on a raised pill does not
+     *  read, so the active one takes the pill's pressed wash instead. */
+    inPill?: boolean;
   }
 
-  let { diffStyle, onSetStyle }: Props = $props();
+  let { diffStyle, onSetStyle, inPill = false }: Props = $props();
 
   const OPTIONS = [
     { style: "unified", label: "Unified", icon: UnifiedIcon },
@@ -22,7 +25,7 @@
   ] satisfies Array<{ style: DiffStyle; label: string; icon: typeof SplitIcon }>;
 </script>
 
-<div class="view-toggle" role="group" aria-label="Diff layout">
+<div class="view-toggle" class:in-pill={inPill} role="group" aria-label="Diff layout">
   {#each OPTIONS as option (option.style)}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -82,6 +85,20 @@
   }
   .view-toggle-btn.is-active:hover {
     background: var(--wash-1);
+  }
+  .in-pill {
+    height: 1.75rem;
+  }
+  .in-pill .view-toggle-btn {
+    width: 1.75rem;
+    justify-content: center;
+    padding: 0;
+    color: color-mix(in oklch, var(--foreground) 75%, transparent);
+  }
+  .in-pill .view-toggle-btn.is-active {
+    background: var(--wash-3);
+    font-weight: inherit;
+    box-shadow: none;
   }
   .view-toggle-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);

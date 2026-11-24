@@ -66,7 +66,7 @@
 			bind:this={ref}
 			data-slot={dataSlot}
 			class={cn(
-				"placeholder:text-muted-foreground border-0 bg-card shadow-[shadow:var(--elev-ring)] focus-visible:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] field-sizing-content min-h-16 w-full resize-none rounded-lg px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! outline-none transition-shadow duration-150 disabled:cursor-not-allowed disabled:opacity-50",
+				"placeholder:text-muted-foreground border-0 bg-card shadow-[shadow:var(--elev-ring)] focus-visible:ring-1 focus-visible:ring-[color:color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] field-sizing-content min-h-16 w-full resize-none rounded-lg px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! outline-none transition-shadow duration-150 disabled:cursor-not-allowed disabled:opacity-50",
 				micShown && "pr-8",
 				field.micState === "recording" && "invisible pointer-events-none",
 				className
@@ -99,7 +99,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"placeholder:text-muted-foreground border-0 bg-card shadow-[shadow:var(--elev-ring)] focus-visible:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] field-sizing-content min-h-16 w-full resize-none rounded-lg px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! outline-none transition-shadow duration-150 disabled:cursor-not-allowed disabled:opacity-50",
+			"placeholder:text-muted-foreground border-0 bg-card shadow-[shadow:var(--elev-ring)] focus-visible:ring-1 focus-visible:ring-[color:color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] field-sizing-content min-h-16 w-full resize-none rounded-lg px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! outline-none transition-shadow duration-150 disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		bind:value

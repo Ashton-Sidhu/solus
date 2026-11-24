@@ -1457,7 +1457,6 @@ export interface Message {
   content: string
   toolName?: string
   toolId?: string
-  toolIndex?: number
   toolInput?: string
   historyToolInput?: import('./session-history').DeferredToolInput
   /** For a sub-agent card this tracks the *agent*, not the tool call: it stays
@@ -2065,7 +2064,7 @@ export type NormalizedEvent =
   /** With an outcome or completedAtMs, the tool execution completed. Without
    *  either field, Claude only finished streaming the tool input; tool_result
    *  is the later execution boundary. */
-  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
+  | { type: 'tool_call_complete'; index: number; toolId: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[] }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'subagent_running'; toolUseId: string }

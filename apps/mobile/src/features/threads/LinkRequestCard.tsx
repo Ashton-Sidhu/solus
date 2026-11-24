@@ -40,6 +40,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { Button } from "../../components/ui/Button";
+import { StepRail } from "../../components/ui/StepRail";
 import { Sheet } from "../../components/ui/Sheet";
 import { RUNTIME_MODE_CHOICES } from "./thread-settings-options";
 
@@ -408,33 +409,40 @@ function LinkRequestSheet(props: {
         ) : target.kind === "none" ? null : (
           <>
             {canMint ? null : (
-              <View className="gap-2">
-                <TextInput
-                  accessibilityLabel={gt("Pairing code")}
-                  placeholder={gt("Paste the code")}
-                  value={pairingCode}
-                  onChangeText={setPairingCode}
-                  editable={!busy}
-                  autoCorrect={false}
-                  autoCapitalize="none"
-                  autoComplete="one-time-code"
-                  textContentType="oneTimeCode"
-                  spellCheck={false}
-                />
-                <Text className="font-sans text-xs text-foreground-muted">
-                  {targetName === null ? (
-                    <T>
-                      Create a link on a machine: Settings → Sharing & access → Authorized clients →
-                      Create link, then paste its code here.
-                    </T>
-                  ) : (
-                    <T>
-                      Create a link on <Var>{targetName}</Var>: Settings → Sharing & access →
-                      Authorized clients → Create link, then paste its code here.
-                    </T>
-                  )}
-                </Text>
-              </View>
+              <StepRail
+                steps={[
+                  {
+                    title:
+                      targetName === null
+                        ? gt("Create a link on a machine")
+                        : gt("Create a link on {machine}", { machine: targetName }),
+                    hint: gt("Settings → Sharing & access → Authorized clients → Create link"),
+                    state: pairingCode.trim() ? "done" : "current",
+                  },
+                  {
+                    title: gt("Paste its code here"),
+                    state: pairingCode.trim() ? "current" : "next",
+                  },
+                ]}
+                renderDetail={(_step, index) =>
+                  index === 1 ? (
+                    <View className="mt-2">
+                      <TextInput
+                        accessibilityLabel={gt("Pairing code")}
+                        placeholder={gt("Paste the code")}
+                        value={pairingCode}
+                        onChangeText={setPairingCode}
+                        editable={!busy}
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                        autoComplete="one-time-code"
+                        textContentType="oneTimeCode"
+                        spellCheck={false}
+                      />
+                    </View>
+                  ) : null
+                }
+              />
             )}
             <SettingsSection title={gt("What agents here may do there")}>
               {LINK_ACCESS_CHOICES.map((choice, index) => (

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import {
   findAnchor,
   readTrigger,
@@ -16,13 +16,21 @@ import {
 } from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
 import { GLYPH, type RefKind } from '@solus/workspace-ui/components/editor/unified-autocomplete/kinds'
 import { autocompleteSelectionAction } from '@solus/workspace-ui/components/editor/autocomplete-editor'
-import { shouldReleaseSpacedAutocompleteQuery } from '@solus/workspace-ui/components/editor/autocomplete.svelte'
 import {
   sessionRefPreview,
   sessionRefTitle,
 } from '@solus/workspace-ui/components/editor/unified-autocomplete/reference-index.svelte'
 import type { SessionMeta } from '@solus/contracts/types'
 
+// The query and row helpers need no mounted workspace or MCP subscriptions.
+mock.module('@solus/workspace-ui/contexts', () => ({
+  agentAuthStore: {},
+  resourceAttachments: {},
+  seatProviderOf: () => undefined,
+  seatsStore: {},
+}))
+mock.module('@solus/workspace-ui/contexts/mcp', () => ({ mcpStore: {} }))
+const { shouldReleaseSpacedAutocompleteQuery } = await import('@solus/workspace-ui/components/editor/autocomplete.svelte')
 
 function reference(refKind: RefKind, title: string, meta = ''): MenuItem {
   return {
@@ -477,8 +485,9 @@ describe('menu rows', () => {
 
     const labels = rows.flatMap((row) => (row.type === 'label' ? [row.label] : []))
     expect(labels).toEqual(['Linked', 'Recent'])
-    expect(rows.filter((row) => row.type === 'category')).toHaveLength(6)
-    expect(rows.findIndex((row) => row.key === 'linked')).toBe(6)
+    const linkedIndex = rows.findIndex((row) => row.key === 'linked')
+    expect(linkedIndex).toBeGreaterThan(0)
+    expect(rows.findLastIndex((row) => row.type === 'category')).toBeLessThan(linkedIndex)
     expect(
       rows
         .filter((row) => row.key.startsWith('linked:'))

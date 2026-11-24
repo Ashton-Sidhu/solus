@@ -21,12 +21,14 @@ vi.mock("../features/pull-requests/guide/ReviewGuideExcerpt", () => ({
 }));
 
 const host = vi.hoisted(() => ({
+  inspect: vi.fn(() => false),
   dispatch: vi.fn(),
   remember: vi.fn(),
   read: vi.fn(async (id: string) => ({ sessionId: id })),
 }));
 vi.mock("@react-navigation/native", () => ({
-  useNavigation: () => ({ dispatch: host.dispatch }),
+  useNavigation: () => ({ dispatch: host.dispatch, getState: () => undefined }),
+  useRoute: () => ({ name: "Thread", params: { environmentId: "host", threadId: "session" } }),
   StackActions: {
     push: (name: string, params: { environmentId: string; threadId: string }) => ({ name, params }),
   },
@@ -48,7 +50,10 @@ vi.mock("../components/ui/AppText", () => ({
   AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("react-native-keyboard-controller", () => ({ useKeyboardState: () => false }));
-vi.mock("../features/threads/useOpenLinkedThread", () => ({useOpenLinkedThreadRead: () => vi.fn()}));
+vi.mock("../features/threads/thread-inspector-navigation", async () => ({
+  ThreadInspectorNavigationContext: (await import("react")).createContext(null),
+  useOpenThreadInspector: () => host.inspect,
+}));
 vi.mock("./host-query", () => ({hostQuery: vi.fn()}));
 vi.mock("../state/host-query-scope", () => ({hostQueryScope: () => "mac/current"}));
 vi.mock("./runtime", () => ({
@@ -56,13 +61,14 @@ vi.mock("./runtime", () => ({
     cloudSessions: {headFor: () => null},
     account: {organizationId: null},
     threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
-    connections: { connection: () => ({ api: { sessionRecordGet: host.read } }) },
+    connections: { state: () => undefined, connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
     // A started session's card reads its agent activity from the thread list.
     threadList: { changes: { subscribe: () => () => {} }, facts: () => ({ agentActivity: new Map() }) },
   },
 }));
 // The dots read app state and screen focus; these tests are about what a card opens.
+vi.mock("../components/ProviderIcon", () => ({ ProviderIcon: () => null }));
 vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
@@ -229,30 +235,50 @@ it("expands the actual tool row to show host input, the error and returned image
   expect(container.textContent).not.toContain("Tool image 1");
 });
 
-it("opens an unlisted child by its durable session id on the host that owns the parent", async () => {
+it.each(["screen", "inspector", "linked host"] as const)("opens a child with one tap (%s)", async (destination) => {
+  vi.clearAllMocks();
+  host.inspect.mockReturnValue(destination === "inspector");
   const { store, root, container } = await fixture();
-  store.controller.model.items.set("agent", {
-    kind: "agent",
-    id: "agent",
-    sessionId: "child",
-    provider: "codex",
-    title: "Review",
-    model: null,
-    prompt: "Review it",
-    reply: "Reviewed",
-    exchanges: [],
-    startedAt: 1,
-    settledAt: 2,
-    durationMs: 1,
+  const { model } = store.controller;
+  model.apply({
+    type: "agent_conversation_update",
+    update: {
+      phase: "dispatched", sessionId: "child", messageId: "exchange", origin: "created",
+      provider: "claude-code", title: "Review", cwd: "~", model: "claude-fable-5-2",
+      ...(destination === "linked host" && { serverId: "remote" }),
+      reasoningEffort: "high", prompt: "Review it", dispatchedAt: 1,
+    },
   });
-  await act(async () => root.render(<ConversationCard store={store} id="agent" />));
+  model.apply({
+    type: "agent_conversation_update",
+    update: {
+      phase: "settled", sessionId: "child", messageId: "exchange", status: "completed",
+      replyText: "Reviewed", settledAt: 2,
+    },
+  });
+  await act(async () => root.render(<ConversationCard store={store} id={model.agentRows[0]!.id} />));
+  expect(container.textContent).toContain("Claude Code · Fable 5.2 · High");
   await act(async () => container.querySelector("button")!.click());
-  expect(container.textContent).toContain("Reviewed");
-  await act(async () => container.querySelectorAll("button")[1]!.click());
+  if (destination === "linked host") {
+    expect(host.dispatch).toHaveBeenCalledWith({
+      name: "LinkedThread",
+      params: { environmentId: "remote", threadId: "child", viaEnvironmentId: "host", label: "Host", title: "Review" },
+    });
+    expect(host.read).not.toHaveBeenCalled();
+    return;
+  }
+  expect(host.inspect).toHaveBeenCalledWith(
+    { environmentId: "host", threadId: "session" },
+    { type: "thread", environmentId: "host", threadId: "child" },
+  );
   expect(host.read).toHaveBeenCalledWith("child");
   expect(host.remember).toHaveBeenCalledWith(
     expect.objectContaining({ hostId: "host", record: { sessionId: "child" } }),
   );
+  if (destination === "inspector") {
+    expect(host.dispatch).not.toHaveBeenCalled();
+    return;
+  }
   expect(host.dispatch).toHaveBeenCalledWith({
     name: "Thread",
     params: { environmentId: "host", threadId: "child" },

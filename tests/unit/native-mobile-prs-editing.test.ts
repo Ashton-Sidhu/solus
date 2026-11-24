@@ -7,7 +7,7 @@ import { PullRequestDirectory } from '../../apps/mobile/solus-core/features/prs/
 import { PullRequestReviewDrafts } from '../../apps/mobile/solus-core/features/prs/pull-request-review-drafts'
 import { canDeleteComment, pullRequestPermissions } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-permissions'
 import { FakeApi } from './helpers/native-mobile-fakes'
-import { detailApi, hostWorld, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
+import { detailApi, hostWorld, PR, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
 
 // Mobile edits a pull request's title and description and deletes the
 // person's own comments with the same rules as the web client. A delete
@@ -65,7 +65,7 @@ describe('pull request edits', () => {
       .on('providerViewer', () => ({ login: 'me' }))
     const { actions } = await setup(api)
     await actions.update(PR_REF, { title: 'New title' })
-    expect(api.callsOf('prUpdate')[0]!.slice(1)).toEqual([7, { title: 'New title' }])
+    expect(api.callsOf('prUpdate')[0]).toEqual([PR, { title: 'New title' }])
     expect(api.callsOf('prGetOverview')).toHaveLength(1)
     expect(api.callsOf('prListProjects')).toHaveLength(1)
     expect(actions.runningOf(PR_REF)).toBeNull()
@@ -82,7 +82,7 @@ describe('pull request edits', () => {
     const api = detailApi(new FakeApi()).on('prDeleteIssueComment', () => undefined)
     const { actions } = await setup(api)
     await actions.deleteComment(PR_REF, 'ic-1')
-    expect(api.callsOf('prDeleteIssueComment')[0]!.slice(1)).toEqual([7, 'ic-1'])
+    expect(api.callsOf('prDeleteIssueComment')[0]).toEqual([PR, 'ic-1'])
     expect(api.callsOf('prListComments')).toHaveLength(1)
   })
 })

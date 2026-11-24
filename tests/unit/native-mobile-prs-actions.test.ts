@@ -7,7 +7,7 @@ import { clearSubmittedReview, draftReview, reviewCommentLabel, type ReviewDraft
 import { pullRequestPermissions } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-permissions'
 import { pullRequestAgentActions, pullRequestAgentPrompt } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-agent-tasks'
 import { FakeApi } from './helpers/native-mobile-fakes'
-import { detailApi, hostWorld, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
+import { detailApi, hostWorld, PR, PR_REF, project, pullRequest, repositoryApi } from './helpers/native-mobile-prs-fixtures'
 
 // Writes on a pull request change the person's code host. They must name the
 // head the person was shown, refuse without a connection instead of failing
@@ -53,7 +53,7 @@ describe('pull request actions', () => {
       .on('providerViewer', () => ({ login: 'me' }))
     const { actions, directory } = await setup(api)
     await actions.merge(PR_REF, 'squash', 'head-7')
-    expect(api.callsOf('prMerge')[0]!.slice(1)).toEqual([7, 'squash', 'head-7'])
+    expect(api.callsOf('prMerge')[0]).toEqual([PR, 'squash', 'head-7'])
     expect(api.callsOf('prGetOverview')).toHaveLength(1)
     expect(api.callsOf('prListProjects')).toHaveLength(1)
     expect(directory.detailOf(PR_REF).kind).toBe('loaded')
@@ -78,7 +78,7 @@ describe('pull request actions', () => {
     await actions.replyToThread(PR_REF, 't1', ' Done. ')
     await actions.setThreadResolved(PR_REF, 't1', true)
     await actions.setThreadResolved(PR_REF, 't1', false)
-    expect(api.callsOf('prReplyThread')[0]!.slice(1)).toEqual([7, 't1', 'Done.'])
+    expect(api.callsOf('prReplyThread')[0]).toEqual([PR, 't1', 'Done.'])
     expect(api.callsOf('prResolveThread')).toHaveLength(1)
     expect(api.callsOf('prUnresolveThread')).toHaveLength(1)
     expect(api.callsOf('prListThreads')).toHaveLength(3)
@@ -91,13 +91,13 @@ describe('pull request actions', () => {
     drafts.addComment(PR_REF, comment)
     drafts.addComment(PR_REF, { ...comment, line: 9, startLine: 7, body: 'Old head', headSha: 'head-6' })
     await actions.submitReview(PR_REF, { verdict: 'request-changes', body: '  Please add a test. ', headSha: 'head-7', baseSha: 'merge-base' })
-    expect(api.callsOf('prSubmitReview')[0]!.slice(1)).toEqual([7, {
+    expect(api.callsOf('prSubmitReview')[0]).toEqual([PR, {
       body: 'Please add a test.',
       event: 'REQUEST_CHANGES',
       commitId: 'head-7',
       baseSha: 'merge-base',
       comments: [{ path: 'a.ts', line: 4, side: 'RIGHT', body: 'Name this.' }],
-    }])
+    }, expect.objectContaining({ session: expect.objectContaining({ projectPath: '/work/app' }) })])
     // The comment on an older head was not sent, so it stays.
     expect(drafts.draftOf(PR_REF)).toEqual({ summary: '', comments: [{ ...comment, line: 9, startLine: 7, body: 'Old head', headSha: 'head-6', id: 'c2' }] })
   })
@@ -112,7 +112,7 @@ describe('pull request actions', () => {
 
   test('agent work runs in the pull request checkout the host prepared', async () => {
     const target = { host: 'github.com', owner: 'o', repo: 'r', number: 7, title: 'PR 7', baseRef: 'main', headRef: 'feature', baseSha: 'base', headSha: 'head-7', headRepo: { owner: 'o', repo: 'r', isFork: false } }
-    const api = new FakeApi()
+    const api = repositoryApi(new FakeApi())
       .on('prOpenReview', () => target)
       .on('prPrepareCheckout', () => ({ worktreePath: '/work/app/.git/solus/worktrees/pr-7', branch: 'feature', baseSha: 'base', headSha: 'head-7' }))
       .on('prPrepareConflictResolution', () => ({ success: true, review: { ...target, worktreePath: '/work/app/.git/solus/worktrees/pr-7-merge', branch: 'feature', baseSha: 'base', headSha: 'head-7' }, conflictFiles: ['a.ts'], headRef: 'feature' }))
@@ -121,6 +121,7 @@ describe('pull request actions', () => {
     expect(await actions.startAgentWork(PR_REF, 'explain', pr)).toEqual({ hostId: 'inst-a', sessionId: 'new-session' })
     expect(sessions[0]!.workingDirectory).toBe('/work/app')
     expect(sessions[0]!.prompt).toContain('Pull request #7')
+    expect(api.callsOf('prOpenReview')).toEqual([[PR]])
     await actions.startAgentWork(PR_REF, 'conflicts', pr)
     expect(sessions[1]!.prompt).toContain('- a.ts')
     await expect(actions.startAgentWork(PR_REF, 'ask', pr, '  ')).rejects.toThrow('Write your question first.')

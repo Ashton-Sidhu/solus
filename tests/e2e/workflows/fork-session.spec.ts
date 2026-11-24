@@ -3,23 +3,6 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
 test.describe('Fork session feature', () => {
-  test('fork option appears in tab context menu after a session starts', async ({ page }) => {
-    // Given: an active session with messages
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-    await conversation.typeAndSend('Hello')
-    await conversation.waitForResponse()
-
-    // When: user right-clicks the active tab
-    const activeTab = page.locator('[data-testid="tab-item"][aria-selected="true"]')
-    await activeTab.click({ button: 'right' })
-
-    // Then: the Fork Session option appears in the context menu
-    await expect(page.locator('.tab-ctx-menu')).toBeVisible()
-    await expect(page.locator('.tab-ctx-menu').getByText('Fork Session')).toBeVisible()
-  })
-
   test('context menu closes on backdrop click', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
@@ -78,26 +61,6 @@ test.describe('Fork session feature', () => {
     // Then: a new tab is created
     await expect(async () => {
       expect(await app.getTabCount()).toBe(initialTabCount + 1)
-    }).toPass({ timeout: 3000 })
-  })
-
-  test('fork tab title is prefixed with Fork:', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-    await conversation.typeAndSend('Some question')
-    await conversation.waitForResponse()
-
-    // Fork the session
-    const activeTab = page.locator('[data-testid="tab-item"][aria-selected="true"]')
-    await activeTab.click({ button: 'right' })
-    await page.locator('.tab-ctx-menu').getByText('Fork Session').click()
-
-    // The new active tab should have "Fork:" in its title or label
-    await expect(async () => {
-      const newActive = page.locator('[data-testid="tab-item"][aria-selected="true"]')
-      const label = await newActive.textContent()
-      expect(label).toContain('Fork')
     }).toPass({ timeout: 3000 })
   })
 

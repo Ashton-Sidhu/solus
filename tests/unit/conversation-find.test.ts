@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import type { Message } from "@solus/contracts/types";
 import {
   findConversationMatches,
@@ -69,18 +68,6 @@ describe("conversation find", () => {
     const fold = foldConversationFindText(text);
     expect(fold).toBe("it's don't");
     expect(fold).toHaveLength(text.length);
-  });
-
-  test("the highlighter compares with the same fold as the count", () => {
-    const source = readFileSync(
-      new URL(
-        "../../packages/workspace-ui/src/components/conversation/lib/find-highlight.ts",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    expect(source).toContain("foldConversationFindText(text)");
-    expect(source).toContain("foldConversationFindText(query)");
   });
 
   test("excludes provider interrupt notices that render as status rows", () => {

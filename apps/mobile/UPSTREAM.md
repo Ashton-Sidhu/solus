@@ -48,7 +48,7 @@ The mobile Issues list can open a pasted issue URL in the T3 issue screen. The s
 
 Solus uses GitHub Octicons for issue and pull request navigation and status icons. The native iOS PNGs and Android drawables match the shared SVG paths in `packages/client-core/src/github-octicons.ts`.
 
-The mobile Usage tab and command palette use a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
+Mobile hides the Usage tab on phones and tablets. The Usage command still opens provider usage limits and uses a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
 
 Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` for the Input and Done indicators and linked pull request badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet. Solus also shows the session’s recorded Git branch on active and compact rows, even when the session has no linked PR.
 
@@ -93,3 +93,7 @@ The repository screens of a thread also match T3 Code pull request 35925. In T3 
 - **Model picker.** For a session in a task folder, the picker gets the project folder of the session record, because the path of a task folder names no project.
 
 `vite.config.ts` sets `server.fs.deny` without Vite's default `**/.git/**` entry. A Solus worktree is in `<repository>/.git/solus/worktrees`, and with the default each test of the `react` project fails before it starts.
+
+The started-session card follows the model row in T3 Code revision `58b7878eb750d3e1f80b9a0a42b8802efba2adda`. It shows the provider icon, model display name, and reported reasoning effort. Solus supplies the child session's settings from live dispatch and saved tool history.
+
+A tap anywhere on a started-session card opens the child thread. It uses the thread inspector when available. A linked host without a direct connection opens through the parent host in read-only mode.

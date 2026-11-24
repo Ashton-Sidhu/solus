@@ -33,7 +33,9 @@ mock.module('@solus/server/prs/pr-index', () => ({
     invalidate: () => {},
   },
 }))
+const gitHelpers = await import('@solus/server/git/git-helpers')
 mock.module('@solus/server/git/git-helpers', () => ({
+  ...gitHelpers,
   resolveRepoRef: async () => repo,
   resolvePrimaryRepoRef: async () => repo,
   resolveRepoRoot: async (cwd: string) => cwd,
@@ -55,7 +57,7 @@ mock.module('@solus/server/providers/registry', () => ({
   getProvider: () => provider,
 }))
 
-const { registerProviderHandlers, reviewTargetFor } = await import('@solus/server/transport/handlers/provider-handlers')
+const { registerProviderHandlers, reviewTargetFor, reviewTargetForPr } = await import('@solus/server/transport/handlers/provider-handlers')
 
 const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 
@@ -83,11 +85,12 @@ function serverWithEvents(sessionRole: ResourceRole = 'owner'): { server: SolusS
 }
 
 describe('merging a pull request', () => {
-  test('a linked repository scope bypasses the active checkout remote', async () => {
-    const target = await reviewTargetFor({
-      session: { projectPath: 'github.com/another/project', workingDirectory: '/repo' },
-    } as IpcContext)
+  test('a pull request is read in the repository it names, not the checkout the client has open', async () => {
+    // A pull request of another repository needs no project of its own.
+    const target = reviewTargetForPr({ repo: { host: 'github.com', owner: 'another', repo: 'project' }, number: 7 })
     expect(target.repo).toEqual({ host: 'github.com', owner: 'another', repo: 'project' })
+    expect(target.number).toBe(7)
+    // A project still reads its repository from its checkout.
     expect((await reviewTargetFor(ctx)).repo).toEqual(repo)
   })
 
@@ -96,7 +99,7 @@ describe('merging a pull request', () => {
     mergeAnswer = { merged: true }
     const { server, applied } = serverWithEvents()
 
-    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
+    await server.handle('prMerge', [{ repo: repo, number: 7 }, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
     expect(completedScopes).toEqual(['any-organization:github.com/owner/repo'])
     expect(applied).toEqual([mergedFacts])
@@ -107,7 +110,7 @@ describe('merging a pull request', () => {
     mergeAnswer = { merged: false }
     const { server, broadcasts, applied } = serverWithEvents()
 
-    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
+    await server.handle('prMerge', [{ repo: repo, number: 7 }, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
     expect(broadcasts).toEqual([])
     expect(applied).toEqual([])
@@ -122,10 +125,10 @@ describe('merging a pull request', () => {
       mergedFacts = facts('merged')
       mergeAnswer = { merged: true }
       const viewer = serverWithEvents('viewer')
-      await expect(viewer.server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)).rejects.toThrow(/session you cannot change/)
+      await expect(viewer.server.handle('prMerge', [{ repo: repo, number: 7 }, 'squash', HEAD_SHA], TEST_HANDLER_CTX)).rejects.toThrow(/session you cannot change/)
       expect(viewer.applied).toEqual([])
       const editor = serverWithEvents('editor')
-      await editor.server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
+      await editor.server.handle('prMerge', [{ repo: repo, number: 7 }, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
       expect(editor.applied).toEqual([mergedFacts])
     } finally {
       await unlinkSessionPullRequest('s-pr', 'github.com/owner/repo', 7)

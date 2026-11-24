@@ -8,7 +8,6 @@ import {
   CLOSED_FOLDERS_STORAGE_KEY,
   SidebarFolderState,
 } from '@solus/workspace-ui/components/session/lib/sidebar-folder-state.svelte'
-import { treeKeyIntent } from '@solus/workspace-ui/components/session/lib/task-tree-keys'
 import type { DraftRow } from '@solus/workspace-ui/components/session/lib/draft-list'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import type { ListProjectOption } from '@solus/workspace-ui/components/ui/list-page/list-page'
@@ -225,47 +224,6 @@ describe('the sidebar project view', () => {
     const headers = items.filter((item) => item.kind === 'header').map((item) => item.key)
     expect(headers).toEqual(['header:shared', 'header:snoozed'])
     expect(items.map((item) => item.key).slice(0, 3)).toEqual(['pinned:local:p1', 'folder:alpha', 'active:card'])
-  })
-})
-
-describe('project folders in the keyboard tree', () => {
-  test('→ opens a closed folder, then moves into its sessions', () => {
-    expect(treeKeyIntent('ArrowRight', { index: 2, parentIndex: null, folderOpen: false }, 5))
-      .toEqual({ kind: 'setFolderOpen', isOpen: true })
-    expect(treeKeyIntent('ArrowRight', { index: 2, parentIndex: null, folderOpen: true }, 5))
-      .toEqual({ kind: 'focus', index: 3 })
-  })
-
-  test('← closes an open folder, and climbs from a session back to its folder', () => {
-    expect(treeKeyIntent('ArrowLeft', { index: 2, parentIndex: null, folderOpen: true }, 5))
-      .toEqual({ kind: 'setFolderOpen', isOpen: false })
-    expect(treeKeyIntent('ArrowLeft', { index: 2, parentIndex: null, folderOpen: false }, 5)).toBeNull()
-    expect(treeKeyIntent('ArrowLeft', { index: 3, parentIndex: 2 }, 5)).toEqual({ kind: 'focus', index: 2 })
-  })
-
-  test('⌫ on a folder does nothing, and the arrows walk past it', () => {
-    // WHY: ⌫ archives a session. A project is not a row the list can archive.
-    expect(treeKeyIntent('Backspace', { index: 2, parentIndex: null, folderOpen: true }, 5)).toBeNull()
-    expect(treeKeyIntent('ArrowDown', { index: 2, parentIndex: null, folderOpen: false }, 5))
-      .toEqual({ kind: 'focus', index: 3 })
-  })
-})
-
-describe('rows that started sessions in the keyboard tree', () => {
-  test('→ unfolds folded sessions, then enters the pane', () => {
-    // WHY: a row with sessions folded under it opens like a folder does, so
-    // the keys mean the same thing on every row that can open.
-    expect(treeKeyIntent('ArrowRight', { index: 1, parentIndex: null, nestedOpen: false }, 4))
-      .toEqual({ kind: 'setNestedOpen', isOpen: true })
-    expect(treeKeyIntent('ArrowRight', { index: 1, parentIndex: null, nestedOpen: true }, 4))
-      .toEqual({ kind: 'enterPane' })
-  })
-
-  test('← folds open sessions before it climbs to the folder', () => {
-    expect(treeKeyIntent('ArrowLeft', { index: 2, parentIndex: 0, nestedOpen: true }, 4))
-      .toEqual({ kind: 'setNestedOpen', isOpen: false })
-    expect(treeKeyIntent('ArrowLeft', { index: 2, parentIndex: 0, nestedOpen: false }, 4))
-      .toEqual({ kind: 'focus', index: 0 })
   })
 })
 

@@ -1,4 +1,4 @@
-import { PERSONAL_SETTING_KEYS, EXECUTION_PREFERENCE_KEYS } from '@solus/contracts/settings'
+import { executionPreferencesSchema, personalSettingsDocumentSchema } from '@solus/contracts/settings'
 import { describe, expect, test } from 'bun:test'
 import {
   PR_SORT_OPTIONS,
@@ -198,6 +198,7 @@ test('changing a label keeps every other OR group intact', () => {
 })
 
 test('saved PR views are personal preferences, never agent execution preferences', () => {
-  expect(PERSONAL_SETTING_KEYS).toContain('prSavedViews')
-  expect(EXECUTION_PREFERENCE_KEYS).not.toContain('prSavedViews')
+  const patch = { prSavedViews: [saved] }
+  expect(personalSettingsDocumentSchema.parse(patch)).toMatchObject(patch)
+  expect(executionPreferencesSchema.safeParse(patch).success).toBe(false)
 })

@@ -56,17 +56,18 @@
 }}>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <!-- In the strip chips' own geometry; the label goes first in a narrow pane. -->
+      <!-- In the Refresh chip's geometry, beside it in the page's head row;
+           the label goes first in a narrow pane. -->
       <button
         {...props}
         type="button"
         data-task-url-trigger
-        class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-workspace-chrome text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground pointer-coarse:h-9"
+        class="flex shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground h-[26px] rounded-full pr-[9px] pl-[7px]"
         aria-label="Open an issue URL"
         title="Read one issue by its URL, without adding its source"
       >
-        <LinkIcon size={15} class="shrink-0" aria-hidden="true" />
-        <span class="truncate @max-[30rem]/pane:hidden">Open issue URL</span>
+        <LinkIcon size={12} class="shrink-0" aria-hidden="true" />
+        <span class="truncate text-chrome-shelf @max-[30rem]/pane:hidden">Open issue URL</span>
       </button>
     {/snippet}
   </Popover.Trigger>

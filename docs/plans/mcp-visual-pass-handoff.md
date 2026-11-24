@@ -104,7 +104,6 @@ component not the actual border".
   ring while it clones.
 - **Mobile:** modals are native sheets; React Native draws no focus ring on
   them. Nothing to change.
-- Test: `tests/unit/dialog-focus-ring.test.ts`.
 
 ### 2. An MCP App frame follows dark mode (`ae0c8176d`)
 

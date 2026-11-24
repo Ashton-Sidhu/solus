@@ -281,7 +281,7 @@ export class SolusApp {
     const connectionFor = (hostId: string) => this.connections.connection(hostId)
     const organizationId = () => this.account.organizationId
     this.pullRequests = new PullRequestDirectory(connectionFor, organizationId, this.pullRequestCache)
-    this.pullRequestDiffs = new PullRequestDiffs(connectionFor, organizationId, this.pullRequestCache)
+    this.pullRequestDiffs = new PullRequestDiffs(connectionFor, this.pullRequests, this.pullRequestCache)
     this.pullRequestGuides = new PullRequestGuides(connectionFor, organizationId, this.pullRequestCache)
     this.reviewDrafts = new PullRequestReviewDrafts(this.pullRequestCache, platform.uuid)
     this.pullRequestActions = new PullRequestActions({

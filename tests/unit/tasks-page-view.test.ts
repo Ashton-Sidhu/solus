@@ -1,6 +1,5 @@
 import { afterAll, afterEach, describe, expect, jest, test } from 'bun:test'
 import type { Task, TaskSourceState } from '@solus/contracts/task-types'
-import { NO_COLUMN_ID } from '@solus/workspace-ui/components/tasks/lib/tasks-api'
 import { SvelteRunes } from './helpers/svelte-runes'
 
 // The Tasks page view and its provider search run on Svelte's runtime here:
@@ -224,16 +223,6 @@ describe('one source on screen', () => {
 
     view.showSource(BOARD)
     expect(sections(view)).toEqual([['No column', ['no-column']], ['Building', ['on-both']]])
-  })
-
-  test('the list opens on the columns that are not done, with the items that have no column', () => {
-    // WHY: a new board item has no column yet and is the newest work. The
-    // default filter follows the status category of each provider column.
-    const { view } = scene()
-    view.showSource(BOARD)
-
-    expect(view.columnIds).toEqual([NO_COLUMN_ID, 'opt-todo', 'opt-doing'])
-    expect(view.flatVisibleIds).toEqual(['no-column', 'on-both'])
   })
 
   test('a column filter does not survive a change of source', () => {

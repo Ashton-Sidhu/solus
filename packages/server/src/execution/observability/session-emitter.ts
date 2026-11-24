@@ -198,7 +198,6 @@ interface TurnState {
   openSpans: Map<string, OpenSpan>
   toolSpans: Map<string, OpenSpan>
   toolNames: Map<string, string>
-  toolKeyByIndex: Map<number, string>
   toolInputStartedAt: Map<string, number>
   toolExecutionStartedAt: Map<string, number>
   toolsWaitingForPermission: Set<string>
@@ -335,7 +334,6 @@ export class SessionEmitter {
         openSpans: new Map(),
         toolSpans: new Map(),
         toolNames: new Map(),
-        toolKeyByIndex: new Map(),
         toolInputStartedAt: new Map(),
         toolExecutionStartedAt: new Map(),
         toolsWaitingForPermission: new Set(),
@@ -614,8 +612,7 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'tool_call_complete') {
-        const key = event.toolId ? this.toolKey(event.toolId) : state.toolKeyByIndex.get(event.index)
-        if (!key) return
+        const key = this.toolKey(event.toolId)
         const open = state.openSpans.get(key)
         if (!open) return
         if (event.toolInput) this.setToolInput(open, event.toolInput)
@@ -950,7 +947,6 @@ export class SessionEmitter {
       parent && trace.setSpan(state.rootContext, parent.span),
     )
     if (event.toolInput) this.setToolInput(open, event.toolInput)
-    state.toolKeyByIndex.set(event.index, key)
     state.toolSpans.set(key, open)
     state.toolNames.set(key, event.toolName)
     state.openSpans.set(key, open)

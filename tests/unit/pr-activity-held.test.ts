@@ -73,6 +73,7 @@ describe('a pull request keeps its activity as last read', () => {
     setSystemTime(new Date('2026-09-30T10:00:00Z'))
     let commentReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListCommits: async () => [commit],
       prListComments: async () => {
         commentReads += 1
@@ -103,6 +104,7 @@ describe('a pull request keeps its activity as last read', () => {
     setSystemTime(new Date('2026-09-30T10:00:00Z'))
     let fail = false
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListComments: async () => {
         if (fail) throw new Error('offline')
         return [comment]
@@ -122,6 +124,7 @@ describe('a pull request keeps its activity as last read', () => {
 describe('the review reads the pull request’s threads', () => {
   test('the review and the Activity feed hold one copy, so a reply in one is in the other', async () => {
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListThreads: async () => [thread('t1'), thread('t2')],
       ...NO_CHECKS,
     })

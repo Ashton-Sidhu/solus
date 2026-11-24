@@ -100,13 +100,10 @@
           aria-pressed={selected}
           title={row.label}
           onclick={() => onSelect(rows.length === 1 ? null : row.sourceKey)}
-          class="flex h-7 min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent pr-1 pl-2.5 text-workspace-chrome text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
+          class="flex h-7 min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent pr-1.5 pl-2.5 text-workspace-chrome text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
         >
           <SourceLogo source={taskSourceProvider(row.source)} />
           <span class="truncate">{row.label}</span>
-          {#if row.state && health === "ok"}
-            <span class="shrink-0 text-xs tabular-nums opacity-70">{counts.get(row.sourceKey) ?? 0}</span>
-          {/if}
         </button>
         {#if note && health !== "ok"}
           <!-- The warning is the repair: Reconnect, or read again. -->
@@ -120,17 +117,29 @@
             <WarningIcon size={13} aria-hidden="true" />
           </button>
         {/if}
-        <!-- Quiet until the chip is pointed at or focused; the space stays, so
-             a chip never shifts on hover. -->
-        <button
-          type="button"
-          class="mr-0.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 group-focus-within/chip:opacity-60 group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area pointer-coarse:opacity-60"
-          title="Remove {row.label}. The tasks stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
-          aria-label="Remove {row.label}"
-          onclick={() => remove(row)}
+        <!-- The count and the × share one slot. At rest it shows the count; when
+             the chip is pointed at or focused the × takes its place. The chip
+             keeps one width and no empty space. A hand cannot hover, so on
+             touch the two stand side by side. -->
+        <span
+          class="mr-1 grid min-w-5 shrink-0 place-items-center pointer-coarse:flex pointer-coarse:items-center pointer-coarse:gap-0.5"
         >
-          <XIcon size={12} aria-hidden="true" />
-        </button>
+          {#if row.state && health === "ok"}
+            <span
+              class="pointer-events-none text-xs tabular-nums opacity-70 transition-opacity duration-100 [grid-area:1/1] group-focus-within/chip:opacity-0 group-hover/chip:opacity-0 pointer-coarse:opacity-70!"
+              >{counts.get(row.sourceKey) ?? 0}</span
+            >
+          {/if}
+          <button
+            type="button"
+            class="pointer-events-none flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 [grid-area:1/1] group-focus-within/chip:pointer-events-auto group-focus-within/chip:opacity-60 group-hover/chip:pointer-events-auto group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:pointer-events-auto pointer-coarse:tap-area pointer-coarse:opacity-60"
+            title="Remove {row.label}. The tasks stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
+            aria-label="Remove {row.label}"
+            onclick={() => remove(row)}
+          >
+            <XIcon size={12} aria-hidden="true" />
+          </button>
+        </span>
       </div>
     {/each}
   </div>

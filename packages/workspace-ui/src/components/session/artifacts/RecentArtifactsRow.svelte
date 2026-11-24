@@ -10,7 +10,7 @@
    * The row at the top of the Threads surface (docs/plans/session-artifacts.md
    * decision 17), as a section of its own with no card around it: the
    * works, apps, files, and images of the session and the sessions it
-   * started, pinned first, then the latest opened, changed, or added. Its
+   * started, the ones the person opened first, then the latest made. Its
    * label folds it; it scrolls sideways, and the arrows page through it.
    */
   interface Props {
@@ -37,7 +37,7 @@
 
 <Carousel.Root opts={options} class="min-w-0" data-testid="recent-artifacts">
   <!-- A section with no card around it: its label, as the cards below draw theirs, heads it. -->
-  <section aria-label="Pinned and recent">
+  <section aria-label="Recently viewed">
     <!-- The arrows sit beside the label, not inside its button. -->
     <div class="flex h-8 min-w-0 items-center gap-1 pointer-coarse:h-11">
       <h3 class="m-0 min-w-0 flex-1 font-normal">
@@ -48,7 +48,7 @@
           onclick={() => (open = !open)}
         >
           <RecentIcon size={14} strokeWidth={1.75} class="shrink-0" />
-          <span class="min-w-0 truncate text-xs font-medium tracking-[0.04em] uppercase">Pinned and recent</span>
+          <span class="min-w-0 truncate text-xs font-medium tracking-[0.04em] uppercase">Recently viewed</span>
           <span class="shrink-0 text-xs tabular-nums opacity-60">{items.length}</span>
           <CaretIcon
             size={14}

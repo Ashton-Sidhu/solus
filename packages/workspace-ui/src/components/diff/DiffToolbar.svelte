@@ -34,7 +34,8 @@
   import type { TurnSnapshot } from "@solus/contracts/types";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "../ui/button";
   import { worktreeDisplayName } from "../../lib/git-context";
   import type { ViewedFilesStatus } from "./lib/viewed-toggle";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -398,23 +399,28 @@
          stream, so it sits ahead of the stream-only controls it hides. -->
     {@render viewTabs?.()}
 
+    <!-- The stream's controls share one pill, as on the review band. A plain
+         group, not ButtonGroup: that primitive squares the inner corners and
+         joins borders, and a pill wants neither. -->
+    <div role="group" aria-label="Diff actions" class={PAGE_PILL_GROUP}>
     {#if view === "diff"}
-    <span class="desktop-only layout-toggle-slot">
-      <DiffLayoutToggle {diffStyle} {onSetStyle} />
+    <span class="desktop-only">
+      <DiffLayoutToggle {diffStyle} {onSetStyle} inPill />
     </span>
 
     <span class="mobile-only">
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
         aria-label={diffStyle === "split"
           ? "Switch to unified view"
           : "Switch to split view"}
         aria-pressed={diffStyle === "split"}
-        class="{PAGE_SOFT_ICON_BTN} {diffStyle === 'split' ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
+        class={PAGE_PILL_ICON_BTN}
       >
-        <ColumnsIcon size={15} strokeWidth={1.5} />
-      </button>
+        <ColumnsIcon strokeWidth={1.5} class="size-4" />
+      </Button>
     </span>
     {/if}
 
@@ -422,17 +428,18 @@
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <span {...tooltipProps} class="inline-flex">
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onclick={onRefresh}
         disabled={refreshing}
         aria-label="Refresh diff"
-        class="{PAGE_SOFT_ICON_BTN} disabled:cursor-not-allowed disabled:opacity-50"
+        class={PAGE_PILL_ICON_BTN}
       >
         <span class="flex" class:refresh-spin={refreshing}>
-          <ArrowClockwiseIcon size={15} strokeWidth={1.5} />
+          <ArrowClockwiseIcon strokeWidth={1.5} class="size-4" />
         </span>
-      </button>
+      </Button>
     </span>
         {/snippet}
       </TooltipUI.Trigger>
@@ -446,18 +453,19 @@
             <span {...tooltipProps}
         class="desktop-only"
       >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onclick={onToggleCollapseAll}
           aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-          class={PAGE_SOFT_ICON_BTN}
+          class={PAGE_PILL_ICON_BTN}
         >
           {#if allCollapsed}
-            <ArrowsOutLineVerticalIcon size={15} strokeWidth={1.5} />
+            <ArrowsOutLineVerticalIcon strokeWidth={1.5} class="size-4" />
           {:else}
-            <ArrowsInLineVerticalIcon size={15} strokeWidth={1.5} />
+            <ArrowsInLineVerticalIcon strokeWidth={1.5} class="size-4" />
           {/if}
-        </button>
+        </Button>
       </span>
           {/snippet}
         </TooltipUI.Trigger>
@@ -472,15 +480,16 @@
             <span {...tooltipProps}
         class="desktop-only"
       >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onclick={onToggleTree}
           aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
           aria-pressed={!treeCollapsed}
-          class="{PAGE_SOFT_ICON_BTN} {treeCollapsed ? '' : 'bg-[var(--wash-3)]! text-foreground!'}"
+          class={PAGE_PILL_ICON_BTN}
         >
-          <FileTreeIcon size={15} strokeWidth={1.5} />
-        </button>
+          <FileTreeIcon strokeWidth={1.5} class="size-4" />
+        </Button>
       </span>
           {/snippet}
         </TooltipUI.Trigger>
@@ -491,8 +500,9 @@
     {/if}
 
     <span class="desktop-only">
-      <DiffTokenToggle {tokenHighlight} onToggle={onToggleTokenHighlight} shortcutHint={comboHint("diff-panel.toggle-token-hl")} />
+      <DiffTokenToggle {tokenHighlight} onToggle={onToggleTokenHighlight} shortcutHint={comboHint("diff-panel.toggle-token-hl")} inPill />
     </span>
+    </div>
 
     {#if commentsCount > 0}
       <TooltipUI.Root>
@@ -633,10 +643,6 @@
      so the whole right-hand cluster sits on one optical line. */
   /* The layout control reads as its own control, not the head of the icon
      run beside it. */
-  .layout-toggle-slot {
-    margin-right: 0.375rem;
-  }
-
   .refresh-spin {
     animation: diff-refresh-spin 0.8s linear infinite;
   }

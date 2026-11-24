@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import {
   DIGEST_SUBAGENTS,
   DIGEST_TOOL_BUCKET_MS,
@@ -10,6 +9,7 @@ import {
   type SessionDigest,
 } from '@solus/contracts/session-digest'
 import type { NormalizedEvent } from '@solus/contracts/types'
+import { subagentTitle } from '@solus/contracts/subagent-input'
 import { isSubagentTool } from '../../data/sessions/result-projection'
 import type { TurnCheckpointed } from '../../git/turn-checkpoints'
 import type { TurnCostRecorded } from '../observability/session-emitter'
@@ -212,7 +212,7 @@ function toolCalled(live: LiveDigest, event: EventOf<'tool_call'>, at: number): 
   if (turn) countToolCall(turn, at)
   const isSubagent = isSubagentTool(event)
   if (isSubagent) {
-    const agent = addSubagent(live.digest, event.toolId, subagentTitle(event.toolInput), at)
+    const agent = addSubagent(live.digest, event.toolId, digestLine(subagentTitle(event.toolInput)), at)
     if (event.toolName === 'spawnAgent') agent.canStop = true
   }
   return turn || isSubagent ? 'soon' : 'none'
@@ -286,7 +286,7 @@ function agentTaskSettled(live: LiveDigest, event: EventOf<'background_task_sett
 function subagentInputStreamed(live: LiveDigest, event: EventOf<'tool_call_update' | 'tool_call_complete'>): When {
   const subagent = event.toolId ? subagentOf(live.digest, event.toolId) : undefined
   if (!subagent || !event.toolInput || event.parentToolUseId) return 'none'
-  subagent.title = subagentTitle(event.toolInput)
+  subagent.title = digestLine(subagentTitle(event.toolInput))
   return 'soon'
 }
 
@@ -358,16 +358,3 @@ function endSubagent(subagent: DigestSubagent, status: 'completed' | 'failed' | 
   if (text.trim()) subagent.detail = digestLine(text)
 }
 
-/** The Agent call's input, as far as a title needs it. */
-const subagentInputSchema = z.object({ description: z.string().optional(), prompt: z.string().optional() })
-
-/** The sub-agent's own words for its work, as the conversation names it. */
-function subagentTitle(toolInput: string | undefined): string {
-  let input: z.infer<typeof subagentInputSchema> = {}
-  try {
-    input = subagentInputSchema.catch({}).parse(JSON.parse(toolInput ?? '{}'))
-  } catch {
-    // An input that is still streaming is not JSON yet.
-  }
-  return digestLine(input.description?.trim() || input.prompt || '') || 'Sub-agent'
-}

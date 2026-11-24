@@ -21,16 +21,16 @@ test('the PR list distinguishes pending, empty, and populated answers', async ()
     return pathToFileURL(path).href
   }
   try {
-    const stub = writeComponent('stub', '<script>let {title, children} = $props();</script><p>{title ?? ""}</p>{@render children?.()}')
+    const stub = writeComponent('stub', '<script>let {children} = $props();</script><section data-empty>{@render children?.()}</section>')
     const loading = writeComponent('loading', readFileSync(new URL('packages/workspace-ui/src/components/prs/PrListLoading.svelte', root), 'utf8'))
     const icons = pathToFileURL(join(directory, 'icons.mjs')).href
-    writeFileSync(new URL(icons), 'export const CircleAlert = null, GitPullRequest = null, RefreshCw = null;')
+    writeFileSync(new URL(icons), 'export const CircleAlert = null, GitPullRequestIcon = null, RefreshCw = null;')
     const button = pathToFileURL(join(directory, 'button.mjs')).href
     writeFileSync(new URL(button), `export { default as Button } from ${JSON.stringify(stub)};`)
     const errors = pathToFileURL(join(directory, 'errors.mjs')).href
     writeFileSync(new URL(errors), 'export const prUnavailableTitle = () => "Unavailable";')
     const states = writeComponent('states', readFileSync(new URL('packages/workspace-ui/src/components/prs/PrListStates.svelte', root), 'utf8'), new Map([
-      ['@lucide/svelte', icons], ['../ui/button', button], ['../ui/PageEmpty.svelte', stub],
+      ['@lucide/svelte', icons], ['../ui/octicons', icons], ['../ui/button', button], ['../ui/PageEmpty.svelte', stub],
       ['./GithubConnectionRequired.svelte', stub], ['./PrListLoading.svelte', loading], ['./lib/pr-surface-error', errors],
     ]))
     const harness = writeComponent('harness', `<script>import States from 'STATES'; let { loading, hasItems } = $props();</script>
@@ -40,15 +40,14 @@ test('the PR list distinguishes pending, empty, and populated answers', async ()
       </States>`, new Map([['STATES', states]]))
     const { default: Harness } = await import(harness)
     const pending = render(Harness, { props: { loading: true, hasItems: false } }).body
-    expect(pending).toContain('Loading pull requests')
-    expect(pending).not.toContain('No pull requests yet.')
-    expect(pending).not.toContain('Large repositories can take longer')
+    expect(pending).toContain('aria-busy="true"')
+    expect(pending).not.toContain('data-empty')
     const empty = render(Harness, { props: { loading: false, hasItems: false } }).body
-    expect(empty).toContain('No pull requests yet.')
-    expect(empty).not.toContain('Loading pull requests')
+    expect(empty).toContain('data-empty')
+    expect(empty).not.toContain('aria-busy="true"')
     const refreshing = render(Harness, { props: { loading: true, hasItems: true } }).body
     expect(refreshing).toContain('Existing pull requests')
-    expect(refreshing).not.toContain('No pull requests yet.')
+    expect(refreshing).not.toContain('data-empty')
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

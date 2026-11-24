@@ -9,7 +9,7 @@ import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
 import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import { catalogClaudeModelId } from './claude-models'
-import { ClaudePartialToolInputs } from './claude-partial-input'
+import { ClaudePartialToolInputs, type PendingToolInput } from './claude-partial-input'
 import { z } from 'zod'
 
 export const SDK_TO_UI_PERMISSION_MODE = {
@@ -103,7 +103,7 @@ const AWAITABLE_TASK_TYPES = new Set(['local_bash', 'monitor_mcp', 'monitor_ws']
  */
 function normalize(
   raw: ClaudeEvent,
-  pendingToolInputs: Map<number, string>,
+  pendingToolInputs: Map<number, PendingToolInput>,
   thinkingBlocks: Map<number, string>,
   partialInputs: ClaudePartialToolInputs,
 ): NormalizedEvent[] {
@@ -153,7 +153,7 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // A main-thread tool's input arrives only as input_json_delta stream events;
   // accumulate per content-block index so the assembled input rides out on
   // tool_call_complete. Cleared on message_start so indexes never leak.
-  private readonly pendingToolInputs = new Map<number, string>()
+  private readonly pendingToolInputs = new Map<number, PendingToolInput>()
   // content_block_stop carries only an index, so remember which indexes opened as
   // thinking blocks to know whose span just closed, with the text their
   // thinking_delta events carried. Cleared alongside the inputs.
@@ -521,7 +521,7 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
 
 function normalizeStreamEvent(
   event: StreamEvent,
-  pendingToolInputs: Map<number, string>,
+  pendingToolInputs: Map<number, PendingToolInput>,
   thinkingBlocks: Map<number, string>,
   partialInputs: ClaudePartialToolInputs,
 ): NormalizedEvent[] {
@@ -538,7 +538,7 @@ function normalizeStreamEvent(
 
 function normalizeStreamSub(
   sub: NonNullable<StreamEvent['event']>,
-  pendingToolInputs: Map<number, string>,
+  pendingToolInputs: Map<number, PendingToolInput>,
   thinkingBlocks: Map<number, string>,
 ): SubagentTranscriptEvent[] {
   switch (sub.type) {
@@ -548,7 +548,7 @@ function normalizeStreamSub(
         return [{ type: 'thinking', state: 'start' }]
       }
       if (sub.content_block.type === 'tool_use') {
-        pendingToolInputs.set(sub.index, '')
+        pendingToolInputs.set(sub.index, { toolId: sub.content_block.id || '', input: '' })
         const toolName = sub.content_block.name || 'unknown'
         const baseToolName = toolName.slice(toolName.lastIndexOf('.') + 1)
         return [{
@@ -575,7 +575,8 @@ function normalizeStreamSub(
       }
       if (delta.type === 'input_json_delta') {
         // Accumulate the tool's input; it's delivered whole on content_block_stop.
-        pendingToolInputs.set(sub.index, (pendingToolInputs.get(sub.index) ?? '') + delta.partial_json)
+        const pending = pendingToolInputs.get(sub.index)
+        if (pending) pending.input += delta.partial_json
         return []
       }
       appendThought(thinkingBlocks, sub.index, delta)
@@ -585,13 +586,17 @@ function normalizeStreamSub(
     case 'content_block_stop': {
       const thinkingStop = closeThinkingBlock(thinkingBlocks, sub.index)
       if (thinkingStop) return [thinkingStop]
-      const toolInput = pendingToolInputs.get(sub.index)
+      // The stop names only the block's index: the call's id is from its start.
+      // A text block's stop ends no call.
+      const pending = pendingToolInputs.get(sub.index)
       pendingToolInputs.delete(sub.index)
+      if (!pending?.toolId) return []
       const event: NormalizedEvent = {
         type: 'tool_call_complete',
         index: sub.index,
+        toolId: pending.toolId,
       }
-      if (toolInput) event.toolInput = toolInput
+      if (pending.input) event.toolInput = pending.input
       return [event]
     }
 
