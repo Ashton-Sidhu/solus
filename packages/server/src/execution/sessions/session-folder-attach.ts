@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { nextUpdatedAt } from '@solus/client-core/codebases'
 import type { Codebase, SessionFolderSource } from '@solus/contracts/codebases'
 import { isInsideHostPath } from '@solus/contracts/host-path'
 import type { NormalizedEvent, PermissionMode } from '@solus/contracts/types'
@@ -300,7 +301,7 @@ export async function addCodebaseRoot(sessionId: string, state: AttachState, fol
     state.codebase = await saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
       ...codebase,
       roots: [...codebase.roots, await rootOf(folder)],
-      updatedAt: Math.max(Date.now(), codebase.updatedAt + 1),
+      updatedAt: nextUpdatedAt(codebase, Date.now()),
     })
     log.info('session_codebase_root_added', { sessionId, codebaseId: codebase.id, path: folder })
     return true

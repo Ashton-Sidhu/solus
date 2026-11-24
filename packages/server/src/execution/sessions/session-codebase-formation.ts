@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import { dirname, parse, resolve } from 'node:path'
 import type { ActivityKind } from '@solus/contracts/activity'
 import { isChat } from '@solus/contracts/chat'
+import { nextUpdatedAt } from '@solus/client-core/codebases'
 import { plainCodebaseName, type Codebase, type CodebaseRoot, type SessionAttachedFolder } from '@solus/contracts/codebases'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
@@ -314,6 +315,6 @@ export async function renameFormed(codebaseId: string, plainName: string, genera
   return saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
     ...current,
     name,
-    updatedAt: Math.max(Date.now(), current.updatedAt + 1),
+    updatedAt: nextUpdatedAt(current, Date.now()),
   })
 }
