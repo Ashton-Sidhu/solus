@@ -14,9 +14,9 @@ interface EnvironmentFolderReads {
 }
 
 /**
- * The reads of the folder rows of the Environment card: the codebase of the
- * session with its members on each host, and the child sessions that work on
- * the other hosts. A session with no codebase reads nothing here.
+ * The reads of the menu of the project row of the Environment card: the
+ * codebase of the run with its members on each host, and the child sessions
+ * that work on the other hosts. A run with no codebase reads nothing here.
  */
 export function useEnvironmentFolderReads(reads: EnvironmentFolderReads): void {
   $effect(() => {

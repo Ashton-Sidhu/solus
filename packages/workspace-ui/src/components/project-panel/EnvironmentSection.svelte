@@ -4,13 +4,12 @@
     Check as CheckIcon,
     ChevronDown as CaretDownIcon,
     Folder as FolderIcon,
-    FolderPlus as AddFolderIcon,
-    GitBranch as GitBranchIcon,
+    FolderGit2 as CodebaseIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
     Smartphone as SmartphoneIcon,
   } from "@lucide/svelte";
-  import { untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import {
     codebasesStore,
     getSessionEnvironmentStore,
@@ -24,22 +23,19 @@
   import { deviceViewState } from "../devices/lib/device-view-state.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { fileManagerNameFor } from "../../lib/file-manager";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { projectDirLabel } from "../../lib/paths";
-  import { toasts } from "../../lib/toasts";
   import OpenInRow from "./OpenInRow.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import MenuRow, { type ActionRowIcon } from "./MenuRow.svelte";
-  import FileManagerIcon from "./FileManagerIcon.svelte";
-  import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
   import UsageMeters from "./UsageMeters.svelte";
   import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+  import { isTaskFolderPath } from "@solus/contracts/codebases";
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { checkoutPlace, codebaseOf, runHost } from "../../contexts/workspace/run-location";
-  import { projectRowTrailing } from "./lib/project-row";
+  import { projectRow } from "./lib/project-row";
   import {
     ENVIRONMENT_VIEWS,
     ENVIRONMENT_VIEW_LABELS,
@@ -49,12 +45,9 @@
   import { environmentViewChoices } from "./lib/environment-view";
   import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
   import { isPanelItemShown } from "./lib/panel-items";
-  import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
-  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { hasSessionStarted } from "../../lib/sessionUtils";
-  import EnvironmentFolders from "./EnvironmentFolders.svelte";
-  import { repositoriesInFolder } from "./lib/git-setup";
-  import { addSessionFolder } from "./lib/repository-actions";
+  import { PLAIN_MEMBER_LINKS_NOTE } from "../input/lib/worktree-repositories";
+  import EnvironmentFoldersMenu from "./EnvironmentFoldersMenu.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -67,7 +60,6 @@
   let { sourceId, active = true, onOpenFiles, hiddenItems }: Props = $props();
 
   const projectShown = $derived(isPanelItemShown(hiddenItems, "environment.project"));
-  const foldersShown = $derived(isPanelItemShown(hiddenItems, "environment.folders"));
   const terminalShown = $derived(isPanelItemShown(hiddenItems, "environment.terminal"));
   const viewShown = $derived(isPanelItemShown(hiddenItems, "environment.view"));
   const usageShown = $derived(isPanelItemShown(hiddenItems, "environment.usage"));
@@ -102,23 +94,23 @@
   const runServer = $derived(host ?? serversStore.hostFor(detailServerId));
   const runHostLabel = $derived(runServer?.label);
 
-  // The row also names the codebase of the run. The list of codebases is
-  // current while the row shows one.
+  // The row shows one name: the codebase of the run, else its project. The
+  // menu of the row reads the list of codebases while the row shows.
   const codebaseId = $derived(codebaseOf(sectionRun));
-  $effect(() => {
-    if (active && projectShown && codebaseId) return untrack(() => codebasesStore.watch());
-  });
-  const projectTrailing = $derived(
-    projectRowTrailing({
-      codebaseName: (codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : null) ?? null,
+  const codebase = $derived(codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
+  const project = $derived(
+    projectRow({
+      projectName: projectDirLabel(projectRoot),
+      codebaseName: codebase?.name ?? null,
       hostLabel: runHostLabel,
       isLocalHost: !!runServer?.local,
     }),
   );
 
-  // The project row's caret opens a menu of the places that can show the
-  // folder: the files pane here, and the host's file manager. The file manager opens on
-  // the host's own screen, so only a local connection is offered it.
+  // The project row's caret opens a menu of the folders of the run, each with
+  // the places that can show it: the files pane here, and the host's file
+  // manager. The file manager opens on the host's own screen, so only a local
+  // connection is offered it.
   const fileManager = $derived(
     me?.may("host.local.window") ? hosts.get(detailServerId)?.capabilityRecord?.fileManager : undefined,
   );
@@ -126,40 +118,17 @@
   let openInMenuOpen = $state(false);
   let openInAnchor = $state<HTMLElement | null>(null);
 
-  // The folders of a session exist on its host once it has started. Its
-  // driver can add one, from the menu of the project row.
-  const startedSession = $derived.by(() => {
+  // The folder commands of the menu that run now: the row shows that it works.
+  const folderWork = new SvelteSet<string>();
+  // The folders of a session exist on its host once it has started.
+  const hasStarted = $derived.by(() => {
     const panelSession = session.sessionFor(sourceId);
-    return panelSession && hasSessionStarted(panelSession) ? panelSession : null;
+    return !!panelSession && hasSessionStarted(panelSession);
   });
-  const canAddFolder = $derived(!!startedSession && canDriveSession(detailServerId, startedSession.id));
-  // A project folder with no repository that holds repositories: the Git card
-  // lists them, so the way to make the folder itself a repository is here.
-  const tracksProjectWithGit = $derived(
-    !env.repoRoot &&
-      repositoriesInFolder(
-        env.cwd,
-        startedSession?.sessionFolders ?? [],
-        startedSession ? [] : (codebasesStore.projectScanAt(detailServerId, env.cwd)?.members ?? []),
-      ) > 0,
+  // The host of the session answered its codebases, and the codebase of the session is not one of them.
+  const codebaseIsAbsent = $derived(
+    !!codebaseId && !codebase && codebasesStore.hosts.some((each) => each.serverId === detailServerId && each.status === "ready"),
   );
-
-  async function trackProjectWithGit() {
-    const cwd = env.cwd;
-    const isTracked = await repositorySetupStore.initialize(session.apiFor(sourceId), detailServerId, cwd);
-    if (!isTracked) {
-      toasts.error("Couldn't track the folder with Git", {
-        description: repositorySetupStore.initErrorFor(detailServerId, cwd) ?? undefined,
-      });
-    }
-    requestInputFocus();
-  }
-
-  async function openInFileManager() {
-    if (!projectRoot) return;
-    const opened = await session.apiFor(sourceId).openInFileManager(projectRoot).catch(() => false);
-    if (!opened && fileManager) toasts.error(`Couldn’t open this folder in ${fileManagerNameFor(fileManager)}`);
-  }
 
   // Builds are for projects that build a mobile app (at the root or in a
   // subfolder), or a conversation already showing a device.
@@ -222,28 +191,27 @@
     <!-- Split row in the Git rows' language: the row opens the folder in
          Solus, the caret offers the other places that can show it. -->
     {@const hasNoFolder = projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles}
+    {#snippet projectFavicon()}
+      <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
+    {/snippet}
     <div class="split-row">
       <MenuRow
         split
         item={{
           key: "project",
-          label: projectDirLabel(projectRoot),
-          icon: FolderIcon,
-          badge: projectTrailing.badge,
-          badgePrefix: projectTrailing.badgePrefix,
+          label: project.label,
+          icon: project.isCodebase ? CodebaseIcon : FolderIcon,
+          badge: project.badge,
           badgeIcon: runServer?.local ? LaptopIcon : undefined,
           hint: comboHint("global.toggle-files"),
-          phase: "idle",
+          phase: folderWork.size > 0 ? "loading" : "idle",
           // A new chat has no folder until its first prompt, so no files yet.
           disabled: hasNoFolder || !onOpenFiles,
-          tooltip: projectTrailing.tooltip,
+          tooltip: project.tooltip,
         }}
+        iconSnippet={project.isCodebase ? undefined : projectFavicon}
         onActivate={() => onOpenFiles?.()}
-      >
-        {#snippet iconSnippet()}
-          <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
-        {/snippet}
-      </MenuRow>
+      />
       <button
         type="button"
         class="split-caret"
@@ -265,11 +233,28 @@
         <CaretDownIcon size={11} />
       </button>
     </div>
-  {/if}
-  <!-- Where else the session works: each folder that is not a repository of
-       the project, and the folders of its codebase on other hosts. -->
-  {#if !inChat && foldersShown && startedSession}
-    <EnvironmentFolders {sourceId} sessionId={startedSession.id} {active} />
+    <EnvironmentFoldersMenu
+      {sourceId}
+      {active}
+      bind:open={openInMenuOpen}
+      anchor={openInAnchor}
+      serverId={detailServerId}
+      host={{ label: runHostLabel, isLocal: !!runServer?.local }}
+      {projectRoot}
+      projectName={projectDirLabel(projectRoot)}
+      {fileManager}
+      {onOpenFiles}
+      busy={folderWork}
+    />
+    <!-- A folder of a task folder with no repository holds links to the files of its original. -->
+    {#if hasStarted && isTaskFolderPath(env.cwd) && !env.repoRoot}
+      <p class="m-0 text-pretty px-2 pb-1 pl-8 text-chrome-dense leading-snug text-(--solus-text-tertiary)">{PLAIN_MEMBER_LINKS_NOTE}</p>
+    {/if}
+    {#if hasStarted && codebaseIsAbsent}
+      <p class="m-0 text-pretty px-2 py-1 text-chrome-dense leading-snug text-(--solus-text-tertiary)">
+        The codebase of this session is not on this host. It was deleted, or this host has not received it.
+      </p>
+    {/if}
   {/if}
   <div class="menu-list">
     {#if !inChat && terminalShown}
@@ -345,54 +330,6 @@
           {/if}
         </DropdownMenu.Item>
       {/each}
-    </DropdownMenu.Content>
-  </DropdownMenu.Root>
-  <DropdownMenu.Root bind:open={openInMenuOpen}>
-    <DropdownMenu.Content
-      customAnchor={openInAnchor?.parentElement ?? openInAnchor}
-      side="bottom"
-      align="start"
-      sideOffset={4}
-      alignOffset={0}
-      collisionPadding={8}
-      onInteractOutside={(event) => {
-        // The caret is the menu's trigger — let its click toggle the menu rather
-        // than closing here and immediately reopening.
-        if (openInAnchor?.contains(event.target as Node | null)) event.preventDefault();
-      }}
-      onCloseAutoFocus={(event) => {
-        // No bits-ui trigger to return to; the prompt is the next natural stop.
-        event.preventDefault();
-        requestInputFocus();
-      }}
-      class="w-[min(14rem,calc(100vw-2rem))]"
-    >
-      <DropdownMenu.Item disabled={!onOpenFiles} onSelect={() => onOpenFiles?.()}>
-        <img src={solusIcon} alt="" class="size-4 shrink-0" />
-        <span class="min-w-0 flex-1 truncate">Open in Solus</span>
-        <DropdownMenu.Shortcut>{comboHint("global.toggle-files")}</DropdownMenu.Shortcut>
-      </DropdownMenu.Item>
-      {#if fileManager}
-        <DropdownMenu.Item onSelect={() => void openInFileManager()}>
-          <FileManagerIcon kind={fileManager} />
-          <span class="min-w-0 flex-1 truncate">Open in {fileManagerNameFor(fileManager)}</span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if canAddFolder || tracksProjectWithGit}
-        <DropdownMenu.Separator />
-      {/if}
-      {#if canAddFolder}
-        <DropdownMenu.Item onSelect={() => addSessionFolder(session, sourceId)}>
-          <AddFolderIcon />
-          <span class="min-w-0 flex-1 truncate">Add folder…</span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if tracksProjectWithGit}
-        <DropdownMenu.Item disabled={!(me?.may("host.git.write") ?? true)} onSelect={() => void trackProjectWithGit()}>
-          <GitBranchIcon />
-          <span class="min-w-0 flex-1 truncate">Track with Git</span>
-        </DropdownMenu.Item>
-      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
   <!-- Subscription quota closes the section: what's left to spend in this

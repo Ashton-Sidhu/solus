@@ -45,9 +45,10 @@
     type PanelMenuAnchor,
   } from "./lib/panel-items";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
-  import { isDispatch, projectHome, projectRoot } from "../../contexts/workspace/run-location";
+  import { codebaseOf, isDispatch, projectHome, projectRoot } from "../../contexts/workspace/run-location";
   import { hasSessionStarted } from "../../lib/sessionUtils";
-  import { gitCardRepositories, gitRepositoriesDetail, showsRepositoryRows } from "./lib/git-repositories";
+  import { codebaseMembersOn, gitCardRepositories, gitRepositoriesDetail, showsRepositoryRows } from "./lib/git-repositories";
+  import { useDraftRepositoryReads } from "./lib/git-repository-reads.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -206,7 +207,15 @@
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
   // The repositories of the Git card. The folders of a session exist on its
-  // host once it has started; a draft reads what its project folder holds.
+  // host once it has started. A draft whose working directory is no repository
+  // lists the repositories of its codebase on the run host.
+  const hasStarted = $derived(!!panelSession && hasSessionStarted(panelSession));
+  const draftCodebaseId = $derived(!hasStarted && !panelEnvironment.repoRoot ? codebaseOf(panelRun) : null);
+  useDraftRepositoryReads({
+    get active() { return active && open && gitShown; },
+    get codebaseId() { return draftCodebaseId; },
+    codebases: codebasesStore,
+  });
   const gitRepositories = $derived(
     gitShown
       ? gitCardRepositories({
@@ -216,8 +225,8 @@
             // A dispatch has its project home on a different host.
             projectPath: isDispatch(panelRun) ? (panelEnvironment.repoRoot ?? gitCwd) : projectRoot(panelRun),
           },
-          sessionFolders: panelSession && hasSessionStarted(panelSession) ? panelSession.sessionFolders : null,
-          found: codebasesStore.projectScanAt(serverHostId, gitCwd)?.members ?? [],
+          sessionFolders: hasStarted && panelSession ? panelSession.sessionFolders : null,
+          members: draftCodebaseId ? codebaseMembersOn(codebasesStore.membersOf(draftCodebaseId), serverHostId) : [],
         })
       : [],
   );

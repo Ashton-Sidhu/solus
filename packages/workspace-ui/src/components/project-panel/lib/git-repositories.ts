@@ -1,6 +1,7 @@
 import type { CodebaseMember, SessionFolder } from '@solus/contracts/codebases'
 import { hostPathBaseName, hostPathKey, sameHostPath } from '@solus/contracts/host-path'
 import type { GitState } from '@solus/contracts/types'
+import type { CodebaseHostMembers } from '../../../contexts/codebases/codebases.store.svelte'
 import type { SessionFolderPlace } from '../../../contexts/git/session-environment.store.svelte'
 import { changesRow } from './changes-row'
 
@@ -42,7 +43,7 @@ export interface GitRepositoriesInput {
     /** The project folder: it names the row of the working directory. */
     projectPath: string | null
   }
-  /** The session folders of a started session, or the repositories that the host found in the project folder of a draft. */
+  /** The session folders of a started session, or the repositories of the codebase of a draft. */
   folders: readonly Pick<SessionFolder, 'path' | 'repositoryPath' | 'name' | 'state' | 'granted'>[]
 }
 
@@ -82,26 +83,39 @@ export function gitRepositoryRows(input: GitRepositoriesInput): GitRepositoryRow
   return rows
 }
 
-/** The repositories that the host found in the project folder of a draft, as the folders of `gitRepositoryRows`. */
-function foundRepositoryFolders(members: readonly CodebaseMember[]): GitRepositoriesInput['folders'] {
+/**
+ * The members that one host read for a codebase (`CodebasesStore.membersOf`):
+ * each root, and each repository that the host found in a root.
+ */
+export function codebaseMembersOn(groups: readonly CodebaseHostMembers[], serverId: string): CodebaseMember[] {
+  return groups
+    .filter((group) => group.serverId === serverId)
+    .flatMap((group) => group.roots.flatMap((root) => [...(root.member ? [root.member] : []), ...root.found]))
+}
+
+/** The repositories of the codebase of a draft, as the folders of `gitRepositoryRows`. */
+function memberRepositoryFolders(members: readonly CodebaseMember[]): GitRepositoriesInput['folders'] {
   return members
-    .filter((member) => member.discovered && member.state === 'git')
+    .filter((member) => member.state === 'git')
     .map((member) => ({ path: member.path, repositoryPath: member.path, name: member.name, state: 'git' as const, granted: true }))
 }
 
 /**
  * The repositories of the Git card of one run. A started session has its
  * session folders. A draft has none: its working directory with no
- * repository shows the repositories that the host found in it, because the
- * session gets them at its first prompt (decision 14). `sessionFolders` is
- * null for a draft, and `found` is the scan of its project folder.
+ * repository shows the repositories of its codebase on the run host, because
+ * the session gets them at its first prompt. A folder that holds repositories
+ * is a container, and a container is a codebase (decision 14), so a draft
+ * with no codebase has no repository besides its working directory.
+ * `sessionFolders` is null for a draft, and `members` is what the run host
+ * read for the codebase of the draft (`codebaseMembersOn`).
  */
 export function gitCardRepositories(input: {
   working: GitRepositoriesInput['working']
   sessionFolders: GitRepositoriesInput['folders'] | null
-  found: readonly CodebaseMember[]
+  members: readonly CodebaseMember[]
 }): GitRepositoryRow[] {
-  const folders = input.sessionFolders ?? (input.working.repositoryPath ? [] : foundRepositoryFolders(input.found))
+  const folders = input.sessionFolders ?? (input.working.repositoryPath ? [] : memberRepositoryFolders(input.members))
   return gitRepositoryRows({ working: input.working, folders })
 }
 
@@ -118,6 +132,34 @@ export function gitRepositoriesDetail(rows: readonly GitRepositoryRow[]): string
  */
 export function showsRepositoryRows(rows: readonly GitRepositoryRow[]): boolean {
   return rows.length > 1 || (rows.length === 1 && !rows[0]!.isWorkingDirectory)
+}
+
+/** The card shows this many repository rows at most, until the person opens the rest. */
+export const GIT_REPOSITORY_ROWS_FOLDED = 4
+
+export interface GitRepositoryFold {
+  /** The rows that show, in the order of the list. */
+  visible: readonly GitRepositoryRow[]
+  /** The text of the row that opens or closes the rest, or null for a list that has no such row. */
+  toggleLabel: string | null
+  /** The rest of a long list is open. */
+  isExpanded: boolean
+}
+
+/**
+ * The repository rows that show. A session can work in many repositories, so
+ * the list shows four rows, then "Show N more", as the card folds its other
+ * linked pull requests. The chosen repository always shows: the Git rows
+ * below work in it, so the card must say which one it is. When the chosen row
+ * is after the fourth one, it takes the place of the fourth.
+ */
+export function foldGitRepositoryRows(rows: readonly GitRepositoryRow[], chosenKey: string | null, isExpanded: boolean): GitRepositoryFold {
+  if (rows.length <= GIT_REPOSITORY_ROWS_FOLDED) return { visible: rows, toggleLabel: null, isExpanded: false }
+  if (isExpanded) return { visible: rows, toggleLabel: 'Show less', isExpanded: true }
+  const first = rows.slice(0, GIT_REPOSITORY_ROWS_FOLDED)
+  const chosen = chosenKey === null ? undefined : rows.find((row) => row.key === chosenKey)
+  const visible = !chosen || first.includes(chosen) ? first : [...first.slice(0, GIT_REPOSITORY_ROWS_FOLDED - 1), chosen]
+  return { visible, toggleLabel: `Show ${rows.length - visible.length} more`, isExpanded: false }
 }
 
 /**

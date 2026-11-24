@@ -14,6 +14,7 @@
     candidateRows,
     gitRepositoryReading,
     gitRepositoryRowLabel,
+    type GitRepositoryFold,
     type GitRepositoryRow,
   } from "./lib/git-repositories";
   import { useGitRepositoryReads } from "./lib/git-repository-reads.svelte";
@@ -24,14 +25,16 @@
     sourceId: string;
     /** Hidden mounted tabs and a closed project panel must not read the host. */
     active: boolean;
-    rows: readonly GitRepositoryRow[];
+    /** The rows that show, and the row that opens or closes the rest of a long list (`foldGitRepositoryRows`). */
+    fold: GitRepositoryFold;
     /** The row that the Git rows work in. Null for a draft: its rows open their files, and no row is the chosen one. */
     chosenKey: string | null;
     /** The session works in a task folder, and this person may change it: the card offers one more repository. */
     canAddRepository: boolean;
     onChoose: (row: GitRepositoryRow) => void;
+    onToggleFold: () => void;
   }
-  let { sourceId, active, rows, chosenKey, canAddRepository, onChoose }: Props = $props();
+  let { sourceId, active, fold, chosenKey, canAddRepository, onChoose, onToggleFold }: Props = $props();
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
@@ -40,7 +43,8 @@
   useGitRepositoryReads({
     get active() { return active; },
     get serverId() { return serverId; },
-    get pathsKey() { return rows.map((row) => row.path).join("\n"); },
+    // A row that the fold hides shows no Git state, so it reads none.
+    get pathsKey() { return fold.visible.map((row) => row.path).join("\n"); },
     environment: environmentStore,
   });
 
@@ -94,7 +98,7 @@
 </script>
 
 <div class="flex flex-col gap-px" role="group" aria-label="Repositories">
-  {#each rows as row (row.key)}
+  {#each fold.visible as row (row.key)}
     {@const reading = gitRepositoryReading(row, environmentStore.statusFor(serverId, row.path))}
     {@const isChosen = row.key === chosenKey}
     <MenuRow
@@ -112,6 +116,17 @@
       onActivate={() => onChoose(row)}
     />
   {/each}
+  <!-- A long list folds as the other linked pull requests of the card do. -->
+  {#if fold.toggleLabel}
+    <div class="flex items-center px-1.5 pt-0.5 text-chrome-dense text-(--solus-text-tertiary)">
+      <button
+        type="button"
+        class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2"
+        aria-expanded={fold.isExpanded}
+        onclick={onToggleFold}
+      >{fold.toggleLabel}</button>
+    </div>
+  {/if}
   {#if canAddRepository}
     <MenuRow
       item={{

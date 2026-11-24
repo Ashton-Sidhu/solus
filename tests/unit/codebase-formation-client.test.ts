@@ -4,18 +4,17 @@ import type { RunConfig, Session, Tab } from '@solus/contracts/types'
 import type { CodebaseHostAccess, CodebaseHostApi } from '@solus/workspace-ui/contexts/codebases/codebase-host-access'
 import type { IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '@solus/contracts/types'
-import { startMembers } from '@solus/client-core/codebases'
-import { plainFolderGetsTaskFolder, worktreeRepositoryChoice } from '@solus/workspace-ui/components/input/lib/worktree-repositories'
+import { worktreeRepositoryChoice } from '@solus/workspace-ui/components/input/lib/worktree-repositories'
 import { repositoriesInFolder } from '@solus/workspace-ui/components/project-panel/lib/git-setup'
-import { projectRowTrailing } from '@solus/workspace-ui/components/project-panel/lib/project-row'
+import { projectRow } from '@solus/workspace-ui/components/project-panel/lib/project-row'
 import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/content'
 import { chooseStart, codebaseOf, folderLocation, refuseCodebase, refusesCodebase, startsWorktree } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * The client side of decisions 13 and 14 of docs/plans/codebases.md: the
- * session event that gives the run its codebase, and what a draft reads of
- * its project folder (a project covers the repositories inside it, with no
- * codebase). The divider that the conversation shows for a codebase that the
+ * session event that gives the run its codebase, and what a draft reads for
+ * its start (a run with no codebase is in one project; a container is a
+ * codebase, and its members are the list of a new worktree). The divider that the conversation shows for a codebase that the
  * host made is in `codebase-formed-divider.test.ts`.
  */
 
@@ -124,16 +123,6 @@ describe('the project folder of a draft', () => {
     return { store: new CodebasesStore(access, () => 1_000), scanned }
   }
 
-  // A project covers the repositories inside it with no codebase: the scan is the list, whatever codebases exist.
-  test('the store answers the scan of the folder after it was read, also for a folder that a codebase holds', async () => {
-    const roots = [{ installationId: 'install-laptop', path: '/code/store', name: 'store' }, { installationId: 'install-laptop', path: '/code/ui', name: 'ui' }]
-    const { store } = storeWith([{ id: 'live', name: 'store + ui', roots, updatedAt: 5, deletedAt: null }], { '/code/store': STORE_SCAN })
-    await store.load('laptop')
-    expect(store.projectScanAt('laptop', '/code/store')).toBeNull()
-    await store.readFolder('laptop', '/code/store')
-    expect(store.projectScanAt('laptop', '/code/store')).toBe(STORE_SCAN)
-  })
-
   // A run whose codebase is deleted has none. A codebase that no host named yet is not a deleted one.
   test('the store says that a codebase is deleted only when a host named its deleted record', async () => {
     const root = { installationId: 'install-laptop', path: '/code/store', name: 'store' }
@@ -149,40 +138,17 @@ describe('the project folder of a draft', () => {
     expect(store.isDeleted('not-known')).toBe(false)
   })
 
-  test('a read that fails keeps the last answer', async () => {
-    const scans: Record<string, CodebaseFolderScan> = { '/code/store': STORE_SCAN }
-    const { store } = storeWith([], scans)
-    await store.load('laptop')
-    await store.readFolder('laptop', '/code/store')
-    delete scans['/code/store']
-    await store.readFolder('laptop', '/code/store')
-    expect(store.projectScanAt('laptop', '/code/store')).toBe(STORE_SCAN)
-  })
-
-  // The host plans a new worktree from the repositories of the project, with no codebase. The start control shows the same list.
-  test('the repositories of a new worktree are the repositories that the scan found, with no codebase', () => {
-    const choice = worktreeRepositoryChoice(startMembers(STORE_SCAN.members, []), '/code/store', null)!
+  // The host plans a new worktree from the members of the codebase. The start control shows the same list.
+  test('the repositories of a new worktree in a container are the members that its host found', () => {
+    const choice = worktreeRepositoryChoice(STORE_SCAN.members, '/code/store', null)!
     expect(choice.working).toEqual({ path: '/code/store', name: 'store', isRepository: false })
     expect(choice.rows.map((row) => [row.name, row.isChosen])).toEqual([['api', true], ['web', true]])
     expect(choice.isDefault).toBe(true)
   })
 
-  test('a codebase adds its members to the repositories of the project, each one time', () => {
-    const ofCodebase = [member('/code/store', '/code/store', { state: 'plain' }), member('/code/store/api', '/code/store'), member('/code/ui', '/code/ui')]
-    const members = startMembers(STORE_SCAN.members, ofCodebase)
-    expect(members.map((each) => each.path)).toEqual(['/code/store', '/code/store/api', '/code/store/web', '/code/ui'])
-    expect(worktreeRepositoryChoice(members, '/code/store', null)!.rows.map((row) => row.name)).toEqual(['api', 'ui', 'web'])
-  })
-
-  // The host makes a task folder for a folder with no repository only when there is a repository to isolate, or a codebase.
-  test('a folder with no repository gets a new worktree only when it holds a repository or the run has a codebase', () => {
-    const empty = [member('/code/notes', '/code/notes', { state: 'plain' })]
-    expect(plainFolderGetsTaskFolder(STORE_SCAN.members, '/code/store', false)).toBe(true)
-    expect(plainFolderGetsTaskFolder(empty, '/code/notes', false)).toBe(false)
-    expect(plainFolderGetsTaskFolder(empty, '/code/notes', true)).toBe(true)
-    // A repository is not a folder with no repository, and a folder that was not read is not known.
-    expect(plainFolderGetsTaskFolder([member('/code/api', '/code/api')], '/code/api', true)).toBe(false)
-    expect(plainFolderGetsTaskFolder([], '/code/store', true)).toBe(false)
+  // A project is one folder or one repository: a run with no codebase has no members, so the start control lists none.
+  test('a run with no codebase has no repository to choose', () => {
+    expect(worktreeRepositoryChoice([], '/code/store', null)).toBeNull()
   })
 
   test('"No codebase" reaches the host with the prompt, and a run that refuses none sends nothing', () => {
@@ -234,28 +200,31 @@ describe('a project folder with no repository that holds repositories', () => {
 })
 
 describe('the project row of the Environment section', () => {
-  test('a run with no codebase shows only its host, as before', () => {
-    expect(projectRowTrailing({ codebaseName: null, hostLabel: 'This Mac', isLocalHost: true })).toEqual({ badge: undefined, badgePrefix: undefined, tooltip: 'Runs on This Mac' })
-    expect(projectRowTrailing({ codebaseName: null, hostLabel: 'Build server', isLocalHost: false })).toEqual({ badge: 'Build server', badgePrefix: undefined, tooltip: 'Runs on Build server' })
+  // WHY: a run with one project must see the row as it was before codebases.
+  test('a run with no codebase shows the name of its project and its host', () => {
+    expect(projectRow({ projectName: 'api', codebaseName: null, hostLabel: 'This Mac', isLocalHost: true }))
+      .toEqual({ label: 'api', isCodebase: false, badge: undefined, tooltip: 'Runs on This Mac' })
+    expect(projectRow({ projectName: 'api', codebaseName: null, hostLabel: 'Build server', isLocalHost: false }))
+      .toEqual({ label: 'api', isCodebase: false, badge: 'Build server', tooltip: 'Runs on Build server' })
   })
 
-  // On this machine the host is a glyph, so the codebase is the one text of the slot.
-  test('a run with a codebase on this machine names the codebase', () => {
-    expect(projectRowTrailing({ codebaseName: 'shop', hostLabel: 'This Mac', isLocalHost: true })).toEqual({ badge: 'shop', badgePrefix: undefined, tooltip: 'Codebase shop · Runs on This Mac' })
+  // The row shows one name. The folders of the run are in the menu of the row.
+  test('a run with a codebase shows the name of the codebase, not the name of its working folder', () => {
+    const row = projectRow({ projectName: 'solus', codebaseName: 'solus + solus-cloud', hostLabel: 'This Mac', isLocalHost: true })
+    expect(row).toMatchObject({ label: 'solus + solus-cloud', isCodebase: true, badge: undefined })
+    // A container is a codebase with the name of its folder.
+    expect(projectRow({ projectName: 'shop', codebaseName: 'shop', hostLabel: 'This Mac', isLocalHost: true }).label).toBe('shop')
   })
 
-  // The tooltip of a row is one line of text: a line break shows as a space, and "shop Runs on" reads as one fact.
-  test('the two facts of the tooltip show as two facts on one line', () => {
-    const { tooltip } = projectRowTrailing({ codebaseName: 'shop', hostLabel: 'This Mac', isLocalHost: true })
+  // On this machine the host is a glyph. On a different host the row keeps the name of the host.
+  test('a run with a codebase on a different host keeps the host in the trailing slot', () => {
+    expect(projectRow({ projectName: 'api', codebaseName: 'shop', hostLabel: 'Build server', isLocalHost: false }).badge).toBe('Build server')
+  })
+
+  // The tooltip of a row is one line of text: a line break shows as a space, and "shop Works in" reads as one fact.
+  test('the tooltip says where a run in a codebase works, each fact apart from the next on one line', () => {
+    const { tooltip } = projectRow({ projectName: 'api', codebaseName: 'shop', hostLabel: 'Build server', isLocalHost: false })
     expect(tooltip).not.toContain('\n')
-    expect(tooltipDisplay(tooltip!)).toEqual({ label: 'Codebase shop · Runs on This Mac' })
-  })
-
-  // The host name stays. The codebase is the prefix, which the row cuts first when the rail is narrow.
-  test('a run with a codebase on a different host keeps the host and puts the codebase in front of it', () => {
-    const trailing = projectRowTrailing({ codebaseName: 'shop', hostLabel: 'Build server', isLocalHost: false })
-    expect(trailing.badge).toBe('Build server')
-    expect(trailing.badgePrefix).toBe('shop · ')
-    expect(trailing.tooltip).toBe('Codebase shop · Runs on Build server')
+    expect(tooltipDisplay(tooltip!)).toEqual({ label: 'Codebase shop · Works in api · Runs on Build server' })
   })
 })

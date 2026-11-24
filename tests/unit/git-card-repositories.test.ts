@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { CodebaseMember, SessionFolder } from '@solus/contracts/codebases'
 import type { GitState } from '@solus/contracts/types'
+import type { CodebaseHostMembers } from '@solus/workspace-ui/contexts/codebases/codebases.store.svelte'
 import {
   candidateRows,
   chosenGitRepository,
+  codebaseMembersOn,
+  foldGitRepositoryRows,
   gitCardRepositories,
   gitFolderOf,
   gitRepositoriesDetail,
@@ -13,7 +16,7 @@ import {
   gitRepositoryRows,
   showsRepositoryRows,
 } from '@solus/workspace-ui/components/project-panel/lib/git-repositories'
-import { useGitRepositoryReads } from '@solus/workspace-ui/components/project-panel/lib/git-repository-reads.svelte'
+import { useDraftRepositoryReads, useGitRepositoryReads } from '@solus/workspace-ui/components/project-panel/lib/git-repository-reads.svelte'
 import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/content'
 
 /**
@@ -24,7 +27,7 @@ import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/conten
  */
 
 function folder(path: string, patch: Partial<SessionFolder> = {}): SessionFolder {
-  return { path, name: path.split('/').at(-1)!, state: 'git', repositoryPath: path, source: 'project', granted: true, ...patch }
+  return { path, name: path.split('/').at(-1)!, state: 'git', repositoryPath: path, source: 'codebase', granted: true, ...patch }
 }
 
 function member(path: string, rootPath: string, patch: Partial<CodebaseMember> = {}): CodebaseMember {
@@ -48,7 +51,7 @@ describe('the repository rows of the Git card', () => {
       working,
       folders: [folder('/code/shop/api'), folder('/code/notes', { state: 'plain', source: 'attached' }), folder('/code/libs/ui', { source: 'codebase' })],
     })
-    // A folder with no repository has no Git state: it is a row of the Environment card.
+    // A folder with no repository has no Git state: it is a section of the menu of the Environment card.
     expect(rows.map((row) => [row.name, row.isWorkingDirectory])).toEqual([['web', true], ['api', false], ['ui', false]])
   })
 
@@ -92,22 +95,84 @@ describe('the repository rows of the Git card', () => {
 })
 
 describe('the repositories of a draft', () => {
-  const found = [member('/code/shop', '/code/shop', { state: 'plain' }), member('/code/shop/api', '/code/shop'), member('/code/shop/web', '/code/shop')]
+  const members = [member('/code/shop', '/code/shop', { state: 'plain' }), member('/code/shop/api', '/code/shop'), member('/code/shop/web', '/code/shop')]
 
-  // A draft has no session folders. A project covers the repositories inside it, so the session gets them at its first prompt.
-  test('a draft in a folder with no repository lists the repositories that the host found in it', () => {
-    const rows = gitCardRepositories({ working: plainWorking, sessionFolders: null, found })
+  // A draft has no session folders. A folder that holds repositories is a container, and a
+  // container is a codebase: the session gets the repositories of its codebase at its first prompt.
+  test('a draft in a container lists the repositories of its codebase on the run host', () => {
+    const rows = gitCardRepositories({ working: plainWorking, sessionFolders: null, members })
     expect(rows.map((row) => row.name)).toEqual(['api', 'web'])
   })
 
+  // WHY: a draft does not scan its folder. With no codebase there is no list of repositories to show.
+  test('a draft with no codebase shows no repository rows', () => {
+    expect(gitCardRepositories({ working: plainWorking, sessionFolders: null, members: [] })).toEqual([])
+    expect(showsRepositoryRows(gitCardRepositories({ working, sessionFolders: null, members: [] }))).toBe(false)
+  })
+
   test('a draft in a repository shows the card of that repository only', () => {
-    const rows = gitCardRepositories({ working, sessionFolders: null, found: [member('/code/shop/web', '/code/shop/web'), member('/code/shop/web/vendor/lib', '/code/shop/web')] })
+    const rows = gitCardRepositories({ working, sessionFolders: null, members: [member('/code/shop/web', '/code/shop/web'), member('/code/libs/ui', '/code/libs/ui')] })
     expect(showsRepositoryRows(rows)).toBe(false)
   })
 
-  test('a started session reads its session folders, not the scan', () => {
-    const rows = gitCardRepositories({ working: plainWorking, sessionFolders: [folder('/code/shop/api')], found })
+  test('a started session reads its session folders, not the members of its codebase', () => {
+    const rows = gitCardRepositories({ working: plainWorking, sessionFolders: [folder('/code/shop/api')], members })
     expect(rows.map((row) => row.name)).toEqual(['api'])
+  })
+
+  // The store groups the roots of a codebase by host. The card of a draft reads the run host only.
+  test('the members of a codebase on the run host are its roots and the repositories found in them', () => {
+    const group = (serverId: string | null, rootPath: string, found: CodebaseMember[]): CodebaseHostMembers => ({
+      installationId: `install-${serverId}`, serverId, label: serverId, presence: 'ready', state: 'ready', isStale: false, error: null,
+      roots: [{ root: { installationId: `install-${serverId}`, path: rootPath, name: rootPath.split('/').at(-1)! }, member: member(rootPath, rootPath, { state: 'plain' }), found, suggestions: [] }],
+    })
+    const groups = [group('laptop', '/code/shop', [member('/code/shop/api', '/code/shop'), member('/code/shop/web', '/code/shop')]), group('build', '/srv/infra', [member('/srv/infra/deploy', '/srv/infra')])]
+    expect(codebaseMembersOn(groups, 'laptop').map((each) => each.path)).toEqual(['/code/shop', '/code/shop/api', '/code/shop/web'])
+    expect(codebaseMembersOn(groups, 'phone')).toEqual([])
+  })
+})
+
+describe('the fold of a long list of repositories', () => {
+  const namesOf = (rows: readonly { name: string }[]) => rows.map((row) => row.name)
+  const five = gitRepositoryRows({ working, folders: ['api', 'docs', 'infra', 'ui'].map((name) => folder(`/code/shop/${name}`)) })
+  const keyOf = (name: string) => five.find((row) => row.name === name)!.key
+
+  // WHY: a container can hold many repositories. The Git rows below the list must stay in reach.
+  test('five repositories show four rows, then the row that opens the rest', () => {
+    const fold = foldGitRepositoryRows(five, keyOf('web'), false)
+    expect(namesOf(fold.visible)).toEqual(['web', 'api', 'docs', 'infra'])
+    expect(fold).toMatchObject({ toggleLabel: 'Show 1 more', isExpanded: false })
+  })
+
+  // WHY: the Git rows work in the chosen repository, so the card must always say which one it is.
+  test('the chosen repository always shows: the fifth one takes the place of the fourth', () => {
+    const fold = foldGitRepositoryRows(five, keyOf('ui'), false)
+    expect(namesOf(fold.visible)).toEqual(['web', 'api', 'docs', 'ui'])
+    expect(fold.toggleLabel).toBe('Show 1 more')
+  })
+
+  test('the open list shows each row in the order of the list, and the row that closes it', () => {
+    const fold = foldGitRepositoryRows(five, keyOf('ui'), true)
+    expect(namesOf(fold.visible)).toEqual(['web', 'api', 'docs', 'infra', 'ui'])
+    expect(fold).toMatchObject({ toggleLabel: 'Show less', isExpanded: true })
+  })
+
+  test('the row says how many repositories it opens', () => {
+    const eight = gitRepositoryRows({ working, folders: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((name) => folder(`/code/shop/${name}`)) })
+    expect(foldGitRepositoryRows(eight, eight[6]!.key, false)).toMatchObject({ toggleLabel: 'Show 4 more' })
+    expect(namesOf(foldGitRepositoryRows(eight, eight[6]!.key, false).visible)).toEqual(['web', 'a', 'b', 'f'])
+  })
+
+  test('four repositories or fewer have no fold row, also after a long list was opened', () => {
+    const four = five.slice(0, 4)
+    expect(foldGitRepositoryRows(four, keyOf('web'), false)).toEqual({ visible: four, toggleLabel: null, isExpanded: false })
+    expect(foldGitRepositoryRows(four, keyOf('web'), true)).toEqual({ visible: four, toggleLabel: null, isExpanded: false })
+    expect(foldGitRepositoryRows([], null, false).toggleLabel).toBeNull()
+  })
+
+  // The rows of a draft open their files: no row is the chosen one.
+  test('a draft with no chosen row shows the first four', () => {
+    expect(namesOf(foldGitRepositoryRows(five, null, false).visible)).toEqual(['web', 'api', 'docs', 'infra'])
   })
 })
 
@@ -234,6 +299,36 @@ test('each repository row holds the details of its own checkout, and a hidden ca
   state.pathsKey = '/code/shop/web'
   update()
   expect(holding()).toEqual(['host /code/shop/web'])
+
+  state.active = false
+  update()
+  expect(holding()).toEqual([])
+})
+
+test('the card of a draft holds its codebase and the members of it, and a started session holds none here', () => {
+  const effects: Array<() => void | (() => void)> = []
+  let cleanups: Array<void | (() => void)> = []
+  runtime.$effect = (effect) => { effects.push(effect) }
+  const update = () => {
+    for (const cleanup of cleanups) cleanup?.()
+    cleanups = effects.map((effect) => effect())
+  }
+  const state = { active: true, codebaseId: null as string | null }
+  const held = new Map<string, number>()
+  const hold = (key: string) => { held.set(key, (held.get(key) ?? 0) + 1); return () => { held.set(key, held.get(key)! - 1) } }
+  const holding = () => [...held].filter(([, count]) => count > 0).map(([key]) => key).sort()
+  useDraftRepositoryReads({
+    get active() { return state.active },
+    get codebaseId() { return state.codebaseId },
+    codebases: { watch: () => hold('codebases'), watchMembers: (id) => hold(`members ${id}`) },
+  })
+  // A started session, and a draft with no codebase, name no codebase here.
+  update()
+  expect(holding()).toEqual([])
+
+  state.codebaseId = 'shop'
+  update()
+  expect(holding()).toEqual(['codebases', 'members shop'])
 
   state.active = false
   update()

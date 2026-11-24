@@ -24,6 +24,9 @@ export class ConversationViewState {
    *  works in; null for the first repository of the session, which is the
    *  repository of the working directory (docs/plans/codebases.md §9). */
   gitRepositoryPath = $state<string | null>(null)
+  /** The Git card of the project panel shows each repository of the session,
+   *  not only the first ones: the person opened "Show N more". */
+  gitRepositoriesExpanded = $state(false)
   readonly virtualizer = new TranscriptVirtualizer(
     () => this.position === null,
     () => {

@@ -14,6 +14,7 @@
   import GitSetupSection from "./GitSetupSection.svelte";
   import {
     chosenGitRepository,
+    foldGitRepositoryRows,
     gitFolderOf,
     gitRepositoryChoice,
     showsRepositoryRows,
@@ -47,6 +48,9 @@
   const view = $derived(isStarted ? conversationViewStates(session).forTab(sourceId) : null);
   const chosen = $derived(view && showsRows ? chosenGitRepository(rows, view.gitRepositoryPath) : null);
   const folder = $derived(gitFolderOf(chosen));
+  // The fold of a long list survives a tab switch also. A draft has no view of a conversation.
+  let draftRepositoriesExpanded = $state(false);
+  const fold = $derived(foldGitRepositoryRows(rows, chosen?.key ?? null, view ? view.gitRepositoriesExpanded : draftRepositoriesExpanded));
   // The Git section shows for the repository of the working directory, or for the chosen session folder.
   const hasGitSection = $derived(!!env.checkout || !!folder);
   const canAddRepository = $derived(
@@ -59,10 +63,16 @@
     else session.openFiles(sourceId, row.path);
     requestInputFocus({ tabId: sourceId });
   }
+
+  function toggleFold() {
+    if (view) view.gitRepositoriesExpanded = !view.gitRepositoriesExpanded;
+    else draftRepositoriesExpanded = !draftRepositoriesExpanded;
+    requestInputFocus({ tabId: sourceId });
+  }
 </script>
 
 {#if showsRows || canAddRepository}
-  <GitRepositories {sourceId} {active} {rows} chosenKey={chosen?.key ?? null} {canAddRepository} onChoose={choose} />
+  <GitRepositories {sourceId} {active} {fold} chosenKey={chosen?.key ?? null} {canAddRepository} onChoose={choose} onToggleFold={toggleFold} />
 {/if}
 {#if hasGitSection}
   <!-- One Git section. A choice of a different repository starts it again, so
