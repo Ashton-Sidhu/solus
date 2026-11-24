@@ -133,9 +133,11 @@ to `HostConfig` must be put in one of the two lists.
   (`HostDetailOverview`). Settings → the host picker shows on the pages of personal
   settings too.
 - **Mobile**: `features/settings/settings-sync.ts` owns the engine on the phone.
-  `SolusApp.pair` takes the checkbox value. The checkbox is on the pairing screen and in
-  the Add machine steps; the switch is on the environment page. The settings
-  environment picker chooses the settings host.
+  `SolusApp.pair` takes the checkbox value; a pairing that the person did not ask for
+  now (a trusted host nearby, a dev auto-connect) passes null and copies nothing. The
+  row is on the pairing screen and in the Add machine sheet (`SyncSettingsRows.tsx`);
+  the switch is on the environment page. The settings environment picker chooses the
+  settings host when it shows one environment.
 
 ## Providers and connection modes
 

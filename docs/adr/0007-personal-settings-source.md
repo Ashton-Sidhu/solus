@@ -40,6 +40,19 @@ write; it is empty after a restart.
 7. **A host never refuses work for a key that it does not know.** It keeps the
    keys that it knows and logs the names of the others
    (`docs/plans/host-preferences.md`).
+8. **Signed out, Sync settings keeps the server settings the same on each host
+   that the person chooses** (added 2026-11-24; `docs/plans/settings-sync-hosts.md`).
+   The server settings are the person's settings on a host and the host settings
+   (`HostConfig`) that do not name one machine (`SHARED_HOST_CONFIG_KEYS`). Each
+   host keeps a Sync settings switch for each person, on by default. When the
+   person adds or pairs a host with the Sync settings checkbox on, the client
+   copies the server settings of the home host to it. After that, each change that
+   the person makes on a synced host goes from the client to each other synced
+   host, now or when that host is ready again. Hosts never talk to each other.
+   Device settings and machine-bound host settings are never copied. Signed in, the
+   account keeps every host the same (decision 3), so the checkbox and the switch
+   do not show and nothing is copied host to host. This changes decision 2 only for
+   the hosts whose switch is on: a host with the switch off keeps its own set.
 
 ## Consequences
 
@@ -47,7 +60,8 @@ write; it is empty after a restart.
   from a host or from the account, not from local storage. Device settings stay
   in local storage.
 - A signed-out person sees the settings of the host that the client shows them
-  for. The Settings page names that host.
+  for. The Settings page names that host, and its host picker chooses another one
+  (decision 8).
 - solus-cloud changes the settings route to accept a host's delegated token for
   reads.
 - `person-preferences.ts` becomes a database-backed owner for every personal

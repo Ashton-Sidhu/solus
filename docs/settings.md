@@ -131,8 +131,27 @@ copy and the changes of each turn of such a session.
 - **Signed out**, a host keeps your settings in its database (ADR 0007). A client shows
   the settings of its home host: the desktop's own host, the host that served the web
   page, or the phone's first host. Settings → Account & sync names that host. A change
-  goes to that host; another host keeps its own set. A change made while the host is
-  away waits on the client and goes when the host is back.
+  goes to that host. A change made while the host is away waits on the client and goes
+  when the host is back.
+- **Sync settings** (signed out) keeps your server settings the same on your hosts
+  (`docs/plans/settings-sync-hosts.md`). Each host has a **Sync settings** switch for
+  you, on by default: on the host page under Settings → Hosts on desktop and web, and
+  on the environment page on the phone. When you add or pair a host with the **Sync
+  settings** checkbox on, the host takes the server settings of your home host. After
+  that, a change that you make on a synced host also goes to each other host whose
+  switch is on, now or when that host is back. A host with the switch off keeps its own
+  settings. The server settings are your settings and these host settings: Save
+  sessions to Solus Cloud, Solus tools, Continue sessions after a restart, the two
+  retention periods, Telemetry export, and Analytics (a host settings change goes only
+  to a host where you are host administrator). The preview tunnel, agent updates,
+  review warming by project, and every machine setting (remote access, Tailscale, the
+  projects folder, the webhook address) stay on their host. Device settings stay on
+  the device. Signed in, the account keeps every host the same, so the checkbox and the
+  switch do not show.
+- **Settings shows one host.** Signed out, the host picker at the top of a Settings page
+  chooses the host whose settings show and change; the host of the current session is
+  first. On the phone, choose one environment in the Settings picker. Close Settings to
+  see the home host's settings again.
 - **Signed in**, your account keeps your settings. Each host pulls a copy with its
   token for you, at start, every five minutes, and when your client says that they
   changed. The host keeps the last copy, so a restart or a cloud that does not answer
