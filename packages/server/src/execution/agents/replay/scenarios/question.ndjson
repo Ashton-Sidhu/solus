@@ -1,0 +1,4 @@
+{"kind":"scenario","label":"Question"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"question_request","questionId":"fixture-preference","questions":[{"id":"schema_vs_ui_flexibility","header":"Fixture","question":"Should this fixture prefer strict schemas or UI flexibility?","options":[{"label":"Strict schemas (Recommended)"},{"label":"UI flexibility"}],"multiSelect":false}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"plan questions fixture complete"}}

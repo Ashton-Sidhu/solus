@@ -119,7 +119,10 @@ describe('replay scenarios', () => {
   test('every committed scenario parses, and showcase is the default', () => {
     const scenarios = loadReplayScenarios(SCENARIO_DIR)
     expect(scenarios[0]!.id).toBe('showcase')
-    expect(scenarios.map((scenario) => scenario.id).sort()).toEqual(['codex-command', 'codex-plan', 'showcase', 'subagent'])
+    expect(scenarios.map((scenario) => scenario.id).sort()).toEqual([
+      'approval', 'codex-command', 'codex-plan', 'command-output', 'multi-turn',
+      'question', 'showcase', 'subagent', 'todo-list',
+    ])
   })
 
   test('text streams in chunks of about three words that join back to the recorded text', () => {
@@ -138,6 +141,13 @@ describe('ReplayBackend', () => {
     expect(backend.metadata.defaultModel).toBe('showcase')
     expect(backend.metadata.available).toBe(true)
     expect(backend.metadata.models.map((model) => model.id)).toContain('subagent')
+    expect(backend.metadata.models).toEqual(expect.arrayContaining([
+      { id: 'todo-list', label: 'Plan and reads' },
+      { id: 'approval', label: 'Write approval' },
+      { id: 'question', label: 'Question' },
+      { id: 'multi-turn', label: 'Multi turn' },
+      { id: 'command-output', label: 'Command output' },
+    ]))
   })
 
   test('an unknown scenario fails the run with a clear error and plays nothing', async () => {
@@ -201,6 +211,69 @@ describe('ReplayBackend', () => {
     expect(run.events.some((event) => event.type === 'tool_result' && event.content.includes('3 pass'))).toBe(true)
     expect(run.events.at(-1)).toMatchObject({ type: 'task_complete', permissionDenials: [] })
     expect(run.exit).toEqual({ code: 0, signal: null })
+  })
+
+  test('plan and reads shows task progress and the results of both reads', async () => {
+    const { backend } = backendWith()
+    const run = await play(backend, { model: 'todo-list' })
+    const results = run.events.filter((event) => event.type === 'tool_result')
+    expect(results.map((event) => JSON.parse(event.content))).toEqual([
+      { name: 't3' }, { compilerOptions: {} },
+    ])
+    const progress = run.events.findLast((event) => event.type === 'progress')
+    expect(progress?.todos.map((todo) => todo.status)).toEqual(['completed', 'completed', 'completed'])
+  })
+
+  test('write approval pauses before the recorded write result', async () => {
+    const { backend } = backendWith()
+    let options: string[] = []
+    const run = await play(backend, {
+      model: 'approval',
+      onEvent: (event) => {
+        if (event.type !== 'permission_request') return
+        options = event.options.map((option) => option.label)
+        expect(backend.permissions.respondToPermission(event.questionId, 'allow-session')).toBe(true)
+      },
+    })
+    expect(options).toEqual(['Allow once', 'Allow for session', 'Reject'])
+    expect(run.events.some((event) => event.type === 'tool_result')).toBe(true)
+    expect(texts(run.events).join('')).toContain('Created the requested probe file.')
+  })
+
+  test('question plays a standalone two-choice request before finishing', async () => {
+    const { backend } = backendWith()
+    let choices: string[] = []
+    const run = await play(backend, {
+      model: 'question',
+      onEvent: (event) => {
+        if (event.type !== 'question_request') return
+        choices = event.questions.flatMap((question) => question.options.map((option) => option.label))
+        expect(backend.permissions.respondToQuestion(event.questionId, {
+          schema_vs_ui_flexibility: 'Strict schemas (Recommended)',
+        })).toBe(true)
+      },
+    })
+    expect(choices).toEqual(['Strict schemas (Recommended)', 'UI flexibility'])
+    expect(texts(run.events).join('')).toContain('plan questions fixture complete')
+  })
+
+  test('multi turn advances on the same session and then loops', async () => {
+    const { backend } = backendWith()
+    const first = await play(backend, { model: 'multi-turn' })
+    const conversation = { kind: 'resume' as const, threadId: first.nativeSessionId! }
+    const second = await play(backend, { model: 'multi-turn', conversation })
+    const third = await play(backend, { model: 'multi-turn', conversation })
+    expect([first, second, third].map((run) => texts(run.events).join(''))).toEqual([
+      'first fixture turn complete', 'second fixture turn complete', 'first fixture turn complete',
+    ])
+  })
+
+  test('command output keeps the JSON line and its Unicode as literal tool output', async () => {
+    const { backend, clock } = backendWith()
+    const run = await play(backend, { model: 'command-output' })
+    const result = run.events.find((event) => event.type === 'tool_result')
+    expect(result?.content).toBe('{"stdout":"line 1\\n行 2 🚀","stderr":"é warning","interrupted":false,"requestId":"keep-me"}\n')
+    expect(clock.waits).toContain(300)
   })
 
   test('a denied permission fails the tool and ends the turn there', async () => {
