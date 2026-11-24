@@ -120,15 +120,13 @@ work with the same ID is refused. The key belongs to the calling session and
 is kept for thirty days after a closed request. Use a new key for each review
 round. The wait duration can change on a retry.
 
-Use `start_sessions` for child work on either provider. To run work in
-parallel, put every session in one call: the sessions start together, and a
-wait covers all of them. Separate calls may run one after another. Native subagents remain
-available for provider-specific features such as context inheritance. Use
-`independent: true` for an independent conversation. Give each child the full
-brief, choose its checkout before starting it, and inspect its result before
-reporting completion. Each session in the call has its own provider, model,
-host, workspace, permission mode, and reports. Critical guidance is loaded with `start_sessions`;
-children also get these completion rules in their system instructions.
+To run `start_sessions` children in parallel, put every session in one call.
+The sessions start together, and a wait covers all of them. Separate calls may
+run one after another. Use `independent: true` for an independent conversation.
+Give each child the full brief, choose its checkout before starting it, and
+inspect its result before reporting completion. Each session in the call has
+its own provider, model, host, workspace, permission mode, and reports.
+Children also get completion rules in their system instructions.
 
 Both providers receive shared orchestration guidance when session tools are
 available. Claude receives it in its system prompt append. Codex receives it
@@ -145,16 +143,27 @@ subagents use their provider's own result delivery.
 
 ## Delegation in any session
 
-The agent decides whether to delegate for each request. Independent parts can
-run in parallel when each child has its own brief and a clear result to
-deliver. Use separate worktrees when child edits can conflict. A parent can
-start follow-up work as soon as it has the reports it needs. It reviews all
-required results before it reports completion.
+The agent does small or tightly coupled work itself. It delegates when the user
+asks or when independent parts benefit from running in parallel. A child can
+delegate when its brief asks for it.
+
+For foreground work on the same provider, the agent uses a native subagent if
+the native tool supports the model and the child needs no extra settings. It
+uses `start_sessions` for background work, a separate worktree, another
+provider, settings the native tool cannot apply, or an explicit request for
+`start_sessions`. It can also use `start_sessions` when the native tool is
+unavailable.
+
+The parent checks `list_agent_targets` before its first `start_sessions`
+delegation. A child inherits the parent's provider, model, and reasoning
+effort by default. If a requested model or setting is unavailable, the agent
+reports the problem and asks before choosing a substitute.
 
 In Settings → Sessions → Delegation, you can set a default worker model and
-add instructions for delegation. The model applies only to child sessions
-that specify neither a provider nor a model. The instructions go to Claude
-and Codex runs that have `start_sessions`.
+add instructions for delegation. When you set a worker model, the agent uses
+`start_sessions` and omits the provider and model fields to apply your choice.
+You can override that choice for specific work. Both Claude and Codex receive
+these settings in runs that have `start_sessions`.
 
 ## Stopping child work
 

@@ -48,12 +48,12 @@ const linkTool = tool('link')
 const codexRuntime = { model: 'gpt-5.6-sol', reasoningEffort: 'high' }
 
 /** The system prompt append Claude receives for one run with these tools. */
-async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp', integrationInstructions?: { name: string; slug: string; text: string }[], delegationInstructions?: string): Promise<string> {
+async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp', integrationInstructions?: { name: string; slug: string; text: string }[], delegationInstructions?: string, hasDefaultWorkerModel?: boolean): Promise<string> {
   capturedOptions = null
   const backend = new ClaudeBackend()
   backend.on('error', () => {})
   const handle = backend.startRun({
-    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt, integrationInstructions, delegationInstructions,
+    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt, integrationInstructions, delegationInstructions, hasDefaultWorkerModel,
     model: 'claude-opus-4-7', reasoningEffort: 'high',
     permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
     conversation: { kind: 'new' },
@@ -166,7 +166,8 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Solus orchestration')
       expect(prompt).toContain('This catalog does not establish native subagent support')
-      expect(prompt).toContain('Decide whether to delegate for each request')
+      expect(prompt).toContain('Use a native subagent for foreground work')
+      expect(prompt).toContain('if the requested provider, model, or reasoning level is unavailable')
       expect(prompt).toContain('let reports wake you as they arrive')
       expect(prompt).toContain('Review all required results before reporting completion')
       expect(prompt).toContain('Use send_session to continue an existing session')
@@ -194,8 +195,12 @@ describe('runtime instructions', () => {
 
   test('one start tool covers both providers, parallel work, and independent starts', async () => {
     const tools = [tool('start_sessions'), tool('list_agent_targets')]
-    for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
-      expect(prompt).toContain('Use start_sessions for child work on the same provider or another provider')
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools)
+    const claude = await claudeAppend(tools)
+    expect(codex).toContain('use spawn_agent, then wait for its result')
+    expect(claude).toContain('use Agent with run_in_background=false')
+    for (const prompt of [codex, claude]) {
+      expect(prompt).toContain('Use start_sessions for a separate worktree')
       // WHY: one call starts its sessions together; separate calls can run one after another.
       expect(prompt).toContain('put every session in one start_sessions call')
       expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
@@ -209,6 +214,16 @@ describe('runtime instructions', () => {
       expect(prompt).not.toContain('claude_subagent')
       expect(prompt).not.toContain('codex_subagent')
     }
+  })
+
+  test('a configured worker model takes precedence over native delegation', async () => {
+    const tools = [tool('start_sessions')]
+    const codex = { harness: 'Codex' as const, ...codexRuntime, hasDefaultWorkerModel: true }
+    const rule = 'Use start_sessions with agent_provider and model_id omitted'
+    expect(runtimeInstructions(codex, tools)).toContain(rule)
+    expect(await claudeAppend(tools, undefined, '/tmp', undefined, undefined, true)).toContain(rule)
+    expect(runtimeInstructions({ ...codex, hasDefaultWorkerModel: false }, tools)).not.toContain(rule)
+    expect(runtimeInstructions(codex, [])).not.toContain(rule)
   })
 
   // WHY: a chat's folder is a scratch folder the person never sees. An agent
@@ -278,7 +293,7 @@ describe('runtime instructions', () => {
     const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_sessions')])
     expect(prompt).toContain('Reuse request_id only to retry the same request')
     expect(prompt).toContain("isolation='worktree'")
-    expect(prompt).toContain('Never substitute an unsupported level')
+    expect(prompt).toContain('Get their direction before substituting a different one')
     expect(prompt).toContain('copy the link returned by its tool')
     expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
   })

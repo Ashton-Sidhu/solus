@@ -54,19 +54,21 @@ Codex background commands keep the session in background until their results arr
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
-Decide whether to delegate for each request. Do small or tightly coupled work in this session. If two or more parts can run at the same time from separate briefs, use child sessions when that helps complete the request. Follow the user's direction about whether to delegate.
+Do small or tightly coupled work yourself. Delegate when the user asks or when independent parts can run in parallel and benefit from it. Follow the user's delegation instructions. As a child, delegate only if your brief asks you to.
 
-Use start_sessions for child work on the same provider or another provider. Each session is a durable child with no parent history, and each has its own provider, model, host, workspace, permission mode, and reports. Give each the complete brief, constraints, and expected result. To run work in parallel, put every session in one start_sessions call; they start together. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities. For background agent work, use start_sessions, never a background native subagent.
+Use a native subagent for foreground work on your provider when the native tool supports the model and the child needs no extra settings. Use start_sessions for a separate worktree, another provider, a model or settings the native tool cannot use, or when the user asks for start_sessions. Use start_sessions if the native tool is unavailable. For background agent work, use start_sessions, never a background native subagent.
+
+Each start_sessions child gets only its brief. Give it the task, constraints, and expected result. To run work in parallel, put every session in one start_sessions call so they start together.
 
 Set independent=true on a session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
 
 Choose the workspace before launching. Use separate worktrees when child edits can conflict. A session uses isolation='shared' by default; isolation='worktree' gives it a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote session needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
 
-A configured default worker model applies to child sessions when you omit both agent_provider and model_id. Otherwise, same-provider children inherit the caller's model and reasoning effort when those fields are omitted. Choose a provider and model suited to the child’s work if the default does not fit. Follow any model choice the user gives you. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Children keep your permission mode. Narrow it only for a clear reason. Started sessions do not run in fast mode.
+For start_sessions, inherit your provider, model, and reasoning effort by default. Apply any explicit user choice and set requested reasoning_effort explicitly. Tell the user if the requested provider, model, or reasoning level is unavailable. Get their direction before substituting a different one. Children keep your permission mode. Narrow it only for a clear reason. Started sessions do not run in fast mode.
 
-For delegated work, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end the turn, and let reports wake you as they arrive. Do not poll for reports. Start follow-up work as soon as the results it needs are ready. Review all required results before reporting completion. Read only the details you need to act. Report what is complete, link the outputs, and state what is still open. Save a durable summary in the linked task or a work when it will be useful later. A wait timeout leaves the work running.
+For start_sessions children, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end the turn, and let reports wake you as they arrive. Do not poll for reports. Start follow-up work as soon as the results it needs are ready. Review all required results before reporting completion. Read only the details you need to act. Report what is complete, link the outputs, and state what is still open. Save a durable summary in the linked task or a work when it will be useful later. A wait timeout leaves the work running.
 
-Start a fresh child for new work. Use send_session to correct or continue the same work and request a report when you need its result; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers questions and handles plan and permission requests on the child cards. If a notice asks for input, tell the user what it asks.
+Start a fresh child for new work or a new review round. Use send_session to correct or continue the same work and request a report when you need its result; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers questions and handles plan and permission requests on the child cards. If a notice asks for input, tell the user what it asks.
 
 Tool definitions can load through tool search. Search before concluding a tool is absent; do not start duplicate work to work around discovery. To show another session, copy the link returned by its tool. Do not invent a session link.`
 
@@ -127,6 +129,7 @@ export interface AgentRuntime {
   /** The run's working directory: a chat gets the chat block. */
   workingDirectory?: string
   delegationInstructions?: string
+  hasDefaultWorkerModel?: boolean
   /** The folders the session works in; absent for a session with one working directory. */
   codebase?: CodebaseBlock
 }
@@ -249,6 +252,22 @@ function singleLine(value: string): string {
   return value.replaceAll(/\s+/g, ' ').trim()
 }
 
+function orchestrationInstructions(runtime: AgentRuntime, has: (name: string) => boolean): string {
+  if (!has('start_sessions')) return ''
+  const delegationInstructions = runtime.delegationInstructions?.trim()
+  return [
+    ORCHESTRATION_INSTRUCTIONS,
+    runtime.harness === 'Claude Code'
+      ? 'For native delegation, use Agent with run_in_background=false.'
+      : 'For native delegation, use spawn_agent, then wait for its result.',
+    runtime.hasDefaultWorkerModel && 'A default worker model is configured for this session. Use start_sessions with agent_provider and model_id omitted to apply it unless the user gives you a different choice.',
+    delegationInstructions && `User instructions for delegation:\n${delegationInstructions}`,
+    has('list_agent_targets') && 'Before the first start_sessions delegation in this session, call list_agent_targets for the host model catalog. Check again if a target fails or the requested provider or host changes. This catalog does not establish native subagent support. Check the native tool schema for that.',
+    has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
+    has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
+  ].filter(Boolean).join('\n\n')
+}
+
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_sessions` for Sessions
  *  `move_checkout` for worktrees, `render_artifact` for visuals,
@@ -261,18 +280,11 @@ export function runtimeInstructions(runtime: AgentRuntime, tools: readonly Agent
 
 You can embed images and videos in your response with Markdown and absolute file paths. Solus shows them inline.</runtime_info>`
   const has = (name: string) => tools.some((tool) => tool.name === name)
-  const delegationInstructions = runtime.delegationInstructions?.trim()
   return [
     runtimeInfo,
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
     codebaseBlock(runtime.codebase, { attachFolder: has('attach_folder'), startSessions: has('start_sessions') }),
-    has('start_sessions') && [
-      ORCHESTRATION_INSTRUCTIONS,
-      delegationInstructions && `User instructions for delegation:\n${delegationInstructions}`,
-      has('list_agent_targets') && 'Before selecting another provider or model, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
-      has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
-      has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
-    ].filter(Boolean).join('\n\n'),
+    orchestrationInstructions(runtime, has),
     has('move_checkout') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
     ...ENTRY_TOOL_BLOCKS.filter(([tool]) => has(tool)).map(([, block]) => block),

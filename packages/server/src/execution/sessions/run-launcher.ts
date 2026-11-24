@@ -1142,6 +1142,7 @@ export class RunLauncher {
         systemPrompt,
         integrationInstructions,
         delegationInstructions: effectiveInput.executionPreferences?.delegationInstructions,
+        hasDefaultWorkerModel: !!effectiveInput.executionPreferences?.workerModel,
         cliSkip,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
