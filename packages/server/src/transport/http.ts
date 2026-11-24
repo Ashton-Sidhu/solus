@@ -441,7 +441,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!(await authorized(c))) return c.json({ error: 'Unauthorized' }, 401)
     try {
       const filePaths = await receiveMultipart(c.env.incoming)
-      return c.json({ attachments: filePathsToAttachments(filePaths) })
+      return c.json({ attachments: await filePathsToAttachments(filePaths) })
     } catch (err) {
       log.error('upload_failed', { error: err instanceof Error ? err.message : String(err) })
       return c.json({ error: 'upload failed' }, 500)

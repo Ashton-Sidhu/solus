@@ -44,7 +44,6 @@ export function stopRefusalText(reason: StopRefusalReason): string {
 /** The tag children inherit, including detached commands. Never an authorization token. */
 export const RUNNING_SERVER_SESSION_ENV = 'SOLUS_SESSION_ID'
 export const RUNNING_SERVER_TERMINAL_ENV = 'SOLUS_TERMINAL_ID'
-export const SERVER_LIST_PAGE_SIZE = 4
 
 export function serverUrlsFromText(text: string): string[] { return [...new Set(text.split('\n').map((line) => line.trim()).filter(Boolean))] }
 

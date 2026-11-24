@@ -53,6 +53,18 @@ export interface GuideSource {
   write(identity: GuideIdentity, guide: ReviewGuide, canCommit: () => boolean): Promise<boolean>
 }
 
+/** A request's run: new or joined, and whether its own instructions were left out because it joined a run with other ones. */
+export interface GuideJobStart {
+  status: ReviewGuideStatusEvent
+  joined: boolean
+  instructionsDropped?: boolean
+  completion: Promise<GeneratedGuide | null>
+}
+
+function instructionsOf(opts: ReviewGuideRequestOptions): string {
+  return opts.instructions?.trim() ?? ''
+}
+
 export interface GuideJobRequest {
   ctx: IpcContext
   opts: ReviewGuideRequestOptions
@@ -139,7 +151,7 @@ export class ReviewGuideJobs {
   /** Start, join, or replace the job for the guide a request names. Null when
    * there is nothing to review. `joined` is true when the request joined a job
    * that was already running. */
-  async request(request: GuideJobRequest): Promise<{ status: ReviewGuideStatusEvent; joined: boolean; completion: Promise<GeneratedGuide | null> } | null> {
+  async request(request: GuideJobRequest): Promise<GuideJobStart | null> {
     const source = this.sourceFor(request.opts)
     const subject = await source.identify(request.ctx, request.opts, { withRevision: true })
     if (!subject) return null
@@ -149,7 +161,10 @@ export class ReviewGuideJobs {
         running.listeners.push(request.onStatus)
         request.onStatus(running.event)
       }
-      return { status: running.event, joined: true, completion: running.completion }
+      const start: GuideJobStart = { status: running.event, joined: true, completion: running.completion }
+      // A joined run keeps the instructions it started with: the request's own are not applied.
+      if (instructionsOf(request.opts) && instructionsOf(request.opts) !== instructionsOf(running.request.opts)) start.instructionsDropped = true
+      return start
     }
     if (running) this.stop(running)
     const job: GuideJob = {

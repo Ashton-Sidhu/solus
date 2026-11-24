@@ -3,6 +3,9 @@ import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, videoMimeType } from '@solus/contracts/media-types'
 import type { IpcContext, PromptImageRef } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
+import { EnvironmentId } from '@t3tools/contracts'
+import { attachmentUploadError, createAttachmentUploadRegistry, type AttachmentUploadStatus } from '@t3tools/client-runtime/state/attachment-uploads'
+import * as Effect from 'effect/Effect'
 
 /**
  * Attachments from the phone, uploaded to the session's host the way the web
@@ -37,7 +40,44 @@ export interface UploadedAttachment {
 export interface AttachmentIo {
   readBase64(uri: string): Promise<string>
   /** POSTs the file's raw bytes; answers the HTTP status. */
-  uploadFile(url: string, uri: string): Promise<number>
+  uploadFile(url: string, uri: string, transfer?: AttachmentTransfer): Promise<number>
+}
+
+interface AttachmentTransfer {
+  signal: AbortSignal
+  reportProgress: (progress: number) => void
+}
+
+interface AttachmentUploadJob {
+  id: string
+  environmentId: EnvironmentId
+  transfer: (control: AttachmentTransfer) => Promise<string>
+}
+
+const transferListeners = new Set<() => void>()
+let transferStatuses: Readonly<Record<string, AttachmentUploadStatus>> = {}
+const transfers = createAttachmentUploadRegistry<AttachmentUploadJob>({
+  key: (job) => JSON.stringify([job.environmentId, job.id]),
+  environmentId: (job) => job.environmentId,
+  concurrencyPerEnvironment: 3,
+  upload: (job, reportProgress) => Effect.tryPromise({
+    try: (signal) => job.transfer({ signal, reportProgress }),
+    catch: attachmentUploadError,
+  }),
+  onChange: (statuses) => {
+    transferStatuses = statuses
+    for (const listener of transferListeners) listener()
+  },
+})
+
+export function subscribeAttachmentTransfers(listener: () => void): () => void {
+  transferListeners.add(listener)
+  return () => { transferListeners.delete(listener) }
+}
+
+export function attachmentTransferProgress(hostId: string, attachmentId: string): number | undefined {
+  const status = transferStatuses[JSON.stringify([hostId, attachmentId])]
+  return status?.status === 'uploading' && status.progress > 0 ? status.progress : undefined
 }
 
 export interface AttachmentUploadDeps {
@@ -46,9 +86,11 @@ export interface AttachmentUploadDeps {
   serverUrl: string
   io: AttachmentIo
   uuid(): string
+  streamImages?: boolean
+  hostId?: string
+  signal?: AbortSignal
+  checkAccess?: () => void
 }
-
-export class AttachmentRefusedError extends Error {}
 
 /** Why these files cannot join the prompt, or null when they can. */
 export function attachmentSizeProblem(files: readonly PickedFile[]): string | null {
@@ -65,17 +107,26 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
   const video = kind.isVideo
   const mime = kind.mimeType
   const isImage = kind.type === 'image'
-  let hostPath: string
+  const id = deps.uuid()
   let dataUrl: string | null = null
-  if (video) {
-    hostPath = await streamUpload(file, mime, deps)
-  } else {
-    // The host takes standard base64 with no line breaks.
-    dataUrl = `data:${mime};base64,${(await deps.io.readBase64(file.uri)).replace(/\s+/g, '')}`
-    hostPath = await deps.api.attachUpload(deps.ctx, { name: file.name, mime, dataUrl })
+  const transfer = (control: AttachmentTransfer) => {
+    checkTransfer(deps, control)
+    const inlineUpload = async () => {
+      // The host takes standard base64 with no line breaks.
+      dataUrl = `data:${mime};base64,${(await deps.io.readBase64(file.uri)).replace(/\s+/g, '')}`
+      checkTransfer(deps, control)
+      return deps.api.attachUpload(deps.ctx, { name: file.name, mime, dataUrl })
+    }
+    return video || (isImage && deps.streamImages && file.size !== null && file.size > 0)
+      ? streamUpload(file, mime, deps, inlineUpload, control)
+      : inlineUpload()
   }
+  const hostPath = await Effect.runPromise(
+    transfers.upload({ id, environmentId: EnvironmentId.make(deps.hostId ?? deps.serverUrl), transfer }),
+    { signal: deps.signal },
+  )
   const uploaded: UploadedAttachment = {
-    id: deps.uuid(),
+    id,
     kind: isImage ? 'image' : 'file',
     name: file.name,
     hostPath,
@@ -87,20 +138,31 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
   return uploaded
 }
 
-/** A video's raw bytes over HTTP to a signed upload URL; a host too old to
- *  mint one still takes a video within the RPC limit. */
-async function streamUpload(file: PickedFile, mime: string, deps: AttachmentUploadDeps): Promise<string> {
-  if (file.size === null) throw new AttachmentRefusedError(`The size of ${file.name} is unknown.`)
+function checkTransfer(deps: AttachmentUploadDeps, control: AttachmentTransfer): void {
+  if (control.signal.aborted) throw new Error('Upload cancelled.')
+  deps.checkAccess?.()
+}
+
+/** Raw file bytes over HTTP, with the RPC fallback for hosts without upload tokens. */
+async function streamUpload(
+  file: PickedFile,
+  mime: string,
+  deps: AttachmentUploadDeps,
+  inlineUpload: () => Promise<string>,
+  control: AttachmentTransfer,
+): Promise<string> {
+  if (file.size === null) throw new Error(`The size of ${file.name} is unknown.`)
   let token: Awaited<ReturnType<HostApi['attachUploadToken']>>
   try {
     token = await deps.api.attachUploadToken(deps.ctx, { name: file.name, mime, size: file.size })
   } catch (error) {
+    checkTransfer(deps, control)
     if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) throw error
-    const dataUrl = `data:${mime};base64,${(await deps.io.readBase64(file.uri)).replace(/\s+/g, '')}`
-    return deps.api.attachUpload(deps.ctx, { name: file.name, mime, dataUrl })
+    return inlineUpload()
   }
-  const status = await deps.io.uploadFile(new URL(token.relativeUrl, `${deps.serverUrl.replace(/\/+$/, '')}/`).toString(), file.uri)
-  if (status < 200 || status >= 300) throw new AttachmentRefusedError(`The host refused ${file.name} (${status}).`)
+  checkTransfer(deps, control)
+  const status = await deps.io.uploadFile(new URL(token.relativeUrl, `${deps.serverUrl.replace(/\/+$/, '')}/`).toString(), file.uri, control)
+  if (status < 200 || status >= 300) throw new Error(`The host refused ${file.name} (${status}).`)
   return token.hostPath
 }
 

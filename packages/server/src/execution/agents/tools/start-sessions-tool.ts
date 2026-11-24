@@ -43,46 +43,46 @@ const sessionFields = {
     .min(1)
     .max(ORCHESTRATION_LIMITS.title)
     .optional()
-    .describe('A short name for the session and its card, such as "Server correctness fixes". Give each session a different name. Omit to name it from the prompt.'),
+    .describe('A short, distinct name for the session and its card. Omit to name it from the prompt.'),
   independent: z
     .boolean()
     .default(false)
-    .describe('false (default): your child; your turn stays open for its report, and stopping you stops it. true: a separate conversation that does not hold your work open and is not stopped with you.'),
+    .describe('false (default): your child; it reports to you and stops with you. true: a separate conversation.'),
   agent_provider: z
     .string()
     .optional()
-    .describe('The configured agent that runs the session. Defaults to yours; list_agent_targets lists the providers and models.'),
+    .describe('Defaults to yours; list_agent_targets lists providers and models.'),
   model_id: z
     .string()
     .min(1)
     .optional()
-    .describe('Model id. An unqualified child uses the configured default worker model if set. Otherwise, omit to inherit your model on the same provider, or use the selected provider’s default. An unqualified session uses the configured fallback model while the provider of its default is out of usage.'),
+    .describe('Model id. With no provider or model: the worker model if set, else yours; the fallback model while that provider is out of usage.'),
   reasoning_effort: z
     .enum(REASONING_VALUES)
     .optional()
     .describe("Reasoning effort. Defaults to the model's default level."),
   permission_mode: z.enum(PERMISSION_MODES).optional(),
-  host: HOST_FIELD.describe('Host id or name from list_hosts. Omit for this host. On another host, cwd, provider, and model must exist there.'),
+  host: HOST_FIELD.describe('Host id or name from list_hosts. Omit for this host.'),
   cwd: z
     .string()
     .trim()
     .min(1)
     .optional()
-    .describe('Working directory. Defaults to yours. On another host: a project path there, or omit for a new chat folder.'),
+    .describe('Working directory. Defaults to yours; on another host, a project path there.'),
   isolation: z
     .enum(['shared', 'worktree'])
     .default('shared')
-    .describe('shared (default): work in cwd. worktree: a new checkout of its own; use it for separate edits or a pull request. On another host, name cwd and worktree_base_branch.'),
+    .describe('shared (default): work in cwd. worktree: its own checkout, for separate edits or a pull request.'),
   worktree_base_branch: z
     .string()
     .trim()
     .min(1)
     .optional()
-    .describe('With isolation=worktree: the branch or commit the checkout starts from. Defaults to the commit checked out in cwd.'),
+    .describe('With worktree: the base branch or commit. Defaults to the commit in cwd.'),
   report: z
     .boolean()
     .optional()
-    .describe('Send the session’s notices and final report to you. Defaults to true for a child and false for an independent session.'),
+    .describe('Send its notices and report to you. Default: true for a child.'),
   attachments: ATTACHMENTS_FIELD,
 }
 

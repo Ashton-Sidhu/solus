@@ -310,6 +310,24 @@ function limited(lines: string[]): string[] {
 }
 
 function excerpt(body: string): string {
-  const text = body.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim()
+  const text = plainText(body)
+  if (!text) return '(no text)'
   return text.length <= EXCERPT_LENGTH ? `"${text}"` : `"${cutText(text, EXCERPT_LENGTH - 1)}…"`
+}
+
+/** A comment as one line of plain text. A code host's comment is markdown
+ *  with HTML, and a bot's is mostly markup. Every client draws the wake as
+ *  markdown, so a tag or an open `**` that the cut leaves would draw wrong.
+ *  The link gives the full comment. */
+function plainText(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(/<\/?[a-z][\w:-]*(?:\s[^>]*)?\/?>/gi, ' ')
+    .replace(/^[ \t]*(?:```|~~~).*$/gm, ' ')
+    .replace(/^[ \t]*(?:>[ \t]*)*(?:#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[![A-Z]+\][ \t]*)?/gm, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*|__|~~/g, '')
+    .replace(/(^|[\s(])[*_](?=\S)([^*_]*?\S)[*_](?=[\s).,:;!?|]|$)/gm, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
 }

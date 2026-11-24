@@ -70,6 +70,13 @@ HEIC and TIFF are not supported: most browsers cannot show them without
 conversion. An iPhone video in HEVC plays only where the browser can decode
 HEVC.
 
+A HEIC photo attached to a prompt is different. A macOS host converts it to a
+JPEG with `sips` when the photo arrives, so the composer and the transcript show
+it and the agent reads it as an image. The original file on disk does not
+change. A host that cannot convert it (Linux or Windows) keeps the HEIC as a
+file attachment, never as a broken image. The mobile app converts a photo to
+JPEG before it uploads.
+
 `packages/contracts/src/media-types.ts` is the one list of these types. The
 host, the file pane, the attachment picker, and the artifact and Markdown image
 surfaces all read it. Add a type there, and only there.

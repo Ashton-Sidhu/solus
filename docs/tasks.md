@@ -248,6 +248,8 @@ of the person the turn acts for ([Solus tools](solus-tools.md)).
   starts anyway.
 - **`list_tasks`** lists the tasks of your task sources and names the source
   keys. A `source` argument limits the list to one source.
+- **`list_links`** with `kind=task` lists the task keys linked to the calling
+  session. The tool also includes task links when you omit `kind`.
 - **`create_task`** creates a real task in the source that the agent names by
   its source key. Without one, it uses the source that the session points to
   (see [Where a new task goes](#where-a-new-task-goes)); with several sources

@@ -8,8 +8,9 @@ import { use, useState } from "react";
 import {
   composerPullRequests,
   filesViewedReadsFamily,
-  filesViewedReadsKey,
 } from "../../state/pull-requests";
+import { Atom } from "effect/reactivity";
+import { useHostQueryScope } from "../../state/host-query-scope";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
@@ -17,20 +18,28 @@ import { pullRequestReviewKey } from "./pullRequestReviewDrafts";
 import { viewedOverlay, type ViewedState } from "./pullRequestFilesViewed";
 import { m } from "../../i18n/messages";
 
+const unreadViewedFiles = Atom.make(0);
+
 export function usePullRequestFilesViewed(params: PullRequestParams, pr: PullRequestDetail | null) {
   const registry = use(RegistryContext);
   const target = pullRequestTarget(params);
-  const scopeKey = pullRequestReviewKey(params);
+  const scope = useHostQueryScope(target.environmentId);
+  const scopeKey = JSON.stringify([pullRequestReviewKey(params), scope, pr?.headSha]);
   const supported = Boolean(pr?.capabilities.viewedFiles);
   const permission = useAtomValue(
     composerPullRequests.setFilesViewed.permissionAtom(target.environmentId),
   );
   const connected = usePullRequestConnected(params.environmentId);
   const allowed = connected && permission;
-  const query = useEnvironmentQuery(supported ? composerPullRequests.filesViewed(target) : null);
-  const refresh = useAtomRefresh(composerPullRequests.filesViewed(target));
-  const readsAtom = filesViewedReadsFamily(filesViewedReadsKey(target));
-  const reads = useAtomValue(readsAtom);
+  const source = composerPullRequests.filesViewed({
+    ...target,
+    scope,
+    input: { ...target.input, headSha: pr?.headSha },
+  });
+  const query = useEnvironmentQuery(supported ? source : null);
+  const refresh = useAtomRefresh(source);
+  const readsAtom = filesViewedReadsFamily(source);
+  const reads = useAtomValue(supported ? readsAtom : unreadViewedFiles);
   const write = useAtomCommand(composerPullRequests.setFilesViewed, { reportFailure: false });
   const [state, setState] = useState<ViewedState>({ key: scopeKey, presses: {}, error: null });
   const presses = state.key === scopeKey ? state.presses : {};
@@ -54,7 +63,7 @@ export function usePullRequestFilesViewed(params: PullRequestParams, pr: PullReq
     }));
     const response = await write({
       ...target,
-      input: { ...target.input, files: [{ path, viewed }] },
+      input: { ...target.input, expectedHeadSha: pr?.headSha, files: [{ path, viewed }] },
     });
     // A read completed by the time the write lands may predate it; the next one carries it.
     const readsAtWrite = registry.get(readsAtom);

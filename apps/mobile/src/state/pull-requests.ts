@@ -8,6 +8,8 @@ import {
   requestPrReviewers,
   prLabelChoices,
   prReviewerChoices,
+  prFilesViewed,
+  setPrFilesViewed,
 } from "../solus/source-control-actions";
 import { hostQueryScope } from "./host-query-scope";
 import {
@@ -28,7 +30,7 @@ import {
 import type { EnvironmentId, PullRequestListInput, PullRequestRef } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/reactivity";
+import { Atom } from "effect/reactivity";
 import { connectionAtomRuntime } from "../connection/runtime";
 import {
   EMPTY_PULL_REQUEST_STATS_CACHE,
@@ -69,14 +71,21 @@ export const pullRequestListStatsFamily = Atom.family((_environmentId: string) =
   ),
 );
 
-export const filesViewedReadsKey = (target: {
-  readonly environmentId: EnvironmentId;
-  readonly input: PullRequestRef;
-}) => JSON.stringify([target.environmentId, target.input]);
-
 /** Completed server reads of each viewed-files query; unchanged answers are structurally shared. */
-export const filesViewedReadsFamily = Atom.family((_key: string) =>
-  Atom.make(0).pipe(Atom.setIdleTTL(5 * 60_000)),
+export const filesViewedReadsFamily = Atom.family((source: ReturnType<typeof prFilesViewed>) =>
+  Atom.map(
+    Atom.make((get) => {
+      const result = get(source);
+      const previous = Option.getOrElse(get.self<{
+        readonly answer: typeof result | null;
+        readonly count: number;
+      }>(), () => ({ answer: null, count: 0 }));
+      return result._tag === "Success" && !result.waiting && result !== previous.answer
+        ? { answer: result, count: previous.count + 1 }
+        : previous;
+    }),
+    ({ count }) => count,
+  ),
 );
 
 const upstreamPullRequests = createPullRequestEnvironmentAtoms(connectionAtomRuntime, {
@@ -118,18 +127,6 @@ const upstreamPullRequests = createPullRequestEnvironmentAtoms(connectionAtomRun
         });
       }
     }),
-  // A new head can change which files GitHub still counts as viewed, so the viewed-files read is
-  // refreshed where the new head lands. The detail atom still holds the previous answer here.
-  detail: (target, value, registry) =>
-    Effect.sync(() => {
-      const previous = AsyncResult.value(registry.get(upstreamPullRequests.detail(target)));
-      if (Option.isSome(previous) && previous.value.headSha !== value.headSha)
-        registry.refresh(upstreamPullRequests.filesViewed(target));
-    }),
-  filesViewed: (target, _value, registry) =>
-    Effect.sync(() =>
-      registry.update(filesViewedReadsFamily(filesViewedReadsKey(target)), (reads) => reads + 1),
-    ),
   list: (target, value, registry) =>
     Effect.sync(() => {
       const statsAtom = pullRequestListStatsFamily(target.environmentId);
@@ -168,6 +165,8 @@ export const composerPullRequests = {
   update: editPr,
   runAction: runPrAction,
   setLabels: labelPr,
+  filesViewed: prFilesViewed,
+  setFilesViewed: setPrFilesViewed,
   comment: commentPr,
   submitReview: reviewPr,
   requestReviewers: requestPrReviewers,

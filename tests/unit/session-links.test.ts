@@ -156,17 +156,23 @@ test('list_links includes all link types, filters by kind, and unlink keeps the 
   const automation = await createAutomation('Keep this automation', { prompt: 'Later', cwd: directory, agentProvider: 'codex', modelId: null, reasoningEffort: 'medium' }, actor, false)
   const path = join(directory, 'removed-file.png')
   const url = 'https://github.com/acme/solus/pull/42'
+  const taskId = 'github:I_listed'
   writeFileSync(path, 'fixture')
   const inputs = [
     { kind: 'work', target_id: work.id },
     { kind: 'automation', target_id: automation.id },
     { kind: 'file', path },
     { kind: 'pr', target_id: url },
+    { kind: 'task', target_id: taskId },
   ]
   for (const input of inputs) expect((await linkAgentTool.execute(input, tools)).ok).toBe(true)
   const listed = await listLinksAgentTool.execute({}, tools)
   expect(listed.ok).toBe(true)
-  for (const identifier of [work.id, automation.id, path, url]) expect(listed.text).toContain(identifier)
+  for (const identifier of [work.id, automation.id, path, url, taskId]) expect(listed.text).toContain(identifier)
+  const tasks = await listLinksAgentTool.execute({ kind: 'task' }, tools)
+  expect(tasks.ok).toBe(true)
+  expect(tasks.text).toContain(taskId)
+  expect(tasks.text).not.toContain(url)
   const prs = await listLinksAgentTool.execute({ kind: 'pr' }, tools)
   expect(prs.text).toContain(url)
   expect(prs.text).not.toContain(work.id)
@@ -177,7 +183,7 @@ test('list_links includes all link types, filters by kind, and unlink keeps the 
     expect((await unlinkAgentTool.execute(input, tools)).ok).toBe(true)
   }
   const after = await listLinksAgentTool.execute({}, tools)
-  for (const identifier of [work.id, automation.id, path, url]) expect(after.text).not.toContain(identifier)
+  for (const identifier of [work.id, automation.id, path, url, taskId]) expect(after.text).not.toContain(identifier)
   expect((await operations.getWork(context, work.id)).content).toBe('Keep content')
   expect((await loadAutomation(automation.id))?.enabled).toBe(false)
   // Automatic PR discovery must respect the removal; explicit link restores it.

@@ -7,12 +7,14 @@ import { Alert } from "react-native";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { DiffRequest } from "@solus/contracts/git-types";
+import { EnvironmentId } from "@t3tools/contracts";
 import { type GitActionRequestInput } from "@t3tools/client-runtime/state/vcs";
 import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import { useListened } from "@solus-mobile/app/app-context";
 import { EmptyState } from "../components/ui/EmptyState";
 import { uuidv4 } from "../lib/uuid";
-import { useHostSettingsRead } from "./use-host-settings-read";
+import { useHostQueryRead, useHostSettingsRead } from "./use-host-settings-read";
+import { checkoutVcsQueries } from "./checkout-git-queries";
 import { useSettingsAction } from "./SettingsFeedback";
 import { sameHostPath } from "@solus/contracts/host-path";
 import {
@@ -22,13 +24,18 @@ import {
 import {
   checkoutActions,
   checkoutGitTarget,
-  checkoutStatus,
   type CheckoutGitTarget,
 } from "./checkout-git";
 import { solus } from "./runtime";
 import { useSessionFolders } from "./use-session-controller";
 
 type GitTarget = { environmentId: string; threadId: string };
+
+export function useFolderBranch(hostId: string, cwd: string, enabled = true) {
+  const environmentId = EnvironmentId.make(hostId);
+  const source = checkoutVcsQueries.branch({ environmentId, input: { cwd } });
+  return useHostQueryRead(environmentId, source, undefined, enabled);
+}
 
 /**
  * The Git state of one folder on a host, read for the folder's own path. Each
@@ -37,17 +44,15 @@ type GitTarget = { environmentId: string; threadId: string };
  * worktree: a list of repositories reads without them.
  */
 export function useFolderGitStatus(hostId: string, cwd: string, includeDetails = true) {
-  const read = useCallback(
-    async (api: HostApi) => {
-      const [repo, state] = await Promise.all([
-        api.gitRepositoryStatus(cwd),
-        api.gitRefreshState(cwd, { includeDetails }),
-      ]);
-      return checkoutStatus(repo, state);
-    },
-    [cwd, includeDetails],
-  );
-  return useHostSettingsRead(hostId, read, "git.checkoutChanged");
+  const environmentId = EnvironmentId.make(hostId);
+  const branch = useFolderBranch(hostId, cwd);
+  const source = checkoutVcsQueries.status({ environmentId, input: { cwd, includeDetails } });
+  const details = useHostQueryRead(environmentId, source);
+  return {
+    ...details,
+    repositoryStatus: branch.data,
+    error: branch.error ?? details.error,
+  };
 }
 
 export function useCheckoutGitTarget(
@@ -66,7 +71,10 @@ export function useCheckoutGit(
   const navigation = useNavigation();
   const repository = target?.repository;
   const folder = target?.folder;
-  const { api, data, refresh, error, isRefreshing } = useFolderGitStatus(controller.hostId, cwd);
+  const { api, data, repositoryStatus, refresh, error, isRefreshing } = useFolderGitStatus(
+    controller.hostId,
+    cwd,
+  );
   const action = useSettingsAction(refresh);
   // The session still works in the folder of this sheet: its working directory, or a session folder that is still attached.
   const isCurrent = () =>
@@ -156,6 +164,7 @@ export function useCheckoutGit(
     });
   return {
     status: data ?? null,
+    repositoryStatus,
     refreshing: isRefreshing,
     error,
     refresh,
@@ -184,7 +193,8 @@ export function useCheckoutGitControls(
     hasThread: !draft,
     // A working directory that is no repository still has the repositories of its session folders to review.
     tracksRepositories: folders.some((folder) => folder.state === "git"),
-    currentBranch: git.status?.refName ?? null,
+    currentBranch: git.repositoryStatus?.refName ?? null,
+    checkoutIsRepo: git.repositoryStatus?.isRepo,
     gitStatus: git.status,
     gitOperationLabel: git.busy ? "Working…" : null,
     canOpenFiles,
@@ -295,11 +305,11 @@ function Branches({ controller }: { controller: ConversationController }) {
     );
   return (
     <GitBranchesForm
-      currentBranch={git.status?.refName ?? null}
+      currentBranch={git.repositoryStatus?.refName ?? null}
       currentWorktreePath={controller.run.workingDirectory}
       availableBranches={(branches.data ?? []).map((branch) => ({
         ...branch,
-        current: branch.current ?? branch.name === git.status?.refName,
+        current: branch.current ?? branch.name === git.repositoryStatus?.refName,
       }))}
       branchesLoading={!branches.data}
       busy={switching || git.busy}

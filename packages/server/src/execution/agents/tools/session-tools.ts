@@ -147,7 +147,7 @@ export interface SessionToolDeps {
 const REPORT_FIELD = z
   .boolean()
   .default(true)
-  .describe('Send a notice when the session needs the user or hits a rate limit, and a report when its turn ends. Defaults to true.')
+  .describe('Send notices (input needed, rate limit) and a report when the turn ends. Default true.')
 
 // A page size the agent asks for above this reads this many. Codex drops
 // `maximum` from the tool declaration, so an agent cannot see the bound; a
@@ -163,7 +163,7 @@ export const WAIT_FIELD = z
   .describe(`Wait up to ${MAX_WAIT_MS / 1000} seconds for a report or notice. 0 (default) returns at once. Timeout does not cancel work; report=true delivers the result later.`)
 
 export const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
-  .describe('Retry key scoped to the caller. Reuse for the same request to prevent duplicate work. Use a new key for each follow-up. Closed receipts last 30 days.')
+  .describe('Retry key: reuse only to retry the same request. A new key for each follow-up.')
 
 export const HOST_FIELD = z.string().trim().min(1).optional()
 
@@ -186,44 +186,44 @@ const MAX_ITEM_CHARS = 50_000
 const readSessionFields = {
   session_id: z.string().describe('The session id to read.'),
   view: z.enum(['messages', 'activity']).optional().describe("'messages' (default): user and assistant messages and plans. 'activity': every item, with tool calls and their output, reasoning, subagents and notices."),
-  after_position: z.number().int().min(0).optional().describe('Read the items after this position. Omit to read from the start. Pass nextPosition to read on.'),
-  limit: z.number().int().min(1).optional().describe(`Max items, 1 to ${MAX_READ_ITEMS}. Defaults to 50.`),
-  max_chars_per_item: z.number().int().min(1).optional().describe(`Max chars per item, 1 to ${MAX_ITEM_CHARS}. Defaults to 20000.`),
-  item_id: z.string().optional().describe('Read one item by its itemId, such as the item id a search_sessions result names.'),
-  text_offset: z.number().int().min(0).optional().describe('With item_id: read its text from this offset. Pass nextTextOffset to read the rest of a cut item.'),
+  after_position: z.number().int().min(0).optional().describe('Read after this position; pass nextPosition to read on.'),
+  limit: z.number().int().min(1).optional().describe(`Default 50, at most ${MAX_READ_ITEMS}.`),
+  max_chars_per_item: z.number().int().min(1).optional().describe(`Default 20000, at most ${MAX_ITEM_CHARS}.`),
+  item_id: z.string().optional().describe('Read one item, such as a search_sessions hit.'),
+  text_offset: z.number().int().min(0).optional().describe('With item_id: pass nextTextOffset to read the rest of a cut item.'),
 }
 
 const searchSessionsFields = {
   query: z.string().min(1).describe('Full-text query to search for in session messages.'),
-  project: z.string().optional().describe("Optional project to scope to (a project name like 'solus' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. Omit it (the default) to search everything by content — that's the reliable way to find a past discussion; a partial name is fine, and if nothing matches the search falls back to all projects."),
-  role: z.enum(['user', 'assistant', 'any']).default('any').describe("Message role to search. Defaults to 'any'."),
+  project: z.string().optional().describe("Only sessions that ran in this project (name or path), not ones that mention it. Omit to search everything, the reliable way."),
+  role: z.enum(['user', 'assistant', 'any']).default('any').describe("Default 'any'."),
   after: z
     .string()
     .optional()
-    .describe("Only include messages at or after this instant. ISO 8601 — a date like '2026-06-01' (midnight UTC) or a full timestamp '2026-06-01T09:00:00Z'. Omit to leave the lower bound open. Note the default below: to search further back than 2 weeks you MUST pass this."),
+    .describe("ISO 8601 date or time. Required to search further back than 2 weeks."),
   before: z
     .string()
     .optional()
-    .describe("Only include messages at or before this instant. ISO 8601; a date like '2026-06-30' covers through the end of that day. Omit to leave the upper bound open. DEFAULT: with BOTH after and before omitted, the search covers only the last 2 weeks (after = now − 14d, before = now)."),
-  limit: z.number().int().min(1).optional().describe(`Maximum results to return. Defaults to 10; at most ${MAX_READ_PAGE}, larger values return ${MAX_READ_PAGE}.`),
+    .describe("ISO 8601; a date covers that whole day. With neither after nor before, only the last 2 weeks are searched."),
+  limit: z.number().int().min(1).optional().describe(`Default 10, at most ${MAX_READ_PAGE}.`),
 }
 
 const sendSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
-  message: z.string().describe('The message to send into the target session. With release_rate_limit=true it can be empty: then only the hold is released, and the messages it held run.'),
+  message: z.string().describe('The message to send into the target session. Empty with release_rate_limit only releases the hold.'),
   attachments: ATTACHMENTS_FIELD,
   delivery: z
     .enum(['queue', 'steer', 'restart'])
     .default('queue')
-    .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it. Use 'restart' to stop the turn in progress and run this message instead; it runs after the messages already in the target's queue (queue_session lists them), and your earlier messages to the target settle with no report, as with stop_session."),
+    .describe("When the target is busy: 'queue' (default) runs it after the current turn; 'steer' redirects the turn in progress (falls back to queue); 'restart' stops the turn, then runs this after the queued ones."),
   agent_provider: z.enum(AGENT_PROVIDER_VALUES).optional()
-    .describe("Run this message on another provider. The session hands off to it with its context, as the user's provider picker does; on a rate-limited session this drops the prompt the limit holds. Omit to keep the session's provider. list_agent_targets lists the choices."),
-  model_id: z.string().trim().min(1).optional().describe("Run this message on this model. Omit to keep the session's model, or to use the default model of a new agent_provider."),
-  reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning effort for this message. Defaults to the session's level, or to the model's default for a new model."),
+    .describe("Run this message on another provider; the session hands off with its context. Only when the user asks."),
+  model_id: z.string().trim().min(1).optional().describe("Run this message on this model. Omit to keep the session's."),
+  reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning for this message. Omit to keep the session's."),
   release_rate_limit: z
     .boolean()
     .default(false)
-    .describe("Release the target's rate-limit hold before the message is sent, as Send now on its card does. Use it only when the user says the limit is reset or has more usage; the host cannot see a reset before the stated reset time. If the limit still applies, the target is rate limited again. Sessions on this host only."),
+    .describe("Release the target's rate-limit hold first, as Send now does. Only when the user says the limit is reset."),
   report: REPORT_FIELD,
   request_id: REQUEST_ID_FIELD,
   wait_seconds: WAIT_FIELD,
@@ -238,7 +238,7 @@ const LIST_AGENT_TARGETS_DESC =
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id and the result's `item id` as `item_id` to read the passage, then page around its position, before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
-  "Read any Solus session by id: its status, task, pending input, and timeline. `messages` (default): user and assistant messages and plans. `activity`: every item, with tool calls and their output. Reads from the start; page with `after_position=nextPosition`. Keep reads small: low `limit` and `max_chars_per_item`. Cut-off text: `item_id` with `text_offset=nextTextOffset`. To find a passage, use search_sessions and read its item id. A session not on this host is looked up on your other hosts, then on your organizations' Solus APIs. In your reply, name it as its `link` verbatim."
+  "Read any Solus session by id: its status, task, pending input, and timeline (view messages or activity). Keep reads small. A session not on this host is looked up on your other hosts, then on your organizations' Solus APIs. Name it by its `link`."
 const SEND_SESSION_DESC =
   "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_sessions'. Cannot target your own session."
 const STOP_SESSION_DESC =

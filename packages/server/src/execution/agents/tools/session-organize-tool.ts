@@ -20,7 +20,7 @@ import { findSession, getSessionController, refusalOf } from './session-tools'
 const ACTIONS = ['settle', 'unsettle', 'snooze', 'unsnooze', 'archive', 'unarchive', 'mark_unread', 'rename'] as const
 
 const DESCRIPTION =
-  "Organize a session in the user's session list. Omit session_id for this session. settle moves a finished session out of the active list; unsettle makes it active again. snooze hides an active session until snoozed_until; unsnooze wakes it now. archive removes a session from the user's own list on every device; the session picker still finds it, and unarchive returns it to the list. Settle, snooze, and archive change only the user's own list. mark_unread shows the session as unread. rename gives the session the name in title, for every person who sees it; an empty title clears the name back to the opening prompt. A new prompt to a session makes it active, awake, and in the list again. Do not settle, snooze, or archive a session that still has work the user expects."
+  "Organize a session in the user's list (default: this session). settle and unsettle; snooze until snoozed_until, and unsnooze; archive and unarchive (the user's own list); mark_unread; rename with title (empty clears it). A new prompt makes a session active again. Do not settle, snooze, or archive a session with work the user expects."
 
 const fields = {
   action: z.enum(ACTIONS),

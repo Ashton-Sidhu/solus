@@ -7,7 +7,7 @@
   import { providerMark } from '../insights/lib/provider';
   import { sessionListStore } from '../../contexts/workspace/session-list.store.svelte';
   import { hostPathBaseName } from '@solus/contracts/host-path';
-  import { SERVER_LIST_PAGE_SIZE, stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
+  import { stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
   import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
   import type { RunningServers } from '@solus/client-core/running-servers';
   import { hostSettingsStore } from '../../contexts/app/host-settings.store.svelte';
@@ -17,9 +17,10 @@
   import { requestInputFocus } from '../../lib/inputFocus';
   import { copyText, toasts } from '../../lib/toasts';
 
-  let { hostId, checkoutPath, collapsed, onToggle, onResizePointerDown }: {
+  let { hostId, checkoutPath, initialRowCount, collapsed, onToggle, onResizePointerDown }: {
     hostId: string;
     checkoutPath: string | null;
+    initialRowCount: number;
     collapsed: boolean;
     onToggle: () => void;
     onResizePointerDown: (event: PointerEvent) => void;
@@ -40,7 +41,8 @@
   const hostRows = $derived(store.rows());
   const rows = $derived(showAll ? hostRows : checkoutRows);
   const otherCheckoutCount = $derived(hostRows.length - checkoutRows.length);
-  const visibleRows = $derived(expanded ? rows : rows.slice(0, SERVER_LIST_PAGE_SIZE));
+  const extraRowCount = $derived(rows.length - initialRowCount);
+  const visibleRows = $derived(expanded ? rows : rows.slice(0, initialRowCount));
   $effect(() => { if (host.me.may('host.use')) return store.retainCheckout(checkoutPath); });
 
   async function external(server: RunningServers, endpoint: ServerEndpoint) {
@@ -143,10 +145,10 @@
         </div>
       </div>
     {/each}
-    {#if rows.length > SERVER_LIST_PAGE_SIZE || otherCheckoutCount > 0}
+    {#if extraRowCount > 0 || otherCheckoutCount > 0}
       <div class="flex items-center gap-3 px-1.5 pt-0.5 text-chrome-dense text-(--solus-text-tertiary)">
-        {#if rows.length > SERVER_LIST_PAGE_SIZE}
-          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { expanded = !expanded; requestInputFocus(); }}>{expanded ? 'Show less' : `Show ${rows.length - SERVER_LIST_PAGE_SIZE} more`}</button>
+        {#if extraRowCount > 0}
+          <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { expanded = !expanded; requestInputFocus(); }}>{expanded ? 'Show less' : `Show ${extraRowCount} more`}</button>
         {/if}
         {#if otherCheckoutCount > 0}
           <button type="button" class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2" onclick={() => { showAll = !showAll; expanded = false; requestInputFocus(); }}>{showAll ? 'Only this checkout' : `${otherCheckoutCount} in other checkouts`}</button>

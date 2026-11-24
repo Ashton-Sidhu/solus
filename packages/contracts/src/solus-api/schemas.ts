@@ -277,7 +277,7 @@ export type WorkspaceSessionPullRequest = z.infer<typeof workspaceSessionPullReq
 export const workspaceSessionPullRequestListSchema = z.strictObject({ items: z.array(workspaceSessionPullRequestSchema).max(500) })
 export type WorkspaceSessionPullRequestList = z.infer<typeof workspaceSessionPullRequestListSchema>
 
-/** The record a link starts from: a session, or a task named by its task key. A task is GitHub's or Jira's; only its links are stored here. */
+/** The record a link starts from: a session, or a task named by its task key. The provider owns the task; only its links are stored here. */
 export const workspaceLinkSourceSchema = z.strictObject({ kind: z.enum(['task', 'session']), id: workspaceIdSchema })
 export type WorkspaceLinkSource = z.infer<typeof workspaceLinkSourceSchema>
 
@@ -310,7 +310,10 @@ export type WorkspaceLinkDelete = z.infer<typeof workspaceLinkDeleteSchema>
 /** The calling session's links, with the last known state for pull requests. */
 export const workspaceSessionLinkListSchema = z.strictObject({
   items: z.array(z.strictObject({
-    target: workspaceLinkTargetSchema,
+    target: z.discriminatedUnion('kind', [
+      ...workspaceLinkTargetSchema.options,
+      z.strictObject({ kind: z.literal('task'), id: workspaceIdSchema }),
+    ]),
     title: z.string(),
     state: z.string().optional(),
     source: z.string().optional(),

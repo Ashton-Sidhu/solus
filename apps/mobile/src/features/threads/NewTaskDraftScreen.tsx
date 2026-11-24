@@ -1,7 +1,7 @@
 import { draftHeroContent, SHORT_DRAFT_VIEWPORT_HEIGHT } from "./NewTaskHero";
 import { T, useGT, useMessages, Var } from "gt-react-native";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
-import { DraftEnvironmentControl } from "./DraftEnvironmentControl";
+import { DraftContextControls, DraftEnvironmentControl } from "./DraftEnvironmentControl";
 import { DraftThreadHeader } from "./DraftThreadHeader";
 import { useComposerAttachmentActions } from "../../state/use-composer-attachment-actions";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
@@ -91,8 +91,6 @@ import {
 import { incomingShareImports, useIncomingShare } from "../sharing/IncomingShareProvider";
 import { idleShareFlagAtom, idleShareImportPhaseAtom } from "./incomingShareImport";
 import { newTaskFlowKey } from "./new-task-flow-state";
-import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
-import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { mobilePreferencesAtom } from "../../state/preferences";
 
@@ -755,46 +753,15 @@ export function NewTaskDraftScreen(props: {
     ? gt("No project")
     : (selectedProjectLabel ?? selectedProject.title);
   const contextControls = (
-    <View className="flex-row items-center gap-1 px-2">
-      <View className="min-w-0 shrink">
-        <ComposerInlineControl
-          accessibilityHint={gt("Opens the project picker")}
-          accessibilityLabel={gt("Project: {project}", { project: contextProjectLabel })}
-          chevronDirection="right"
-          disabled={isComposerInteractionLocked}
-          icon="folder"
-          label={contextProjectLabel}
-          maxWidth="100%"
-          onPress={chooseProject}
-        />
-      </View>
-      <View className="min-w-0 shrink">
-        <ComposerInlineControl
-          accessibilityLabel={
-            connectionState === "connected"
-              ? gt("Choose environment, {label}, Connected", { label: selectedEnvironmentLabel })
-              : gt("Choose environment, {label}, Offline", { label: selectedEnvironmentLabel })
-          }
-          chevronDirection="right"
-          disabled={isComposerInteractionLocked}
-          renderIcon={(size) => (
-            <EnvironmentMachineSymbol
-              kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
-              size={size}
-              tintColorClassName="accent-icon-muted"
-            />
-          )}
-          label={selectedEnvironmentLabel}
-          maxWidth="100%"
-          onPress={() => openContextPicker("NewTaskEnvironment")}
-          suffix={
-            connectionState === "connected" ? null : (
-              <ConnectionStatusDot state="error" pulse={false} size={6} />
-            )
-          }
-        />
-      </View>
-    </View>
+    <DraftContextControls
+      projectLabel={contextProjectLabel}
+      onChooseProject={chooseProject}
+      connectionState={connectionState}
+      label={selectedEnvironmentLabel}
+      machineKind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
+      disabled={isComposerInteractionLocked}
+      onChooseEnvironment={() => openContextPicker("NewTaskEnvironment")}
+    />
   );
 
   const startsNewWorktree = flow.workspaceMode === "worktree";

@@ -126,6 +126,24 @@ describe('pull_request_guide_write', () => {
     expect(published.filter((event) => event.status === 'queued' && event.target?.kind === 'pr' && event.target.number === 7)).toHaveLength(1)
   })
 
+  test('passes its instructions to the run, and says so when a join leaves them out', async () => {
+    // WHY: text after /review pr steers the guide. A run for the same head that is
+    // already going keeps its own instructions, so the agent must hear that its were not applied.
+    const first = JSON.parse((await run('guideWrite', { numbers: [7], instructions: 'Check the migration.' })).text)
+    expect(requested[0]).toMatchObject({ instructions: 'Check the migration.' })
+    expect(first.runs[0].instructionsDropped).toBeUndefined()
+
+    const same = JSON.parse((await run('guideWrite', { numbers: [7], instructions: 'Check the migration.' })).text)
+    expect(same.runs[0]).toMatchObject({ number: 7, joined: true })
+    expect(same.runs[0].instructionsDropped).toBeUndefined()
+
+    const other = JSON.parse((await run('guideWrite', { numbers: [7], instructions: 'Check the API only.' })).text)
+    expect(other.runs[0]).toMatchObject({ number: 7, joined: true, instructionsDropped: true })
+    // A join with no instructions of its own drops nothing.
+    const none = JSON.parse((await run('guideWrite', { numbers: [7] })).text)
+    expect(none.runs[0].instructionsDropped).toBeUndefined()
+  })
+
   test('refuses while guides are off on this host, and starts nothing', async () => {
     servesExecution = false
     const result = await run('guideWrite', { numbers: [7] })

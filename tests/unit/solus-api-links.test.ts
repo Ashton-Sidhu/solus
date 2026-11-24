@@ -177,6 +177,11 @@ test('the session links route lists all kinds from the remote home and checks re
     { kind: 'automation' as const, id: 'remote-automation', hostId: 'runner-A' },
   ]
   for (const to of targets) await operations.putLink(alice, { from: { kind: 'session', id: 's1' }, to })
+  const taskLinks: WorkspaceLink[] = [
+    { from: { kind: 'task', id: 'github:I_working' }, to: { kind: 'session', id: 's1' } },
+    { from: { kind: 'task', id: 'linear:workspace:issue' }, to: { kind: 'session', id: 's1' }, role: 'referenced' },
+  ]
+  for (const link of taskLinks) await operations.putLink(alice, link)
   const response = await app.request('/v1/sessions/s1/links', { headers: { Authorization: 'Bearer alice' } })
   expect(response.status).toBe(200)
   const listed = workspaceSessionLinkListSchema.parse(await response.json())
@@ -188,10 +193,13 @@ test('the session links route lists all kinds from the remote home and checks re
   })))
   expect(await remote.listSessionLinks(alice, 's1')).toEqual(listed)
   for (const target of targets) expect(listed.items).toContainEqual(expect.objectContaining({ target }))
+  for (const { from: target } of taskLinks) expect(listed.items).toContainEqual(expect.objectContaining({ target }))
   expect(listed.items.find(item => item.target.kind === 'pr' && item.target.url.endsWith('/75'))?.state).toBe('not yet synced')
   await expect(operations.listSessionLinks(bob, 's1')).rejects.toMatchObject({ status: 404 })
   await expect(operations.listSessionLinks(carol, 's1')).rejects.toMatchObject({ status: 404 })
   for (const to of targets) await operations.deleteLink(alice, { from: { kind: 'session', id: 's1' }, to })
+  for (const link of taskLinks) await operations.deleteLink(alice, { from: link.from, to: link.to })
   const after = await operations.listSessionLinks(alice, 's1')
   for (const target of targets) expect(after.items).not.toContainEqual(expect.objectContaining({ target }))
+  for (const { from: target } of taskLinks) expect(after.items).not.toContainEqual(expect.objectContaining({ target }))
 })

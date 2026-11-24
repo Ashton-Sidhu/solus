@@ -132,8 +132,8 @@
         {/snippet}
       </ListEmpty>
     {/if}
-    <!-- How Solus names a codebase that it forms: the same row shape as Branch names. -->
-    <SettingsSection label="Names">
+    <!-- How Solus names a codebase that it forms. The row's own label names the card. -->
+    <SettingsSection>
       <SettingsRow
         {...settingsDefinitions["codebases.codebase-names"]}
         managed={managedSetting("codebaseNaming")}
@@ -147,10 +147,10 @@
             ariaLabel="Codebase names"
           />
         {/snippet}
+        {#snippet body()}
+          <p class="-mt-1.5 text-xs text-muted-foreground">A project can override this in Settings, Source control.</p>
+        {/snippet}
       </SettingsRow>
-      <p class="px-4 pb-3.5 text-xs text-muted-foreground">
-        A project can override this in Settings, Source control.
-      </p>
     </SettingsSection>
   </section>
 {/if}

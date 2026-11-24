@@ -80,7 +80,7 @@ const listFields = {
 
 export const listProjectsAgentTool: AgentTool<typeof listFields> = {
   name: 'list_projects',
-  description: 'List the projects of this host that the user sees, most recently used first. Each row gives path, name, repository, and lastUsedAt. Page with cursor=nextCursor; a new project can move the rows of a page. A folder that holds the repositories of a codebase is not a project: use list_codebases.',
+  description: 'List the projects on this host, most recently used first. Page with cursor. A folder that holds repositories is a codebase: list_codebases.',
   inputFields: listFields,
   strictInput: true,
   requiresApproval: false,
@@ -100,7 +100,7 @@ const readFields = { path: pathField }
 
 export const readProjectAgentTool: AgentTool<typeof readFields> = {
   name: 'read_project',
-  description: 'Read one project of this host: its folder, repository, the settings in its .solus/config.json, and the codebases that hold it. Omit path for the project of this session.',
+  description: 'Read one project (default: this session\'s): folder, repository, .solus/config.json settings, and its codebases.',
   inputFields: readFields,
   strictInput: true,
   requiresApproval: false,
@@ -144,7 +144,7 @@ function applySetting<K extends SettingKey>(config: ProjectConfig, key: K, value
 
 export const updateProjectAgentTool: AgentTool<typeof updateFields> = {
   name: 'update_project',
-  description: 'Change the settings of one project in its .solus/config.json, as Settings does. Omitted fields do not change; null removes a setting. The file is in the repository, so the change shows in Git. For deviceRuns, edit the file. Omit path for the project of this session. Returns the new settings.',
+  description: 'Change a project\'s .solus/config.json settings (default: this session\'s project). Omitted fields keep their value; null removes one. The change shows in Git.',
   inputFields: updateFields,
   strictInput: true,
   requiresApproval: true,
@@ -183,7 +183,7 @@ async function sessionsInProject(projectPath: string, callerSessionId: string | 
 
 export const deleteProjectAgentTool: AgentTool<typeof deleteFields> = {
   name: 'delete_project',
-  description: 'Remove one project from the project list of this host, as Remove does in the project chip. The folder, its files, its sessions, and its tasks stay; adding the folder again lists it again. A project that has sessions needs force: true.',
+  description: 'Remove a project from this host\'s list. Its folder, sessions, and tasks stay. Needs force: true when it has sessions.',
   inputFields: deleteFields,
   strictInput: true,
   requiresApproval: true,

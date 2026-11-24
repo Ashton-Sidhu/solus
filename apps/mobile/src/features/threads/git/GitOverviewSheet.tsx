@@ -206,7 +206,13 @@ function GitOverviewSheetContent(
   const { repository, folder } = target;
   const repositoryParams = gitRepositoryRouteParams(repository);
   const git = useCheckoutGit(controller, target.cwd, target);
-  const currentBranchLabel = git.status?.refName ?? gt("Detached HEAD");
+  const currentBranchLabel =
+    git.repositoryStatus?.refName ??
+    (git.repositoryStatus?.isRepo
+      ? gt("Detached HEAD")
+      : git.error || git.repositoryStatus
+        ? gt("Git unavailable")
+        : gt("Loading branches…"));
   const currentStatusSummary = statusSummary(git.status, m);
   const currentWorktreePath = repository
     ? isolatedWorktreePath(folder)
@@ -215,9 +221,9 @@ function GitOverviewSheetContent(
   const busy = git.busy,
     canWriteSourceControl = git.canWrite,
     canChangeThreadBranch = git.canWrite && controller.canChooseStart;
-  const isRepo = !!git.status?.isRepo,
+  const isRepo = !!git.repositoryStatus?.isRepo,
     hasPrimaryRemote = !!git.status?.hasPrimaryRemote;
-  const menuItems = isRepo ? buildMenuItems(git.status, busy, hasPrimaryRemote, m) : [];
+  const menuItems = git.status?.isRepo ? buildMenuItems(git.status, busy, hasPrimaryRemote, m) : [];
   const sheetMenuItems = menuItems.map((item) => ({
     item: {
       ...item,

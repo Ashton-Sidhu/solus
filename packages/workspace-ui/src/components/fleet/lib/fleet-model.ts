@@ -227,6 +227,96 @@ export function rollup(machines: readonly FleetMachine[]): FleetRollup {
   }
 }
 
+/** One cell above the map: a number, and a line that says which hosts it is about. */
+export interface SummaryFact {
+  value: string
+  detail: string
+  tone: FleetTone
+}
+
+export interface FleetSummaryFacts {
+  online: SummaryFact
+  sessions: SummaryFact
+  cpu: SummaryFact
+  attention: SummaryFact
+}
+
+const STATE_WORD = {
+  running: 'online',
+  idle: 'online',
+  checking: 'checking',
+  starting: 'starting',
+  reconnecting: 'reconnecting',
+  unreachable: 'unreachable',
+  stopped: 'stopped',
+} satisfies Record<FleetState, string>
+
+/**
+ * The four cells above the map. Each one names the hosts behind its number, so
+ * the person knows where to look: which host is down, where sessions run, which
+ * host is busiest, and what each host wants. CPU shows the busiest host, not an
+ * average: one host at 99% is the fact, and an average hides it.
+ */
+export function fleetSummary(machines: readonly FleetMachine[]): FleetSummaryFacts {
+  const total = machines.length
+  const answering = machines.filter((machine) => toneOf(machine.state) === 'ok')
+  const down = machines.filter((machine) => toneOf(machine.state) !== 'ok')
+  const busy = machines.filter((machine) => machine.sessions > 0).sort((a, b) => b.sessions - a.sessions)
+  const sessions = busy.reduce((sum, machine) => sum + machine.sessions, 0)
+  const loaded = answering.filter((machine) => machine.cpu !== null).sort((a, b) => b.cpu! - a.cpu!)
+  const busiest = loaded[0]
+  const wanting = machines.filter(needsAttention)
+
+  return {
+    online: {
+      value: `${answering.length} of ${total}`,
+      detail: total === 0 ? 'No machines yet'
+        : down.length === 0 ? (total === 1 ? `${machines[0]!.label} is connected` : 'All connected')
+          : down.length === 1 ? `${down[0]!.label} is ${STATE_WORD[down[0]!.state]}`
+            : countsOf(down.map((machine) => STATE_WORD[machine.state])),
+      tone: down.some((machine) => machine.state === 'unreachable') ? 'bad' : down.some((machine) => toneOf(machine.state) === 'warn') ? 'warn' : 'ok',
+    },
+    sessions: {
+      value: `${sessions}`,
+      detail: busy.length === 0 ? 'No agent is working'
+        : busy.length === 1 ? `All on ${busy[0]!.label}`
+          : busy.slice(0, 2).map((machine) => `${machine.label} ${machine.sessions}`).join(' · ') + (busy.length > 2 ? ` · ${busy.length - 2} more` : ''),
+      tone: 'ok',
+    },
+    cpu: busiest
+      ? {
+          value: `${busiest.cpu}%`,
+          detail: loaded.length === 1 ? busiest.label : `${busiest.label}; the others ${Math.round(loaded.slice(1).reduce((sum, machine) => sum + machine.cpu!, 0) / (loaded.length - 1))}% on average`,
+          tone: busiest.cpu! >= 80 ? 'warn' : 'ok',
+        }
+      : { value: '—', detail: answering.length ? 'No reading yet' : 'No machine online', tone: 'off' },
+    attention: {
+      value: `${wanting.length}`,
+      detail: wanting.length === 0 ? 'Nothing to do'
+        : wanting.length === 1 ? `${wanting[0]!.label}: ${problemsOf(wanting[0]!).join(', ')}`
+          : countsOf(wanting.flatMap(problemsOf).sort((a, b) => PROBLEMS.indexOf(a) - PROBLEMS.indexOf(b))),
+      tone: wanting.some((machine) => machine.state === 'unreachable') ? 'bad' : wanting.length ? 'warn' : 'ok',
+    },
+  }
+}
+
+/** The problems a host can have, in words, most urgent first. */
+const PROBLEMS = ['unreachable', 'reconnecting', 'agent sign-in', 'update ready'] as const
+
+function problemsOf(machine: FleetMachine): Array<(typeof PROBLEMS)[number]> {
+  return PROBLEMS.filter((problem) =>
+    problem === 'agent sign-in' ? machine.needsSetup
+      : problem === 'update ready' ? machine.hasUpdate
+        : machine.state === problem)
+}
+
+/** "2 unreachable · 1 update ready", in the order the words first appear. */
+function countsOf(words: readonly string[]): string {
+  const counts = new Map<string, number>()
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1)
+  return [...counts].map(([word, count]) => `${count} ${word}`).join(' · ')
+}
+
 /** A zone's one link turns amber when more than a tenth of its hosts are down. */
 export function isZoneTroubled(summary: FleetRollup): boolean {
   return summary.total > 0 && (summary.unreachable + summary.reconnecting) / summary.total > 0.1

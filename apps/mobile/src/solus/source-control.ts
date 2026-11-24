@@ -457,6 +457,7 @@ export const solusPrDetail = hostQuery(
         diff: true,
         comment: true,
         labels: pr.capabilities.labelManagement,
+        ...(pr.capabilities.viewedFiles && { viewedFiles: "host" as const }),
         edit: { changeRequest: true, maintainerEdits: false, comment: false },
         actions: SOLUS_PR_ACTIONS.filter((action) => pr.capabilities.actions.includes(action)),
         mergeMethods: pr.capabilities.mergeMethods,

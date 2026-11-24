@@ -52,7 +52,8 @@
       </Button>
     {/snippet}
   </DropdownMenu.Trigger>
-  <DropdownMenu.Content side="bottom" align="end" sideOffset={6}>
+  <!-- At least as wide as the trigger, and wide enough for the longest choice: a choice is never cut. -->
+  <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-max min-w-(--bits-dropdown-menu-anchor-width) max-w-80">
     <DropdownMenu.RadioGroup {value}>
       {#each options as option (option.value)}
         <DropdownMenu.RadioItem

@@ -15,7 +15,7 @@ import { findSession, getSessionController, sessionLink } from './session-tools'
 const MAX_LIST = 50
 
 const DESCRIPTION =
-  "List the user's sessions on this host, newest activity first, as the session list shows them. Omit project for the project of this session; all_projects=true lists every project. parent_session_id lists the sessions that session started. Each row gives the session id, status, provider, and model. Page with cursor=nextCursor. To find a session by its words, use search_sessions. In your reply, name a session as its link verbatim."
+  "List the user's sessions, newest activity first: this session's project, all_projects, or the sessions parent_session_id started. Page with cursor. search_sessions finds a session by its words. Name a session by its link."
 
 const fields = {
   project: z.string().optional().describe('A project path. Defaults to the project of this session.'),

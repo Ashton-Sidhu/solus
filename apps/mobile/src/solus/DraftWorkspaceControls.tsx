@@ -9,7 +9,8 @@ import { AppText as Text } from "../components/ui/AppText";
 import * as Dialog from "../components/ui/Dialog";
 import { NewTaskWorkspaceIcon } from "../features/threads/NewTaskDraftScreen";
 import { resolveNewTaskWorkspaceLabel } from "../features/threads/new-task-context-presentation";
-import { useFolderGitStatus } from "./CheckoutGit";
+import { useFolderBranch } from "./CheckoutGit";
+import { checkoutBranch } from "./checkout-git";
 import type { DraftCodebase } from "./session-repositories";
 import { useDraftStart } from "./use-draft-start";
 
@@ -136,11 +137,16 @@ export function DraftWorkspaceControls(props: {
   const { controller } = props.store;
   const { meta, codebase, choices, selection } = useDraftStart(props.store);
   const hostId = controller.hostId;
-  const git = useFolderGitStatus(hostId, meta.run.projectDirectory);
+  const git = useFolderBranch(
+    hostId,
+    meta.run.projectDirectory,
+    meta.runOptions.canChooseStart,
+  );
   if (!meta.runOptions.canChooseStart) return null;
 
   const isRepo = git.data?.isRepo ?? false;
-  const projectBranch = git.data?.refName ?? null;
+  const branch = checkoutBranch(git.data);
+  const projectBranch = branch.kind === "branch" ? branch.name : null;
   const base = meta.run.worktreeBaseBranch;
   const startsNewWorktree = base !== null;
   const workspaceMode = startsNewWorktree ? "worktree" : "local";
@@ -149,10 +155,17 @@ export function DraftWorkspaceControls(props: {
     messages,
   );
   const route = { environmentId: hostId, threadId: controller.run.sessionId };
-  const newWorktreeBase = (isRepo ? projectBranch : null) ?? REPOSITORY_DEFAULTS_BASE;
+  const newWorktreeBase = projectBranch ?? REPOSITORY_DEFAULTS_BASE;
+  const branchLabel =
+    base ?? meta.run.checkoutBranch ?? projectBranch ??
+    (branch.kind === "detached"
+      ? gt("Detached HEAD")
+      : git.error
+        ? gt("Git unavailable")
+        : gt("Loading branches…"));
 
   return (
-    <View className="flex-row flex-wrap items-center gap-x-1 px-2">
+    <View className="flex-row flex-wrap items-center gap-x-1 px-2 pb-1">
       <CodebaseControl codebase={codebase} controller={controller} disabled={props.disabled} />
       <ComposerInlineControl
         accessibilityHint={
@@ -163,7 +176,7 @@ export function DraftWorkspaceControls(props: {
         accessibilityLabel={workspaceLabel}
         // A plain folder can get a worktree only through the repositories of its codebase.
         disabled={
-          props.disabled || git.data === undefined || !(isRepo || choices.tracksGitRepositories)
+          props.disabled || branch.kind === "unknown" || !(isRepo || choices.tracksGitRepositories)
         }
         renderIcon={(size) => (
           <NewTaskWorkspaceIcon
@@ -190,13 +203,15 @@ export function DraftWorkspaceControls(props: {
           onPress={() => navigation.navigate("NewTaskRepositories", route)}
         />
       ) : null}
-      <BranchControl
-        startsNewWorktree={startsNewWorktree}
-        isRepo={isRepo}
-        branch={base ?? meta.run.checkoutBranch ?? projectBranch ?? gt("Detached HEAD")}
-        disabled={props.disabled}
-        onPress={() => navigation.navigate("NewTaskBranch", route)}
-      />
+      {branch.kind !== "no-repository" || startsNewWorktree ? (
+        <BranchControl
+          startsNewWorktree={startsNewWorktree}
+          isRepo={isRepo}
+          branch={branchLabel}
+          disabled={props.disabled}
+          onPress={() => navigation.navigate("NewTaskBranch", route)}
+        />
+      ) : null}
     </View>
   );
 }

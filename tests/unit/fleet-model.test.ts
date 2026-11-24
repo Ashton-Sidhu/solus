@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { FoundMachine } from '@solus/workspace-ui/components/fleet/lib/discover'
 import {
   fleetMachine,
+  fleetSummary,
   fleetStateOf,
   isZoneFull,
   isZoneTroubled,
@@ -254,5 +255,40 @@ describe('the Needs attention list', () => {
     const rows = attentionRows([...many, fleetMachine({ ...base, serverId: 'x', label: 'x', readiness: 'unreachable' })])
     expect(rows.map((row) => [row.kind, row.serverIds.length])).toEqual([['unreachable', 1], ['update', 12]])
     expect(rows[1]!.note).toBe('h0, h1, h2, and 9 more')
+  })
+})
+
+describe('the summary above the map', () => {
+  // WHY: a bare number ("99%", "1") does not tell the person where to look.
+  // Each cell names the host behind its number.
+  const laptop = fleetMachine({ ...base, serverId: 'l', label: 'laptop', sessions: 2, load: { cpu: 99, memory: 50, latencyMs: null }, needsSetup: true, hasUpdate: true })
+
+  test('with one host, every cell names it, and lists each of its problems in words', () => {
+    const summary = fleetSummary([laptop])
+    expect(summary.online).toMatchObject({ value: '1 of 1', detail: 'laptop is connected' })
+    expect(summary.sessions).toMatchObject({ value: '2', detail: 'All on laptop' })
+    expect(summary.cpu).toMatchObject({ value: '99%', detail: 'laptop', tone: 'warn' })
+    expect(summary.attention).toMatchObject({ value: '1', detail: 'laptop: agent sign-in, update ready' })
+  })
+
+  test('shows the busiest host, not an average that hides it', () => {
+    const quiet = Array.from({ length: 3 }, (_, i) => fleetMachine({ ...base, serverId: `q${i}`, label: `q${i}`, load: { cpu: 10, memory: 10, latencyMs: 4 } }))
+    const summary = fleetSummary([...quiet, laptop])
+    expect(summary.cpu).toMatchObject({ value: '99%', detail: 'laptop; the others 10% on average', tone: 'warn' })
+  })
+
+  test('names the host that is down, and where the sessions run', () => {
+    const studio = fleetMachine({ ...base, serverId: 's', label: 'studio', sessions: 1 })
+    const box = fleetMachine({ ...base, serverId: 'b', label: 'box', readiness: 'unreachable' })
+    const summary = fleetSummary([laptop, studio, box])
+    expect(summary.online).toMatchObject({ value: '2 of 3', detail: 'box is unreachable', tone: 'bad' })
+    expect(summary.sessions.detail).toBe('laptop 2 · studio 1')
+    expect(summary.attention).toMatchObject({ value: '2', detail: '1 unreachable · 1 agent sign-in · 1 update ready', tone: 'bad' })
+  })
+
+  test('a quiet fleet says there is nothing to do', () => {
+    const summary = fleetSummary([fleetMachine(base)])
+    expect(summary.sessions.detail).toBe('No agent is working')
+    expect(summary.attention).toMatchObject({ value: '0', detail: 'Nothing to do', tone: 'ok' })
   })
 })

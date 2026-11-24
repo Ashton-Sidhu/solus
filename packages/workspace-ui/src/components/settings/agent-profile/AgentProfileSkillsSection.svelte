@@ -19,8 +19,9 @@
   import SettingsSection from "../SettingsSection.svelte";
   import { SkillSearch } from "../skills.store.svelte";
   import ProfileEntryRow from "./ProfileEntryRow.svelte";
-  import ShowMoreRow from "./ShowMoreRow.svelte";
-  import { pageOf, providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import ShowMoreRow from "../ShowMoreRow.svelte";
+  import { providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import { pageOf } from "../lib/list-page";
 
   interface Props {
     registrySkills: AgentProfileSections["registrySkills"];

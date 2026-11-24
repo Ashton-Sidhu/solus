@@ -293,5 +293,4 @@ export function formatCompactElapsed(ms: number): string {
 }
 
 /** A long lineage shows a workable window; the rest waits behind Show more. */
-export const RAIL_AGENTS_INITIAL_COUNT = 6
 export const RAIL_AGENTS_PAGE_COUNT = 12

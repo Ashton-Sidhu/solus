@@ -109,8 +109,8 @@ export function hostMembersNote(group: CodebaseHostMembers): HostMembersNote | n
 
 /** The two ways that Solus names a codebase that it forms, as the Settings rows show them. */
 export const CODEBASE_NAMING_OPTIONS: ReadonlyArray<{ value: CodebaseNaming; label: string; description: string }> = [
-  { value: 'generated', label: 'Generated name', description: 'A codebase that Solus forms starts with a name from its folder names. Then a small model gives it a short name.' },
-  { value: 'folders', label: 'From the folder names', description: 'The name is the common start of the folder names, or the first folder name and a count. No model names the codebase.' },
+  { value: 'generated', label: 'Generated name', description: 'A small model gives each codebase that Solus forms a short name.' },
+  { value: 'folders', label: 'From the folder names', description: 'Each codebase that Solus forms gets a name from its folder names. No model is used.' },
 ]
 
 /** What the form of a new codebase makes from its choices. */

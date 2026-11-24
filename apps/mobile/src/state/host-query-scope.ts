@@ -27,6 +27,10 @@ export const hostQueryScopeAtom = Atom.family((hostId: string) =>
   }),
 );
 
+export function useHostQueryScope(hostId: string) {
+  return useAtomValue(hostQueryScopeAtom(hostId));
+}
+
 const scopes = Atom.family((idsKey: string) =>
   Atom.make((get) => {
     const ids: string[] = JSON.parse(idsKey);

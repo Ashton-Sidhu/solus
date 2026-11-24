@@ -46,6 +46,12 @@ section goes to its owner. `update_config` takes each section except `profile` a
 an object of the keys to change. Keys that it does not name keep their values. It
 takes `profile` as entries to `set` and keys to `remove`.
 
+The tool list reaches the model on every turn, so `update_config` lists each
+section as an open object and does not list its keys. `read_config` with
+`schema` set to a section name returns that section's keys, their allowed values,
+and what each key means. `update_config` still checks every key against the
+owner's schema before it writes any, and names the first refused value.
+
 | Section | Owner | Writable by an agent | Not available to an agent |
 | --- | --- | --- | --- |
 | `host` | Host config | Every key except `otel` (`agentHostConfigPatchSchema`) | `otel`, because it holds the collector's credentials. It is not shown. |

@@ -134,7 +134,9 @@ belongs to a session, not to a task.
     { via: 'pull-request-watch' })`: after the running turn, never inside it.
     The text names the pull request and lists each item with its author, path
     and link, at most 10 items per kind, and comment excerpts of at most 200
-    characters with HTML comments removed. It ends with what to do and how to
+    characters in plain text: HTML comments, tags, and markdown markup are
+    removed, so a cut excerpt cannot leave markup that draws wrong, and a
+    comment with no text reads "(no text)". It ends with what to do and how to
     stop the watch. Every client draws the wake as a host notice row
     (`HostNoticeRow`, shared with the background command wake), not a prompt
     bubble. The wake starts a turn, as a prompt does, so the row is

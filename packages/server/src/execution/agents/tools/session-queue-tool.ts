@@ -20,7 +20,7 @@ const LIST_TEXT_CHARS = 200
 const READ_TEXT_CHARS = 16_000
 
 const DESCRIPTION =
-  "Manage the messages queued in a session. Omit session_id for this session. list: the queue in send order, each with its queue_id and revision. read: up to 16,000 characters of one. edit: replace its text; its attachments stay. cancel: remove it. move: put it before before_queue_id, or at the end with no before_queue_id. steer: send it now into the turn in progress. resume: release the messages held after an error. edit, cancel, move, and steer need the revision that list gave; a message that changed or started since is refused, so list again. A message that a rate limit holds shows the reset time; send_session with release_rate_limit releases it."
+  "Manage the messages queued in a session (default: this one). list gives each queue_id and revision. read: one message. edit: replace its text. cancel. move: before before_queue_id, or to the end. steer: into the turn in progress. resume: release held messages. edit, cancel, move, and steer need the revision from list."
 
 const fields = {
   action: z.enum(ACTIONS),

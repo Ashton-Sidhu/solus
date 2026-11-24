@@ -125,10 +125,6 @@
     const panelSession = session.sessionFor(sourceId);
     return !!panelSession && hasSessionStarted(panelSession);
   });
-  // The host of the session answered its codebases, and the codebase of the session is not one of them.
-  const codebaseIsAbsent = $derived(
-    !!codebaseId && !codebase && codebasesStore.hosts.some((each) => each.serverId === detailServerId && each.status === "ready"),
-  );
 
   // Builds are for projects that build a mobile app (at the root or in a
   // subfolder), or a conversation already showing a device.
@@ -249,11 +245,6 @@
     <!-- A folder of a task folder with no repository holds links to the files of its original. -->
     {#if hasStarted && isTaskFolderPath(env.cwd) && !env.repoRoot}
       <p class="m-0 text-pretty px-2 pb-1 pl-8 text-chrome-dense leading-snug text-(--solus-text-tertiary)">{PLAIN_MEMBER_LINKS_NOTE}</p>
-    {/if}
-    {#if hasStarted && codebaseIsAbsent}
-      <p class="m-0 text-pretty px-2 py-1 text-chrome-dense leading-snug text-(--solus-text-tertiary)">
-        The codebase of this session is not on this host. It was deleted, or this host has not received it.
-      </p>
     {/if}
   {/if}
   <div class="menu-list">

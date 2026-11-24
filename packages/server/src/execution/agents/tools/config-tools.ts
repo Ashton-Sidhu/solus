@@ -305,21 +305,33 @@ export function setConfigToolHost(next: ConfigToolHost): void {
   toolHost = next
 }
 
-export const readConfigAgentTool: AgentTool = {
+const SECTION_NAMES = ['host', 'deviceManager', 'personal', 'profile', 'device'] as const satisfies readonly SectionName[]
+
+const readConfigFields = {
+  schema: z.enum(SECTION_NAMES).optional().describe("Instead of the values, the keys of this section that update_config takes, with each key's allowed values."),
+}
+
+export const readConfigAgentTool: AgentTool<typeof readConfigFields> = {
   name: 'read_config',
   description:
-    "Read Solus settings in five sections: `host` (this machine: tool availability, restart continuation, review warming, retention, analytics consent), `deviceManager` (simulators, emulators, and phones, and the SSH device hosts), `personal` (the settings of the person this session works for: models, permission mode, review, instructions, source control writing, appearance, and the rest), `profile` (their agent profile: provider files such as subagents and commands, skills, and MCP servers; a file shows its path, size, and hash, not its content), and `device` (the client device that started this turn: voice, editor and terminal, font smoothing and overrides, zoom, keybindings, analytics consent). update_config changes any of them.",
-  inputFields: {} as const,
+    "Read Solus settings in five sections: `host` (this machine: tool availability, restart continuation, review warming, retention, analytics consent), `deviceManager` (simulators, emulators, and phones, and the SSH device hosts), `personal` (the settings of the person this session works for: models, permission mode, review, instructions, source control writing, appearance, and the rest), `profile` (their agent profile: provider files such as subagents and commands, skills, and MCP servers; a file shows its path, size, and hash, not its content), and `device` (the client device that started this turn: voice, editor and terminal, font smoothing and overrides, zoom, keybindings, analytics consent). update_config changes any of them. With `schema`, read what one section accepts before you change it.",
+  inputFields: readConfigFields,
   requiresApproval: false,
-  execute: async (_input, context) => ({ ok: true, text: JSON.stringify(await new AgentSettings(toolHost, context.sessionId()).read()) }),
+  execute: async (input, context) => {
+    const parsed = z.object(readConfigFields).parse(input)
+    // A section's keys and values are read when needed, not listed on every turn (agent-context-budget.json).
+    // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- Zod names an object schema's fields `shape`.
+    if (parsed.schema) return { ok: true, text: JSON.stringify(z.toJSONSchema(listedSchema(updateConfigInputSchema.shape[parsed.schema]))) }
+    return { ok: true, text: JSON.stringify(await new AgentSettings(toolHost, context.sessionId()).read()) }
+  },
 }
 
 export const updateConfigAgentTool: AgentTool = {
   name: 'update_config',
   description:
-    "Change Solus settings. Pass any of `host`, `deviceManager`, `personal`, `profile`, and `device`. All but `profile` take only the keys to change; keys not named keep their value. `profile` takes entries to `set` (a file by its text) and keys to `remove`. A personal or profile change is applied on the person's connected Solus client and syncs from there; a `device` change applies only on the client that started this turn and never syncs. Every key is checked before any is written.",
-  // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- Zod names an object schema's fields `shape`.
-  inputFields: Object.fromEntries(Object.entries(updateConfigInputSchema.shape).map(([name, schema]) => [name, listedSchema(schema).optional()])),
+    "Change Solus settings. Pass any of `host`, `deviceManager`, `personal`, `profile`, and `device`. All but `profile` take only the keys to change, as read_config with `schema` lists them; keys not named keep their value. `profile` takes entries to `set` (a file by its text) and keys to `remove`. A personal or profile change is applied on the person's connected Solus client and syncs from there; a `device` change applies only on the client that started this turn and never syncs. Every key is checked before any is written.",
+  // Each section is listed open: read_config with `schema` gives its keys and values, and the parse below checks them.
+  inputFields: Object.fromEntries(SECTION_NAMES.map((name) => [name, z.looseObject({}).optional()])),
   requiresApproval: false,
   execute: async (input, context) => {
     const parsed = updateConfigInputSchema.safeParse(input)
@@ -356,7 +368,7 @@ export const readThemeAgentTool: AgentTool = {
 export const updateThemeAgentTool: AgentTool = {
   name: 'update_theme',
   description:
-    "Change how Solus looks. Use it only when the person asks. `appearance` sets light, dark, or system mode. `css` replaces the person's whole custom theme CSS: call read_theme first, and send an empty string to remove it. Solus applies the change on the person's connected client, and it syncs to their other clients, as a change in Settings does. Solus keeps one custom theme for each person; it has no saved themes to switch between.",
+    "Change how Solus looks, only when the person asks. `appearance`: light, dark, or system. `css` replaces their custom theme CSS (read_theme first; empty removes it). It syncs to all their clients.",
   inputFields: {
     appearance: PERSONAL_SETTING_SCHEMAS.themeMode.optional(),
     css: PERSONAL_SETTING_SCHEMAS.themeCss.optional(),

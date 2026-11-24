@@ -71,10 +71,13 @@ An agent reads and writes pull request guides with two tools:
 - `pull_request_guide_write` starts runs for 1 to 20 PRs of the checkout's
   repository and returns when they start. It uses `requestPrGuides`, the same
   owner as the `prGenerateGuides` RPC of the PR list, so a PR whose guide is
-  being written joins that run. Each run uses the review agent, model, and
-  reasoning in the settings of the person the turn works for. The host asks one
-  of that person's clients for those settings, as `read_config` does. The tool
-  fails on a host that does not run agents, because guide runs are off there.
+  being written joins that run. Each run uses the review agent, model,
+  reasoning, and review guide instructions of the person the turn works for,
+  from the host's copy of their preferences. `instructions` adds review
+  instructions for this call, as text after `/review pr` does. A joined run
+  keeps the instructions it started with; when they differ, the result for
+  that PR says `instructionsDropped`. The tool fails on a host that does not
+  run agents, because guide runs are off there.
 
 Both tools act with the access of the person the turn works for. Guides are
 host use, so a guest's turn is refused.

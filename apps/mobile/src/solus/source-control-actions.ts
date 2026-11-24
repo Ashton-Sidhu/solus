@@ -9,6 +9,8 @@ import type {
   PullRequestLabelChangeInput,
   PullRequestSubmitReviewInput,
   PullRequestReviewPosition,
+  PullRequestFilesViewedResult,
+  PullRequestSetFilesViewedInput,
 } from "@t3tools/contracts";
 import { hostCommand } from "./host-command";
 import { hostQuery } from "./host-query";
@@ -78,18 +80,48 @@ export const moveIssue = hostCommand(
   },
 );
 
+async function prTarget(id: string, input: PullRequestRef) {
+  const api = sourceControlApi(id);
+  const repo = await solus.pullRequests.repository(id, input.projectId);
+  if (
+    `${repo.owner}/${repo.repo}`.toLowerCase() !== input.repository.toLowerCase() ||
+    (input.host && input.host.toLowerCase() !== repo.host.toLowerCase())
+  )
+    throw new Error("The checkout now points to a different repository.");
+  return { api, ref: { repo, number: input.number } };
+}
+
 async function prSource(id: string, input: PullRequestRef) {
-  const api = sourceControlApi(id),
-    ctx = solus.pullRequests.context(input.projectId),
-    ref = { repo: await solus.pullRequests.repository(id, input.projectId), number: input.number };
+  const { api, ref } = await prTarget(id, input);
   const pr = await api.prGetDetail(ref);
   if (
     pr.baseRepo.owner + "/" + pr.baseRepo.repo !== input.repository ||
     (input.host && input.host !== pr.baseRepo.host)
   )
     throw new Error("The checkout now points to a different repository.");
-  return { api, ctx, ref, pr };
+  return { api, ctx: solus.pullRequests.context(input.projectId), ref, pr };
 }
+
+export const prFilesViewed = hostQuery(async (id, input: PullRequestRef & { headSha?: string }): Promise<PullRequestFilesViewedResult> => {
+  const { api, ref } = await prTarget(id, input);
+  const result = await api.prViewedFiles(ref);
+  return { files: result.files, truncated: !result.complete };
+}, 0);
+
+export const setPrFilesViewed = hostCommand(
+  "pullRequests.setFilesViewed",
+  "host.use",
+  async (id, input: PullRequestSetFilesViewedInput & { expectedHeadSha?: string }, _registry, check) => {
+    const { api, ref } = await prTarget(id, input);
+    if (input.files.some((file) => file.revision !== undefined))
+      throw new Error("This host cannot apply viewed state to a specific file revision.");
+    if (input.expectedHeadSha && (await api.prGetDetail(ref)).headSha !== input.expectedHeadSha)
+      throw new Error("The pull request changed. Refresh the diff before marking files viewed.");
+    check();
+    await api.prSetFilesViewed(ref, input.files.map(({ path, viewed }) => ({ path, viewed })));
+  },
+);
+
 export const prLabelChoices = hostQuery(async (id, input: PullRequestRef) => {
   const { api, ref, pr } = await prSource(id, input);
   const labels = await api.prListLabelCandidates(ref);

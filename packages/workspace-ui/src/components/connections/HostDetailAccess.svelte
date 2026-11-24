@@ -15,6 +15,7 @@
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
+  import SettingsSelect from "../settings/SettingsSelect.svelte";
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
@@ -69,9 +70,15 @@
     return endpoint ? `http://${endpoint.host}:${endpoint.port}` : "";
   });
 
-  async function changeRemoteAccess(event: Event) {
+  const REMOTE_ACCESS_OPTIONS: ReadonlyArray<{ value: RemoteAccessMode; label: string }> = [
+    { value: "off", label: "Off" },
+    { value: "private", label: "Private networks only" },
+    { value: "any", label: "Anyone who can reach this host" },
+  ];
+
+  async function changeRemoteAccess(remoteAccess: RemoteAccessMode) {
     if (!info || connections.refreshing || connections.remoteAccessUpdating) return;
-    await connections.setRemoteAccess(serverId, (event.currentTarget as HTMLSelectElement).value as RemoteAccessMode);
+    await connections.setRemoteAccess(serverId, remoteAccess);
   }
 
   async function toggleTrustLocalNetwork() {
@@ -109,17 +116,13 @@
       managed={remoteAccessLock}
     >
       {#snippet control()}
-        <select
+        <SettingsSelect
+          options={REMOTE_ACCESS_OPTIONS}
           value={info?.remoteAccess ?? 'any'}
-          onchange={changeRemoteAccess}
+          onSelect={changeRemoteAccess}
           disabled={!canChangeNetwork || connections.refreshing || connections.remoteAccessUpdating}
-          aria-label="Remote access"
-          class="rounded-md border border-border bg-input px-2 py-1 text-workspace-chrome text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
-        >
-          <option value="off">Off</option>
-          <option value="private">Private networks only</option>
-          <option value="any">Anyone who can reach this host</option>
-        </select>
+          ariaLabel="Remote access"
+        />
       {/snippet}
     </SettingsRow>
     {#if connections.remoteAccessError}

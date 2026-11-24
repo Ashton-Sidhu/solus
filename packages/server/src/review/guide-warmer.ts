@@ -10,6 +10,7 @@ import {
   type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
+import type { ReviewGuideRequestOptions } from '@solus/contracts/review'
 import { listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider } from '../providers/types'
@@ -62,11 +63,13 @@ export interface PrGuideRequest {
   ctx: IpcContext
   repo: RepoRef
   guides: ReviewGuideJobs
+  /** Review instructions for these runs, as text after `/review pr`. */
+  instructions?: string
 }
 
 /** One pull request of an explicit request: its run, and whether the request joined a run that was already going; or why no run started. */
 export type PrGuideStart =
-  | { number: number; joined: boolean; status: ReviewGuideStatusEvent }
+  | { number: number; joined: boolean; instructionsDropped?: boolean; status: ReviewGuideStatusEvent }
   | { number: number; error: string }
 
 /**
@@ -79,16 +82,13 @@ export type PrGuideStart =
 export function requestPrGuides(request: PrGuideRequest, numbers: number[]): Promise<PrGuideStart[]> {
   return Promise.all([...new Set(numbers)].map(async (number): Promise<PrGuideStart> => {
     try {
-      const job = await request.guides.request({
-        dispatcher: request.dispatcher,
-        seatFor: request.seatFor,
-        ctx: request.ctx,
-        opts: {
-          target: { kind: 'pr', ...request.repo, number },
-          ...reviewChoices(request.ctx),
-        },
-      })
-      return job ? { number, joined: job.joined, status: job.status } : { number, error: 'There is nothing to review.' }
+      const opts: ReviewGuideRequestOptions = { target: { kind: 'pr', ...request.repo, number }, ...reviewChoices(request.ctx) }
+      if (request.instructions) opts.instructions = request.instructions
+      const job = await request.guides.request({ dispatcher: request.dispatcher, seatFor: request.seatFor, ctx: request.ctx, opts })
+      if (!job) return { number, error: 'There is nothing to review.' }
+      const start: PrGuideStart = { number, joined: job.joined, status: job.status }
+      if (job.instructionsDropped) start.instructionsDropped = true
+      return start
     } catch (error) {
       return { number, error: errorMessage(error) }
     }

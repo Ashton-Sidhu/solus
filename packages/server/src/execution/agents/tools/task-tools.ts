@@ -85,7 +85,7 @@ const commentTaskFields = {
   body: z
     .string()
     .describe(
-      'Comment body in markdown, written for a busy teammate and posted on GitHub or Jira. Keep it short: a one-line summary, then a few bullets for key decisions and what the reader must do next. Leave out step-by-step logs, tool output, and long reasoning. Put a file path in backticks and name a pull request by its URL.',
+      'Short markdown comment for a teammate: a one-line summary, then bullets for decisions and next steps. Omit logs, tool output, and long reasoning. Put file paths in backticks and use pull request URLs.',
     ),
 }
 
@@ -98,15 +98,15 @@ const commentTaskInputSchema = z.object(commentTaskFields)
 // ─── Descriptions ───
 
 const READ_TASK_DESC =
-  'Read a GitHub or Jira task by its task key: description, state, columns, epic, comments, linked items, and linked session IDs. Use read_session for a session.'
+  'Read a GitHub, Jira or Linear task by its task key: description, state, columns, epic, comments, linked items, and linked session IDs. Use read_session for a session.'
 const UPDATE_DESC =
-  'Move a task to a status category (open, active, done) or to a named column. This writes to GitHub or Jira.'
+  'Move a task to a status category (open, active, done) or to a named column. This writes to GitHub, Jira or Linear.'
 const LIST_TASKS_DESC =
-  'List the GitHub and Jira tasks of your task sources, with their task keys and status category.'
+  'List the GitHub, Jira and Linear tasks of your task sources, with their task keys and status category.'
 const CREATE_TASK_DESC =
-  'Create a real task on GitHub or Jira, in one of your task sources. Other people see it at once.'
+  'Create a real task on GitHub, Jira or Linear, in one of your task sources. Other people see it at once.'
 const COMMENT_TASK_DESC =
-  'Post a comment on a task on GitHub or Jira, for durable findings, status, or handoff notes.'
+  'Post a comment on a task on GitHub, Jira or Linear, for durable findings, status, or handoff notes.'
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
 export interface TaskToolCtx {
@@ -158,7 +158,7 @@ interface TaskToolCall {
 // person's own provider connections decide which task sources they see.
 const scope = ANY_ORGANIZATION
 
-const NO_TASK_SOURCE = 'You have no task source. A person adds a GitHub or Jira task source on the Tasks page of Solus.'
+const NO_TASK_SOURCE = 'You have no task source. A person adds a GitHub, Jira or Linear task source on the Tasks page of Solus.'
 
 async function listTasksTool({ args, deps, personKey }: TaskToolCall): Promise<TaskToolResult> {
   const input = listTasksInputSchema.parse(args)

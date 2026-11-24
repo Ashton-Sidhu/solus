@@ -25,12 +25,12 @@ export interface SessionForkHost {
 }
 
 const DESCRIPTION =
-  "Fork a session, or merge a fork back. Omit session_id for this session. fork: copy the session through point_id (default: its latest completed response) into a new session with the same setup; no turn runs yet, and send_session starts work in it. merge_back: bring the findings of a fork's completed turns to the session it was forked from. When that is this session, the result gives the findings; otherwise they are sent to that session as a queued message. Sessions on this host only."
+  "fork: copy a session (default: this one) through point_id into a new session; no turn runs until send_session. merge_back: bring a fork's findings to its source; to this session they come back as the result."
 
 const fields = {
   action: z.enum(['fork', 'merge_back']),
   session_id: z.string().trim().min(1).optional().describe('fork: the session to fork. merge_back: the fork. Defaults to this session.'),
-  point_id: z.string().trim().min(1).max(256).optional().describe('fork only: the fork point of a completed response. Defaults to the latest completed response.'),
+  point_id: z.string().trim().min(1).max(256).optional().describe('fork only. Default: the latest completed response.'),
 }
 const inputSchema = z.object(fields)
 type ForkInput = z.output<typeof inputSchema>

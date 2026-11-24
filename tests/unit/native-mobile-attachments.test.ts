@@ -4,7 +4,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest } from '@sol
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
-import { attachmentSizeProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/solus-core/features/conversation/lib/attachments'
+import { attachmentSizeProblem, attachmentTransferProgress, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/solus-core/features/conversation/lib/attachments'
 import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
@@ -56,6 +56,27 @@ describe('native attachments', () => {
     expect(uploaded).toMatchObject({ kind: 'file', mimeType: 'image/x-adobe-dng', dataUrl: null })
   })
 
+  test('a host that accepts stored image refs receives a photo without a base64 read', async () => {
+    const { io, uploads } = fakeIo()
+    io.readBase64 = async () => { throw new Error('the phone must not encode a streamed photo') }
+    const api = {
+      attachUpload: async () => { throw new Error('the photo must go over HTTP') },
+      attachUploadToken: async (_ctx: IpcContext, request: AttachmentUploadTokenRequest) => {
+        expect(request).toEqual({ name: photo.name, mime: photo.mimeType!, size: photo.size! })
+        return { relativeUrl: '/api/uploads/photo', hostPath: '/h/photo.jpg', expiresAt: 0 }
+      },
+    }
+    const uploaded = await uploadAttachment(photo, {
+      api, io, ctx: {} as IpcContext, serverUrl: 'https://host.tunnel', uuid: () => 'a1',
+      streamImages: true,
+    })
+    expect(uploads).toEqual([{ url: 'https://host.tunnel/api/uploads/photo', uri: photo.uri }])
+    expect(uploaded).toMatchObject({ kind: 'image', dataUrl: null, localUri: photo.uri })
+    expect(composePrompt('Look', [uploaded], true).imageAttachmentRefs).toEqual([
+      { name: photo.name, mimeType: photo.mimeType!, hostPath: '/h/photo.jpg' },
+    ])
+  })
+
   test('a video streams its bytes to the signed route; a refused upload is an error', async () => {
     const tokens: AttachmentUploadTokenRequest[] = []
     const api = {
@@ -74,6 +95,59 @@ describe('native attachments', () => {
 
     const refused = fakeIo(409)
     await expect(uploadAttachment(clip, { api, ctx: {} as IpcContext, serverUrl: 'http://h:1', io: refused.io, uuid: () => 'v2' })).rejects.toThrow('409')
+  })
+
+  test('native transfer progress reaches the draft and removing the file aborts the transfer', async () => {
+    const abort = new AbortController()
+    let finishStart!: () => void
+    const started = new Promise<void>(resolve => { finishStart = resolve })
+    let interrupted = false
+    const uploading = uploadAttachment(clip, {
+      api: {
+        attachUpload: async () => { throw new Error('unused') },
+        attachUploadToken: async () => ({ relativeUrl: '/api/uploads/clip', hostPath: '/h/clip.mov', expiresAt: 0 }),
+      },
+      ctx: {} as IpcContext,
+      serverUrl: 'https://host.tunnel',
+      hostId: 'test-host',
+      uuid: () => 'progress-clip',
+      signal: abort.signal,
+      io: {
+        readBase64: async () => { throw new Error('unused') },
+        uploadFile: async (_url, _uri, transfer) => new Promise<number>(resolve => {
+          transfer!.signal.addEventListener('abort', () => { interrupted = true; resolve(499) }, { once: true })
+          transfer!.reportProgress(0.57)
+          finishStart()
+        }),
+      },
+    })
+    await started
+    expect(attachmentTransferProgress('test-host', 'progress-clip')).toBe(0.55)
+    expect(attachmentTransferProgress('another-host', 'progress-clip')).toBeUndefined()
+    abort.abort()
+    await expect(uploading).rejects.toThrow()
+    expect(interrupted).toBe(true)
+  })
+
+  test('a signed upload stops before sending bytes when its account scope changes', async () => {
+    let hasAccess = true
+    const { io, uploads } = fakeIo()
+    const uploading = uploadAttachment(clip, {
+      api: {
+        attachUpload: async () => { throw new Error('unused') },
+        attachUploadToken: async () => {
+          hasAccess = false
+          return { relativeUrl: '/api/uploads/clip', hostPath: '/h/clip.mov', expiresAt: 0 }
+        },
+      },
+      ctx: {} as IpcContext,
+      serverUrl: 'https://host.tunnel',
+      uuid: () => 'scope-clip',
+      io,
+      checkAccess: () => { if (!hasAccess) throw new Error('Account changed.') },
+    })
+    await expect(uploading).rejects.toThrow('Account changed.')
+    expect(uploads).toHaveLength(0)
   })
 
   test('the prompt names files by host path; images ride as refs or inline', () => {
@@ -100,10 +174,20 @@ describe('native attachments', () => {
 describe('native attachments in a conversation', () => {
   test('a draft uploads and sends more than eight screenshots in its first prompt', async () => {
     const uploadContexts: IpcContext[] = []
+    const { io, uploads } = fakeIo()
+    const inlineFiles: string[] = []
     const api = new FakeApi()
       .on('watchSession', () => ({}))
-      .on('serverGetCapabilities', () => ({ promptImageRefs: true }))
-      .on('attachUpload', (ctx: IpcContext, request: AttachmentUploadRequest) => { uploadContexts.push(ctx); return `/h/${request.name}` })
+      .on('serverGetCapabilities', () => ({ promptImageRefs: true, attachStreamUpload: true }))
+      .on('attachUpload', (ctx: IpcContext, request: AttachmentUploadRequest) => {
+        inlineFiles.push(request.name)
+        uploadContexts.push(ctx)
+        return `/h/${request.name}`
+      })
+      .on('attachUploadToken', (ctx: IpcContext, request: AttachmentUploadTokenRequest) => {
+        uploadContexts.push(ctx)
+        return { relativeUrl: `/api/uploads/${request.name}`, hostPath: `/h/${request.name}`, expiresAt: 0 }
+      })
       .on('prompt', () => ({ disposition: 'started' }))
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()
@@ -119,13 +203,15 @@ describe('native attachments in a conversation', () => {
       runSettings: async () => DEFAULT_RUN_SETTINGS,
       organizationId: () => null,
       uuid: () => `id-${++next}`,
-      attachmentIo: fakeIo().io,
+      attachmentIo: io,
       onChange: () => {},
     })
     await controller.load()
     const photos = Array.from({ length: 12 }, (_, index) => ({ ...photo, name: `photo-${index}.jpg` }))
     const files = [...photos, doc]
     await controller.attach(files)
+    expect(uploads.map(({ url }) => url)).toEqual(photos.map(({ name }) => `http://a:1/api/uploads/${name}`))
+    expect(inlineFiles).toEqual([doc.name])
     expect(uploadContexts.map((ctx) => [ctx.session.sessionId, ctx.session.draftId])).toEqual(files.map(() => ['', 'new-1']))
     expect(controller.attachments.map((attachment) => attachment.name)).toEqual(files.map((file) => file.name))
 
@@ -181,6 +267,23 @@ describe('native send while an attachment uploads', () => {
   const userTexts = (controller: ConversationController) =>
     [...controller.model.items.values()].flatMap((item) => (item.kind === 'user' ? [item.text] : []))
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+  test('starts up to three uploads together and keeps the selection order when they land', async () => {
+    const { controller, uploads } = await uploadingConversation()
+    const files = ['first', 'second', 'third', 'fourth'].map(name => ({ ...photo, name: `${name}.jpg` }))
+    const attaching = controller.attach(files)
+    await settle()
+    expect(uploads).toHaveLength(3)
+    uploads[1]!.resolve('/h/second.jpg')
+    await settle()
+    expect(uploads).toHaveLength(4)
+    expect(controller.attachments).toEqual([])
+    uploads[3]!.resolve('/h/fourth.jpg')
+    uploads[2]!.resolve('/h/third.jpg')
+    uploads[0]!.resolve('/h/first.jpg')
+    await attaching
+    expect(controller.attachments.map(file => file.name)).toEqual(files.map(file => file.name))
+  })
 
   test('a new draft can close once its local save succeeds, before host delivery', async () => {
     const { api, controller, uploads, storage } = await uploadingConversation()

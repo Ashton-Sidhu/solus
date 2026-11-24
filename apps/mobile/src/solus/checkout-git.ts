@@ -1,5 +1,5 @@
 import type { GitAction, GitRepositoryStatus, GitState } from "@solus/contracts/git-types";
-import type { GitStackedAction, VcsStatusResult } from "@t3tools/contracts";
+import type { GitStackedAction, VcsBranchStatus, VcsStatusResult } from "@t3tools/contracts";
 import type { SessionFolder } from "@solus/contracts/codebases";
 import { sameHostPath } from "@solus/contracts/host-path";
 import {
@@ -15,6 +15,14 @@ export const checkoutActions: { [K in GitStackedAction]: GitAction } = {
   create_pr: "create_pull_request",
   commit_push_pr: "commit_push_pull_request",
 };
+
+export function checkoutBranch(repo: VcsBranchStatus | null | undefined) {
+  if (repo == null) return { kind: "unknown" } as const;
+  if (repo.isRepo === false) return { kind: "no-repository" } as const;
+  return repo.refName === null
+    ? ({ kind: "detached" } as const)
+    : ({ kind: "branch", name: repo.refName } as const);
+}
 
 export function checkoutStatus(repo: GitRepositoryStatus, state: GitState | null): VcsStatusResult {
   const branch = state?.branch ?? repo.branch;

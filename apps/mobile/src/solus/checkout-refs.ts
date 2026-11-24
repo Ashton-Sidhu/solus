@@ -8,6 +8,7 @@ import type {
 import { AsyncResult, Atom } from "effect/reactivity";
 import { mobileHost } from "../state/mobile-host";
 import { hostQuery } from "./host-query";
+import { checkoutRepository } from "./checkout-git-queries";
 import { solus } from "./runtime";
 
 type RefRead = Pick<VcsListRefsInput, "cwd" | "refresh" | "includeMatchingRemoteRefs">;
@@ -18,33 +19,19 @@ const checkoutRefs = hostQuery(async (id, input: RefRead) => {
     throw new Error("This connection cannot read Git branches.");
   const api = connection.api;
   const context = projectContext(input.cwd, solus.account.organizationId);
-  const [repo, listed] = await Promise.all([
-    api.gitRepositoryStatus(input.cwd),
-    api.worktreeBranches(context, { skipFetch: !input.refresh }),
-  ]);
+  const listed = await api.worktreeBranches(context, { skipFetch: !input.refresh });
   const remotes = input.includeMatchingRemoteRefs
     ? await api.worktreeBranches(context, { remoteOnly: true, skipFetch: true })
     : [];
-  const refs: VcsRef[] = (
+  return (
     input.includeMatchingRemoteRefs ? [...listed.filter((r) => !r.remoteOnly), ...remotes] : listed
-  ).map((ref) => ({
-    name: ref.name,
-    current: ref.current ?? (!ref.remoteOnly && ref.name === repo.branch),
-    isDefault: ref.isDefault,
-    isRemote: ref.remoteOnly,
-    worktreePath: ref.worktreePath ?? null,
-  }));
-  if (repo.branch && !refs.some((ref) => ref.current) && repo.isRepository) {
-    refs.unshift({ name: repo.branch, current: true, isDefault: false, worktreePath: null });
-  }
-  const priority = (ref: VcsRef) => (ref.current ? 0 : ref.isDefault ? 1 : 2);
-  refs.sort((a, b) => priority(a) - priority(b));
-  return { refs, isRepo: repo.isRepository, hasPrimaryRemote: Boolean(repo.primaryRemoteName) };
+  );
 });
 
 const checkout = Atom.family((key: string) => {
   const [environmentId, input]: [EnvironmentId, RefRead] = JSON.parse(key);
   const source = checkoutRefs({ environmentId, input });
+  const repository = checkoutRepository({ environmentId, input: { cwd: input.cwd } });
   return Atom.readable(
     (get) => {
       const host = get(mobileHost(environmentId));
@@ -54,9 +41,26 @@ const checkout = Atom.family((key: string) => {
             if (state.cwd === input.cwd) get.refresh(source);
           }),
         );
-      return get(source);
+      return AsyncResult.map(AsyncResult.all({ listed: get(source), repo: get(repository) }), ({ listed, repo }) => {
+        const refs: VcsRef[] = listed.map((ref) => ({
+          name: ref.name,
+          current: ref.current ?? (!ref.remoteOnly && ref.name === repo.branch),
+          isDefault: ref.isDefault,
+          isRemote: ref.remoteOnly,
+          worktreePath: ref.worktreePath ?? null,
+        }));
+        if (repo.branch && !refs.some((ref) => ref.current) && repo.isRepository) {
+          refs.unshift({ name: repo.branch, current: true, isDefault: false, worktreePath: null });
+        }
+        const priority = (ref: VcsRef) => (ref.current ? 0 : ref.isDefault ? 1 : 2);
+        refs.sort((a, b) => priority(a) - priority(b));
+        return { refs, isRepo: repo.isRepository, hasPrimaryRemote: Boolean(repo.primaryRemoteName) };
+      });
     },
-    (refresh) => refresh(source),
+    (refresh) => {
+      refresh(source);
+      refresh(repository);
+    },
   );
 });
 

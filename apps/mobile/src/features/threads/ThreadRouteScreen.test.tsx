@@ -8,6 +8,9 @@ const state = vi.hoisted(() => ({
   draft: true,
   sessionKind: "ready" as SessionKind,
   navigate: vi.fn(),
+  chooseProject: vi.fn(),
+  chooseHost: vi.fn(),
+  viewportHeight: 640,
 }));
 vi.mock("@react-navigation/native", () => ({
   useNavigation: () => ({ navigate: state.navigate }),
@@ -36,7 +39,9 @@ vi.mock("../layout/workspace/useAndroidWorkspaceNavigation", () => ({
 vi.mock("../../solus/use-thread-screen-data", () => ({
   useThreadScreenData: () => ({
     binding: {},
-    draft: state.draft ? { title: "project" } : null,
+    draft: state.draft
+      ? { title: "project", chooseProject: state.chooseProject, chooseEnvironment: state.chooseHost }
+      : null,
     header: { title: "Thread", projectName: "project", cwd: "/repo/worktree", draft: state.draft },
   }),
 }));
@@ -60,9 +65,14 @@ vi.mock("./ThreadDetailScreen", () => ({
     draftMode,
     layoutVariant,
   }: {
-    draftMode?: object;
+    draftMode?: { controls: (height: number) => ReactNode };
     layoutVariant: string;
-  }) => <input data-state={draftMode ? "draft" : "live"} data-layout={layoutVariant} />,
+  }) => (
+    <>
+      <input data-state={draftMode ? "draft" : "live"} data-layout={layoutVariant} />
+      {draftMode?.controls(state.viewportHeight)}
+    </>
+  ),
 }));
 vi.mock("../../components/ui/ScreenContent", () => ({
   ScreenContent: ({ children }: { children: ReactNode }) => children,
@@ -91,9 +101,41 @@ vi.mock("./NewTaskHero", () => ({
   draftHeroContent: () => () => null,
   SHORT_DRAFT_VIEWPORT_HEIGHT: 380,
 }));
-vi.mock("./DraftEnvironmentControl", () => ({ DraftEnvironmentControl: () => null }));
+vi.mock("./DraftEnvironmentControl", () => ({
+  DraftEnvironmentControl: () => null,
+  DraftContextControls: ({ onChooseProject, onChooseEnvironment }: {
+    onChooseProject: () => void;
+    onChooseEnvironment: () => void;
+  }) => (
+    <>
+      <button onClick={onChooseProject}>Change project</button>
+      <button onClick={onChooseEnvironment}>Change host</button>
+    </>
+  ),
+}));
 
 import { ThreadRouteScreen } from "./ThreadRouteScreen";
+
+it("keeps project and host selection in reach when the draft viewport is short", () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  state.draft = true;
+  state.viewportHeight = 320;
+  try {
+    act(() => root.render(
+      <ThreadRouteScreen route={{ params: { draft: { environmentId: "host", projectId: "/repo" } } }} />,
+    ));
+    const buttons = [...container.querySelectorAll("button")];
+    act(() => buttons.find(button => button.textContent === "Change project")!.click());
+    act(() => buttons.find(button => button.textContent === "Change host")!.click());
+    expect(state.chooseProject).toHaveBeenCalledTimes(1);
+    expect(state.chooseHost).toHaveBeenCalledTimes(1);
+  } finally {
+    state.viewportHeight = 640;
+    act(() => root.unmount());
+  }
+});
 
 it("keeps the same editor when the draft becomes a thread and opens its files on the same host", () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

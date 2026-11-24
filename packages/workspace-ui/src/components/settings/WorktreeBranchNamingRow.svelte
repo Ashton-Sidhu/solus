@@ -19,10 +19,12 @@
     disabled?: boolean;
     /** The personal default's policy note; a project override has none. */
     managed?: ManagedSettingNote;
+    /** A quiet line under the example, such as where a project overrides this. */
+    note?: string;
     onSave: (naming: WorktreeBranchNaming) => void;
   }
 
-  let { label, naming, disabled = false, managed, onSave }: Props = $props();
+  let { label, naming, disabled = false, managed, note, onSave }: Props = $props();
 
   const modes: ReadonlyArray<{ value: WorktreeBranchNamingMode; label: string; description: string }> = [
     { value: "generated", label: "Name from title", description: "Starts on a short id, then takes a name made from the first prompt." },
@@ -99,6 +101,9 @@
       <p class="text-xs text-muted-foreground">
         Example: <code class="rounded bg-muted px-1 py-0.5 font-mono text-foreground">{preview}</code>
       </p>
+      {#if note}
+        <p class="text-xs text-muted-foreground">{note}</p>
+      {/if}
     </div>
   {/snippet}
 </SettingsRow>

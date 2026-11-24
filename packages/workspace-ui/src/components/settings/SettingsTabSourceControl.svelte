@@ -308,10 +308,8 @@
     managed={managedSetting("worktreeBranchNaming")}
     naming={settings.worktreeBranchNaming}
     onSave={(naming) => settings.setPersonal("worktreeBranchNaming", naming)}
+    note="A project can override this in Settings, Projects."
   />
-  <p class="px-4 pb-3.5 text-xs text-muted-foreground">
-    A project can override this in Settings, Projects.
-  </p>
 </SettingsSection>
 
 {#if error}

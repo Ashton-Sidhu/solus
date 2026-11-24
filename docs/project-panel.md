@@ -115,3 +115,5 @@ Environment menus use the full row as their position anchor. Their arrows point 
 The split button and remembered app choice follow [T3 Code's OpenInPicker](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/chat/OpenInPicker.tsx). Solus uses its existing editor detection, app icons, and desktop RPC handlers.
 
 Running servers are grouped by checkout and include API endpoints. See [Running servers](running-servers.md) for discovery, remote opening, and Stop behavior.
+
+The Running servers list and each agent list show up to three rows when the panel has 800 pixels of available height or less, and up to five rows when it has more height. Select **Show more** to see additional rows. The lists stay expanded when you resize the panel.

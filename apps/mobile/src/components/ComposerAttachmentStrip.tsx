@@ -1,4 +1,9 @@
 import { useGT } from "gt-react-native";
+import { useSyncExternalStore } from "react";
+import {
+  attachmentTransferProgress,
+  subscribeAttachmentTransfers,
+} from "@solus-mobile/features/conversation/lib/attachments";
 import { FilePreviewGallery, useFilePreviewGallery } from "./ui/FilePreviewGallery";
 import { composerImageGallery } from "../lib/composerImageGallery";
 import { SymbolView } from "./ui/AppSymbol";
@@ -63,11 +68,21 @@ type ComposerAttachmentThumbnailProps = {
   readonly onPressDocument?: (attachment: DraftComposerFileAttachment) => void;
 };
 
+const noTransferSubscription = () => () => {};
+
 export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailProps) {
   const gt = useGT();
   const upload = useComposerAttachmentUploadState(props.environmentId, props.attachment.id);
-  const percent = upload?.status === "uploading" ? Math.floor(upload.progress * 100) : 0;
-  const hostUploading = props.attachment.type === "image" && props.attachment.uploading === true;
+  const hostUploading = props.attachment.uploading === true;
+  const hostProgress = useSyncExternalStore(
+    hostUploading ? subscribeAttachmentTransfers : noTransferSubscription,
+    () => hostUploading && props.environmentId
+      ? attachmentTransferProgress(props.environmentId, props.attachment.id)
+      : undefined,
+    () => undefined,
+  );
+  const progress = hostProgress ?? (upload?.status === "uploading" ? upload.progress : undefined);
+  const percent = progress === undefined ? undefined : Math.floor(progress * 100);
   return (
     <View style={{ width: props.size, height: props.size }}>
       <ComposerAttachmentContent {...props} />
@@ -84,7 +99,7 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
           accessibilityLabel={
             upload?.status === "failed"
               ? gt("Retry uploading {name}", { name: props.attachment.name })
-              : hostUploading
+              : percent === undefined
                 ? gt("Uploading {name}", { name: props.attachment.name })
                 : gt("Uploading {name}, {percent}%", {
                     name: props.attachment.name,
@@ -109,7 +124,7 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
             <Text className="text-2xs text-white">
               {upload?.status === "failed"
                 ? gt("Retry")
-                : hostUploading
+                : percent === undefined
                   ? gt("Uploading…")
                   : `${percent}%`}
             </Text>

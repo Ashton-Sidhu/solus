@@ -1,6 +1,6 @@
 <script lang="ts">
   /** The last row of a long list: the rows not shown, and the way to show them or fold them again. */
-  import { Button } from "../../ui/button";
+  import { Button } from "../ui/button";
 
   interface Props {
     hiddenCount: number;

@@ -8,7 +8,7 @@ import { assertToolMay } from '../../../admission/workspace-tool-authority'
 import { getSessionRecord } from '../../../data/sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from '../../../host/host-category'
 import type { ReviewGuideJobs } from '../../../review/guide-jobs'
-import { requestPrGuides } from '../../../review/guide-warmer'
+import { requestPrGuides, type PrGuideRequest, type PrGuideStart } from '../../../review/guide-warmer'
 import { readPrGuide } from '../../../review/pr-guide-store'
 import type { SessionRuntime } from '../../session-runtime'
 import type { AgentDispatcher } from '../agent-runner'
@@ -68,6 +68,13 @@ function guideContext(session: SessionCtx): IpcContext {
   }
 }
 
+/** One PR of a write: its run, or why none started. */
+function startResult(start: PrGuideStart) {
+  if ('error' in start) return start
+  const { number, joined, instructionsDropped, status } = start
+  return instructionsDropped ? { number, joined, instructionsDropped, ...runState(status) } : { number, joined, ...runState(status) }
+}
+
 /** A run's state as the agent reads it. */
 function runState(event: ReviewGuideStatusEvent) {
   const { status, headSha, baseSha, step, error, generatedAt } = event
@@ -107,25 +114,28 @@ const guideRead = pullRequestTool(
 
 const guideWrite = pullRequestTool(
   'pull_request_guide_write',
-  'Write review guides for 1 to 20 PRs of this repository: the guide that the PR page shows. The tool returns when the runs start. Each run takes some minutes in a checkout that Solus manages. A PR whose guide is being written joins that run. Read the result with pull_request_guide_read. The tool fails on a host that does not run agents. Each run uses the review agent and model in the settings of the person this session works for.',
-  { ...environmentFields, numbers: z.array(z.number().int().positive()).min(1).max(20).describe('PR numbers in this repository.') },
+  'Start review guide runs for 1 to 20 PRs of this repository, with the review settings of the person. Returns when the runs start. A PR whose guide is being written joins that run and keeps its instructions (instructionsDropped). Read results with pull_request_guide_read.',
+  {
+    ...environmentFields,
+    numbers: z.array(z.number().int().positive()).min(1).max(20).describe('PR numbers in this repository.'),
+    instructions: z.string().trim().max(20_000).optional().describe('Review instructions for every PR in the call, as text after /review pr.'),
+  },
   false, async (input, session) => {
     await assertToolMay('prGenerateGuides')
     const { guides, dispatcher, servesExecution } = guideHost()
     if (!servesExecution()) throw new Error('Review guides are off on this host: it does not run agents. Use a session on a host that does.')
     const actor = actorFor(session.principal)
-    const starts = await requestPrGuides({
+    const request: PrGuideRequest = {
       dispatcher,
       // Guides run on the requester's own provider login, as their turns do.
       seatFor: (agent) => dispatcher.seatForTurn(actor, agent),
       ctx: guideContext(await guideSession(session)),
       repo: session.repo,
       guides,
-    }, input.numbers)
-    return {
-      repository: `${session.repo.owner}/${session.repo.repo}`,
-      runs: starts.map((start) => 'error' in start ? start : { number: start.number, joined: start.joined, ...runState(start.status) }),
     }
+    if (input.instructions) request.instructions = input.instructions
+    const starts = await requestPrGuides(request, input.numbers)
+    return { repository: `${session.repo.owner}/${session.repo.repo}`, runs: starts.map(startResult) }
   },
 )
 

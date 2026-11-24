@@ -96,6 +96,7 @@ export type ThreadGitMenuProps = {
   readonly confirmDefaultBranchAction?: (input: GitActionRequestInput, branchName: string) => void;
   /** The project tracks repositories besides its folder, which then need not be one itself. */
   readonly tracksRepositories?: boolean;
+  readonly checkoutIsRepo?: boolean;
   readonly gitStatus: VcsStatusResult | null;
   readonly gitOperationLabel: string | null;
   readonly onOpenFilesInspector?: () => void;
@@ -130,9 +131,16 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
-  const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? gt("Detached HEAD");
+  const isRepo = props.checkoutIsRepo ?? gitStatus?.isRepo ?? true;
+  const branch = props.checkoutIsRepo === undefined
+    ? (gitStatus?.refName ?? props.currentBranch)
+    : props.currentBranch;
+  const currentBranchLabel = branch ?? (!isRepo
+    ? gt("Git unavailable")
+    : gitStatus?.isRepo || props.checkoutIsRepo
+      ? gt("Detached HEAD")
+      : gt("Loading branches…"));
   const busy = gitOperationLabel !== null;
-  const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus?.isDefaultRef ?? false;
 

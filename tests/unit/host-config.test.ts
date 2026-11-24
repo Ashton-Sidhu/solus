@@ -457,40 +457,41 @@ describe('the agent write policy', () => {
     expect(device.zoomFactor).toBe(1)
   })
 
-  test('both providers can list update_config with every settings key', async () => {
-    // The owners' schemas heal and transform values, which the Claude SDK
-    // cannot turn into JSON Schema; the tool lists their input side instead.
+  test('both providers can list update_config, and read_config gives every settings key', async () => {
+    // The tool list reaches the model on every turn (agent-context-budget.json), so
+    // update_config lists each section open, and read_config with `schema` gives its
+    // keys when the agent needs them. The owners' schemas heal and transform values,
+    // which the Claude SDK cannot turn into JSON Schema; the listing must not need them.
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
     const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
     const agentTool = tools.updateConfigAgentTool
     const server = createSdkMcpServer({ name: 'solus', tools: [tool(agentTool.name, agentTool.description, agentTool.inputFields, async () => ({ content: [] }))] })
     // SAFETY: the SDK's in-process server is an MCP `McpServer`; its request handler map is how a client's tools/list reaches it.
-    const handlers = (server as unknown as { instance: { server: { _requestHandlers: Map<string, (request: object, extra: object) => Promise<{ tools: Array<{ inputSchema: { properties: { personal: { properties: object } } } }> }>> } } }).instance.server._requestHandlers
+    const handlers = (server as unknown as { instance: { server: { _requestHandlers: Map<string, (request: object, extra: object) => Promise<{ tools: Array<{ inputSchema: { properties: object } }> }>> } } }).instance.server._requestHandlers
     const listed = await handlers.get('tools/list')!({ method: 'tools/list', params: {} }, {})
+    expect(Object.keys(listed.tools[0]!.inputSchema.properties).sort()).toEqual(['device', 'deviceManager', 'host', 'personal', 'profile'])
+    expect(() => adaptCodexTools([agentTool])).not.toThrow()
 
-    expect(Object.keys(listed.tools[0]!.inputSchema.properties.personal.properties)).toContain('extraInstructions')
-    expect(JSON.stringify(adaptCodexTools([agentTool]))).toContain('sshHosts')
+    expect((await runTool(tools.readConfigAgentTool, { schema: 'personal' }, context)).text).toContain('extraInstructions')
+    expect((await runTool(tools.readConfigAgentTool, { schema: 'deviceManager' }, context)).text).toContain('sshHosts')
   })
 
   test('the agent sees what a setting means, not only its name and type', async () => {
     // About seventy keys reach an agent, and names such as tabGroupMode do not say
-    // what they change. The owner schemas describe them; the listed schema keeps it.
+    // what they change. The owner schemas describe them; read_config's schema keeps it.
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
-    const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
-    const listed = JSON.stringify(adaptCodexTools([tools.updateConfigAgentTool]))
-    for (const meaning of [
-      'The order that the next-tab and previous-tab keys follow', // personal.tabGroupMode
-      'the maximum of earlier conversation it takes, in tokens', // personal.handoffHistoryTokens
-      'What agents can do to the status of a task', // personal.agentTaskLifecyclePolicy
-      'By project path on this host', // host.reviewWarmingByProject
-      'shows next to the conversation of that agent', // deviceManager.autoShowAgentDevices
-      'Shortcut overrides by binding id', // device.keybindings
-    ]) expect(listed).toContain(meaning)
+    const schemaOf = async (section: string) => (await runTool(tools.readConfigAgentTool, { schema: section }, context)).text
+    for (const [section, meaning] of [
+      ['personal', 'The order that the next-tab and previous-tab keys follow'], // personal.tabGroupMode
+      ['personal', 'the maximum of earlier conversation it takes, in tokens'], // personal.handoffHistoryTokens
+      ['personal', 'What agents can do to the status of a task'], // personal.agentTaskLifecyclePolicy
+      ['host', 'By project path on this host'], // host.reviewWarmingByProject
+      ['deviceManager', 'shows next to the conversation of that agent'], // deviceManager.autoShowAgentDevices
+      ['device', 'Shortcut overrides by binding id'], // device.keybindings
+    ] as const) expect(await schemaOf(section)).toContain(meaning)
   })
-})
 
-describe('nested keys', () => {
   test('toggling one otel switch does not blank the endpoint beside it', () => {
     // The Telemetry panel edits one field at a time. A patch that replaced the
     // whole object would lose whatever the user typed a moment earlier.

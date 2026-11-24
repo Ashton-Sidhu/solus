@@ -199,7 +199,9 @@
   // under the row there is a single answer and the row states it. Several
   // sessions can sit on different hosts, and no single mark is true of all of
   // them — so the question moves to the task page, where each can answer it.
-  const showsHost = $derived(!isGuest && !task.share && sessions.length <= 1 && !!(task.sessionId || tooltipSession));
+  // A shelved row leaves it to the tooltip: on a long tail of snoozed and
+  // completed work, the same machine on every line is noise.
+  const showsHost = $derived(!isGuest && !task.share && !isShelved && sessions.length <= 1 && !!(task.sessionId || tooltipSession));
   // A session that ran on several hosts names the one with its newest turn
   // (docs/plans/portable-sessions.md §10): that is where it continues from.
   const lastRunServerId = $derived(task.sessionId ? sessionListStore.newestHostFor(task.sessionId, task.serverId) : null);
@@ -688,7 +690,7 @@
                  scoped. -->
             <ProjectFavicon
               projectKey={task.groupKey}
-              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-icon]:size-[82%]"
+              class="size-4 shrink-0 pointer-fine:[&_.lucide-icon]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span

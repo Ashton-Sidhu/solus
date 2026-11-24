@@ -1,7 +1,7 @@
 import { expect, it } from "vite-plus/test";
 import { resolveQuickAction } from "@t3tools/client-runtime/state/vcs";
 import type { GitRepositoryStatus, GitState } from "@solus/contracts/git-types";
-import { checkoutActions, checkoutStatus } from "./checkout-git";
+import { checkoutActions, checkoutBranch, checkoutStatus } from "./checkout-git";
 
 const repo: GitRepositoryStatus = {
   isRepository: true,
@@ -45,4 +45,11 @@ it("keeps the current branch visible before the first commit", () => {
   const status = checkoutStatus({ ...repo, hasCommits: false, branch: "main" }, null);
   expect(status.isRepo).toBe(true);
   expect(status.refName).toBe("main");
+});
+
+it("shows a detached HEAD only after Git confirms a repository with no checked-out branch", () => {
+  expect(checkoutBranch(undefined)).toEqual({ kind: "unknown" });
+  expect(checkoutBranch({ isRepo: false, refName: null })).toEqual({ kind: "no-repository" });
+  expect(checkoutBranch({ isRepo: true, refName: null })).toEqual({ kind: "detached" });
+  expect(checkoutBranch({ isRepo: true, refName: repo.branch })).toEqual({ kind: "branch", name: "feature" });
 });

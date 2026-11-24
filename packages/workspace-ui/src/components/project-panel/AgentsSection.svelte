@@ -26,7 +26,6 @@
     treeAgentRows,
     railAgentTooltip,
     relatedSessionTitle,
-    RAIL_AGENTS_INITIAL_COUNT,
     RAIL_AGENTS_PAGE_COUNT,
     type TreeAgentRow,
   } from "./lib/rail-agents";
@@ -41,13 +40,14 @@
     onToggle?: () => void;
     onResizePointerDown?: (event: PointerEvent) => void;
     hiddenItems?: readonly string[];
+    initialRowCount?: number;
     surface?: "rail" | "threads";
     query?: string;
     turnWindow?: TurnSpan | null;
   }
   let {
     tabId, sessionId, serverId, active, collapsed = false, onToggle, onResizePointerDown,
-    hiddenItems = [], surface = "rail", query = "", turnWindow = null,
+    hiddenItems = [], initialRowCount = 6, surface = "rail", query = "", turnWindow = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -85,8 +85,10 @@
   });
 
   let previousOpen = $state(false);
-  let activeCount = $state(RAIL_AGENTS_INITIAL_COUNT);
-  let previousCount = $state(RAIL_AGENTS_INITIAL_COUNT);
+  let expandedRunningCount = $state(0);
+  let expandedPreviousCount = $state(0);
+  const runningCount = $derived(Math.max(initialRowCount, expandedRunningCount));
+  const previousCount = $derived(Math.max(initialRowCount, expandedPreviousCount));
   let merging = $state(false);
   const stopping = new SvelteSet<string>();
 
@@ -232,7 +234,7 @@
       </div>
     {/each}
     {#if hasLive}
-      {@render rowList(running, activeCount, () => (activeCount += RAIL_AGENTS_PAGE_COUNT))}
+      {@render rowList(running, runningCount, () => (expandedRunningCount = runningCount + RAIL_AGENTS_PAGE_COUNT))}
     {/if}
     {#if previous.length > 0}
       {#if hasLive}
@@ -253,7 +255,7 @@
         </button>
       {/if}
       {#if !hasLive || previousOpen}
-        {@render rowList(previous, previousCount, () => (previousCount += RAIL_AGENTS_PAGE_COUNT))}
+        {@render rowList(previous, previousCount, () => (expandedPreviousCount = previousCount + RAIL_AGENTS_PAGE_COUNT))}
       {/if}
     {:else if !hasLive && rows.length > 0}
       <p class="m-0 px-2.5 py-1 text-chrome-dense text-(--solus-text-tertiary)">

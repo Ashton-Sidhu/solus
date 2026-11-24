@@ -145,6 +145,7 @@ interface HistoryPreview {
 
 interface InFlightUpload {
   readonly file?: PickedFile
+  readonly abort?: AbortController
   cancelled?: boolean
   readonly video?: { type: 'file'; id: string; name: string; mimeType: string; sizeBytes: number; fileUri: string }
   readonly preview?: { type: 'image'; id: string; name: string; mimeType: string; sizeBytes: number; previewUri: string }
@@ -1107,9 +1108,10 @@ export class ConversationController {
     }
     let previous: Promise<unknown> = Promise.resolve()
     const uploads = files.map((file) => {
-      const landed = previous.then(() => this.uploadOne(file, io, upload))
+      const before = previous
+      const landed = Promise.resolve().then(() => this.uploadOne(file, io, upload, before))
       const media = attachmentKind(file)
-      const upload: InFlightUpload = { file, landed, ...(media.type === 'image' && {
+      const upload: InFlightUpload = { file, landed, abort: new AbortController(), ...(media.type === 'image' && {
         preview: { type: 'image', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, previewUri: file.uri },
       }), ...(media.isVideo && {
         video: { type: 'file', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, fileUri: file.uri },
@@ -1124,20 +1126,34 @@ export class ConversationController {
 
   /** One upload, in order. It joins the composer's attachments unless a sent
    *  prompt took it; then that prompt gets it from `landed`. */
-  private async uploadOne(file: PickedFile, io: AttachmentIo, upload: InFlightUpload): Promise<UploadedAttachment | null> {
+  private async uploadOne(file: PickedFile, io: AttachmentIo, upload: InFlightUpload, before: Promise<unknown>): Promise<UploadedAttachment | null> {
     try {
-      if (upload.cancelled) return null
+      if (upload.cancelled) {
+        await before
+        return null
+      }
+      const fact = this.deps.connection.facts.get('capabilities')
+      const capabilities = fact.state === 'ready' ? fact.value : undefined
+      const checkAccess = this.attachmentAccessCheck()
       const uploaded = await uploadAttachment(file, {
         api: this.deps.connection.api,
         ctx: this.uploadContext(),
         serverUrl: this.deps.connection.transport.serverUrl,
         io,
+        hostId: this.hostId,
+        signal: upload.abort?.signal,
+        checkAccess,
+        streamImages: hasHostCapability(capabilities, 'attachStreamUpload') && hasHostCapability(capabilities, 'promptImageRefs'),
         uuid: () => upload.preview?.id ?? upload.video?.id ?? this.deps.uuid(),
       })
-      if (!this.closed && this.uploads.includes(upload)) this.attachments = [...this.attachments, uploaded]
+      await before
+      if (upload.cancelled) return null
+      checkAccess()
+      if (this.uploads.includes(upload)) this.attachments = [...this.attachments, uploaded]
       return uploaded
     } catch (error) {
-      if (!upload.cancelled) this.model.addNotice(`${file.name} was not attached: ${error instanceof Error ? error.message : String(error)}`, 'error')
+      await before
+      if (!upload.cancelled && !this.closed) this.model.addNotice(`${file.name} was not attached: ${error instanceof Error ? error.message : String(error)}`, 'error')
       return null
     } finally {
       this.uploads = this.uploads.filter((each) => each !== upload)
@@ -1205,6 +1221,7 @@ export class ConversationController {
     const pending = this.uploads.find(upload => (upload.preview?.id ?? upload.video?.id) === id)
     if (pending) {
       pending.cancelled = true
+      pending.abort?.abort()
       this.uploads = this.uploads.filter(upload => upload !== pending)
     }
     this.attachments = this.attachments.filter((attachment) => attachment.id !== id)
@@ -1325,10 +1342,11 @@ export class ConversationController {
     if (!io) throw new Error('File uploads are unavailable.')
     const problem = attachmentSizeProblem(files)
     if (problem) throw new Error(problem)
+    const checkAccess = this.attachmentAccessCheck()
     const result: QueueAttachment[] = []
     for (const file of files) {
       const attachment = await uploadAttachment(file, { api: this.deps.connection.api, ctx: this.uploadContext(),
-        serverUrl: this.deps.connection.transport.serverUrl, io, uuid: this.deps.uuid })
+        serverUrl: this.deps.connection.transport.serverUrl, hostId: this.hostId, io, checkAccess, uuid: this.deps.uuid })
       result.push({ id: attachment.id, type: attachment.kind, name: attachment.name, hostPath: attachment.hostPath,
         mimeType: attachment.mimeType, size: attachment.size })
     }
@@ -1471,6 +1489,7 @@ export class ConversationController {
   close(): void {
     if (this.closed) return
     this.closed = true
+    for (const upload of this.uploads) upload.abort?.abort()
     clearTimeout(this.replayTimeout)
     this.watchReplay = null
     this.loadGeneration += 1
@@ -1773,6 +1792,19 @@ export class ConversationController {
     const ctx = this.context()
     if (this.started) return ctx
     return { ...ctx, session: { ...ctx.session, draftId: ctx.session.sessionId, sessionId: '' } }
+  }
+
+  private attachmentAccessCheck(): () => void {
+    const { sessionGeneration } = this.deps.connection.state
+    const { serverUrl } = this.deps.connection.transport
+    const organizationId = this.deps.organizationId()
+    return () => {
+      if (this.closed || !this.mayDrive || organizationId !== this.deps.organizationId()
+        || serverUrl !== this.deps.connection.transport.serverUrl
+        || sessionGeneration !== this.deps.connection.state.sessionGeneration) {
+        throw new Error('The session connection changed before the attachment could upload.')
+      }
+    }
   }
 
   /** The folders the session works in besides its working directory (`session_folders`). */

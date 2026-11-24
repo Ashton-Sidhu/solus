@@ -122,6 +122,12 @@ content. `HostDetailOverview` is replaced.
 - Below 600px of container width, the map becomes a tree of the same routes.
 - Up to about 1,000 hosts, tiles are DOM elements. Past that, they must move to a
   canvas. This is not in this work.
+- Above the map, four cells show Online, Sessions running, Busiest CPU, and Needs
+  attention (`fleetSummary`). Each cell gives a number and a line that names the
+  hosts behind it: the host that is down, where the sessions run, which host is
+  busiest, and what each host wants, in words. CPU shows the busiest host, not an
+  average, because an average hides the one host that is overloaded. The cells
+  have no bars and no icons.
 
 ### D5. Motion: an approved exception for the map
 

@@ -56,7 +56,7 @@ const listFields = {}
 
 export const listCodebasesAgentTool: AgentTool<typeof listFields> = {
   name: 'list_codebases',
-  description: 'List the codebases of this host that the user sees, by name. A codebase is a named set of two or more projects, or one folder that holds two or more repositories. Each row gives id, name, and its folders with their host.',
+  description: 'List the codebases the user sees: id, name, and folders by host. A codebase is two or more projects, or one folder that holds repositories.',
   inputFields: listFields,
   strictInput: true,
   requiresApproval: false,
@@ -82,7 +82,7 @@ async function codebaseOfSession(sessionId: string | undefined): Promise<string 
 
 export const readCodebaseAgentTool: AgentTool<typeof readFields> = {
   name: 'read_codebase',
-  description: 'Read one codebase: its name, its folders with their host, and the repositories this host finds in its folders. Folders on other hosts are not read. Omit codebase_id for the codebase of this session.',
+  description: 'Read one codebase (default: this session\'s): name, folders by host, and the repositories in its folders on this host.',
   inputFields: readFields,
   strictInput: true,
   requiresApproval: false,
@@ -121,7 +121,7 @@ function rootNamed(roots: readonly CodebaseRoot[], path: string, installationId:
 
 export const updateCodebaseAgentTool: AgentTool<typeof updateFields> = {
   name: 'update_codebase',
-  description: 'Change one codebase, as Settings → Codebases does: rename it, add folders on this host, or remove folders. Omitted fields do not change. Adds apply before removes. A codebase keeps two or more folders, or one folder that holds repositories: to remove more, use delete_codebase. No folder is deleted on disk.',
+  description: 'Rename a codebase, add folders on this host, or remove folders. It must keep two folders, or one folder that holds repositories. No folder is deleted on disk.',
   inputFields: updateFields,
   strictInput: true,
   requiresApproval: true,
@@ -162,7 +162,7 @@ const deleteFields = { codebase_id: codebaseIdField }
 
 export const deleteCodebaseAgentTool: AgentTool<typeof deleteFields> = {
   name: 'delete_codebase',
-  description: 'Delete one codebase, as Settings → Codebases does. Its folders, their projects, and their sessions stay. The delete goes to the other hosts of the user as a deleted copy.',
+  description: 'Delete one codebase. Its folders, projects, and sessions stay.',
   inputFields: deleteFields,
   strictInput: true,
   requiresApproval: true,

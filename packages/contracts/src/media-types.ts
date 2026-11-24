@@ -114,10 +114,28 @@ export function isDngFile(file: { name: string; mimeType?: string | null }): boo
   return DNG_MIME_TYPES.has((file.mimeType ?? '').split(';', 1)[0].trim().toLowerCase())
 }
 
+const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence'])
+
+/**
+ * Whether a file is a HEIC or HEIF photo, the format an iPhone takes. No browser
+ * that Solus supports can show one, so a host turns it into a JPEG when it can
+ * (`heicToJpeg`) and keeps it as a file when it cannot.
+ */
+export function isHeicFile(file: { name: string; mimeType?: string | null }): boolean {
+  if (/\.(heic|heif)$/i.test(file.name)) return true
+  return HEIC_MIME_TYPES.has((file.mimeType ?? '').split(';', 1)[0].trim().toLowerCase())
+}
+
+/** The name of the JPEG a host makes from a HEIC photo: `IMG_1.heic` becomes `IMG_1.jpg`. */
+export function heicJpegName(name: string): string {
+  return /\.(heic|heif)$/i.test(name) ? name.replace(/\.(heic|heif)$/i, '.jpg') : `${name}.jpg`
+}
+
 /** What a picked file is, read the same way on every client. A video is a
  *  `file` attachment with its video MIME type, never an image. A DNG is a
  *  `file` too: an agent cannot read it as an image, so its original bytes go
- *  to the host as they are. */
+ *  to the host as they are. A HEIC photo is a `file` until its host turns it
+ *  into a JPEG (`landedAttachmentKind`). */
 export interface AttachmentKind {
   type: 'image' | 'file'
   mimeType: string
@@ -128,6 +146,21 @@ export function attachmentKind(file: { name: string; mimeType?: string | null })
   const video = videoMimeType(file)
   if (video) return { type: 'file', mimeType: video, isVideo: true }
   if (isDngFile(file)) return { type: 'file', mimeType: DNG_MIME_TYPE, isVideo: false }
+  if (isHeicFile(file)) {
+    const mimeType = file.mimeType && HEIC_MIME_TYPES.has(file.mimeType) ? file.mimeType : 'image/heic'
+    return { type: 'file', mimeType, isVideo: false }
+  }
   const mimeType = file.mimeType || 'application/octet-stream'
   return { type: mimeType.startsWith('image/') ? 'image' : 'file', mimeType, isVideo: false }
+}
+
+/**
+ * What an uploaded file is once its host holds it. A host that can turns a HEIC
+ * photo into a JPEG and answers with the JPEG's path; the attachment is then that
+ * image. Any other file, or a host that kept the HEIC, keeps its kind.
+ */
+export function landedAttachmentKind(kind: AttachmentKind, name: string, hostPath: string): AttachmentKind {
+  if (!isHeicFile({ name, mimeType: kind.mimeType })) return kind
+  if (mediaTypeFor(hostPath)?.mime !== 'image/jpeg') return kind
+  return { type: 'image', mimeType: 'image/jpeg', isVideo: false }
 }

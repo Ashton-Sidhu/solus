@@ -13,8 +13,9 @@
   import { Button } from "../../ui/button";
   import SettingsSection from "../SettingsSection.svelte";
   import ProfileEntryRow from "./ProfileEntryRow.svelte";
-  import ShowMoreRow from "./ShowMoreRow.svelte";
-  import { fileRowText, pageOf, providerLabel, type FileGroup } from "./lib/agent-profile-entries";
+  import ShowMoreRow from "../ShowMoreRow.svelte";
+  import { fileRowText, providerLabel, type FileGroup } from "./lib/agent-profile-entries";
+  import { pageOf } from "../lib/list-page";
 
   interface Props {
     groups: FileGroup[];

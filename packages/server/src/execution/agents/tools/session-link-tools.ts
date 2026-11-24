@@ -270,8 +270,10 @@ function countOf(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
+const listLinkKind = z.enum(['work', 'automation', 'pr', 'file', 'app', 'task'])
+
 /** List only the calling session's links, from the home that owns them. */
-async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation' | 'pr' | 'file' | 'app'): Promise<AgentToolResult> {
+async function listCallerLinks(ctx: SessionLinkCtx, kind?: z.infer<typeof listLinkKind>): Promise<AgentToolResult> {
   if (!ctx.sessionId) return { ok: false, text: 'list_links needs a calling session id.' }
   const { operations, context } = await workspaceToolContext(ctx.sessionId)
   const { items } = await operations.listSessionLinks(context, ctx.sessionId)
@@ -283,6 +285,7 @@ async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation'
     }
     if (target.kind === 'file') return `- file: ${JSON.stringify(target.path)} — ${item.title}`
     if (target.kind === 'work' || target.kind === 'automation') return `- ${target.kind}: ${target.id} — ${item.title}`
+    if (target.kind === 'task') return `- task: ${target.id}`
     return ''
   })
   // An app link is on this host alone, so it is read here and not through the home's link list.
@@ -301,7 +304,7 @@ export interface SessionLinkCtx {
 }
 
 const LINK_DESC =
-  "Link an item to this session. Files and images use kind=file and path; others use target_id. Use kind=task with the task key when this session works on a GitHub or Jira task, so the task lists it. Link each PR you create or work on immediately. For several PRs, such as a stack or a pasted list, pass them all as target_ids in one call; use target_id for one PR. Solus updates PR state and settles the session when its PRs end. Repeated links are safe."
+  "Link an item to this session. Files and images use kind=file and path; others use target_id. Use kind=task with the task key when this session works on a GitHub, Jira or Linear task. Link each PR you create or work on immediately. For several PRs, such as a stack or a pasted list, pass them all as target_ids in one call; use target_id for one PR. Solus updates PR state and settles the session when its PRs end. Repeated links are safe."
 const UNLINK_DESC =
   "Remove a link from this session, keeping the target. Uses the same inputs as link. To remove every PR in some states, such as all closed or merged PRs, pass kind=pr and states in one call; use target_id for one PR. Removed PRs stay excluded from automatic linking until explicitly linked again. Missing files use their saved path from list_links."
 const LIST_LINKS_DESC =
@@ -351,7 +354,7 @@ export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
 })
 
 export const listLinksAgentTool = sessionLinkTool('list_links', LIST_LINKS_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file', 'app']).optional().describe('Omit to list all kinds.'),
+  kind: listLinkKind.optional().describe('Omit to list all kinds.'),
 }, false, async (input, ctx) => listCallerLinks(ctx, input.kind))
 
 export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {

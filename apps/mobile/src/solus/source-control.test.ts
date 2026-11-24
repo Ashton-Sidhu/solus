@@ -1,5 +1,5 @@
 import { hostQueryScope } from "../state/host-query-scope";
-import { labelPr, moveIssue, reviewPr, runPrAction, updateIssue } from "./source-control-actions";
+import { labelPr, moveIssue, prFilesViewed, reviewPr, runPrAction, setPrFilesViewed, updateIssue } from "./source-control-actions";
 import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
@@ -23,6 +23,8 @@ const host = vi.hoisted(() => ({
   prEnableStackAutoMerge: vi.fn(),
   prDisableStackAutoMerge: vi.fn(),
   prChecks: vi.fn(),
+  prViewedFiles: vi.fn(),
+  prSetFilesViewed: vi.fn(),
   prSetLabels: vi.fn(),
   prSubmitReview: vi.fn(),
   prOpenReview: vi.fn(),
@@ -366,6 +368,32 @@ it("applies a label change to the current host labels", async () => {
     );
     expect(result._tag).toBe("Success");
     expect(host.prSetLabels).toHaveBeenCalledWith(hostPr, ["keep", "bug"]);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("reads and changes the viewer's file marks through the selected host", async () => {
+  const registry = AtomRegistry.make();
+  host.prViewedFiles.mockResolvedValueOnce({
+    files: [{ path: "one.ts", state: "viewed" }],
+    complete: false,
+  });
+  try {
+    expect(await executeAtomQuery(registry, prFilesViewed({ environmentId, input: pullRequest })))
+      .toMatchObject({ value: { files: [{ path: "one.ts", state: "viewed" }], truncated: true } });
+    expect(host.prViewedFiles).toHaveBeenCalledWith(hostPr);
+    host.prGetDetail.mockResolvedValueOnce(pr).mockResolvedValueOnce({ ...pr, headSha: "new" });
+    const input = {
+      ...pullRequest,
+      expectedHeadSha: pr.headSha,
+      files: [{ path: "one.ts", viewed: false }],
+    };
+    expect(await runAtomCommand(registry, setPrFilesViewed, { environmentId, input }, quiet))
+      .toMatchObject({ _tag: "Success" });
+    expect(await runAtomCommand(registry, setPrFilesViewed, { environmentId, input }, quiet))
+      .toMatchObject({ _tag: "Failure" });
+    expect(host.prSetFilesViewed.mock.calls).toEqual([[hostPr, input.files]]);
   } finally {
     registry.dispose();
   }

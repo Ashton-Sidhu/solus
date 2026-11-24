@@ -4,7 +4,8 @@ import * as WebBrowser from 'expo-web-browser'
 import * as Crypto from 'expo-crypto'
 import * as Network from 'expo-network'
 import Storage from 'expo-sqlite/kv-store'
-import { EncodingType, FileSystemUploadType, readAsStringAsync, uploadAsync } from 'expo-file-system/legacy'
+import { File } from 'expo-file-system'
+import { EncodingType, readAsStringAsync } from 'expo-file-system/legacy'
 import { WsTransport } from '@solus/client-core/ws-transport'
 import type { DocumentSyncEnvironment, DocumentSyncSignal } from '@solus/client-core/document-sync'
 import { uuid } from '@solus/contracts/uuid'
@@ -17,6 +18,7 @@ import { scanLocalNetwork } from './lan-scan'
 import { nativeGet } from './native-get'
 import { sqlitePullRequestCache } from './pull-request-cache-sqlite'
 import { readNativeAddress } from './read-native-address'
+import { uploadNativeAttachment } from '../../src/lib/nativeAttachmentTransfer'
 
 /** Plain data in the app's SQLite key-value store: synchronous, not secret. */
 const storage: KeyValueStore = {
@@ -109,7 +111,10 @@ export const expoPlatform: PlatformAdapters = {
   attachmentIo: {
     readBase64: (uri) => readAsStringAsync(uri, { encoding: EncodingType.Base64 }),
     // Raw bytes, as the host's signed upload route expects; the length is the file's.
-    uploadFile: async (url, uri) => (await uploadAsync(url, uri, { httpMethod: 'POST', uploadType: FileSystemUploadType.BINARY_CONTENT })).status,
+    uploadFile: async (url, uri, transfer) => (await uploadNativeAttachment(new File(uri), url, {
+      signal: transfer?.signal,
+      onProgress: transfer?.reportProgress,
+    })).status,
   },
 }
 

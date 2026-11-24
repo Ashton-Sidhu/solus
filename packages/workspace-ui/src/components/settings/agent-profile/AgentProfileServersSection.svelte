@@ -24,8 +24,9 @@
   import { customUrlProblem, probeRefusal, urlHost } from "../lib/integration-labels";
   import { toasts } from "../../../lib/toasts";
   import ProfileEntryRow from "./ProfileEntryRow.svelte";
-  import ShowMoreRow from "./ShowMoreRow.svelte";
-  import { authKindLabel, pageOf, integrationEntryOf, profileServerStatus, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import ShowMoreRow from "../ShowMoreRow.svelte";
+  import { authKindLabel, integrationEntryOf, profileServerStatus, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import { pageOf } from "../lib/list-page";
 
   interface Props {
     integrations: AgentProfileSections["integrations"];

@@ -26,6 +26,7 @@ import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
 import { fitComposerImage, renderPhoto } from "./composerImageFit";
 import { beginForegroundHandoff } from "./foreground-handoff";
+import { openComposerMediaLibrary } from "./composerMediaLibrary";
 import { uuidv4 } from "./uuid";
 import { writeFileAtomically } from "./atomic-file";
 
@@ -48,6 +49,7 @@ export interface DraftComposerFileAttachment {
   readonly mimeType: string;
   readonly sizeBytes: number;
   readonly fileUri: string;
+  readonly uploading?: boolean;
   readonly source?: PastedTextAttachmentSource;
   readonly uploadedAttachmentId?: string;
   readonly uploadEnvironmentId?: EnvironmentId;
@@ -461,26 +463,17 @@ export async function pickComposerMedia(input: {
     };
   }
 
-  // Android pickers report background state; guard against deferred restarts mid-pick.
-  const endHandoff = beginForegroundHandoff();
   let result: Awaited<ReturnType<typeof imagePicker.launchImageLibraryAsync>>;
   try {
-    result = await imagePicker.launchImageLibraryAsync({
-      mediaTypes: input.maxVideoBytes === undefined ? ["images"] : ["images", "videos"],
-      allowsMultipleSelection: true,
+    result = await openComposerMediaLibrary(imagePicker.launchImageLibraryAsync, {
+      allowVideos: input.maxVideoBytes !== undefined,
       selectionLimit: remainingSlots,
-      // Base64 makes iOS decode all full-size photos and stalls JS with large strings; read bytes only as needed.
-      base64: false,
-      quality: 1,
-      shouldDownloadFromNetwork: true,
     });
   } catch (error) {
     return {
       attachments: [],
       error: errorDisplayMessage(error, m) ?? m(msg("Could not open the photo library.")),
     };
-  } finally {
-    endHandoff();
   }
 
   if (result.canceled || input.acceptSelection?.() === false) {

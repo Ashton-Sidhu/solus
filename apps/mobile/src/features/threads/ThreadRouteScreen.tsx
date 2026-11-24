@@ -16,7 +16,7 @@ import { useThreadScreenData } from "../../solus/use-thread-screen-data";
 import { useCheckoutGitControls } from "../../solus/CheckoutGit";
 import { isChat } from "@solus/contracts/chat";
 import { ThreadHeader, ThreadNavigationHeader } from "./ThreadHeader";
-import { DraftEnvironmentControl } from "./DraftEnvironmentControl";
+import { DraftContextControls, DraftEnvironmentControl } from "./DraftEnvironmentControl";
 import { draftHeroContent, SHORT_DRAFT_VIEWPORT_HEIGHT } from "./NewTaskHero";
 import { TurnDiffReader } from "../../solus/turn-diff-context";
 import { Inspector, useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
@@ -175,12 +175,22 @@ function ThreadContent({
               content: draftHeroContent({ ...draft, environmentControl }),
               // T3's draft controls: the context pickers when the hero has no room, then the workspace row.
               controls: (height) => (
-                <View className="pb-1">
-                  {height < SHORT_DRAFT_VIEWPORT_HEIGHT ? environmentControl : null}
+                <>
+                  {height < SHORT_DRAFT_VIEWPORT_HEIGHT ? (
+                    <DraftContextControls
+                      projectLabel={draft.scratch ? gt("No project") : draft.title}
+                      onChooseProject={draft.chooseProject}
+                      connectionState={draft.connectionState}
+                      label={draft.environmentLabel}
+                      machineKind="server"
+                      disabled={draft.disabled}
+                      onChooseEnvironment={draft.chooseEnvironment}
+                    />
+                  ) : null}
                   {draft.scratch ? null : (
                     <DraftWorkspaceControls store={session.store} disabled={draft.disabled} />
                   )}
-                </View>
+                </>
               ),
             }
           : undefined

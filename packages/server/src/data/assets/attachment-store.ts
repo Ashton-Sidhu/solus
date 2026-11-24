@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from 'crypto'
-import { chmod, copyFile, mkdir, open, rm, unlink } from 'fs/promises'
+import { chmod, copyFile, mkdir, open, rm, stat, unlink } from 'fs/promises'
 import { basename, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
-import { VIDEO_FILE_EXTENSIONS, videoMimeType } from '@solus/contracts/media-types'
+import { VIDEO_FILE_EXTENSIONS, heicJpegName, isHeicFile, videoMimeType } from '@solus/contracts/media-types'
 import { dataDir } from '../../platform/paths'
 import { memberUsers } from '../../host/member-users'
+import { heicToJpeg } from '../../platform/heic-to-jpeg'
 
 /**
  * The host's attachment store: files a client or another host uploaded for a
@@ -155,13 +156,31 @@ export async function namedUploadPath(bucketId: string, name: string, attachment
   return join(folder, safeFileName(name))
 }
 
-/** Decode and persist one attachment in a conversation's upload folder. */
+/**
+ * Decode and persist one attachment in a conversation's upload folder. A HEIC
+ * photo is stored as a JPEG when this host can convert it, so the path answered
+ * names a file every client can show; otherwise the original is kept.
+ */
 export async function storeAttachment(
   bucketId: string,
   request: AttachmentUploadRequest,
   attachmentsDir?: string,
 ): Promise<string> {
-  return storeAttachmentBytes(bucketId, request.name, request.mime, decodeAttachmentDataUrl(request), attachmentsDir)
+  const stored = await storeAttachmentBytes(bucketId, request.name, request.mime, decodeAttachmentDataUrl(request), attachmentsDir)
+  if (!isHeicFile({ name: request.name, mimeType: request.mime })) return stored
+  return (await replaceWithJpeg(stored, bucketId, request.name, attachmentsDir)) ?? stored
+}
+
+async function replaceWithJpeg(heicPath: string, bucketId: string, name: string, attachmentsDir?: string): Promise<string | null> {
+  const jpegPath = await attachmentUploadPath(bucketId, heicJpegName(name), 'image/jpeg', attachmentsDir)
+  if (!(await heicToJpeg(heicPath, jpegPath))) return null
+  if ((await stat(jpegPath)).size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+    await unlink(jpegPath).catch(() => {})
+    return null
+  }
+  await chmod(jpegPath, attachmentFileMode())
+  await unlink(heicPath).catch(() => {})
+  return jpegPath
 }
 
 /** Persist bytes the host already holds (an MCP resource it read) as one attachment of a conversation. */

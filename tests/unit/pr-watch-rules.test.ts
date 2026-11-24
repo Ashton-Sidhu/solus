@@ -397,6 +397,22 @@ describe('PR watch wake text', () => {
     expect(text).toContain(`"${'a'.repeat(198)}…"`)
   })
 
+  test('a bot comment reads as plain text, so the cut leaves no markup for the markdown view to draw', () => {
+    // WHY: every client draws the wake as markdown; a cut `<picture>` tag or an
+    // open `**` from a CodeRabbit comment drew as broken text and images.
+    const at = '2026-10-07T12:01:00Z'
+    const remarks = [
+      { ...remark('r1', at), body: '_⚠️ Potential issue_ | _🟠 Major_\n\n**Data Integrity:** the `stage_registry` key is [unused](https://x.dev/a).\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nFix it\n```\n</details>' },
+      { ...remark('r2', at), body: '<!-- auto-generated -->\n<picture><source srcset="https://x.dev/i.png"><img alt="logo" src="https://x.dev/i.png"></picture>\n\n> [!NOTE]\n> ## Walkthrough\n> - Adds `stage.yaml`' },
+      { ...remark('r3', at), body: '<!-- This is an auto-generated reply by CodeRabbit -->' },
+    ]
+    const text = wakeText({ number: 1, url: 'u', headSha: 'h' }, [{ kind: 'remarks', remarks }], null)
+    expect(text).toContain('reviewer: "⚠️ Potential issue | 🟠 Major Data Integrity: the `stage_registry` key is unused. 🤖 Prompt for AI Agents Fix it"')
+    expect(text).toContain('reviewer: "Walkthrough Adds `stage.yaml`"')
+    expect(text).toContain('reviewer: (no text)')
+    expect(text).not.toMatch(/[<>]|\*\*|\]\(/)
+  })
+
   test('a long list is cut at ten items', () => {
     const many = Array.from({ length: 13 }, (_, index) => check(`c${index}`, 'failure'))
     const text = wakeText({ number: 1, url: 'u', headSha: 'h' }, [{ kind: 'checks-failed', checks: many }], null)

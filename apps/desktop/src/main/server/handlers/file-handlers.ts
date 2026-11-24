@@ -134,8 +134,9 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     }
     const result = await dialog.showOpenDialog(win, options)
     if (result.canceled || result.filePaths.length === 0) return null
-    allowClientAttachmentReads(result.filePaths)
-    return filePathsToAttachments(result.filePaths)
+    const attachments = await filePathsToAttachments(result.filePaths)
+    allowClientAttachmentReads(attachments.map((attachment) => attachment.path))
+    return attachments
   })
 
   server.register('attachFilePaths', async (args) => {

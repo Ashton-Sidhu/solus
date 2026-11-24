@@ -100,6 +100,8 @@
   const environmentStore = getSessionEnvironmentStore();
   const outerScrollbar = getOuterScrollbarContext();
   let sectionsElement = $state<HTMLDivElement | null>(null);
+  let panelHeight = $state(0);
+  const initialRowCount = $derived(panelHeight <= 800 ? 3 : 5);
 
   $effect(() => {
     if (!outerScrollbar || !sectionsElement) return;
@@ -428,6 +430,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     bind:this={sectionsElement}
+    bind:clientHeight={panelHeight}
     class="project-sections"
     class:outer-scroll-source={!!outerScrollbar}
     role="region"
@@ -487,6 +490,7 @@
       <RunningServers
         hostId={serverHostId}
         checkoutPath={panelEnvironment.cwd ?? null}
+        {initialRowCount}
         collapsed={collapsedSections.servers}
         onToggle={() => toggleSection("servers")}
         onResizePointerDown={startResize}
@@ -512,6 +516,7 @@
           sessionId={panelSession.id}
           serverId={session.serverIdFor(sourceId)}
           active={active && open}
+          {initialRowCount}
           collapsed={collapsedSections.agents}
           onToggle={() => toggleSection("agents")}
           onResizePointerDown={startResize}

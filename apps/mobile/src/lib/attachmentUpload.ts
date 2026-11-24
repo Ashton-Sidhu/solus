@@ -34,6 +34,7 @@ import {
 } from "./composerImages";
 import { imageMimeType } from "@t3tools/shared/image";
 import { uuidv4 } from "./uuid";
+import { uploadNativeAttachment } from "./nativeAttachmentTransfer";
 import {
   attachmentUploadError,
   type AttachmentUploadError,
@@ -213,7 +214,7 @@ async function uploadFileBytes(
   signal: AbortSignal,
   onProgress?: (progress: number) => void,
 ): Promise<void> {
-  const { File, Paths, UploadType } = await import("expo-file-system");
+  const { File, Paths } = await import("expo-file-system");
   if (signal.aborted) throw new Error("Upload cancelled.");
   if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
     throw new Error(m(msg("This connection cannot upload attachments.")));
@@ -234,20 +235,10 @@ async function uploadFileBytes(
         encoding: "base64",
       });
     }
-    const result = await file.upload(url, {
-      httpMethod: "POST",
-      uploadType: UploadType.BINARY_CONTENT,
-      headers: { "Content-Type": composerAttachmentWireMimeType(attachment) },
+    const result = await uploadNativeAttachment(file, url, {
+      mimeType: composerAttachmentWireMimeType(attachment),
       signal,
-      ...(onProgress
-        ? {
-            // Native events carry Int64 counts, which expo-modules-jsi delivers as BigInt despite the `number` type.
-            onProgress: ({ bytesSent, totalBytes }) => {
-              const total = Number(totalBytes);
-              if (total > 0) onProgress(Number(bytesSent) / total);
-            },
-          }
-        : {}),
+      onProgress,
     });
     if (result.status < 200 || result.status >= 300) {
       throw new Error(

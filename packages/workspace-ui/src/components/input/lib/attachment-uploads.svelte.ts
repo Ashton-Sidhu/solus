@@ -4,7 +4,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { AttachmentUploadTokenResult } from '@solus/contracts/rpc'
 import type { Attachment, HostCapabilities, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
-import { attachmentKind } from '@solus/contracts/media-types'
+import { attachmentKind, heicJpegName, landedAttachmentKind } from '@solus/contracts/media-types'
 import {
   attachmentUploadRoute,
   postAttachmentBytes,
@@ -282,16 +282,19 @@ async function uploadBlob(
   }
   const dataUrl = await readFileDataUrl(typed)
   const hostPath = await api.attachUpload(ctx, { name, mime: kind.mimeType, dataUrl })
+  const landed = landedAttachmentKind(kind, name, hostPath)
   const attachment: Attachment = {
     id: uuid(),
-    type: kind.type,
-    name,
+    type: landed.type,
+    name: landed === kind ? name : heicJpegName(name),
     path: hostPath,
     hostPath,
     hostServerId: serverId,
-    mimeType: kind.mimeType,
+    mimeType: landed.mimeType,
     size: file.size,
   }
+  // A HEIC photo the host converted has no data URL: these bytes are the original,
+  // so it shows from its host path.
   if (kind.type === 'image') attachment.dataUrl = dataUrl
   return attachment
 }
@@ -332,14 +335,17 @@ export async function uploadLocalAttachments(
       mime: kind.mimeType,
       dataUrl: bytes.dataUrl,
     })
+    const landed = landedAttachmentKind(kind, attachment.name, hostPath)
     const uploadedAttachment: Attachment = {
       ...attachment,
-      mimeType: kind.mimeType,
+      type: landed === kind ? attachment.type : landed.type,
+      name: landed === kind ? attachment.name : heicJpegName(attachment.name),
+      mimeType: landed.mimeType,
       hostPath,
       hostServerId: serverId,
       size: bytes.size,
     }
-    if (attachment.type === 'image') uploadedAttachment.dataUrl = bytes.dataUrl
+    if (landed === kind && attachment.type === 'image') uploadedAttachment.dataUrl = bytes.dataUrl
     uploaded.push(uploadedAttachment)
   }
   return uploaded

@@ -130,6 +130,6 @@ export function composerUploadMedia(
       ];
     }),
     ...waiting.map((image) => ({ ...image, uploading: true })),
-    ...waitingVideos,
+    ...waitingVideos.map((video) => ({ ...video, uploading: true })),
   ];
 }

@@ -25,6 +25,7 @@ import { scopeClause } from '../scope'
 import { apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
+import { taskIdsForSessions } from '../tasks/task-sessions'
 import { getSessionRecord, readSessionListPage, readSessionMetadataPage, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
 import { readApiTranscript } from './api-transcript'
 import { personOfMirrorScope, readerMirrorScope } from './mirror-scope'
@@ -203,8 +204,12 @@ export class SessionApiOperations {
   async links(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionLinkList> {
     requireScope(context, 'sessions:read')
     await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'read')
-    const items = await readOwnSessionArtifacts(apiScope(context), sessionId)
-    return { items: items.flatMap((item): WorkspaceSessionLinkList['items'] => {
+    const scope = apiScope(context)
+    const [items, taskIds] = await Promise.all([
+      readOwnSessionArtifacts(scope, sessionId),
+      taskIdsForSessions(scope, [sessionId]),
+    ])
+    const links = items.flatMap((item): WorkspaceSessionLinkList['items'] => {
       // An app link is on its host alone: the Solus API's link list does not name it (docs/plans/apps.md decision 18).
       if (item.kind === 'app') return []
       if (item.kind === 'pull-request') {
@@ -215,7 +220,9 @@ export class SessionApiOperations {
       if (item.kind === 'work') return [{ target: { kind: 'work', id: item.workId }, title: item.title }]
       if (item.kind === 'automation') return [{ target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }]
       return [{ target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }]
-    }) }
+    })
+    for (const id of taskIds.sort()) links.push({ target: { kind: 'task', id }, title: '' })
+    return { items: links }
   }
 
   async pullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList> {

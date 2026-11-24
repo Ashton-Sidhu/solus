@@ -5,7 +5,6 @@
   import { groupKeyFor } from "../../contexts";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as TooltipUI from "../ui/tooltip";
-  import SessionRowHost from "./SessionRowHost.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
 
   /** A pinned session with no open conversation. It has the slim shape of a
@@ -59,7 +58,6 @@
           class="min-w-0 flex-1 truncate text-workspace-chrome {isCurrentSession ? 'font-medium' : ''}"
           >{automationName ?? pin.title}</span
         >
-        {#if !isGuest}<SessionRowHost serverId={pin.serverId} />{/if}
       </div>
     {/snippet}
   </TooltipUI.Trigger>
