@@ -7,7 +7,7 @@ import { settleSetupCard } from '@solus/contracts/setup-card'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import type { NormalizedEvent, IpcContext, SessionRunInput, RuntimeSessionInfo, WatchSessionInput, WatchSessionResult } from '@solus/contracts/types'
+import type { IpcContext, SessionRunInput, RuntimeSessionInfo, WatchSessionInput, WatchSessionResult } from '@solus/contracts/types'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
 import { activeTurnFor } from '../../presence/presence-manager'
 import type { SessionRuntime } from '../session-runtime'
@@ -63,7 +63,9 @@ export class SessionWatchers {
     if (!input.attachRuntime) return pending
     const agentSessionId = this.rt.agentSessionIdFor(sessionId)
     // Same order a separate bind would follow: drained, joined, then replayed.
-    const runtime = setupRuntime ?? (agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId, undefined, after) : null)
+    const runtime = setupRuntime ?? (agentSessionId || this.rt.activeSessions.get(sessionId)?.status === 'connecting'
+      ? this.attachRuntime(sessionId, agentSessionId ?? null, clientId, undefined, after)
+      : null)
     if (after !== undefined && !runtime) this.dropWatch(sessionId, clientId)
     return { runtime, ...pending, ...(after !== undefined && { resumed: runtime !== null }) }
   }
@@ -171,7 +173,7 @@ export class SessionWatchers {
   /** Join a watching client to a session's live runtime: replay the turn so far
    *  to that client alone and read the run config back. Null when nothing is
    *  running for the session any more. */
-  private attachRuntime(sessionId: string, agentSessionId: string, clientId: string, rateLimitBehavior?: SessionRunInput['rateLimitBehavior'], afterEvent?: string): RuntimeSessionInfo | null {
+  private attachRuntime(sessionId: string, agentSessionId: string | null, clientId: string, rateLimitBehavior?: SessionRunInput['rateLimitBehavior'], afterEvent?: string): RuntimeSessionInfo | null {
     const session = this.rt.activeSessions.get(sessionId)
     if (!session) return null
 
@@ -185,8 +187,11 @@ export class SessionWatchers {
     const hasQueuedRateLimitRequest = (this.rt.scheduler.requestQueue.get(sessionId) ?? []).some(
       (request) => request.rateLimitSessionId === sessionId,
     )
-    const isRuntimeRunning = backend.isSessionRunning(agentSessionId)
-    if (!isRuntimeRunning && !backend.hasBackgroundTasks?.(agentSessionId) && !pendingRateLimitEvent && !hasQueuedRateLimitRequest
+    const isRuntimeRunning = agentSessionId !== null && backend.isSessionRunning(agentSessionId)
+    const turn = this.rt.turnStops.get(sessionId)
+    const isStarting = turn && !turn.signal.aborted
+      && (session.status === 'connecting' || session.status === 'running')
+    if (!isStarting && !isRuntimeRunning && !(agentSessionId && backend.hasBackgroundTasks?.(agentSessionId)) && !pendingRateLimitEvent && !hasQueuedRateLimitRequest
       && !this.rt.statuses.waitsOutsideRun(sessionId)) {
       this.rt.activeSessions.delete(sessionId)
       return null

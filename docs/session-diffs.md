@@ -38,6 +38,12 @@ Snapshots use a temporary Git index. They do not change staged files or advance
 the checked-out branch. The same server behavior applies to Claude and Codex and
 to desktop, web, and mobile clients.
 
+The changed-files card below assistant turns is hidden by default. To show it,
+enable **Show changed files after turns** in **Settings → Chat**. Turn off
+**Keep changed files on earlier turns** to show only the latest turn's card.
+The Diff and Files actions are available with either setting. On native mobile,
+tap the card to open that turn in Review.
+
 The Changed files menu has checkboxes for Code, Tests, Mocks, Generated, and
 Docs. Select any combination. All classes are selected by default. Each row
 shows the full line counts for its class, even when that class is hidden.

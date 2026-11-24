@@ -1,3 +1,4 @@
+import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import type { ProviderRuntime } from '../seats/provider-runtime'
 import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
@@ -97,6 +98,8 @@ export interface AgentRunSessionState {
   /** The Insights trace of this turn, written onto the turn's git snapshot so
    *  Insights can open the exact change the turn made. */
   turnTraceId?: string
+  /** Report an observed startup step before the provider sends output. */
+  reportStartupPhase?: (phase: ProviderStartupPhase) => void
 }
 
 export interface AgentRunResult {

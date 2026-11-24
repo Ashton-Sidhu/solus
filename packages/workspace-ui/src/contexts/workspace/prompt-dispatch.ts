@@ -566,6 +566,7 @@ export class PromptDispatch {
         workRefs,
         sessionRefs,
       }
+      session.providerStartup = { provider: agent, phase: 'starting' }
       session.currentTurnStart = isFirstMessage ? 'fresh' : 'follow_up'
       session.currentTurnStartedAt = sentAt
       session.currentActivity = isUploading
@@ -807,6 +808,7 @@ export class PromptDispatch {
     session.currentTurnStartedAt = Date.now()
     session.currentActivity = 'Resuming...'
     session.run.provider = session.run.provider ?? this.workspace.settings.activeAgent
+    session.providerStartup = { provider: session.run.provider, phase: 'starting' }
     session.progress = null
     session.retryAttempt = (session.retryAttempt ?? 1) + 1
     session.terminalFailure = null

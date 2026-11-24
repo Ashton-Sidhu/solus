@@ -832,6 +832,7 @@
                 nextStartedAt={turns[turnIdx + 1]?.startedAt ?? null}
                 expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
                 {isAwaitingInput} {activityLabel} {setupLabel} turnStart={sess.currentTurnStart}
+                providerStartup={turnIdx === turns.length - 1 && turn.live ? sess.providerStartup : undefined}
                 hasBackgroundWork={showsBackgroundWork(sess.status, !!sess.backgroundWorkRunning)}
                 onStopBackgroundWork={stopBackgroundWork}
                 attempt={sess.retryAttempt ?? 1} history={session.toolHistory}

@@ -60,6 +60,26 @@ function activeRun(backend: unknown, sessionId: string) {
 }
 
 describe('ClaudeBackend steering', () => {
+  test('reports the first unanswered API request even after Claude initializes', async () => {
+    scriptedMessages = [
+      { type: 'system', subtype: 'init', session_id: 'startup-thread', model: 'claude', slash_commands: [] },
+      { type: 'system', subtype: 'status', status: 'requesting' },
+      { type: 'system', subtype: 'status', status: 'requesting' },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Ready' }] } },
+      { type: 'system', subtype: 'status', status: 'requesting' },
+      { type: 'result', subtype: 'success', result: 'Ready' },
+    ]
+    const timeline: string[] = []
+    const { events } = new ClaudeAgent().run({
+      prompt: 'Start', cwd: '/tmp',
+      reportStartupPhase: (phase) => timeline.push(phase),
+    })
+    for await (const event of events) {
+      if (event.type === 'session_init' || event.type === 'assistant_message') timeline.push(event.type)
+    }
+    expect(timeline).toEqual(['session_init', 'connecting', 'waiting', 'assistant_message'])
+  })
+
   test('a pending fork cannot report its source as its own session', async () => {
     scriptedMessages = []
     const backend = new ClaudeBackend()

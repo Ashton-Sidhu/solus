@@ -1,3 +1,4 @@
+import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
 import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { readFile } from 'fs/promises'
 import { spawn } from 'child_process'
@@ -58,6 +59,11 @@ const contextUsageReportSchema = z.object({
 const streamingTextEventSchema = z.object({
   type: z.literal('stream_event'),
   event: z.object({ type: z.literal('content_block_delta') }),
+})
+const requestingStatusSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('status'),
+  status: z.literal('requesting'),
 })
 const initMessageSchema = z.object({
   type: z.literal('system'),
@@ -276,6 +282,7 @@ export interface ClaudeRunOptions {
   persistSession?: boolean
   abortController?: AbortController
   /** Persists the turn and returns the authoritative net session paths. */
+  reportStartupPhase?: (phase: ProviderStartupPhase) => void
   onTurnComplete?: (facts: { partial: boolean; userMessagePreview: string }) => Promise<string[] | null>
   /** When true, the SDK creates a new forked session branching from opts.sessionId. */
   forkSession?: boolean
@@ -468,7 +475,19 @@ export class ClaudeAgent {
         cliSkip.report()
         const appCapture = opts.onMcpApp ? new ClaudeAppCapture(cquery, opts.onMcpApp) : null
 
+        let startup: 'starting' | 'connecting' | 'done' = 'starting'
         for await (const msg of cquery) {
+          if (startup !== 'done' && opts.reportStartupPhase) {
+            if (requestingStatusSchema.safeParse(msg).success) {
+              if (startup === 'starting') opts.reportStartupPhase('connecting')
+              startup = 'connecting'
+            } else if (startup === 'connecting') {
+              startup = 'done'
+              opts.reportStartupPhase('waiting')
+            } else if (msg.type === 'assistant' || msg.type === 'stream_event' || msg.type === 'result') {
+              startup = 'done'
+            }
+          }
           const initMessage = initMessageSchema.safeParse(msg)
           if (initMessage.success) {
             state.sessionId = initMessage.data.session_id

@@ -1,3 +1,4 @@
+import type { ProviderStartup } from "@solus/contracts/provider-startup";
 import { useAtomValue } from "@effect/atom-react";
 import { mobileHost } from "../../state/mobile-host";
 import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types";
@@ -404,6 +405,7 @@ export interface ThreadFeedProps {
   readonly latestRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
   readonly runlessWorkActive?: boolean;
+  readonly providerStartup?: ProviderStartup | null;
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
@@ -2060,6 +2062,7 @@ function renderFeedEntry(
     | "threadId"
     | "workspaceRoot"
     | "worktreeSetup"
+    | "providerStartup"
   > & {
     /** The fold row of the turn the worktree setup handed off to. */
     readonly setupFoldRowId: string | null;
@@ -2193,6 +2196,7 @@ function renderFeedEntry(
         label={entry.label}
         providerStartingLabel={entry.providerStartingLabel}
         providerStartingDriver={entry.providerStartingDriver}
+        providerStartup={props.providerStartup}
       />
     );
   }
@@ -2798,7 +2802,7 @@ function renderFeedEntry(
           onPressPreview={props.onPressPreview}
           onPlaybackStart={props.onPlaybackStart}
         />
-        {showAssistantMeta && message.checkpointSummary ? (
+        {message.checkpointSummary && !assistantTurnStillInProgress && !message.streaming ? (
           <TurnDiffStat
             checkpoint={message.checkpointSummary}
             onOpenTurnDiff={props.onOpenTurnDiff}
@@ -4424,6 +4428,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             pendingFoldMessageId,
             setupFoldRowId,
             worktreeSetup: props.worktreeSetup,
+            providerStartup: props.providerStartup,
             setupDetailsOpen,
             onOpenSetupDetails: openSetupDetails,
             onEditPendingMessage: props.onEditPendingMessage,

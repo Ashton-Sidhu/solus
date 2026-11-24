@@ -2511,6 +2511,7 @@ export type ThreadFeedSourceRow =
   | (OrchestrationV2ProjectedTurnItem & {
       readonly hostTime?: string;
       readonly hostForkPointId?: string;
+      readonly hostCheckpointSummary?: ThreadCheckpointSummary;
       readonly hostBackgroundCommand?: BackgroundCommandWake;
       readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> };
     })
@@ -2799,6 +2800,7 @@ export function buildThreadFeed(
           ...(row.hostTime === undefined && { projectedItem: row }),
           ...(row.hostForkPointId && { hostForkPointId: row.hostForkPointId }),
           backgroundCommand: row.hostBackgroundCommand,
+          ...(row.hostCheckpointSummary && { checkpointSummary: row.hostCheckpointSummary }),
         },
       };
       projectedEntriesCache.set(row, { attemptId, locale, entries: [entry] });

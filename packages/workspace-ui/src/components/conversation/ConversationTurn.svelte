@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ProviderStartup } from "@solus/contracts/provider-startup";
   import type { Snippet } from "svelte";
   import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -35,7 +36,7 @@
   import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
-  let { turn, burst = NO_BURST, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
+  let { turn, burst = NO_BURST, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, providerStartup, turnStart, attempt,
     hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId,
     settledSetupCard, tabId, nextStartedAt = null }: {
     turn: Turn;
@@ -43,6 +44,7 @@
     burst?: UserBurst; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
     activityLabel?: string;
     /** The setup step that runs now, while the session's setup card is active. */
+    providerStartup?: ProviderStartup | null;
     setupLabel?: string; turnStart: TurnStartKind | null; attempt: number;
     /** The session's turn ended, but a task it launched is still running. */
     hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
@@ -176,7 +178,7 @@
               {skipMotion}
               working={working && itemIdx === body.length - 1}
               {activityLabel}
-              turnStart={working ? turnStart : null}
+              turnStart={working && providerStartup === undefined ? turnStart : null}
               backgroundWait={working
                 ? describeBackgroundWait(turn.body)
                 : null}
@@ -249,7 +251,8 @@
     live
     {activityLabel}
     {setupLabel}
-    turnStart={turnStart}
+    {providerStartup}
+    turnStart={providerStartup === undefined ? turnStart : null}
     backgroundWait={describeBackgroundWait(turn.body)}
     expanded={false}
     attempt={attempt}

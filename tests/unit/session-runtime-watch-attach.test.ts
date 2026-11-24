@@ -62,6 +62,8 @@ class Backend extends EventEmitter implements AgentBackend {
   readonly pending = new Set<RunHandle>()
   starts = 0
   allowSteering = false
+  beforeInit?: Promise<void>
+  launchReached?: () => void
   steeredPrompts: string[] = []
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
@@ -84,7 +86,12 @@ class Backend extends EventEmitter implements AgentBackend {
     }
     this.pending.add(handle)
     this.starts++
-    queueMicrotask(() => {
+    this.launchReached?.()
+    queueMicrotask(async () => {
+      if (this.beforeInit) {
+        sessionState?.reportStartupPhase?.('mcp')
+        await this.beforeInit
+      }
       handle.agentSessionId = threadId
       this.pending.delete(handle)
       this.handles.set(threadId, handle)
@@ -129,6 +136,39 @@ function input(): SessionRunInput {
 }
 
 describe.serial('SessionRuntime watchSession runtime attach', () => {
+  test('a joining client receives the current provider step before a thread exists', async () => {
+    const backend = new Backend()
+    const launch = Promise.withResolvers<void>()
+    const initialize = Promise.withResolvers<void>()
+    backend.launchReached = launch.resolve
+    backend.beforeInit = initialize.promise
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    const sessionId = 'startup-before-provider-thread'
+    const delivered: NormalizedEvent[] = []
+    plane.on('event', (_id, event: NormalizedEvent, options?: { only?: string }) => {
+      if (options?.only === 'joining-client') delivered.push(event)
+    })
+    try {
+      const running = plane.runTurn({
+        target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+        options: { prompt: 'inspect it', promptSource: 'typed' },
+      })
+      await launch.promise
+      await Promise.resolve()
+      expect(plane.watchers.watchSession({ sessionId, attachRuntime: true }, 'joining-client').runtime?.status).toBe('connecting')
+      expect(delivered.filter((event) => event.type === 'provider_startup').at(-1)?.startup)
+        .toEqual({ provider: 'codex', phase: 'mcp' })
+      initialize.resolve()
+      const lifecycle = await running
+      const { agentSessionId } = await lifecycle.agentSessionId
+      backend.complete(agentSessionId)
+      await lifecycle.done
+    } finally {
+      initialize.resolve()
+      plane.shutdown()
+    }
+  })
+
   test('an answer steers an active Codex turn without stopping it', async () => {
     const backend = new Backend()
     backend.allowSteering = true

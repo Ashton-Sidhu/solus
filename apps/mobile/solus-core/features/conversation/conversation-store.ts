@@ -22,6 +22,8 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
 export interface ConversationMeta {
   phase: ConversationPhase
   status: SessionStatus
+  providerStartup: ConversationController['model']['providerStartup']
+  latestSettledTurnId: string | null
   canStopTurn: boolean
   /** Background work of the session runs, held or not. */
   backgroundWorkRunning: boolean
@@ -224,6 +226,8 @@ export class ConversationStore {
     return {
       phase: this.controller.phase,
       status: model.status,
+      providerStartup: model.providerStartup,
+      latestSettledTurnId: model.latestSettledTurnId,
       canStopTurn: this.controller.canStopTurn,
       backgroundWorkRunning: model.backgroundWorkRunning,
       permissions: model.permissions,
