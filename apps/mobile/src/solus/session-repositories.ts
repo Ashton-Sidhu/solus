@@ -1,14 +1,10 @@
-import {
-  CODEBASE_WORKTREE_DEFAULT_MAX,
-  type Codebase,
-  type CodebaseMember,
-  type SessionFolder,
-} from "@solus/contracts/codebases";
+import { fitsWorktreeDefault } from "@solus/client-core/codebases";
+import type { Codebase, CodebaseMember, SessionFolder } from "@solus/contracts/codebases";
 import type { DiffRequest, TurnSnapshot } from "@solus/contracts/git-types";
 import {
+  hostPathFrom,
   hostPathKey,
-  hostPathSegments,
-  isWindowsHostPath,
+  isAbsoluteHostPath,
   sameHostPath,
 } from "@solus/contracts/host-path";
 import type { SessionChangeSummary } from "@solus/contracts/session-digest";
@@ -84,19 +80,6 @@ export interface WorktreeRepositoryOptions {
   readonly options: readonly WorktreeRepositoryOption[];
 }
 
-function relativeFolderPath(from: string, to: string): string | null {
-  if (isWindowsHostPath(from) !== isWindowsHostPath(to)) return null;
-  const source = hostPathSegments(hostPathKey(from));
-  const target = hostPathSegments(hostPathKey(to));
-  const targetNames = hostPathSegments(to);
-  if (isWindowsHostPath(from) && source[0] !== target[0]) return null;
-  let shared = 0;
-  while (shared < source.length && shared < target.length && source[shared] === target[shared]) {
-    shared += 1;
-  }
-  return [...source.slice(shared).map(() => ".."), ...targetNames.slice(shared)].join("/");
-}
-
 /**
  * The repositories that the upstream checklist of a new worktree thread
  * shows. Null when the folder of the project is not a member of the codebase:
@@ -114,9 +97,9 @@ export function worktreeRepositoryOptions(
     workingIsRepository: working.state === "git",
     options: members.flatMap((member): WorktreeRepositoryOption[] => {
       if (member.state !== "git" || sameHostPath(member.path, working.path)) return [];
-      const relativePath = relativeFolderPath(working.path, member.path);
+      const relativePath = hostPathFrom(working.path, member.path);
       // A different Windows drive shares no folder with the folder of the project: one task folder cannot hold both.
-      if (relativePath === null) return [];
+      if (isAbsoluteHostPath(relativePath)) return [];
       const named: WorktreeRepositoryOption = { repositoryPath: member.path, name: member.name };
       // T3's row shows the folder from the project folder only when the folder is inside it.
       const isInside =
@@ -135,9 +118,9 @@ export interface WorktreeRepositoryRunSelection extends WorktreeRepositorySelect
 
 /**
  * Which repositories a new worktree session takes. With no choice it gives
- * the default of the host (`planTaskFolder`): each repository that can get a
- * worktree when there are at most `CODEBASE_WORKTREE_DEFAULT_MAX`, the folder
- * of the project counted when it is a repository; none above that.
+ * the default of the host (`planTaskFolder`, by the shared rule
+ * `fitsWorktreeDefault`): each repository that can get a worktree, or none
+ * when there are too many.
  */
 export function resolveWorktreeRepositories(
   input: {
@@ -158,8 +141,10 @@ export function resolveWorktreeRepositories(
     };
   }
   const available = repositories.options.filter((option) => option.unavailable === undefined);
-  const takesAllByDefault =
-    available.length + (repositories.workingIsRepository ? 1 : 0) <= CODEBASE_WORKTREE_DEFAULT_MAX;
+  const takesAllByDefault = fitsWorktreeDefault(
+    available.length,
+    repositories.workingIsRepository,
+  );
   const wanted = chosen === null ? null : new Set(chosen.map(hostPathKey));
   const selected = available.flatMap((option) =>
     (wanted === null ? takesAllByDefault : wanted.has(hostPathKey(option.repositoryPath)))
@@ -372,9 +357,9 @@ export function reviewRepositories(input: {
       repositoryPath: undefined,
     },
     ...ordered.flatMap((folder): ReviewRepository[] => {
-      const relativePath = relativeFolderPath(input.workingDirectory, folder.path);
+      const relativePath = hostPathFrom(input.workingDirectory, folder.path);
       // A folder with no path from the working directory (a different Windows drive) has no place in the one patch.
-      if (!relativePath) return [];
+      if (!relativePath || isAbsoluteHostPath(relativePath)) return [];
       return [
         {
           key: folder.repositoryPath,
