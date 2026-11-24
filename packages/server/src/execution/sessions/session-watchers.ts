@@ -1,5 +1,5 @@
 import { createLogger } from '../../logger'
-import { actingPreferences } from '../person-preferences'
+import { actingPreferences } from '../person-settings'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'

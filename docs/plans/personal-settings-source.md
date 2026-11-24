@@ -93,9 +93,10 @@ client is the source of personal settings.
 
 Claude and Codex read the same `SessionRunInput`, so nothing is provider-specific.
 Desktop-local, desktop-hosted, and standalone remote hosts use the same RPCs over
-Electron IPC and WebSockets. The Solus API keeps the settings of each person who
-connects to it in its own database, and follows the account with the person's own
-token.
+Electron IPC and WebSockets. The RPCs are on the execution plane: a host keeps a
+person's settings because it runs their work. The Solus API serves only the
+collaboration plane, so it refuses them (`PLANE_DISABLED`), and a client's nudge to it
+changes nothing.
 
 ## Stale and offline cases
 

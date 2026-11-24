@@ -25,7 +25,7 @@ import { prIndex } from '../prs/pr-index'
 import { resolvedGuideHead, resolveTarget, resolveTargetBase, type GuideTarget } from './guide-producer'
 import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runLensAgent, type LensAgentInput } from './lens-agent'
-import { actingPreferences } from '../execution/person-preferences'
+import { actingPreferences } from '../execution/person-settings'
 import {
   changeLensComments,
   commitLens,

@@ -5,7 +5,7 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { resolveHomePath } from '../../platform/paths'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import { runInputFromContext } from '../agents/run-input'
-import { actingPreferences } from '../person-preferences'
+import { actingPreferences } from '../person-settings'
 import type { SessionRuntime } from '../session-runtime'
 
 /** Resolve the current provider member, so a stale client cannot compact an old thread. */

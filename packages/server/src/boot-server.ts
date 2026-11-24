@@ -154,7 +154,9 @@ import { CodexBackend } from './execution/agents/codex/codex-backend'
 import { getCodexAppServerClient } from './execution/agents/codex/codex-agent'
 import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
-import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
+import { currentHostUser, hostUserKey, isHostUserKey, useHostUser } from './host/host-user'
+import { parseUserKey } from '@solus/contracts/user'
+import { ACCOUNT_SETTINGS_PATH } from '@solus/contracts/settings'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { memberUsers as installedMemberUsers, WorkspacePreparingError } from './host/member-users'
 import { useMemberSwitch } from './cli-env'
@@ -286,6 +288,8 @@ import { registerHostListHandlers } from './transport/handlers/host-list-handler
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
 import { registerPersonHistoryHandlers } from './transport/handlers/person-history-handlers'
 import { publishPersonHistoryChanges } from './transport/events/person-history-events'
+import { publishPersonalDocumentChanges } from './transport/events/personal-document-events'
+import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
@@ -648,6 +652,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const interruptSweep = markOwnRunningSessionRecordsInterrupted().catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
   })
+  // Each person's settings on this host, which their work reads (docs/plans/personal-settings-source.md).
+  await loadPersonSettings()
   phaseDone('db_opened')
   // The transcript mirror (cloud-service-model.md §6): a runner ships each
   // session's history rows to its organization's workspace service. On a host
@@ -750,6 +756,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
     publishPersonHistoryChanges(events, personConnections),
+    publishPersonalDocumentChanges(events, personConnections),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -1132,6 +1139,18 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ownToken: (userId) => presentedTokens?.tokenFor(userId) ?? null,
   })
   useAccountReads(accountReadsOfServer)
+  // A signed-in person's settings come from their account (ADR 0007 decision 4): the host
+  // reads them with its token for the person, which is the host owner's account or a member's own.
+  usePersonSettingsAccount({
+    userFor: (personKey) => {
+      const id = parseUserKey(personKey)
+      const userId = isHostUserKey(personKey) ? hostOrganizations.owner()?.userId ?? null : id.kind === 'account' ? id.accountId : null
+      if (!userId) return null
+      const holdsToken = presentedTokens?.tokenFor(userId) != null || delegations?.holders().some((holder) => holder.userId === userId) === true
+      return holdsToken ? userId : null
+    },
+    read: (userId) => accountReadsOfServer.fetch(userId, null, ACCOUNT_SETTINGS_PATH),
+  })
   // The one place a person's credentials are kept and read (docs/plans/access-model.md §2.6).
   const credentialVault = new Vault({ reads: accountReadsOfServer })
   useVault(credentialVault)
@@ -2179,6 +2198,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (target) void profiles.pullQuietly(target)
     }
   }))
+  // Boot, and every few minutes after: every person who keeps settings here, and the owner
+  // of a linked host, gets their account's settings without a client's nudge.
+  domainEventUnsubscribes.push(startPersonSettingsPulls(() => hostOrganizations.owner() ? [hostUserKey()] : []))
   // Boot, and every few minutes after: every person with a seat here, and the owner
   // of a linked host, gets their account's profile without a client's nudge.
   domainEventUnsubscribes.push(profiles.startPeriodic(() => {

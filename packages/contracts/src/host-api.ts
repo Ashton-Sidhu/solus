@@ -69,7 +69,7 @@ import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
-import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences } from './settings'
+import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, HostPersonalSettings, PersonalSettingsPatch, PersonalSettingsPatchResult } from './settings'
 import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
 import type { PolicySet } from './policy'
 
@@ -794,12 +794,20 @@ export interface SolusAPI {
   /** The caller's profile on this host: where it came from, when, and what it holds. */
   agentProfileStatus(): Promise<AgentProfileStatus>
   /**
-   * Replaces this host's copy of the caller's execution preferences
-   * (docs/plans/host-preferences.md). A client sends it when it connects and
-   * when the preferences change. The host keeps the keys it knows and answers
-   * with the names of the keys it left out.
+   * This host's copy of the caller's settings (docs/plans/personal-settings-source.md):
+   * the source of a signed-out person's settings, and the copy of a signed-in
+   * person's account that their work here runs with.
    */
-  executionPreferencesSet(preferences: ExecutionPreferences): Promise<{ ignored: string[] }>
+  personalSettingsGet(): Promise<HostPersonalSettings>
+  /**
+   * Changes this host's copy of the caller's settings: a signed-out person's change,
+   * or the account's copy from a client whose host holds no token for the person.
+   * The host keeps the keys it knows and answers with the names of the others; it
+   * never refuses a key. `personalDocument.changed` tells the caller's other clients.
+   */
+  personalSettingsPatch(change: PersonalSettingsPatch): Promise<PersonalSettingsPatchResult>
+  /** The caller's account copy changed: the host pulls it now when it holds a token for them, and answers with its copy. */
+  personalSettingsChanged(): Promise<HostPersonalSettings>
   /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
   presenceSnapshot(): Promise<PresenceSnapshotResult>
   /** What this client is looking at; a hint for "jump to", never an authorization. */

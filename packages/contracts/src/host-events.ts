@@ -1,4 +1,5 @@
 import type { PersonHistoryEntry } from './person-history'
+import type { PersonalDocumentKind } from './settings'
 import type { SessionHeadChanged } from './session-repositories'
 import type { RunningServer } from './running-servers'
 import type { PolicySet } from './policy'
@@ -132,6 +133,9 @@ export interface HostEventMap {
   /** The recipient opened these records on another client (docs/plans/person-state.md).
    *  Delivered only to that person's connections; a client keeps the later time of each. */
   'personHistory.changed': { entries: PersonHistoryEntry[] }
+  /** The recipient's own copy of a personal document on this host changed (docs/plans/personal-settings-source.md).
+   *  Delivered only to that person's connections; a client that shows this host's copy reads it again. */
+  'personalDocument.changed': { kind: PersonalDocumentKind }
   /** The host read these task sources again, or one of them changed health.
    *  Clients that show a source it names read `tasksSources` again. */
   'tasks.sourcesChanged': { sourceKeys: string[] }
@@ -323,6 +327,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'tasks.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
   'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
   'personHistory.changed': { owner: 'people', category: 'delta', recovery: 'reload', description: 'The recipient opened records on another client; merge the later times.' },
+  'personalDocument.changed': { owner: 'people', category: 'invalidation', recovery: 'reload', description: "The recipient's own settings or agent profile on this host changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'codebases.changed': { owner: 'codebases', category: 'invalidation', recovery: 'reload', description: 'A codebase was saved or deleted on this host.' },
   'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },
