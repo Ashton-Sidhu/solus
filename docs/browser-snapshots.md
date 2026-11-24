@@ -33,8 +33,14 @@ stop presenting frames, and then it gives the last frame that it drew. One
 snapshot showed the boot splash of an app whose workspace was already in the
 DOM. So a headless capture takes a warm-up copy and discards it, waits for two
 animation frames (one second maximum), and then takes the copy that it keeps.
-T3 Code captures its desktop previews in the same way. A page in a pane asks its
-own surface for one new frame through a screencast.
+A page in a pane asks its own surface for one new frame through a screencast.
+If a capture or click waits for a frame, Electron requests a fresh frame from
+that guest without showing its window. This also applies to a guest parked
+when its pane is closed.
+
+When a desktop page is in the background, Solus can send a click at a page
+coordinate to a cross-site iframe under that point. Snapshot refs and
+selector lookup still address the top document.
 
 ## Waiting for a page
 
