@@ -1,7 +1,9 @@
 # Add a machine from the conversation
 
-Status on 2026-11-24: planned. Approved decisions: one click for SSH (including
-the install), the approve flow is in scope, and `pair_host` is replaced.
+Status on 2026-11-24: implemented on the host, desktop, web, mobile, and the
+CLI, with focused tests. Not yet run end to end on two machines or on a phone.
+Approved decisions: one click for SSH (including the install), the approve flow
+is in scope, and `pair_host` is replaced.
 
 ## Problem
 
