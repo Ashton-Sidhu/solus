@@ -28,6 +28,8 @@
   import { countdown } from "../../lib/countdown";
   import { ANOTHER_ADDRESS_KEY, approveSteps, codeSteps, reachableMachines, stepTextParts, targetName, wayLabel } from "./lib/add-machine-card";
   import { AddMachineCardState } from "./lib/add-machine-card.svelte";
+  import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
+  import SyncSettingsCheckbox from "../connections/SyncSettingsCheckbox.svelte";
 
   interface Props {
     tabId: string;
@@ -78,6 +80,7 @@
     return answered;
   }
 
+  settingsSyncStore.startAdd();
   const card = new AddMachineCardState({
     candidates: () => candidates,
     addOverSsh: (sshRequest) => session.apiFor(tabId).hostsAddOverSsh(sshRequest),
@@ -98,7 +101,11 @@
       else if (result.status === "linked") void serversStore.refreshDirectory();
     },
     deviceLabel: defaultDeviceLabel,
-    noticeAdded: (label) => toasts.success(`${label} is added`),
+    noticeAdded: (label, hostId) => {
+      // Signed out, the new host takes the person's server settings when the card's Sync settings is on.
+      settingsSyncStore.hostAdded(hostId, sessionHostId);
+      toasts.success(`${label} is added`);
+    },
   });
 
   const closed = $derived(!!request.expired || card.phase === "closed" || !canDrive);
@@ -302,6 +309,10 @@
 
         {#if failureAt === "general" && showsFieldMessage}
           <p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>
+        {/if}
+
+        {#if !closed && !isBusy}
+          <SyncSettingsCheckbox />
         {/if}
 
         {#if canEnterCode}

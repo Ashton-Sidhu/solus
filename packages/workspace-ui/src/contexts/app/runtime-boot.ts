@@ -17,6 +17,7 @@ import type { RunLocation } from '@solus/contracts/types'
 import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { PersonalSettingsHosts, personalSettingsHomeId } from '@solus/client-core/host-personal-settings'
+import { settingsSyncStore } from './settings-sync.store.svelte'
 import { agentProfileHomeHost } from '@solus/client-core/agent-profile-sync'
 import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { accountSyncStore } from '../account/account-sync.store.svelte'
@@ -128,11 +129,13 @@ export function initializeRuntime(
   // home host is their source; signed in, every host takes the account's copy.
   const personal = session.settings.personal
   const homeHostId = () => personalSettingsHomeId({ deviceHostId: serverConnections.deviceHostId(), defaultServerId: serverConnections.defaultServerId() })
+  // While Settings is open, the copy on screen is the settings host's (docs/plans/settings-sync-hosts.md decision 7).
+  const shownHostId = () => personal.settingsHostId ?? homeHostId()
   const personalHosts = new PersonalSettingsHosts({
     readyHosts: () => serverConnections.serverIds()
       .filter((serverId) => serverConnections.readinessFor(serverId).readiness === 'ready')
       .map((serverId) => ({ hostId: serverId, api: serverConnections.apiFor(serverId) })),
-    homeHostId,
+    homeHostId: shownHostId,
     isSignedIn: () => personal.isSignedIn,
     document: () => personal.storedDocument,
     adoptHostCopy: (settings) => personal.adoptHostCopy(settings),
@@ -156,19 +159,26 @@ export function initializeRuntime(
   }
   const stopPersonalHosts = serverConnections.onReadinessChange(refreshPersonalHosts)
   const stopPersonalPrimary = serverConnections.onPrimaryChange(refreshPersonalHosts)
+  const stopSettingsHost = personal.onSettingsHostChange(refreshPersonalHosts)
+  // Signed out, a change on a synced host goes to the person's other synced hosts (docs/plans/settings-sync-hosts.md).
+  const stopSettingsSync = settingsSyncStore.start({ isSignedIn: () => personal.isSignedIn, homeHostId, mayWriteHostConfig: (hostId) => hosts.get(hostId).me.may('host.admin') })
   const stopPersonalChanges = personal.onChange((change, origin) => {
     // Signed in, the person's own change goes to the account (`accountSyncStore`), and the hosts follow it.
-    if (origin === 'local' && !personal.isSignedIn) personalHosts.recordLocalChange(change)
+    if (origin !== 'local' || personal.isSignedIn) return
+    personalHosts.recordLocalChange(change)
+    settingsSyncStore.personalChanged(personalHosts.homeHostId, change)
   })
   const stopPersonalAccount = accountSyncStore.onSettingsCopyChanged(() => {
     personalHosts.accountChanged()
     profileHome.forget()
     profileHome.refresh()
     personal.homeHostId = personalHosts.homeHostId
+    settingsSyncStore.refresh()
   })
   const stopPersonalHostEvents = subscribeAllHosts('personalDocument.changed', (serverId, payload) => {
+    // The Sync settings switch is `settingsSyncStore`'s.
     if (payload.kind === 'settings') personalHosts.hostChanged(serverId)
-    else profileHome.hostChanged(serverId)
+    else if (payload.kind === 'agent-profile') profileHome.hostChanged(serverId)
   })
   refreshPersonalHosts()
 
@@ -210,6 +220,8 @@ export function initializeRuntime(
     stopConnections()
     stopPersonalHosts()
     stopPersonalPrimary()
+    stopSettingsHost()
+    stopSettingsSync()
     stopPersonalChanges()
     stopPersonalAccount()
     stopPersonalHostEvents()

@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { OtelSettings, OtelSettingsSnapshot } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
 import { createAppContext } from '../app/create-app-context'
+import { settingsSyncStore } from '../app/settings-sync.store.svelte'
 
 /** Where a host sends its own telemetry, per host. Keyed by server because the
  *  exporter runs beside the server: two hosts a user is connected to can be
@@ -70,6 +71,7 @@ export class OtelSettingsStore {
     this.errors.set(host.serverId, null)
     try {
       await host.api.configUpdate({ otel: patch })
+      settingsSyncStore.hostConfigChanged(host.serverId, { otel: patch })
       return await this.load(host, { force: true })
     } catch (error) {
       this.errors.set(

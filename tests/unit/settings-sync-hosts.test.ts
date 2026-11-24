@@ -210,6 +210,20 @@ describe('later changes', () => {
     expect(away.configPatches.length).toBe(patches)
   })
 
+  test('two changes of one field each of a nested host setting both reach a host that was away', async () => {
+    // WHY: the Telemetry panel sends one field of otel at a time; a later change must not drop an earlier one.
+    const home = fakeHost('home')
+    const away = fakeHost('away')
+    const { sync, view } = client({ hosts: [home, away], home: 'home' })
+    view.ready.delete('away')
+    sync.hostConfigChanged('home', { otel: { endpoint: 'https://collector.example' } })
+    sync.hostConfigChanged('home', { otel: { exportTraces: false } })
+    view.ready.add('away')
+    sync.refresh()
+    await settle()
+    expect(away.config.otel).toMatchObject({ endpoint: 'https://collector.example', exportTraces: false })
+  })
+
   test('a host whose switch was turned off while it was away keeps its own settings', async () => {
     const home = fakeHost('home')
     const away = fakeHost('away')

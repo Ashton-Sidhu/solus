@@ -26,6 +26,8 @@
   import { localApi } from "@solus/client-core/local-api";
   import type { KnownHost } from "@solus/client-core/known-host";
   import PairingBridge from "@solus/workspace-ui/components/servers/PairingBridge.svelte";
+  import SyncSettingsCheckbox from "@solus/workspace-ui/components/connections/SyncSettingsCheckbox.svelte";
+  import { settingsSyncStore } from "@solus/workspace-ui/contexts/app/settings-sync.store.svelte";
   import { useHostLookup } from "@solus/workspace-ui/components/servers/lib/host-lookup.svelte";
   import {
     pairedHoldMs,
@@ -34,6 +36,7 @@
   } from "@solus/workspace-ui/components/servers/lib/pairing-bridge";
 
   const open = $derived(webState.serverSetupOpen);
+  settingsSyncStore.startAdd();
 
   const savedHosts = $derived(serversStore.servers);
 
@@ -269,6 +272,8 @@
             autocomplete="off"
           />
         </label>
+
+        <SyncSettingsCheckbox />
 
         <button
           type="submit"

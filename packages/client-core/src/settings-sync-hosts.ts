@@ -112,6 +112,15 @@ function mergePersonal(pending: PersonalSettingsPatch, change: PersonalSettingsP
   }
 }
 
+/** `patch` laid over `pending`. The nested keys merge, as the host merges them (`mergeHostConfig`): a panel sends one field of them. */
+function mergeHostConfigPatch(pending: HostConfigPatch, patch: HostConfigPatch): HostConfigPatch {
+  const { otel, solusTools, ...rest } = structuredClone(patch)
+  Object.assign(pending, rest)
+  if (otel) pending.otel = { ...pending.otel, ...otel }
+  if (solusTools) pending.solusTools = { ...pending.solusTools, ...solusTools }
+  return pending
+}
+
 /** The document `copy`, with `change` laid over it. */
 function applied(copy: PersonalSettingsDocument, change: PersonalSettingsPatch): PersonalSettingsDocument {
   const result = structuredClone(copy)
@@ -196,7 +205,7 @@ export class SettingsSyncHosts {
   hostConfigChanged(fromHostId: string, patch: HostConfigPatch): void {
     const shared = sharedHostConfigOf(patch)
     if (Object.keys(shared).length === 0) return
-    this.spread(fromHostId, (pending) => Object.assign(pending.hostConfig, shared))
+    this.spread(fromHostId, (pending) => mergeHostConfigPatch(pending.hostConfig, shared))
   }
 
   /** The person forgot a host on this client: nothing waits for it any more. */
@@ -253,7 +262,7 @@ export class SettingsSyncHosts {
         if (!source) return
         const [copy, config] = await Promise.all([source.api.personalSettingsGet(), source.api.configGet()])
         personal = changeTo(held.settings, applied(copy.settings, pending.personal))
-        hostConfig = { ...sharedHostConfigOf(config.config), ...pending.hostConfig }
+        hostConfig = mergeHostConfigPatch(sharedHostConfigOf(config.config), pending.hostConfig)
       }
       if (hasPersonalChange(personal) && !same(sorted(applied(held.settings, personal)), sorted(held.settings))) {
         await host.api.personalSettingsPatch(personal)

@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import { settingsSyncStore } from './settings-sync.store.svelte'
 
 /**
  * Host-owned settings this client reads or edits, kept per host id (plans/018
@@ -101,6 +102,7 @@ class HostSettingsStore {
     this.states.set(serverId, { ...previous, ...optimistic, saving: true, error: '' })
     try {
       const snapshot = await serverConnections.apiFor(serverId).configUpdate(patch)
+      settingsSyncStore.hostConfigChanged(serverId, patch)
       if (this.revisions.get(serverId) === revision) this.adopt(serverId, snapshot)
     } catch (error) {
       if (this.revisions.get(serverId) !== revision) return

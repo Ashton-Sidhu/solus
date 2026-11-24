@@ -35,8 +35,8 @@ export interface AddMachineCardDeps {
   /** After an SSH add: this client keeps the host when it can dial it. */
   afterSshAdd: (result: SshAddResult) => Promise<void>
   deviceLabel: () => string
-  /** The card leaves once it is answered, so the person hears of the new machine elsewhere. */
-  noticeAdded: (label: string) => void
+  /** The card leaves once it is answered, so the person hears of the new machine elsewhere. The id is the new host's. */
+  noticeAdded: (label: string, hostId: string) => void
 }
 
 export type AddMachineCardPhase = 'choose' | 'sending' | 'added' | 'closed'
@@ -176,7 +176,7 @@ export class AddMachineCardState {
       if (!added) return
       this.addedLabel = added.label
       this.phase = 'added'
-      this.deps.noticeAdded(added.label)
+      this.deps.noticeAdded(added.label, added.installationId)
       await this.deps.answer(addMachineOutcomeAnswers({ status: 'added', installationId: added.installationId, way: outcomeWay(added.attempt) }))
     } catch (error) {
       this.failure = { field: attemptField(build.attempt, !selected, hasPassword), message: error instanceof Error ? error.message : String(error) }

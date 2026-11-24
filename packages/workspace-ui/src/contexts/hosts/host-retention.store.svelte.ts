@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { settingsSyncStore } from '../app/settings-sync.store.svelte'
 
 /** The host config keys that hold a number of days to keep something. */
 type RetentionKey = 'archivedAutomationRetentionDays' | 'unfiledRecordingRetentionDays'
@@ -65,6 +66,7 @@ export class HostRetentionStore {
     this.states.set(serverId, { ...state, saving: true, error: '', revision: state.revision + 1 })
     try {
       const { config } = await serverConnections.apiFor(serverId).configUpdate({ [this.key]: days })
+      settingsSyncStore.hostConfigChanged(serverId, { [this.key]: days })
       const current = this.states.get(serverId)!
       this.states.set(serverId, { ...current, days: current.revision === state.revision + 1 ? config[this.key] : current.days, saving: false, error: '' })
     } catch {

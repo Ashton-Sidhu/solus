@@ -96,6 +96,13 @@ export class PersonalSettingsStore {
   accountKey = $state(ANONYMOUS_PROFILE)
   /** Signed out: the host whose copy is on screen (`personalSettingsHomeId`); null with none, and signed in. */
   homeHostId = $state<string | null>(null)
+  /**
+   * Signed out, while Settings is open: the host Settings shows, whose copy is on
+   * screen in place of the home host's (docs/plans/settings-sync-hosts.md decision 7).
+   * Null when Settings is closed.
+   */
+  settingsHostId: string | null = null
+  private readonly settingsHostListeners = new Set<() => void>()
   /** The keys the person set; an absent key reads as its default. Plain, not reactive. */
   private document: PersonalSettingsDocument = {}
   private readonly listeners = new Set<(change: PersonalChange, origin: PersonalChangeOrigin) => void>()
@@ -128,6 +135,18 @@ export class PersonalSettingsStore {
     const preferences: ExecutionPreferences = {}
     for (const key of EXECUTION_PREFERENCE_KEYS) Object.assign(preferences, { [key]: $state.snapshot(this.values[key]) })
     return preferences
+  }
+
+  /** Settings shows another host, or closed (null). The copy on screen follows it. */
+  showSettingsHost(hostId: string | null): void {
+    if (this.settingsHostId === hostId) return
+    this.settingsHostId = hostId
+    for (const listener of this.settingsHostListeners) listener()
+  }
+
+  onSettingsHostChange(listener: () => void): () => void {
+    this.settingsHostListeners.add(listener)
+    return () => { this.settingsHostListeners.delete(listener) }
   }
 
   onChange(listener: (change: PersonalChange, origin: PersonalChangeOrigin) => void): () => void {

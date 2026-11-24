@@ -13,6 +13,7 @@
   import { Input } from "../ui/input";
   import { setPopoverLayer } from "../popoverLayer.svelte";
   import PairingBridge from "./PairingBridge.svelte";
+  import SyncSettingsCheckbox from "../connections/SyncSettingsCheckbox.svelte";
   import AddOverSshForm from "./AddOverSshForm.svelte";
   import { addOverSshStore } from "./add-over-ssh.store.svelte";
   import AddWslDistroForm from "./AddWslDistroForm.svelte";
@@ -202,7 +203,8 @@
 
       {#if mode === "wsl"}
         <!-- A distro is chosen in the nearby list, so its add has no tabs: only its progress and result. -->
-        <div class="px-4 pt-3 pb-4">
+        <div class="space-y-3 px-4 pt-3 pb-4">
+          <SyncSettingsCheckbox />
           <AddWslDistroForm onclose={close} />
         </div>
       {:else if paired && !isMachineAdd}
@@ -223,7 +225,8 @@
             </Tabs.List>
 
             {#if mode === "ssh"}
-              <Tabs.Content value="ssh" class="mt-0">
+              <Tabs.Content value="ssh" class="mt-0 space-y-3">
+                <SyncSettingsCheckbox />
                 <AddOverSshForm onclose={close} />
               </Tabs.Content>
             {:else}
@@ -252,6 +255,8 @@
                 <Input bind:value={label} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder={lookedUpHost?.name ?? "Studio Mac"} autocomplete="off" />
               </label>
               </div>
+
+            <SyncSettingsCheckbox />
 
             <div class="flex justify-end gap-2 pt-1">
               <button type="button" class="rounded-lg px-3 py-2  font-secondary text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Cancel</button>
