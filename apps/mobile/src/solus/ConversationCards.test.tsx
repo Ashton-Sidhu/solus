@@ -381,7 +381,10 @@ it.each(["screen", "inspector", "linked host"] as const)("opens a child with one
   if (destination === "linked host") {
     expect(host.dispatch).toHaveBeenCalledWith({
       name: "LinkedThread",
-      params: { environmentId: "remote", threadId: "child", viaEnvironmentId: "host", label: "Host", title: "Review" },
+      params: {
+        environmentId: "remote", threadId: "child", viaEnvironmentId: "host",
+        parentSessionId: "session", label: "Host", title: "Review",
+      },
     });
     expect(host.read).not.toHaveBeenCalled();
     return;
