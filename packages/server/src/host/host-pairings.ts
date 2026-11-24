@@ -48,10 +48,26 @@ export class HostPairings {
     const generation = this.nextGeneration(installationId)
     const before = findHostRecord(installationId)
     // A bounded request, with no redirects: a pairing code must reach only the named address.
-    const fetchPair: typeof fetch = (input, init) => this.fetchImpl(input, { ...init, redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])]) })
+    const fetchPair: typeof fetch = async (input, init) => {
+      const timeout = AbortSignal.timeout(TIMEOUT_MS)
+      const pairSignal = signal ? AbortSignal.any([timeout, signal]) : timeout
+      let response: Response
+      try {
+        response = await this.fetchImpl(input, { ...init, redirect: 'error', signal: pairSignal })
+      } catch {
+        if (signal?.aborted) throw new Error('Pairing was canceled.')
+        if (timeout.aborted) throw new Error('The host did not answer the pairing request in time.')
+        throw new Error('Could not send the pairing request to the host.')
+      }
+      if (response.ok) return response
+      // A remote error body can contain the code. Report the HTTP status only.
+      void response.body?.cancel().catch(() => {})
+      if (response.status === 401) throw new Error('The host did not accept the pairing code (HTTP 401). Run solus pair on that host for a new code.')
+      if (response.status === 429) throw new Error('Too many pairing attempts (HTTP 429). Wait before you try again.')
+      throw new Error(`The host returned HTTP ${response.status} for the pairing request.`)
+    }
     const replaced = hostCredential(installationId, 'pairing') ?? undefined
     const result = await pairServer({ url, pairToken: request.code, serverLabel: request.label, reportedName: health.name, deviceLabel: `${this.selfName()} (Solus host)`, replacesSessionToken: replaced, fetchImpl: fetchPair })
-      .catch(() => { throw new Error('The host refused the pairing code or did not answer. Get a fresh code with solus pair and try again.') })
     if (result.installationId !== installationId) throw new Error('A different host answered the pairing request. Nothing was saved.')
     if (!result.server.identityKey && url.startsWith('http:')) throw new Error('This host is too old to prove its identity over HTTP. Update it or use HTTPS.')
     if (signal?.aborted || this.generations.get(installationId) !== generation || findHostRecord(installationId)?.forgotten && !before?.forgotten) {

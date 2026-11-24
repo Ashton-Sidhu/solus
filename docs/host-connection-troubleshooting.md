@@ -58,6 +58,18 @@ The other devices stage is always Unknown.
 
 Add `--json` to get the result for a script.
 
+## Pair a host over the local network
+
+When pairing from a local owner session, Solus checks the host's health before
+it sends the pairing request. The health check can pass while pairing fails.
+
+| Pairing error | What to check |
+|---|---|
+| HTTP 401 | Run `solus pair` on the host and use the new code within five minutes. The link and code share one use. |
+| HTTP 429 | Wait before you try again. The host limits pairing requests. |
+| Request timed out or could not be sent | Check that the host is still online and that the address accepts pairing requests. |
+| Other HTTP status or missing fields in the reply | Check that the address points to Solus. If a proxy serves the address, check that it forwards `POST /pair` and returns the Solus reply. |
+
 ## This device is offline
 
 The device says that it has no network.

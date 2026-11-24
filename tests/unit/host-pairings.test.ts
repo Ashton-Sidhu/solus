@@ -16,7 +16,7 @@ const CODE = 'private-pairing-code'
 const TOKEN = 'private-host-token'
 const DAY = 24 * 60 * 60 * 1000
 
-function harness(options: { self?: string; refuse?: boolean; key?: boolean; pairGate?: Promise<void>; refreshGate?: Promise<void>; refuseRefresh?: boolean } = {}) {
+function harness(options: { self?: string; pairReply?: () => Response; key?: boolean; pairGate?: Promise<void>; refreshGate?: Promise<void>; refuseRefresh?: boolean } = {}) {
   const sent: Array<{ url: string; authorization: string | null; redirect?: RequestRedirect }> = []
   const pairBodies: Array<{ replacesSessionToken?: string }> = []
   let time = 1
@@ -32,7 +32,7 @@ function harness(options: { self?: string; refuse?: boolean; key?: boolean; pair
     if (url.pathname === '/pair') {
       pairStarted.resolve()
       await options.pairGate
-      if (options.refuse) return Response.json({ error: `Rejected ${CODE}` }, { status: 401 })
+      if (options.pairReply) return options.pairReply()
       expect(JSON.parse(String(init?.body)).pairToken).toBe(CODE)
       pairBodies.push(JSON.parse(String(init?.body)))
       return Response.json({ sessionToken: TOKEN, installationId: 'remote', os: 'windows', ...(options.key === false ? {} : { identityKey: identity.publicKey() }) })
@@ -87,9 +87,25 @@ describe('explicit owner host pairing', () => {
   })
 
   test('a rejected code is never reflected in an error or stored', async () => {
-    const h = harness({ refuse: true })
+    const h = harness({ pairReply: () => Response.json({ error: `Rejected ${CODE}` }, { status: 401 }) })
     const error = await h.service.pair({ url: URL, code: CODE }).catch((error: Error) => error)
     expect(error).toBeInstanceOf(Error)
+    expect(String(error)).toContain('HTTP 401')
+    expect(String(error)).toContain('solus pair')
+    expect(String(error)).not.toContain(CODE)
+    expect(h.service.snapshot().hosts).toEqual([])
+  })
+
+  test.each([
+    ['rate limit', () => new Response(null, { status: 429 }), 'Too many pairing attempts'],
+    ['server error', () => new Response(null, { status: 503 }), 'HTTP 503'],
+    ['unusable reply', () => new Response('<html>Proxy page</html>'), 'did not include a session token'],
+    ['network failure', () => { throw new TypeError(`Connection failed for ${CODE}`) }, 'Could not send the pairing request'],
+  ] as const)('reports a %s after a successful health check', async (_failure, pairReply, message) => {
+    const h = harness({ pairReply })
+    const error = await h.service.pair({ url: URL, code: CODE }).catch((error: Error) => error)
+    expect(error).toBeInstanceOf(Error)
+    expect(String(error)).toContain(message)
     expect(String(error)).not.toContain(CODE)
     expect(h.service.snapshot().hosts).toEqual([])
   })
