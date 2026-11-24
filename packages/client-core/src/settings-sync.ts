@@ -23,10 +23,12 @@ import {
 } from './document-sync'
 
 /**
- * Personal settings sync (plans/018 §5): the document sync engine
- * (`document-sync.ts`) bound to the personal settings document. The local
- * personal profile is the source of truth on each client; the account document
- * is its replica while signed in. The key set is fixed: every personal setting key.
+ * Personal settings sync (plans/018 §5, ADR 0007): the document sync engine
+ * (`document-sync.ts`) bound to the personal settings document. Signed in, the
+ * account document is the source; the client's copy is its cache, and at the
+ * first sign-in the copy on screen, which is the home host's, seeds an empty
+ * account. Signed out, the home host is the source (`host-personal-settings.ts`).
+ * The key set is fixed: every personal setting key.
  */
 
 export type SettingConflict = DocumentConflict<PersonalSettingsDocument, PersonalSettingKey>

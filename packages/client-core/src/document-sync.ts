@@ -1,9 +1,10 @@
 import { z } from 'zod'
 
 /**
- * Sync of one keyed account document (plans/018 §5, plans/020 §3). The local
- * copy is the source of truth on each client; the account document is its
- * optional replica. This engine moves changes between them and nothing else:
+ * Sync of one keyed account document (plans/018 §5, plans/020 §3, ADR 0007).
+ * Signed in, the account document is the source and the client's copy is its
+ * cache; signed out, the source is the person's home host, which this engine
+ * does not reach. This engine moves changes between them and nothing else:
  * the local store applies what it emits and reports what the person changes.
  * It renders nothing and owns no document.
  *
