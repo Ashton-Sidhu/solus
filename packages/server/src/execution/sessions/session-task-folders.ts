@@ -25,10 +25,9 @@ import { captureWorktreeBranchNaming, capturedWorktreeBranchNamer, resolveWorktr
 import { getDefaultBranch, type WorktreeSetupStage, type WorktreeStageUpdate } from '../../git/worktree-manager'
 import { generateWorktreeName } from '../../git/worktree-name'
 import { createLogger } from '../../logger'
-import { isInsideRoot } from '../../paths'
+import { isInsideRoot, realPathOf } from '../../paths'
 import { resolveHomePath } from '../../platform/paths'
 import { taskFolderBaseFor } from '../../workspace'
-import { realPathOf } from './attach-target'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'session-task-folders.ts')

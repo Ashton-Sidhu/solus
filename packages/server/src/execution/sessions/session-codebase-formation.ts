@@ -13,10 +13,10 @@ import { findTaskFolderContaining, projectRootOfPath } from '../../git/task-fold
 import { hostUserKey } from '../../host/host-user'
 import { runOneAtATime } from '../../lib/concurrency'
 import { createLogger } from '../../logger'
-import { isInsideRoot } from '../../paths'
+import { isInsideRoot, realPathOf } from '../../paths'
 import { resolveHomePath } from '../../platform/paths'
 import { isOutsideProjects, listProjects } from '../../project-config/projects-manifest'
-import { listedProjectHolding, realPathOf } from './attach-target'
+import { listedProjectHolding } from './attach-target'
 
 const log = createLogger('SessionRuntime', 'session-codebase-formation.ts')
 

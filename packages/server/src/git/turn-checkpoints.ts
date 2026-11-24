@@ -1,6 +1,7 @@
-import { lstat, realpath } from 'fs/promises'
+import { lstat } from 'fs/promises'
 import { basename, join, relative, resolve, sep } from 'path'
 import { createLogger } from '../logger'
+import { realPathOf } from '../paths'
 import { resolveHomePath } from '../platform/paths'
 import { runBounded } from '../lib/concurrency'
 import { resolveRepoRoot } from './git-helpers'
@@ -347,10 +348,6 @@ async function repositoryOf(folder: CheckpointFolder): Promise<FolderRepository 
   const hasOwnGitDirectory = (await lstat(join(workTree, '.git')).catch(() => null))?.isDirectory() === true
   const repoRoot = hasOwnGitDirectory ? workTree : await resolveRepoRoot(workTree)
   return repoRoot ? { folder, workTree, repoRoot, key: await realPathOf(repoRoot) } : null
-}
-
-async function realPathOf(path: string): Promise<string> {
-  return realpath(path).catch(() => resolve(path))
 }
 
 function toPosix(path: string): string {

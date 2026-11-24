@@ -1,6 +1,6 @@
 import type { CodebaseMember, TaskFolder } from '@solus/contracts/codebases'
 import { isInsideRoot } from '../../paths'
-import { realPathOf } from './attach-target'
+import { realPathOf } from '../../paths'
 
 /**
  * What stands in for a member of a codebase in a task folder session

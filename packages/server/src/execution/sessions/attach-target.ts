@@ -1,4 +1,4 @@
-import { access, constants, realpath, stat } from 'node:fs/promises'
+import { access, constants, stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
@@ -6,17 +6,12 @@ import { TASK_FOLDER_ROOT_NAME } from '@solus/contracts/codebases'
 import { attachmentsRoot } from '../../data/assets/attachment-store'
 import { folderStateOf } from '../../files/codebase-members'
 import { resolveRepoRoot } from '../../git/git-helpers'
-import { isInsideRoot } from '../../paths'
+import { isInsideRoot, realPathOf } from '../../paths'
 import { dataDir, resolveHomePath, solusDir } from '../../platform/paths'
 import { listProjects } from '../../project-config/projects-manifest'
 
 /** The folder that a path names for an attach, or why no folder can be attached for it. */
 export type AttachTarget = { folder: string } | { refused: string }
-
-/** The path that the file system gives for `path`, or `path` resolved when nothing is there. */
-export function realPathOf(path: string): Promise<string> {
-  return realpath(path).catch(() => resolve(path))
-}
 
 /**
  * The project that this host lists and that is `folder`, or holds it: the

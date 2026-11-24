@@ -1,3 +1,4 @@
+import { realpath } from 'fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'path'
 
 /**
@@ -32,4 +33,9 @@ export function toRootRelativePath(root: string, raw: string): string {
     throw new Error(`File path is outside the repository: ${raw}`)
   }
   return fromRoot.split(sep).join('/')
+}
+
+/** The path that the file system gives for `path`, or `path` resolved when nothing is there. */
+export function realPathOf(path: string): Promise<string> {
+  return realpath(path).catch(() => resolve(path))
 }
