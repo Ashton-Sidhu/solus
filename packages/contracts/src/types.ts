@@ -22,7 +22,7 @@ import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
 import type { ExecutionPreferenceSnapshot, ExecutionPreferences } from './settings'
 import type { ExchangeOutcome, ExchangeRequest, SessionOutput } from './session-exchange'
-import type { Codebase, SessionAttachedFolder, SessionFolder } from './codebases'
+import type { Codebase, CodebaseNaming, SessionAttachedFolder, SessionFolder } from './codebases'
 import { isTaskFolderPath, TASK_FOLDER_ROOT_NAME } from './codebases'
 import { z } from 'zod'
 
@@ -1898,7 +1898,16 @@ export interface StatusCardStep {
    *  that a client makes itself has no times. */
   startedAt?: number
   endedAt?: number
+  /** The part of each repository in a step that the host runs one time for
+   *  each repository of a task folder, in the order of the repositories.
+   *  Absent for a setup of one repository. */
+  substeps?: StatusCardSubstep[]
 }
+
+/** The part of one repository in a setup step. `id` is the path of the
+ *  repository on the host, and `label` is its name. A repository that failed
+ *  has the error in its `detail`. */
+export type StatusCardSubstep = Pick<StatusCardStep, 'id' | 'label' | 'detail' | 'status' | 'startedAt' | 'endedAt'>
 
 /** A live, ordered checklist rendered inline in the conversation while a
  *  multi-step action (e.g. creating a worktree-backed session) runs. Emitted
@@ -3130,6 +3139,10 @@ export interface ProjectConfig {
   /** Overrides the host's worktree branch naming for this project. Absent =
    *  the host setting. */
   worktreeBranchNaming?: WorktreeBranchNaming
+  /** Overrides how Solus names a codebase that it forms from this project and
+   *  a second one (docs/plans/codebases.md decision 13). Absent = the
+   *  person's setting. */
+  codebaseNaming?: CodebaseNaming
   /** How to build the app for Build & run on a device (plan 016, S02). */
   deviceRuns?: DeviceRunProfile[]
   /** Repositories inside this folder that a codebase does not cover, as paths

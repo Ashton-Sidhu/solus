@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Codebase, SessionFolder } from '@solus/contracts/codebases'
@@ -62,13 +62,17 @@ afterAll(() => {
 const at = (path: string): string => join(root, path)
 
 let nextCodebase = 0
-/** A saved codebase with the given roots on this host, and one root on a different host. */
+/**
+ * A saved codebase with the given roots on this host, and one root on a
+ * different host. A root with no repository of its own is a container root,
+ * so the host reads the repositories inside it.
+ */
 async function savedCodebase(paths: string[]): Promise<Codebase> {
   const codebase: Codebase = {
     id: `codebase-${++nextCodebase}`,
     name: 'shop',
     roots: [
-      ...paths.map((path) => ({ installationId, path: at(path), name: '' })),
+      ...paths.map((path) => ({ installationId, path: at(path), name: '', ...(existsSync(join(at(path), '.git')) ? {} : { container: true as const }) })),
       { installationId: 'installation-build-server', path: '/srv/infra', name: 'infra' },
     ],
     updatedAt: 1_000,
@@ -151,18 +155,17 @@ describe('the folders of a session at a turn start', () => {
     }
   })
 
-  test('the repositories inside a plain working directory are folders of the project, and the provider gets no grant for them', async () => {
+  test('the repositories inside a container that is the working directory are folders of the session, and the provider gets no grant for them', async () => {
     // WHY: `~/shop` holds the repositories `api` and `web`. Git status, diff, and checkpoints work for each
     // repository only when it is a session folder. The provider reaches them through the working directory.
-    // The project covers them (`project`); the codebase adds only what is outside the project folder.
     const codebase = await savedCodebase(['shop', 'libs/ui'])
     const { runtime } = runtimeFor('inside')
     try {
       const folders = await runtime.sessionFolders.resolve('inside', { workingDirectory: at('shop'), codebaseId: codebase.id, actor: HOST_ACTOR })
       expect(folders.map(({ path, source, granted }) => ({ path, source, granted }))).toEqual([
         { path: at('libs/ui'), source: 'codebase', granted: true },
-        { path: at('shop/api'), source: 'project', granted: true },
-        { path: at('shop/web'), source: 'project', granted: true },
+        { path: at('shop/api'), source: 'codebase', granted: true },
+        { path: at('shop/web'), source: 'codebase', granted: true },
       ])
       expect(paths(runtime.sessionFolders.checkpointTargets('inside'))).toEqual([at('libs/ui'), at('shop/api'), at('shop/web')])
       expect(runtime.sessionFolders.grantedPaths('inside')).toEqual([at('libs/ui')])

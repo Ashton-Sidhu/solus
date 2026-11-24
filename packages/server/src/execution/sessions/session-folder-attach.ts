@@ -14,8 +14,12 @@ import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { attachTargetOf, automaticAttachTarget, realPathOf } from './attach-target'
 import { answerToolQuestionWith } from './input-requests'
+import { rootOf } from './session-codebase-formation'
 
 const log = createLogger('SessionRuntime', 'session-folder-attach.ts')
+
+/** The longest name that the card takes for a codebase: the limit of the record. */
+const CODEBASE_NAME_MAX = 200
 
 /** What `requestAttach` did for a path. */
 export type AttachOutcome =
@@ -59,8 +63,42 @@ export const ATTACH_QUESTION_ID_PREFIX = 'attach-folder-'
 export const ATTACH_CHOICE = {
   session: 'Allow for this session',
   codebase: 'Allow and add to the codebase',
+  /** Only when the attach forms a codebase: the two choices below take the place of `session`. */
+  make: 'Allow and make the codebase',
+  sessionOnly: 'Allow for this session only',
   refuse: 'Do not allow',
 } as const
+
+/** What the attach card decided about the codebase that an attach forms. */
+export interface AttachCodebase {
+  /** The person allowed the folder for this session only: the attach forms no codebase. */
+  sessionOnly?: boolean
+  /** The name that the person typed for the codebase. Without it, the codebase gets its plain name. */
+  codebaseName?: string
+}
+
+/** What a person answered on the attach card. */
+export interface AttachAnswer {
+  /** The label of the choice. Null for an answer that starts with no choice of the card. */
+  choice: string | null
+  /** The words that the person typed in the answer field. Empty when they typed none. */
+  typed: string
+}
+
+/**
+ * The answer of the attach card: the choice, and the words that the person
+ * typed in the answer field of the card. A client sends the two as one text,
+ * the label, then ` — `, then the words (`formatAnswer`). An answer that
+ * starts with no choice is no choice.
+ */
+export function attachAnswerOf(answer: string): AttachAnswer {
+  const labels = Object.values(ATTACH_CHOICE).sort((a, b) => b.length - a.length)
+  for (const label of labels) {
+    if (answer === label) return { choice: label, typed: '' }
+    if (answer.startsWith(`${label} — `)) return { choice: label, typed: answer.slice(label.length + 3).trim() }
+  }
+  return { choice: null, typed: '' }
+}
 
 /** What the attach rule keeps for one session. `SessionFolders` owns the object. */
 export interface AttachState {
@@ -86,8 +124,13 @@ export interface AttachSession {
   holderOf(path: string): Promise<string | null>
   /** The granted folder that holds the real path `realPath`, read with no wait. */
   grantedHolderOf(realPath: string): string | null
-  /** Add the folder with no rule (`SessionFolders.attach`). */
-  attach(folder: string, source: SessionFolderSource): Promise<void>
+  /** Add the folder with no rule (`SessionFolders.attach`). `codebase` is the decision of the card about the codebase that the attach forms. */
+  attach(folder: string, source: SessionFolderSource, codebase?: AttachCodebase): Promise<void>
+  /**
+   * The codebase that an attach of `folder` forms now (decision 13, rule 2),
+   * with its proposed name, or null when the attach forms none.
+   */
+  formationOf(folder: string, source: SessionFolderSource): Promise<{ name: string } | null>
   /**
    * In a task folder session: the outcome for a repository of the codebase,
    * whose worktree stands in for it. Null when the rule goes on.
@@ -114,7 +157,9 @@ export interface AttachSession {
  * - Modes `full-access` and `auto` attach with no card.
  * - The other modes show one card for the folder. A second request for the
  *   same folder waits for the same answer, and a refused folder is not asked
- *   again in the turn.
+ *   again in the turn. When the attach forms a codebase (the session has
+ *   none, and the folder is a real second project), the card says so, and
+ *   the person can change the name of the codebase before it is made.
  */
 export async function requestAttach(session: AttachSession, path: string, source: SessionFolderSource, actor: Actor, options: AttachRequestOptions = {}): Promise<AttachOutcome> {
   const { state } = session
@@ -174,9 +219,9 @@ async function isMember(codebase: Codebase, folder: string): Promise<boolean> {
   return false
 }
 
-async function attachNow(session: AttachSession, folder: string, source: SessionFolderSource, actor: Actor, addToCodebase: boolean): Promise<AttachOutcome> {
+async function attachNow(session: AttachSession, folder: string, source: SessionFolderSource, actor: Actor, addToCodebase: boolean, codebase?: AttachCodebase): Promise<AttachOutcome> {
   try {
-    await session.attach(folder, source)
+    await session.attach(folder, source, codebase)
   } catch (error) {
     // A request for the same folder at the same time attached it first.
     const holder = await session.holderOf(folder)
@@ -190,30 +235,50 @@ async function attachNow(session: AttachSession, folder: string, source: Session
 async function askToAttach(session: AttachSession, folder: string, source: SessionFolderSource, actor: Actor, asker: AttachAsker): Promise<AttachOutcome> {
   const { sessionId, state } = session
   const questionId = `${ATTACH_QUESTION_ID_PREFIX}${crypto.randomUUID()}`
-  const options = [
-    { label: ATTACH_CHOICE.session, description: 'The agent can read and change this folder in this session.' },
-    ...(state.codebase ? [{ label: ATTACH_CHOICE.codebase, description: `Also add the folder to the codebase "${state.codebase.name}".` }] : []),
-    { label: ATTACH_CHOICE.refuse, description: 'The agent does not get this folder.' },
-  ]
+  // The attach forms a codebase: the card says so, and the person can name it.
+  const formation = state.codebase ? null : await session.formationOf(folder, source)
+  const question = formation
+    ? `The agent wants to work in the folder "${folder}". Solus then makes the codebase "${formation.name}" from this folder and the project of the session. Allow it?`
+    : `The agent wants to work in the folder "${folder}". Allow it?`
+  const options = formation
+    ? [
+        { label: ATTACH_CHOICE.make, description: `The codebase gets the name "${formation.name}". To change the name, type a different one in the answer field.` },
+        { label: ATTACH_CHOICE.sessionOnly, description: 'The agent can read and change this folder in this session. No codebase is made.' },
+        { label: ATTACH_CHOICE.refuse, description: 'The agent does not get this folder.' },
+      ]
+    : [
+        { label: ATTACH_CHOICE.session, description: 'The agent can read and change this folder in this session.' },
+        ...(state.codebase ? [{ label: ATTACH_CHOICE.codebase, description: `Also add the folder to the codebase "${state.codebase.name}".` }] : []),
+        { label: ATTACH_CHOICE.refuse, description: 'The agent does not get this folder.' },
+      ]
   // Null: the turn stopped before the person answered.
-  const choice = await new Promise<string | null>((answer) => {
-    const stopped = (): void => { stop(); answer(null) }
+  const answer = await new Promise<string | null>((resolveAnswer) => {
+    const stopped = (): void => { stop(); resolveAnswer(null) }
     const stop = answerToolQuestionWith(questionId, (answers) => {
       asker.signal.removeEventListener('abort', stopped)
-      answer(answers[ATTACH_QUESTION_ID] ?? '')
+      resolveAnswer(answers[ATTACH_QUESTION_ID] ?? '')
     })
     if (asker.signal.aborted) { stopped(); return }
     asker.signal.addEventListener('abort', stopped, { once: true })
     asker.emit({
       type: 'question_request',
       questionId,
-      questions: [{ id: ATTACH_QUESTION_ID, header: 'Attach folder', question: `The agent wants to work in the folder "${folder}". Allow it?`, options, multiSelect: false }],
+      questions: [{ id: ATTACH_QUESTION_ID, header: 'Attach folder', question, options, multiSelect: false }],
     })
   })
+  if (answer === null) {
+    log.info('session_folder_card_answered', { sessionId, path: folder, choice: null })
+    return { kind: 'not-asked', folder }
+  }
+  const { choice, typed } = attachAnswerOf(answer)
   log.info('session_folder_card_answered', { sessionId, path: folder, choice })
-  if (choice === null) return { kind: 'not-asked', folder }
-  if (choice === ATTACH_CHOICE.session) return attachNow(session, folder, source, actor, false)
-  if (choice === ATTACH_CHOICE.codebase && state.codebase) return attachNow(session, folder, source, actor, true)
+  if (formation) {
+    if (choice === ATTACH_CHOICE.make) return attachNow(session, folder, source, actor, false, typed ? { codebaseName: typed.slice(0, CODEBASE_NAME_MAX) } : {})
+    if (choice === ATTACH_CHOICE.sessionOnly) return attachNow(session, folder, source, actor, false, { sessionOnly: true })
+  } else {
+    if (choice === ATTACH_CHOICE.session) return attachNow(session, folder, source, actor, false)
+    if (choice === ATTACH_CHOICE.codebase && state.codebase) return attachNow(session, folder, source, actor, true)
+  }
   state.refused.add(folder)
   return { kind: 'refused', folder }
 }
@@ -233,7 +298,7 @@ export async function addCodebaseRoot(sessionId: string, state: AttachState, fol
     if (codebase.roots.some((root) => root.installationId === installationId && isInsideHostPath(root.path, folder))) return false
     state.codebase = await saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
       ...codebase,
-      roots: [...codebase.roots, { installationId, path: folder, name: '' }],
+      roots: [...codebase.roots, await rootOf(folder)],
       updatedAt: Math.max(Date.now(), codebase.updatedAt + 1),
     })
     log.info('session_codebase_root_added', { sessionId, codebaseId: codebase.id, path: folder })

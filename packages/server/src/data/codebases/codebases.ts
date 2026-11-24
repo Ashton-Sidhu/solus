@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
+import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, hasEnoughRoots, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
 import { hostPathKey, isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
@@ -15,10 +15,9 @@ import { codebases } from './schema'
  * the same record. A delete is a tombstone (`deletedAt`): a client makes it
  * and saves it as each other copy, so it moves as a save does.
  *
- * A codebase that is not deleted has two or more roots (decision 14): one
- * folder is a project, and a project is never also a codebase. A stored row
- * that is not deleted and has fewer roots is not a codebase, so no read
- * answers it.
+ * A codebase that is not deleted has two or more roots, or one container
+ * root (decision 14): one project is never a codebase. A stored row that is
+ * not deleted and has fewer roots is not a codebase, so no read answers it.
  *
  * A read names its scope. A write names one organization. The id of a
  * codebase names one row, and its organization never changes.
@@ -49,9 +48,9 @@ function codebaseFromRow(row: CodebaseRow): Codebase {
   return { id: row.id, name: row.name, roots: row.roots, updatedAt: row.updated_at, deletedAt: row.deleted_at }
 }
 
-/** A row that a read answers: a tombstone, or a codebase with the least number of roots. */
+/** A row that a read answers: a tombstone, or a codebase with the least number of roots, or with a container root. */
 function isCodebase(codebase: Codebase): boolean {
-  return codebase.deletedAt !== null || codebase.roots.length >= CODEBASE_ROOTS_MIN
+  return codebase.deletedAt !== null || hasEnoughRoots(codebase.roots)
 }
 
 type CodebaseListener = () => void
@@ -105,8 +104,8 @@ function assertValidCodebase(codebase: Codebase): void {
   }
   // A tombstone keeps the roots that its codebase had: the rules below are for a codebase that is not deleted.
   if (codebase.deletedAt !== null) return
-  if (codebase.roots.length < CODEBASE_ROOTS_MIN) {
-    throw new Error(`A codebase has at least ${CODEBASE_ROOTS_MIN} folders. One folder is a project: a session there gets the repositories inside it with no codebase.`)
+  if (!hasEnoughRoots(codebase.roots)) {
+    throw new Error(`A codebase has at least ${CODEBASE_ROOTS_MIN} folders, or one folder that holds two or more repositories. One folder is a project.`)
   }
   for (const root of codebase.roots) {
     const holder = codebase.roots.find((other) => other !== root && other.installationId === root.installationId && isInsideHostPath(other.path, root.path))

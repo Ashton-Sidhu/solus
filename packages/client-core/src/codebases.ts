@@ -1,4 +1,4 @@
-import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseRoot } from '@solus/contracts/codebases'
+import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, hasEnoughRoots, isContainerScan, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseRoot } from '@solus/contracts/codebases'
 import { hostPathBaseName, hostPathKey, isInsideHostPath } from '@solus/contracts/host-path'
 
 /**
@@ -49,22 +49,22 @@ export function mergeCodebases(copiesByHost: Map<string, Codebase[]>): MergedCod
 
 /**
  * Why a folder cannot become a root of a codebase, or cannot stop to be one.
- * `nested`: a root covers the folders inside it, so a folder that is inside a
- * root, or that holds one, on the same host adds nothing. `last-two`: a
- * codebase has two or more folders, so one of the last two cannot be removed.
+ * `nested`: a folder that is inside a root, or that holds one, on the same
+ * host is refused. `too-few`: a codebase has two or more folders, or one
+ * container, so a removal that leaves less is refused.
  */
-export type CodebaseRootRefusal = 'duplicate' | 'nested' | 'limit' | 'missing' | 'last-two'
+export type CodebaseRootRefusal = 'duplicate' | 'nested' | 'limit' | 'missing' | 'too-few'
 
 const ROOT_REFUSAL_TEXT = {
   duplicate: 'This folder is already in the codebase.',
-  nested: 'This folder is inside a folder of the codebase, or a folder of the codebase is inside it. A folder covers the folders inside it.',
+  nested: 'This folder is inside a folder of the codebase, or a folder of the codebase is inside it.',
   limit: `A codebase has at most ${CODEBASE_ROOTS_MAX} folders. Remove a folder before you add a new one.`,
   missing: 'This folder does not exist on the host.',
-  'last-two': `A codebase has at least ${CODEBASE_ROOTS_MIN} folders. To remove this folder, delete the codebase.`,
+  'too-few': `A codebase has at least ${CODEBASE_ROOTS_MIN} folders, or one folder that holds repositories. To remove this folder, delete the codebase.`,
 } satisfies Record<CodebaseRootRefusal, string>
 
 /** What a person reads when they make a codebase with fewer folders than a codebase has. */
-export const NEW_CODEBASE_NEEDS_FOLDERS = `A codebase has at least ${CODEBASE_ROOTS_MIN} folders. Choose a second folder. One folder is a project: a session there gets the repositories inside it with no codebase.`
+export const NEW_CODEBASE_NEEDS_FOLDERS = `Choose one folder that holds two or more repositories, or ${CODEBASE_ROOTS_MIN} folders. One folder is a project.`
 
 export function rootRefusalText(refusal: CodebaseRootRefusal): string {
   return ROOT_REFUSAL_TEXT[refusal]
@@ -98,22 +98,41 @@ export function rootRefusal(roots: readonly CodebaseRoot[], root: RootPlace): Co
   return null
 }
 
-/** Why a root cannot be removed from these roots, or null when it can. */
-export function rootRemovalRefusal(roots: readonly CodebaseRoot[]): CodebaseRootRefusal | null {
-  return roots.length <= CODEBASE_ROOTS_MIN ? 'last-two' : null
+/** Why `root` cannot be removed from these roots, or null when it can: the roots that stay must still be a codebase. */
+export function rootRemovalRefusal(roots: readonly CodebaseRoot[], root: RootPlace): CodebaseRootRefusal | null {
+  return hasEnoughRoots(roots.filter((existing) => !isSameRoot(existing, root))) ? null : 'too-few'
 }
 
 /**
  * True for a record that is a codebase now: not deleted, with two or more
- * roots (docs/plans/codebases.md decision 14). One folder is a project.
+ * roots, or with a container root (docs/plans/codebases.md decision 14). One
+ * project is never a codebase.
  */
 export function isLiveCodebase(codebase: Codebase): boolean {
-  return codebase.deletedAt === null && codebase.roots.length >= CODEBASE_ROOTS_MIN
+  return codebase.deletedAt === null && hasEnoughRoots(codebase.roots)
 }
 
-/** The root for a folder on a host, named by its last path name. */
-export function rootFor(installationId: string, path: string): CodebaseRoot {
-  return { installationId, path, name: hostPathBaseName(path) || path }
+/**
+ * The root for a folder that a host scanned, named by its last path name. A
+ * folder that is a container at this time gets the mark: the host then reads
+ * the repositories inside it as members.
+ */
+export function rootFor(installationId: string, scan: Pick<CodebaseFolderScan, 'path' | 'state' | 'members'>): CodebaseRoot {
+  const root: CodebaseRoot = { installationId, path: scan.path, name: hostPathBaseName(scan.path) || scan.path }
+  return isContainerScan(scan) ? { ...root, container: true } : root
+}
+
+/**
+ * True when `path` on the host `installationId` is the container root of a
+ * live codebase. Such a folder is a codebase, never a project: no project
+ * list of a client shows it (decision 14). Desktop, web, and mobile ask this
+ * one rule where they build a project list.
+ */
+export function isContainerRoot(codebases: readonly Codebase[], installationId: string, path: string): boolean {
+  const key = hostPathKey(path)
+  return codebases.some((codebase) =>
+    isLiveCodebase(codebase)
+    && codebase.roots.some((root) => root.container === true && root.installationId === installationId && hostPathKey(root.path) === key))
 }
 
 /**
@@ -141,7 +160,7 @@ export function rootInstallationIds(codebase: Codebase): string[] {
 export function hostRootsKey(codebase: Codebase, installationId: string): string {
   return codebase.roots
     .filter((root) => root.installationId === installationId)
-    .map((root) => hostPathKey(root.path))
+    .map((root) => `${root.container ? 'container ' : ''}${hostPathKey(root.path)}`)
     .join('\n')
 }
 
@@ -152,22 +171,7 @@ export function codebasesHolding(codebases: readonly Codebase[], installationId:
     && codebase.roots.some((root) => root.installationId === installationId && isInsideHostPath(root.path, path)))
 }
 
-/**
- * The repositories that a scan found inside its folder. The folder itself is
- * not one of them. A project covers these with no codebase.
- */
+/** The repositories that a scan found inside its folder. The folder itself is not one of them. */
 export function repositoriesFoundIn(scan: Pick<CodebaseFolderScan, 'members'>): CodebaseMember[] {
   return scan.members.filter((member) => member.discovered && member.state === 'git')
-}
-
-/**
- * The members that the start of a run reads on its host: the project folder
- * with the repositories found in it (the scan of the folder), then the
- * members of the codebase of the run that the project does not hold. A
- * project covers its repositories with no codebase (decision 14), and the
- * host plans a new worktree from the same list (`sessionMembers`).
- */
-export function startMembers(project: readonly CodebaseMember[], codebase: readonly CodebaseMember[]): CodebaseMember[] {
-  const inProject = new Set(project.map((member) => hostPathKey(member.path)))
-  return [...project, ...codebase.filter((member) => !inProject.has(hostPathKey(member.path)))]
 }

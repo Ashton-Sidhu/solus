@@ -9,11 +9,13 @@ import {
   generatedWorktreeBranchName, initialWorktreeBranchName, temporaryWorktreeBranchId, type WorktreeBranchNaming,
 } from '@solus/contracts/worktree-branch-naming'
 import type { Actor } from '../../admission/actor'
+import { getInstallationId } from '../../admission/auth'
 import { recordScopeOf } from '../../admission/principal'
 import { getCodebase } from '../../data/codebases/codebases'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { getIndexedSession, indexedTaskFolderDirectories } from '../../db/session-indexer'
+import { membersOf } from '../../files/codebase-members'
 import { gitCommitExists } from '../../git/exec'
 import {
   addRepository, createTaskFolder, findTaskFolderContaining, listTaskFolders, planTaskFolder, removeTaskFolder, renameBranch, restoreTaskFolder,
@@ -27,8 +29,6 @@ import { isInsideRoot } from '../../paths'
 import { resolveHomePath } from '../../platform/paths'
 import { taskFolderBaseFor } from '../../workspace'
 import { realPathOf } from './attach-target'
-import { sessionMembers } from './project-members'
-import { projectFolderOf } from './session-codebase-formation'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'session-task-folders.ts')
@@ -39,8 +39,6 @@ export interface TaskFolderTurn {
   codebaseId?: string | null
   /** The project folder of the session: the member that it works in. */
   projectFolder: string
-  /** The repository that the session works in, when it is in one. */
-  repositoryRoot?: string | null
   /** The member paths that a person chose, or null for the default set. */
   repositories: readonly string[] | null
   actor: Actor
@@ -152,20 +150,18 @@ export class SessionTaskFolders {
 
   /**
    * The plan of the task folder of a new worktree session, or null when the
-   * session gets a worktree inside its repository, as before: a repository
-   * with no other repository chosen, a project folder that is not a member
-   * of the session on this host, and a session with no codebase whose project
-   * holds no repository. The members are the repositories that the host
-   * finds in the project folder, and those of the codebase of the session: a
-   * session with no codebase gets a task folder from its project alone
-   * (decision 14). A choice that cannot be made is an error with the reason
-   * for the person.
+   * session gets a worktree inside its repository, as before: a session with
+   * no codebase, a project folder that is not a member of the codebase on
+   * this host, and a repository with no other repository chosen. A project
+   * is one folder, so a session with no codebase has one checkout. A session
+   * in a container works in its codebase (decision 14), so its plan has each
+   * repository of the container. A choice that cannot be made is an error
+   * with the reason for the person.
    */
   async plan(sessionId: string, turn: TaskFolderTurn): Promise<TaskFolderPlan | null> {
     const codebaseId = await this.rt.sessionFolders.codebaseIdForTurn(sessionId, turn.codebaseId)
-    const members = await this.membersOf(projectFolderOf({ workingDirectory: turn.projectFolder, repositoryRoot: turn.repositoryRoot }), codebaseId, turn.actor)
-    // A project that holds no repository is one folder: it gets no task folder by itself.
-    if (members.length === 0 || (!codebaseId && !members.some((member) => member.state === 'git'))) return null
+    const members = codebaseId ? await this.membersOf(codebaseId, turn.actor) : []
+    if (!codebaseId || members.length === 0) return null
     const projectFolder = await realPathOf(resolveHomePath(turn.projectFolder))
     let workingMember: CodebaseMember | null = null
     for (const member of members) {
@@ -281,9 +277,8 @@ export class SessionTaskFolders {
   }
 
   /**
-   * The repositories of the session on this host (those of its project and
-   * of its codebase) that can get a worktree in the task folder of the
-   * session and have none. Empty for a
+   * The repositories of the session's codebase on this host that can get a
+   * worktree in the task folder of the session and have none. Empty for a
    * session that is not in a task folder.
    */
   async candidates(sessionId: string, actor: Actor): Promise<CodebaseMember[]> {
@@ -295,10 +290,10 @@ export class SessionTaskFolders {
   }
 
   /**
-   * Give a repository of the session its worktree in the task folder of the
-   * session, on the branch of the session, and publish the new folders.
-   * Refused for a session that is not in a task folder, and for a path that
-   * is not a repository of its project or of its codebase.
+   * Give a repository of the session's codebase its worktree in the task
+   * folder of the session, on the branch of the session, and publish the new
+   * folders. Refused for a session that is not in a task folder, and for a
+   * path that is not a repository of its codebase.
    */
   async addRepository(sessionId: string, repositoryPath: string, actor: Actor): Promise<SessionFolder[]> {
     const taskFolder = this.ofSession(sessionId)
@@ -310,7 +305,7 @@ export class SessionTaskFolders {
     for (const each of await this.repositoriesWithoutWorktree(sessionId, taskFolder, actor)) {
       if (await realPathOf(each.path) === wanted) { member = each; break }
     }
-    if (!member) throw new Error(`${repositoryPath} is not a repository of this session that has no worktree in its task folder.`)
+    if (!member) throw new Error(`${repositoryPath} is not a repository of this session's codebase that has no worktree in its task folder.`)
     // A repository that has the base branch of the session starts from it, as at the creation.
     const baseBranch = this.rt.sessionCheckouts.getGitContext(sessionId)?.targetBranch ?? null
     await addRepository(taskFolder.root, member.path, { baseBranch })
@@ -387,23 +382,21 @@ export class SessionTaskFolders {
     return [...sessions]
   }
 
-  /** The `git` members of the session on this host that have no worktree in `taskFolder`. */
+  /** The `git` members of the session's codebase on this host that have no worktree in `taskFolder`. */
   private async repositoriesWithoutWorktree(sessionId: string, taskFolder: TaskFolder, actor: Actor): Promise<CodebaseMember[]> {
     const codebaseId = await this.rt.sessionFolders.codebaseIdOf(sessionId)
+    if (!codebaseId) return []
     const held = new Set(await Promise.all(checkoutsOf(taskFolder).map((checkout) => realPathOf(checkout.repositoryPath))))
     const without: CodebaseMember[] = []
-    // The working folder of a task folder stands in for the project folder of the session.
-    for (const member of await this.membersOf(taskFolder.primaryRepositoryPath, codebaseId, actor)) {
+    for (const member of await this.membersOf(codebaseId, actor)) {
       if (member.state === 'git' && !held.has(await realPathOf(member.path))) without.push(member)
     }
     return without
   }
 
-  /** The members of a session on this host: the project folder with the repositories in it, then the members of its codebase. */
-  private async membersOf(projectFolder: string, codebaseId: string | null, actor: Actor): Promise<CodebaseMember[]> {
-    const codebase = codebaseId ? await getCodebase(recordScopeOf(actor.principal), codebaseId) : null
-    const members = await sessionMembers(projectFolder, codebase && codebase.deletedAt === null ? codebase : null, actor)
-    return [...members.project, ...members.codebase]
+  private async membersOf(codebaseId: string, actor: Actor): Promise<CodebaseMember[]> {
+    const codebase = await getCodebase(recordScopeOf(actor.principal), codebaseId)
+    return codebase && codebase.deletedAt === null ? membersOf(codebase, getInstallationId()) : []
   }
 
   /** The checkout service reads each worktree again: its listeners tell the sessions that work there. */

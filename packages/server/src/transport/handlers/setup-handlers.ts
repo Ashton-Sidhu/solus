@@ -30,6 +30,7 @@ import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
 import { projectsRootFor, setupProjectsRoot } from '../../workspace'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
+import { formContainerCodebases } from '../../execution/sessions/session-codebase-formation'
 import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from '../../files/host-path'
 import { sshConnectionOptions } from '../../platform/ssh'
@@ -602,11 +603,14 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return prepare(result.path)
   }
 
-  server.register('setupCloneProject', (args, ctx): Promise<SetupCloneProjectResult> => {
+  server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
     const [request] = args
-    return cloneProject(request, projectsRootOf(ctx), eventSink(ctx.clientId), ctx.abortSignal
+    const cloned = await cloneProject(request, projectsRootOf(ctx), eventSink(ctx.clientId), ctx.abortSignal
       ? { signal: ctx.abortSignal, onOutput: () => {} }
       : undefined)
+    // A clone into a folder that now holds two repositories makes that folder a container (docs/plans/codebases.md decision 14).
+    await formContainerCodebases(cloned.path, ctx.actor)
+    return cloned
   })
 
   /** A clone into the caller's projects folder, or into the destination it names.
@@ -758,10 +762,12 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
   })
 
-  server.register('setupAdoptProject', (args): Promise<SetupAdoptProjectResult> => {
+  server.register('setupAdoptProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
     const [request] = args
     const { path, cloneUrl } = setupAdoptProjectSchema.parse(request)
-    return adoptProject(path, cloneUrl)
+    const adopted = await adoptProject(path, cloneUrl)
+    await formContainerCodebases(adopted.path, ctx.actor)
+    return adopted
   })
 
   /** Record a checkout the host already has, refusing one whose origin is another repository. */
@@ -806,7 +812,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       await rm(projectPath, { recursive: true, force: true })
       throw err
     }
-    return { path: projectPath, projectKey: await registerProject(projectPath) }
+    const projectKey = await registerProject(projectPath)
+    await formContainerCodebases(projectPath, ctx.actor)
+    return { path: projectPath, projectKey }
   })
 
   async function runExclusive<T>(step: SetupStreamStep, task: () => Promise<T>): Promise<T> {

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
 import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema } from '@solus/contracts/device-types'
-import { isTaskFolderPath } from '@solus/contracts/codebases'
+import { codebaseNamingSchema, isTaskFolderPath } from '@solus/contracts/codebases'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { git, gitOutputPath } from '../git/exec'
 
@@ -42,6 +42,7 @@ const projectConfigInputSchema = z.object({
   taskDoneOnMerge: z.boolean().optional(),
   // A malformed override is dropped, not fatal: the rest of the file still applies.
   worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
+  codebaseNaming: codebaseNamingSchema.optional().catch(undefined),
   deviceRuns: z.array(deviceRunProfileSchema).max(MAX_DEVICE_RUN_PROFILES).optional().catch(undefined),
   ignoreRepositories: z.array(z.string().min(1).max(4096)).max(512).optional().catch(undefined),
   worktreeLayout: z.object({
@@ -107,6 +108,7 @@ function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   if (raw.worktreeBranchNaming !== undefined) {
     config.worktreeBranchNaming = raw.worktreeBranchNaming
   }
+  if (raw.codebaseNaming !== undefined) config.codebaseNaming = raw.codebaseNaming
   if (raw.serverUrls) config.serverUrls = [...new Set(raw.serverUrls)]
   if (raw.deviceRuns?.length) config.deviceRuns = raw.deviceRuns
   if (raw.ignoreRepositories?.length) config.ignoreRepositories = [...new Set(raw.ignoreRepositories)]

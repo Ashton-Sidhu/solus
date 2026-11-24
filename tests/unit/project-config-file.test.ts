@@ -103,6 +103,19 @@ describe('project config in the repository', () => {
     expect(await projectConfig.loadProjectConfig(repo)).toEqual({ version: 1, taskDoneOnMerge: false })
   })
 
+  test('the codebase naming of a project is kept, and a value that is no naming is dropped with the rest of the file kept', async () => {
+    // WHY: the host reads this key when it names a codebase that it forms from the project (docs/plans/codebases.md decision 13).
+    const named = mkdtempSync(join(tmpdir(), 'solus-codebase-naming-'))
+    try {
+      expect(await projectConfig.saveProjectConfig(named, { version: 1, codebaseNaming: 'folders' })).toEqual({ version: 1, codebaseNaming: 'folders' })
+      expect(await projectConfig.loadProjectConfig(named)).toEqual({ version: 1, codebaseNaming: 'folders' })
+      writeFileSync(join(named, '.solus', 'config.json'), JSON.stringify({ version: 1, codebaseNaming: 'by-moon-phase', taskDoneOnMerge: true }))
+      expect(await projectConfig.loadProjectConfig(named)).toEqual({ version: 1, taskDoneOnMerge: true })
+    } finally {
+      rmSync(named, { recursive: true, force: true })
+    }
+  })
+
   test('an unconfigured project reads as null, not as defaults', async () => {
     const fresh = mkdtempSync(join(tmpdir(), 'solus-unconfigured-'))
     try {

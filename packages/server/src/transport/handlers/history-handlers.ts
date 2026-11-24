@@ -9,6 +9,7 @@ import { hostStarterOf } from '@solus/contracts/session-starter'
 import type { AgentId, ExchangeProgress, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
+import { formContainerCodebases } from '../../execution/sessions/session-codebase-formation'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { recordOtelDuration } from '../../otel'
 import type { HandlerCtx, SolusServer } from '../server'
@@ -150,10 +151,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('trackRecentProject', async (args) => {
+  server.register('trackRecentProject', async (args, ctx) => {
     const [path] = args
     try {
       await trackRecentProject(path)
+      // A person opened the folder as a project: a container is a codebase from now on (docs/plans/codebases.md decision 14).
+      if (path && path !== '~') await formContainerCodebases(path, ctx.actor)
     } catch (err) {
       log.error('track_recent_project_failed', { error: String(err), path })
     }

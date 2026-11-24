@@ -40,6 +40,7 @@ import {
   type TerminalAppId,
 } from './types'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, worktreeBranchNamingSchema } from './worktree-branch-naming'
+import { DEFAULT_CODEBASE_NAMING, codebaseNamingSchema } from './codebases'
 import { MAX_TASK_SOURCES, taskSourceSchema } from './task-sources'
 import { THEME_CSS_MAX_LENGTH, themeCssLoadsFiles } from './theme-css'
 
@@ -247,6 +248,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
     preferences: z.record(z.string().max(200), z.enum(HOST_BALANCE_PREFERENCES)),
   }).strict().describe('Auto balance of new sessions. preferences: by host installation id.'),
   worktreeBranchNaming: worktreeBranchNamingSchema.describe('How branches of new worktrees get their names. generated: {prefix}/{slug}, renamed when a title exists. static: {prefix}/{id}. custom: a template with {prefix}, {slug}, {id}, and {user}. The .solus/config.json of a project can override it.'),
+  codebaseNaming: codebaseNamingSchema.describe('How Solus names a codebase that it forms from separate projects. generated: a short name from a small model call. folders: a name from the folder names. The .solus/config.json of a project can override it.'),
 }
 
 export const personalSettingsSchema = z.object(PERSONAL_SETTING_SCHEMAS).strict()
@@ -336,6 +338,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
   hostBalancing: { enabled: false, preferences: {} },
   worktreeBranchNaming: DEFAULT_WORKTREE_BRANCH_NAMING,
+  codebaseNaming: DEFAULT_CODEBASE_NAMING,
 }
 
 /** Personal values, document over defaults. Cloned so a caller may mutate the result. */
@@ -377,6 +380,7 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'sourceControlWriterModel',
   'sourceControlWriting',
   'worktreeBranchNaming',
+  'codebaseNaming',
 ] as const satisfies readonly PersonalSettingKey[]
 export type ExecutionPreferenceKey = (typeof EXECUTION_PREFERENCE_KEYS)[number]
 

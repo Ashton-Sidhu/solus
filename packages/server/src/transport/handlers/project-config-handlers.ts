@@ -5,16 +5,18 @@ import type { SolusServer } from '../server'
 import { resolveRepositoryKey } from '../../git/git-helpers'
 import { registerWorkspaceProjectHandlers } from './workspace-project-handlers'
 import { projectsVisibleTo } from './setup-handlers'
+import { formContainerCodebases } from '../../execution/sessions/session-codebase-formation'
 
 export function registerProjectConfigHandlers(server: SolusServer): void {
   server.register('projectConfigLoad', (args) => {
     const [cwd] = args
     return loadProjectConfig(cwd)
   })
-  server.register('projectConfigSave', async (args) => {
+  server.register('projectConfigSave', async (args, ctx) => {
     const [cwd, config] = args
     const saved = await saveProjectConfig(cwd, config)
     await recordProject(cwd).catch(() => {})
+    await formContainerCodebases(cwd, ctx.actor)
     return saved
   })
   // A member's listings are their own workspace (managed-hosts.md §3): a project

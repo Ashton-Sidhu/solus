@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
-import type { Codebase, CodebaseFolderScan, CodebaseFolderSuggestion, CodebaseMember, CodebaseMemberState } from '@solus/contracts/codebases'
+import { CONTAINER_REPOSITORIES_MIN, type Codebase, type CodebaseFolderScan, type CodebaseFolderSuggestion, type CodebaseMember, type CodebaseMemberState } from '@solus/contracts/codebases'
 import { hostPathKey } from '@solus/contracts/host-path'
 import { repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 import { runAsync } from '../git/exec'
@@ -14,7 +14,9 @@ import { readIgnoredRepositories } from '../project-config/project-config'
 /**
  * The members of a codebase on this host (docs/plans/codebases.md §5). The
  * record holds roots only; this module reads the disk each time, so a
- * repository that is cloned inside a root is a member on the next read.
+ * repository that is cloned inside a container root is a member on the next
+ * read. A root that is not a container is one project: it is one member, and
+ * the host does not look inside it.
  *
  * The file system decides what a folder is. Git runs only for the facts of a
  * repository that was found (its origin and whether it has a commit), a small
@@ -129,7 +131,11 @@ export async function folderStateOf(path: string): Promise<CodebaseMemberState> 
   return await gitMarkOf(path) ? 'git' : 'plain'
 }
 
-/** One folder as a root: what it is, and the repositories inside it. */
+/**
+ * One folder with what it holds: what it is, and the repositories inside it.
+ * This is the read of a container root, and of a folder that a person looks
+ * at before it is in a codebase.
+ */
 async function readFolder(rootPath: string, name: string): Promise<FolderRead> {
   const state = await folderStateOf(rootPath)
   if (state === 'missing') return { state, members: [memberOf(rootPath, name, 'missing', rootPath)] }
@@ -138,6 +144,12 @@ async function readFolder(rootPath: string, name: string): Promise<FolderRead> {
     state,
     members: [memberOf(rootPath, name, state, rootPath), ...inside.map((path) => memberOf(path, '', 'git', rootPath))],
   }
+}
+
+/** One root that is a project: one member, the folder itself. The host does not look inside it. */
+async function readProject(rootPath: string, name: string): Promise<FolderRead> {
+  const state = await folderStateOf(rootPath)
+  return { state, members: [memberOf(rootPath, name, state, rootPath)] }
 }
 
 /** Ask Git for the facts of each repository in `members`, in place. */
@@ -151,26 +163,25 @@ async function readGitFacts(members: CodebaseMember[]): Promise<void> {
 }
 
 /**
- * The folders that a project covers by itself, with no codebase
- * (docs/plans/codebases.md decision 14): the project folder, then the
- * repositories inside it. The same members that a root at `projectFolder`
- * gives.
+ * True when `folder` is a container (docs/plans/codebases.md decision 14): it
+ * is not a repository itself, and it holds two or more repositories, found by
+ * the discovery rules of `repositoriesInside`. A container is a codebase,
+ * never a project. A folder that holds one repository or none is a project.
  */
-export async function membersOfProject(projectFolder: string): Promise<CodebaseMember[]> {
-  const { members } = await readFolder(projectFolder, '')
-  await readGitFacts(members)
-  return members
+export async function isContainer(folder: string): Promise<boolean> {
+  if (await folderStateOf(folder) !== 'plain') return false
+  return (await repositoriesInside(folder).catch(() => [])).length >= CONTAINER_REPOSITORIES_MIN
 }
 
 /**
  * The folders that `codebase` covers on the host `installationId`: each root
- * on this host, then the repositories inside it. A root on a different host is
- * not read and is not in the answer. A root that is not a folder is a member
- * of state `missing`.
+ * on this host, and, for a container root, the repositories inside it. A root
+ * on a different host is not read and is not in the answer. A root that is not
+ * a folder is a member of state `missing`.
  */
 export async function membersOf(codebase: Codebase, installationId: string): Promise<CodebaseMember[]> {
   const roots = codebase.roots.filter((root) => root.installationId === installationId)
-  const reads = await runBounded(roots.map((root) => () => readFolder(root.path, root.name)), GIT_READS)
+  const reads = await runBounded(roots.map((root) => () => root.container ? readFolder(root.path, root.name) : readProject(root.path, root.name)), GIT_READS)
   // A root inside a different root is one member: the root, not the repository that discovery found.
   const rootKeys = new Set(roots.map((root) => hostPathKey(root.path)))
   const seen = new Set<string>()
@@ -225,14 +236,16 @@ async function workspaceSuggestions(folder: string): Promise<CodebaseFolderSugge
 }
 
 /**
- * What one folder holds, before it is in a codebase: the same members a root
- * at `path` gives, and the folders that a `.code-workspace` file in it lists.
- * A suggestion is never a member. `path` is a client path, so `~` is resolved here.
+ * What one folder holds, before it is in a codebase: the folder, the
+ * repositories inside it (the members that a container root at `path` gives),
+ * and the folders that a `.code-workspace` file in it lists. A client reads
+ * from it whether the folder is a container (`isContainerScan`). A suggestion
+ * is never a member. `path` is a client path, so `~` is resolved here.
  */
 export async function scanFolder(path: string): Promise<CodebaseFolderScan> {
   const resolved = resolve(resolveHomePath(path))
-  const members = await membersOfProject(resolved)
-  const [{ state }] = members
+  const { state, members } = await readFolder(resolved, '')
+  await readGitFacts(members)
   return {
     path: resolved,
     state,

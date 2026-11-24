@@ -182,13 +182,27 @@ describe('validation', () => {
     expect(limit.roots).toHaveLength(CODEBASE_ROOTS_MAX)
   })
 
-  test('refuses a codebase with fewer than two folders', async () => {
-    // WHY: one folder is a project. A project and a codebase with the same
-    // folder are two rows of the project picker that read as one thing, and a
-    // session of a project gets the repositories inside it with no codebase.
+  test('refuses a codebase of one project, and of no folder', async () => {
+    // WHY: a project is one folder or one repository. A project and a codebase
+    // with the same folder are two rows of the project picker that read as one thing.
     await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop')] }))).rejects.toThrow(/at least 2 folders/)
     await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [] }))).rejects.toThrow(/at least 2 folders/)
     expect(await codebases.listCodebases('local')).toEqual([])
+  })
+
+  test('one container root is a codebase', async () => {
+    // WHY: a folder that holds two or more repositories is a codebase by itself (decision 14).
+    const container = shop({ roots: [{ ...root('/Users/me/shop'), container: true }] })
+    expect(await codebases.saveCodebase('local', 'alice', container)).toEqual(container)
+    expect(await codebases.listCodebases('local')).toEqual([container])
+    expect(await codebases.codebasesOfFolder('local', LAPTOP, '/Users/me/shop/api')).toEqual([container])
+  })
+
+  test('a root is a container only with the mark `true`', async () => {
+    // WHY: the wire schema has one spelling for the mark, so two hosts never read one record in two ways.
+    const { codebaseRootSchema } = await import('@solus/contracts/codebases')
+    expect(codebaseRootSchema.safeParse({ ...root('/Users/me/shop'), container: true }).success).toBe(true)
+    expect(codebaseRootSchema.safeParse({ ...root('/Users/me/shop'), container: false }).success).toBe(false)
   })
 
   test('a tombstone can have fewer than two folders', async () => {
@@ -198,7 +212,7 @@ describe('validation', () => {
   })
 
   test('refuses a folder that is inside a different folder of the same host', async () => {
-    // WHY: a root covers the folders inside it, as a project covers its repositories.
+    // WHY: a container root gives the repositories inside it, and a project root is one folder: a root inside a root adds nothing.
     await expect(codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop'), root('/Users/me/shop/api')] }))).rejects.toThrow(/is inside/)
     // The same place on a different host is a different folder.
     const kept = await codebases.saveCodebase('local', 'alice', shop({ roots: [root('/Users/me/shop'), root('/Users/me/shop/api', SERVER)] }))

@@ -1,16 +1,17 @@
 import { basename, join, resolve } from 'node:path'
-import type { CodebaseMember, SessionAttachedFolder, SessionFolder, SessionFolderSource, TaskFolder } from '@solus/contracts/codebases'
+import type { Codebase, CodebaseMember, SessionAttachedFolder, SessionFolder, SessionFolderSource, TaskFolder } from '@solus/contracts/codebases'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { hostPathBaseName, sameHostPath } from '@solus/contracts/host-path'
 import type { NormalizedEvent, PermissionMode, SessionRecordUpsert } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
-import { ANY_ORGANIZATION, recordScopeOf } from '../../admission/principal'
+import { ANY_ORGANIZATION, organizationForNew, recordScopeOf } from '../../admission/principal'
 import { getCodebase } from '../../data/codebases/codebases'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { setSessionRecordFolders, storedSessionFolders } from '../../data/sessions/session-records'
 import { getIndexedSession } from '../../db/session-indexer'
-import { folderStateOf } from '../../files/codebase-members'
+import { folderStateOf, membersOf } from '../../files/codebase-members'
 import { findTaskFolderContaining } from '../../git/task-folder-store'
 import { readHostList } from '../../host/host-list'
 import { createLogger } from '../../logger'
@@ -20,16 +21,19 @@ import type { CodebaseBlock } from '../agents/runtime-instructions'
 import type { SessionFolderGate } from '../agents/session-folder-gate'
 import type { SessionRuntime } from '../session-runtime'
 import { attachTargetOf, automaticAttachTarget, isInTemporaryPlace, realPathOf, refusalForSolusData, systemTemporaryPlaces } from './attach-target'
+import { generateCodebaseName, resolveCodebaseNaming } from './codebase-name'
 import { ObservedWrites } from './observed-writes'
-import { sessionMembers } from './project-members'
-import { codebaseForAttachedFolder, codebaseOfProjectFolder, formationActivity, projectFolderOf, type SessionCodebase } from './session-codebase-formation'
-import { addCodebaseRoot, requestAttach, type AttachOutcome, type AttachRequestOptions, type AttachSession, type AttachState } from './session-folder-attach'
+import { codebaseForAttachedFolder, codebaseOfProjectFolder, containerCodebaseOf, formationActivity, formationFor, projectFolderOf, renameFormed, type SessionCodebase } from './session-codebase-formation'
+import { addCodebaseRoot, requestAttach, type AttachCodebase, type AttachOutcome, type AttachRequestOptions, type AttachSession, type AttachState } from './session-folder-attach'
 
 import { NOT_A_FOLDER, taskFolderStandIns, worktreeOfMember } from './task-folder-stand-ins'
 
 export { ATTACH_CHOICE, ATTACH_QUESTION_ID, ATTACH_QUESTION_ID_PREFIX, type AttachAsker, type AttachOutcome, type AttachRequestOptions } from './session-folder-attach'
 
 const log = createLogger('SessionRuntime', 'session-folders.ts')
+
+/** What the name of a formed codebase reads of the preferences of a person. */
+type NamingPreferences = Pick<ExecutionPreferences, 'codebaseNaming' | 'textGenerationModel'>
 
 /** Where a session works when its folders are resolved. */
 export interface SessionWorkingPlace {
@@ -45,6 +49,8 @@ export interface SessionFoldersTurn extends SessionWorkingPlace {
   codebaseId?: string | null
   /** The person chose "No codebase" for the session: no rule gives it one (decision 13). */
   noCodebase?: boolean
+  /** The preferences of the person of the turn: how a codebase that Solus forms gets its name, and the model that writes it. */
+  preferences?: NamingPreferences
   /** The launcher settled the codebase of this turn already, before the plan of its worktree: the disk is not read a second time. */
   isCodebaseSettled?: boolean
   /** The person the turn acts for: the codebase is read in their scope. */
@@ -81,6 +87,8 @@ interface SessionFoldersState extends AttachState {
   turnStarted: boolean
   /** The folders attached before that turn. Its start reads them for rule 2 of decision 13. */
   attachedBeforeTurn: SessionAttachedFolder[]
+  /** The naming preferences of the person of the last turn start. Undefined: the defaults. */
+  preferences: NamingPreferences | undefined
 }
 
 function byPath(a: FolderEntry, b: FolderEntry): number {
@@ -90,9 +98,8 @@ function byPath(a: FolderEntry, b: FolderEntry): number {
 /**
  * The folders of each session besides its working directory
  * (docs/plans/codebases.md §6). `SessionCheckouts` keeps the one working
- * directory. This owner keeps all other folders: the repositories that the
- * host finds in the project folder of the session, the members of the
- * session's codebase on this host, and the folders attached to the session.
+ * directory. This owner keeps all other folders: the members of the session's
+ * codebase on this host, and the folders attached to the session.
  * The session record is the durable copy (`codebase_id`, `attached_folders`).
  *
  * The provider gets the granted folders at each turn start (`grantedPaths`).
@@ -127,10 +134,9 @@ export class SessionFolders implements SessionFolderGate {
   }
 
   /**
-   * Resolve the folders of a session at a turn start: the repositories in its
-   * project folder and the members of its codebase on this host, less the
-   * working directory and the repository that the working directory is in;
-   * plus the attached folders that still exist. A member inside the working
+   * Resolve the folders of a session at a turn start: the members of its
+   * codebase on this host, less the working directory and the repository that
+   * the working directory is in; plus the attached folders that still exist. A member inside the working
    * directory is a folder of the session: Git status, diff, and checkpoints
    * work for each repository.
    */
@@ -174,8 +180,9 @@ export class SessionFolders implements SessionFolderGate {
    * The codebase of a session for a turn that starts (decisions 5 and 13). A
    * session keeps the codebase it has. A session with none takes the one that
    * the turn names. Without one, the host gives it the one codebase that
-   * holds its project folder, or makes one from a second project that was
-   * attached before the turn (`session-codebase-formation.ts`). `turn` says
+   * holds its project folder, else the codebase of a project folder that is
+   * a container, else one from a second project that was attached before the
+   * turn (`session-codebase-formation.ts`). `turn` says
    * where the turn starts: the launcher calls this before the plan of a new
    * worktree, so the plan reads the members of that codebase. A failure here
    * does not stop the turn.
@@ -184,6 +191,7 @@ export class SessionFolders implements SessionFolderGate {
     const state = await this.stateOf(sessionId)
     const attachedBefore = state.attachedBeforeTurn.splice(0)
     state.turnStarted = true
+    state.preferences = turn.preferences
     if (turn.codebaseId) state.noCodebase = false
     else if (turn.noCodebase) state.noCodebase = true
     try {
@@ -197,6 +205,7 @@ export class SessionFolders implements SessionFolderGate {
       const projectFolder = projectFolderOf(turn)
       const existing = await codebaseOfProjectFolder(projectFolder, turn.actor)
       let taken: SessionCodebase | null = existing && { codebase: existing, formed: false }
+      taken ??= await containerCodebaseOf(sessionId, projectFolder, turn.actor)
       for (const attached of attachedBefore) taken ??= await codebaseForAttachedFolder(sessionId, projectFolder, attached, turn.actor)
       if (taken) await this.takeCodebase(sessionId, state, taken, turn.actor)
     } catch (error) {
@@ -231,6 +240,36 @@ export class SessionFolders implements SessionFolderGate {
     if (formed) await this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, formationActivity(codebase))
     this.rt.publish(sessionId, { type: 'session_codebase', codebaseId: codebase.id, name: codebase.name })
     log.info('session_codebase_taken', { sessionId, codebaseId: codebase.id, formed })
+    if (taken.plainName) void this.nameFormed(sessionId, state, codebase, taken.plainName, actor)
+  }
+
+  /**
+   * A codebase that a rule formed from separate projects has its plain name.
+   * When the naming of the person (or of the project) is `generated`, a small
+   * model call gives a short name, and the name replaces the plain one when
+   * it arrives. The formation did not wait for it. A person who renamed the
+   * codebase in that time keeps their name (`renameFormed`).
+   */
+  private async nameFormed(sessionId: string, state: SessionFoldersState, codebase: Codebase, plainName: string, actor: Actor): Promise<void> {
+    try {
+      const installationId = getInstallationId()
+      const [projectRoot] = codebase.roots
+      const preferences = state.preferences
+      if (await resolveCodebaseNaming(projectRoot.path, preferences?.codebaseNaming) !== 'generated') return
+      const folders = codebase.roots.map((root) => ({
+        name: root.name || hostPathBaseName(root.path),
+        path: root.installationId === installationId ? root.path : undefined,
+      }))
+      const generated = await generateCodebaseName(this.rt, folders, projectRoot.path, (provider) => this.rt.seatForTurn(actor, provider), preferences, organizationForNew(actor.principal))
+      const renamed = generated ? await renameFormed(codebase.id, plainName, generated, actor) : null
+      if (!renamed) return
+      log.info('session_codebase_named', { sessionId, codebaseId: renamed.id })
+      if (state.codebaseId !== renamed.id) return
+      state.codebase = renamed
+      this.rt.publish(sessionId, { type: 'session_codebase', codebaseId: renamed.id, name: renamed.name })
+    } catch (error) {
+      log.warn('session_codebase_not_named', { sessionId, codebaseId: codebase.id, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   /**
@@ -238,17 +277,17 @@ export class SessionFolders implements SessionFolderGate {
    * codebase. Before the first turn of the session in this process, the choice
    * of the person is not known, so the turn start reads the folder.
    */
-  private async formForAttached(sessionId: string, state: SessionFoldersState, attached: SessionAttachedFolder, actor: Actor): Promise<void> {
+  private async formForAttached(sessionId: string, state: SessionFoldersState, attached: SessionAttachedFolder, actor: Actor, name?: string): Promise<void> {
     if (!state.turnStarted) {
       state.attachedBeforeTurn.push(attached)
       return
     }
     try {
       if (state.noCodebase || !state.place || await this.hasCodebase(state, actor)) return
-      const taken = await codebaseForAttachedFolder(sessionId, projectFolderOf(state.place), attached, actor)
+      const taken = await codebaseForAttachedFolder(sessionId, projectFolderOf(state.place), attached, actor, name)
       if (!taken) return
       await this.takeCodebase(sessionId, state, taken, actor)
-      // The attached folder is a member now, and so is each repository inside it.
+      // The attached folder is a member now.
       await this.refresh(sessionId, state, actor)
     } catch (error) {
       log.warn('session_codebase_not_formed', { sessionId, path: attached.path, error: error instanceof Error ? error.message : String(error) })
@@ -383,11 +422,27 @@ export class SessionFolders implements SessionFolderGate {
    * `byName`: a person or the agent asked for this folder by its name. The
    * record keeps that, so the turn start does not take the folder away as a
    * folder that an automatic trigger left (`dropTemporaryFolders`).
+   *
+   * The attach card can decide the codebase of the attach (`AttachCodebase`):
+   * `sessionOnly` makes none, and `codebaseName` is the name that the person
+   * gave it.
    */
-  async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor, options: { byName?: boolean } = {}): Promise<SessionFolder[]> {
+  async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor, options: { byName?: boolean } & AttachCodebase = {}): Promise<SessionFolder[]> {
     const attached = await this.addFolder(sessionId, path, source, actor, options.byName)
-    await this.formForAttached(sessionId, await this.stateOf(sessionId), attached, actor)
+    if (!options.sessionOnly) await this.formForAttached(sessionId, await this.stateOf(sessionId), attached, actor, options.codebaseName)
     return this.foldersOf(sessionId)
+  }
+
+  /**
+   * `AttachSession.formationOf`: the codebase that an attach of `folder` forms
+   * now, for the attach card, or null when it forms none: the session has a
+   * codebase, the person chose "No codebase", or the folder is no real second
+   * project (`formationFor`).
+   */
+  private async formationOf(state: SessionFoldersState, folder: string, source: SessionFolderSource, actor: Actor): Promise<{ name: string } | null> {
+    if (state.noCodebase || !state.turnStarted || !state.place || await this.hasCodebase(state, actor)) return null
+    const offer = await formationFor(projectFolderOf(state.place), { path: folder, source }, actor)
+    return offer && { name: offer.name }
   }
 
   /** Add a folder to the session and its record. No rule, and no codebase is made. */
@@ -443,7 +498,8 @@ export class SessionFolders implements SessionFolderGate {
       refresh: () => this.refresh(sessionId, state, actor),
       holderOf: (held) => this.holderOf(state, held),
       grantedHolderOf: (realPath) => (state.entries ?? []).find((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))?.folder.path ?? null,
-      attach: async (folder, folderSource) => { await this.attach(sessionId, folder, folderSource, actor, { byName: options.byName }) },
+      attach: async (folder, folderSource, codebase = {}) => { await this.attach(sessionId, folder, folderSource, actor, { byName: options.byName, ...codebase }) },
+      formationOf: (folder, folderSource) => this.formationOf(state, folder, folderSource, actor),
       standInFor: (member) => this.standInFor(sessionId, state, member, actor),
     }
     return requestAttach(session, path, source, actor, options)
@@ -466,7 +522,8 @@ export class SessionFolders implements SessionFolderGate {
    * A project tool made `path` in this session (decision 11), and the session
    * works there with no card: the tool call was approved.
    *
-   * - A folder in the project folder: the project covers it, so it needs no
+   * - A folder in the project folder: it is a part of that project, or, in a
+   *   container, a member that the read of the disk finds. It needs no
    *   codebase and no root.
    * - A folder outside it, in a session with a codebase: a root of that
    *   codebase on this host, unless `addToCodebase` is false or a root holds it.
@@ -480,7 +537,7 @@ export class SessionFolders implements SessionFolderGate {
     const folder = resolve(resolveHomePath(path))
     const realPath = await realPathOf(folder)
     if (state.place && isInsideRoot(await realPathOf(projectFolderOf(state.place)), realPath)) {
-      // The read of the disk finds a new repository there. A place that the session does not reach after it is attached.
+      // The read of the disk finds a new repository of a container. A place that the session does not reach after it is attached.
       await this.refresh(sessionId, state, actor)
       if (!await this.holderOf(state, folder)) await this.addFolder(sessionId, folder, 'created', actor)
       return { addedToCodebase: false }
@@ -573,9 +630,6 @@ export class SessionFolders implements SessionFolderGate {
     const entry = (state.entries ?? []).find((each) => each.folder.path === folderPath)
     if (entry?.folder.source === 'codebase') {
       throw new Error(`"${folderPath}" comes from the codebase of the session. Remove it from the codebase.`)
-    }
-    if (entry?.folder.source === 'project') {
-      throw new Error(`"${folderPath}" is a repository in the project folder of the session. A session works in each repository of its project.`)
     }
     const attached = state.attached.filter((each) => resolve(each.path) !== folderPath)
     if (attached.length === state.attached.length) return this.foldersOf(sessionId)
@@ -682,6 +736,7 @@ export class SessionFolders implements SessionFolderGate {
       noCodebase: false,
       turnStarted: false,
       attachedBeforeTurn: [],
+      preferences: undefined,
     }
     this.sessions.set(sessionId, state)
     return state
@@ -703,23 +758,18 @@ export class SessionFolders implements SessionFolderGate {
     state.place ??= this.storedPlaceOf(sessionId)
     const codebase = state.codebaseId ? await getCodebase(recordScopeOf(actor.principal), state.codebaseId) : null
     state.codebase = codebase && codebase.deletedAt === null ? codebase : null
-    // A project covers the repositories inside it with no codebase (decision 14). The project folder itself is the place of the session.
-    const found = await sessionMembers(state.place ? projectFolderOf(state.place) : null, state.codebase, actor)
-    const members = [
-      ...found.project.filter((member) => member.discovered).map((member) => ({ member, source: 'project' as const })),
-      ...found.codebase.map((member) => ({ member, source: 'codebase' as const })),
-    ]
+    const members = state.codebase ? await membersOf(state.codebase, getInstallationId()) : []
 
     const workingDirectory = state.place ? await realPathOf(state.place.workingDirectory) : null
     const repositoryRoot = state.place?.repositoryRoot ? await realPathOf(state.place.repositoryRoot) : null
     const isReached = (realPath: string): boolean => workingDirectory !== null && isInsideRoot(workingDirectory, realPath)
-    const standIns = await taskFolderStandIns(taskFolderOf(state), [...found.project, ...found.codebase])
+    const standIns = await taskFolderStandIns(taskFolderOf(state), members)
     const entries = new Map<string, FolderEntry>()
-    for (const { member, source } of members) {
+    for (const member of members) {
       if (member.state === 'missing') continue
       const worktreePath = await standIns(member)
       if (worktreePath === NOT_A_FOLDER) continue
-      const folder = folderOfMember(member, member.state, worktreePath, source)
+      const folder = folderOfMember(member, member.state, worktreePath)
       const realPath = await realPathOf(folder.path)
       // The working directory is not a folder besides itself, and it stands in for the repository it is in.
       if (realPath === workingDirectory || realPath === repositoryRoot) continue
@@ -780,17 +830,16 @@ function taskFolderOf(state: SessionFoldersState): TaskFolder | null {
 }
 
 /**
- * The session folder that stands for a member of the project or of the
- * codebase. This is the one place that chooses where a session works for a
+ * The session folder that stands for a member of the codebase. This is the one place that chooses where a session works for a
  * member: the member itself, or, in a task folder session, the worktree of
  * the member (docs/plans/codebases.md §7). `repositoryPath` is the member in
  * each case, so a folder whose `path` is not its `repositoryPath` is an
  * isolated worktree. A plain member has no worktree: a task folder session
  * works in the original.
  */
-function folderOfMember(member: CodebaseMember, state: SessionFolder['state'], worktreePath: string | null, source: 'project' | 'codebase'): SessionFolder {
+function folderOfMember(member: CodebaseMember, state: SessionFolder['state'], worktreePath: string | null): SessionFolder {
   const repositoryPath = resolve(member.path)
-  return { path: worktreePath ?? repositoryPath, name: member.name, state, repositoryPath, source, granted: true }
+  return { path: worktreePath ?? repositoryPath, name: member.name, state, repositoryPath, source: 'codebase', granted: true }
 }
 
 function attachedFolder(path: string, state: SessionFolder['state'], source: SessionFolderSource): SessionFolder {

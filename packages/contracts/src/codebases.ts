@@ -1,18 +1,21 @@
 /**
  * Codebases (docs/plans/codebases.md §2 and §4). A codebase is a named set of
- * two or more folders, on one or more hosts, that one piece of work covers.
- * One folder is a project, never a codebase: a project covers the
- * repositories inside it with no record. The record holds roots only: a host
- * reads the members of a codebase from its own disk. Each host keeps the full
- * record. The newest `updatedAt` wins when two hosts have different copies,
- * and a delete is a tombstone, so it also moves.
+ * folders, on one or more hosts, that one piece of work covers: two or more
+ * projects, or one container. A project is one folder or one repository. A
+ * container is a folder that is not a repository and that holds two or more
+ * repositories: it is a codebase, never a project. The record holds roots
+ * only: a host reads the members of a codebase from its own disk. Each host
+ * keeps the full record. The newest `updatedAt` wins when two hosts have
+ * different copies, and a delete is a tombstone, so it also moves.
  */
 
 import { z } from 'zod'
 
 export const CODEBASE_ROOTS_MAX = 128
-/** A codebase that is not deleted has at least this many roots. One folder is a project. */
+/** A codebase that is not deleted has at least this many roots, or one container root. One project is not a codebase. */
 export const CODEBASE_ROOTS_MIN = 2
+/** A folder that is not a repository is a container when it holds at least this many repositories. */
+export const CONTAINER_REPOSITORIES_MIN = 2
 /** A new worktree session isolates every repository only up to this many. */
 export const CODEBASE_WORKTREE_DEFAULT_MAX = 8
 
@@ -21,6 +24,10 @@ export const CODEBASE_WORKTREE_DEFAULT_MAX = 8
  * crosses the RPC boundary. The store checks the rules of a codebase (a name,
  * absolute paths, no root twice, no root inside a different root, the least
  * and the largest number of roots).
+ *
+ * `container`: the root is a container. Its members are the repositories that
+ * the host finds inside it at each read. A root with no such mark is one
+ * project: the host does not look inside it.
  */
 export const codebaseRootSchema = z.object({
   /** The host the folder is on (decision 2): its installation id, never `local`. */
@@ -28,6 +35,7 @@ export const codebaseRootSchema = z.object({
   /** Absolute on that host. Never `~`. */
   path: z.string().min(1).max(4096),
   name: z.string().max(200),
+  container: z.literal(true).optional(),
 }).strict()
 export type CodebaseRoot = z.infer<typeof codebaseRootSchema>
 
@@ -42,11 +50,74 @@ export const codebaseSchema = z.object({
 }).strict()
 export type Codebase = z.infer<typeof codebaseSchema>
 
+/** True for a set of roots that a live codebase can have: two or more, or one container (`CODEBASE_ROOTS_MIN`). */
+export function hasEnoughRoots(roots: readonly CodebaseRoot[]): boolean {
+  return roots.length >= CODEBASE_ROOTS_MIN || roots.some((root) => root.container === true)
+}
+
+/**
+ * True when a scan says that the folder is a container: it is no repository,
+ * and it holds two or more repositories.
+ */
+export function isContainerScan(scan: Pick<CodebaseFolderScan, 'state' | 'members'>): boolean {
+  return scan.state === 'plain' && scan.members.filter((member) => member.discovered && member.state === 'git').length >= CONTAINER_REPOSITORIES_MIN
+}
+
 export const codebaseListOptionsSchema = z.object({
   /** Also answer the tombstones: a client needs them to send a delete to a host that has an older copy. */
   includeDeleted: z.boolean().optional(),
 }).strict()
 export type CodebaseListOptions = z.infer<typeof codebaseListOptionsSchema>
+
+/**
+ * How Solus names a codebase that it forms from separate projects
+ * (docs/plans/codebases.md decision 13). `generated`: a small model call
+ * gives a short name after the codebase formed with its plain name.
+ * `folders`: the plain name stays. A container codebase always has the name
+ * of its folder. The `.solus/config.json` of a project can override the
+ * person's setting.
+ */
+export const CODEBASE_NAMING_MODES = ['generated', 'folders'] as const
+export const codebaseNamingSchema = z.enum(CODEBASE_NAMING_MODES)
+export type CodebaseNaming = z.infer<typeof codebaseNamingSchema>
+export const DEFAULT_CODEBASE_NAMING: CodebaseNaming = 'generated'
+
+/** A generated name has at most this many characters. */
+export const CODEBASE_GENERATED_NAME_MAX = 32
+
+/**
+ * The plain name of a codebase that Solus forms from the folders
+ * `folderNames`, the project folder first: the common prefix of the names when
+ * it has three or more characters (`solus` for `solus` and `solus-cloud`),
+ * else the first name and the count of the other folders (`api +1`).
+ */
+export function plainCodebaseName(folderNames: readonly string[]): string {
+  const [first = '', ...others] = folderNames
+  if (others.length === 0) return first
+  let prefix = first
+  for (const name of others) {
+    let length = 0
+    while (length < prefix.length && length < name.length && prefix[length].toLowerCase() === name[length].toLowerCase()) length++
+    prefix = prefix.slice(0, length)
+  }
+  // A prefix that ends in the middle of the separator of two words loses the separator: `solus-` is `solus`.
+  prefix = prefix.replace(/[^\p{L}\p{N}]+$/u, '')
+  return prefix.length >= 3 ? prefix : `${first} +${others.length}`
+}
+
+/**
+ * The name that a model gave, when it is a correct codebase name: one to
+ * three words of letters and digits, with no punctuation, at most
+ * `CODEBASE_GENERATED_NAME_MAX` characters. Null for each other text: the
+ * plain name then stays.
+ */
+export function validGeneratedCodebaseName(raw: string): string | null {
+  const name = raw.trim().replace(/\s+/g, ' ')
+  if (!name || name.length > CODEBASE_GENERATED_NAME_MAX) return null
+  const words = name.split(' ')
+  if (words.length > 3 || words.some((word) => !/^[\p{L}\p{N}]+$/u.test(word))) return null
+  return name
+}
 
 export type CodebaseMemberState = 'git' | 'plain' | 'missing'
 
@@ -85,15 +156,12 @@ export interface CodebaseFolderScan {
 
 /**
  * Where a session folder comes from:
- * - `project`: a repository that the host found inside the project folder of
- *   the session. A project covers these with no codebase.
- * - `codebase`: a member of the codebase of the session that is not in the
- *   project folder.
+ * - `codebase`: a member of the codebase of the session.
  * - `attached`: a person, the agent, or a trigger attached it.
  * - `created`: a project tool made it in the session.
  * - `observed`: a tool of the agent wrote there. Solus only shows it.
  */
-export const sessionFolderSourceSchema = z.enum(['project', 'codebase', 'attached', 'created', 'observed'])
+export const sessionFolderSourceSchema = z.enum(['codebase', 'attached', 'created', 'observed'])
 export type SessionFolderSource = z.infer<typeof sessionFolderSourceSchema>
 
 /** One folder that a session record keeps besides its working directory (`session_records.attached_folders`). */

@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Codebase, SessionFolder } from '@solus/contracts/codebases'
+import { formatAnswer } from '@solus/contracts/question-answer'
 import type { AgentId, NormalizedEvent, PermissionMode, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import type { Actor } from '@solus/server/admission/actor'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
@@ -13,6 +14,8 @@ import { git } from '@solus/server/git/exec'
 import { DatabaseSync } from './helpers/bun-sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
+// No model names a codebase in this file: a codebase that an attach forms keeps its plain name.
+mock.module('@solus/server/execution/agents/writing-backend', () => ({ writingBackendFor: async () => null }))
 
 // docs/plans/codebases.md decision 8: a folder outside the folders of a session
 // is attached with no card only in the modes that ask nothing. In each other
@@ -88,7 +91,8 @@ async function savedCodebase(localPaths: string[]): Promise<Codebase> {
     id: `attach-codebase-${++nextCodebase}`,
     name: 'shop',
     roots: [
-      ...localPaths.map((path) => ({ installationId, path: at(path), name: '' })),
+      // A root with no repository of its own is a container root: the host reads the repositories inside it.
+      ...localPaths.map((path) => ({ installationId, path: at(path), name: '', ...(existsSync(join(at(path), '.git')) ? {} : { container: true as const }) })),
       { installationId: 'installation-build-server', path: '/srv/solus-test-infra', name: 'infra' },
     ],
     updatedAt: 1_000,
@@ -134,7 +138,7 @@ interface Live {
  * no automatic trigger attaches. So a session here has no temporary places,
  * and a test of that rule gives `system-temp` (`temporaryPlaces`).
  */
-async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?: string, temporaryPlaces: string[] = []): Promise<Live> {
+async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?: string, temporaryPlaces: string[] = [], forming?: { workingDirectory: string }): Promise<Live> {
   const backend = new QuietBackend()
   // SAFETY: the test backend has each member that the event path of a question reads.
   const runtime = new runtimeModule.SessionRuntime(new Map([['codex', backend as unknown as AgentBackend]]), { temporaryPlaces })
@@ -157,7 +161,11 @@ async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?:
     return cards[count - 1]!
   }
   // These tests are about the attach rule (decision 8). A session with no codebase says "No codebase", so decision 13 makes none from an attach.
-  await runtime.sessionFolders.resolve(sessionId, { workingDirectory: at('shop/api'), codebaseId, noCodebase: !codebaseId, actor: HOST_ACTOR })
+  // `forming` is a session that can get a codebase from an attach: it works in its own repository.
+  const turn = forming
+    ? { workingDirectory: forming.workingDirectory, repositoryRoot: forming.workingDirectory }
+    : { workingDirectory: at('shop/api'), codebaseId, noCodebase: !codebaseId }
+  await runtime.sessionFolders.resolve(sessionId, { ...turn, actor: HOST_ACTOR })
   const stop = new AbortController()
   const asker = { emit: (event: NormalizedEvent) => { backend.emit('normalized', thread, event) }, signal: stop.signal }
   return {
@@ -375,6 +383,7 @@ describe('the choices of the attach card', () => {
         },
         attach: async (folder) => { attachedFolders.push(folder) },
         standInFor: async () => null,
+        formationOf: async () => null,
       }
       const requests = ['libs/ui/src/main.ts', 'libs/ui', 'libs/ui/src']
         .map((path) => attachRule.requestAttach(session, at(path), 'attached', HOST_ACTOR, { asker: live.asker }))
@@ -402,6 +411,109 @@ describe('the choices of the attach card', () => {
     } finally {
       live.runtime.shutdown()
     }
+  })
+})
+
+describe('the card of an attach that forms a codebase', () => {
+  /** A repository with one file. */
+  function repositoryAt(name: string): string {
+    mkdirSync(at(join(name, 'src')), { recursive: true })
+    git(['init', '-b', 'main'], at(name))
+    writeFileSync(at(join(name, 'src', 'main.ts')), 'export {}\n')
+    return at(name)
+  }
+
+  /** A session with no codebase in a new repository `<name>`, and a second project `<name>-api` that it can attach. */
+  async function formingSession(name: string): Promise<{ live: Live; project: string; second: string }> {
+    const project = repositoryAt(name)
+    const second = repositoryAt(`${name}-api`)
+    return { live: await liveSession(`forms-${name}`, 'supervised', undefined, [], { workingDirectory: project }), project, second }
+  }
+
+  const codebasesAt = async (path: string): Promise<Codebase[]> => (await codebases.listCodebases('local')).filter((codebase) => codebase.roots.some((each) => each.path === path))
+
+  test('the card says that a codebase is made, shows its name, and has three choices', async () => {
+    // WHY: an attach of a real second project changes each later session of the project. The person must see that, and can name it.
+    const { live, project, second } = await formingSession('orchid')
+    try {
+      const pending = live.request(join(second, 'src', 'main.ts'))
+      const card = await live.shown(1)
+      const [question] = card.questions
+      expect(question!.question).toContain('makes the codebase "orchid"')
+      expect(question!.options.map((option) => option.label)).toEqual([
+        folders.ATTACH_CHOICE.make, folders.ATTACH_CHOICE.sessionOnly, folders.ATTACH_CHOICE.refuse,
+      ])
+      expect(question!.options[0]!.description).toContain('"orchid"')
+
+      await live.answer(card, folders.ATTACH_CHOICE.make)
+      expect(await pending).toEqual({ kind: 'attached', folder: second, addedToCodebase: false })
+      expect(await codebasesAt(project)).toMatchObject([{ name: 'orchid', roots: [{ path: project }, { path: second }] }])
+      expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toMatchObject([{ path: second, source: 'codebase' }])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('a name that the person types in the answer field is the name of the codebase', async () => {
+    const { live, project } = await formingSession('tulip')
+    try {
+      const pending = live.request(at('tulip-api'))
+      // The card of each client sends the choice and the typed words as one answer.
+      await live.answer(await live.shown(1), formatAnswer(folders.ATTACH_CHOICE.make, '  Tulip stack '))
+      expect((await pending).kind).toBe('attached')
+      expect((await codebasesAt(project)).map((codebase) => codebase.name)).toEqual(['Tulip stack'])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('"Allow for this session only" attaches the folder and makes no codebase', async () => {
+    const { live, project, second } = await formingSession('dahlia')
+    try {
+      const pending = live.request(second)
+      await live.answer(await live.shown(1), folders.ATTACH_CHOICE.sessionOnly)
+      expect(await pending).toEqual({ kind: 'attached', folder: second, addedToCodebase: false })
+      expect(await codebasesAt(project)).toEqual([])
+      expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toMatchObject([{ path: second, source: 'attached' }])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('"Do not allow" attaches nothing and makes no codebase', async () => {
+    const { live, project, second } = await formingSession('peony')
+    try {
+      const pending = live.request(second)
+      await live.answer(await live.shown(1), folders.ATTACH_CHOICE.refuse)
+      expect(await pending).toEqual({ kind: 'refused', folder: second })
+      expect(await codebasesAt(project)).toEqual([])
+      expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toEqual([])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('a folder that is no second project gets the card of a session folder', async () => {
+    // WHY: a folder of notes forms no codebase (decision 13), so the card must not say that one is made.
+    const { live, project } = await formingSession('zinnia')
+    try {
+      const pending = live.request(at('notes'))
+      const card = await live.shown(1)
+      expect(card.questions[0]!.question).not.toContain('codebase')
+      expect(card.questions[0]!.options.map((option) => option.label)).toEqual([folders.ATTACH_CHOICE.session, folders.ATTACH_CHOICE.refuse])
+      await live.answer(card, folders.ATTACH_CHOICE.session)
+      expect((await pending).kind).toBe('attached')
+      expect(await codebasesAt(project)).toEqual([])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('the answer of the card is its choice, then the typed words', () => {
+    // WHY: one label starts with a different one. The longer label must win, or "for this session only" reads as "for this session" with a name.
+    expect(attachRule.attachAnswerOf(folders.ATTACH_CHOICE.sessionOnly)).toEqual({ choice: folders.ATTACH_CHOICE.sessionOnly, typed: '' })
+    expect(attachRule.attachAnswerOf(`${folders.ATTACH_CHOICE.make} — Shop`)).toEqual({ choice: folders.ATTACH_CHOICE.make, typed: 'Shop' })
+    expect(attachRule.attachAnswerOf('Shop')).toEqual({ choice: null, typed: '' })
   })
 })
 
