@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { delegatedRows, nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
+import { delegatedRows, nestedRequestMark, nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 
 type Row = Pick<SidebarTask, 'id' | 'lifecycle'>
@@ -110,6 +110,32 @@ describe('the marks a row stacks for the sessions it started', () => {
 
   test('quiet sessions add no mark', () => {
     expect(nestedStateMarks([{ attention: 'idle', unread: false }])).toEqual([])
+  })
+
+  test('a session that asks takes the slot from a row that waits on its agents', () => {
+    // WHY: a row that waits on its agents shows its own Delegating dots, and
+    // the stack shows only on a quiet row. So a folded row hid the question
+    // that held all of its work, and read as busy when it waited on you.
+    const delegating = { kind: 'dot', mark: 'delegating', elapsed: null } as const
+    const asked = nestedStateMarks([
+      { attention: 'running', unread: false },
+      { attention: 'awaiting', unread: false },
+    ])
+    expect(nestedRequestMark(delegating, asked)).toEqual({ kind: 'glyph', status: 'question' })
+    // Unread output on the row is lower in rank than a request.
+    expect(nestedRequestMark({ kind: 'glyph', status: 'finished' }, asked)).toEqual({ kind: 'glyph', status: 'question' })
+    // An approval leads a question, as in the stack.
+    expect(nestedRequestMark(delegating, nestedStateMarks([{ attention: 'awaiting', unread: false }, { attention: 'approval', unread: false }])))
+      .toEqual({ kind: 'glyph', status: 'approval' })
+  })
+
+  test('the row keeps its own request, and a child that failed or works takes nothing', () => {
+    // WHY: the row's own question is the one to answer first. A failed or
+    // working child is reported to its parent; there is nothing to answer.
+    const asked = nestedStateMarks([{ attention: 'awaiting', unread: false }])
+    expect(nestedRequestMark({ kind: 'glyph', status: 'plan' }, asked)).toBeNull()
+    const delegating = { kind: 'dot', mark: 'delegating', elapsed: null } as const
+    expect(nestedRequestMark(delegating, nestedStateMarks([{ attention: 'error', unread: false }, { attention: 'running', unread: false }]))).toBeNull()
   })
 
 })

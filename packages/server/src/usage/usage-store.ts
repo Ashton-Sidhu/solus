@@ -44,6 +44,18 @@ export class UsageLimitsStore {
     return [limits?.fiveHour, limits?.weekly].some(window => (window?.usedPercent ?? 0) >= 100)
   }
 
+  /** When the spent windows of a provider reopen, in epoch seconds (the latest
+   *  one; null when none states its reset), or null when no window is spent. A
+   *  window whose reset has passed is open again, also before the next read. */
+  spentUntil(agentId: AgentId, now = Date.now()): { resetsAt: number | null } | null {
+    const limits = this.byAgent.get(agentId)
+    const spent = [limits?.fiveHour, limits?.weekly]
+      .filter((window): window is UsageWindow => !!window && window.usedPercent >= 100 && !(window.resetsAt !== null && window.resetsAt <= now))
+    if (spent.length === 0) return null
+    const resets = spent.flatMap((window) => (window.resetsAt === null ? [] : [Math.ceil(window.resetsAt / 1000)]))
+    return { resetsAt: resets.length > 0 ? Math.max(...resets) : null }
+  }
+
   /** A full read from the provider. Newer than anything held, so it replaces. */
   apply(limits: AgentUsageLimits): void {
     this.byAgent.set(limits.provider, limits)

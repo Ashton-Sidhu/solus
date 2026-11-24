@@ -10,6 +10,12 @@ import {
   PERMISSION_MODES,
   PROVIDERS,
 } from "@solus-mobile/features/conversation/lib/run-settings";
+import {
+  isWorkerModelChoiceSelected,
+  workerModelAfterChoice,
+  workerModelChoices,
+} from "@solus-mobile/features/settings/worker-model-choices";
+import type { PersonalSettings } from "@solus/contracts/settings";
 import { RATE_LIMIT_CHOICES } from "./settings-labels";
 import { InstructionSettings } from "./SettingsPages";
 import { solus, useSolusWorkspace } from "./runtime";
@@ -86,6 +92,20 @@ export function SolusSessionSettings() {
             />
           ))}
         </SettingsSection>
+        <WorkerModelSetting
+          setting="workerModel"
+          title="Default worker model"
+          offLabel="Caller's model"
+          footer="Used when a parent starts a child session without a provider or model."
+          current={settings.workerModel}
+        />
+        <WorkerModelSetting
+          setting="fallbackModel"
+          title="Fallback model"
+          offLabel="No fallback"
+          footer="New sessions that an agent starts with no model use it while the default provider is out of usage."
+          current={settings.fallbackModel}
+        />
         <InstructionSettings />
         <SettingsSection>
           <SettingsSwitchRow
@@ -97,5 +117,28 @@ export function SolusSessionSettings() {
         </SettingsSection>
       </ScreenScrollView>
     </SettingsScreen>
+  );
+}
+
+function WorkerModelSetting(props: {
+  setting: "workerModel" | "fallbackModel";
+  title: string;
+  offLabel: string;
+  footer: string;
+  current: PersonalSettings["workerModel"];
+}) {
+  return (
+    <SettingsSection title={props.title} footer={props.footer}>
+      {workerModelChoices(props.current, props.offLabel).map((choice) => (
+        <SettingsRow
+          key={choice.key}
+          icon={isWorkerModelChoiceSelected(choice, props.current) ? "checkmark" : "circle"}
+          label={choice.label}
+          onPress={() =>
+            solus.personal.set({ [props.setting]: workerModelAfterChoice(choice, props.current) })
+          }
+        />
+      ))}
+    </SettingsSection>
   );
 }

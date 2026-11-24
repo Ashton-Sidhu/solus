@@ -2,7 +2,7 @@
   import ActivityRow from "./ActivityRow.svelte";
   import DotMatrix from "../ui/DotMatrix.svelte";
   import BackgroundStopButton from "./BackgroundStopButton.svelte";
-  import { agentWaitHint, type BackgroundWait } from "./lib/activity-summary";
+  import type { BackgroundWait } from "./lib/activity-summary";
   import { revealTurnItem } from "./lib/reveal-in-transcript";
   import TaskStatusGlyph from "../session/TaskStatusGlyph.svelte";
 
@@ -21,8 +21,9 @@
    * happened to it.
    *
    * A wait on other agent sessions is not work this session does: the session
-   * is idle and takes a new message at once. So the row says that, takes the
-   * Delegating mark without the shimmer, and scrolls to the cards it waits on.
+   * is idle and takes a new message at once. So its one sentence says the
+   * agents work in the background, the row takes the Delegating mark without
+   * the shimmer, and it scrolls to the cards it waits on.
    * When one of those agents waits on you, the row takes the Input glyph its
    * card shows and scrolls to that card, where you answer it.
    */
@@ -53,7 +54,6 @@
 </script>
 
 {#snippet commandText()}{wait.command}{/snippet}
-{#snippet agentHint()}{agentWaitHint(wait)}{/snippet}
 
 <!-- Stop sits on the rail, where a finished row keeps its step count, and takes
      the rail's own type: the row adds a control, not a new style. -->
@@ -68,8 +68,7 @@
 {/snippet}
 
 <ActivityRow
-  target={wait.agentCardKey ? agentHint : wait.command ? commandText : undefined}
-  proseTarget={!!wait.agentCardKey}
+  target={wait.command ? commandText : undefined}
   rail={stopRail}
   onActivate={wait.agentCardKey ? showAgents : undefined}
   testid="background-work-row"

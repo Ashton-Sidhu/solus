@@ -95,7 +95,7 @@ simulator, emulator or connected phone. See
 [Device previews](native-devices.md).
 
 The Sessions group holds the orchestration tools: `start_sessions`,
-`send_session`, `stop_session`, `read_session`,
+`send_session`, `stop_session`, `fork_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
 [Session orchestration](session-orchestration.md). The group also holds
 `move_checkout`: the agent names the checkout the calling session works in next

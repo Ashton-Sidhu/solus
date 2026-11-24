@@ -1,4 +1,4 @@
-import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
+import { enforce, hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { childPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -10,7 +10,8 @@ import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
+import { responseForkStart } from './session-forks'
+import { type CreateSessionOrder, type ModelChoice } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptSender, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
@@ -265,7 +266,7 @@ export class PromptDispatch {
     if (resident?.runInput) return { input: { ...resident.runInput, agentSessionId, forked: false } }
     // The preferences the session's last run carried, kept across idle release and host restart.
     const preferences = sessionSettings(sessionId)?.preferences ?? await sessionExecutionPreferences(sessionId)
-    const meta = await this.rt.history.getSessionInfo(sessionId)
+    const meta = await this.rt.history.sessionInfoOrRecord(sessionId)
     if (!meta) throw new Error(`Session ${sessionId} not found`)
     if (!meta.model || !meta.reasoningEffort) {
       throw new Error(`Session ${sessionId} has no persisted starting model configuration`)
@@ -312,18 +313,34 @@ export class PromptDispatch {
        *  run is accepted, so a reply that comes back at once is never lost. */
       exchangeIds?: string[]
       reportExchangeIds?: string[]
+      /** The provider and model the sender chose; another provider hands the session off at launch (plans/021). */
+      model?: ModelChoice
     },
-  ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
+  ): Promise<Pick<SessionRunLifecycle, 'disposition' | 'queueId' | 'rateLimitHold'>> {
     this.assertSessionCurrent(sessionId)
-    const { permissionMode, actor: originActor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor: originActor, exchangeIds, reportExchangeIds, model, ...promptOrigin } = origin ?? {}
     // An agent's prompt acts for the person the target session works for.
     const actor = originActor ?? this.rt.actorOfSession(sessionId)
     const { input } = await this.unattendedRunInput(sessionId)
     if (permissionMode) input.permissionMode = permissionMode
+    // A fork's first prompt starts a new provider thread from the source thread at
+    // the fork point, as a person's first prompt in it does (the `prompt` RPC).
+    const forkStart = await responseForkStart(this.rt, sessionId, { actor: actor ?? HOST_ACTOR, reads: { sessionInfo: (id) => this.rt.history.getSessionInfo(id) } }, model?.provider)
+    if (forkStart) {
+      Object.assign(input, { provider: forkStart.provider, agentSessionId: forkStart.sourceThreadId, forked: true, forkExcludeLatestTurn: false, forkPointId: forkStart.pointId })
+    }
+    if (model) {
+      // A handoff checks the policies for another provider; a model change inside one provider is checked here.
+      enforce(hostPolicies().forWork(await organizationOfSession(sessionId)).selectionDenial(model.provider, model.modelId))
+      Object.assign(input, unattendedModelInputFor(model.provider, model.modelId, input.executionPreferences), {
+        provider: model.provider, reasoningEffort: model.reasoningEffort, fastMode: false,
+      })
+    }
     await this.rt.seatForTurn(actor, input.provider)
     const lifecycle = await this.rt.runTurn({
       input,
-      target: { kind: 'session', sessionId },
+      // A fork is a new session that carries the source thread's id.
+      target: forkStart ? { kind: 'new-session' } : { kind: 'session', sessionId },
       sessionId,
       actor,
       exchangeIds,
@@ -345,7 +362,7 @@ export class PromptDispatch {
       ),
       options: { prompt, displayPrompt: prompt, delivery, promptSource: 'agent', ...promptOrigin },
     })
-    return { disposition: lifecycle.disposition, queueId: lifecycle.queueId }
+    return { disposition: lifecycle.disposition, queueId: lifecycle.queueId, rateLimitHold: lifecycle.rateLimitHold }
   }
 
   /**

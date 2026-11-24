@@ -1299,6 +1299,56 @@ describe('rate limits', () => {
     }
   })
 
+  test('a message to a held child says the limit holds it, and the sender can release the hold', async () => {
+    // WHY: "Queued" reads as "runs next", but a limit holds the message until the
+    // reset, perhaps for days. When the person resets the limit, the host cannot
+    // see it, so the sender must be able to release the hold as Send now does.
+    const { backend, plane, orchestrator, updates } = await sessions()
+    try {
+      await orchestrator.send('solus-sender', 'solus-target', { prompt: 'long job', delivery: 'queue', notify: true })
+      backend.complete('thread-1', 'first')
+      await backend.started(3)
+      const resetsAt = inAnHour()
+      backend.rateLimit('thread-1', resetsAt)
+      await until(() => updates.some((update) => update.phase === 'rate_limited'))
+
+      const resent = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'continue', delivery: 'queue', notify: true })
+      expect(resent.disposition).toBe('queued')
+      expect(resent.rateLimitHold).toMatchObject({ limitType: 'Codex 5h' })
+      expect(resent.rateLimitHold!.resetsAt! >= resetsAt).toBe(true)
+
+      expect(orchestrator.releaseRateLimit('solus-sender', 'solus-target')).toBe(true)
+      // The held job runs first, then the message that waited behind it.
+      await backend.started(4)
+      // A session that works is not held: a release must not set it idle.
+      expect(orchestrator.releaseRateLimit('solus-sender', 'solus-target')).toBe(false)
+      expect(plane.activeSessions.get('solus-target')?.status).toBe('running')
+      backend.complete('thread-1', 'job done')
+      await backend.started(5)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a message that releases the hold is not held itself', async () => {
+    // WHY: the person said the limit is reset, so the message must not wait for the old reset time.
+    const { backend, plane, orchestrator, updates } = await sessions()
+    try {
+      await orchestrator.send('solus-sender', 'solus-target', { prompt: 'long job', delivery: 'queue', notify: true })
+      backend.complete('thread-1', 'first')
+      await backend.started(3)
+      backend.rateLimit('thread-1', inAnHour())
+      await until(() => updates.some((update) => update.phase === 'rate_limited'))
+
+      const sent = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'continue', delivery: 'queue', notify: true, releaseRateLimit: true })
+      expect(sent.rateLimitReleased).toBe(true)
+      expect(sent.rateLimitHold).toBeUndefined()
+      await backend.started(4)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('an idle parent reads the limit notice, with the reset time', async () => {
     const { backend, plane, orchestrator } = await sessions()
     try {
@@ -1439,3 +1489,89 @@ function planEvent(): Extract<NormalizedEvent, { type: 'plan' }> {
     ],
   }
 }
+
+// WHY: parity with T3 Code's thread tools. A sender that sees its target go the
+// wrong way restarts it with one message; a sender can move a message to another
+// model, or hand the session to another provider when its own is out of usage.
+describe('a sender that restarts or moves a session', () => {
+  test('a restart stops the turn in progress, and the new message runs next and reports', async () => {
+    const { backend, plane, orchestrator, updates } = await sessions()
+    try {
+      const running = backend.handles.get('thread-1')!
+      const sent = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'use the other approach', delivery: 'queue', notify: true, restart: true })
+      expect(running.abortController.signal.aborted).toBe(true)
+      await backend.run((request) => request.prompt.includes('use the other approach'))
+      await until(() => backend.handles.has('thread-1'))
+      backend.complete('thread-1', 'done the other way')
+      // The stop settled the sender's earlier messages, never this one.
+      await until(() => updates.some((update) => update.phase === 'settled' && update.messageId === sent.exchangeId))
+      expect(updates.find((update) => update.phase === 'settled' && update.messageId === sent.exchangeId)).toMatchObject({ status: 'completed', replyText: 'done the other way' })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a message on another model of the same provider runs on that model', async () => {
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      backend.complete('thread-1', 'first')
+      await orchestrator.send('solus-sender', 'solus-target', {
+        prompt: 'think harder', delivery: 'queue', notify: false, model: { provider: 'codex', modelId: 'gpt-larger', reasoningEffort: 'high' },
+      })
+      const request = await backend.run((candidate) => candidate.prompt.includes('think harder'))
+      expect(request).toMatchObject({ model: 'gpt-larger', reasoningEffort: 'high' })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a message on another provider hands the session off to it', async () => {
+    const claude = new Backend('claude-code', 'claude-thread')
+    const { backend, plane, orchestrator } = await sessions({ claude })
+    // The handoff reads the old thread's history to carry its context.
+    Object.assign(backend, { loadSessionPage: async () => ({ messages: [{ role: 'user', content: 'start', timestamp: 1 }, { role: 'assistant', content: 'first', timestamp: 2 }], before: null }) })
+    try {
+      backend.complete('thread-1', 'first')
+      await orchestrator.send('solus-sender', 'solus-target', {
+        prompt: 'continue on claude', delivery: 'queue', notify: false, model: { provider: 'claude-code', modelId: 'claude-test', reasoningEffort: 'medium' },
+      })
+      const request = await claude.run((candidate) => candidate.prompt.includes('continue on claude'))
+      expect(request.model).toBe('claude-test')
+      expect(backend.requests.some((candidate) => candidate.prompt.includes('continue on claude'))).toBe(false)
+      // The session's thread is Claude's now; later messages continue there.
+      const { resolveSessionLineageById } = await import('@solus/server/data/sessions/session-lineage')
+      await until(() => resolveSessionLineageById('solus-target')?.active.provider === 'claude-code')
+      await claude.started(1)
+      claude.complete('claude-thread-1', 'on claude')
+      await until(() => !plane.statuses.isSessionBusy('solus-target'))
+    } finally {
+      plane.shutdown()
+    }
+  })
+})
+
+// WHY: an agent forks a session with fork_session and starts the fork with
+// send_session. Its first message must start a new provider thread from the
+// source at the fork point, as a person's first prompt in a fork does, never
+// continue the fork's own empty thread.
+test('a message to a new fork starts it from the source thread at the fork point', async () => {
+  const { backend, plane, orchestrator } = await sessions()
+  const { forkSessionFromResponse } = await import('@solus/server/execution/sessions/session-forks')
+  const { HOST_ACTOR: host } = await import('@solus/server/admission/actor')
+  Object.assign(backend, { loadSessionPage: async () => ({
+    messages: [{ role: 'user', content: 'start', timestamp: 1 }, { role: 'assistant', content: 'first', forkPointId: 'point-1', timestamp: 2 }], before: null,
+  }) })
+  try {
+    backend.complete('thread-1', 'first')
+    const { upsertOwnSessionRecord } = await import('@solus/server/data/sessions/session-records')
+    await upsertOwnSessionRecord({ sessionId: 'solus-target', provider: 'codex', projectPath: projectDir, cwd: projectDir, title: 'Target', lastActivityAt: Date.now() })
+    const forkId = crypto.randomUUID()
+    const reads = { sessionInfo: (id: string) => plane.history.getSessionInfo(id), loadPage: () => { throw new Error('unused') } }
+    await forkSessionFromResponse(plane, { sessionId: 'solus-target', sourceThreadId: 'thread-1', targetSessionId: forkId, pointId: 'point-1' }, { actor: host, reads })
+    await orchestrator.send('solus-sender', forkId, { prompt: 'try the other branch', delivery: 'queue', notify: false })
+    const request = await backend.run((candidate) => candidate.prompt.includes('try the other branch'))
+    expect(request.conversation).toMatchObject({ kind: 'fork', sourceThreadId: 'thread-1', pointId: 'point-1' })
+  } finally {
+    plane.shutdown()
+  }
+})

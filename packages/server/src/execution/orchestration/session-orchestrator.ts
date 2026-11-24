@@ -52,7 +52,7 @@ import { getSessionRecord } from '../../data/sessions/session-records'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 const NO_REPLY = '(no final assistant reply available)'
 
-import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget } from './session-orders'
+import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget, type PromptDisposition, type SentMessage } from './session-orders'
 export * from './session-orders'
 
 export class SessionOrchestrator {
@@ -111,7 +111,7 @@ export class SessionOrchestrator {
       starting: exchange.state === 'dispatched', waited }
   }
 
-  private async repeatedSend(exchange: Exchange, waitMs: number): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
+  private async repeatedSend(exchange: Exchange, waitMs: number): Promise<SentMessage> {
     return { exchangeId: exchange.exchangeId, disposition: exchange.disposition ?? 'queued',
       waited: exchange.report ? { type: 'report', report: exchange.report }
         : waitMs > 0 ? await this.waitOn(exchange, waitMs) : undefined }
@@ -274,9 +274,9 @@ export class SessionOrchestrator {
     targetSessionId: string,
     message: SendOrder,
     target?: RemoteTarget,
-  ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
+  ): Promise<SentMessage> {
     if (targetSessionId === senderSessionId) throw new Error('Cannot message your own session.')
-    const meta = target ? null : this.runtime.sessionMeta(targetSessionId)
+    const meta = target ? null : this.runtime.sessionMeta(targetSessionId) ?? await this.runtime.recordedSessionMeta?.(targetSessionId) ?? null
     // Refused before the card shows it: there is nothing to send it to.
     if (!target && !meta) throw new Error(`Session ${targetSessionId} not found.`)
     const provider = meta?.provider ?? this.remoteProviderOf(senderSessionId, targetSessionId, target!.host)
@@ -288,6 +288,9 @@ export class SessionOrchestrator {
     if (this.ledger.isAncestor(parentExchangeIds, targetSessionId)) {
       throw new Error('A request cannot wait for its own ancestor. Use report=false for an update to the sender.')
     }
+    // Stopped before this message opens: the stop settles the sender's earlier
+    // messages to the target, never this one, which runs when the turn exits.
+    if (message.restart) this.stop(senderSessionId, targetSessionId)
     const dispatchedAt = Date.now()
     const exchange = this.open({
       exchangeId,
@@ -302,11 +305,15 @@ export class SessionOrchestrator {
     const waited = message.waitMs && message.waitMs > 0 ? this.waitOn(exchange, message.waitMs) : undefined
     this.publish(exchange, promptedUpdate(exchange, meta, message, target?.host.installationId))
     try {
+      // Released first: the held prompt runs, and this message waits behind it as for any busy session.
+      const rateLimitReleased = message.releaseRateLimit && !target ? this.releaseRateLimit(senderSessionId, targetSessionId) : undefined
       const result = target ? await this.promptThere(exchange, message, target.host) : await this.promptHere(exchange, message)
       this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })
-      return waited
-        ? { exchangeId, disposition: result.disposition, waited: await waited }
-        : { exchangeId, disposition: result.disposition }
+      const sent: SentMessage = { exchangeId, disposition: result.disposition }
+      if (result.rateLimitHold) sent.rateLimitHold = result.rateLimitHold
+      if (rateLimitReleased !== undefined) sent.rateLimitReleased = rateLimitReleased
+      if (waited) sent.waited = await waited
+      return sent
     } catch (error) {
       this.settleUnaccepted(exchange)
       throw error
@@ -321,9 +328,10 @@ export class SessionOrchestrator {
     return started.provider
   }
 
-  private async promptHere(exchange: Exchange, message: SendOrder): Promise<{ disposition: 'started' | 'steered' | 'queued' }> {
+  private async promptHere(exchange: Exchange, message: SendOrder): Promise<PromptDisposition> {
     const order: PromptOrder = { exchangeIds: [exchange.exchangeId], senderSessionId: exchange.senderSessionId }
     if (message.permissionMode) order.permissionMode = message.permissionMode
+    if (message.model) order.model = message.model
     if (!message.attachments?.length) return this.runtime.promptSession(exchange.targetSessionId, message.prompt, message.delivery, order)
     const { prompt, imageAttachmentRefs } = await attachToPrompt(message.prompt, message.attachments, storeAttachment, exchange.exchangeId)
     if (imageAttachmentRefs) order.imageAttachmentRefs = imageAttachmentRefs
@@ -333,7 +341,7 @@ export class SessionOrchestrator {
   /** Host B's events drive the hooks a local run calls, from the turn that
    *  answers this message: the follow waits for host B to echo it under the
    *  exchange id. */
-  private async promptThere(exchange: Exchange, message: SendOrder, host: RemoteHost): Promise<{ disposition: 'started' | 'steered' | 'queued' }> {
+  private async promptThere(exchange: Exchange, message: SendOrder, host: RemoteHost): Promise<PromptDisposition> {
     const { exchangeId, targetSessionId } = exchange
     const follow = followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, exchange.provider, this, exchangeId)
     // A delegate this host keeps a copy of stays current while the message runs.
@@ -351,6 +359,15 @@ export class SessionOrchestrator {
     if (result.queueId) follow.queuedAs(result.queueId)
     log.info('remote_session_prompted', { exchangeId, sessionId: targetSessionId, hostId: host.hostId, disposition: result.disposition })
     return result
+  }
+
+  /** Releases the rate-limit hold of a session on this host for the sender, as
+   *  the person's Send now does: its held prompts run now. False when no limit holds it. */
+  releaseRateLimit(senderSessionId: string, targetSessionId: string): boolean {
+    if (targetSessionId === senderSessionId) return false
+    const released = this.runtime.releaseRateLimit(targetSessionId, senderSessionId)
+    log.info('session_rate_limit_released', { sessionId: targetSessionId, senderSessionId, released })
+    return released
   }
 
   /** Stops the target for the sender. The sender's own messages to it settle

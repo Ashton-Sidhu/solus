@@ -83,6 +83,10 @@ export const settingsDefinitions = {
     label: "Default worker model",
     description: "Used when a parent starts a child session without a provider or model.",
   },
+  "sessions.fallback-model": {
+    label: "Fallback model",
+    description: "New sessions that an agent starts with no model use it while the default provider is out of usage.",
+  },
   "sessions.delegation-instructions": {
     label: "Delegation instructions",
     description: "Extra guidance for agents when they delegate work.",

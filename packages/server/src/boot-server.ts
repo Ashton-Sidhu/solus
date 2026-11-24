@@ -188,6 +188,7 @@ import { readHostLinkEnv } from './host/host-link-env'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
+import { renameSession } from './execution/sessions/session-rename'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { BrowserFrameChannel } from './browser/browser-frame-channel'
 import { configureDevices, initDeviceDomain } from './devices/device-domain'
@@ -229,6 +230,7 @@ import { startAutomationScheduler, stopAutomationScheduler } from './execution/a
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
 import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
+import { setProviderUsage } from './execution/agents/tools/start-sessions-tool'
 import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
@@ -330,6 +332,8 @@ import { SessionDigests } from './execution/sessions/session-digests'
 import { emitSessionDigestChanged, onSessionDigestChanged, readSessionDigests, writeSessionDigest } from './data/sessions/session-digests'
 import { onTurnCheckpointed } from './git/turn-checkpoints'
 import { setFolderToolHost } from './execution/agents/tools/folder-tools'
+import { setSessionForkHost } from './execution/agents/tools/session-fork-tool'
+import { sessionReadsFor } from './transport/handlers/session-reads'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 import { installToolAccess } from './admission/workspace-tool-authority'
@@ -837,14 +841,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adoptSession: (sessionId, organizationId, ownerKey, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
   }
   opts.sessionRuntime.dispatch.admission = turnAdmission
+  const announceFork = (sessionId: string) => { void events.broadcast('session.forkCreated', { sessionId }) }
   const sessionDeps: SessionDeps = {
     sessionRuntime: opts.sessionRuntime,
     orchestrator,
     agentIdFromContext: opts.agentIdFromContext,
     shares,
-    onResponseForkCreated: (sessionId) => { void events.broadcast('session.forkCreated', { sessionId }) },
+    onResponseForkCreated: announceFork,
   }
   registerSessionHandlers(server, sessionDeps)
+  // fork_session reads sessions as the person the calling turn works for.
+  setSessionForkHost({
+    runtime: opts.sessionRuntime,
+    readsFor: (principal) => sessionReadsFor(server, { clientId: 'agent-tool', principal }),
+    assertMayDrive: (principal, sessionId) => assertRpcAccess('promptHeadlessSession', principal, [{ sessionId }], shares),
+    announce: announceFork,
+  })
   registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
@@ -1310,6 +1322,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostLabel: hostDisplayName,
     local: localMcpServers,
   })
+  // start_sessions reads this host's usage to choose the fallback model.
+  setProviderUsage({
+    usage: opts.sessionRuntime.usageLimits,
+    held: opts.sessionRuntime.rateLimitPark.rateLimits,
+    providerOf: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.backendId,
+    actorOf: (sessionId) => opts.sessionRuntime.actorOfSession(sessionId),
+  })
   setSessionController({
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
@@ -1345,7 +1364,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(async (metadata) => agentTargetFromMetadata(await enrichAgentMetadata(metadata))),
     ),
-    getSessionInfo: (sessionId) => opts.sessionRuntime.history.getSessionInfo(sessionId),
+    getSessionInfo: (sessionId) => opts.sessionRuntime.history.sessionInfoOrRecord(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
     executedModel: (sessionId) => orchestrator.executedModelOf(sessionId),
@@ -1354,6 +1373,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.sessionRuntime.history.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.sessionRuntime.history.invalidatePlanCaches(sessionId),
+    renameSession: (callerSessionId, sessionId, title) => {
+      const actor = opts.sessionRuntime.actorOfSession(callerSessionId) ?? HOST_ACTOR
+      return renameSession(opts.sessionRuntime, events, {
+        sessionId, title, source: 'manual', publishEvent: true, actor, scope: recordScopeOf(actor.principal), via: { sessionId: callerSessionId },
+      })
+    },
+    sessionQueue: (sessionId) => opts.sessionRuntime.scheduler.queueSnapshot(sessionId),
+    changeSessionQueue: (callerSessionId, sessionId, mutation) =>
+      opts.sessionRuntime.scheduler.changeSessionQueue(sessionId, mutation, opts.sessionRuntime.actorOfSession(callerSessionId) ?? HOST_ACTOR),
     awaitBackgroundTasks: (sessionId, taskIds, waiting) => {
       const session = opts.sessionRuntime.activeSessions.get(sessionId)
       return session ? markAwaitedTasks(session, taskIds, waiting, opts.sessionRuntime.backendFor(session.backendId)) : null

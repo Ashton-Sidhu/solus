@@ -165,6 +165,32 @@ add instructions for delegation. When you set a worker model, the agent uses
 You can override that choice for specific work. Both Claude and Codex receive
 these settings in runs that have `start_sessions`.
 
+You can also set a fallback model there, on desktop, web, and mobile. With no
+fallback model, nothing changes. When an agent starts a session with
+`start_sessions` and gives neither `agent_provider` nor `model_id`, the session
+gets its default: the worker model, else the model of the agent that starts it.
+If the provider of that default is out of usage, the session uses the fallback
+model. These rules apply:
+
+- A provider is out of usage on the host when one of its usage windows is at
+  100% and its reset is in the future, or when a rate limit from it holds a
+  session of the same person on the host now, until its reset. A provider can
+  refuse turns below 100% (a Claude weekly limit at 95%), so the held limit
+  also counts.
+- For a member who uses their own provider seat, only the held limits of their
+  own sessions count. The host keeps no usage numbers of a member's seat for
+  this check, and the limits of one person never move the sessions of another.
+- The fallback is used only when it is on another provider, that provider and
+  model are available on the host, and that provider is not out of usage too.
+  Otherwise the session keeps its default.
+- A session that names `agent_provider` or `model_id` never changes. A session
+  on another host keeps its default, because this host does not know the usage
+  of the other host.
+- The composer and automations do not use the fallback model.
+
+The `start_sessions` result says when a session uses the fallback model: the
+model, the provider that is out of usage, and its reset time when it is known.
+
 ## Stopping child work
 
 When the user stops a parent, Solus also stops each session the parent started
@@ -178,9 +204,10 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 | Tool | Does |
 | --- | --- |
-| `start_sessions` | Starts 1 to 10 durable sessions at once, on either provider. Each entry in `sessions` has its own settings: `prompt`, and optional `title`, `independent`, `agent_provider`, `model_id`, `reasoning_effort`, `permission_mode`, `host`, `cwd`, `isolation`, `worktree_base_branch`, `report`, and attachments. So one call can start a Codex implementer in its own worktree and a Claude reviewer in plan mode. Only two fields belong to the call: `wait_seconds` (up to 600, for all sessions at once) and `request_id`. Every entry is checked before any session starts, so one bad entry starts none. By default each session is a child: reports default on, the parent waits for reported child work, and Stop reaches its active children. With `independent: true`, a session is an independent conversation: reports default off, and it does not hold its caller open or belong to the caller's stop tree. A started session joins no task; a session that works on a task links it with `link` and `kind: 'task'`. `isolation` selects a shared checkout or a new worktree for each session. The default worker model applies to a child with neither a provider nor a model. Otherwise, models inherit on the same provider, and another provider uses its default model. Permission mode can be inherited or narrowed. |
+| `start_sessions` | Starts 1 to 10 durable sessions at once, on either provider. Each entry in `sessions` has its own settings: `prompt`, and optional `title`, `independent`, `agent_provider`, `model_id`, `reasoning_effort`, `permission_mode`, `host`, `cwd`, `isolation`, `worktree_base_branch`, `report`, and attachments. So one call can start a Codex implementer in its own worktree and a Claude reviewer in plan mode. Only two fields belong to the call: `wait_seconds` (up to 600, for all sessions at once) and `request_id`. Every entry is checked before any session starts, so one bad entry starts none. By default each session is a child: reports default on, the parent waits for reported child work, and Stop reaches its active children. With `independent: true`, a session is an independent conversation: reports default off, and it does not hold its caller open or belong to the caller's stop tree. A started session joins no task; a session that works on a task links it with `link` and `kind: 'task'`. `isolation` selects a shared checkout or a new worktree for each session. The default worker model applies to a child with neither a provider nor a model, and the fallback model replaces that default while its provider is out of usage. Otherwise, models inherit on the same provider, and another provider uses its default model. Permission mode can be inherited or narrowed. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on each `start_sessions` entry) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
+| `fork_session` | Does what **Fork from this response** and **Merge back** do for a person ([Session actions](session-actions.md), [Project panel](project-panel.md)). `fork`: copies a session (default: the calling session) through `point_id` (default: its latest completed response) into a new session with the same setup. No turn runs; the result gives the new session's id and link, and `send_session` starts work in it. `merge_back`: brings the findings of a fork's completed turns (default: the calling session is the fork) to the session it was forked from. When that source is the calling session, the result gives the findings. Otherwise they go to the source as a queued message with no report. The tool acts for the person the calling session works for: a fork needs permission to start a session on the host. Sessions on this host only. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
 | `read_session` | A session's status, task, pending input and timeline, in T3 Code's thread-read model. Every item has a fixed `position` and an `itemId`; a tool call and its result are one item, and rows inside a subagent are not on the timeline. `view` `messages` (default) gives the user and assistant messages and plans; `activity` gives every item, with tool input and output, reasoning and notices. A read starts at the beginning; `after_position=nextPosition` reads on. `limit` (default 50, at most 100) and `max_chars_per_item` (default 20,000, at most 50,000) keep a read small; a value over the bound reads the bound. A cut item continues with `item_id` and `text_offset=nextTextOffset`. The result is JSON. Beside the requested `model`, `executedModel` names the model the provider reported running for the session's latest report, when one did. |
 | `read_task` + `read_session` | Read the task for its linked session IDs, then read a session for its status, pending input and history. |

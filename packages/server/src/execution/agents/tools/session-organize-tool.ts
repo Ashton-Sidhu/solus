@@ -8,7 +8,7 @@ import { actorFor, ownerKeyOf } from '../../../admission/actor'
 import type { WorkspaceOperations } from '../../../data/workspace/operations'
 import type { WorkspaceRequestContext } from '../../../admission/workspace-credentials'
 import type { AgentTool, AgentToolResult } from './agent-tool'
-import { findSession } from './session-tools'
+import { findSession, getSessionController } from './session-tools'
 
 /**
  * `organize_session`: an agent moves a session in the person's list, as the
@@ -17,16 +17,17 @@ import { findSession } from './session-tools'
  * session unread; each action has its reverse.
  */
 
-const ACTIONS = ['settle', 'unsettle', 'snooze', 'unsnooze', 'archive', 'unarchive', 'mark_unread'] as const
+const ACTIONS = ['settle', 'unsettle', 'snooze', 'unsnooze', 'archive', 'unarchive', 'mark_unread', 'rename'] as const
 
 const DESCRIPTION =
-  "Organize a session in the user's session list. Omit session_id for this session. settle moves a finished session out of the active list; unsettle makes it active again. snooze hides an active session until snoozed_until; unsnooze wakes it now. archive removes a session from the user's own list on every device; the session picker still finds it, and unarchive returns it to the list. Settle, snooze, and archive change only the user's own list. mark_unread shows the session as unread. A new prompt to a session makes it active, awake, and in the list again. Do not settle, snooze, or archive a session that still has work the user expects."
+  "Organize a session in the user's session list. Omit session_id for this session. settle moves a finished session out of the active list; unsettle makes it active again. snooze hides an active session until snoozed_until; unsnooze wakes it now. archive removes a session from the user's own list on every device; the session picker still finds it, and unarchive returns it to the list. Settle, snooze, and archive change only the user's own list. mark_unread shows the session as unread. rename gives the session the name in title, for every person who sees it; an empty title clears the name back to the opening prompt. A new prompt to a session makes it active, awake, and in the list again. Do not settle, snooze, or archive a session that still has work the user expects."
 
 const fields = {
   action: z.enum(ACTIONS),
   session_id: z.string().optional().describe('The session to organize. Defaults to this session.'),
   snoozed_until: z.iso.datetime({ offset: true }).optional().describe('ISO 8601 wake time, for snooze. Must be in the future.'),
   note: z.string().optional().describe('Why the session is snoozed, shown to the user. For snooze only.'),
+  title: z.string().max(500).optional().describe('The new name, for rename. Empty clears it.'),
 }
 const inputSchema = z.object(fields)
 type OrganizeInput = z.output<typeof inputSchema>
@@ -38,6 +39,13 @@ export async function organizeSession(input: OrganizeInput, callerSessionId: str
     return { ok: false, text: named ? `Session ${named} not found.` : 'organize_session needs a session_id: this session has no id yet.' }
   }
   const label = sessionId === callerSessionId ? 'This session' : `Session ${sessionId}`
+  if (input.action === 'rename') {
+    const rename = getSessionController()?.renameSession
+    if (!rename || !callerSessionId) return { ok: false, text: 'rename is unavailable on this host.' }
+    if (input.title === undefined) return { ok: false, text: 'rename needs title.' }
+    await rename(callerSessionId, sessionId, input.title)
+    return { ok: true, text: input.title.trim() ? `${label} is named "${input.title.trim()}".` : `${label} has no custom name now.` }
+  }
   if (input.action === 'mark_unread') {
     // Read state is a person's own: the run's person, else the session's owner.
     const authority = workspaceToolAuthority()

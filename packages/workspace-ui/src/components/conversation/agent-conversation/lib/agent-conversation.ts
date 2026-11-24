@@ -123,14 +123,21 @@ export function agentsAwaitingReply(items: GroupedItem[]): AwaitedAgents | null 
   return firstItemKey ? { needYou: needYou.size, working: waiting.size - needYou.size, firstItemKey } : null
 }
 
-/** Count the sessions, never name their provider: two Claude Code sessions
- *  read as one "Claude Code", and a provider name reads as the thing that is
- *  busy, not the work. A session that waits on you goes first, because only
- *  you can move it. That is a still state, so it takes no ellipsis. */
+/** One sentence, as every activity row says: count the sessions, never name
+ *  their provider (two Claude Code sessions read as one "Claude Code"). "In
+ *  the background" says what a hint after it used to: the session is idle
+ *  and takes a new message. A session that waits on you goes first, because
+ *  only you can move it; that is a still state, so it takes no ellipsis. */
 export function waitingOnLabel({ needYou, working }: AwaitedAgents): string {
-  if (needYou === 0) return working === 1 ? 'Waiting on an agent…' : `Waiting on ${working} agents…`
-  const asked = needYou === 1 ? 'An agent needs you' : `${needYou} agents need you`
-  return working === 0 ? asked : `${asked} · waiting on ${working} more`
+  const workingClause = working === 1 ? 'an agent is working' : `${working} agents are working`
+  if (needYou === 0) return `${capitalize(workingClause)} in the background…`
+  const asked = needYou === 1 ? 'An agent is waiting for your answer' : `${needYou} agents are waiting for your answer`
+  if (working === 0) return asked
+  return `${asked}, and ${working === 1 ? '1 more is' : `${working} more are`} working`
+}
+
+function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 }
 
 // ─── Messages ───

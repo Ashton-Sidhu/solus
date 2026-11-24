@@ -78,6 +78,11 @@ export const sessionSettings = [
     keywords: ["delegate", "routing", "route", "orchestration", "orchestrator", "agent", "reasoning", "effort"],
   },
   {
+    id: "fallback-model",
+    ...settingsDefinitions["sessions.fallback-model"],
+    keywords: ["delegate", "usage", "limit", "rate limit", "spent", "quota", "backup", "worker"],
+  },
+  {
     id: "delegation-instructions",
     ...settingsDefinitions["sessions.delegation-instructions"],
     keywords: ["delegate", "delegating", "orchestration", "orchestrator", "workers", "routing", "route", "prompt"],

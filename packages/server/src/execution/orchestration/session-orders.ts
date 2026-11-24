@@ -82,6 +82,33 @@ export interface SendOrder {
   attachments?: string[]
   waitMs?: number
   requestId?: string
+  /** Release the target's rate-limit hold first, as the person's Send now does. */
+  releaseRateLimit?: boolean
+  /** Stop the target's turn in progress first; the message runs after the prompts already queued. */
+  restart?: boolean
+  /** The provider and model the message runs on. Another provider hands the session off when the message starts (plans/021). */
+  model?: ModelChoice
+}
+
+/** A provider and model a sender chose, already checked against the host's catalog. */
+export interface ModelChoice {
+  provider: AgentId
+  modelId: string
+  reasoningEffort: ReasoningEffort
+}
+
+/** A queued message that a provider limit holds until the reset. `resetsAt`
+ *  counts milliseconds; it is absent when the provider gave no reset time. */
+export interface RateLimitHold {
+  resetsAt?: number
+  limitType?: string
+}
+
+/** What one message to a session became. */
+export interface PromptDisposition {
+  disposition: 'started' | 'steered' | 'queued'
+  queueId?: string
+  rateLimitHold?: RateLimitHold
 }
 
 export interface PromptOrder {
@@ -93,6 +120,7 @@ export interface PromptOrder {
   via?: 'session-report'
   /** Images the sender attached, already in this host's attachment store. */
   imageAttachmentRefs?: PromptImageRef[]
+  model?: ModelChoice
 }
 
 /** What the orchestrator needs from the control plane that runs the turns.
@@ -101,8 +129,12 @@ export interface OrchestratedRuntime {
   activeExchangeIdsFor(sessionId: string): string[]
   queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }>
   sessionMeta(sessionId: string): SessionMeta | null
+  /** A session the index does not hold yet, from its record: a fork that no turn has run in. */
+  recordedSessionMeta?(sessionId: string): Promise<SessionMeta | null>
   createSession(order: CreateSessionOrder): Promise<{ sessionId: string }>
-  promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
+  promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<PromptDisposition>
+  /** Releases the rate-limit hold of a session, for the person that `senderSessionId` works for; false when no limit holds it. */
+  releaseRateLimit(sessionId: string, senderSessionId: string): boolean
   /** `senderSessionId` is the agent session that asked for the stop. */
   stopSession(id: string, senderSessionId?: string): boolean
   /** Answers a permission the asking session is waiting on; false when it is not. */
@@ -133,6 +165,18 @@ export interface OrchestratedRuntime {
 export interface OrchestratorDeps {
   /** The pull request opened from a checkout's branch, if any. */
   findPullRequest(checkout: GitCheckout, projectScope: string): Promise<{ number: number; url: string } | null>
+}
+
+/** One message the sender sent to an existing session. */
+export interface SentMessage {
+  exchangeId: string
+  disposition: PromptDisposition['disposition']
+  /** The message waits in the queue behind the target's rate limit. */
+  rateLimitHold?: RateLimitHold
+  /** With `releaseRateLimit`: whether a limit held the target and was released. */
+  rateLimitReleased?: boolean
+  /** With a wait: the report or notice that arrived in time, or null when none did. */
+  waited?: OrchestrationItem | null
 }
 
 export interface SpawnedSession {

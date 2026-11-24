@@ -1,7 +1,7 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import { fly } from "svelte/transition";
-  import { Check as CheckIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, PenLine as WriteIcon } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -398,34 +398,28 @@
         {/if}
 
         <!-- Permanent: an off-menu reply must never require abandoning the card.
-             The bar holds the words and the one action that sends them. -->
+             It is one more row in the options' geometry: a pen in the mark
+             column, the words in the label column at the label's size, on a
+             soft fill. The action that sends it is the filled pill in the footer. -->
         {#if canDrive && !request.expired}
           <!-- The mic overlays the textarea, so its offsets are measured against
                that box. `mr-8` reserves its strip outside the field's own box, so
                a long answer scrolls under the words and not under the mic. -->
-          <div class="interrupt-bar [--rc-mic-top:50%] [--rc-mic-right:-0.25rem]">
+          <div class="answer-row flex items-start gap-2 py-1.5 pr-2 pl-1.5 [--rc-mic-top:50%] [--rc-mic-right:-0.25rem]">
+            <span class="answer-mark" aria-hidden="true"><WriteIcon size={12} /></span>
             <Textarea
               name="question-answer"
               aria-label="Your answer"
               value={getRemark(currentQuestion)}
-              placeholder={hasOptions ? "Add your own words…" : "Write your answer…"}
+              placeholder={hasOptions ? "Something else…" : "Write your answer…"}
               disabled={closed}
               rows={1}
               mic
-              class="max-h-[7.5rem] min-h-0 mr-8 rounded-none border-0 bg-transparent p-0 text-transcript-card font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+              class="max-h-[7.5rem] min-h-0 mr-8 rounded-none border-0 bg-transparent p-0 text-xs leading-relaxed! font-normal shadow-none placeholder:leading-relaxed! focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
                 (request.remarks ??= {})[questionKey(currentQuestion)] = (e.target as HTMLTextAreaElement).value;
               }}
             />
-            <button type="button" class="interrupt-send" disabled={closed} onclick={goNext}>
-              {#if responded}
-                <CheckIcon size={13} strokeWidth={2.5} />
-                Answered
-              {:else}
-                {primaryLabel}
-                <span class="interrupt-key">{isLast ? submitKey : "→"}</span>
-              {/if}
-            </button>
           </div>
         {/if}
       </div>
@@ -433,9 +427,11 @@
   {/if}
 
   {#snippet footer()}
-    <div class="flex items-center justify-end gap-3">
+    <!-- One decision row, as on a permission card: Back at the left, the
+         quiet way out as text, and the filled pill that sends. -->
+    <div class="flex items-center justify-end gap-1">
       {#if !isFirst && !closed}
-        <button type="button" class="interrupt-link mr-auto" onclick={goPrev}>
+        <button type="button" class="interrupt-pill is-text mr-auto -ml-2" onclick={goPrev}>
           Back
           <span class="interrupt-key">←</span>
         </button>
@@ -444,19 +440,30 @@
         <span class="text-transcript-meta text-(--muted-foreground)" data-testid="question-expired">{requestExpiryText(request.expired)}</span>
       {:else if !canDrive}
         <span class="text-transcript-meta text-(--muted-foreground)">Waiting for an editor</span>
-      {:else if isMcpRequest && (request.canDecline || request.canCancel)}
-        <button
-          type="button"
-          class="interrupt-link"
-          disabled={closed}
-          onclick={() => handleAction(request.canDecline ? "decline" : "cancel")}
-        >
-          {request.canDecline ? "Decline" : "Cancel"}
-        </button>
       {:else}
-        <button type="button" class="interrupt-link" disabled={closed} onclick={handleDefer}>
-          {request.responseMode === "message" ? "Dismiss" : `Let ${agentName} decide`}
-          <span class="interrupt-key">{deferKey}</span>
+        {#if isMcpRequest && (request.canDecline || request.canCancel)}
+          <button
+            type="button"
+            class="interrupt-pill is-text"
+            disabled={closed}
+            onclick={() => handleAction(request.canDecline ? "decline" : "cancel")}
+          >
+            {request.canDecline ? "Decline" : "Cancel"}
+          </button>
+        {:else}
+          <button type="button" class="interrupt-pill is-text" disabled={closed} onclick={handleDefer}>
+            {request.responseMode === "message" ? "Dismiss" : `Let ${agentName} decide`}
+            <span class="interrupt-key">{deferKey}</span>
+          </button>
+        {/if}
+        <button type="button" class="interrupt-pill is-filled" disabled={closed} onclick={goNext}>
+          {#if responded}
+            <CheckIcon size={12} strokeWidth={2.5} />
+            Answered
+          {:else}
+            {primaryLabel}
+            <span class="interrupt-key">{isLast ? submitKey : "→"}</span>
+          {/if}
         </button>
       {/if}
     </div>
@@ -576,6 +583,38 @@
     background: color-mix(in oklch, var(--foreground) 7%, transparent);
     font-family: var(--solus-code-font-family);
     font-size: 1em;
+  }
+
+  /* The own-words row: an option row on a soft fill, no hairline at rest. A
+     focused row darkens to the focus-ring hairline, as every field on a card. */
+  .answer-row {
+    border-radius: 0.5rem;
+    background: color-mix(in oklch, var(--foreground) 3%, transparent);
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
+  }
+  .answer-row:hover {
+    background: color-mix(in oklch, var(--foreground) 4.5%, transparent);
+  }
+  .answer-row:focus-within {
+    background: color-mix(in oklch, var(--foreground) 4.5%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-tx-focus-ring);
+  }
+  /* The pen takes the radio's 1rem box and its top offset, so it sits on the first line. */
+  .answer-mark {
+    display: inline-flex;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.1094rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    transition: color var(--duration-quick) var(--ease-premium);
+  }
+  .answer-row:focus-within .answer-mark {
+    color: var(--solus-text-secondary);
   }
 
   /* The digit that selects, at the row's end, visible with the other key hints. */

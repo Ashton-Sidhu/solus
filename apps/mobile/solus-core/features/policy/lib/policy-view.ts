@@ -92,6 +92,7 @@ const TASK_LIFECYCLE = {
 /** Each managed setting: its name, and how its value reads in "Globex sessions use <value> (managed)." */
 const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; describe: (value: ManagedValue<K>) => string } } = {
   workerModel: { label: 'Worker model', describe: (value) => (value ? modelName(value.provider, value.model) : "the caller's model by default") },
+  fallbackModel: { label: 'Fallback model', describe: (value) => (value ? `${modelName(value.provider, value.model)} while the default provider is out of usage` : 'no fallback model') },
   modelRouting: { label: 'Model routing', describe: () => 'a set model routing' },
   textGenerationModel: { label: 'Text generation model', describe: (value) => modelName(value.provider, value.model) },
   sourceControlWriterModel: { label: 'Commit writer model', describe: (value) => (value ? modelName(value.provider, value.model) : 'the text-generation model for commits') },

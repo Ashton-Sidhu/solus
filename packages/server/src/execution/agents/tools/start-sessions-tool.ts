@@ -17,6 +17,11 @@ import { PERMISSION_MODES } from '@solus/contracts/types'
 import type { AgentId, AgentTarget, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
 import { formatExchangeTag, ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import type { RemoteTarget, SpawnedSession, SpawnOrder } from '../../orchestration/session-orders'
+import { providerSpent, seatOf, type ProviderSpent, type ProviderUsageReaders } from '../../sessions/provider-usage'
+import { chooseRunner, type Checked, type Runner } from './agent-runner'
+
+// session-tools.ts checks the runner of send_session with the same rule.
+export { chooseRunner, type Checked, type Runner } from './agent-runner'
 
 const log = createLogger('sessions', 'start-sessions-tool.ts')
 
@@ -51,7 +56,7 @@ const sessionFields = {
     .string()
     .min(1)
     .optional()
-    .describe('Model id. An unqualified child uses the configured default worker model if set. Otherwise, omit to inherit your model on the same provider, or use the selected provider’s default.'),
+    .describe('Model id. An unqualified child uses the configured default worker model if set. Otherwise, omit to inherit your model on the same provider, or use the selected provider’s default. An unqualified session uses the configured fallback model while the provider of its default is out of usage.'),
   reasoning_effort: z
     .enum(REASONING_VALUES)
     .optional()
@@ -95,23 +100,24 @@ const startSessionsSchema = z.object(startSessionsFields).strict()
 type StartSessionsInput = z.output<typeof startSessionsSchema>
 type SessionInput = StartSessionsInput['sessions'][number]
 
-/** The provider, model and reasoning level a session runs on. */
-interface Runner {
-  provider: AgentId
-  modelId: string
-  reasoningEffort: ReasoningEffort
-  contextWindow: number | null
+/** What this host reads to tell that a provider is out of usage (wired in boot-server.ts). */
+let providerUsage: ProviderUsageReaders | null = null
+export function setProviderUsage(readers: ProviderUsageReaders | null): void {
+  providerUsage = readers
+}
+
+/** The runner of a session, and, when it is the fallback model, the default provider it replaces. */
+interface Choice {
+  runner: Runner
+  fallbackFrom?: { provider: AgentId; spent: ProviderSpent }
 }
 
 /** One session, checked and ready to start: what to order, where, and whether it reports. */
-interface Launch {
+interface Launch extends Choice {
   order: SpawnOrder
-  runner: Runner
   target?: RemoteTarget
   report: boolean
 }
-
-type Checked<T> = T | { error: string }
 
 export async function startSessions(input: StartSessionsInput, deps: SessionToolDeps): Promise<SessionToolResult> {
   const orchestration = getSessionOrchestration()
@@ -149,6 +155,7 @@ interface Caller {
   reasoningEffort: ReasoningEffort | undefined
   permissionMode: PermissionMode | undefined
   workerModel: PersonalSettings['workerModel']
+  fallbackModel: PersonalSettings['fallbackModel']
   /** The codebase of the calling session: each session it starts gets it. */
   codebaseId: string | null
 }
@@ -171,6 +178,7 @@ async function callerOf(deps: SessionToolDeps): Promise<Caller> {
     model: runsOnProvider ? info?.model : undefined,
     reasoningEffort: runsOnProvider ? info?.reasoningEffort : undefined,
     workerModel: sessionSettings(sessionId)?.preferences?.workerModel ?? null,
+    fallbackModel: sessionSettings(sessionId)?.preferences?.fallbackModel ?? null,
     permissionMode: sessionId ? controller?.permissionModeFor?.(sessionId) : undefined,
     codebaseId: await codebaseOfCaller(sessionId),
   }
@@ -203,8 +211,15 @@ interface Place {
   target?: RemoteTarget
 }
 
-/** Use explicit settings, the default worker model, or the caller's model on the same provider. */
-function runnerFor(session: SessionInput, caller: Caller, place: Place): Checked<Runner> {
+/** Use explicit settings, the default worker model, or the caller's model on the same provider.
+ *  The fallback model replaces that default while its provider is out of usage. */
+function runnerFor(session: SessionInput, caller: Caller, place: Place): Checked<Choice> {
+  const runner = defaultRunnerFor(session, caller, place)
+  if ('error' in runner) return runner
+  return fallbackFor(session, caller, place, runner) ?? { runner }
+}
+
+function defaultRunnerFor(session: SessionInput, caller: Caller, place: Place): Checked<Runner> {
   const worker = !session.independent && !session.agent_provider && !session.model_id ? caller.workerModel : null
   const provider = session.agent_provider ?? worker?.provider ?? caller.provider
   const inheritsModel = !worker && !session.model_id && provider === caller.provider
@@ -214,9 +229,31 @@ function runnerFor(session: SessionInput, caller: Caller, place: Place): Checked
   return 'error' in runner && place.target ? { error: `${runner.error} (on ${place.target.host.label})` } : runner
 }
 
+/**
+ * The fallback model, for a session with neither a provider nor a model whose
+ * default provider is out of usage, when the fallback is on another provider,
+ * available here, and not out of usage itself. Otherwise null: the default
+ * stays. This host knows only its own usage, so a session on another host
+ * keeps its default.
+ */
+function fallbackFor(session: SessionInput, caller: Caller, place: Place, runner: Runner): Choice | null {
+  const fallback = caller.fallbackModel
+  if (session.agent_provider || session.model_id || place.target || !fallback || !providerUsage) return null
+  if (fallback.provider === runner.provider) return null
+  // A child acts for the person its caller acts for, so it runs under the caller's seat.
+  const seat = seatOf(providerUsage, caller.sessionId)
+  const spent = providerSpent(providerUsage, runner.provider, seat)
+  if (!spent || providerSpent(providerUsage, fallback.provider, seat)) return null
+  const candidate = chooseRunner(place.targets, fallback.provider, fallback.model, session.reasoning_effort ?? fallback.reasoningEffort)
+  if ('error' in candidate) return null
+  log.info('session_fallback_model', { sessionId: caller.sessionId, fromProvider: runner.provider, provider: candidate.provider, modelId: candidate.modelId, resetsAt: spent.resetsAt })
+  return { runner: candidate, fallbackFrom: { provider: runner.provider, spent } }
+}
+
 async function launchFor(session: SessionInput, caller: Caller, place: Place, deps: SessionToolDeps): Promise<Checked<Launch>> {
-  const runner = runnerFor(session, caller, place)
-  if ('error' in runner) return runner
+  const choice = runnerFor(session, caller, place)
+  if ('error' in choice) return choice
+  const { runner } = choice
   const permissionMode = caller.permissionMode ? childPermissionMode(caller.permissionMode, session.permission_mode) : session.permission_mode
   if (place.target && !permissionMode) return { error: 'The caller’s permission policy is unavailable. Remote work was not started.' }
   const workspace = place.target ? remoteWorkspace(session) : await localWorkspace(session, deps.ctx?.cwd)
@@ -235,7 +272,7 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   }
   const attachError = await attachTo(order, session.attachments, deps)
   if (attachError) return { error: attachError }
-  return { order, runner, target: place.target, report: session.report ?? !session.independent }
+  return { ...choice, order, target: place.target, report: session.report ?? !session.independent }
 }
 
 /** Another of the owner's hosts, as if the owner started the sessions there
@@ -275,24 +312,10 @@ function remoteWorkspace(session: SessionInput): Checked<Workspace> {
   return { cwd: session.cwd || NEW_CHAT_DIRECTORY, worktreeBaseBranch: session.worktree_base_branch ?? null }
 }
 
-/** Checks the requested provider, model and reasoning level against what the host offers. */
-function chooseRunner(targets: readonly AgentTarget[], requestedProvider: string, requestedModel: string | undefined, requestedEffort: ReasoningEffort | undefined): Checked<Runner> {
-  const target = targets.find((candidate) => candidate.provider === requestedProvider)
-  if (!target) return { error: `Unknown agent provider "${requestedProvider}". Call list_agent_targets for current choices.` }
-  if (!target.available) {
-    return { error: `Agent provider "${requestedProvider}" is unavailable${target.unavailableReason ? `: ${target.unavailableReason}` : '.'}` }
-  }
-  const modelId = requestedModel?.trim() || target.defaultModel
-  if (!modelId) return { error: 'start_sessions requires model_id.' }
-  const profile = target.models.find((model) => model.id === modelId)
-  if (!profile) {
-    return { error: `Unknown model "${modelId}" for ${target.provider}. Valid models: ${target.models.map((model) => model.id).join(', ') || '(none)'}.` }
-  }
-  const reasoningEffort = requestedEffort ?? profile.defaultReasoningEffort
-  if (profile.reasoningLevels.length > 0 && !profile.reasoningLevels.includes(reasoningEffort)) {
-    return { error: `Model "${modelId}" does not support reasoning level "${reasoningEffort}". Supported: ${profile.reasoningLevels.join(', ')}.` }
-  }
-  return { provider: target.provider, modelId, reasoningEffort, contextWindow: profile.defaultContextWindow }
+/** Why a session runs on the fallback model. */
+function fallbackNote(runner: Runner, { provider, spent }: NonNullable<Choice['fallbackFrom']>): string {
+  const until = spent.resetsAt === null ? '' : ` until ${new Date(spent.resetsAt * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')}`
+  return `Uses the fallback model ${runner.provider}/${runner.modelId}: ${provider} is out of usage${until}.`
 }
 
 /** One line for each session, in list order, each with its exchange tag, then
@@ -300,7 +323,7 @@ function chooseRunner(targets: readonly AgentTarget[], requestedProvider: string
 function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<SpawnedSession>[], waitMs: number): string {
   const head = `Started ${outcomes.filter((outcome) => !('error' in outcome)).length} of ${outcomes.length} sessions.`
   const lines = outcomes.map((outcome, item) => {
-    const { order, runner, report } = launches[item]!
+    const { order, runner, report, fallbackFrom } = launches[item]!
     const host = launches[item]!.target?.host
     const name = order.title ? ` "${order.title}"` : ''
     if ('error' in outcome) return `${item + 1}.${name} Not started: ${outcome.error}`
@@ -309,7 +332,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
     const session = host
       ? sessionLink({ provider, sessionId: outcome.sessionId, slug: null, cwd: '', serverId: host.installationId })
       : outcome.starting ? outcome.sessionId : sessionLink({ provider, sessionId: outcome.sessionId, slug: null, cwd: resolveHomePath(order.cwd) })
-    const runs = `${order.independent ? 'Independent, ' : ''}${host ? `on ${host.label}, ` : ''}${provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}).`
+    const runs = `${order.independent ? 'Independent, ' : ''}${host ? `on ${host.label}, ` : ''}${provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}).${fallbackFrom ? ` ${fallbackNote(runner, fallbackFrom)}` : ''}`
     const startup = !outcome.starting ? ''
       : `${outcome.waited?.type === 'report' ? ' Provider startup ended.' : ' Startup continues in the background.'} read_session_exchange with exchange_id=${outcome.exchangeId} reads the startup state.`
     const tag = formatExchangeTag({ messageId: outcome.exchangeId, sessionId: outcome.sessionId, provider, serverId: host?.installationId, item })

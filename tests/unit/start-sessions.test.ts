@@ -1,5 +1,5 @@
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -256,4 +256,106 @@ test('the tool is always loaded and states its default and its independent form'
   expect(start.alwaysLoad).toBe(true)
   expect(start.description).toContain('By default each is your child')
   expect(start.description).toContain('independent=true')
+})
+
+// WHY: the fallback model keeps delegation going while the default provider
+// is out of usage (T3 Code's resolveNewThreadModelSelection). It replaces only
+// a default: a provider or model that the caller names never changes. It is
+// used only when it can help: on another provider that this host offers and
+// that is not out of usage too. The caller must see that a session got it.
+describe('the fallback model', () => {
+  const reset = Math.ceil(Date.now() / 1000) + 6 * 3600
+  const fallbackModel = { provider: 'claude-code' as const, model: 'claude-code-chosen', reasoningEffort: 'high' as const }
+
+  /** Parks a limit on a live codex session of the host login; `codexPercent` is codex's weekly use. */
+  async function host(options: { heldOn?: AgentId[]; codexPercent?: number } = {}) {
+    const { RateLimitState } = await import('@solus/server/execution/rate-limits')
+    const { UsageLimitsStore } = await import('@solus/server/usage/usage-store')
+    const held = new RateLimitState()
+    const providers = new Map<string, AgentId>()
+    for (const provider of options.heldOn ?? ['codex']) {
+      held.record(`limited-${provider}`, { type: 'rate_limit', status: 'rejected', resetsAt: reset, rateLimitType: 'seven_day_overage_included' })
+      providers.set(`limited-${provider}`, provider)
+    }
+    const usage = new UsageLimitsStore()
+    usage.apply({ provider: 'codex', fiveHour: null, weekly: { usedPercent: options.codexPercent ?? 95, resetsAt: reset * 1000, resetsLabel: null }, planType: null, fetchedAt: Date.now(), stale: false })
+    ;(await import('@solus/server/execution/agents/tools/start-sessions-tool')).setProviderUsage({ usage, held, providerOf: (id) => providers.get(id), actorOf: () => undefined })
+  }
+
+  beforeEach(() => recordSessionSettings('parent-codex', { organizationId: 'local', preferences: { fallbackModel } }))
+  afterAll(async () => (await import('@solus/server/execution/agents/tools/start-sessions-tool')).setProviderUsage(null))
+
+  test('replaces the default of a session with no provider or model while the default provider is out of usage', async () => {
+    await host()
+    const result = await start.execute({ sessions: [
+      { prompt: 'Default' },
+      { prompt: 'Independent default', independent: true },
+      { prompt: 'Named provider', agent_provider: 'codex' },
+      { prompt: 'Named model', model_id: 'codex-default' },
+    ] }, context('codex'))
+    expect(result.ok).toBe(true)
+    expect(starts.map(({ order }) => [order.provider, order.modelId, order.reasoningEffort])).toEqual([
+      ['claude-code', 'claude-code-chosen', 'high'],
+      ['claude-code', 'claude-code-chosen', 'high'],
+      ['codex', 'codex-chosen', 'high'],
+      ['codex', 'codex-default', 'medium'],
+    ])
+    const until = new Date(reset * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const lines = result.text.split('\n')
+    const note = `Uses the fallback model claude-code/claude-code-chosen: codex is out of usage until ${until}.`
+    expect(lines.filter((line) => line.includes(note)).map((line) => line.slice(0, 2))).toEqual(['1.', '2.'])
+    expect(result.text.match(/fallback model/g)).toHaveLength(2)
+    // The reloaded cards still pair each session with its provider.
+    expect(reloaded(result.text)?.map((entry) => entry.provider)).toEqual(['claude-code', 'claude-code', 'codex', 'codex'])
+  })
+
+  test('also replaces the default worker model when its provider is out of usage', async () => {
+    await host()
+    recordSessionSettings('parent-codex', { organizationId: 'local', preferences: { fallbackModel, workerModel: { provider: 'codex', model: 'codex-default', reasoningEffort: undefined } } })
+    await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order).toMatchObject({ provider: 'claude-code', modelId: 'claude-code-chosen' })
+  })
+
+  test('a provider at 100% of a window counts as out of usage', async () => {
+    await host({ heldOn: [], codexPercent: 100 })
+    await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order.provider).toBe('claude-code')
+  })
+
+  test('changes nothing while the default provider has usage', async () => {
+    await host({ heldOn: [] })
+    const result = await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order).toMatchObject({ provider: 'codex', modelId: 'codex-chosen' })
+    expect(result.text).not.toContain('fallback model')
+  })
+
+  test('changes nothing when the fallback provider is out of usage too', async () => {
+    await host({ heldOn: ['codex', 'claude-code'] })
+    await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order).toMatchObject({ provider: 'codex', modelId: 'codex-chosen' })
+  })
+
+  test('changes nothing when this host does not offer the fallback', async () => {
+    await host()
+    const claude = targets.find((target) => target.provider === 'claude-code')!
+    claude.available = false
+    try {
+      const result = await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+      expect(result.ok).toBe(true)
+      expect(starts[0]?.order).toMatchObject({ provider: 'codex', modelId: 'codex-chosen' })
+    } finally {
+      claude.available = true
+    }
+    starts.length = 0
+    recordSessionSettings('parent-codex', { organizationId: 'local', preferences: { fallbackModel: { ...fallbackModel, model: 'claude-code-retired' } } })
+    await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order).toMatchObject({ provider: 'codex', modelId: 'codex-chosen' })
+  })
+
+  test('changes nothing with no fallback set', async () => {
+    await host()
+    recordSessionSettings('parent-codex', { organizationId: 'local', preferences: {} })
+    await start.execute({ sessions: [{ prompt: 'Default' }] }, context('codex'))
+    expect(starts[0]?.order).toMatchObject({ provider: 'codex', modelId: 'codex-chosen' })
+  })
 })
