@@ -7,7 +7,7 @@
   import { openAgentSession } from "../conversation/agent-conversation/lib/agent-conversation";
   import { memberStateLabel } from "../codebases/lib/codebase-view";
   import { PANEL_ROW_ICON_SIZE } from "./MenuRow.svelte";
-  import { childRepositoryNote, type OtherHostFolders } from "./lib/repositories-section";
+  import { childRepositoryNote, type OtherHostFolders } from "./lib/environment-folders";
 
   /** The folders of the session's codebase on the hosts it does not run on,
    *  and the child sessions that work there. A session changes only the

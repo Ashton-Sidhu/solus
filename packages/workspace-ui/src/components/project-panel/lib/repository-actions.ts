@@ -1,13 +1,15 @@
 import type { HostApi } from '@solus/client-core/host-api'
 import type { IpcContext } from '@solus/contracts/types'
-import type { SettingsContext } from '../../../contexts/app/settings.context.svelte'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
 import { toasts } from '../../../lib/toasts'
 import type { DirectoryFolderChoice } from '../../servers/project-picker.svelte'
-import { withPanelItemShown } from './panel-items'
 
-/** The commands of the Repositories section (docs/plans/codebases.md §9). */
+/**
+ * The commands for the folders and the repositories of a session
+ * (docs/plans/codebases.md §9): the Environment card and the Git card of the
+ * project panel call them, and so does the command palette.
+ */
 
 export const TASK_FOLDER_BRANCH_NOTE = 'A worktree of a task folder keeps the branch of its session.'
 
@@ -68,21 +70,4 @@ export function addSessionFolder(workspace: Pick<WorkspaceContext, 'sessionFor' 
         .finally(() => requestInputFocus({ tabId }))
     },
   })
-}
-
-/**
- * Show the Repositories section of a tab's project panel: open the panel,
- * open the section, and show the section again when the person hid it.
- * `isSplit` says that the tab is the split chat, which has a panel of its own.
- */
-export function revealRepositories(
-  settings: Pick<SettingsContext, 'projectPanelHiddenItems' | 'projectPanelCollapsed' | 'splitProjectPanelCollapsed' | 'setPersonal' | 'setLayout'>,
-  isSplit: boolean,
-): void {
-  const hidden = settings.projectPanelHiddenItems
-  if (hidden.includes('repositories')) settings.setPersonal('projectPanelHiddenItems', withPanelItemShown(hidden, 'repositories', true))
-  const collapsed = isSplit ? settings.splitProjectPanelCollapsed : settings.projectPanelCollapsed
-  collapsed.repositories = false
-  settings.setLayout(isSplit ? 'splitProjectPanelOpen' : 'projectPanelOpen', true)
-  settings.setLayout(isSplit ? 'splitProjectPanelCollapsed' : 'projectPanelCollapsed', collapsed)
 }

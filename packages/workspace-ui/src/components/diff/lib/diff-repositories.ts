@@ -8,7 +8,7 @@ import { locateSessionFile, sessionPathIn } from '../../../lib/session-paths'
  * The repositories of one session that the diff panel can read
  * (docs/plans/codebases.md §8 and §9): the repository of the working directory
  * and each `git` session folder. The repository picker of the diff panel and
- * the Repositories section of the project panel list the same entries.
+ * the Git card of the project panel list the same repositories.
  */
 export interface DiffRepository {
   /** What a diff request names: the working directory, or the `path` of a `git` session folder. */

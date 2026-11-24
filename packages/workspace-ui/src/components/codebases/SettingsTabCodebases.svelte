@@ -69,7 +69,7 @@
   <section bind:this={listEl} class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p class="max-w-xl text-pretty text-workspace-chrome text-muted-foreground">
-        A codebase is a named set of folders, on one or more hosts, that one piece of work covers.
+        A codebase is a named set of two or more folders, on one or more hosts, that one piece of work covers.
       </p>
       <Button data-new-codebase size="sm" variant="outline" class="shrink-0" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
         <PlusIcon size={14} /> New codebase
@@ -97,7 +97,7 @@
       <ListEmpty title="No host is connected.">Your hosts keep the codebases. Connect a host to see them.</ListEmpty>
     {:else}
       <ListEmpty title="No codebases yet.">
-        Make one to let one session work in several folders.
+        Make one from two or more folders, to let one session work in each of them.
         {#snippet actions()}
           <Button size="sm" variant="outline" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
             <PlusIcon size={14} /> New codebase

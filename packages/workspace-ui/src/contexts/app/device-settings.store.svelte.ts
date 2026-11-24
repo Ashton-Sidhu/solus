@@ -20,7 +20,7 @@ const DEVICE_SETTINGS_KEY = 'solus.device-settings.v1'
 /** The layout keys. Every renderer of this origin reads it, so a zoom change reaches them all. */
 export const DEVICE_LAYOUT_KEY = 'solus.device-layout.v1'
 
-export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'repositories' | 'agents' | 'webhooks' | 'servers'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'agents' | 'webhooks' | 'servers'
 const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
@@ -28,8 +28,6 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   environment: false,
   servers: false,
   git: false,
-  // The section exists only while the session has a codebase or a session folder.
-  repositories: false,
   // The section only exists once the session has dispatched an agent, and a
   // live fan-out is the thing the reader wants to watch — so it opens.
   agents: false,
@@ -65,7 +63,6 @@ const projectPanelCollapsedSchema = z.object({
   environment: z.boolean().optional(),
   servers: z.boolean().optional(),
   git: z.boolean().optional(),
-  repositories: z.boolean().optional(),
   agents: z.boolean().optional(),
   webhooks: z.boolean().optional(),
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))

@@ -6,7 +6,7 @@ import type { IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspa
 import type { StatusBarCtx } from '@solus/contracts/types'
 import { startMembers } from '@solus/client-core/codebases'
 import { plainFolderGetsTaskFolder, worktreeRepositoryChoice } from '@solus/workspace-ui/components/input/lib/worktree-repositories'
-import { repositoriesInFolder, repositoriesInFolderLabel } from '@solus/workspace-ui/components/project-panel/lib/git-setup'
+import { repositoriesInFolder } from '@solus/workspace-ui/components/project-panel/lib/git-setup'
 import { projectRowTrailing } from '@solus/workspace-ui/components/project-panel/lib/project-row'
 import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/content'
 import { chooseStart, codebaseOf, folderLocation, refuseCodebase, refusesCodebase, startsWorktree } from '@solus/workspace-ui/contexts/workspace/run-location'
@@ -204,7 +204,7 @@ describe('the project folder of a draft', () => {
   })
 })
 
-describe('the standing Git section of a folder with no repository', () => {
+describe('a project folder with no repository that holds repositories', () => {
   const folders = [
     { path: '/code/shop/api', state: 'git' as const },
     { path: '/code/shop/web', state: 'git' as const },
@@ -212,11 +212,10 @@ describe('the standing Git section of a folder with no repository', () => {
     { path: '/code/libs/ui', state: 'git' as const },
   ]
 
-  // A folder that holds repositories is not a project that lacks Git: the section names the repositories.
+  // A folder that holds repositories is not a project that lacks Git: the Git card lists the repositories,
+  // and "Track with Git" for the folder itself is in the menu of the project row of the Environment card.
   test('counts the repositories inside the folder, from the session folders of a started session', () => {
     expect(repositoriesInFolder('/code/shop', folders, [])).toBe(2)
-    expect(repositoriesInFolderLabel(2)).toBe('2 repositories in this folder')
-    expect(repositoriesInFolderLabel(1)).toBe('1 repository in this folder')
   })
 
   test('counts the repositories that the host found for a draft, each one time', () => {
@@ -225,7 +224,7 @@ describe('the standing Git section of a folder with no repository', () => {
     expect(repositoriesInFolder('/code/shop', folders, [{ path: '/code/shop/api/', state: 'git' }])).toBe(2)
   })
 
-  // With no repository inside, the section keeps its "This folder isn't a Git repository yet." state.
+  // With no repository inside, the Git card keeps its "This folder isn't a Git repository yet." state.
   test('a folder with no repository inside it has none to name', () => {
     expect(repositoriesInFolder('/code/notes', folders, [])).toBe(0)
     expect(repositoriesInFolder('/code/shop/api', folders, [])).toBe(0)

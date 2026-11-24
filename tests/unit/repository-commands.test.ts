@@ -17,7 +17,8 @@ mock.module('@solus/workspace-ui/lib/inputFocus', () => ({
 /**
  * The entry points of the folders of a session (docs/plans/codebases.md §9):
  * the palette offers each one only while it can act, and "Add folder" is the
- * same command from the palette and from the project panel.
+ * same command from the palette and from the Environment card of the project
+ * panel.
  */
 
 interface PickerRequest { tabId: string; intent: string; folderChoice: { title: string; action: string; onChosen(path: string, serverId: string): void } }
@@ -40,20 +41,10 @@ function workspaceWith(options: { started: boolean; codebaseId: string | null; f
     run,
   } as unknown as Session
   const navigations: unknown[] = []
-  const layout: [string, unknown][] = []
-  const personal: [string, unknown][] = []
   const attached: [string, string][] = []
-  const settings = {
-    projectPanelHiddenItems: ['repositories', 'git.branch'] as string[],
-    projectPanelCollapsed: { repositories: true },
-    splitProjectPanelCollapsed: { repositories: true },
-    setPersonal: (key: string, value: unknown) => { personal.push([key, value]); return true },
-    setLayout: (key: string, value: unknown) => { layout.push([key, value]) },
-  }
   const workspace = {
     focusedSourceId: 'tab-1',
     activeTabId: 'tab-1',
-    chatSurfaceTabId: null,
     sessionFor: () => session,
     runFor: () => run,
     apiFor: () => ({
@@ -63,10 +54,9 @@ function workspaceWith(options: { started: boolean; codebaseId: string | null; f
         return [{ path, name: 'tools', state: 'git', repositoryPath: path, source: 'attached', granted: true }]
       },
     }),
-    settings,
     router: { navigate: (ref: unknown) => { navigations.push(ref) } },
   }
-  return { workspace, session, navigations, layout, personal, attached }
+  return { workspace, session, navigations, attached }
 }
 
 async function commandsFor(options: Parameters<typeof workspaceWith>[0]) {
@@ -87,26 +77,16 @@ describe('the palette entries of a session', () => {
     expect(commands.map((command) => command.label)).toEqual(['Add folder to this session'])
   })
 
+  // The panel has no Repositories section to show: the Git card and the Environment card have its rows.
   test('a started session of a codebase offers each entry', async () => {
     const { commands } = await commandsFor({ started: true, codebaseId: 'shop', folderCount: 2 })
-    expect(commands.map((command) => command.label)).toEqual(['Add folder to this session', 'Show repositories', 'Open codebase settings'])
+    expect(commands.map((command) => command.label)).toEqual(['Add folder to this session', 'Open codebase settings'])
   })
 
   test('"Open codebase settings" opens the page of the codebase of the session', async () => {
     const { commands, navigations } = await commandsFor({ started: true, codebaseId: 'shop', folderCount: 0 })
     void commands.find((command) => command.id === 'open-session-codebase')!.run?.()
     expect(navigations).toEqual([{ name: 'settings', params: { tab: 'codebases', codebase: 'shop' } }])
-  })
-
-  // The person asked to see the section: a section that they hid, in a closed
-  // panel, must show. Their other hidden rows stay hidden.
-  test('"Show repositories" opens the panel and the section, and shows a section that was hidden', async () => {
-    const { commands, layout, personal, workspace } = await commandsFor({ started: true, codebaseId: 'shop', folderCount: 1 })
-    void commands.find((command) => command.id === 'show-repositories')!.run?.()
-    expect(personal).toEqual([['projectPanelHiddenItems', ['git.branch']]])
-    expect(layout).toContainEqual(['projectPanelOpen', true])
-    expect(workspace.settings.projectPanelCollapsed.repositories).toBe(false)
-    expect(workspace.settings.splitProjectPanelCollapsed.repositories).toBe(true)
   })
 })
 

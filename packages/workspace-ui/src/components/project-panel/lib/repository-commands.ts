@@ -4,11 +4,9 @@ import type { WorkspaceContext } from '../../../contexts/workspace/workspace.con
 import { canDriveSession } from '../../../contexts/sharing/resource-roles'
 import { codebaseOf, runHost } from '../../../contexts/workspace/run-location'
 import { hasSessionStarted } from '../../../lib/sessionUtils'
-import { hasRepositoriesToShow } from './panel-items'
-import { addSessionFolder, revealRepositories } from './repository-actions'
+import { addSessionFolder } from './repository-actions'
 
-type CommandWorkspace = Pick<WorkspaceContext,
-  'focusedSourceId' | 'activeTabId' | 'sessionFor' | 'runFor' | 'apiFor' | 'settings' | 'chatSurfaceTabId' | 'router'>
+type CommandWorkspace = Pick<WorkspaceContext, 'focusedSourceId' | 'activeTabId' | 'sessionFor' | 'runFor' | 'apiFor' | 'router'>
 
 /**
  * Palette entries for the folders of the session in focus
@@ -32,16 +30,6 @@ export function repositoryCommands(workspace: CommandWorkspace): Command[] {
       icon: FolderPlus,
       keywords: ['attach', 'folder', 'directory', 'repository', 'codebase', 'session'],
       run: () => addSessionFolder(workspace, sourceId),
-    })
-  }
-  if (session && hasStarted && hasRepositoriesToShow(codebaseId, session.sessionFolders.length)) {
-    commands.push({
-      id: 'show-repositories',
-      label: 'Show repositories',
-      group: 'View',
-      icon: FolderGit2,
-      keywords: ['repositories', 'folders', 'codebase', 'project panel', 'worktree'],
-      run: () => revealRepositories(workspace.settings, sourceId === workspace.chatSurfaceTabId),
     })
   }
   if (codebaseId) {

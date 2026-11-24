@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import {
+    codebasesStore,
     getWorkspaceContext,
     getPullRequestsContext,
     getSettingsContext,
@@ -33,21 +34,20 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
-  import GitSection from "./GitSection.svelte";
-  import GitSetupSection from "./GitSetupSection.svelte";
+  import GitCard from "./GitCard.svelte";
   import WebhooksSection from "./WebhooksSection.svelte";
   import ProjectPanelItemsMenu from "./ProjectPanelItemsMenu.svelte";
   import {
     allPanelItemsHidden,
-    hasRepositoriesToShow,
     isPanelItemShown,
     isSectionShown,
     pointAnchor,
     type PanelMenuAnchor,
   } from "./lib/panel-items";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
-  import { codebaseOf, projectHome, projectRoot } from "../../contexts/workspace/run-location";
+  import { isDispatch, projectHome, projectRoot } from "../../contexts/workspace/run-location";
   import { hasSessionStarted } from "../../lib/sessionUtils";
+  import { gitCardRepositories, gitRepositoriesDetail, showsRepositoryRows } from "./lib/git-repositories";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -191,15 +191,6 @@
   const gitShown = $derived(isSectionShown(hiddenItems, "git"));
   const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
   const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
-  // The folders of a session exist on its host once it has started.
-  const repositoriesSession = $derived(
-    isSectionShown(hiddenItems, "repositories") &&
-      panelSession &&
-      hasSessionStarted(panelSession) &&
-      hasRepositoriesToShow(codebaseOf(panelRun), panelSession.sessionFolders.length)
-      ? panelSession
-      : null,
-  );
   const webhooksShown = $derived(isSectionShown(hiddenItems, "webhooks"));
 
   // The project's webhooks: the section exists only while it has some.
@@ -214,6 +205,22 @@
 
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
+  // The repositories of the Git card. The folders of a session exist on its
+  // host once it has started; a draft reads what its project folder holds.
+  const gitRepositories = $derived(
+    gitShown
+      ? gitCardRepositories({
+          working: {
+            path: gitCwd,
+            repositoryPath: panelEnvironment.repoRoot,
+            // A dispatch has its project home on a different host.
+            projectPath: isDispatch(panelRun) ? (panelEnvironment.repoRoot ?? gitCwd) : projectRoot(panelRun),
+          },
+          sessionFolders: panelSession && hasSessionStarted(panelSession) ? panelSession.sessionFolders : null,
+          found: codebasesStore.projectScanAt(serverHostId, gitCwd)?.members ?? [],
+        })
+      : [],
+  );
 
   // A split chat mounts a second rail, so both instances register these ids and
   // the dispatcher fires only the first enabled handler. Each rail arms its
@@ -452,56 +459,19 @@
         </span>
       </div>
     {/if}
-    {#if gitShown && gitCtx}
+    <!-- The card shows for a repository, and for a folder that holds
+         repositories: it then lists them, and its Git rows work in the chosen
+         one. With no repository at all, the card is only the way in: the
+         Environment section above already names the folder. -->
+    {#if gitShown && (gitCtx || showsRepositoryRows(gitRepositories) || (gitSetupShown && !isUnconfiguredCwd(gitCwd)))}
       <PanelSection
         title="Git"
+        headerDetail={gitRepositoriesDetail(gitRepositories)}
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <!-- With a session folder, the diff panel has a repository picker: the
-             Changes row of this section opens the working directory. -->
-        <GitSection
-          {sourceId}
-          active={active && open}
-          {hiddenItems}
-          onOpenChanges={repositoriesSession ? () => session.showRepositoryDiff(sourceId, null) : undefined}
-        />
-        {#if gitSetupShown}
-          <GitSetupSection {sourceId} active={active && open} />
-        {/if}
-      </PanelSection>
-    {:else if gitShown && gitSetupShown && !isUnconfiguredCwd(gitCwd)}
-      <!-- No repository yet — the Environment section above already names the
-           folder; this card is only the way in. -->
-      <PanelSection
-        title="Git"
-        collapsed={collapsedSections.git}
-        onToggle={() => toggleSection("git")}
-        onResizePointerDown={startResize}
-      >
-        <GitSetupSection {sourceId} active={active && open} />
-      </PanelSection>
-    {/if}
-    {#if repositoriesSession}
-      <PanelSection
-        title="Repositories"
-        headerDetail={repositoriesSession.sessionFolders.length > 0 ? `${repositoriesSession.sessionFolders.length + 1} folders` : undefined}
-        collapsed={collapsedSections.repositories}
-        onToggle={() => toggleSection("repositories")}
-        onResizePointerDown={startResize}
-      >
-        <!-- Only a session of a codebase, or one with a second folder, has this
-             section, so its code loads with the first one that shows it. -->
-        {#await import("./RepositoriesSection.svelte") then { default: RepositoriesSection }}
-          <RepositoriesSection
-            {sourceId}
-            sessionId={repositoriesSession.id}
-            active={active && open}
-            {hiddenItems}
-            onOpenChanges={(repositoryPath) => session.showRepositoryDiff(sourceId, repositoryPath)}
-          />
-        {/await}
+        <GitCard {sourceId} active={active && open} {hiddenItems} rows={gitRepositories} />
       </PanelSection>
     {/if}
     {#if serversShown && active && open}

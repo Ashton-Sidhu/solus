@@ -31,10 +31,11 @@ interface FolderFact {
 /**
  * How many repositories a folder with no repository holds
  * (docs/plans/codebases.md §9): the session folders of a started session, and
- * the members that the host read for the codebase of a draft. With one or
- * more, the standing Git section names them, and "set up Git" is not its
- * main message: the folder is the place of several repositories, not a
- * project that lacks one.
+ * the members that the host read in the project folder of a draft. With one
+ * or more, the Git card lists them, and "set up Git" is not its message: the
+ * folder is the place of several repositories, not a project that lacks one.
+ * "Track with Git" for the folder itself is then in the menu of the project
+ * row of the Environment card.
  */
 export function repositoriesInFolder(cwd: string | null | undefined, sessionFolders: readonly FolderFact[], members: readonly FolderFact[]): number {
   if (!cwd || cwd === '~') return 0
@@ -43,8 +44,4 @@ export function repositoriesInFolder(cwd: string | null | undefined, sessionFold
     if (folder.state === 'git' && isInsideHostPath(cwd, folder.path) && !sameHostPath(cwd, folder.path)) inside.add(hostPathKey(folder.path))
   }
   return inside.size
-}
-
-export function repositoriesInFolderLabel(count: number): string {
-  return `${count} ${count === 1 ? 'repository' : 'repositories'} in this folder`
 }

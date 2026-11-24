@@ -79,9 +79,9 @@
     /** The person's hidden panel items. A hidden row unmounts. */
     hiddenItems: readonly string[];
     /** A session folder that this section works in, in place of the working
-     *  directory of the run: the Repositories section shows one for each
-     *  folder (docs/plans/codebases.md §8). Each action is aimed at the
-     *  folder, and no result moves the run of the tab. */
+     *  directory of the run: the repository that the person chose in the Git
+     *  card (docs/plans/codebases.md §8). Each action is aimed at the folder,
+     *  and no result moves the run of the tab. */
     folder?: SessionFolderPlace | null;
     /** Open the changes of this section's checkout. The default is the review of the run. */
     onOpenChanges?: () => void;

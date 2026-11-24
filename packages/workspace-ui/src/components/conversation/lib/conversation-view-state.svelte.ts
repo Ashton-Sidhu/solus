@@ -20,6 +20,10 @@ export class ConversationViewState {
   /** The session folder whose repository the diff panel reads; null for the
    *  repository of the working directory (docs/plans/codebases.md §9). */
   diffRepositoryPath = $state<string | null>(null)
+  /** The session folder whose repository the Git card of the project panel
+   *  works in; null for the first repository of the session, which is the
+   *  repository of the working directory (docs/plans/codebases.md §9). */
+  gitRepositoryPath = $state<string | null>(null)
   readonly virtualizer = new TranscriptVirtualizer(
     () => this.position === null,
     () => {

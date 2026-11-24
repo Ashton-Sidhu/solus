@@ -33,7 +33,7 @@ interface DirectoryPickerRequest {
 
 /**
  * A folder that a surface asks for on the run host of a tab, for a use of its
- * own (the Repositories section attaches it to the session). No tab moves, and
+ * own (the Environment card of the project panel attaches it to the session). No tab moves, and
  * no project is recorded.
  */
 export interface DirectoryFolderChoice {
