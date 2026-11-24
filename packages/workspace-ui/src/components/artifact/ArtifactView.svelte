@@ -34,6 +34,9 @@
     /** The `artifact` work this render was persisted as. When set, a rail above
      *  the frame names it and opens it in a pane. */
     workRef?: { workId: string; title: string; contentVersion?: number };
+    /** False where the line above already names the work and opens it: an
+     *  artifact group in a conversation. */
+    showRail?: boolean;
     /** Where the conversation lives, for the rail's Link control. */
     linkContext?: TaskLinkContext;
     /** Let a pane render use all available height while transcript and task
@@ -51,6 +54,7 @@
     artifact,
     tabId,
     workRef,
+    showRail = true,
     linkContext,
     fillAvailable = false,
     skipMotion,
@@ -147,7 +151,7 @@
   class="artifact-root {skipMotion ? '' : 'animate-msg-in-side'}"
   class:fill-available={fillAvailable}
 >
-  {#if workRef}
+  {#if workRef && showRail}
     <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
   {/if}
   {#if artifactError}

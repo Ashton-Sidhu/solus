@@ -29,6 +29,7 @@
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
+  import ArtifactGroupCard from "./ArtifactGroupCard.svelte";
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import McpAppCard from "./McpAppCard.svelte";
@@ -349,6 +350,8 @@
     {skipMotion}
   />
   {/if}
+{:else if item.kind === "artifact-group"}
+  <ArtifactGroupCard messages={item.messages} />
 {:else if item.kind === "review-guide" && item.message.reviewGuideRef}
   <ReviewGuideCard
     ref={item.message.reviewGuideRef}

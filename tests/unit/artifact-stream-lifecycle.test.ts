@@ -204,3 +204,25 @@ test('each work card keeps the version saved by its call', async () => {
   expect(messages.map((message) => message.workRef?.contentVersion)).toEqual([1, 2])
 })
 
+
+test('a save the host replays after a history load adds no second card', async () => {
+  // WHY: a client that loads a running turn's history page gets the turn's
+  // events again. The history copy of the call's card must take the replayed
+  // save, or one update_work shows as two revisions of the work.
+  const { tracker, session, messages } = await fixture()
+  const { workUpdateFromHistory } = await import('../../packages/workspace-ui/src/contexts/workspace/artifact-history')
+  const tool = { role: 'tool' as const, content: '', timestamp: 1, toolId: 'update-1', toolName: 'mcp__solus__update_work', toolInput: JSON.stringify({ work_id: 'work', html_path: 'page.html', expected_content_version: 3 }) }
+  const result = { role: 'tool_result' as const, content: '', timestamp: 2, toolResultForId: 'update-1', artifactWorkRef: { workId: 'work', title: 'Page', contentVersion: 4 } }
+  messages.push(workUpdateFromHistory(tool, result, () => undefined, '<p>Four</p>')!)
+  tracker.updateWork(session, { type: 'work_updated', toolId: 'update-1', workId: 'work', title: 'Page', docType: 'artifact', content: '<p>Four</p>', contentVersion: 4, updatedAt: '2026-11-24T06:13:48Z' })
+  expect(messages).toHaveLength(1)
+  expect(artifactRevisions(messages).map((revision) => revision.workRef?.contentVersion)).toEqual([4])
+})
+
+test('a render the host replays after a history load adds no second card', async () => {
+  const { tracker, session, messages } = await fixture()
+  messages.push({ id: 'history', role: 'assistant', content: '', timestamp: 1, artifact: { kind: 'html', html: '<p>One</p>', toolId: 'render-1' }, workRef: { workId: 'work', title: 'Page', workType: 'artifact', contentVersion: 1 } })
+  tracker.updateStreamingArtifact(session, 'mcp__solus__render_artifact', '{"html":"<body>One</body>"}', 'render-1')
+  tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', toolId: 'render-1', workId: 'work', title: 'Page', html: '<p>One</p>' })
+  expect(messages).toHaveLength(1)
+})

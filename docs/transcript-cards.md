@@ -120,6 +120,42 @@ session watches it, a crossed eye while a watch can start, and an empty slot
 for a merged or closed pull request, so the sizes line up. The rules of the
 single card's watch footer apply (docs/plans/session-artifacts.md §9).
 
+### Artifact group card
+
+When one turn writes two or more different saved HTML works (`render_artifact`,
+or `update_work` with HTML), they share one card (`ArtifactGroupCard`) at the
+position of the first write. Prose and tool rows between the writes stay in
+place below the card, and only a new turn closes it (`placeArtifact` in
+`conversation/lib/turns.ts`). Until the turn writes a second work, each write
+keeps its own flush render, as a single artifact always does. Fence artifacts
+(```` ```html artifact=… ````) are part of the reply text and never join a group.
+
+The card has no shell. Its one line holds the artifact glyph (primary), the
+tabs in a rounded pill on the muted fill, and two quiet round icon buttons: open
+the selected work in the pane, and fold. A tab is the work's title (cut at
+150px) and its version in small mono type. A work written several times in the
+turn is one tab that shows the turn's newest write. The tab of the work the
+agent wrote last is selected first. The tabs are a `tablist`: the arrow keys,
+Home, and End move between tabs, and Enter or Space selects one.
+
+The render of the selected work is the only box. A version pill floats in its
+top-right corner: `v4 of 4` and the previous and next buttons, which step
+through the work's revisions in the whole conversation, plus Latest when an
+older revision shows. With one revision the pill has no arrows. With a fine
+pointer the pill shows while the pointer or focus is on the render; with touch
+it always shows and its buttons are 36px.
+
+The fold button folds the card to one 32px line with no box: the glyph,
+"3 artifacts", what the turn did ("3 updated", or "2 updated · 1 new"), and a
+caret. Selecting the line opens the card. The card opens unfolded. The selected
+tab, the picked version, and the fold are part of the conversation's view
+state, so they stay after a tab switch.
+
+A version is the content version that the host saved for that write, the same
+number that the work's pane and history show. Only a revision with no saved
+version (an older host) shows its place in the chain instead. The single
+artifact's version line uses the same number.
+
 ### Sign-in panel
 
 The Claude and Codex sign-in card (`SeatConnectCard`) is the one card that does
@@ -361,7 +397,7 @@ on a tool call's message must get a place there: the type check and
 | Error head (`errorHead`) | Neither | A failed row and a failed turn say so on their own line; the head is diagnosis |
 | The call's input (code in the open line) | Neither | It is the call, not an output |
 | Text result of the call | Neither | It does not reach the client |
-| Saved MCP App card, HTML artifact, work card, automation card, plan, review guide, browser recording, agent conversation card | Neither | Own cards that stay visible in a folded turn |
+| Saved MCP App card, HTML artifact, artifact group card, work card, automation card, plan, review guide, browser recording, agent conversation card | Neither | Own cards that stay visible in a folded turn |
 | Live MCP App card | Neither | A live turn does not fold; the saved card takes its place |
 | MCP task rows, resource watch rows | Neither | Shown after the last turn |
 | Linked pull requests and files, changed files | Neither | Chips and the changes summary at the turn's end |
@@ -385,7 +421,12 @@ The title stays unchanged. Open loads the current saved work. The card is
 restored from the successful tool receipt after a reload on every client and for
 both providers. Failed and unfinished saves do not add a completed card. Repeated
 writes to one work in a turn keep one card with the latest update. HTML artifacts
-keep their inline revision preview.
+keep their inline revision preview when the turn writes one work. When it
+writes two or more, they share the artifact group card above, and a work
+written several times in that turn is one tab with its newest write.
+A client that loads the history of a running turn gets the turn's events
+again. A card rebuilt from history keeps the id of its tool call, so a replayed
+save or render finds that card and adds no second revision.
 
 Image and video file chips open the media modal on desktop, web, and mobile.
 This includes Markdown links, image embeds shown as chips, and file path chips.

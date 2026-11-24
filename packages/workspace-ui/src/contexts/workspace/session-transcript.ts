@@ -472,7 +472,8 @@ export function materializeSessionTranscript(
           id: nextMsgId(),
           role: 'assistant' as const,
           content: '',
-          artifact: historyHtml ? { kind, path, historyHtml } : { kind, html, path },
+          // The call's id lets a replayed render find this card instead of adding one.
+          artifact: historyHtml ? { kind, path, historyHtml, toolId: m.toolId } : { kind, html, path, toolId: m.toolId },
           workRef,
           timestamp: m.timestamp ?? Date.now(),
         })

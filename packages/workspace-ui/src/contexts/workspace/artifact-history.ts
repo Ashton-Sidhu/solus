@@ -50,7 +50,8 @@ function artifactUpdateMessage(
   if (!ref || ref.workId !== input.work_id) return
   return {
     id: nextMsgId(), role: 'assistant', content: '',
-    artifact: { kind: 'html', html },
+    // The call's id lets a replayed save find this card instead of adding one.
+    artifact: { kind: 'html', html, toolId: tool.toolId },
     workRef: { workId: ref.workId, title: ref.title, workType: 'artifact', contentVersion: ref.contentVersion },
     timestamp: result.timestamp ?? tool.timestamp ?? Date.now(),
   }
