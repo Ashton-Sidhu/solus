@@ -1409,47 +1409,69 @@ records each intended difference from T3 Code.
 - **Model.** `solus.codebases`
   (`apps/mobile/solus-core/features/codebases/codebases.ts`) has the same
   reads and commands as the desktop store, with the shared rules of
-  `packages/client-core/src/codebases.ts`. It keeps the copies by account and
-  organization and forgets them when either changes.
-- **Repositories and codebases of a project.** `src/solus/ProjectCodebases.tsx`
-  shows, on the Solus project page (`ProjectSettings`), one "Repositories"
-  section for the repositories that the host found in the project folder
-  (the T3 Code model: a project and the repositories found inside it), then
-  one group of sections for each codebase that holds the project folder: the
-  folders on the host, the folders on other hosts, "Add folder", "Rename
-  codebase", "Delete codebase", and "Make a codebase". "Make a codebase"
-  stays: it is the way to make a codebase by hand, as Settings → Codebases
-  is on desktop. It asks for the second folder with T3's Local folder
-  screen, then for the name, and then makes the codebase of the two
-  folders. `src/solus/codebase-folders.ts` and
-  `codebase-rows.ts` give the T3 section its data.
+  `packages/client-core/src/codebases.ts`: `create` accepts one container or
+  two or more folders, and `isContainerRoot(hostId, path)` is the rule of the
+  project lists. It keeps the copies by account and organization and forgets
+  them when either changes. The app reads the codebases from its start
+  (`startSolus`), because the project lists need them.
+- **Never under Projects.** `ThreadDirectory.projects()` leaves out each
+  container root of a codebase, and `followContainerRoots()` follows the
+  changes of the codebases. Each project list of mobile reads that one
+  answer. At a cold start, a container root can show as a project until its
+  host answers its codebases.
+- **Codebases of a project.** `src/solus/ProjectCodebases.tsx` shows, on the
+  Solus project page (`ProjectSettings`), one T3 repositories section for
+  each codebase that holds a checkout of the project: the folders on the
+  host of the checkout, the folders on other hosts with the host name, "Add
+  folder", and a menu in the heading with "Rename" and "Delete". A checkout
+  in no codebase has "Make a codebase": it asks for the second folder with
+  T3's Local folder screen, then for the name (first value
+  `plainCodebaseName`). The page has no "Repositories" section of a project.
+  `src/solus/codebase-folders.ts` and `codebase-rows.ts` give the section
+  its data.
+- **A container.** The host makes its codebase when the folder is added
+  (`addLocalProject`, which calls `trackRecentProject`). The draft then
+  opens in the container folder and shows the name of the codebase. Mobile
+  has no row for a codebase in its project pickers: T3 Code has no control
+  that shows a project or a codebase as one choice.
+- **Naming.** The Worktrees settings page has "Codebase naming"
+  (`codebaseNaming`). Mobile has no override for one project.
 - **Start.** `src/solus/DraftWorkspaceControls.tsx` has the codebase of the
-  draft, the choice of a new worktree, and its repositories. The first
-  prompt of the run carries `codebaseId` and `worktreeRepositories`. The
-  draft reads its project folder (`solus.codebases.readFolder`), and the
-  repositories control lists the repositories that the host found in it
-  (`projectScanAt`), then the members of the codebase of the draft. "No
-  codebase" of the Codebase control sends `noCodebase`.
+  draft, the choice of a new worktree, and its repositories. The
+  repositories control lists the members of the codebase of the draft only;
+  a draft with no codebase is in one project and has no such control. The
+  first prompt of the run carries `codebaseId` and `worktreeRepositories`.
+  "No codebase" of the Codebase control sends `noCodebase`.
 - **The event.** `ConversationController` gives the run the codebase of a
-  `session_codebase` event, so the next prompt names it. The thread feed
-  shows no divider for a `codebase_formed` activity: the feed of T3 Code has
-  no line for a move into a worktree, so there is no pattern to follow
-  (`apps/mobile/UPSTREAM.md`).
-- **One name.** The heading of a draft names the project, as the headline
-  of a desktop draft does. The Codebase control shows only when more than
-  one codebase holds the folder. T3 Code has no control that shows a project
-  or a codebase as one choice.
+  `session_codebase` event, also when the host sends it again with a new
+  name. The thread feed shows no divider for a `codebase_formed` activity:
+  the feed of T3 Code has no line for a move into a worktree, so there is no
+  pattern to follow (`apps/mobile/UPSTREAM.md`).
+- **One name.** The heading of a draft names the project, or the codebase
+  for a draft in a container. The Codebase control shows only when more than
+  one codebase holds the folder.
 - **Running session.** `src/solus/session-repositories.ts` translates the
-  session folders for `ThreadRepositoryRows` and the Git sheets. A
-  repository of the project (source `project`) is a row with no mark, as a
-  member of the codebase is. A sheet of a
-  session folder has "Track with Git", "Attach", and "Detach". In a task
-  folder, the other repositories come from `sessionWorktreeCandidates`, and a
-  choice calls `sessionAddRepositoryWorktree`.
+  session folders for `ThreadRepositoryRows` and the Git sheets. A member of
+  the codebase is a row with no mark. A sheet of a session folder has "Track
+  with Git", "Attach", and "Detach". In a task folder, the other
+  repositories come from `sessionWorktreeCandidates`, and a choice calls
+  `sessionAddRepositoryWorktree`.
 - **Review.** `useCheckoutReviewSections` reads the patch of each repository
   with `repositoryPath` and joins the turns by `traceId`.
-- **Attach card.** The card is a normal question, so the pending input card
-  shows it.
+- **Attach card.** The card is a normal question, so T3's pending input card
+  shows it. The answer of a Solus question is the chosen option, then the
+  typed words (`formatAnswer`), so the person can name the codebase that the
+  attach makes: `src/solus/pending-question.ts` has the draft rules, and
+  `PendingUserInputCard` reads `isQuestionOptionSelected`.
+
+Proof: `apps/mobile/src/solus/codebases-model.test.ts` (one container or two
+folders, the removal rule, `isContainerRoot`), `codebase-rows.test.ts` and
+`codebase-folders.test.ts` (one section for each codebase, the rows of other
+hosts, a removal on a different host), `pending-question.test.ts` (a choice
+with typed words), `src/features/projects/AddProjectScreen.test.ts` (a
+container folder opens the draft with no project in the list), and
+`tests/unit/native-mobile-project-list.test.ts` (a container root is in no
+project list, and the list follows the codebases).
 
 ## 11. Stage 7 — documents
 

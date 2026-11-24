@@ -780,29 +780,36 @@ The mobile app has the same capability in its own screens.
 
 | Thing | Where it is on mobile |
 |---|---|
-| The repositories of a project | The settings of a project show one **Repositories** section with the repositories that the host found inside the project folder. A project with no repository inside it has no such section. |
-| The codebases of a project | After that, the settings show one section for each codebase that holds the project folder: the folders on the host, then the folders on other hosts. **Add folder**, **Rename codebase**, and **Delete codebase** are there. A project that is in no codebase has **Make a codebase**: it asks for the second folder, then for the name, and makes the codebase of the two folders. |
-| The codebase of a new session | A folder in exactly one codebase gives the draft that codebase. A folder in more than one adds a **Codebase** control with each codebase and **No codebase**. A folder in no codebase starts with none, and the session gets the repositories of its project. |
-| The repositories of a new worktree | The workspace controls of the draft have a repositories control. A submodule and a repository with no commit show as rows that you cannot choose. The control lists the repositories that the host found in the project folder, then those of the codebase. |
+| Projects and containers | A folder that is the container of a codebase is not in the project lists. To start a session in a container, open a project inside it, or use **Add project** → **Local folder** with the container folder: the draft opens in the folder and shows the name of the codebase. |
+| The codebases of a project | The settings of a project show one section for each codebase that holds the project folder, with the name of the codebase as its title. The section lists the folders on the host of the project, then the folders on other hosts with the host name below each. Each folder that a person added has **Remove**. **Add folder** is the last row. The menu in the heading of the section has **Rename** and **Delete**. |
+| Make a codebase | A project that is in no codebase has **Make a codebase**: it asks for the second folder, then for the name, and makes the codebase of the two folders. Solus makes the codebase of a container by itself. |
+| Codebase names | **Settings → Worktrees → Codebase naming**: **Generated name** or **From the folder names**. |
+| The codebase of a new session | A folder in exactly one codebase gives the draft that codebase. A folder in more than one adds a **Codebase** control with each codebase and **No codebase**. A folder in no codebase starts with none: the session is in one project. |
+| The repositories of a new worktree | With a codebase and **New worktree**, the draft has a repositories control. It lists the repositories of the codebase. A submodule and a repository with no commit show as rows that you cannot choose. A draft with no codebase has no such control. |
 | The session folders | The Git overview of a session lists one row for each session folder. A row opens the Git sheet of that repository. |
 | Folder actions | The Git sheet of a session folder has **Track with Git** for a folder with no repository, **Attach** for a folder that the agent was not given, and **Detach** for an attached folder. |
 | Add a repository | In a task folder session, the list of other repositories comes from the host, and a choice makes the worktree. |
-| The linked folder | The Git overview shows a **Linked folder** text when the working directory holds links to a folder with no repository. |
+| The linked folder | The Git overview shows a **Linked folder** line when the working directory holds links to a folder with no repository. |
 | Review | The review sheet joins the changes of each repository that has changes. |
-| The attach card | The card shows as a normal question. |
+| The attach card | The card shows as a normal question. When the attach makes a codebase, choose **Allow and make the codebase**. To give the codebase a different name, also type the name in the answer field. |
 
 Differences on mobile:
 
-- A new worktree of a folder with no repository has no base branch field.
-  Each repository starts from its default branch.
+- The project lists have no group of codebases. A container shows only
+  through a project inside it, or through **Add project**.
+- A new worktree of a folder with no repository has no base branch field
+  ("Default branches"). Each repository starts from its default branch.
 - A row of a session folder shows its branch and the number of changed files,
   with no line counts.
 - "Make a codebase" chooses the second folder on the host of the project.
   Add a folder on a different host after that, with **Add folder**.
 - The conversation shows no divider when Solus makes a codebase. To delete
-  the codebase, use **Delete codebase** in the settings of the project.
-- A draft shows the project in its heading. It shows the codebase only when
-  more than one codebase holds the folder, in the **Codebase** control.
+  the codebase, use **Delete** in the menu of its section in the settings of
+  the project.
+- A draft shows the project in its heading, or the codebase for a container.
+  It shows the **Codebase** control only when more than one codebase holds
+  the folder.
+- The codebase naming has no override for one project on mobile.
 
 The mobile app has no project panel.
 
