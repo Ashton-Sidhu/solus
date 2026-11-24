@@ -97,7 +97,7 @@ export function plainCodebaseName(folderNames: readonly string[]): string {
   let prefix = first
   for (const name of others) {
     let length = 0
-    while (length < prefix.length && length < name.length && prefix[length].toLowerCase() === name[length].toLowerCase()) length++
+    while (length < prefix.length && length < name.length && prefix.charAt(length).toLowerCase() === name.charAt(length).toLowerCase()) length++
     prefix = prefix.slice(0, length)
   }
   // A prefix that ends in the middle of the separator of two words loses the separator: `solus-` is `solus`.
