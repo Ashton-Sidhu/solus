@@ -105,6 +105,7 @@ vi.mock("react-native-safe-area-context", () => ({
 }));
 vi.mock("../state/assets", () => ({}));
 vi.mock("../lib/openExternalUrl", () => ({ tryOpenExternalUrl: vi.fn() }));
+vi.mock("../native/useOpenPullRequest", () => ({ useOpenPullRequest: () => async () => false }));
 vi.mock("../features/settings/appearance/AppearancePreferencesProvider", () => ({
   useAppearancePreferences: () => ({
     themeId: "default",

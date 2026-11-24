@@ -20,6 +20,17 @@ describe("buildPairingUrl", () => {
       "https://192.168.1.100:3773/#token=pairing-token",
     );
   });
+
+  it("uses the typed address for a code even if its query names another host", () => {
+    const pairingUrl = buildPairingUrl(
+      "https://app.solus.sh/pair?host=other.tailnet.ts.net",
+      "pairing-token",
+    );
+    expect(parsePairingUrl(pairingUrl)).toEqual({
+      host: "https://app.solus.sh",
+      code: "pairing-token",
+    });
+  });
 });
 
 describe("extractPairingUrlFromQrPayload", () => {
