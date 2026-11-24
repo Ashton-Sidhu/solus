@@ -4,17 +4,23 @@
    *  codebase is the page URL, so a link opens the same view. */
   import { tick, untrack } from "svelte";
   import { Plus as PlusIcon, TriangleAlert as TriangleAlertIcon } from "@lucide/svelte";
-  import { codebasesStore, getWorkspaceContext } from "../../contexts";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
+  import { codebasesStore, getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import { ListEmpty } from "../ui/list-page";
   import { RowCard } from "../ui/row-card";
   import CodebaseDetail from "./CodebaseDetail.svelte";
   import CodebaseListRow from "./CodebaseListRow.svelte";
   import CodebaseNewForm from "./CodebaseNewForm.svelte";
-  import { codebaseSummary, NEW_CODEBASE } from "./lib/codebase-view";
+  import SettingsRow from "../settings/SettingsRow.svelte";
+  import SettingsSection from "../settings/SettingsSection.svelte";
+  import SettingsSelect from "../settings/SettingsSelect.svelte";
+  import { managedSetting } from "../settings/policy/managed-setting.svelte";
+  import { CODEBASE_NAMING_OPTIONS, codebaseSummary, NEW_CODEBASE } from "./lib/codebase-view";
   import { codebasesPageRequest } from "./lib/codebases-page-request.svelte";
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
   /** The codebase the page shows: its id, `new` for the form, or null for the list. */
   const openCodebase = $derived(session.router.params("settings")?.codebase ?? null);
 
@@ -82,7 +88,7 @@
   <section bind:this={listEl} class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p class="min-w-0 flex-1 basis-64 text-pretty text-workspace-chrome text-muted-foreground">
-        A codebase is a named set of two or more folders, on one or more hosts, that one piece of work covers.
+        A codebase is a named set of folders that one piece of work covers: two or more projects, or one folder that holds repositories.
       </p>
       <Button data-new-codebase size="sm" variant="outline" class="shrink-0" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
         <PlusIcon size={14} /> New codebase
@@ -118,7 +124,7 @@
       <ListEmpty title="No host is connected.">Your hosts keep the codebases. Connect a host to see them.</ListEmpty>
     {:else}
       <ListEmpty title="No codebases yet.">
-        Make one from two or more folders, to let one session work in each of them.
+        Make one from a folder that holds repositories, or from two folders, to let one session work in each of them.
         {#snippet actions()}
           <Button size="sm" variant="outline" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
             <PlusIcon size={14} /> New codebase
@@ -126,5 +132,25 @@
         {/snippet}
       </ListEmpty>
     {/if}
+    <!-- How Solus names a codebase that it forms: the same row shape as Branch names. -->
+    <SettingsSection label="Names">
+      <SettingsRow
+        {...settingsDefinitions["codebases.codebase-names"]}
+        managed={managedSetting("codebaseNaming")}
+        description={CODEBASE_NAMING_OPTIONS.find((option) => option.value === settings.codebaseNaming)?.description}
+      >
+        {#snippet control()}
+          <SettingsSelect
+            options={CODEBASE_NAMING_OPTIONS}
+            value={settings.codebaseNaming}
+            onSelect={(naming) => settings.setPersonal("codebaseNaming", naming)}
+            ariaLabel="Codebase names"
+          />
+        {/snippet}
+      </SettingsRow>
+      <p class="px-4 pb-3.5 text-xs text-muted-foreground">
+        A project can override this in Settings, Source control.
+      </p>
+    </SettingsSection>
   </section>
 {/if}

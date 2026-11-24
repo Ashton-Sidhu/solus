@@ -1,14 +1,16 @@
 <script lang="ts">
-  /** The form of a new codebase: a name and two folders. A codebase has two
-   *  or more folders, because one folder is a project. Each folder is scanned
-   *  on its host before the codebase is made, so the person sees what it
-   *  holds. */
+  /** The form of a new codebase: a name, and one container folder or two
+   *  folders. A container is a folder with no repository of its own that
+   *  holds two or more repositories. One project is not a codebase. Each
+   *  folder is scanned on its host before the codebase is made, so the person
+   *  sees what it holds. */
   import { codebasesStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import CodebaseRootPicker from "./CodebaseRootPicker.svelte";
+  import { newCodebaseDraft } from "./lib/codebase-view";
   import { RootPickerState } from "./lib/root-picker.svelte";
 
   let { onClose, onCreated }: { onClose: () => void; onCreated: (codebaseId: string) => void } = $props();
@@ -20,16 +22,17 @@
   // The second folder is refused when it is the first one, is inside it, or holds it.
   const secondPicker = new RootPickerState(() => firstPicker.chosenRoots);
 
-  const canCreate = $derived(!isBusy && name.trim() !== "" && firstPicker.choice !== null && secondPicker.choice !== null);
+  const draft = $derived(newCodebaseDraft(name, firstPicker.choice ? firstPicker.scan : null, secondPicker.choice !== null));
+  const canCreate = $derived(!isBusy && draft.canCreate);
 
   async function create() {
     const first = firstPicker.choice;
     const second = secondPicker.choice;
-    if (!canCreate || !first || !second) return;
+    if (!canCreate || !first) return;
     isBusy = true;
     error = "";
     try {
-      const created = await codebasesStore.create(name, [first, second]);
+      const created = await codebasesStore.create(draft.name, second ? [first, second] : [first]);
       onCreated(created.id);
     } catch (failure) {
       error = failure instanceof Error ? failure.message : "Could not make the codebase.";
@@ -45,14 +48,14 @@
   <SettingsSection label="Codebase">
     <SettingsRow label="Name" description="A short name for this set of folders.">
       {#snippet control()}
-        <Input bind:value={name} class="h-7 w-56" aria-label="Codebase name" maxlength={200} autofocus disabled={isBusy} submitOn="enter" onSubmit={() => void create()} />
+        <Input bind:value={name} class="h-7 w-56" aria-label="Codebase name" maxlength={200} placeholder={draft.name} autofocus disabled={isBusy} submitOn="enter" onSubmit={() => void create()} />
       {/snippet}
     </SettingsRow>
   </SettingsSection>
 
   <SettingsSection
     label="First folder"
-    description="A codebase has two or more folders. One folder is a project: a session there gets the repositories inside it with no codebase."
+    description="Choose one folder that holds two or more repositories, or two folders. One folder is a project."
     plain
   >
     <div class="rounded-xl border border-border bg-background p-4 dark:bg-card">
@@ -62,7 +65,9 @@
 
   <SettingsSection
     label="Second folder"
-    description="A different folder, on this host or on a different one. After you make the codebase, you can add more folders."
+    description={draft.firstIsContainer
+      ? "Optional. The first folder holds repositories, so it is a codebase by itself."
+      : "A different folder, on this host or on a different one. After you make the codebase, you can add more folders."}
     plain
   >
     <div class="rounded-xl border border-border bg-background p-4 dark:bg-card">

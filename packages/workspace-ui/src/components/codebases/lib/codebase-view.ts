@@ -1,4 +1,4 @@
-import type { Codebase, CodebaseFolderScan, CodebaseMember, CodebaseMemberState } from '@solus/contracts/codebases'
+import { isContainerScan, type Codebase, type CodebaseFolderScan, type CodebaseMember, type CodebaseMemberState, type CodebaseNaming } from '@solus/contracts/codebases'
 import { hostPathBaseName, relativeHostPath } from '@solus/contracts/host-path'
 import type { ListTint } from '../../ui/list-page/list-page'
 import type { CodebaseHost, CodebaseHostMembers } from '../../../contexts/codebases/codebases.store.svelte'
@@ -104,6 +104,33 @@ export function hostMembersNote(group: CodebaseHostMembers): HostMembersNote | n
   }
   if (group.state === 'loading' || group.state === 'idle') return { text: `Reading the folders on ${host}…`, tone: 'muted', isBusy: true }
   return null
+}
+
+/** The two ways that Solus names a codebase that it forms, as the Settings rows show them. */
+export const CODEBASE_NAMING_OPTIONS: ReadonlyArray<{ value: CodebaseNaming; label: string; description: string }> = [
+  { value: 'generated', label: 'Generated name', description: 'A codebase that Solus forms starts with a name from its folder names. Then a small model gives it a short name.' },
+  { value: 'folders', label: 'From the folder names', description: 'The name is the common start of the folder names, or the first folder name and a count. No model names the codebase.' },
+]
+
+/** What the form of a new codebase makes from its choices. */
+export interface NewCodebaseDraft {
+  /** The name that the codebase gets: the typed one, else the name of a container folder that is the only folder. Empty when there is none. */
+  name: string
+  /** The first folder is a container: it is a codebase with no second folder. */
+  firstIsContainer: boolean
+  canCreate: boolean
+}
+
+/**
+ * The rule of the New codebase form (docs/plans/codebases.md §9): the person
+ * chooses one container folder, or two folders. `first` is the scan of the
+ * first folder, when it can be added. A container that is the only folder
+ * gives the codebase its name when the person typed none.
+ */
+export function newCodebaseDraft(typedName: string, first: CodebaseFolderScan | null, hasSecond: boolean): NewCodebaseDraft {
+  const firstIsContainer = !!first && isContainerScan(first)
+  const name = typedName.trim() || (first && firstIsContainer && !hasSecond ? hostPathBaseName(first.path) : '')
+  return { name, firstIsContainer, canCreate: name !== '' && !!first && (firstIsContainer || hasSecond) }
 }
 
 /** One line for what a scan found in a folder, shown before the folder is added. */

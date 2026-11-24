@@ -256,20 +256,52 @@ describe('codebase commands', () => {
 
   // WHY: one folder is a project, and a project is never also a codebase (decision 14).
   // A codebase of one folder had the name of its project, so the project picker showed one thing two times.
-  test('create refuses one folder, and a copy with one folder is not a codebase', async () => {
+  test('create refuses one project, and a copy with one project is not a codebase', async () => {
     const mac = new FakeHost('local', 'inst-mac', [codebase('old', 20, { roots: [root('inst-mac', '/code/old')] })])
     const { store } = setup([mac])
     await store.load('local')
 
-    await expect(store.create('Shop', [{ serverId: 'local', path: '/code/shop' }])).rejects.toThrow(/at least 2 folders/)
+    // The scan of the fake host finds no repository inside: one folder is a project.
+    await expect(store.create('Shop', [{ serverId: 'local', path: '/code/shop' }])).rejects.toThrow(/One folder is a project/)
     expect(mac.saves).toEqual([])
-    // The copy of a host that kept a codebase of one folder is not listed, and holds no folder.
+    // The copy of a host that kept a codebase of one project is not listed, and holds no folder.
     expect(store.codebases).toEqual([])
     expect(store.codebaseOf('old')).toBeUndefined()
     expect(store.codebasesOfFolder('local', '/code/old')).toEqual([])
   })
 
-  test('removeRoot refuses when two folders are left, and the text says to delete the codebase', async () => {
+  test('create makes a codebase of one container: the root gets the mark from the scan of its host', async () => {
+    // WHY: decision 14. A folder with no repository of its own that holds two repositories is a codebase by itself.
+    const mac = new FakeHost('local', 'inst-mac')
+    mac.scans.set('~/shop', {
+      path: '/code/shop', state: 'plain', suggestions: [],
+      members: [member('/code/shop', '/code/shop', { state: 'plain' }), member('/code/shop/api', '/code/shop'), member('/code/shop/web', '/code/shop')],
+    })
+    const { store } = setup([mac])
+    await store.load('local')
+
+    const created = await store.create('shop', [{ serverId: 'local', path: '~/shop' }])
+
+    expect(created.roots).toEqual([{ installationId: 'inst-mac', path: '/code/shop', name: 'shop', container: true }])
+    expect(store.codebases).toEqual([created])
+    // The project lists of the client ask this rule: the container is not a project, and a folder inside it is.
+    expect(store.isContainerRoot('local', '/code/shop')).toBe(true)
+    expect(store.isContainerRoot('local', '/code/shop/api')).toBe(false)
+    expect(store.isContainerRoot('build', '/code/shop')).toBe(false)
+  })
+
+  test('a folder that holds one repository is added with no container mark', async () => {
+    const mac = new FakeHost('local', 'inst-mac')
+    mac.scans.set('/code/one', { path: '/code/one', state: 'plain', suggestions: [], members: [member('/code/one', '/code/one', { state: 'plain' }), member('/code/one/api', '/code/one')] })
+    const { store } = setup([mac])
+    await store.load('local')
+
+    const created = await store.create('Pair', [{ serverId: 'local', path: '/code/one' }, { serverId: 'local', path: '/code/ui' }])
+    expect(created.roots.some((each) => each.container)).toBe(false)
+    expect(store.isContainerRoot('local', '/code/one')).toBe(false)
+  })
+
+  test('removeRoot refuses when the folders that stay are no codebase, and the text says to delete the codebase', async () => {
     const roots = [root('inst-mac', '/code/shop'), root('inst-mac', '/code/ui'), ELSEWHERE]
     const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots })])
     const { store } = setup([mac])
@@ -277,12 +309,24 @@ describe('codebase commands', () => {
 
     expect((await store.removeRoot('shop', roots[1]!)).roots).toEqual([roots[0]!, ELSEWHERE])
     const refused = await store.removeRoot('shop', roots[0]!).catch((error: unknown) => error)
-    expect((refused as CodebaseRootRefused).refusal).toBe('last-two')
+    expect((refused as CodebaseRootRefused).refusal).toBe('too-few')
     expect((refused as CodebaseRootRefused).message).toContain('delete the codebase')
     expect(store.codebaseOf('shop')?.roots).toHaveLength(2)
   })
 
-  // WHY: a folder covers the folders inside it, as a project covers its repositories.
+  test('a container root can stay alone: the other root of two can be removed, and the container cannot', async () => {
+    const container: CodebaseRoot = { ...root('inst-mac', '/code/shop'), container: true }
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots: [container, ELSEWHERE] })])
+    const { store } = setup([mac])
+    await store.load('local')
+
+    const refused = await store.removeRoot('shop', container).catch((error: unknown) => error)
+    expect((refused as CodebaseRootRefused).refusal).toBe('too-few')
+    expect((await store.removeRoot('shop', ELSEWHERE)).roots).toEqual([container])
+    expect(store.codebases.map((each) => each.id)).toEqual(['shop'])
+  })
+
+  // WHY: a container root gives the repositories inside it, and a project root is one folder: a root inside a root adds nothing.
   test('addRoot refuses a folder inside a root, and a folder that holds a root, on the same host only', async () => {
     const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20, { roots: [root('inst-mac', '/code/shop'), ELSEWHERE] })])
     const server = new FakeHost('build', 'inst-build')

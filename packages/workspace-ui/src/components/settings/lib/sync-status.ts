@@ -47,6 +47,7 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['textGenerationModel', 'Text-generation model'],
   ['sourceControlWriting', 'Commit and pull request writing'],
   ['worktreeBranchNaming', 'Branch names'],
+  ['codebaseNaming', 'Codebase names'],
 ])
 
 export function settingKeyLabel(key: PersonalSettingKey): string {

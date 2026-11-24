@@ -19,6 +19,7 @@ import {
 } from './project-catalog'
 import { projectDirLabel } from '../../lib/paths'
 import { isInsideHostPath } from '@solus/contracts/host-path'
+import { isContainerRootOnClient } from '../codebases/container-rule'
 
 /** The last project list read from each host (docs/plans/project-model.md §2).
  *  A cache for hosts that are away, never a record of its own. */
@@ -77,6 +78,13 @@ const liveUntrackHosts: UntrackHosts = {
   untrackProject: (serverId, path) => serverConnections.apiFor(serverId).untrackProject(path),
 }
 
+/**
+ * True for a folder that is the container root of a live codebase. Such a
+ * folder is a codebase, never a project (docs/plans/codebases.md decision
+ * 14): no project list shows it.
+ */
+type IsContainerRoot = (serverId: string, path: string) => boolean
+
 async function fetchHostRecentProjects(serverId: string): Promise<RecentProject[]> {
   if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) return []
   return serverConnections.withTemporaryConnection(serverId, (api) => api.listRecentProjects())
@@ -99,6 +107,7 @@ export class ProjectsStore {
     stored: StoredHostList[] = loadStoredLists(),
     private readonly fetchRecentProjects: FetchRecentProjects = fetchHostRecentProjects,
     private readonly untrackHosts: UntrackHosts = liveUntrackHosts,
+    private readonly isContainerRoot: IsContainerRoot = isContainerRootOnClient,
   ) {
     for (const host of stored) this.projectsByHost.set(host.serverId, host.projects)
   }
@@ -106,8 +115,8 @@ export class ProjectsStore {
   /** Every checkout on every host, most recently used first. */
   get entries(): ProjectCatalogEntry[] {
     const entries: ProjectCatalogEntry[] = []
-    for (const [serverId, projects] of this.projectsByHost) {
-      for (const project of projects) entries.push(checkoutOf(serverId, project))
+    for (const serverId of this.projectsByHost.keys()) {
+      for (const project of this.projectsFor(serverId)) entries.push(checkoutOf(serverId, project))
     }
     return entries.sort((a, b) => b.lastSeenAt - a.lastSeenAt)
   }
@@ -123,7 +132,8 @@ export class ProjectsStore {
   private checkoutHolding(serverId: string, path: string): ProjectCatalogEntry | null {
     const folder = normalizeProjectRoot(path)
     let found: ProjectEntry | null = null
-    for (const project of this.projectsFor(serverId)) {
+    // The host's own list: a folder in a container still belongs to the row that the host keeps for it.
+    for (const project of this.listedFor(serverId)) {
       if (isInsideHostPath(project.path, folder) && (!found || project.path.length > found.path.length)) found = project
     }
     return found ? checkoutOf(serverId, found) : null
@@ -189,9 +199,16 @@ export class ProjectsStore {
     }
   }
 
-  /** The host's list as last read: live once it has answered, else the copy
-   *  kept from an earlier read. */
+  /** The projects of a host as last read: live once it has answered, else the
+   *  copy kept from an earlier read. A folder that is the container root of a
+   *  codebase is not in the list: it shows under Codebases only. Each project
+   *  list of the client reads this one, so they agree. */
   projectsFor(serverId: string): ProjectEntry[] {
+    return this.listedFor(serverId).filter((project) => !this.isContainerRoot(serverId, project.path))
+  }
+
+  /** The list that the host keeps, with the row of each container. */
+  private listedFor(serverId: string): ProjectEntry[] {
     return this.projectsByHost.get(serverId) ?? []
   }
 
@@ -252,7 +269,7 @@ export class ProjectsStore {
       // The host's own entry replaces this one on the next read; it names the
       // repository, which this client cannot.
       { key: '', path: projectRoot, folderName: projectDirLabel(projectRoot), addedAt: now, lastUsedAt: now, repositoryKey: null },
-      ...this.projectsFor(serverId).filter((project) => project.path !== projectRoot),
+      ...this.listedFor(serverId).filter((project) => project.path !== projectRoot),
     ])
     void api.trackRecentProject(projectRoot)
       .catch(() => {})
@@ -275,7 +292,7 @@ export class ProjectsStore {
       } catch {
         return
       }
-      this.setProjects(checkout.serverId, this.projectsFor(checkout.serverId).filter((project) => project.path !== checkout.projectRoot))
+      this.setProjects(checkout.serverId, this.listedFor(checkout.serverId).filter((project) => project.path !== checkout.projectRoot))
     }))
   }
 
@@ -285,7 +302,7 @@ export class ProjectsStore {
     path: string,
   ): Promise<void> {
     await api.deleteProject(path)
-    this.setProjects(serverId, this.projectsFor(serverId).filter((project) => project.path !== path))
+    this.setProjects(serverId, this.listedFor(serverId).filter((project) => project.path !== path))
   }
 
   /** The hosts whose list this store keeps. */
@@ -325,8 +342,9 @@ export class ProjectsStore {
   private readonly recentLoads = new Map<string, Promise<RecentProject[]>>()
   private readonly recentLoading = new SvelteMap<string, boolean>()
 
+  /** The recent projects of a host. A container root is a codebase, so it is not one of them. */
   recentProjectsFor(serverId: string): RecentProject[] {
-    return this.recentByHost.get(serverId) ?? []
+    return (this.recentByHost.get(serverId) ?? []).filter((project) => !this.isContainerRoot(serverId, project.path))
   }
 
   recentProjectsLoadingFor(serverId: string): boolean {

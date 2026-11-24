@@ -1,7 +1,6 @@
 import { untrack } from 'svelte'
 import type { Codebase } from '@solus/contracts/codebases'
 import type { Place, RunConfig, RunLocation } from '@solus/contracts/types'
-import { hostPathKey } from '@solus/contracts/host-path'
 import { isChat } from '@solus/contracts/chat'
 import type { CodebaseHost } from '../../../contexts/codebases/codebases.store.svelte'
 import { checkoutPlace, chooseCodebase, codebaseOf, pendingClone } from '../../../contexts/workspace/run-location'
@@ -21,10 +20,7 @@ interface CodebaseStartReads {
     watchMembers(codebaseId: string): () => void
     isDeleted(codebaseId: string): boolean
     codebasesOfFolder(serverId: string, path: string): Codebase[]
-    readFolder(serverId: string, path: string): Promise<void>
   }
-  /** The project folder of the run: the root of its repository, else its folder. The project covers the repositories inside it. */
-  readonly projectFolder: string
   decisions: Pick<CodebaseDecisions, 'isDecided' | 'note'>
   applyLocation(next: RunLocation): void
   /** The run asks for a new worktree of a folder with no repository, and the person named no base branch. */
@@ -56,9 +52,9 @@ function decidableFolder(run: RunConfig | undefined, isStarted: boolean): Place 
  * choice. The directory picker moves a draft outside the strip, so the run is
  * observed, not the click on the project chip.
  *
- * A project covers the repositories inside it, with no codebase (decision
- * 14). The project folder is read here, one time for each folder, so the
- * start control lists those repositories for a new worktree before Send.
+ * A folder that no codebase holds is not decided: the host forms the
+ * codebase of a container when a person opens the folder, and the record can
+ * arrive after the draft is there. It then applies.
  *
  * The worktree shortcut asks for a new worktree with no menu open. A folder
  * with no repository has no branch for that worktree, so the start control
@@ -91,18 +87,6 @@ export function useCodebaseStart(reads: CodebaseStartReads): void {
       reads.decisions.note(sourceId, folder)
       if (choice) reads.applyLocation(chooseCodebase(run.location, choice))
     })
-  })
-
-  let readFolderKey: string | null = null
-  $effect(() => {
-    const { run, projectFolder } = reads
-    const folder = decidableFolder(run, reads.isStarted)
-    if (!folder || !projectFolder) return
-    if (!reads.store.hosts.some((host) => host.serverId === folder.serverId && host.status === 'ready')) return
-    const key = `${folder.serverId}\n${hostPathKey(projectFolder)}`
-    if (key === readFolderKey) return
-    readFolderKey = key
-    untrack(() => void reads.store.readFolder(folder.serverId, projectFolder))
   })
 
   let neededBaseBranch: boolean | null = null

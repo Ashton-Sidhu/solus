@@ -289,7 +289,7 @@ export const policySearchWords = ["policy", "managed", "mdm", "lock", "permissio
 export const webhooksSearchWords = ["webhook", "hook", "github", "sender", "delivery", "deliveries", "url", "trigger", "event", "organization", "admin"];
 
 /** Search words, read by the settings page to find the Codebases page from any other. */
-export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root"];
+export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root", "codebase names", "naming"];
 
 export const sourceControlSettings: SettingItem[] = [
   { id: "github", ...settingsDefinitions["source-control.github"], keywords: [] },
@@ -298,6 +298,7 @@ export const sourceControlSettings: SettingItem[] = [
   { id: "writer-model", ...settingsDefinitions["source-control.source-control-writer-model"], keywords: [] },
   { id: "branch-names", ...settingsDefinitions["source-control.branch-names"], keywords: ["worktree", "branch naming"] },
   { id: "project-branch-names", ...settingsDefinitions["source-control.override-branch-names"], keywords: ["worktree"] },
+  { id: "project-codebase-names", ...settingsDefinitions["source-control.override-codebase-names"], keywords: ["codebase", "naming"] },
   { id: "copied-files", ...settingsDefinitions["source-control.files-copied-to-other-hosts"], keywords: [] },
 ];
 

@@ -315,6 +315,13 @@ export const settingsDefinitions = {
   "source-control.project-branch-names": {
     label: "Project branch names",
   },
+  "source-control.override-codebase-names": {
+    label: "Codebase names for this project",
+    description: "How Solus names a codebase that it forms from this project and a second one. Saved in .solus/config.json, so you can commit it.",
+  },
+  "codebases.codebase-names": {
+    label: "Codebase names",
+  },
   "source-control.files-copied-to-other-hosts": {
     label: "Files copied to other hosts",
     description: "Run on copies the ignored files that .worktreeinclude names, like .env, into a clone on another host.",

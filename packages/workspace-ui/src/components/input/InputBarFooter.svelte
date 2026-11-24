@@ -10,7 +10,7 @@
     getSessionEnvironmentStore,
     serversStore,
   } from "../../contexts";
-  import { membersOnHost } from "../../contexts/codebases/host-members";
+  import { memberAt, membersOnHost } from "../../contexts/codebases/host-members";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import { projectDirLabel } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
@@ -32,8 +32,7 @@
     type CodebaseSelection,
   } from "./lib/project-selection";
   import { useCodebaseStart } from "./lib/codebase-start.svelte";
-  import { startMembers } from "@solus/client-core/codebases";
-  import { plainFolderGetsTaskFolder, worktreeRepositoryChoice } from "./lib/worktree-repositories";
+  import { worktreeRepositoryChoice } from "./lib/worktree-repositories";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
@@ -132,7 +131,6 @@
     get sourceId() { return source; },
     get run() { return run; },
     get isStarted() { return !!sess && hasSessionStarted(sess); },
-    get projectFolder() { return workingFolder; },
     store: codebasesStore,
     decisions: codebaseDecisions,
     applyLocation: (next) => applyLocation(next),
@@ -150,23 +148,22 @@
   const gitServerId = $derived(checkoutPlace(run ?? session.defaultRunConfig).serverId);
   const newWorktreeBase = $derived(worktreeBaseBranch(run));
 
-  // What the host of the run read about its folders: the working folder can
-  // be a folder with no repository, and a new worktree covers the repositories.
+  // What the host of the run read about the codebase: the working folder can
+  // be a folder with no repository (a container), and a new worktree covers
+  // the repositories. A run with no codebase is in one project: one checkout.
   const workingFolder = $derived(gitHome.projectRoot ?? projectDir);
-  // A project covers the repositories inside it, with no codebase (decision
-  // 14): the scan of the project folder gives them, and the codebase of the
-  // run adds its members.
-  const projectScan = $derived(pendingDispatch ? null : codebasesStore.projectScanAt(gitServerId, workingFolder));
-  const runMembers = $derived(
-    startMembers(projectScan?.members ?? [], codebaseId ? membersOnHost(codebasesStore.membersOf(codebaseId), gitServerId).members : []),
+  const codebaseMembers = $derived(
+    codebaseId ? membersOnHost(codebasesStore.membersOf(codebaseId), gitServerId).members : [],
   );
-  // A folder with no repository has no branch. Its new worktree is a task
-  // folder that holds links to its files.
+  // A folder of the codebase with no repository has no branch. Its new
+  // worktree is a task folder that holds links to its files.
   const isPlainFolder = $derived(
-    !hasGitRepository && !pendingDispatch && plainFolderGetsTaskFolder(runMembers, workingFolder, !!codebaseId),
+    !hasGitRepository && !pendingDispatch && memberAt(codebaseMembers, workingFolder)?.state === "plain",
   );
   const repositoryChoice = $derived(
-    pendingDispatch ? null : worktreeRepositoryChoice(runMembers, workingFolder, worktreeRepositories(run)),
+    codebaseId && !pendingDispatch
+      ? worktreeRepositoryChoice(codebaseMembers, workingFolder, worktreeRepositories(run))
+      : null,
   );
   const showsStartControl = $derived(hasGitRepository || isPlainFolder);
   // After "New worktree", the start control stays open for what a codebase

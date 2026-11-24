@@ -271,3 +271,36 @@ describe('recent folders', () => {
     expect(store.recentProjectsFor('b')).toEqual([recent('/repo/2')])
   })
 })
+
+describe('a container root is a codebase, never a project', () => {
+  // WHY: docs/plans/codebases.md decision 14. `~/shop` holds two repositories, so it is a codebase. A row for it
+  // under Projects shows one place two times. The host keeps its own row for the folder; no list of the client shows it.
+  const isContainer = (serverId: string, path: string): boolean => serverId === 'mac' && path === '/code/shop'
+
+  test('each project list leaves the folder out, on the host of the codebase only', async () => {
+    const store = new ProjectsStore([
+      { serverId: 'mac', projects: [listed('/code/shop', null), listed('/code/solus', 'github.com/acme/solus')] },
+      { serverId: 'box', projects: [listed('/code/shop', null)] },
+    ], async () => [recent('/code/shop'), recent('/code/solus')], undefined, isContainer)
+
+    expect(store.projectsFor('mac').map((project) => project.path)).toEqual(['/code/solus'])
+    expect(store.entries.map((entry) => `${entry.serverId}:${entry.projectRoot}`).sort()).toEqual(['box:/code/shop', 'mac:/code/solus'])
+    expect(store.logicalProjects([]).flatMap((project) => project.checkouts.map((checkout) => `${checkout.serverId}:${checkout.projectRoot}`)).sort())
+      .toEqual(['box:/code/shop', 'mac:/code/solus'])
+    await store.loadRecentProjects('mac')
+    expect(store.recentProjectsFor('mac').map((project) => project.path)).toEqual(['/code/solus'])
+  })
+
+  test('a folder inside the container still belongs to the row that the host keeps, and that row survives a change of the list', async () => {
+    const store = new ProjectsStore([
+      { serverId: 'mac', projects: [listed('/code/shop', null), listed('/code/solus', null)] },
+    ], noRecents, untrackHosts(['mac']), isContainer)
+
+    expect(store.projectKeyFor('mac', '/code/shop/notes')).toBe(store.projectKeyFor('mac', '/code/shop'))
+    // A removal of a different project writes the list back: the row of the container must not go with it.
+    await store.removeProject(store.projectKeyFor('mac', '/code/solus'))
+    store.flush()
+    expect(JSON.parse(localStorage.getItem('solus-host-projects') ?? '{}')).toMatchObject({ hosts: [{ serverId: 'mac', projects: [{ path: '/code/shop' }] }] })
+  })
+})
+

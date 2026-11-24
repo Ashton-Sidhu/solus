@@ -6,12 +6,13 @@ import type {
   CodebaseMember,
   CodebaseRoot,
 } from '@solus/contracts/codebases'
-import { CODEBASE_ROOTS_MIN } from '@solus/contracts/codebases'
+import { hasEnoughRoots } from '@solus/contracts/codebases'
 import { hostPathKey } from '@solus/contracts/host-path'
 import {
   CodebaseRootRefused,
   codebasesHolding,
   hostRootsKey,
+  isContainerRoot,
   isLiveCodebase,
   isSameRoot,
   liveCodebases,
@@ -24,6 +25,7 @@ import {
   rootRemovalRefusal,
 } from '@solus/client-core/codebases'
 import { liveCodebaseHostAccess, type CodebaseHostAccess, type CodebaseMachine } from './codebase-host-access'
+import { provideContainerRule } from './container-rule'
 
 /**
  * The codebases of this client (docs/plans/codebases.md decision 6 and §9).
@@ -119,8 +121,6 @@ export class CodebasesStore {
   private readonly listReads = new Map<string, Promise<Codebase[]>>()
   /** One send for each host and copy, until the host is read again: a host that refuses a copy is not asked in a loop. */
   private readonly sends = new Map<string, PendingSend>()
-  /** What a folder of a draft holds, by host and path: the last answer of its host. */
-  private readonly folderScans = new SvelteMap<string, CodebaseFolderScan>()
   /** The newest read of each host's members. A token is never used again, so an old answer cannot look current. */
   private readonly memberReadTokens = new Map<string, number>()
   private memberReadCount = 0
@@ -193,6 +193,15 @@ export class CodebasesStore {
   }
 
   /**
+   * True when a folder on a host of this client is the container root of a
+   * codebase: it shows under Codebases, never in a project list (decision 14).
+   */
+  isContainerRoot(serverId: string, path: string): boolean {
+    const installationId = this.installationIdOf(serverId)
+    return !!installationId && isContainerRoot(this.codebases, installationId, path)
+  }
+
+  /**
    * The roots of one codebase, grouped by host, with the members that each
    * host read. A host that is away keeps its last answer with `isStale`. A
    * root on a host that this client does not know stays in the list with
@@ -258,36 +267,13 @@ export class CodebasesStore {
   }
 
   /**
-   * Read what the folder of a draft holds, and keep the answer for
-   * `projectScanAt`. A failure keeps the last answer: the folder then shows
-   * as it did.
-   */
-  async readFolder(serverId: string, path: string): Promise<void> {
-    const key = `${serverId}\n${hostPathKey(path)}`
-    const token = ++this.memberReadCount
-    this.memberReadTokens.set(key, token)
-    const scan = await this.scanFolder(serverId, path).catch(() => null)
-    if (scan && this.memberReadTokens.get(key) === token) this.folderScans.set(key, scan)
-  }
-
-  /**
-   * What the project folder of a draft holds, as its host last read it: the
-   * folder, then the repositories inside it. A project covers these with no
-   * codebase (docs/plans/codebases.md decision 14), so a session there gets
-   * them, and a new worktree can isolate each one. Null when the folder was
-   * not read.
-   */
-  projectScanAt(serverId: string, path: string): CodebaseFolderScan | null {
-    return this.folderScans.get(`${serverId}\n${hostPathKey(path)}`) ?? null
-  }
-
-  /**
-   * Make a codebase of two or more folders. Each root is scanned on its host,
-   * and the resolved path is stored. One folder is refused: it is a project.
+   * Make a codebase of two or more folders, or of one container: a folder
+   * that is no repository and holds two or more repositories. Each root is
+   * scanned on its host, and the resolved path is stored. One project is
+   * refused: it is no codebase.
    */
   async create(name: string, roots: readonly CodebaseRootChoice[]): Promise<Codebase> {
     const codebaseName = requiredName(name)
-    if (roots.length < CODEBASE_ROOTS_MIN) throw new Error(NEW_CODEBASE_NEEDS_FOLDERS)
     const scannedRoots: CodebaseRoot[] = []
     for (const choice of roots) {
       const root = await this.scannedRoot(choice)
@@ -295,6 +281,7 @@ export class CodebasesStore {
       if (refusal) throw new CodebaseRootRefused(refusal)
       scannedRoots.push(root)
     }
+    if (!hasEnoughRoots(scannedRoots)) throw new Error(NEW_CODEBASE_NEEDS_FOLDERS)
     return this.commit({ id: crypto.randomUUID(), name: codebaseName, roots: scannedRoots, updatedAt: this.now(), deletedAt: null })
   }
 
@@ -325,14 +312,14 @@ export class CodebasesStore {
 
   /**
    * Take a root out of the codebase. No file is deleted. Throws
-   * `CodebaseRootRefused` when only two roots are left: a codebase has two or
-   * more folders, so the person deletes the codebase.
+   * `CodebaseRootRefused` when the roots that stay are no codebase (fewer
+   * than two, and no container): the person deletes the codebase.
    */
   async removeRoot(codebaseId: string, root: Pick<CodebaseRoot, 'installationId' | 'path'>): Promise<Codebase> {
     const current = this.requiredCodebase(codebaseId)
     const roots = current.roots.filter((existing) => !isSameRoot(existing, root))
     if (roots.length === current.roots.length) return current
-    const refusal = rootRemovalRefusal(current.roots)
+    const refusal = rootRemovalRefusal(current.roots, root)
     if (refusal) throw new CodebaseRootRefused(refusal)
     const saved = await this.commit({ ...current, roots, updatedAt: nextUpdatedAt(current, this.now()) })
     this.readChangedMembers(saved)
@@ -382,7 +369,7 @@ export class CodebasesStore {
     if (!installationId) throw new Error('This host is not ready. Wait until it is connected, then try again.')
     const scan = await this.access.api(choice.serverId).codebaseScanFolder(choice.path)
     if (scan.state === 'missing') throw new CodebaseRootRefused('missing')
-    return rootFor(installationId, scan.path)
+    return rootFor(installationId, scan)
   }
 
   /**
@@ -547,3 +534,6 @@ export class CodebasesStore {
 }
 
 export const codebasesStore = new CodebasesStore()
+
+// Each project list of the client asks this store which folders are containers.
+provideContainerRule((serverId, path) => codebasesStore.isContainerRoot(serverId, path))

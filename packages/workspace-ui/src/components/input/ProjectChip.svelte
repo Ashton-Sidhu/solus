@@ -37,11 +37,16 @@
     chipHint,
     codebaseChipOptions,
     codebaseChoiceStep,
+    codebaseFavicons,
+    codebaseTooltip,
     marksProjectRow,
-    projectRowNote,
     type CodebaseChipOption,
+    type CodebaseChipRoot,
   } from "./lib/codebase-choice";
   import { membersOnHost } from "../../contexts/codebases/host-members";
+  import { sameHostPath } from "@solus/contracts/host-path";
+  import CodebaseFavicons from "./CodebaseFavicons.svelte";
+  import CodebaseTooltip from "./CodebaseTooltip.svelte";
   import { codebaseOf, isDispatch, projectHome, projectRoot, refusesCodebase, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
@@ -120,10 +125,13 @@
   const projectOnRunHost = $derived(
     projectDir && projectDir !== "~" && !inChat && !isDispatch(run) ? projectDir : null,
   );
-  /** The repositories that a codebase covers on the run host, or null when that host did not read them. */
-  function repositoryCountOf(id: string): number | null {
-    const read = membersOnHost(codebasesStore.membersOf(id), selectedHostId);
-    return read.isRead ? read.members.filter((member) => member.state === "git").length : null;
+  /** The repositories that the host of a container root found inside it, or null when that host did not read them. */
+  function repositoriesIn(id: string, root: CodebaseChipRoot): string[] | null {
+    const read = membersOnHost(codebasesStore.membersOf(id), root.serverId);
+    if (!read.isRead) return null;
+    return read.members
+      .filter((member) => member.discovered && member.state === "git" && sameHostPath(member.rootPath, root.path))
+      .map((member) => member.path);
   }
   const codebases = $derived(
     onSelectCodebase
@@ -131,11 +139,13 @@
           codebasesStore.codebases,
           { serverId: selectedHostId, projectPath: projectOnRunHost, codebaseId },
           (installationId) => codebasesStore.hostOf(installationId),
-          repositoryCountOf,
+          repositoriesIn,
         )
       : [],
   );
   const currentCodebase = $derived(onSelectCodebase && codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
+  // The row of the codebase of the run: the chip shows its favicons, and its tooltip has its folders.
+  const currentOption = $derived(currentCodebase ? codebases.find((codebase) => codebase.id === currentCodebase.id) : undefined);
   // The one choice: a run that has a codebase shows the codebase, and each
   // other run shows the project. The list marks the same one row.
   const chip = $derived(
@@ -175,11 +185,11 @@
     query = "";
     codebaseStep = null;
     void projectsStore.loadRecentProjects(hostId);
-    // A row says how many repositories its codebase covers on the run host.
+    // The row of a container codebase shows the favicons of the repositories that its host finds.
     if (onSelectCodebase) {
       untrack(() => {
         for (const codebase of codebases) {
-          if (codebase.roots.length > 0) void codebasesStore.refreshMembers(codebase.id);
+          if ([...codebase.roots, ...codebase.otherHosts.flatMap((host) => host.roots)].some((root) => root.container)) void codebasesStore.refreshMembers(codebase.id);
         }
       });
     }
@@ -300,14 +310,15 @@
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >
-              <!-- One name: the codebase of the run with the codebase icon, else the project. -->
+              <!-- One name: the codebase of the run with the favicons of its folders, else the project. -->
               {#if chip.kind === "codebase"}
-                <CodebaseIcon
-                  size={16}
-                  class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+                <span
+                  class="flex shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
-                />
+                >
+                  <CodebaseFavicons places={codebaseFavicons(currentOption?.folders ?? [])} size={16} />
+                </span>
               {:else}
                 <ProjectFavicon
                   projectKey={inChat ? projectDir : currentKey}
@@ -325,16 +336,28 @@
             {/if}
           {/snippet}
         </TooltipUI.Trigger>
+        {#if currentOption && !onAllProjects}
+          <!-- A codebase run: what the chip does, then the name and each folder with its host. -->
+          <CodebaseTooltip details={codebaseTooltip(currentOption)} side="top" {hint}>
+            {#snippet lead()}
+              <span class="flex max-w-full items-center gap-1 font-medium">
+                <span class="min-w-0 text-pretty">Change the project for this chat</span>
+                {#if comboHint("global.select-project")}
+                  <kbd
+                    class="shrink-0 rounded-[0.1875rem] bg-(--solus-surface-hover) px-[3px] py-px font-(family-name:--solus-code-font-family) text-xs font-medium leading-[1.3] text-(--solus-text-secondary) shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)]"
+                  >{comboHint("global.select-project")}</kbd>
+                {/if}
+              </span>
+            {/snippet}
+          </CodebaseTooltip>
+        {:else}
         <TooltipUI.Content
           value={{
-            label: onAllProjects
-              ? "Choose the settings project"
-              : hint
-                ? `Change the project for this chat. ${hint}`
-                : "Change the project for this chat",
+            label: onAllProjects ? "Choose the settings project" : "Change the project for this chat",
             shortcut: comboHint("global.select-project"),
           }}
         />
+        {/if}
       </TooltipUI.Root>
     {/snippet}
   </Popover.Trigger>
@@ -401,7 +424,6 @@
         <Command.Group heading="Projects">
           {#each shownProjects as project (project.key)}
             {@const isCurrent = marksProjectRow(chip, project.key, currentKey)}
-            {@const repositoriesNote = onSelectCodebase ? projectRowNote(codebasesStore.projectScanAt(project.checkout.serverId, project.checkout.projectRoot)) : null}
             <Command.Item
               value="{project.label} {project.key}"
               onSelect={() => activate(project.checkout)}
@@ -412,10 +434,6 @@
               <span class="min-w-0 flex-1 {onAllProjects ? 'whitespace-normal break-words' : 'truncate'}">
                 {project.label}
               </span>
-              {#if repositoriesNote}
-                <!-- A project covers the repositories inside it, with no codebase. -->
-                <span class="max-w-28 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{repositoriesNote}</span>
-              {/if}
               {#if project.hostLabel}
                 <span class="{onAllProjects ? 'max-w-40 whitespace-normal break-words' : 'max-w-24 truncate'} shrink-0 text-xs text-(--solus-text-tertiary)">{project.hostLabel}</span>
               {/if}
@@ -434,31 +452,41 @@
         {/if}
 
         {#if onSelectCodebase && (shownCodebases.length > 0 || showsNoCodebase)}
-        <!-- A codebase is a set of two or more folders that one piece of work
-             covers. A choice sets the codebase of the run. The folder of the
-             run stays when the codebase holds it; else its first folder on
-             the run host opens. -->
+        <!-- A codebase is two or more projects, or one container, that one
+             piece of work covers. A row shows the favicons of its folders
+             and its name. Its tooltip has each folder with its host. A
+             choice sets the codebase of the run. The folder of the run stays
+             when the codebase holds it; else its first folder on the run
+             host opens. -->
         <Command.Group heading="Codebases">
           {#each shownCodebases as codebase (codebase.id)}
             {@const step = codebaseChoiceStep(codebase)}
-            <Command.Item
-              value="codebase {codebase.name} {codebase.id}"
-              disabled={step.kind === "none"}
-              onSelect={() => chooseCodebaseOption(codebase)}
-              data-menu-current={codebase.isCurrent ? "" : undefined}
-              class="menu-item-stagger"
-            >
-              <CodebaseIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-              <span class="min-w-0 flex-1 truncate">{codebase.name}</span>
-              {#if codebase.note}
-                <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{codebase.note}</span>
-              {/if}
-              {#if codebase.isCurrent}
-                <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
-              {:else if step.kind === "hosts"}
-                <StepIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-              {/if}
-            </Command.Item>
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: rowTooltipProps })}
+                  <Command.Item
+                    {...rowTooltipProps}
+                    value="codebase {codebase.name} {codebase.id}"
+                    disabled={step.kind === "none"}
+                    onSelect={() => chooseCodebaseOption(codebase)}
+                    data-menu-current={codebase.isCurrent ? "" : undefined}
+                    class="menu-item-stagger"
+                  >
+                    <CodebaseFavicons places={codebaseFavicons(codebase.folders)} />
+                    <span class="min-w-0 flex-1 truncate">{codebase.name}</span>
+                    {#if codebase.note}
+                      <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{codebase.note}</span>
+                    {/if}
+                    {#if codebase.isCurrent}
+                      <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
+                    {:else if step.kind === "hosts"}
+                      <StepIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                    {/if}
+                  </Command.Item>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <CodebaseTooltip details={codebaseTooltip(codebase)} />
+            </TooltipUI.Root>
           {/each}
           {#if showsNoCodebase}
             <Command.Item value="no codebase" onSelect={clearCodebase} class="menu-item-stagger">

@@ -45,6 +45,7 @@ const DESCRIBE: ManagedValueDescriptions = {
   delegationInstructions: () => 'set delegation instructions',
   sourceControlWriting: () => 'a set writing style for commits and pull requests',
   worktreeBranchNaming: () => 'a set branch name format',
+  codebaseNaming: (value) => value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names',
   defaultPermissionMode: (value) => `${PERMISSION_MODE_DISPLAY[value].label} by default`,
   agentTaskLifecyclePolicy: (value) => TASK_LIFECYCLE[value],
   rateLimitBehavior: (value) => RATE_LIMIT_BEHAVIOR[value],

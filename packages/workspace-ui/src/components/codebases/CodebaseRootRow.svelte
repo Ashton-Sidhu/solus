@@ -15,7 +15,7 @@
     /** The host can get a folder now. */
     canAdd: boolean;
     isBusy: boolean;
-    /** False when the codebase has only two folders left: the page says to delete the codebase. */
+    /** False when the folders that stay are no codebase: the page says to delete the codebase. */
     canRemove: boolean;
     onRemove: () => Promise<void>;
     onAddSuggestion: (path: string) => void;

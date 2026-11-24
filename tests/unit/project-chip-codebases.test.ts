@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Codebase, CodebaseFolderScan, CodebaseMember } from '@solus/contracts/codebases'
+import type { Codebase } from '@solus/contracts/codebases'
 import type { RunConfig, RunLocation } from '@solus/contracts/types'
 import {
   NO_FOLDER_ON_CLIENT_NOTE,
@@ -9,8 +9,9 @@ import {
   chipHint,
   codebaseChipOptions,
   codebaseChoiceStep,
+  codebaseFavicons,
+  codebaseTooltip,
   marksProjectRow,
-  projectRowNote,
   type CodebaseChipHost,
 } from '@solus/workspace-ui/components/input/lib/codebase-choice'
 import { CodebaseDecisions, aimRunAtCodebase } from '@solus/workspace-ui/components/input/lib/project-selection'
@@ -21,9 +22,10 @@ import { codebaseOf, checkoutPlace, chooseCodebase, folderLocation, inheritedLoc
  * The codebases of the project chip (docs/plans/codebases.md §9, "Start").
  * The chip has one choice: a run is in a project, or it is in a codebase. A
  * person must never read two names, or see two marked rows, for one place. A
- * codebase has two or more folders, so a project is never also a codebase. A
- * root names its host by an installation id; the chip opens a root on a host
- * of this client.
+ * project is one folder or one repository, and a codebase is two or more
+ * projects or one container, so a project is never also a codebase. A root
+ * names its host by an installation id; the chip opens a root on a host of
+ * this client.
  */
 
 const HOSTS: Record<string, CodebaseChipHost> = {
@@ -40,6 +42,8 @@ const shop = codebase('shop', [['install-laptop', '/code/shop'], ['install-lapto
 const platform = codebase('platform', [['install-laptop', '/code/shop/api'], ['install-laptop', '/code/libs'], ['install-build', '/srv/infra']])
 const infra = codebase('infra', [['install-build', '/srv/infra'], ['install-build', '/srv/tools']])
 const lost = codebase('lost', [['install-unknown', '/somewhere'], ['install-unknown', '/elsewhere']])
+/** A container: one root, `/code/store`, that holds the repositories `api` and `web`. */
+const store: Codebase = { id: 'store', name: 'store', roots: [{ installationId: 'install-laptop', path: '/code/store', name: 'store', container: true }], updatedAt: 1, deletedAt: null }
 
 describe('the Codebases group of the project chip', () => {
   const run = { serverId: 'laptop', projectPath: '/code/other', codebaseId: null }
@@ -47,14 +51,14 @@ describe('the Codebases group of the project chip', () => {
   test('lists each codebase, and a choice opens its first folder on the run host', () => {
     const [option] = codebaseChipOptions([shop], run, hostOf)
     expect(option).toMatchObject({ id: 'shop', isCurrent: false, note: null })
-    expect(codebaseChoiceStep(option!)).toEqual({ kind: 'open', root: { serverId: 'laptop', path: '/code/shop', name: 'shop' } })
+    expect(codebaseChoiceStep(option!)).toEqual({ kind: 'open', root: { serverId: 'laptop', path: '/code/shop', name: 'shop', container: false } })
   })
 
   // The list has no second step for the folders of a codebase: a row of the
   // Projects group is how a person changes the working folder inside a codebase.
   test('a codebase with several folders on the run host opens the first one, with no second step', () => {
     const [option] = codebaseChipOptions([platform], run, hostOf)
-    expect(codebaseChoiceStep(option!)).toEqual({ kind: 'open', root: { serverId: 'laptop', path: '/code/shop/api', name: 'api' } })
+    expect(codebaseChoiceStep(option!)).toEqual({ kind: 'open', root: { serverId: 'laptop', path: '/code/shop/api', name: 'api', container: false } })
   })
 
   // A session changes only the folders on its run host, so a codebase with no
@@ -64,7 +68,7 @@ describe('the Codebases group of the project chip', () => {
     expect(option!.note).toBe(NO_FOLDER_ON_HOST_NOTE)
     const step = codebaseChoiceStep(option!)
     expect(step.kind === 'hosts' && step.hosts).toEqual([
-      { serverId: 'build', label: 'Build server', isReady: true, roots: [{ serverId: 'build', path: '/srv/infra', name: 'infra' }, { serverId: 'build', path: '/srv/tools', name: 'tools' }] },
+      { serverId: 'build', label: 'Build server', isReady: true, roots: [{ serverId: 'build', path: '/srv/infra', name: 'infra', container: false }, { serverId: 'build', path: '/srv/tools', name: 'tools', container: false }] },
     ])
   })
 
@@ -87,40 +91,75 @@ describe('the Codebases group of the project chip', () => {
     expect(options.map((option) => option.isCurrent)).toEqual([false, true])
   })
 
-  // The note says what the codebase covers on the run host.
-  test('a row says how many repositories its codebase covers on the run host, when that host read them', () => {
-    const counts: Record<string, number | null> = { shop: 2, platform: 1, infra: 4 }
-    const options = codebaseChipOptions([shop, platform, infra], run, hostOf, (id) => counts[id] ?? null)
-    expect(options.map((option) => option.note)).toEqual(['2 repositories', '1 repository', NO_FOLDER_ON_HOST_NOTE])
-    // Before the host reads the members, the row says nothing: a count of zero would be a wrong fact.
-    expect(codebaseChipOptions([shop], run, hostOf, () => null)[0]!.note).toBeNull()
+  // The maintainers removed each count from the list: a row is the favicons of the folders and the name.
+  test('a row has no count: its note says only that the run host has no folder', () => {
+    const repositoriesIn = () => ['/code/shop/api', '/code/shop/web']
+    const options = codebaseChipOptions([shop, platform, store, infra, lost], run, hostOf, repositoriesIn)
+    expect(options.map((option) => option.note)).toEqual([null, null, null, NO_FOLDER_ON_HOST_NOTE, NO_FOLDER_ON_CLIENT_NOTE])
+  })
+
+  test('a row shows the favicons of its folders, at most three, on the hosts of this client', () => {
+    const [ofShop, ofPlatform, ofLost] = codebaseChipOptions([shop, platform, lost], run, hostOf)
+    expect(codebaseFavicons(ofShop!.folders)).toEqual([{ serverId: 'laptop', path: '/code/shop' }, { serverId: 'laptop', path: '/code/ui' }])
+    // A folder on a different host of this client has a favicon too: the row shows the codebase, not the run host.
+    expect(codebaseFavicons(ofPlatform!.folders)).toEqual([{ serverId: 'laptop', path: '/code/shop/api' }, { serverId: 'laptop', path: '/code/libs' }, { serverId: 'build', path: '/srv/infra' }])
+    // No folder on a host of this client: the row shows the codebase icon.
+    expect(codebaseFavicons(ofLost!.folders)).toEqual([])
+
+    const many = codebase('many', [1, 2, 3, 4, 5].map((n): [string, string] => ['install-laptop', `/code/p${n}`]))
+    expect(codebaseFavicons(codebaseChipOptions([many], run, hostOf)[0]!.folders).map((place) => place.path)).toEqual(['/code/p1', '/code/p2', '/code/p3'])
+  })
+
+  test('a container codebase shows the favicons of its repositories, and its own folder until its host read them', () => {
+    const read = codebaseChipOptions([store], run, hostOf, (id, root) => (id === 'store' && root.path === '/code/store' ? ['/code/store/api', '/code/store/web'] : null))[0]!
+    expect(codebaseFavicons(read.folders)).toEqual([{ serverId: 'laptop', path: '/code/store/api' }, { serverId: 'laptop', path: '/code/store/web' }])
+    const notRead = codebaseChipOptions([store], run, hostOf)[0]!
+    expect(codebaseFavicons(notRead.folders)).toEqual([{ serverId: 'laptop', path: '/code/store' }])
+    // The host is asked only about a container root: a root that is a project has nothing inside it to show.
+    const asked: string[] = []
+    codebaseChipOptions([shop, store], run, hostOf, (_id, root) => { asked.push(root.path); return null })
+    expect(asked).toEqual(['/code/store'])
+  })
+
+  test('the tooltip has the details: the name, then each folder with its host', () => {
+    const [ofPlatform, ofLost] = codebaseChipOptions([platform, lost], run, hostOf)
+    expect(codebaseTooltip(ofPlatform!)).toEqual({
+      name: 'platform',
+      folders: [{ name: 'api', host: 'Laptop' }, { name: 'libs', host: 'Laptop' }, { name: 'infra', host: 'Build server' }],
+      more: 0,
+    })
+    // A host that this client does not know has no name here: the tooltip says so.
+    expect(codebaseTooltip(ofLost!).folders).toEqual([{ name: 'somewhere', host: null }, { name: 'elsewhere', host: null }])
+    const read = codebaseChipOptions([store], run, hostOf, () => ['/code/store/api', '/code/store/web'])[0]!
+    expect(codebaseTooltip(read)).toEqual({ name: 'store', folders: [{ name: 'api', host: 'Laptop' }, { name: 'web', host: 'Laptop' }], more: 0 })
+  })
+
+  test('a tooltip of a codebase with many folders names eight, then the count of the others', () => {
+    const many = codebase('many', Array.from({ length: 11 }, (_, n): [string, string] => ['install-laptop', `/code/p${n}`]))
+    const details = codebaseTooltip(codebaseChipOptions([many], run, hostOf)[0]!)
+    expect(details.folders).toHaveLength(8)
+    expect(details.more).toBe(3)
   })
 })
 
-function scanMember(path: string, rootPath: string, patch: Partial<CodebaseMember> = {}): CodebaseMember {
-  return { path, name: path.split('/').at(-1)!, state: 'git', repositoryKey: null, rootPath, discovered: path !== rootPath, hasCommit: true, submodule: false, ...patch }
-}
-
-function scanOf(path: string, repositories: string[], state: 'git' | 'plain' = 'plain'): CodebaseFolderScan {
-  return { path, state, members: [scanMember(path, path, { state }), ...repositories.map((name) => scanMember(`${path}/${name}`, path))], suggestions: [] }
-}
-
-describe('a project that holds repositories', () => {
-  // docs/plans/codebases.md decision 14: a project covers the repositories inside it, with no codebase.
-  // Before, the host made a codebase from the folder, and the picker showed its name as a project and as a codebase.
-  test('is a project only: its row says how many repositories it holds, and the chip shows the project with no note', () => {
-    expect(projectRowNote(scanOf('/code/store', ['api', 'web']))).toBe('2 repositories')
-    expect(projectRowNote(scanOf('/code/store', ['api']))).toBe('1 repository')
-    expect(chipAtRest('store', undefined, { holding: [] })).toEqual({ kind: 'project', name: 'store', note: null })
-    // The Codebases group gets no row for it: only the records of the store are listed.
-    expect(codebaseChipOptions([], { serverId: 'laptop', projectPath: '/code/store', codebaseId: null }, hostOf)).toEqual([])
+describe('a container codebase in the list', () => {
+  // docs/plans/codebases.md decision 14: a session of a container works in the container folder,
+  // so that a path between two of its repositories works.
+  test('a choice opens the container folder', () => {
+    const elsewhere = codebaseChipOptions([store], { serverId: 'laptop', projectPath: '/code/other', codebaseId: null }, hostOf)[0]!
+    expect(codebaseChoiceStep(elsewhere)).toEqual({ kind: 'open', root: { serverId: 'laptop', path: '/code/store', name: 'store', container: true } })
   })
 
-  test('a project with no repository inside it, and a project that was not read, have no note', () => {
-    expect(projectRowNote(scanOf('/code/store', []))).toBeNull()
-    // A repository is not inside itself.
-    expect(projectRowNote(scanOf('/code/store', [], 'git'))).toBeNull()
-    expect(projectRowNote(null)).toBeNull()
+  test('a run in one repository of the container moves to the container folder, and a run in that folder stays', () => {
+    const inApi = codebaseChipOptions([store], { serverId: 'laptop', projectPath: '/code/store/api', codebaseId: 'store' }, hostOf)[0]!
+    expect(inApi.holdsProject).toBe(true)
+    expect(codebaseChoiceStep(inApi)).toMatchObject({ kind: 'open', root: { path: '/code/store' } })
+    const inStore = codebaseChipOptions([store], { serverId: 'laptop', projectPath: '/code/store', codebaseId: 'store' }, hostOf)[0]!
+    expect(codebaseChoiceStep(inStore)).toEqual({ kind: 'keep' })
+  })
+
+  test('the chip of a draft in the container shows the codebase, with no project name beside it', () => {
+    expect(chipAtRest('store', store, { holding: [store] })).toEqual({ kind: 'codebase', name: 'store', note: null })
   })
 })
 
@@ -180,8 +219,10 @@ describe('the automatic codebase of a project folder', () => {
     expect(chipAtRest('api', undefined, { holding: [shop, platform], refuses: true })).toEqual({ kind: 'project', name: 'api', note: null })
   })
 
-  test('a folder in no codebase gets none, and the chip shows the project', () => {
-    expect(automaticCodebase(null, [])).toBeNull()
+  test('a folder in no codebase is not decided, and the chip shows the project', () => {
+    // WHY: the host forms the codebase of a container when a person opens the folder. Its record can arrive
+    // after the draft is there, and it must then apply.
+    expect(automaticCodebase(null, [])).toBeUndefined()
     expect(chipAtRest('other', undefined, { holding: [] })).toEqual({ kind: 'project', name: 'other', note: null })
   })
 
@@ -255,7 +296,7 @@ function runAt(path: string, codebaseId: string | null = null): RunConfig {
 function strip(initial: RunConfig, holding: () => Codebase[], hostStatus: () => 'ready' | 'loading' = () => 'ready') {
   const effects: Array<() => void | (() => void)> = []
   runtime.$effect = (effect) => { effects.push(effect) }
-  const state = { run: initial, isStarted: false, needsBaseBranch: false, opened: 0, memberWatches: [] as string[], folderReads: [] as string[], deleted: [] as string[] }
+  const state = { run: initial, isStarted: false, needsBaseBranch: false, opened: 0, memberWatches: [] as string[], deleted: [] as string[] }
   const decisions = new CodebaseDecisions()
   useCodebaseStart({
     sourceId: 'draft-1',
@@ -267,9 +308,7 @@ function strip(initial: RunConfig, holding: () => Codebase[], hostStatus: () => 
       watchMembers: (codebaseId) => { state.memberWatches.push(codebaseId); return () => {} },
       isDeleted: (codebaseId) => state.deleted.includes(codebaseId),
       codebasesOfFolder: () => holding(),
-      readFolder: async (serverId, path) => { state.folderReads.push(`${serverId}:${path}`) },
     },
-    get projectFolder() { return checkoutPlace(state.run).path },
     decisions,
     applyLocation: (next: RunLocation) => { state.run = { ...state.run, location: next } },
     get needsBaseBranch() { return state.needsBaseBranch },
@@ -326,20 +365,15 @@ describe('the codebase of a run that the strip shows', () => {
     expect(chipAtRest('api', shop, { holding: [shop] })).toEqual({ kind: 'codebase', name: 'shop', note: null })
   })
 
-  // A project covers the repositories inside it. The strip reads the folder, so the start control lists them for a new worktree.
-  test('the project folder of a draft is read one time, also when a codebase holds it', () => {
-    const { state, update } = strip(runAt('/code/store'), () => [])
+  // The host forms the codebase of a container when a person opens the folder. The record arrives after the draft.
+  test('a codebase that forms for the folder after the draft is there applies, with no step', () => {
+    let holding: Codebase[] = []
+    const { state, update } = strip(runAt('/code/store'), () => holding)
     update()
+    expect(codebaseOf(state.run)).toBeNull()
+    holding = [store]
     update()
-    expect(state.folderReads).toEqual(['laptop:/code/store'])
-    state.run = runAt('/code/elsewhere')
-    update()
-    expect(state.folderReads).toEqual(['laptop:/code/store', 'laptop:/code/elsewhere'])
-
-    const held = strip(runAt('/code/shop'), () => [shop])
-    held.update()
-    held.update()
-    expect(held.state.folderReads).toEqual(['laptop:/code/shop'])
+    expect(codebaseOf(state.run)).toBe('store')
   })
 
   test('waits for the host to answer its codebases', () => {

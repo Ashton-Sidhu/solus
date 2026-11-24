@@ -66,7 +66,7 @@ function dividerPredicate(activity: Activity): string | null {
     case 'forked': return activity.midRun ? 'forked mid-run from' : 'forked from'
     case 'moved_to_worktree': return activity.projectFolder ? 'continued in the project folder on' : 'continued in worktree'
     case 'agent_switched': return 'continued with'
-    case 'codebase_formed': return 'made the codebase'
+    case 'codebase_formed': return 'made codebase'
     case 'plan_decided': return activity.newSessionId ? 'started a new session implementing' : null
     default: return null
   }

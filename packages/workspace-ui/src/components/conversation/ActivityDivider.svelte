@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Activity } from "@solus/contracts/activity";
   import { FolderGit2 as CodebaseIcon, GitFork as GitForkIcon, CirclePlus as PlusCircleIcon } from "@lucide/svelte";
-  import { getWorkspaceContext, getPlanStore } from "../../contexts";
+  import { codebasesStore, getWorkspaceContext, getPlanStore } from "../../contexts";
   import { agentLabel } from "../../lib/agentAvailability";
   import ActivityRow from "../activity/ActivityRow.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import WorktreeOfferCard from "./WorktreeOfferCard.svelte";
-  import { codebaseDividerFolders } from "./lib/codebase-divider";
+  import { codebaseDividerName } from "./lib/codebase-divider";
   import { worktreeDividerName } from "./lib/worktree-divider";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -56,17 +56,19 @@
     />
   </TranscriptDivider>
 {:else if activity.kind === "codebase_formed"}
-  <!-- The host made a codebase for the session. The line opens the codebase in
-       Settings, where its folders and its delete are. -->
+  <!-- The host made a codebase for the session. The line shows the name that
+       the codebase has now, and it opens the codebase in Settings, where its
+       folders and its delete are. -->
+  {@const codebaseName = codebaseDividerName(activity, codebasesStore.codebaseOf(activity.codebaseId))}
   <TranscriptDivider
     glyphClass="text-(--solus-accent)"
-    ariaLabel="Open the codebase {activity.name} in Settings"
+    ariaLabel="Open the codebase {codebaseName} in Settings"
     onclick={() => session.router.navigate({ name: "settings", params: { tab: "codebases", codebase: activity.codebaseId } })}
     testid="codebase-formed-message"
     {skipMotion}
   >
     {#snippet glyph()}<CodebaseIcon size={12} />{/snippet}
-    <ActivityRow {activity} {self} short title={activity.name} tail={codebaseDividerFolders(activity.folders)} />
+    <ActivityRow {activity} {self} short title={codebaseName} />
   </TranscriptDivider>
 {:else if activity.kind === "worktree_offered"}
   <WorktreeOfferCard offer={activity} {tabId} />

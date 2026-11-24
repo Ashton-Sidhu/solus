@@ -33,6 +33,7 @@
   import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import ProjectBranchNamingSetting from "./ProjectBranchNamingSetting.svelte";
+  import ProjectCodebaseNamingSetting from "../codebases/ProjectCodebaseNamingSetting.svelte";
   import ProjectCopiedFilesSetting from "./ProjectCopiedFilesSetting.svelte";
   import WorktreeBranchNamingRow from "./WorktreeBranchNamingRow.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
@@ -152,9 +153,10 @@
 </script>
 
 {#if projectCwd}
-  <SettingsSection {...settingsDefinitions["source-control.section-project-worktrees"]} visible={isVisible("project-branch-names") || isVisible("copied-files")}>
+  <SettingsSection {...settingsDefinitions["source-control.section-project-worktrees"]} visible={isVisible("project-branch-names") || isVisible("project-codebase-names") || isVisible("copied-files")}>
     {#key `${serverId}:${projectCwd}`}
       <ProjectBranchNamingSetting {serverId} {api} cwd={projectCwd} />
+      <ProjectCodebaseNamingSetting {serverId} {api} cwd={projectCwd} />
       <ProjectCopiedFilesSetting {serverId} cwd={projectCwd} />
     {/key}
   </SettingsSection>

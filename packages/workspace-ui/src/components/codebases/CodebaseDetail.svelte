@@ -30,8 +30,10 @@
   const isListLoading = $derived(codebasesStore.hosts.some((host) => host.isReady && host.status !== "ready" && host.status !== "unavailable"));
   const isRefreshing = $derived(groups.some((group) => group.state === "loading"));
   const isFull = $derived((codebase?.roots.length ?? 0) >= CODEBASE_ROOTS_MAX);
-  // A codebase has two or more folders: one of the last two cannot be removed.
-  const removalRefusal = $derived(codebase ? rootRemovalRefusal(codebase.roots) : null);
+  // The folders that stay must still be a codebase: two or more, or one container.
+  const fixedRoots = $derived(
+    new Set((codebase?.roots ?? []).filter((root) => rootRemovalRefusal(codebase?.roots ?? [], root)).map(codebaseRootKey)),
+  );
 
   $effect(() => {
     const shownId = codebaseId;
@@ -244,8 +246,8 @@
       {#if isFull}
         <p class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText("limit")}</p>
       {/if}
-      {#if removalRefusal}
-        <p id="codebase-removal-refusal" class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText(removalRefusal)}</p>
+      {#if fixedRoots.size > 0}
+        <p id="codebase-removal-refusal" class="text-[13px] leading-[1.45] text-(--solus-text-secondary)">{rootRefusalText("too-few")}</p>
       {/if}
 
       {#if groups.length === 0}
@@ -276,7 +278,7 @@
                 {entry}
                 canAdd={group.presence === "ready" && !isFull}
                 {isBusy}
-                canRemove={!removalRefusal}
+                canRemove={!fixedRoots.has(codebaseRootKey(entry.root))}
                 onRemove={() => removeRoot(entry.root.installationId, entry.root.path)}
                 onAddSuggestion={(path) => addSuggestion(group.serverId, path)}
               />

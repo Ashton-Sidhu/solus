@@ -8,10 +8,12 @@ import { codebasesSearchWords } from '../../packages/workspace-ui/src/components
 import { wordsMatch } from '../../packages/workspace-ui/src/components/settings/lib/settings-search'
 import { settingsSectionLoaders } from '../../packages/workspace-ui/src/components/settings/lib/settings-section-loaders'
 import {
+  CODEBASE_NAMING_OPTIONS,
   codebaseSummary,
   hostMembersNote,
   memberPlace,
   NEW_CODEBASE,
+  newCodebaseDraft,
   rootDescription,
   rootName,
   scanSummary,
@@ -141,3 +143,35 @@ describe('the text of the Codebases page', () => {
     expect(memberPlace(found('/code/shop/packages/web'))).toBe('packages/web')
   })
 })
+
+describe('the form of a new codebase', () => {
+  // docs/plans/codebases.md decision 14: a person chooses one container folder, or two folders.
+  const found = (path: string): CodebaseMember => ({ path, name: '', state: 'git', repositoryKey: null, rootPath: '/code/shop', discovered: true, hasCommit: true, submodule: false })
+  const folder = (path: string, state: 'git' | 'plain', inside: string[]): CodebaseFolderScan => ({
+    path, state, suggestions: [],
+    members: [{ ...found(path), discovered: false, state, rootPath: path }, ...inside.map((name) => ({ ...found(`${path}/${name}`), rootPath: path }))],
+  })
+
+  test('one folder that holds two or more repositories makes a codebase, with the name of the folder when none is typed', () => {
+    const container = folder('/code/shop', 'plain', ['api', 'web'])
+    expect(newCodebaseDraft('', container, false)).toEqual({ name: 'shop', firstIsContainer: true, canCreate: true })
+    expect(newCodebaseDraft('  Storefront ', container, false)).toMatchObject({ name: 'Storefront', canCreate: true })
+    // With a second folder the codebase is more than the container: the person names it.
+    expect(newCodebaseDraft('', container, true)).toMatchObject({ name: '', canCreate: false })
+  })
+
+  test('one folder that is a project needs a second folder', () => {
+    // WHY: a repository, and a folder that holds one repository or none, are projects. One project is no codebase.
+    for (const project of [folder('/code/api', 'git', []), folder('/code/api', 'git', ['a', 'b']), folder('/code/one', 'plain', ['api']), folder('/code/notes', 'plain', [])]) {
+      expect(newCodebaseDraft('Work', project, false)).toMatchObject({ firstIsContainer: false, canCreate: false })
+      expect(newCodebaseDraft('Work', project, true)).toMatchObject({ canCreate: true })
+    }
+    expect(newCodebaseDraft('Work', null, false).canCreate).toBe(false)
+  })
+
+  test('the naming setting has the two ways that a host knows, the generated one first', () => {
+    // WHY: the host reads these values from the setting of the person and from `.solus/config.json`.
+    expect(CODEBASE_NAMING_OPTIONS.map((option) => option.value)).toEqual(['generated', 'folders'])
+  })
+})
+

@@ -71,7 +71,7 @@ export class RootPickerState {
   /** The chosen folder as the root that it becomes: none, or one. The second folder of a new codebase reads the first one here. */
   get chosenRoots(): CodebaseRoot[] {
     const host = this.host
-    return this.choice && host?.installationId ? [rootFor(host.installationId, this.choice.path)] : []
+    return this.scan && this.choice && host?.installationId ? [rootFor(host.installationId, this.scan)] : []
   }
 
   /** Why the scanned folder cannot be added, as one line, or null when it can. */
