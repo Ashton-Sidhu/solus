@@ -6,6 +6,13 @@ import { memoryKeyValueStore, memorySecretStore } from "@solus-mobile/platform/p
 import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { WsTransport } from "@solus/client-core/ws-transport";
 import { RequestPanels } from "./RequestCards";
+import {
+  hostApprovalCard,
+  hostApprovalResponder,
+  sendHostApprovalFeedback,
+  useHostApprovalResponses,
+} from "./approval-requests";
+import { PendingApprovalCard } from "../features/threads/PendingApprovalCard";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
 import { ConversationCard } from "./ConversationCard";
@@ -233,6 +240,54 @@ it("sends an opaque permission option unchanged, and private answers only to the
   vi.spyOn(store.controller, "mayApprove", "get").mockReturnValue(false);
   await act(async () => submit!.click());
   expect(secret).toHaveBeenCalledTimes(1);
+});
+
+it("uses the T3 approval card and keeps approval feedback from racing a button response", async () => {
+  const { store, root, container } = await fixture();
+  const permission = {
+    questionId: "approval",
+    description: null,
+    toolName: "Run",
+    supportsFeedback: true as const,
+    options: [
+      { id: "allow-session", label: "Allow for Session", kind: "allow" },
+      { id: "deny", label: "Deny", kind: "deny" },
+    ],
+  };
+  const reply = Promise.withResolvers<boolean>();
+  const respond = vi.spyOn(store.controller, "answerPermission")
+    .mockReturnValueOnce(reply.promise)
+    .mockResolvedValueOnce(true);
+  const meta = { ...store.metaSnapshotOf(), permissions: [permission] };
+  vi.spyOn(store, "metaSnapshotOf").mockReturnValue(meta);
+
+  function ApprovalControls() {
+    const { respondToPermission, respondingPermissionId } = useHostApprovalResponses(store);
+    const projection = hostApprovalCard(permission)!;
+    return (
+      <>
+        <PendingApprovalCard
+          approval={projection.approval}
+          canOperateThread
+          respondingApprovalId={respondingPermissionId ? projection.approval.requestId : null}
+          onRespond={hostApprovalResponder(projection.optionIds, respondToPermission)}
+        />
+        <button onClick={() => void sendHostApprovalFeedback(permission, "Use a smaller scope.", respondToPermission)}>
+          Send feedback
+        </button>
+      </>
+    );
+  }
+
+  await act(async () => root.render(<ApprovalControls />));
+  const [allow, deny, feedback] = container.querySelectorAll("button");
+  await act(async () => allow!.click());
+  expect(deny?.disabled).toBe(true);
+  await act(async () => feedback!.click());
+  expect(respond.mock.calls).toEqual([["approval", "allow-session", undefined]]);
+  await act(async () => reply.resolve(false));
+  await act(async () => feedback!.click());
+  expect(respond).toHaveBeenLastCalledWith("approval", "deny", "Use a smaller scope.");
 });
 // The Add machine card does its work with host RPCs, then answers like a question: only the outcome goes back.
 it("answers the Add machine card with its outcome through the question answer", async () => {

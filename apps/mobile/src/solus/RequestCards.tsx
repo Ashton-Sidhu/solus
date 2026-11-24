@@ -75,13 +75,21 @@ export function RequestCards({
 export function RequestPanels({
   store,
   meta,
+  showPermission = true,
+  respondToPermission,
+  respondingPermissionId,
 }: {
   store: ConversationStore;
   meta: ConversationMeta;
+  showPermission?: boolean;
+  respondToPermission?: (requestId: string, optionId: string) => Promise<boolean>;
+  respondingPermissionId?: string | null;
 }) {
   const lock = useRef(false);
   const [responding, setResponding] = useState<string | null>(null);
-  const permission = meta.permissions.find((p) => !p.expired) ?? meta.permissions[0];
+  const permission = showPermission
+    ? meta.permissions.find((p) => !p.expired) ?? meta.permissions[0]
+    : undefined;
   const question = meta.questions.find((q) => !q.expired) ?? meta.questions[0];
   const submit = async (id: string, answer: () => Promise<boolean>) => {
     if (lock.current || !store.controller.mayApprove) return;
@@ -99,9 +107,13 @@ export function RequestPanels({
   const firstAllow =
     permission?.options.find((option) => option.kind?.startsWith("allow"))?.id ??
     permission?.options[0]?.id;
+  const answerPermission = (id: string, optionId: string) =>
+    submit(id, () => respondToPermission
+      ? respondToPermission(id, optionId)
+      : store.controller.answerPermission(id, optionId));
   return (
     <>
-      {permission && (
+      {permission ? (
         <ApprovalCardView
           key={permission.questionId}
           title={permission.toolName}
@@ -110,7 +122,7 @@ export function RequestPanels({
           canRespond={!permission.expired}
           expiredReason={permission.expired ? requestExpiryText(permission.expired) : undefined}
           mayApprove={store.controller.mayApprove}
-          disabled={responding !== null}
+          disabled={responding !== null || Boolean(respondingPermissionId)}
           options={permission.options.map((option) => ({
             id: option.id,
             label: option.label,
@@ -120,13 +132,10 @@ export function RequestPanels({
                 : option.id === firstAllow
                   ? "primary"
                   : "secondary",
-            respond: () =>
-              submit(permission.questionId, () =>
-                store.controller.answerPermission(permission.questionId, option.id),
-              ),
+            respond: () => answerPermission(permission.questionId, option.id),
           }))}
         />
-      )}
+      ) : null}
       {question?.kind === "secret" && (
         <PendingSecretCard
           key={question.questionId}

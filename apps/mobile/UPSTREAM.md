@@ -41,7 +41,7 @@ Video links in a session use the same Solus host and file access rules as the Fi
 
 The thread route owns the screen host, header, draft layout, and inspector. Saved sessions use T3's loading rule and inspector fallback. A session from the phone cache opens through the same account-scoped watch as a session from the list. After the selected host's phone cache has been read, a direct link outside the list uses the scoped session record query. The fallback can retry that query or reconnect the host. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
 
-The composer follows T3's Stop rule. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. The local outbox can show a busy state while the host has yet to take the prompt.
+The composer follows T3's Stop and follow-up dispatch rules. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. T3 chooses between queue and steer at send time. The Solus outbox saves the prompt and the host admits it to the session. The local outbox can show a busy state while the host has yet to take the prompt.
 
 Session navigation now uses the T3 opening hold and queued-creation check. The selected Solus host supplies one account-scoped read and watch to that hold and the screen. Home uses T3's visibility subscription. Home, the tablet sidebar, and arrangement controls share the result of T3's multi-environment shell release rules. The only change to the upstream release algorithm is its TypeScript snapshot type parameter.
 
@@ -77,7 +77,11 @@ Solus keeps pinned sessions at the top of the phone list and tablet sidebar afte
 
 Hosts advertise support for personal session order and the shared auto-settle setting. The list uses T3’s move planner and writes each rank to its owning host. Guest sharing uses a Solus viewer link with a 24-hour lifetime for newly created links. A linked session reads from its paired host or from the signed-in organization’s transcript mirror. The terminal has no Solus host operation.
 
-The queue sheet and T3 pending feed rows read the same Solus queue snapshot. The Agents sheet and its route match T3 Code revision `2fe7febc8d73dda7dcc912e8cca3cd65660a0c9d`. Solus uses live and saved provider results to show the final state and elapsed time when a completion time is available. The row preview skips the provider’s hand-back instructions. A provider-native agent opens T3’s read-only transcript list from the Agents sheet. The execution host resolves the provider call in its parent session and supplies each history page.
+The queue sheet and T3 pending feed rows read the same Solus queue snapshot and start edits through T3's queued-edit store. T3 handles attachment-only draft text and recovery when a run leaves the queue. Solus preserves host file references and submits the opened revision with an edit.
+
+Standard tool approvals use T3's approval card and feedback action. Solus maps each decision back to the original host option ID. Provider-specific choices keep their original buttons. Typing during an approval can send denial feedback only when the provider accepts it. Secret and Add machine requests keep their own host operations.
+
+The Agents sheet and its route match T3 Code revision `2fe7febc8d73dda7dcc912e8cca3cd65660a0c9d`. Solus uses live and saved provider results to show the final state and elapsed time when a completion time is available. The row preview skips the provider’s hand-back instructions. A provider-native agent opens T3’s read-only transcript list from the Agents sheet. The execution host resolves the provider call in its parent session and supplies each history page.
 
 The mobile PR list, detail, activity, diff pages, change breakdown, and review guide use T3’s persisted query lifecycle. A saved query can show its answer while the host reconnects or refreshes it. Solus stores each answer in the phone’s bounded PR cache under the account, organization, host, and query input. Removing a host clears its saved answers. The live list still reads the host’s projects, PRs, and provider viewer.
 

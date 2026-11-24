@@ -18,7 +18,7 @@ import type { AgentSwitch } from './provider-handoff'
 import type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
 import { ToolRowIndex, type ToolItem } from './tool-item'
 
-export { permissionForFeedback, type PendingPermission, type PendingQuestion, type QueuedPrompt } from './pending-requests'
+export type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
 export type { ToolItem } from './tool-item'
 
 /**
