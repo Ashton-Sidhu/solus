@@ -36,6 +36,14 @@ Session navigation now uses the T3 opening hold and queued-creation check. The s
 
 The conversation adapter translates messages and ordinary tools into T3 turn items. Solus cards enter at their row position. T3's `buildThreadFeed` handles history and streamed row updates with the same restart cache. Media URLs, tool details, host permissions, and the host replay cursor remain Solus operations. Earlier pages use T3's history metadata and retry state.
 
+Chat uses the provider startup behavior from T3 Code PR #41928. Solus supplies
+the active provider and startup step through the session event stream. Claude
+receives Solus MCP servers as query options and can report its first API request.
+Codex reports thread resume and pre-turn MCP startup. The changed-files card
+from before T3 Code PR #41317 is available in Chat settings. It is off by
+default. Solus supplies the active checkout's turn summary through the host's
+snapshot read. The card opens native Review at that turn.
+
 Solus background command notices mark the start of a turn in the T3 feed. Live notices use the host's origin tag. Saved history uses the same text parser as desktop and web. The compact row opens to show the command and the available output in the thread and in read-only history.
 
 Successful workspace image reads use T3's viewed-image row. The Solus adapter supplies the file path, and the Solus host signs the preview URL.

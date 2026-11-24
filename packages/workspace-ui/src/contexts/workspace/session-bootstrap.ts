@@ -255,12 +255,11 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       }
 
       // Re-register with the server so event routing is alive again. The same
-      // round trip attaches to the live runtime when there is a provider thread
-      // to attach to.
+      // round trip attaches to a live or starting turn.
       const api = ctx.apiFor(tabId)
       const watched = await api.watchSession({
         sessionId,
-        attachRuntime: !!session.agentSessionId,
+        attachRuntime: true,
       }).catch(() => null)
       if (watched?.execution) ctx.sessions.adoptExecution(runHost(session.run), sessionId, watched.execution)
 
@@ -269,20 +268,18 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       // Registration needs the watch above, hence not earlier.
       const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status', force: false }).catch(() => null)
 
-      if (session.agentSessionId) {
-        const info = watched?.runtime ?? null
-        if (info && session) {
-          applyRuntimeConfig(session, info)
-          session.status = info.status
-          session.rateLimitInfo = info.rateLimitInfo
-          ctx.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
-        } else if (info === null) {
-          // Session no longer alive.
-          session.status = 'idle'
-          session.rateLimitInfo = null
-        }
-        void ctx.refreshThreadGoal(session.id)
+      const info = watched?.runtime ?? null
+      if (info) {
+        applyRuntimeConfig(session, info)
+        session.status = info.status
+        session.rateLimitInfo = info.rateLimitInfo
+        ctx.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
+      } else if (session.agentSessionId) {
+        // Session no longer alive.
+        session.status = 'idle'
+        session.rateLimitInfo = null
       }
+      if (session.agentSessionId) void ctx.refreshThreadGoal(session.id)
       await environmentRefresh
     }))
 }

@@ -1,3 +1,7 @@
+import type { TurnSnapshot } from "@solus/contracts/git-types";
+import type { HostApi } from "@solus/client-core/host-api";
+import { useHostSettingsRead } from "./use-host-settings-read";
+import { conversationCheckpoints } from "./conversation-checkpoints";
 import { hostQueueMessage, hostQueuedRuns, hostQueueAttachments } from "./queue-messages";
 import { backgroundTasks } from "./session-work";
 import { sessionPromptText } from "./review-prompt";
@@ -51,7 +55,7 @@ import {
 import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
 import { ConversationCard } from "./ConversationCard";
 import { scopedThreadKey } from "../lib/scopedEntities";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { EnvironmentId, MessageId, RunId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
@@ -70,8 +74,18 @@ import { useListened } from "@solus-mobile/app/app-context";
 import { solus, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
 const wip = () => Alert.alert("WIP");
-function useFeed(store: ConversationStore, id: string) {
+function useFeed(
+  store: ConversationStore,
+  id: string,
+  snapshots: readonly TurnSnapshot[] | null | undefined,
+  latestOnly: boolean,
+  isWorking: boolean,
+) {
   const order = useSyncExternalStore(store.order.subscribe, store.orderSnapshot);
+  const checkpoints = useMemo(
+    () => conversationCheckpoints(order, (key) => store.item(key), snapshots, latestOnly, isWorking),
+    [order, store, snapshots, latestOnly, isWorking],
+  );
   const projectFeed = useMemo(() => {
     return conversationFeed(
       store,
@@ -92,7 +106,7 @@ function useFeed(store: ConversationStore, id: string) {
       (key) => store.controller.readToolInput(key),
     );
   }, [store, id]);
-  const reader = useMemo(() => projectFeed(order), [projectFeed, order]);
+  const reader = useMemo(() => projectFeed(order, checkpoints), [projectFeed, order, checkpoints]);
   return useSyncExternalStore(reader.subscribe, reader.get);
 }
 
@@ -127,7 +141,27 @@ export function useThreadScreenData({
         ),
     [meta.queue.entries, hostId, id, store],
   );
-  const feed = useFeed(store, id);
+  const showChangedFiles = useSyncExternalStore(
+    solus.personal.changes.subscribe,
+    () => solus.personal.current().showDiffSummaryAfterTurn,
+  );
+  const keepEarlierChanges = useSyncExternalStore(
+    solus.personal.changes.subscribe,
+    () => solus.personal.current().keepDiffSummaryOnEarlierTurns,
+  );
+  const readSnapshots = useCallback(
+    (api: HostApi) => api.listTurnSnapshots(controller.context()),
+    [controller],
+  );
+  const snapshots = useHostSettingsRead(
+    hostId, readSnapshots, "git.checkoutChanged", showChangedFiles && controller.hasStarted,
+  );
+  const lastSettled = useRef(meta.latestSettledTurnId);
+  useEffect(() => {
+    if (lastSettled.current === meta.latestSettledTurnId) return;
+    lastSettled.current = meta.latestSettledTurnId;
+    if (showChangedFiles && meta.latestSettledTurnId) snapshots.refresh();
+  }, [meta.latestSettledTurnId, showChangedFiles, snapshots.refresh]);
   const directory = useSolusWorkspace();
   const navigation = useNavigation();
   const [openedAt] = useState(Date.now);
@@ -136,6 +170,9 @@ export function useThreadScreenData({
     () => solus.threads.thread(hostId, id)?.record,
   );
   const busy = isSessionBusyStatus(meta.status);
+  const feed = useFeed(
+    store, id, showChangedFiles ? snapshots.data : undefined, !keepEarlierChanges, busy,
+  );
   const shell = toThreadShell(
     hostId,
     {
@@ -586,6 +623,7 @@ export function useThreadScreenData({
     feedbackSubmissions: [],
     onDismissFeedback: wip,
     activityRun: null,
+    providerStartup: busy ? meta.providerStartup : null,
     runlessWorkActive: busy,
     activeWorkStartedAt: busy
       ? feed.findLast((entry) => entry.type === "message" && entry.message.role === "user")

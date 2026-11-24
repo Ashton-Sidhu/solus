@@ -1,4 +1,7 @@
 <script lang="ts">
+  import type { ProviderStartup } from "@solus/contracts/provider-startup";
+  import { providerStartupLabel } from "@solus/client-core/provider-startup";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import type { Snippet } from "svelte";
   import {
     RotateCcw as ArrowCounterClockwiseIcon,
@@ -40,6 +43,7 @@
     activityLabel?: string;
     /** The setup step that runs now. It speaks before the lifecycle label. */
     setupLabel?: string;
+    providerStartup?: ProviderStartup | null;
     turnStart?: TurnStartKind | null;
     expanded: boolean;
     /** A command this turn launched into the background and is still running.
@@ -59,6 +63,7 @@
     live,
     activityLabel,
     setupLabel,
+    providerStartup,
     turnStart = null,
     expanded,
     backgroundWait = null,
@@ -71,7 +76,7 @@
   // Three states, because a stop and a no-reply say nothing about the work the
   // row reports — the run did what it did, and then it was cut short. Their
   // divider states the ending below, in the order the two things happened.
-  const state = $derived(
+  const rowState = $derived(
     live ? "live" : turn.end?.kind === "failed" ? "failed" : "done",
   );
   // The error is part of the failed row now, not hidden detail. Only actual
@@ -110,7 +115,7 @@
   // foreground tool is the more immediate thing to say. So it speaks in the
   // gaps — exactly where the row used to claim it was planning.
   const showsBackgroundWait = $derived(
-    live && !runningTool && !setupLabel && backgroundWait !== null,
+    live && !runningTool && !setupLabel && !providerStartup && backgroundWait !== null,
   );
   const runningStep = $derived(
     runningTool
@@ -121,6 +126,7 @@
     runningStep
       ? runningStep.label
       : (setupLabel ??
+        (providerStartup ? providerStartupLabel(providerStartup) : undefined) ??
         backgroundWait?.label ??
         liveActivityLabel(
           activityLabel,
@@ -163,23 +169,25 @@
 <ActivityRow
   {expanded}
   onToggle={canExpand ? onToggle : undefined}
-  stacked={state === "failed"}
-  glyphClass={state === "failed" ? "is-destructive" : ""}
-  target={state === "live" && liveTarget ? liveTargetText : undefined}
-  actions={state === "failed" && onRetry ? rowRetry : undefined}
+  stacked={rowState === "failed"}
+  glyphClass={rowState === "failed" ? "is-destructive" : ""}
+  target={rowState === "live" && liveTarget ? liveTargetText : undefined}
+  actions={rowState === "failed" && onRetry ? rowRetry : undefined}
   {strip}
-  testid="turn-row-{state}"
+  testid="turn-row-{rowState}"
 >
   {#snippet glyph()}
-    {#if state === "live"}
-      {#if waiting}
+    {#if rowState === "live"}
+      {#if providerStartup?.provider === "claude-code" || providerStartup?.provider === "codex"}
+        <ProviderMark mark={providerStartup.provider === "codex" ? "codex" : "claude"} transparent />
+      {:else if waiting}
         <span class="activity-dots" aria-hidden="true"
           ><span></span><span></span><span></span></span
         >
       {:else}
         <span class="activity-spinner" aria-hidden="true"></span>
       {/if}
-    {:else if state === "failed"}
+    {:else if rowState === "failed"}
       <WarningCircleIcon size={14} />
     {:else}
       {#each kinds as kind (kind)}
@@ -190,9 +198,9 @@
   {/snippet}
 
   {#snippet label()}
-    {#if state === "live"}
+    {#if rowState === "live"}
       <span class:activity-shimmer={!waiting}>{liveLabel}</span>
-    {:else if state === "done"}
+    {:else if rowState === "done"}
       Worked{duration ? " for " : ""}<span class="turn-figure">{duration}</span>
     {:else}
       <!-- The error belongs inside this failed surface; the disclosure only

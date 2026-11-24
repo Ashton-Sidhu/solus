@@ -1,3 +1,4 @@
+import type { ProviderStartup } from "@solus/contracts/provider-startup";
 import { ChildThreadApprovals } from "./ChildThreadApprovals";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { useOpenThreadInspector } from "./thread-inspector-navigation";
@@ -266,6 +267,7 @@ export interface ThreadDetailScreenProps {
   readonly activityRun: ThreadFeedLatestRun | null;
   readonly activeWorkStartedAt: string | null;
   readonly runlessWorkActive?: boolean;
+  readonly providerStartup?: ProviderStartup | null;
   readonly providerSubagentStatus?: ProviderSubagentStatus | null;
   readonly extensionStatuses?: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>;
   readonly isCompacting: boolean;
@@ -1604,6 +1606,7 @@ function ThreadDetailBody(
                   latestRun={props.activityRun}
                   activeWorkStartedAt={props.activeWorkStartedAt}
                   runlessWorkActive={props.runlessWorkActive ?? false}
+                  providerStartup={props.providerStartup}
                   listRef={listRef}
                   freeze={freeze}
                   anchorMessageId={anchorMessageId}

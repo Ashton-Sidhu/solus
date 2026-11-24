@@ -1,5 +1,6 @@
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
+import { providerStartupAfter } from '@solus/client-core/provider-startup'
 import type { ContextCompaction, EnrichedError, GitState, Message, Session, StatusCardState, ThreadGoal, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
@@ -275,6 +276,12 @@ export class SessionEventReducer {
     // `background_work` (the work ended with the run) comes after; it must land.
     if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'session_folders', 'session_codebase', 'goal_updated', 'goal_cleared', 'activity', 'background_work'].includes(event.type)) {
       return
+    }
+
+    const startup = providerStartupAfter(session.providerStartup, event)
+    if (startup !== session.providerStartup) {
+      if (startup === null) session.currentActivity = ''
+      session.providerStartup = startup
     }
 
     // A tool's result (the sub-agent's final answer, or any tool's output) lands

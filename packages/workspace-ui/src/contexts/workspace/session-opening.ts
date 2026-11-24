@@ -565,7 +565,7 @@ export class SessionOpening {
     // unhandled rejection. It is carried and re-thrown at the join instead.
     const runtimeAttach = this.workspace.apiFor(tabId).watchSession({
       sessionId: resumedSessionId,
-      attachRuntime: !!activeProviderSessionId,
+      attachRuntime: true,
     })
       .then(
         (watched) => {

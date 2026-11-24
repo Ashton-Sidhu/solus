@@ -1,3 +1,6 @@
+import type { ProviderStartup } from "@solus/contracts/provider-startup";
+import { providerStartupLabel } from "@solus/client-core/provider-startup";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import { Button } from "../../components/ui/Button";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -1551,9 +1554,14 @@ export function ThreadThinkingRow(props: {
   readonly label?: string;
   /** Replaces "Thinking" while the provider has not started a turn. */
   readonly providerStartingLabel?: string | undefined;
+  readonly providerStartup?: ProviderStartup | null;
 }) {
   const gt = useGT();
-  const label = props.providerStartingLabel ?? props.label ?? gt("Thinking");
+  const startup = props.providerStartup;
+  const label = startup
+    ? providerStartupLabel(startup)
+    : (props.providerStartingLabel ?? props.label ?? gt("Thinking"));
+  const provider = startup?.provider === "claude-code" ? "claudeAgent" : startup?.provider;
   return (
     <View
       accessible
@@ -1561,11 +1569,16 @@ export function ThreadThinkingRow(props: {
       className="-mx-1 min-h-8 flex-row items-center px-1.5 py-0"
       style={{ minHeight: props.rowSizing.estimatedRowHeight }}
     >
+      {provider ? (
+        <View className="mr-1.5">
+          <ProviderIcon provider={provider} size={14} />
+        </View>
+      ) : null}
       <ShimmeringWorkContent
         icon="brain"
         iconSubtleColor={props.iconSubtleColor}
         label={label}
-        showIcon
+        showIcon={!provider}
       />
     </View>
   );

@@ -14,7 +14,7 @@ import { solus } from "./runtime";
 type Read<T> = (api: HostApi) => Promise<T>;
 
 /** Follow host events only while a page reads this setting. Reopening shows its last answer during refresh. */
-export function useHostSettingsRead<T>(hostId: string, read: Read<T>, topic?: HostEventName) {
+export function useHostSettingsRead<T>(hostId: string, read: Read<T>, topic?: HostEventName, enabled = true) {
   const environmentId = EnvironmentId.make(hostId);
   const host = useAtomValue(mobileHost(environmentId));
   const focused = useIsFocused();
@@ -45,7 +45,7 @@ export function useHostSettingsRead<T>(hostId: string, read: Read<T>, topic?: Ho
       ).pipe(Atom.setIdleTTL(0)),
     [source, host, topic],
   );
-  const query = useEnvironmentQuery(focused && host ? observed : null);
+  const query = useEnvironmentQuery(enabled && focused && host ? observed : null);
   return {
     api: host?.api,
     data: query.isSuccess ? query.data : undefined,

@@ -1,3 +1,4 @@
+import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
@@ -301,6 +302,9 @@ type CodexRunHandle = RunHandle & {
   threadId: string | null
   turnId: string | null
   startedTurnId?: string
+  reportStartupPhase?: (phase: ProviderStartupPhase) => void
+  startupPhase?: ProviderStartupPhase
+  startingMcpServers?: Map<string, Set<string>>
   shouldRetryInterruptOnStart?: boolean
   permissionMode: PermissionMode
   interrupted: boolean
@@ -687,6 +691,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       client,
       threadId: conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null,
       turnId: null,
+      reportStartupPhase: sessionState?.reportStartupPhase,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -766,6 +771,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // A turn that ignored Stop would take this run's input as its own.
       if (threadId && !(conversation.kind === 'fork' && conversation.pointId)) await this.forceStopUnansweredTurn(threadId)
 
+      if (handle.reportStartupPhase) handle.startingMcpServers = new Map()
       let response: CodexThreadStartResponse
       if (conversation.kind === 'fork' && threadId) {
         const sourceThreadId = threadId
@@ -799,10 +805,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         threadId = response.thread.id
       } else {
         const resumedThreadId = threadId
-        response = await withUnarchivedThread(handle.client, resumedThreadId, () => handle.client.request<CodexThreadStartResponse>('thread/resume', handle.isCompaction ? { threadId: resumedThreadId } : {
-          threadId: resumedThreadId,
-          ...toolsConfig,
-        }))
+        response = await withUnarchivedThread(handle.client, resumedThreadId, async () => {
+          this.reportStartup(handle, 'resuming')
+          try {
+            return await handle.client.request('thread/resume', handle.isCompaction ? { threadId: resumedThreadId } : {
+              threadId: resumedThreadId,
+              ...toolsConfig,
+            })
+          } finally {
+            this.reportStartup(handle, handle.startingMcpServers?.get(resumedThreadId)?.size ? 'mcp' : 'waiting')
+          }
+        })
         threadId = response.thread.id || threadId
       }
 
@@ -817,6 +830,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       // Promote from pending to active now that we have the real sessionId.
       handle.threadId = threadId
+      const startingServers = handle.startingMcpServers?.get(threadId)
+      handle.startingMcpServers?.clear()
+      if (startingServers?.size) {
+        handle.startingMcpServers?.set(threadId, startingServers)
+        this.reportStartup(handle, 'mcp')
+      }
       this.promoteToActive(handle, threadId)
 
       this.permissionResponder().setCurrentSessionId(threadId)
@@ -884,6 +903,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         throw new Error(`Codex answered with turn ${turnId}, which an earlier run started. Stop the session, then send the prompt again.`)
       }
 
+      this.finishStartup(handle)
       handle.turnId = turnId
       this.turnOwners.set(turnId, handle)
       this.sessionByTurn.set(turnId, threadId)
@@ -975,9 +995,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     })
   }
 
+  private reportStartup(handle: CodexRunHandle, phase: ProviderStartupPhase): void {
+    if (!handle.reportStartupPhase || handle.startupPhase === phase || handle.abortController.signal.aborted) return
+    handle.startupPhase = phase
+    handle.reportStartupPhase(phase)
+  }
+
+  private finishStartup(handle: CodexRunHandle): void {
+    if (!handle.startingMcpServers) return
+    handle.startingMcpServers = undefined
+    this.reportStartup(handle, 'waiting')
+  }
+
   private onTurnStarted(handle: CodexRunHandle, turnId: string): void {
     if (handle.turnId && handle.turnId !== turnId) return
     handle.startedTurnId = turnId
+    this.finishStartup(handle)
     // compact/start returns no turn id. Capture it here so Stop can interrupt it.
     if (handle.isCompaction && !handle.turnId) {
       handle.turnId = turnId
@@ -1515,6 +1548,31 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const params = msg.params || {}
     let sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('notification', msg, sessionId, params)
+
+    if (msg.method === 'mcpServer/startupStatus/updated') {
+      const { threadId, name, status } = msg.params
+      if (!threadId) return
+      const active = this.activeRuns.get(threadId)
+      // Before thread/start returns, buffer by provider thread and app-server.
+      // Only the response can associate a new thread with its Solus run.
+      const candidates = active ? [active] : this.pendingRuns
+      for (const handle of candidates) {
+        const serversByThread = handle.startingMcpServers
+        if (!serversByThread || handle.client !== client || handle.isCompaction
+          || (handle.threadId && handle.threadId !== threadId)) continue
+        let servers = serversByThread.get(threadId)
+        if (status === 'starting') {
+          if (!servers) serversByThread.set(threadId, servers = new Set())
+          servers.add(name)
+        } else {
+          servers?.delete(name)
+        }
+        if (handle.threadId !== threadId || handle.startupPhase === 'resuming') continue
+        if (servers?.size) this.reportStartup(handle, 'mcp')
+        else if (handle.startupPhase === 'mcp') this.reportStartup(handle, 'waiting')
+      }
+      return
+    }
 
     if (msg.method === 'skills/changed') {
       void this.refreshPluginCommands()

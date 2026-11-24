@@ -968,7 +968,10 @@ export class ConversationController {
         return preview ? [{ kind: 'local-image', key: preview.id, name: preview.name, uri: preview.previewUri, mimeType: preview.mimeType }] : []
       }),
     ], busy || this.queue.entries.length > 0 || this.queue.held)
-    if (!busy && !this.queue.entries.length && !this.queue.held) this.model.setStatus('connecting')
+    if (!busy && !this.queue.entries.length && !this.queue.held) {
+      this.model.setStatus('connecting')
+      this.model.setProviderStartup({ provider: this.run.provider, phase: 'starting' })
+    }
     this.flush(true)
     options.onSubmitted?.(clientPromptId)
     // A later prompt waits behind one that waits, so the host gets them in order.
@@ -1571,7 +1574,7 @@ export class ConversationController {
   private async watch(): Promise<WatchSessionResult> {
     const watched = await this.deps.connection.api.watchSession({
       sessionId: this.run.sessionId,
-      attachRuntime: !!this.run.agentSessionId,
+      attachRuntime: true,
     })
     this.watching = true
     return watched
