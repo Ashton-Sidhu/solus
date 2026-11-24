@@ -250,8 +250,8 @@ describe('codebase commands', () => {
     expect(created.roots).toEqual([root('inst-mac', '/code/shop'), root('inst-build', '/srv/infra')])
     expect(mac.kept.get(created.id)).toEqual(created)
     expect(server.kept.get(created.id)).toEqual(created)
-    expect(store.codebasesOfFolder('build', '/srv/infra/modules').map((entry) => entry.id)).toEqual([created.id])
-    expect(store.codebasesOfFolder('local', '/srv/infra')).toEqual([])
+    expect(store.codebasesOfFolder({ serverId: 'build', path: '/srv/infra/modules' }).map((entry) => entry.id)).toEqual([created.id])
+    expect(store.codebasesOfFolder({ serverId: 'local', path: '/srv/infra' })).toEqual([])
   })
 
   // WHY: one folder is a project, and a project is never also a codebase (decision 14).
@@ -267,7 +267,7 @@ describe('codebase commands', () => {
     // The copy of a host that kept a codebase of one project is not listed, and holds no folder.
     expect(store.codebases).toEqual([])
     expect(store.codebaseOf('old')).toBeUndefined()
-    expect(store.codebasesOfFolder('local', '/code/old')).toEqual([])
+    expect(store.codebasesOfFolder({ serverId: 'local', path: '/code/old' })).toEqual([])
   })
 
   test('create makes a codebase of one container: the root gets the mark from the scan of its host', async () => {
@@ -285,9 +285,9 @@ describe('codebase commands', () => {
     expect(created.roots).toEqual([{ installationId: 'inst-mac', path: '/code/shop', name: 'shop', container: true }])
     expect(store.codebases).toEqual([created])
     // The project lists of the client ask this rule: the container is not a project, and a folder inside it is.
-    expect(store.isContainerRoot('local', '/code/shop')).toBe(true)
-    expect(store.isContainerRoot('local', '/code/shop/api')).toBe(false)
-    expect(store.isContainerRoot('build', '/code/shop')).toBe(false)
+    expect(store.isContainerRoot({ serverId: 'local', path: '/code/shop' })).toBe(true)
+    expect(store.isContainerRoot({ serverId: 'local', path: '/code/shop/api' })).toBe(false)
+    expect(store.isContainerRoot({ serverId: 'build', path: '/code/shop' })).toBe(false)
   })
 
   test('a folder that holds one repository is added with no container mark', async () => {
@@ -298,7 +298,7 @@ describe('codebase commands', () => {
 
     const created = await store.create('Pair', [{ serverId: 'local', path: '/code/one' }, { serverId: 'local', path: '/code/ui' }])
     expect(created.roots.some((each) => each.container)).toBe(false)
-    expect(store.isContainerRoot('local', '/code/one')).toBe(false)
+    expect(store.isContainerRoot({ serverId: 'local', path: '/code/one' })).toBe(false)
   })
 
   test('removeRoot refuses when the folders that stay are no codebase, and the text says to delete the codebase', async () => {

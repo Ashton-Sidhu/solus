@@ -275,7 +275,7 @@ describe('recent folders', () => {
 describe('a container root is a codebase, never a project', () => {
   // WHY: docs/plans/codebases.md decision 14. `~/shop` holds two repositories, so it is a codebase. A row for it
   // under Projects shows one place two times. The host keeps its own row for the folder; no list of the client shows it.
-  const isContainer = (serverId: string, path: string): boolean => serverId === 'mac' && path === '/code/shop'
+  const isContainer = (folder: { serverId: string; path: string }): boolean => folder.serverId === 'mac' && folder.path === '/code/shop'
 
   test('each project list leaves the folder out, on the host of the codebase only', async () => {
     const store = new ProjectsStore([

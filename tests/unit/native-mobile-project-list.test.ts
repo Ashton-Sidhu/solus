@@ -32,7 +32,7 @@ function world(listed: { [host in HostId]: string[] }) {
   const state = { codebases: [] as Codebase[] }
   const directory = new ThreadDirectory(
     registry as never, (hostId) => connections.get(hostId) as never, undefined, undefined, undefined, undefined,
-    (hostId, path) => isContainerRoot(state.codebases, INSTALLATION[hostId as HostId], path),
+    (hostId, path) => isContainerRoot(state.codebases, { installationId: INSTALLATION[hostId as HostId], path }),
   )
   const paths = () => directory.projects().map(({ hostId, project }) => `${hostId}:${project.path}`).sort()
   return { directory, state, paths }

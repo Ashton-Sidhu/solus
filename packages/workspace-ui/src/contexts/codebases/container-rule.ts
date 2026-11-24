@@ -6,7 +6,9 @@
  * does not load the connection stores of the app, which the codebases store
  * reads.
  */
-type ContainerRule = (serverId: string, path: string) => boolean
+import type { Place } from '@solus/contracts/types'
+
+type ContainerRule = (folder: Place) => boolean
 
 let provided: ContainerRule | null = null
 
@@ -16,6 +18,6 @@ export function provideContainerRule(rule: ContainerRule): void {
 }
 
 /** True when the folder is the container root of a live codebase. False before the codebases store is loaded: no codebase is known then. */
-export function isContainerRootOnClient(serverId: string, path: string): boolean {
-  return provided ? provided(serverId, path) : false
+export function isContainerRootOnClient(folder: Place): boolean {
+  return provided ? provided(folder) : false
 }

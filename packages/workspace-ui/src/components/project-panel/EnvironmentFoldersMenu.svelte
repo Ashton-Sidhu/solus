@@ -132,7 +132,7 @@
       otherHosts,
       host,
       codebaseName: codebase?.name ?? null,
-      isInCodebase: (path) => !!codebaseId && codebasesStore.codebasesOfFolder(serverId, path).some((each) => each.id === codebaseId),
+      isInCodebase: (path) => !!codebaseId && codebasesStore.codebasesOfFolder({ serverId, path }).some((each) => each.id === codebaseId),
       fileManagerName: fileManager ? fileManagerNameFor(fileManager) : null,
       // A terminal opens on the screen of the host: only the desktop app has one, for its own machine.
       canOpenTerminal: !!hosts.device?.hasDesktopHandlers && hostPolicy.isClientMachine(serverId),

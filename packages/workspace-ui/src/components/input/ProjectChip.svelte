@@ -150,7 +150,7 @@
   // other run shows the project. The list marks the same one row.
   const chip = $derived(
     chipAtRest(label, currentCodebase, {
-      holding: onSelectCodebase && projectOnRunHost ? codebasesStore.codebasesOfFolder(selectedHostId, projectOnRunHost) : [],
+      holding: onSelectCodebase && projectOnRunHost ? codebasesStore.codebasesOfFolder({ serverId: selectedHostId, path: projectOnRunHost }) : [],
       refuses: refusesCodebase(run),
     }),
   );

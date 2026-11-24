@@ -147,7 +147,7 @@ export async function saveCodebase(organizationId: string, createdBy: string, co
  * codebases (decision 5).
  */
 export async function codebasesOfFolder(scope: RecordScope, installationId: string, path: string): Promise<Codebase[]> {
-  return codebasesHolding(await listCodebases(scope), installationId, path)
+  return codebasesHolding(await listCodebases(scope), { installationId, path })
 }
 
 /** The codebases as one person reads and changes them. */

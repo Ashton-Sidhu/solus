@@ -79,7 +79,8 @@ export class CodebaseRootRefused extends Error {
   }
 }
 
-type RootPlace = Pick<CodebaseRoot, 'installationId' | 'path'>
+/** A folder on one host, as a root names it: the installation id of the host and the path. */
+export type RootPlace = Pick<CodebaseRoot, 'installationId' | 'path'>
 
 /** One key for every spelling of a root: its host and its path. */
 export function codebaseRootKey(root: RootPlace): string {
@@ -124,16 +125,15 @@ export function rootFor(installationId: string, scan: Pick<CodebaseFolderScan, '
 }
 
 /**
- * True when `path` on the host `installationId` is the container root of a
- * live codebase. Such a folder is a codebase, never a project: no project
+ * True when `folder` is the container root of a live codebase. Such a folder is a codebase, never a project: no project
  * list of a client shows it (decision 14). Desktop, web, and mobile ask this
  * one rule where they build a project list.
  */
-export function isContainerRoot(codebases: readonly Codebase[], installationId: string, path: string): boolean {
-  const key = hostPathKey(path)
+export function isContainerRoot(codebases: readonly Codebase[], folder: RootPlace): boolean {
+  const key = hostPathKey(folder.path)
   return codebases.some((codebase) =>
     isLiveCodebase(codebase)
-    && codebase.roots.some((root) => root.container === true && root.installationId === installationId && hostPathKey(root.path) === key))
+    && codebase.roots.some((root) => root.container === true && root.installationId === folder.installationId && hostPathKey(root.path) === key))
 }
 
 /**
@@ -165,11 +165,11 @@ export function hostRootsKey(codebase: Codebase, installationId: string): string
     .join('\n')
 }
 
-/** The codebases that hold `path` on the host `installationId`: `path` is a root, or it is inside a root. */
-export function codebasesHolding(codebases: readonly Codebase[], installationId: string, path: string): Codebase[] {
+/** The codebases that hold `folder`: it is a root, or it is inside a root. */
+export function codebasesHolding(codebases: readonly Codebase[], folder: RootPlace): Codebase[] {
   return codebases.filter((codebase) =>
     isLiveCodebase(codebase)
-    && codebase.roots.some((root) => root.installationId === installationId && isInsideHostPath(root.path, path)))
+    && codebase.roots.some((root) => root.installationId === folder.installationId && isInsideHostPath(root.path, folder.path)))
 }
 
 /** The repositories that a scan found inside its folder. The folder itself is not one of them. */

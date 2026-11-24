@@ -19,7 +19,7 @@ interface CodebaseStartReads {
     watch(): () => void
     watchMembers(codebaseId: string): () => void
     isDeleted(codebaseId: string): boolean
-    codebasesOfFolder(serverId: string, path: string): Codebase[]
+    codebasesOfFolder(folder: Place): Codebase[]
   }
   decisions: Pick<CodebaseDecisions, 'isDecided' | 'note'>
   applyLocation(next: RunLocation): void
@@ -81,7 +81,7 @@ export function useCodebaseStart(reads: CodebaseStartReads): void {
     const folder = decidableFolder(run, reads.isStarted)
     if (!run || !folder || reads.decisions.isDecided(sourceId, folder)) return
     const isHostRead = reads.store.hosts.some((host) => host.serverId === folder.serverId && host.status === 'ready')
-    const choice = automaticCodebase(codebaseOf(run), isHostRead ? reads.store.codebasesOfFolder(folder.serverId, folder.path) : null)
+    const choice = automaticCodebase(codebaseOf(run), isHostRead ? reads.store.codebasesOfFolder(folder) : null)
     if (choice === undefined) return
     untrack(() => {
       reads.decisions.note(sourceId, folder)

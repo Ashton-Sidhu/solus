@@ -182,18 +182,18 @@ export class CodebasesStore {
   }
 
   /** The codebases that hold a folder on a host of this client: the folder is a root, or it is inside a root. */
-  codebasesOfFolder(serverId: string, path: string): Codebase[] {
-    const installationId = this.installationIdOf(serverId)
-    return installationId ? codebasesHolding(this.codebases, installationId, path) : []
+  codebasesOfFolder(folder: Place): Codebase[] {
+    const installationId = this.installationIdOf(folder.serverId)
+    return installationId ? codebasesHolding(this.codebases, { installationId, path: folder.path }) : []
   }
 
   /**
    * True when a folder on a host of this client is the container root of a
    * codebase: it shows under Codebases, never in a project list (decision 14).
    */
-  isContainerRoot(serverId: string, path: string): boolean {
-    const installationId = this.installationIdOf(serverId)
-    return !!installationId && isContainerRoot(this.codebases, installationId, path)
+  isContainerRoot(folder: Place): boolean {
+    const installationId = this.installationIdOf(folder.serverId)
+    return !!installationId && isContainerRoot(this.codebases, { installationId, path: folder.path })
   }
 
   /**
@@ -257,8 +257,8 @@ export class CodebasesStore {
   }
 
   /** What a folder on a host holds, before it is a root. The answer has the resolved absolute path. */
-  scanFolder(serverId: string, path: string): Promise<CodebaseFolderScan> {
-    return this.access.api(serverId).codebaseScanFolder(path)
+  scanFolder(folder: Place): Promise<CodebaseFolderScan> {
+    return this.access.api(folder.serverId).codebaseScanFolder(folder.path)
   }
 
   /**
@@ -531,4 +531,4 @@ export class CodebasesStore {
 export const codebasesStore = new CodebasesStore()
 
 // Each project list of the client asks this store which folders are containers.
-provideContainerRule((serverId, path) => codebasesStore.isContainerRoot(serverId, path))
+provideContainerRule((folder) => codebasesStore.isContainerRoot(folder))

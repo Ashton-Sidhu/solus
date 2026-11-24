@@ -244,7 +244,7 @@ export class Codebases {
   /** The codebases that hold a folder on a host of this phone: the folder is a root, or it is inside a root. */
   codebasesOfFolder(hostId: string, path: string): Codebase[] {
     const installationId = this.installationIdOf(hostId)
-    return installationId ? codebasesHolding(this.codebases(), installationId, path) : []
+    return installationId ? codebasesHolding(this.codebases(), { installationId, path }) : []
   }
 
   /**
@@ -260,7 +260,7 @@ export class Codebases {
   containerCodebaseAt(hostId: string, path: string): Codebase | undefined {
     const installationId = this.installationIdOf(hostId)
     if (installationId === null) return undefined
-    return this.codebases().find((codebase) => isContainerRoot([codebase], installationId, path))
+    return this.codebases().find((codebase) => isContainerRoot([codebase], { installationId, path }))
   }
 
   /**

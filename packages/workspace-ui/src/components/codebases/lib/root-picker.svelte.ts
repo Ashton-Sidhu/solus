@@ -46,7 +46,7 @@ export class RootPickerState {
     this.error = ''
     this.isScanning = true
     try {
-      const scan = await codebasesStore.scanFolder(host.serverId, path)
+      const scan = await codebasesStore.scanFolder({ serverId: host.serverId, path })
       if (count === this.scanCount) this.scan = scan
     } catch (error) {
       if (count === this.scanCount) this.error = error instanceof Error ? error.message : 'The host could not read the folder.'

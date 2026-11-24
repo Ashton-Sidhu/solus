@@ -1,4 +1,4 @@
-import type { ProjectEntry, RecentProject } from '@solus/contracts/types'
+import type { Place, ProjectEntry, RecentProject } from '@solus/contracts/types'
 import { isChat } from '@solus/contracts/chat'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
@@ -83,7 +83,7 @@ const liveUntrackHosts: UntrackHosts = {
  * folder is a codebase, never a project (docs/plans/codebases.md decision
  * 14): no project list shows it.
  */
-type IsContainerRoot = (serverId: string, path: string) => boolean
+type IsContainerRoot = (folder: Place) => boolean
 
 async function fetchHostRecentProjects(serverId: string): Promise<RecentProject[]> {
   if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) return []
@@ -204,7 +204,7 @@ export class ProjectsStore {
    *  codebase is not in the list: it shows under Codebases only. Each project
    *  list of the client reads this one, so they agree. */
   projectsFor(serverId: string): ProjectEntry[] {
-    return this.listedFor(serverId).filter((project) => !this.isContainerRoot(serverId, project.path))
+    return this.listedFor(serverId).filter((project) => !this.isContainerRoot({ serverId, path: project.path }))
   }
 
   /** The list that the host keeps, with the row of each container. */
@@ -344,7 +344,7 @@ export class ProjectsStore {
 
   /** The recent projects of a host. A container root is a codebase, so it is not one of them. */
   recentProjectsFor(serverId: string): RecentProject[] {
-    return (this.recentByHost.get(serverId) ?? []).filter((project) => !this.isContainerRoot(serverId, project.path))
+    return (this.recentByHost.get(serverId) ?? []).filter((project) => !this.isContainerRoot({ serverId, path: project.path }))
   }
 
   recentProjectsLoadingFor(serverId: string): boolean {
