@@ -1,6 +1,6 @@
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { TextGenerator } from '../../execution/agents/text-generator'
-import { actingPreferences } from '../../execution/person-preferences'
+import { actingPreferences } from '../../execution/person-settings'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { productionLogFilePath } from '../../logger'
 import { distinctValuesSql } from '../../data/insights/distinct-values'

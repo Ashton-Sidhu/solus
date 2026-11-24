@@ -17,11 +17,12 @@ import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore } from '../../platform/ports'
 
 /**
- * The person's agent profile on this device (plans/020-agent-profile.md §3):
- * one local copy of the entries per account. It is the source of truth here,
- * and the account document is its replica, kept by the sync owner. A phone has
- * no provider home to read, so the copy starts empty and holds what the person
- * adds here or what sync brings.
+ * The person's agent profile on this device (plans/020-agent-profile.md §3,
+ * ADR 0007): one copy of the entries per account, and one for nobody signed in.
+ * The source is not here: signed in, it is the account (the sync owner moves
+ * it); signed out, it is the home host (`personal-document-hosts.ts`). A phone
+ * has no provider home to read, so the copy holds what the person adds, what
+ * the host keeps, or what sync brings.
  */
 
 const profileKey = (accountKey: string) => `solus.agent-profile.v1:${accountKey}`
@@ -46,7 +47,7 @@ export class AgentProfileLocalStore {
   private readonly localChangeListeners = new Set<(change: AgentProfileChange) => void>()
 
   constructor(private readonly storage: KeyValueStore) {
-    this.stored = this.load(this.accountKey)
+    this.stored = this.load(this.accountKey) ?? {}
   }
 
   // ── Reading ──
@@ -67,12 +68,32 @@ export class AgentProfileLocalStore {
 
   // ── Account ──
 
-  /** Shows the copy of the account now signed in, or the anonymous one. Nothing is uploaded. */
+  /** Signed in: the account is the source of what shows. */
+  get isSignedIn(): boolean {
+    return this.accountKey !== syncAccountKey(null)
+  }
+
+  /**
+   * Shows the copy of the account now signed in, or the anonymous one. A first
+   * copy for an account starts as the anonymous one, which is the home host's:
+   * the account takes it when it has none (ADR 0007 decision 3). Nothing is uploaded.
+   */
   setAccount(account: SyncAccount | null): void {
     const accountKey = syncAccountKey(account)
     if (accountKey === this.accountKey) return
+    const anonymous = this.load(syncAccountKey(null)) ?? {}
     this.accountKey = accountKey
-    this.stored = this.load(accountKey)
+    const stored = this.load(accountKey)
+    this.stored = stored ?? (account ? anonymous : {})
+    if (!stored) this.save()
+    this.changes.notify()
+  }
+
+  /** Signed out: the home host's list replaces the one on screen. It is never sent back. */
+  adoptHostCopy(entries: AgentProfile): void {
+    if (this.isSignedIn) return
+    this.stored = withoutRetiredEntries(structuredClone(entries))
+    this.save()
     this.changes.notify()
   }
 
@@ -122,9 +143,10 @@ export class AgentProfileLocalStore {
 
   // ── Internals ──
 
-  private load(accountKey: string): AgentProfile {
+  /** The stored copy of an account; null when it has none on this device. */
+  private load(accountKey: string): AgentProfile | null {
     const raw = this.storage.getItem(profileKey(accountKey))
-    if (!raw) return {}
+    if (!raw) return null
     const parsed = storedJsonSchema.safeParse(raw)
     return parsed.success ? withoutRetiredEntries(parsed.data.entries) : {}
   }

@@ -23,6 +23,8 @@ import type { AccountSettingsPatchRequest, AccountSettingsResponse, PersonalSett
 
 let localServerId: string | null = 'laptop'
 const hostCalls: string[] = []
+/** Hosts whose pull fails: no token for the person, or a cloud that does not answer. */
+const failingPulls = new Set<string>()
 const computer: AgentProfile = {
   'file:claude-code/agents/rules.md': { kind: 'file', provider: 'claude-code', path: 'agents/rules.md', contentBase64: Buffer.from('Be brief.').toString('base64'), hash: 'a'.repeat(64) },
 }
@@ -40,7 +42,11 @@ mock.module('@solus/client-core/server-connections', () => ({
         hostCalls.push(`apply:${serverId}:${entries}`)
         return hostStatus(entries, 'computer')
       },
-      agentProfilePull: async (): Promise<AgentProfileStatus> => { hostCalls.push(`pull:${serverId}`); return hostStatus(1, 'account') },
+      agentProfilePull: async (): Promise<AgentProfileStatus> => {
+        hostCalls.push(`pull:${serverId}`)
+        if (failingPulls.has(serverId)) throw new Error('This host cannot read your account right now. Sign in again.')
+        return hostStatus(1, 'account')
+      },
       agentProfileStatus: async (): Promise<AgentProfileStatus> => hostStatus(0, null),
     }),
   },
@@ -87,6 +93,7 @@ function installDom(storage: Storage) {
 beforeEach(() => {
   for (const key of GLOBAL_KEYS) previous[key] = globals[key]
   hostCalls.length = 0
+  failingPulls.clear()
   localServerId = 'laptop'
 })
 
@@ -249,6 +256,43 @@ describe('signing in', () => {
     await settle()
     expect(settingsCloud.document.settings).toEqual({ themeMode: 'dark', fontSize: 18 })
     expect(sync.state).toBe('synced')
+  })
+
+  test("the first sign-in seeds an empty account from the home host's copy, and the hosts hear each move of the settings", async () => {
+    // WHY: ADR 0007 decisions 3 and 4. Signed out, the copy on screen is the home host's; the account takes it when it has
+    // none. The cloud cannot push, so every host is told when the copy moves to the account and when a write is confirmed.
+    const { personal, sync, settingsCloud, signIn } = await storesOn()
+    let heard = 0
+    sync.onSettingsCopyChanged(() => { heard += 1 })
+    personal.adoptHostCopy({ themeMode: 'dark', extraInstructions: 'From the host.' })
+    await signIn()
+    expect(settingsCloud.document.settings).toEqual({ themeMode: 'dark', extraInstructions: 'From the host.' })
+    const afterSignIn = heard
+    expect(afterSignIn).toBeGreaterThan(0)
+
+    personal.set('fontSize', 18)
+    await settle()
+    expect(heard).toBeGreaterThan(afterSignIn)
+    // Signed in, a host's copy never replaces the account's on screen.
+    personal.adoptHostCopy({ themeMode: 'light' })
+    expect(personal.storedDocument.themeMode).toBe('dark')
+
+    const beforeSignOut = heard
+    sync.setAccount(null)
+    expect(heard).toBe(beforeSignOut + 1)
+  })
+
+  test("a host that cannot pull the account's profile gets this client's copy of it", async () => {
+    // WHY: ADR 0007 decision 5. A host with no token for the person cannot follow the account, so the client sends the copy.
+    const synced: AgentProfile = { 'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' } }
+    const { hosts, local, signIn } = await storesOn({ account: synced })
+    hosts.attachLocalCopy(local)
+    await signIn()
+    hostCalls.length = 0
+    failingPulls.add('vm')
+    await hosts.pull('vm')
+    expect(hostCalls).toEqual(['pull:vm', 'apply:vm:1'])
+    expect(hosts.errors.get('vm')).toBeUndefined()
   })
 
   test('there is no way to turn sync off on one device', async () => {

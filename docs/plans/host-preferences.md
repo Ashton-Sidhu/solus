@@ -1,7 +1,12 @@
 # A host keeps its own copy of each person's preferences
 
-Status: implemented. Date: 2026-11-24. It replaces the part of plans/018 §6 where a
-client sends its execution preferences with each request.
+Status: replaced on 2026-11-24 by [the source of a person's settings](personal-settings-source.md)
+(ADR 0007). The host's copy is no longer in memory and no longer only the execution
+preferences: it is every personal setting, in the host's database, and a signed-in
+person's host pulls it from the account. `executionPreferencesSet` and
+`HostPreferencesPublisher` are removed. The rest of this page is history. It replaced
+the part of plans/018 §6 where a client sends its execution preferences with each
+request.
 
 ## Problem
 

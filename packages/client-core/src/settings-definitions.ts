@@ -335,7 +335,7 @@ export const settingsDefinitions = {
   },
   "account.not-signed-in": {
     label: "Not signed in",
-    description: "Your settings and your agent profile stay on this device. Sign in to Solus to sync them between your devices and the hosts you work on.",
+    description: "Your settings and your agent profile are kept on your host. Sign in to Solus to keep them in your account and use them on every host and device.",
   },
   "account.section-sync": {
     label: "Sync",

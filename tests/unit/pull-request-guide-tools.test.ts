@@ -26,7 +26,7 @@ const { installPullRequestGuideToolHost, pullRequestGuideTools } = await import(
 const { ReviewGuideJobs } = await import('@solus/server/review/guide-jobs')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
-const { setPersonPreferences } = await import('@solus/server/execution/person-preferences')
+const { setPersonSettingsForTests } = await import('@solus/server/execution/person-settings')
 
 // A guide run acts for whoever asked for it; with no caller, the test acts as the host.
 actAsHostForTests()
@@ -78,8 +78,8 @@ beforeEach(() => {
 
 /** The turn runs as the owner, and the owner's client wrote their review choices to the host's copy. */
 function run(tool: keyof typeof pullRequestGuideTools, input: object, principal: Principal = owner) {
+  setPersonSettingsForTests('owner-person', { reviewAgent: 'codex', reviewModel: 'gpt-6-luna', reviewReasoning: 'high' })
   return withActingScope({ ...HOST_SCOPE, personKey: 'owner-person' }, () => {
-    setPersonPreferences({ reviewAgent: 'codex', reviewModel: 'gpt-6-luna', reviewReasoning: 'high' })
     return withWorkspaceToolAuthority(principal, () => executeAgentTool(pullRequestGuideTools[tool] as never, input, context))
   })
 }

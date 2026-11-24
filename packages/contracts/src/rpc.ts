@@ -428,8 +428,12 @@ export const RPC_INVOKE_METHODS = [
   'agentProfileApply',
   'agentProfilePull',
   'agentProfileStatus',
-  // The host's copy of a person's execution preferences (docs/plans/host-preferences.md)
-  'executionPreferencesSet',
+  'agentProfileDocumentGet',
+  'agentProfileDocumentPatch',
+  // The host's copy of a person's settings (docs/plans/personal-settings-source.md)
+  'personalSettingsGet',
+  'personalSettingsPatch',
+  'personalSettingsChanged',
   // Presence: who is here, what they are looking at, and whether they are typing
   'presenceSnapshot',
   'presenceSetFocus',

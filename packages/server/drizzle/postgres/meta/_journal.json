@@ -57,6 +57,13 @@
       "when": 1795498910757,
       "tag": "0007_person_opened_at",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795535869604,
+      "tag": "0008_personal_documents",
+      "breakpoints": true
     }
   ]
 }

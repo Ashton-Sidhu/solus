@@ -700,3 +700,23 @@ person on every host, the owner included.
   old `''` owner rows: an owner signs in to such a server again.
 - GitHub, Google, and Atlassian are unchanged: `credentialUserId` `null` still
   means the host's own logins.
+
+### The source of the profile: the host or the account (2026-11-24)
+
+[ADR 0007](../docs/adr/0007-personal-settings-source.md) puts the profile under the
+rule of the settings ([the plan](../docs/plans/personal-settings-source.md)).
+
+- **Signed out**, the home host keeps the person's profile list in its database
+  (`personal_documents`, kind `agent-profile`;
+  `execution/seats/agent-profile-document.ts`). The Agent profile page reads and edits
+  it there (`agentProfileDocumentGet`, `agentProfileDocumentPatch`) through
+  `agentProfileHomeHost` (client-core), on desktop, web, and mobile. The client keeps
+  only a cache. Keeping the list applies nothing: "Copy now" and the copy once per run
+  still push it to the hosts that the profile applies to.
+- **Signed in**, the account is the source, and each host pulls as before
+  (`AGENT_PROFILE_PULL_INTERVAL_MS`). A host whose pull fails (it holds no token for
+  the person, or the cloud does not answer) gets the client's copy of the account's
+  profile (`agentProfileApply`), never an empty one.
+- **First sign-in**: the account takes the list on screen, which is the home host's,
+  when it has none. On the phone, an account's first copy now starts from it too.
+

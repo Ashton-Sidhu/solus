@@ -103,7 +103,15 @@ Decision 1 is approved by the user. Decisions 2–6 are proposed implementation 
    profile tab keeps only content. Mobile mirrors this as an Account screen. Grilled
    and decided with the maintainer on 2026-10-12.
 
-Keep decisions 1, 7, 8, and 9 fixed during implementation. The other proposals make the
+10. **The source of personal settings — ADR 0007, 2026-11-24:** replaces decision 2
+   and the rule that the local profile on each client is the source of personal
+   settings (§3.5, §5). Signed out, each host keeps each person's settings in its
+   database, and a client reads and writes them through its home host. Signed in,
+   the account is the source; each host pulls a copy and keeps it, and a client
+   writes the copy to a host that holds no token for the person. A client keeps only
+   a cache. See [the plan](../docs/plans/personal-settings-source.md).
+
+Keep decisions 1, 7, 8, 9, and 10 fixed during implementation. The other proposals make the
 plan concrete and can be changed during review.
 
 ## 2. Current state and evidence
@@ -490,6 +498,11 @@ edit its Solus source and run `contracts:sync`; never hand-edit the cloud copy. 
 new API paths in `SITE_API_ROUTES` and its tests. No import from solus-cloud into Solus.
 
 ## 5. Personal sync lifecycle
+
+> **2026-11-24.** [ADR 0007](../docs/adr/0007-personal-settings-source.md) replaced the
+> rule below that the local profile is the source. Signed out, the home host is the
+> source; signed in, the account is. The statements about the anonymous local profile
+> as a source are history.
 
 Implement a transport-neutral `SettingsSync` in client-core. Inject authenticated
 request, storage, online/focus notifications, and a clock. Svelte and React Native use

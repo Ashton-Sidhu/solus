@@ -40,7 +40,7 @@ import { PairApprovals } from '../features/settings/pair-approvals'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
-import { HostPreferencesPublisher } from '@solus/client-core/host-preferences'
+import { followPersonalDocumentHosts } from '../features/settings/personal-document-hosts'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
@@ -258,13 +258,17 @@ export class SolusApp {
       clock: timerClock,
     }, () => this.reachableHosts())
     this.account.changes.subscribe(() => this.followAccount())
-    // Each connected host keeps a copy of the person's preferences, which their work there reads (docs/plans/host-preferences.md).
-    const hostPreferences = new HostPreferencesPublisher({
-      preferences: () => this.personal.executionPreferences(),
-      readyHosts: () => this.connections.readyConnections().map((connection) => ({ hostId: connection.hostId, api: connection.api })),
+    // A person's settings and agent profile on their hosts (docs/plans/personal-settings-source.md):
+    // signed out, the phone's first host is their source; signed in, the account is.
+    followPersonalDocumentHosts({
+      personal: this.personal,
+      agentProfile: this.agentProfile,
+      readyConnections: () => this.connections.readyConnections(),
+      connectionChanges: this.connections.changes,
+      defaultHostId: () => this.registry.hosts()[0]?.id ?? null,
+      settingsCopyChanges: this.accountSync.settingsCopyChanges,
+      storage,
     })
-    this.connections.changes.subscribe(() => hostPreferences.publish())
-    this.personal.changes.subscribe(() => hostPreferences.publish())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)

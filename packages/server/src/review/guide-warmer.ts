@@ -1,6 +1,6 @@
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { getHostConfig } from '../host/settings'
-import { actingPreferences } from '../execution/person-preferences'
+import { actingPreferences } from '../execution/person-settings'
 import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'

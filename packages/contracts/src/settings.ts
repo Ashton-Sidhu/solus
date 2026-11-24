@@ -4,11 +4,11 @@ import { prSavedViewsSchema } from './pr-views'
 // plans/018-settings-sync-and-organization-policy.md. Every setting has one
 // owner:
 //
-// - Personal: the person's choices. A local profile on each client, and the same
-//   profile in their account when they turn sync on for that client. Each host
-//   keeps its own copy of the subset it runs work with (`ExecutionPreferences`):
-//   a client writes it when it connects and when it changes
-//   (docs/plans/host-preferences.md). A request never carries it.
+// - Personal: the person's choices (ADR 0007). Signed out, the host keeps them
+//   in its database, by person, and a client reads and writes them through that
+//   host. Signed in, the account keeps them; each host pulls a copy for the work
+//   it runs, or the client writes the copy when the host holds no token for the
+//   person (docs/plans/personal-settings-source.md). A request never carries them.
 // - Device: this client only — its microphone, its installed apps and fonts,
 //   its consent to client analytics, its zoom and panes.
 // - Host: the machine (`HostConfig` in `host-config.ts`).
@@ -361,10 +361,10 @@ export function personalSettingsByteLength(document: PersonalSettingsDocument): 
 // ─── Execution preferences ───
 
 /**
- * The personal keys a host reads while it runs work for a person (plans/018 §6):
- * the subset of which a host keeps a copy for each person
- * (docs/plans/host-preferences.md), and that a background record (an
- * automation) captures so it runs the same way later. The host never reads these
+ * The personal keys a host reads while it runs work for a person (plans/018 §6),
+ * from its copy of the person's settings (docs/plans/personal-settings-source.md),
+ * and that a background record (an automation) captures so it runs the same way
+ * later. The host never reads these
  * from its own config for a person's work.
  */
 export const EXECUTION_PREFERENCE_KEYS = [
@@ -418,7 +418,7 @@ export interface KnownExecutionPreferences {
 }
 
 /**
- * Reads execution preferences one key at a time (docs/plans/host-preferences.md).
+ * Reads execution preferences one key at a time (ADR 0007 decision 7).
  * A key that this version does not know, or a value that does not pass its key's
  * schema, is left out and named; the other keys stay. So a client that is newer
  * than its host, or a record that an older version wrote, never refuses the
@@ -433,6 +433,43 @@ export function knownExecutionPreferences(sent: ExecutionPreferences): KnownExec
     else ignored.push(key)
   }
   return { preferences, ignored: ignored.sort() }
+}
+
+function isPersonalSettingKey(key: string): key is PersonalSettingKey {
+  return Object.hasOwn(PERSONAL_SETTING_SCHEMAS, key)
+}
+
+/** The keys a reader of personal settings kept, and the names of the keys it did not. */
+export interface KnownPersonalSettings {
+  settings: PersonalSettingsDocument
+  /** Keys this version does not know, or whose value does not pass the key's schema. */
+  ignored: string[]
+}
+
+/**
+ * Reads a personal settings document one key at a time (ADR 0007 decision 7), as
+ * `knownExecutionPreferences` reads the execution keys. A host reads with it what a
+ * client or the account sends: a key that this version does not know, or a value
+ * that does not pass its schema, is left out and named, and the other keys stay.
+ */
+export function knownPersonalSettings(sent: PersonalSettingsDocument): KnownPersonalSettings {
+  const settings: PersonalSettingsDocument = {}
+  const ignored: string[] = []
+  for (const [key, value] of Object.entries(sent)) {
+    const parsed = isPersonalSettingKey(key) ? PERSONAL_SETTING_SCHEMAS[key].safeParse(value) : null
+    if (parsed?.success) Object.assign(settings, { [key]: parsed.data })
+    else ignored.push(key)
+  }
+  return { settings, ignored: ignored.sort() }
+}
+
+/** The execution keys of a personal document: what a host runs the person's work with. */
+export function executionPreferencesOf(settings: PersonalSettingsDocument): ExecutionPreferences {
+  const preferences: ExecutionPreferences = {}
+  for (const key of EXECUTION_PREFERENCE_KEYS) {
+    if (Object.hasOwn(settings, key)) Object.assign(preferences, { [key]: structuredClone(settings[key]) })
+  }
+  return preferences
 }
 
 /**
@@ -454,6 +491,45 @@ export const executionPreferenceSnapshotSchema = z.object({
   capturedAt: z.number(),
   preferences: storedExecutionPreferencesSchema,
 }) satisfies z.ZodType<ExecutionPreferenceSnapshot, unknown>
+
+// ─── A person's settings on a host ───
+
+/** The personal documents a host keeps for each person: their settings, and their agent profile while signed out. */
+export const PERSONAL_DOCUMENT_KINDS = ['settings', 'agent-profile'] as const
+export type PersonalDocumentKind = (typeof PERSONAL_DOCUMENT_KINDS)[number]
+
+/**
+ * Where a host's copy of a person's settings came from (ADR 0007,
+ * docs/plans/personal-settings-source.md). `host`: the person wrote it through a
+ * client of this host (signed out, or signed in on a host that holds no token for
+ * them). `account`: the host pulled it from the person's account.
+ */
+export type PersonalSettingsSource = 'host' | 'account'
+
+/** One host's copy of the caller's settings (`personalSettingsGet`). */
+export interface HostPersonalSettings {
+  /** The keys the person set that this host knows. An absent key reads as its default. */
+  settings: PersonalSettingsDocument
+  source: PersonalSettingsSource
+  /** The host holds a token that reads the caller's account, and pulls their settings from it. */
+  followsAccount: boolean
+  /** The account revision of a copy from the account; null for a copy the host keeps. */
+  accountRevision: number | null
+  /** When this host last changed its copy; null before the person had one here. */
+  updatedAt: number | null
+}
+
+/** A change to a host's copy: keys to set, and keys to return to their default. */
+export interface PersonalSettingsPatch {
+  set: PersonalSettingsDocument
+  reset: PersonalSettingKey[]
+}
+
+export interface PersonalSettingsPatchResult {
+  settings: HostPersonalSettings
+  /** The keys the host left out: it does not know them, or their value does not pass its schema. */
+  ignored: string[]
+}
 
 // ─── Device settings ───
 

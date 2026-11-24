@@ -69,7 +69,7 @@ import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
-import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences } from './settings'
+import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, HostPersonalSettings, PersonalSettingsPatch, PersonalSettingsPatchResult } from './settings'
 import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
 import type { PolicySet } from './policy'
 
@@ -112,7 +112,7 @@ import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopR
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundChangeRequest, IntegrationFoundChangeResult, IntegrationDiscoverRequest, IntegrationFoundListRequest, IntegrationDiscovery, IntegrationFoundTestRequest, IntegrationFoundTestResult, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
-import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
+import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileDocumentPatch, AgentProfileStatus, HostAgentProfileDocument } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
 import type { User } from './user'
@@ -793,13 +793,29 @@ export interface SolusAPI {
   agentProfilePull(): Promise<AgentProfileStatus>
   /** The caller's profile on this host: where it came from, when, and what it holds. */
   agentProfileStatus(): Promise<AgentProfileStatus>
+  /** This host's copy of the caller's agent profile list while they are signed out (docs/plans/personal-settings-source.md). */
+  agentProfileDocumentGet(): Promise<HostAgentProfileDocument>
   /**
-   * Replaces this host's copy of the caller's execution preferences
-   * (docs/plans/host-preferences.md). A client sends it when it connects and
-   * when the preferences change. The host keeps the keys it knows and answers
-   * with the names of the keys it left out.
+   * Changes that copy. An entry this host cannot read is left out, never a refusal;
+   * a copy over the size bound is refused. `personalDocument.changed` tells the
+   * caller's other clients.
    */
-  executionPreferencesSet(preferences: ExecutionPreferences): Promise<{ ignored: string[] }>
+  agentProfileDocumentPatch(change: AgentProfileDocumentPatch): Promise<HostAgentProfileDocument>
+  /**
+   * This host's copy of the caller's settings (docs/plans/personal-settings-source.md):
+   * the source of a signed-out person's settings, and the copy of a signed-in
+   * person's account that their work here runs with.
+   */
+  personalSettingsGet(): Promise<HostPersonalSettings>
+  /**
+   * Changes this host's copy of the caller's settings: a signed-out person's change,
+   * or the account's copy from a client whose host holds no token for the person.
+   * The host keeps the keys it knows and answers with the names of the others; it
+   * never refuses a key. `personalDocument.changed` tells the caller's other clients.
+   */
+  personalSettingsPatch(change: PersonalSettingsPatch): Promise<PersonalSettingsPatchResult>
+  /** The caller's account copy changed: the host pulls it now when it holds a token for them, and answers with its copy. */
+  personalSettingsChanged(): Promise<HostPersonalSettings>
   /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
   presenceSnapshot(): Promise<PresenceSnapshotResult>
   /** What this client is looking at; a hint for "jump to", never an authorization. */

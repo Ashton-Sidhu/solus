@@ -3,6 +3,7 @@
 // ported domain adds its tables here and in `sqlite.ts`.
 import * as activitySchema from '../../data/activity/schema'
 import * as codebasesSchema from '../../data/codebases/schema'
+import * as personalDocumentsSchema from '../../data/personal-documents/schema'
 import * as commentsSchema from '../../data/comments/schema'
 import * as folioSchema from '../../data/works/schema'
 import * as notificationsSchema from '../../data/notifications/schema'
@@ -52,6 +53,7 @@ export const insight_span_texts = insightSchema.insightSpanTexts.pg
 export const insight_log_events = insightSchema.insightLogEvents.pg
 export const workspace_projects = projectsSchema.workspaceProjects.pg
 export const codebases = codebasesSchema.codebases.pg
+export const personal_documents = personalDocumentsSchema.personalDocuments.pg
 export const activity = activitySchema.activity.pg
 export const notifications = notificationsSchema.notifications.pg
 export const webhooks = webhooksSchema.webhooks.pg

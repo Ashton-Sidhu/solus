@@ -347,7 +347,11 @@ export const RPC_PLANES = {
   agentProfileApply: 'execution',
   agentProfilePull: 'execution',
   agentProfileStatus: 'execution',
-  executionPreferencesSet: 'execution',
+  personalSettingsGet: 'execution',
+  personalSettingsPatch: 'execution',
+  personalSettingsChanged: 'execution',
+  agentProfileDocumentGet: 'execution',
+  agentProfileDocumentPatch: 'execution',
 
   // Presence
   presenceSnapshot: 'collaboration',

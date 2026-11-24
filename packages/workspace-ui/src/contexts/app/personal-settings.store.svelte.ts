@@ -1,8 +1,10 @@
 /**
- * The person's settings on this client (plans/018 §3.5, §5): one validated local
- * profile per account and cloud origin, and a separate anonymous profile while
- * signed out. It is the source of truth on this client; the account document is
- * its optional replica, moved by `SettingsSync`. Nothing here talks to a host.
+ * The person's settings on this client (plans/018 §3.5, ADR 0007). The source is
+ * not here: signed in, it is the account (`SettingsSync` moves it); signed out,
+ * it is the home host (`PersonalSettingsHosts` moves it, `runtime-boot.ts`).
+ * This store holds the copy on screen, one per account and cloud origin and one
+ * for the home host while signed out (`anonymous`), cached in local storage so a
+ * boot paints the theme before the account or the host answers.
  *
  * Every write names one key and passes that key's strict personal schema, so a
  * value the account would refuse never enters the profile. An organization rule
@@ -92,6 +94,8 @@ export class PersonalSettingsStore {
   values = $state<PersonalSettings>(structuredClone(DEFAULT_PERSONAL_SETTINGS))
   /** The profile on screen: `origin|userId`, or `anonymous`. */
   accountKey = $state(ANONYMOUS_PROFILE)
+  /** Signed out: the host whose copy is on screen (`personalSettingsHomeId`); null with none, and signed in. */
+  homeHostId = $state<string | null>(null)
   /** The keys the person set; an absent key reads as its default. Plain, not reactive. */
   private document: PersonalSettingsDocument = {}
   private readonly listeners = new Set<(change: PersonalChange, origin: PersonalChangeOrigin) => void>()
@@ -107,6 +111,11 @@ export class PersonalSettingsStore {
     globalThis.window?.addEventListener?.('storage', (event: StorageEvent) => {
       if (event.key === personalProfileStorageKey(this.accountKey)) this.adoptDocument(this.readProfile(this.accountKey) ?? {}, 'profile')
     })
+  }
+
+  /** Signed in: the account is the source of what shows. */
+  get isSignedIn(): boolean {
+    return this.accountKey !== ANONYMOUS_PROFILE
   }
 
   /** What the person stored, as a plain document: the seed a first sync offers. */
@@ -183,9 +192,20 @@ export class PersonalSettingsStore {
   }
 
   /**
+   * Signed out: the home host's copy replaces the copy on screen, key by key, so
+   * only changed keys wake their readers. It is never sent back.
+   */
+  adoptHostCopy(document: PersonalSettingsDocument): void {
+    if (this.isSignedIn) return
+    this.adoptDocument(document, 'remote')
+    this.persist()
+  }
+
+  /**
    * Shows the profile of another account (null: signed out). A first sign-in
-   * starts from a copy of the anonymous profile; an account's profile is never
-   * copied into the anonymous one.
+   * starts from a copy of the anonymous profile, which is the home host's copy:
+   * the account takes it when it has none (ADR 0007 decision 3). An account's
+   * profile is never copied into the anonymous one.
    */
   setAccount(accountKey: string | null): void {
     const next = accountKey ?? ANONYMOUS_PROFILE

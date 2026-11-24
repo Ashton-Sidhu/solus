@@ -231,6 +231,24 @@ export const agentProfileEntriesWriteSchema = z.object({
 }).strict()
 export type AgentProfileEntriesWrite = z.input<typeof agentProfileEntriesWriteSchema>
 
+/**
+ * A host's copy of a signed-out person's agent profile (ADR 0007,
+ * docs/plans/personal-settings-source.md): the list their Agent profile page
+ * shows and edits while signed out. A copy to a host's seats (`agentProfileApply`)
+ * sends it; keeping it here applies nothing.
+ */
+export interface HostAgentProfileDocument {
+  entries: AgentProfile
+  /** When this host last changed it; null before the person had one here. */
+  updatedAt: number | null
+}
+
+/** A change to that copy: entries to set, and keys to remove. */
+export interface AgentProfileDocumentPatch {
+  set: AgentProfile
+  reset: AgentProfileKey[]
+}
+
 /** A 409 on an account write: a stale revision or a cleared generation. */
 export const accountAgentProfileConflictBodySchema = z.object({
   error: z.enum(['profile_conflict', 'profile_generation_changed']),

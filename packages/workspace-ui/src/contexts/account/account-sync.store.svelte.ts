@@ -35,9 +35,11 @@ import { browserSyncBroadcast, browserSyncClock, browserSyncEnvironment } from '
  * one status for the account, each document's conflicts, the last notice, and
  * the two clear actions. One per client, never one per tab.
  *
- * The profile has one rule of its own: a host pulls the profile from the
- * account, and after this client's write is confirmed every host the profile
- * applies to is asked to pull (plans/020 decision 8: the cloud cannot push).
+ * A host pulls both documents from the account, and the cloud cannot push
+ * (plans/020 decision 8). So after this client's write is confirmed, after a
+ * start, and after a change from another device, the hosts are asked to pull:
+ * every host the profile applies to, and every ready host for the settings
+ * (`onSettingsCopyChanged`, ADR 0007 decision 4).
  */
 
 // ─── Account requests ───
@@ -126,6 +128,7 @@ export class AccountSyncStore {
   private local: AgentProfileLocalStore | null = null
   private account: SyncAccount | null = null
   private readonly stops: Array<() => void> = []
+  private readonly settingsCopyListeners = new Set<() => void>()
 
   constructor(private readonly hosts: AgentProfileStore = agentProfileStore) {}
 
@@ -181,9 +184,12 @@ export class AccountSyncStore {
       const engine = new SettingsSync({ ...shared, requests: settingsRequests, broadcast: broadcast('solus.settings-sync'), localCopy: () => personal.storedDocument })
       this.settingsEngine = engine
       this.settings = engine.current
-      this.stops.push(engine.subscribe((status) => { this.settings = status }))
+      this.stops.push(engine.subscribe((status) => this.noteSettingsStatus(status)))
       // Cloud changes go into the profile; the person's own edits go to the engine.
-      this.stops.push(engine.onRemoteChange((change) => personal.applyRemote(change)))
+      this.stops.push(engine.onRemoteChange((change) => {
+        personal.applyRemote(change)
+        this.settingsCopyChanged()
+      }))
       this.stops.push(personal.onChange((change, origin) => {
         if (origin === 'local') engine.recordLocalChange(change)
       }))
@@ -219,6 +225,7 @@ export class AccountSyncStore {
       this.profileEngine?.signOut()
       this.personal?.removeProfile(syncAccountKey(previous))
       this.local?.removeProfile(syncAccountKey(previous))
+      this.settingsCopyChanged()
       return
     }
     const accountKey = account ? syncAccountKey(account) : null
@@ -226,6 +233,17 @@ export class AccountSyncStore {
     this.local?.setAccount(accountKey)
     this.settingsEngine?.setAccount(account)
     this.profileEngine?.setAccount(account)
+    this.settingsCopyChanged()
+  }
+
+  /**
+   * Hear when the copy on screen moved to another source or the account's copy
+   * changed: a sign-in or sign-out, a start, a confirmed write, or a change from
+   * another device. The hosts then take the copy (`PersonalSettingsHosts`).
+   */
+  onSettingsCopyChanged(listener: () => void): () => void {
+    this.settingsCopyListeners.add(listener)
+    return () => { this.settingsCopyListeners.delete(listener) }
   }
 
   /** Follows the account the client shell or the account cookie names, for this client's lifetime. */
@@ -280,6 +298,19 @@ export class AccountSyncStore {
     } finally {
       this.busy = false
     }
+  }
+
+  private noteSettingsStatus(status: SettingsSyncStatus): void {
+    const previous = this.settings
+    this.settings = status
+    // As for the profile: this device moved onto a copy of the account document, or its write was confirmed.
+    const started = status.generation !== null && status.generation !== previous.generation
+    const confirmed = previous.state === 'pending' && status.state === 'synced'
+    if (started || confirmed) this.settingsCopyChanged()
+  }
+
+  private settingsCopyChanged(): void {
+    for (const listener of this.settingsCopyListeners) listener()
   }
 
   private noteProfileStatus(status: AgentProfileSyncStatus): void {

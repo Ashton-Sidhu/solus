@@ -5,6 +5,7 @@
 export * from './host'
 import * as activitySchema from '../../data/activity/schema'
 import * as codebasesSchema from '../../data/codebases/schema'
+import * as personalDocumentsSchema from '../../data/personal-documents/schema'
 import * as commentsSchema from '../../data/comments/schema'
 import * as folioSchema from '../../data/works/schema'
 import * as notificationsSchema from '../../data/notifications/schema'
@@ -54,6 +55,7 @@ export const insight_span_texts = insightSchema.insightSpanTexts.sqlite
 export const insight_log_events = insightSchema.insightLogEvents.sqlite
 export const workspace_projects = projectsSchema.workspaceProjects.sqlite
 export const codebases = codebasesSchema.codebases.sqlite
+export const personal_documents = personalDocumentsSchema.personalDocuments.sqlite
 export const activity = activitySchema.activity.sqlite
 export const notifications = notificationsSchema.notifications.sqlite
 export const webhooks = webhooksSchema.webhooks.sqlite

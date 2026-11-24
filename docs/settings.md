@@ -6,7 +6,9 @@ Settings → Account & sync → Connections opens `/connections` on that account
 origin to manage agent logins, service integrations, and MCP credentials.
 Host settings still manage connections that belong to an individual machine.
 
-Plan: `plans/018-settings-sync-and-organization-policy.md`. Contract:
+Plan: `plans/018-settings-sync-and-organization-policy.md`. The source of personal
+settings: [ADR 0007](adr/0007-personal-settings-source.md) and
+[its plan](plans/personal-settings-source.md). Contract:
 `packages/contracts/src/settings.ts`.
 
 Settings search on desktop and web reads the labels and descriptions that the UI
@@ -28,7 +30,7 @@ Each setting has one owner, and each owner has its own schema: `PersonalSettings
 
 | Owner | What it holds | Where it is stored |
 | --- | --- | --- |
-| Personal | The person's choices: theme, models, review, instructions, writing, delegating sessions (in Settings → General), conversation width, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
+| Personal | The person's choices: theme, models, review, instructions, writing, delegating sessions (in Settings → General), conversation width, and transcript and font presets | Signed out: the database of each host, by person (each host keeps its own set). Signed in: the account, and each host keeps a copy for the work it runs. A client keeps only a cache. |
 | Device | This client only: voice, editor and terminal, font smoothing, installed-font overrides, client analytics consent, zoom, panes, keybindings | The client's local storage. It is never synced. |
 | Host | The machine: Solus tool availability, telemetry export, restart recovery, review warming by path, archived automation retention, host analytics consent, session cloud sync | `server-settings.json` on the host |
 | Organization | Settings that the owners of an organization decide for all its work. Today this is only Sync all Insights. | The control plane, in the organization's host policy. A host reads it in its standing. |
@@ -124,12 +126,28 @@ A session that is published to an organization always sends its conversation to
 the organization, so its members can read it. The switch controls only the cloud
 copy and the changes of each turn of such a session.
 
+## Where your settings are
+
+- **Signed out**, a host keeps your settings in its database (ADR 0007). A client shows
+  the settings of its home host: the desktop's own host, the host that served the web
+  page, or the phone's first host. Settings → Account & sync names that host. A change
+  goes to that host; another host keeps its own set. A change made while the host is
+  away waits on the client and goes when the host is back.
+- **Signed in**, your account keeps your settings. Each host pulls a copy with its
+  token for you, at start, every five minutes, and when your client says that they
+  changed. The host keeps the last copy, so a restart or a cloud that does not answer
+  changes nothing. A host that holds no token for you takes the copy from your client.
+- A host keeps the keys that it knows and leaves out the others; a client that is
+  newer than its host never makes a call fail.
+- The agent profile follows the same rule. Signed out, its list is on the home host.
+
 ## Personal sync
 
 - Signed in to Solus Cloud, your settings sync through your account. There is no
   switch per device (plan 018, decision 9). Device settings never sync.
 - At sign-in the client reads the account. An account with settings is used as it is.
-  An account with none starts from this device's settings. There is no prompt.
+  An account with none starts from the settings on screen, which are the home host's.
+  There is no prompt.
 - Edits apply at once on the device and are sent after a short pause. The status
   is "Synced" only after the account confirms the write.
 - Each top-level key is one conflict unit. Edits to different keys merge. If two clients
@@ -178,8 +196,11 @@ document): synced when signed in, one entry per conflict unit, the same silent f
 copy at sign-in, and "Clear synced profile" as its own action on Settings → Account & sync.
 The page never fills by itself; on the desktop, "Import from this computer" adds
 this computer's skills, files, and MCP servers (`docs/agent-profile.md`).
-The two documents stay apart: no host reads settings, every host reads the profile.
-A confirmed write makes every connected host the profile applies to pull it.
+The two documents stay apart, and each host keeps a copy of both. A confirmed write
+makes every connected host the profile applies to pull it. A host that cannot pull
+(it holds no token for the person) gets the client's copy of the account's profile.
+Signed out, the profile list is on the home host (`agentProfileDocumentGet` and
+`agentProfileDocumentPatch`); "Copy now" sends it to a host's seats.
 
 | Endpoint | Use |
 | --- | --- |
@@ -222,10 +243,11 @@ cannot change them.
 
 ### Execution preferences
 
-Each host keeps its own copy of each person's execution preferences
-(`EXECUTION_PREFERENCE_KEYS`; [the plan](plans/host-preferences.md)). A client writes
-that copy (`executionPreferencesSet`) when it connects to the host and when the
-preferences change. A request does not carry them: a prompt, a git action, a review,
+Each host keeps each person's settings in its database
+([the plan](plans/personal-settings-source.md)), and reads the execution preferences
+(`EXECUTION_PREFERENCE_KEYS`) from that copy. Signed out, the person's client writes it
+(`personalSettingsPatch`); signed in, the host pulls it from the account
+(`personalSettingsChanged` asks it to pull now). A request does not carry them: a prompt, a git action, a review,
 or a headless session carries only the session and what the person chose for it
 (the provider, model, reasoning, fast mode, and permission mode). The host reads the
 copy of the person who asks, with the policy locks of the work's organization laid
@@ -236,9 +258,8 @@ does not pass its schema; that key reads as its built-in default. So a client th
 is newer than its host never makes a call fail. The host stores the preferences
 with each run, and an automation keeps the snapshot that it was saved with, so
 background work keeps the preferences of the person who started it. A person with
-no copy on the host yet (after a host restart, before their client connects) runs
-with the built-in defaults, never with the host owner's settings or another
-person's.
+no copy on the host yet runs with the built-in defaults, never with the host
+owner's settings or another person's. The copy survives a host restart.
 
 ## Hosts and the Solus Cloud link
 

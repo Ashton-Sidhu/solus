@@ -1,6 +1,7 @@
-import type { z } from 'zod'
+import { z } from 'zod'
 import {
   AGENT_PROFILE_MAX_TOTAL_BYTES,
+  agentProfileEntriesWriteSchema,
   agentProfileByteLength,
   agentProfileSchema,
   agentProfileKeySchema,
@@ -8,8 +9,9 @@ import {
   type AgentProfile,
   type AgentProfileKey,
 } from '@solus/contracts/agent-profile'
-import type { AccountAgentProfileResult } from '@solus/contracts/host-api'
+import type { AccountAgentProfileResult, SolusAPI } from '@solus/contracts/host-api'
 import type { AgentProfileCloudRequests } from './agent-profile-requests'
+import { HomeHostDocument } from './home-host-document'
 import {
   DocumentSync,
   type ClearOutcome as DocumentClearOutcome,
@@ -18,6 +20,7 @@ import {
   type DocumentSyncPorts,
   type DocumentSyncRequests,
   type DocumentSyncResult,
+  type DocumentSyncStorage,
   type DocumentSyncStatus,
   type SyncedDocument,
   type SyncedDocumentContract,
@@ -99,4 +102,42 @@ export function agentProfileChangeBetween(current: AgentProfile, desired: AgentP
   }
   const reset = entryKeys(current).filter((key) => !(key in desired))
   return { set, reset }
+}
+
+export interface AgentProfileHomeHostPorts {
+  /** The home host while signed out (`personalSettingsHomeId`); null signed in, or with none. */
+  homeHostId(): string | null
+  /** The calls of a ready host; null when it is not ready. */
+  apiFor(hostId: string): Pick<SolusAPI, 'agentProfileDocumentGet' | 'agentProfileDocumentPatch'> | null
+  /** The entries on screen. */
+  document(): AgentProfile
+  /** The home host's list replaces the one on screen. */
+  adopt(entries: AgentProfile): void
+  storage: DocumentSyncStorage
+}
+
+// SAFETY: the entries write schema admits only keys of the three prefixes, which is what `AgentProfileKey` names.
+const pendingProfileSchema = agentProfileEntriesWriteSchema.transform((change) => ({ set: change.set, reset: change.reset as AgentProfileKey[] })) as z.ZodType<AgentProfileChange>
+
+/**
+ * The agent profile list of a signed-out person, whose source is their home host
+ * (ADR 0007 decision 6): `HomeHostDocument` bound to the profile calls. Signed in,
+ * the account is the source (`AgentProfileSync`).
+ */
+export function agentProfileHomeHost(ports: AgentProfileHomeHostPorts): HomeHostDocument<AgentProfile, AgentProfileKey> {
+  return new HomeHostDocument<AgentProfile, AgentProfileKey>({
+    homeHostId: () => ports.homeHostId(),
+    callsFor: (hostId) => {
+      const api = ports.apiFor(hostId)
+      return api ? {
+        get: async () => (await api.agentProfileDocumentGet()).entries,
+        patch: async (change) => (await api.agentProfileDocumentPatch(change)).entries,
+      } : null
+    },
+    document: () => ports.document(),
+    adopt: (entries) => ports.adopt(entries),
+    storage: ports.storage,
+    storageKey: (hostId) => `solus.agent-profile.pending.v1:${hostId}`,
+    pendingSchema: pendingProfileSchema,
+  }, () => ({}))
 }
