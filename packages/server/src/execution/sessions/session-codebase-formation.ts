@@ -3,12 +3,12 @@ import { basename, parse, resolve } from 'node:path'
 import type { ActivityKind } from '@solus/contracts/activity'
 import { isChat } from '@solus/contracts/chat'
 import type { Codebase, SessionAttachedFolder } from '@solus/contracts/codebases'
-import { hostPathBaseName, sameHostPath } from '@solus/contracts/host-path'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import { getInstallationId } from '../../admission/auth'
 import { organizationForNew, recordScopeOf } from '../../admission/principal'
 import { codebasesOfFolder, listCodebases, saveCodebase } from '../../data/codebases/codebases'
-import { repositoriesInside } from '../../files/codebase-members'
+import { folderStateOf, repositoriesInside } from '../../files/codebase-members'
 import { findTaskFolderContaining } from '../../git/task-folder-store'
 import { hostUserKey } from '../../host/host-user'
 import { runOneAtATime } from '../../lib/concurrency'
@@ -30,8 +30,10 @@ const log = createLogger('SessionRuntime', 'session-codebase-formation.ts')
  *   takes it. More than one: the session takes none, and nothing is formed.
  * - Rule 2: no codebase holds the project folder, and it has a repository
  *   inside it. A codebase with one root, the project folder, is made.
- * - Rule 4: a folder is attached to a session with no codebase. A codebase
- *   with two roots, the project folder and the attached folder, is made.
+ * - Rule 4: a repository, or a folder in a project that this host lists, is
+ *   attached to a session with no codebase. A codebase with two roots, the
+ *   project folder and the attached folder, is made. A different folder that
+ *   is attached stays a folder of that session only.
  *
  * `SessionFolders` calls the rules. It decides which session has no codebase.
  */
@@ -96,19 +98,26 @@ async function holdsTooMuch(projectFolder: string, realFolder: string): Promise<
 
 /**
  * A person's "no" is kept: a deleted codebase keeps its roots, and a deleted
- * codebase that has the project folder as a root stops each rule that makes
- * one for that folder. The person can still make a codebase by hand.
+ * codebase stops the rule that would make a codebase with the same set of
+ * roots. A codebase with a different set of roots is a different codebase,
+ * so the delete of a wrong one does not stop the correct one. The person can
+ * still make each codebase by hand.
  */
-async function wasRemovedByAPerson(projectFolder: string, realFolder: string, actor: Actor): Promise<boolean> {
+async function wasRemovedByAPerson(roots: readonly string[], actor: Actor): Promise<boolean> {
   const installationId = getInstallationId()
+  const wanted = await realPathsOf(roots)
   for (const codebase of await listCodebases(recordScopeOf(actor.principal), { includeDeleted: true })) {
-    if (codebase.deletedAt === null) continue
-    for (const root of codebase.roots) {
-      if (root.installationId !== installationId) continue
-      if (sameHostPath(root.path, projectFolder) || await realPathOf(root.path) === realFolder) return true
-    }
+    if (codebase.deletedAt === null || codebase.roots.length !== roots.length) continue
+    if (codebase.roots.some((root) => root.installationId !== installationId)) continue
+    const removed = await realPathsOf(codebase.roots.map((root) => root.path))
+    if (removed.size === wanted.size && [...wanted].every((path) => removed.has(path))) return true
   }
   return false
+}
+
+/** The set of the real paths of `paths`. A path that is gone keeps its name, so a deleted codebase with a root that is gone still compares. */
+async function realPathsOf(paths: readonly string[]): Promise<Set<string>> {
+  return new Set(await Promise.all(paths.map((path) => realPathOf(path))))
 }
 
 /** The base name of the project folder. A name that a live codebase has gets a number: `shop 2`, `shop 3`. */
@@ -128,12 +137,14 @@ async function existingCodebaseOf(projectFolder: string, actor: Actor): Promise<
   return holders.length === 1 ? holders[0] : 'several'
 }
 
-async function makeCodebase(sessionId: string, projectFolder: string, otherRoots: string[], actor: Actor): Promise<SessionCodebase> {
+/** `roots`: the project folder first. */
+async function makeCodebase(sessionId: string, roots: readonly string[], actor: Actor): Promise<SessionCodebase> {
   const installationId = getInstallationId()
+  const [projectFolder] = roots
   const codebase = await saveCodebase(organizationForNew(actor.principal), ownerKeyOf(actor) ?? hostUserKey(), {
     id: crypto.randomUUID(),
     name: await freeNameFor(projectFolder, actor),
-    roots: [projectFolder, ...otherRoots].map((path) => ({ installationId, path, name: '' })),
+    roots: roots.map((path) => ({ installationId, path, name: '' })),
     updatedAt: Date.now(),
     deletedAt: null,
   })
@@ -144,17 +155,21 @@ async function makeCodebase(sessionId: string, projectFolder: string, otherRoots
 /**
  * One formation at a time for one project folder, so two sessions that start
  * there at the same moment get one codebase: the second one reads the record
- * that the first one made. `form` runs only when no live codebase holds the
- * folder and no person removed its codebase.
+ * that the first one made. `rootsToForm` answers the roots of the codebase
+ * to make, the project folder first, or null for none. It runs only when no
+ * live codebase holds the folder. No codebase is made when a person deleted a
+ * codebase with those roots.
  */
-async function formOnce(projectFolder: string, actor: Actor, form: () => Promise<SessionCodebase | null>): Promise<SessionCodebase | null> {
+async function formOnce(sessionId: string, projectFolder: string, actor: Actor, rootsToForm: () => Promise<string[] | null>): Promise<SessionCodebase | null> {
   const realFolder = await realPathOf(projectFolder)
   return runOneAtATime(`codebase-formation:${realFolder}`, async () => {
     const existing = await existingCodebaseOf(projectFolder, actor)
     if (existing === 'several') return null
     if (existing !== 'none') return { codebase: existing, formed: false }
-    if (await holdsTooMuch(projectFolder, realFolder) || await wasRemovedByAPerson(projectFolder, realFolder, actor)) return null
-    return form()
+    if (await holdsTooMuch(projectFolder, realFolder)) return null
+    const roots = await rootsToForm()
+    if (!roots || await wasRemovedByAPerson(roots, actor)) return null
+    return makeCodebase(sessionId, roots, actor)
   })
 }
 
@@ -165,9 +180,9 @@ async function formOnce(projectFolder: string, actor: Actor, form: () => Promise
  */
 export async function codebaseForProjectFolder(sessionId: string, projectFolder: string, actor: Actor): Promise<SessionCodebase | null> {
   if (hasNoRule(projectFolder, actor)) return null
-  return formOnce(projectFolder, actor, async () => {
+  return formOnce(sessionId, projectFolder, actor, async () => {
     const inside = await repositoriesInside(projectFolder).catch(() => [])
-    return inside.length > 0 ? makeCodebase(sessionId, projectFolder, [], actor) : null
+    return inside.length > 0 ? [projectFolder] : null
   })
 }
 
@@ -183,10 +198,16 @@ async function isInListedProject(folder: string): Promise<boolean> {
 /**
  * Rule 4, after a folder was attached to a session with no codebase: a new
  * codebase whose roots are the project folder and the attached folder. The
- * caller ran rules 1 and 2 at the turn start. A folder that Solus only saw a
- * write in (`observed`) makes a codebase only when it is in a project that
- * this host lists, so a stray repository makes none. A folder inside the
- * project folder adds no root: rule 2 reads it at the next turn start.
+ * caller ran rules 1 and 2 at the turn start.
+ *
+ * The attached folder must be a real second folder of the work: a Git
+ * repository, or a folder in a project that this host lists. A plain folder
+ * (the directory of a file that the agent read, a folder of notes) stays a
+ * folder of that session and makes no codebase: each later session of the
+ * project would get it. A folder that Solus only saw a write in (`observed`)
+ * must be in a listed project, so a stray repository makes none. A folder
+ * inside the project folder adds no root: rule 2 reads it at the next turn
+ * start.
  */
 export async function codebaseForAttachedFolder(
   sessionId: string,
@@ -196,6 +217,7 @@ export async function codebaseForAttachedFolder(
 ): Promise<SessionCodebase | null> {
   if (hasNoRule(projectFolder, actor) || attached.source === 'codebase') return null
   if (isInsideRoot(await realPathOf(projectFolder), await realPathOf(attached.path))) return null
-  if (attached.source === 'observed' && !await isInListedProject(attached.path)) return null
-  return formOnce(projectFolder, actor, () => makeCodebase(sessionId, projectFolder, [resolve(attached.path)], actor))
+  const isRepository = attached.source !== 'observed' && await folderStateOf(attached.path) === 'git'
+  if (!isRepository && !await isInListedProject(attached.path)) return null
+  return formOnce(sessionId, projectFolder, actor, async () => [projectFolder, resolve(attached.path)])
 }

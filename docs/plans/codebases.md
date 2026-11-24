@@ -106,6 +106,29 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
    repository of the codebase gives the worktree of that repository, and
    makes one when there is none, so the session does not reach the shared
    checkout (§7).
+
+   Changed in the code: an attach needs a request, and there are two kinds.
+   A request by name: a person attaches a folder (`sessionAttachFolder`), or
+   the agent calls `attach_folder`. An automatic trigger: Solus reads a path
+   in a prompt, in a permission request, or in a write (§6). The mode table
+   applies to the two kinds. These places are refused in each mode:
+
+   | Place | An automatic trigger | A request by name |
+   |---|---|---|
+   | The root of the file system, the home directory | Refused | Refused |
+   | The data of Solus: the data folder (`solusDir()`, `dataDir()`) and the attachment store of the host | Refused | Refused |
+   | A temporary directory of the system: `os.tmpdir()`, `/tmp`, `/private/tmp`, `/var/folders`, `/private/var/folders`, and on Windows `%SystemRoot%\Temp` | Refused | Allowed |
+   | A folder that cannot be read | Refused | Allowed, by the rule of the mode |
+
+   A path that Solus only read is not a request to work in such a place: the
+   file of a pasted screenshot is in a temporary directory. A task folder
+   and the folder of a chat are in the data folder, and they are folders of
+   work, so they are not refused. A member of the session's codebase is not
+   refused as a temporary place: a person put it in the codebase. The rules
+   are `refusalForSolusData` and `refusalForAutomaticTrigger` in
+   `execution/sessions/attach-target.ts`. No folder of a session is in the
+   data of Solus: a root of a codebase and an attached folder of a record
+   that are there are left out when the folders are resolved.
 9. **Parity with the T3 Code feature.** Discovery, opt out, the task folder,
    the layout commands, add a repository to a running session, one branch name
    in all repositories, review and Git actions for each repository.
@@ -138,10 +161,19 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
     4. **Form one from the two folders.** After an attach with the source
        `attached` or `created` (the tool, the prompt trigger, a permission
        answer, a person's RPC, a project tool), a codebase whose roots are
-       the project folder and the attached folder is made. For the source
-       `observed`, only when the folder is in a project that the host lists
-       (`listProjects`). A session that has a codebase gets no new root from
-       an attach.
+       the project folder and the attached folder is made, but only when
+       the attached folder is a real second folder of the work: a Git
+       repository (`folderStateOf`), or a folder that is, or is in, a
+       project that the host lists (`listProjects`). For the source
+       `observed`, only when the folder is in a listed project. A different
+       folder that is attached (a folder of notes, the directory of a file
+       that the agent read) stays a folder of that session only, and no
+       codebase is made: a person can add it to a codebase by hand. A
+       session that has a codebase gets no new root from an attach.
+
+    A codebase is made by a person, by the agent, or by a rule here that has
+    a reason: the disk shows a second folder of the work. A pasted image is
+    not a reason (decision 8: its path attaches nothing).
 
     The rules that apply to each of them:
 
@@ -153,8 +185,13 @@ option `additionalDirectories` keeps its name only at the adapter boundary.
       Two sessions that start in one folder at the same moment give one
       codebase.
     - **A person's "no" is kept.** A deleted codebase is a tombstone that
-      keeps its roots. A tombstone that has the project folder as a root
-      stops rules 2 and 4 for that folder. Rule 1 does not read tombstones.
+      keeps its roots. A tombstone stops rule 2 or rule 4 only when the
+      codebase that the rule would make has the same set of roots as the
+      tombstone (all on this host, compared by their real paths). A
+      codebase with a different set of roots is a different codebase: the
+      delete of a wrong codebase (`~/solus` with a temporary folder) does
+      not stop `~/solus` with `~/solus-cloud`, and does not stop `~/solus`
+      alone. Rule 1 does not read tombstones.
       "No codebase" on a draft is `SessionCtx.noCodebase`: no rule gives that
       session a codebase. The host keeps it in memory for the session, and
       the client sends it with each turn.
@@ -483,7 +520,11 @@ session; `SessionFolders` owns all other folders. It:
   codebase on this host, less the working directory and the repository that
   the working directory is in, plus the attached folders of the session
   record. An attached folder that is gone stays in the record and is left out
-  of the list until the folder comes back. A member inside the working directory is a session folder (Git
+  of the list until the folder comes back. A root of the codebase that is
+  gone (a temporary folder that the system deleted) is a member of state
+  `missing`: it is not a session folder, it is not granted, and it is not in
+  the prompt block, and the turn starts. A member and an attached folder in
+  the data of Solus are left out also (decision 8). A member inside the working directory is a session folder (Git
   status, diff, and checkpoints work for each repository), but it is not in
   `grantedPaths`: the provider reaches it already. In a task folder session
   the worktrees stand in for the members (stage 3);
@@ -546,10 +587,11 @@ Names and paths come from the disk and from people (`codebaseBlock` in
 **Attach.** `SessionFolders.attach(sessionId, path, source, actor)` adds a
 folder with no rule: the path must be a directory that this actor may use as a
 working directory (the same check that a new session passes; a member of an
-organization stays in their own folder). A person's own `sessionAttachFolder`
-calls it. After the attach, a session with no codebase can get one (decision
-13, rule 4): the attached folder is then a member, and its source is
-`codebase`. One function in front of it decides for an agent,
+organization stays in their own folder), and it must not be in the data of
+Solus (decision 8). A person's own `sessionAttachFolder` calls it. After the
+attach, a session with no codebase can get one when the folder is a
+repository or is in a listed project (decision 13, rule 4): the attached
+folder is then a member, and its source is `codebase`. One function in front of it decides for an agent,
 `SessionFolders.requestAttach(sessionId, path, source, actor, options)`. The
 rule is in `execution/sessions/session-folder-attach.ts`, and
 `execution/sessions/attach-target.ts` names the folder. In the order of the
@@ -563,11 +605,16 @@ code:
    Git repository that holds it, else the path when it is a directory, else
    the directory of the file. A linked worktree in a different place than its
    repository, and a submodule, name their own directory. The root of the
-   file system and the home directory are refused (`invalid`).
+   file system, the home directory, and a folder in the data of Solus are
+   refused (`invalid`).
 4. A member of the session's codebase: attach, in each mode. In a task folder
    session the worktree of the repository stands in for it (§7).
-5. Mode `full-access` or `auto`: attach.
-6. Other modes: a question card (`question_request`, answered through
+5. A request that is not by name (each caller but the `attach_folder` tool,
+   which sets `byName`): a temporary directory of the system and a folder
+   that cannot be read are refused (`invalid`, `refusalForAutomaticTrigger`),
+   in each mode and before a card.
+6. Mode `full-access` or `auto`: attach.
+7. Other modes: a question card (`question_request`, answered through
    `answerToolQuestionWith`) with the choices of decision 8. Its
    `questionId` starts with `attach-folder-`, so the question card of each
    client shows it with no change. One card for one folder: a second request
@@ -583,11 +630,18 @@ The triggers:
 
 | Trigger | Where |
 |---|---|
-| The prompt names a directory on this host (`~/x`, an absolute path), or a file that the person pointed at with an `@` mention or an attachment line, in a folder that is not a session folder | `prompt-dispatch.ts` (`attachNamedFolders`, with `prompt-paths.ts`), before the launch, in `submitPrompt`, `promptSession`, and `createSession`. Not in `retry` and `startUnattendedSession`. Only in `full-access` and `auto`; in card modes the agent asks with the tool. At most three folders for one prompt. A file path in the text alone attaches nothing: a pasted log names many files. A path in the attachment store of the host is skipped. |
+| The prompt names a directory on this host (`~/x`, an absolute path) in its typed text, or a file or a folder that the person pointed at with an `@` mention, in a folder that is not a session folder | `prompt-dispatch.ts` (`attachNamedFolders`, with `prompt-paths.ts`), before the launch, in `submitPrompt`, `promptSession`, and `createSession`. Not in `retry` and `startUnattendedSession`. Only in `full-access` and `auto`; in card modes the agent asks with the tool. At most three folders for one prompt. A file path in the text alone attaches nothing: a pasted log names many files. An attachment attaches nothing: the text that a client writes for a pasted or dropped file (`[Attached file: …]`, `[Attached image: …]`, `[Attached design-selection: …]`, and the `Annotated capture: …` line of a browser annotation) is not read for paths, because the file is where the system or the host put it. An `@` mention is the text `@path` or `@"a path"` that the mention picker writes: a path of the project is relative and is not read, and the real case is a file of a different project, which has an absolute path. |
 | The agent calls `attach_folder({ path })` | New tool `agents/tools/folder-tools.ts`, `requiresApproval: false`; the rule above decides. |
 | Claude asks permission for a path outside its folders (`blockedPath`) | `claude-permissions.ts`. A request that matched an ask rule of the person always shows its card. "Allow for session" also attaches. In `auto` the answer is allow with `updatedPermissions: [{ type: 'addDirectories', destination: 'session' }]`, and no card. A path in a granted folder that the running query does not know gets the same answer when the mode asks nothing for the call in the working directory (a read in each mode, an edit in `accept-edits`). |
 | Codex asks approval for a write outside the sandbox | `codex-backend.ts` `onServerRequest`. In `accept-edits` and `auto`, a request whose paths are all inside granted session folders is accepted with no card (Codex applies new `writableRoots` only at the next turn). `supervised` asks for each write, so its card stays. "Accept for session" also attaches. |
 | A tool changed a file in a repository that is not a session folder (`full-access` asks nothing) | At turn end (`observed-writes.ts`), from the write tools of both providers (a shell command names no file): `source: 'observed'`, `granted: false`. For review only, so a folder with no repository is left out. A turn that stopped before its end is read at the next turn start. A later attach of the same path replaces the observed entry. |
+
+Each trigger in the table but the tool is an automatic trigger (decision 8):
+the prompt trigger and Claude in `auto` go through `requestAttach` with no
+`byName`, and "Allow for session", the Codex approval, and the observed write
+go through `SessionFolders.attachFolderOf`. Each asks
+`refusalForAutomaticTrigger`. Thus "Allow for Session" on a read of a file in
+`/tmp` allows the read, and `/tmp` does not become a session folder.
 
 `attach_folder` on a path whose member is on a different host does not attach:
 it answers with the host and tells the agent to use `start_sessions`. The
@@ -623,9 +677,14 @@ snapshot, tab persistence, the factories, and `session-config.svelte.ts`.
 
 Proof: unit tests for the folder resolution (member on this host, member on a
 different host, working directory inside a root, attached folder kept across
-turns), for the attach rule in each of the five modes, for the prompt block
-(order, limits, unsafe names), for `sandboxPolicyFor` with roots, and for the
-child order that carries the codebase.
+turns, a root that is gone, a root in the data of Solus), for the attach
+rule in each of the five modes, for the places that each automatic trigger
+and a request by name are refused (with a temporary place that the test
+gives, `SessionRuntimeOptions.temporaryPlaces`, because the folders of a test
+are in the temporary directory of the system), for a prompt with an
+attachment in each mode, for the prompt block (order, limits, unsafe names),
+for `sandboxPolicyFor` with roots, and for the child order that carries the
+codebase.
 
 ## 7. Stage 3 — the task folder
 
@@ -940,9 +999,11 @@ the added cases in `session-digests.test.ts` and
 - **No offer.** The first plan had an offer "Make a codebase" in the
   section, for a session with no codebase that got its second folder. The
   host makes that codebase now (decision 13, rule 4), so the offer and its
-  code are removed. In each state where the host makes none (a tombstone,
-  "No codebase", a folder that the host only observed), the person said no or
-  attached nothing: they make a codebase in Settings.
+  code are removed. In each state where the host makes none (a tombstone
+  with the same roots, "No codebase", a folder that the host only observed,
+  an attached folder that is no repository and is in no listed project), the
+  person said no, or the disk shows no second folder of the work: they make
+  a codebase in Settings.
 - **The event.** On `session_codebase` the reducer gives the run of the tab
   the codebase (`chooseCodebase`).
 - **The divider.** The `codebase_formed` activity is a divider of the
@@ -965,7 +1026,8 @@ the added cases in `session-digests.test.ts` and
   (`codebasesStore.readFolder`). `codebasesStore.newCodebaseAt` answers the
   scan when the host makes a codebase there (`formsCodebaseFor` in
   `client-core/src/codebases.ts`: repositories inside, no holder, no
-  tombstone with the folder as a root). The chip then shows the project
+  tombstone with the folder as its one root, which is the set of roots that
+  rule 2 makes). The chip then shows the project
   with the note "New codebase": it is one thing, a project that becomes a
   codebase at the first prompt. The list marks the project row. The
   Codebases group has a row with the name of the folder and the note "New",
@@ -1149,7 +1211,10 @@ text of the code.
 | §6 | The client applies a `git_context` when its `cwd` is the working place | The client ignores a `git_context` whose `cwd` is a session folder | A new worktree and `move_checkout` arrive as a `git_context` for a path that is not yet the working place |
 | §6 | "On other hosts" lines have a kind | No kind | This host cannot read a different host |
 | §6 | Unsafe characters are removed from names and paths | Removed from a name; a folder with an unsafe path is left out | A changed path is a wrong path |
-| §6 | The prompt trigger attaches for each path that the prompt names | Only a directory, or a file from an `@` mention or an attachment; at most three | A pasted log in `full-access` or `auto` attached many folders |
+| §6 | The prompt trigger attaches for each path that the prompt names | Only a directory in the typed text, or a file from an `@` mention; at most three. An attachment attaches nothing | A pasted log in `full-access` or `auto` attached many folders. A pasted screenshot attached the temporary folder of the system, and a codebase formed from it |
+| §3, §6 | Each trigger attaches each folder but the root of the file system and the home directory | An automatic trigger attaches no temporary directory of the system and no folder that cannot be read. No request attaches a folder in the data of Solus | A path that Solus only read is not a request to work there, and the data folder holds the database and the secrets of the host |
+| §3 | Rule 4 of decision 13 forms a codebase from each attached folder | Only from a Git repository or a folder in a listed project | A folder of that kind is a real second folder of the work. Each later session of the project gets the folders of the codebase |
+| §3 | A tombstone that has the project folder as a root stops rules 2 and 4 for that folder | A tombstone stops only the codebase with the same set of roots | The delete of a wrong codebase must not stop a correct one |
 | §6 | Claude: a path in a granted folder is always allowed with no card | Only when the mode asks nothing for that call in the working directory | Decision 8: edits in an attached folder follow the mode |
 | §6 | Codex: a write in a granted folder is accepted with no card | Only in `accept-edits` and `auto` | `supervised` asks for each write, also in the working directory |
 | §6 | The attach rule is in `session-folders.ts` | It is in `session-folder-attach.ts` | The file was above the review limit |
@@ -1175,7 +1240,7 @@ text of the code.
 | §3 | Decision 12: a session with no codebase is unchanged, and only a person makes a codebase | The host gives a session the codebase of its project folder, or makes one (decision 13) | The main cases needed a manual step before a session could work in two folders |
 | §9 | The Repositories section offers "Make a codebase" | No offer | The host makes that codebase when the second folder is attached |
 | §9 | The Git section of a folder with no repository says to set up Git | A folder that holds repositories shows one row that names them | The folder is the place of several repositories, not a project that lacks one |
-| §3 | A session keeps the codebase id of a deleted codebase | Such a session is a session with no codebase, and the tombstone stops a new one | A person can delete the codebase that the host made |
+| §3 | A session keeps the codebase id of a deleted codebase | Such a session is a session with no codebase, and the tombstone stops a new one with the same roots | A person can delete the codebase that the host made |
 | §9 | A toast says that the host made a codebase, with Undo and Open | A divider in the conversation, stored as the `codebase_formed` activity | A toast is gone after a reload and shows on one client. The delete is on the page of the codebase |
 | §9 | The project chip shows the project and, beside it, the codebase; its list marks one row in each group | One choice: the chip shows the codebase of a run that has one, else the project, and the list marks one row | Two names and two marks for one place did not say where the run is |
 | §9 | A codebase with several roots on the run host asks which one | It opens the first root; a project row changes the folder | One list with one step |

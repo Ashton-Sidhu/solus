@@ -54,6 +54,17 @@ beforeAll(async () => {
   }
   for (const folder of ['notes', 'scratch', 'drafts']) mkdirSync(join(root, folder))
   writeFileSync(join(root, 'notes', 'todo.md'), 'todo\n')
+  for (const picture of ['shot.png', 'annotated.png']) writeFileSync(join(root, 'scratch', picture), '')
+
+  // `system-temp` stands in for the temporary directory of the system, and `data` is the data folder of Solus.
+  // Each has a folder with no repository and a repository, because the folder of a path is one or the other.
+  for (const repository of ['system-temp/clone', 'data/mirror']) {
+    mkdirSync(join(root, repository, 'src'), { recursive: true })
+    git(['init', '-b', 'main'], join(root, repository))
+    writeFileSync(join(root, repository, 'src', 'main.ts'), 'export {}\n')
+  }
+  for (const folder of ['system-temp/screens', 'data/exports', 'data/attachments/bucket']) mkdirSync(join(root, folder), { recursive: true })
+  for (const file of ['system-temp/screens/shot.png', 'data/exports/report.csv', 'data/attachments/bucket/shot.png']) writeFileSync(join(root, file), '')
 })
 
 afterAll(() => {
@@ -110,11 +121,17 @@ interface Live {
   request(path: string): ReturnType<Runtime['sessionFolders']['requestAttach']>
 }
 
-/** A session with a running turn in `mode`, in the working directory `shop/api`. */
-async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?: string): Promise<Live> {
+/**
+ * A session with a running turn in `mode`, in the working directory `shop/api`.
+ *
+ * Each folder of this file is in the temporary directory of the system, which
+ * no automatic trigger attaches. So a session here has no temporary places,
+ * and a test of that rule gives `system-temp` (`temporaryPlaces`).
+ */
+async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?: string, temporaryPlaces: string[] = []): Promise<Live> {
   const backend = new QuietBackend()
   // SAFETY: the test backend has each member that the event path of a question reads.
-  const runtime = new runtimeModule.SessionRuntime(new Map([['codex', backend as unknown as AgentBackend]]))
+  const runtime = new runtimeModule.SessionRuntime(new Map([['codex', backend as unknown as AgentBackend]]), { temporaryPlaces })
   const thread = `thread-${sessionId}`
   runtime.agentSessionToSession.set(thread, sessionId)
   runtime.activeSessions.set(sessionId, {
@@ -342,6 +359,7 @@ describe('the choices of the attach card', () => {
         sessionId: live.sessionId,
         state: { codebaseId: null, codebase: null, openCards: new Map(), refused: new Set() },
         mode: 'supervised',
+        temporaryPlaces: [],
         refresh: async () => {},
         holderOf: async () => null,
         grantedHolderOf: () => {
@@ -560,6 +578,92 @@ describe('a folder that a tool wrote in', () => {
   })
 })
 
+describe('a place that no automatic trigger attaches', () => {
+  // WHY: a pasted screenshot is a file in a temporary directory of the system. Its path attached that directory to the
+  // session, and a codebase formed from it. A path that Solus only read is not a request to work in such a place.
+  const temporaryPlaces = (): string[] => [at('system-temp')]
+
+  test('a blocked path in `auto` (attachUnasked) gets no temporary directory and no data of Solus', async () => {
+    const live = await liveSession('refused-unasked', 'auto', undefined, temporaryPlaces())
+    try {
+      const gate = live.runtime.sessionFolders
+      expect(await gate.attachUnasked(live.sessionId, at('system-temp/screens/shot.png'))).toBeNull()
+      expect(await gate.attachUnasked(live.sessionId, at('system-temp/clone/src/main.ts'))).toBeNull()
+      expect(await gate.attachUnasked(live.sessionId, at('data/exports/report.csv'))).toBeNull()
+      expect(await gate.attachUnasked(live.sessionId, at('data/mirror/src/main.ts'))).toBeNull()
+      expect(await gate.attachUnasked(live.sessionId, at('data/attachments/bucket/shot.png'))).toBeNull()
+      // The same trigger still attaches a folder of the work.
+      expect(await gate.attachUnasked(live.sessionId, at('libs/ui/src/main.ts'))).toBe(at('libs/ui'))
+      expect(paths(gate.foldersOf(live.sessionId))).toEqual([at('libs/ui')])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('a request that a person allowed for the session (attachAllowed) gets none of them', async () => {
+    // WHY: "Allow for session" on a read of a file in `/tmp` allows the read. It does not make `/tmp` a folder of the session.
+    const live = await liveSession('refused-allowed', 'supervised', undefined, temporaryPlaces())
+    try {
+      const published: string[][] = []
+      const attached = new Promise<void>((done) => {
+        live.runtime.on('event', (id: string, event: NormalizedEvent) => {
+          if (id !== live.sessionId || event.type !== 'session_folders') return
+          published.push(paths(event.folders))
+          done()
+        })
+      })
+      // The paths are read in their order: the last one is a folder of the work, and it is the only one attached.
+      live.runtime.sessionFolders.attachAllowed(live.sessionId, [
+        at('system-temp/screens/shot.png'), at('system-temp/clone/src/main.ts'), at('data/exports/report.csv'), at('data/mirror/src/main.ts'), at('libs/ui/src/main.ts'),
+      ])
+      await attached
+      expect(published).toEqual([[at('libs/ui')]])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('a write of a tool (attachObserved) shows none of them', async () => {
+    const live = await liveSession('refused-observed', 'full-access', undefined, temporaryPlaces())
+    try {
+      const { sessionFolders } = live.runtime
+      for (const [index, file] of [at('system-temp/clone/src/main.ts'), at('data/mirror/src/main.ts'), at('libs/ui/src/main.ts')].entries()) {
+        sessionFolders.observe(live.sessionId, { type: 'tool_call', toolName: 'Write', toolId: `write-${index}`, index, toolInput: JSON.stringify({ file_path: file, content: '' }) })
+      }
+      await sessionFolders.attachObserved(live.sessionId)
+      expect(sessionFolders.foldersOf(live.sessionId).map(({ path, source }) => ({ path, source }))).toEqual([{ path: at('libs/ui'), source: 'observed' }])
+    } finally {
+      live.runtime.shutdown()
+    }
+  })
+
+  test('the agent and a person can ask for a temporary directory by its name, and get no data of Solus', async () => {
+    // WHY: a person or the agent who names a folder made a request. The data folder holds the database and the secrets of the host.
+    const tools = await import('@solus/server/execution/agents/tools/folder-tools')
+    const live = await liveSession('by-name', 'full-access', undefined, temporaryPlaces())
+    tools.setFolderToolHost(live.runtime.sessionFolders, () => HOST_ACTOR)
+    const context: AgentToolContext = {
+      provider: 'claude-code', cwd: at('shop/api'), sessionId: () => live.sessionId, abortSignal: live.stop.signal, parentToolUseId: () => undefined, emit: live.asker.emit,
+    }
+    try {
+      const tool = tools.attachFolderAgentTool
+      expect(await tool.execute({ path: at('data/exports') }, context)).toEqual({ ok: false, text: expect.stringContaining('data folder of Solus') })
+      expect(await tool.execute({ path: at('data/mirror/src/main.ts') }, context)).toEqual({ ok: false, text: expect.stringContaining('data folder of Solus') })
+      expect(await tool.execute({ path: at('data/attachments/bucket/shot.png') }, context)).toEqual({ ok: false, text: expect.stringContaining('attachment store') })
+      expect(await tool.execute({ path: at('system-temp/clone/src/main.ts') }, context)).toEqual({ ok: true, text: expect.stringContaining(`Attached "${at('system-temp/clone')}"`) })
+
+      // A person's own `sessionAttachFolder` calls `attach`.
+      const { sessionFolders } = live.runtime
+      await expect(sessionFolders.attach(live.sessionId, at('data/exports'), 'attached', HOST_ACTOR)).rejects.toThrow('data folder of Solus')
+      await expect(sessionFolders.attach(live.sessionId, at('data/attachments/bucket'), 'attached', HOST_ACTOR)).rejects.toThrow('attachment store')
+      expect(paths(await sessionFolders.attach(live.sessionId, at('system-temp/screens'), 'attached', HOST_ACTOR))).toEqual([at('system-temp/clone'), at('system-temp/screens')])
+    } finally {
+      tools.setFolderToolHost(null, null)
+      live.runtime.shutdown()
+    }
+  })
+})
+
 describe('a folder that a project tool made', () => {
   test('becomes a root of the codebase and a folder of the session', async () => {
     const codebase = await savedCodebase(['libs/ui'])
@@ -630,22 +734,59 @@ describe('a prompt that names a path', () => {
 
   test('attaches its folder before the launch in the modes that ask nothing', async () => {
     for (const mode of ['full-access', 'auto'] as const) {
-      const runtime = new runtimeModule.SessionRuntime(new Map())
+      const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [] })
       try {
         const sessionId = `prompt-${mode}`
-        const uploaded = join(process.env.SOLUS_DATA_DIR!, 'attachments', 'bucket', 'shot.png')
-        mkdirSync(join(uploaded, '..'), { recursive: true })
-        writeFileSync(uploaded, '')
         // No turn of the session started: the working directory of the prompt says what the session has already.
         await attachNamed(runtime, sessionId, mode, [
           `Make the change in ${at('libs/ui/src')} and read @"${at('notes/todo.md')}".`,
           `The log names ${at('tools/cli/src/main.ts')}. Ignore ${at('nowhere/else.ts')} and ${at('shop/api/src/main.ts')}.`,
-          `[Attached image: ${uploaded}]`,
+          `[Attached image: ${at('data/attachments/bucket/shot.png')}]`,
         ].join('\n'))
         // A folder in a repository gives the root of the repository, and a mentioned file in a plain folder gives
         // the folder. A file path in the text, a path that does not exist, a path in the working directory, and an
         // uploaded file give nothing.
         expect(paths(runtime.sessionFolders.foldersOf(sessionId))).toEqual([at('libs/ui'), at('notes')])
+      } finally {
+        runtime.shutdown()
+      }
+    }
+  })
+
+  test('the path of an attachment attaches nothing, in each permission mode', async () => {
+    // WHY: a person pasted a screenshot into a prompt. The client wrote the path of the file, the prompt trigger attached
+    // the folder of the file, and a codebase formed from it. A pasted or dropped file is not a request to work in a folder.
+    for (const mode of ['full-access', 'auto', 'supervised', 'accept-edits', 'plan'] as const) {
+      // No temporary place is refused here: only the rule of the prompt trigger keeps these folders out.
+      const live = await liveSession(`pasted-${mode}`, mode)
+      try {
+        await attachNamed(live.runtime, live.sessionId, mode, [
+          `[Attached image: ${at('scratch/shot.png')}]`,
+          `[Attached file: ${at('notes/todo.md')}]`,
+          `[Attached file: ${at('drafts')}]`,
+          '[Browser annotation: Header]',
+          `Annotated capture: ${at('scratch/annotated.png')}`,
+          '',
+          'What is wrong in this picture?',
+        ].join('\n'))
+        expect(live.runtime.sessionFolders.foldersOf(live.sessionId)).toEqual([])
+        expect(live.cards).toEqual([])
+      } finally {
+        live.runtime.shutdown()
+      }
+    }
+  })
+
+  test('a path in a temporary directory of the system or in the data of Solus attaches nothing', async () => {
+    for (const mode of ['full-access', 'auto'] as const) {
+      const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [at('system-temp')] })
+      try {
+        const sessionId = `prompt-refused-${mode}`
+        // A directory that the person typed, and a file that the person mentioned: each is a trigger for a folder of the work.
+        await attachNamed(runtime, sessionId, mode, `Look in ${at('system-temp/clone')} and ${at('data/exports')}, and read @${at('system-temp/screens/shot.png')}.`)
+        expect(runtime.sessionFolders.foldersOf(sessionId)).toEqual([])
+        await attachNamed(runtime, sessionId, mode, `Look in ${at('data/attachments/bucket')} and read @${at('data/mirror/src/main.ts')}. Then change ${at('libs/ui')}.`)
+        expect(paths(runtime.sessionFolders.foldersOf(sessionId))).toEqual([at('libs/ui')])
       } finally {
         runtime.shutdown()
       }

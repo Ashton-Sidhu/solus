@@ -137,14 +137,15 @@ export function repositoriesFoundIn(scan: Pick<CodebaseFolderScan, 'members'>): 
  * session there (docs/plans/codebases.md decision 13, rule 2), as a client
  * can tell before Send from the copies it knows and the scan of the folder.
  * True when the folder holds a repository, no live codebase holds the folder,
- * and no deleted codebase has it as a root (a person removed that one). The
- * host also makes none for a home directory and for a projects root, which a
- * client cannot tell.
+ * and no deleted codebase has the folder as its one root (a person removed
+ * the codebase that the host would make again). A deleted codebase with more
+ * roots is a different codebase, and stops nothing. The host also makes none
+ * for a home directory and for a projects root, which a client cannot tell.
  */
 export function formsCodebaseFor(copies: Iterable<Codebase>, installationId: string, scan: CodebaseFolderScan): boolean {
   if (repositoriesFoundIn(scan).length === 0) return false
   const all = [...copies]
   if (codebasesHolding(all, installationId, scan.path).length > 0) return false
   const folder = { installationId, path: scan.path }
-  return !all.some((codebase) => codebase.deletedAt !== null && codebase.roots.some((root) => isSameRoot(root, folder)))
+  return !all.some((codebase) => codebase.deletedAt !== null && codebase.roots.length === 1 && isSameRoot(codebase.roots[0], folder))
 }

@@ -58,6 +58,7 @@ export const attachFolderAgentTool: AgentTool = {
     if (!sessionFolders || !actorOfSession) return { ok: false, text: 'Session folders are not available on this host.' }
     const outcome = await sessionFolders.requestAttach(sessionId, parsed.data.path, 'attached', actorOfSession(sessionId), {
       asker: { emit: context.emit, signal: context.abortSignal },
+      byName: true,
     })
     return { ok: outcome.kind === 'attached' || outcome.kind === 'available', text: attachOutcomeText(outcome, parsed.data.path, context.provider) }
   },

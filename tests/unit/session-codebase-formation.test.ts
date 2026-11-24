@@ -120,8 +120,13 @@ interface Watched {
   events: NormalizedEvent[]
 }
 
+/**
+ * Each folder of this file is in the temporary directory of the system, which
+ * no automatic trigger attaches (decision 8). These tests are about the
+ * formation, so a runtime here has no temporary places.
+ */
 function runtimeFor(sessionId: string): Watched {
-  const runtime = new runtimeModule.SessionRuntime(new Map())
+  const runtime = new runtimeModule.SessionRuntime(new Map(), { temporaryPlaces: [] })
   const taken: SessionCodebaseEvent[] = []
   const events: NormalizedEvent[] = []
   runtime.on('event', (id: string, event: NormalizedEvent) => {
@@ -354,7 +359,7 @@ describe('rule 2: a folder that holds a repository forms a codebase', () => {
 })
 
 describe('rule 4: an attach in a session with no codebase forms a codebase', () => {
-  test('a folder that is attached on purpose forms a codebase with two roots', async () => {
+  test('a repository that is attached on purpose forms a codebase with two roots', async () => {
     // WHY: a session in `~/solus` that is told to change `~/solus-cloud`. The next session there must start with both.
     const home = place()
     const solus = repository(join(home, 'solus'))
@@ -383,6 +388,59 @@ describe('rule 4: an attach in a session with no codebase forms a codebase', () 
       } finally {
         next.runtime.shutdown()
       }
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
+  test('a folder with no repository forms no codebase, and stays a folder of that session', async () => {
+    // WHY: a person pasted a screenshot, and the folder of the file was attached. A codebase formed from the project
+    // and that folder, and each later session of the project got the folder. Only a real second folder of the work
+    // (a repository, a listed project) makes a codebase.
+    const home = place()
+    const solus = repository(join(home, 'solus'))
+    const screenshots = join(home, 'screenshots')
+    const created = join(home, 'created')
+    for (const folder of [screenshots, created]) mkdirSync(folder)
+    const { runtime, taken, events } = runtimeFor('attaches-plain')
+    try {
+      await runtime.sessionFolders.resolve('attaches-plain', { workingDirectory: solus, repositoryRoot: solus, actor: HOST_ACTOR })
+      // Each source that a person or the agent causes: a person's attach, the attach rule, and a project tool.
+      const folders = await runtime.sessionFolders.attach('attaches-plain', screenshots, 'attached', HOST_ACTOR)
+      expect(await runtime.sessionFolders.adoptCreated('attaches-plain', created, true, HOST_ACTOR)).toEqual({ addedToCodebase: false })
+
+      expect(await codebasesRootedAt(solus)).toEqual([])
+      expect(taken).toEqual([])
+      expect(dividersIn(events)).toEqual([])
+      // The session that attached the folder has it.
+      expect(folders).toEqual([{ path: screenshots, name: 'screenshots', state: 'plain', repositoryPath: screenshots, source: 'attached', granted: true }])
+
+      // The next session in the project gets no codebase and no folder.
+      const next = runtimeFor('after-plain')
+      try {
+        expect(await next.runtime.sessionFolders.resolve('after-plain', { workingDirectory: solus, repositoryRoot: solus, actor: HOST_ACTOR })).toEqual([])
+        expect(next.taken).toEqual([])
+      } finally {
+        next.runtime.shutdown()
+      }
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
+  test('a folder with no repository in a project that this host lists forms a codebase', async () => {
+    const home = place()
+    const work = repository(join(home, 'work'))
+    const designs = join(home, 'designs')
+    mkdirSync(designs)
+    await manifest.recordProject(designs)
+    const { runtime, taken } = runtimeFor('attaches-listed')
+    try {
+      await runtime.sessionFolders.resolve('attaches-listed', { workingDirectory: work, repositoryRoot: work, actor: HOST_ACTOR })
+      await runtime.sessionFolders.attach('attaches-listed', designs, 'attached', HOST_ACTOR)
+      const [formed] = await codebasesRootedAt(work)
+      expect(formed?.roots.map((each) => each.path)).toEqual([work, designs])
+      expect(taken).toMatchObject([{ codebaseId: formed!.id }])
     } finally {
       runtime.shutdown()
     }
@@ -533,26 +591,37 @@ describe('the name, the lock, and a person\'s "no"', () => {
     }
   })
 
-  test('a deleted codebase that has the folder as a root stops rules 2 and 4, and not rule 1', async () => {
+  test('a deleted codebase stops the rule that would make a codebase with the same roots, and not rule 1', async () => {
     // WHY: a person deletes the codebase that the host made. The host must not make it again at the next turn.
     const { shop: folder, api } = shop()
     const other = repository(join(place(), 'other'))
     const { runtime, taken } = runtimeFor('undone')
+    const later = runtimeFor('undone-later')
     try {
       await runtime.sessionFolders.resolve('undone', { workingDirectory: folder, actor: HOST_ACTOR })
       const [formed] = await codebasesRootedAt(folder)
+      expect(formed?.roots.map((each) => each.path)).toEqual([folder])
       await codebases.saveCodebase('local', 'owner', { ...formed!, updatedAt: formed!.updatedAt + 1, deletedAt: Date.now() })
 
-      // The session whose codebase was deleted is a session with no codebase: rule 2 forms nothing.
+      // The session whose codebase was deleted is a session with no codebase: rule 2 would make the same codebase, so it forms nothing.
       expect(await runtime.sessionFolders.resolve('undone', { workingDirectory: folder, actor: HOST_ACTOR })).toEqual([])
-      expect(await codebasesRootedAt(folder)).toEqual([])
-      // Rule 4 forms nothing: the attach is for the session only.
-      const folders = await runtime.sessionFolders.attach('undone', other, 'attached', HOST_ACTOR)
-      expect(folders.map(({ path, source }) => ({ path, source }))).toEqual([{ path: other, source: 'attached' }])
       expect(await codebasesRootedAt(folder)).toEqual([])
       expect(taken).toHaveLength(1)
 
-      // A codebase that a person makes by hand is taken: rule 1 does not read the deleted one.
+      // Rule 4 with a second repository makes a different codebase. The person deletes that one also.
+      await runtime.sessionFolders.attach('undone', other, 'attached', HOST_ACTOR)
+      const [withOther] = await codebasesRootedAt(folder)
+      expect(withOther?.roots.map((each) => each.path)).toEqual([folder, other])
+      await codebases.saveCodebase('local', 'owner', { ...withOther!, updatedAt: withOther!.updatedAt + 1, deletedAt: Date.now() })
+
+      // A later session that attaches the same repository would make the same codebase: the attach is for the session only.
+      expect(await later.runtime.sessionFolders.resolve('undone-later', { workingDirectory: folder, actor: HOST_ACTOR })).toEqual([])
+      const folders = await later.runtime.sessionFolders.attach('undone-later', other, 'attached', HOST_ACTOR)
+      expect(folders.map(({ path, source }) => ({ path, source }))).toEqual([{ path: other, source: 'attached' }])
+      expect(await codebasesRootedAt(folder)).toEqual([])
+      expect(later.taken).toEqual([])
+
+      // A codebase that a person makes by hand is taken: rule 1 does not read the deleted ones.
       const byHand = await saved('made-by-hand', [folder])
       await runtime.sessionFolders.resolve('undone', { workingDirectory: folder, actor: HOST_ACTOR })
       expect(await runtime.sessionFolders.codebaseIdOf('undone')).toBe(byHand.id)
@@ -560,6 +629,45 @@ describe('the name, the lock, and a person\'s "no"', () => {
       expect(pathsOf(runtime.sessionFolders.foldersOf('undone'))).toContain(api)
     } finally {
       runtime.shutdown()
+      later.runtime.shutdown()
+    }
+  })
+
+  test('a deleted codebase with a different set of roots does not stop a formation', async () => {
+    // WHY: Solus made a wrong codebase from `~/solus` and a temporary folder, and the person deleted it. That delete
+    // says nothing about `~/solus` with `~/solus-cloud`, and nothing about `~/solus` alone: each must still form.
+    const home = place()
+    const solus = join(home, 'solus')
+    repository(join(solus, 'packages', 'site'))
+    const cloud = repository(join(home, 'solus-cloud'))
+    const screenshots = join(home, 'screenshots')
+    mkdirSync(screenshots)
+    await saved('wrong-solus', [solus, screenshots], { deletedAt: 2_000, updatedAt: 2_000 })
+    // The system deleted the temporary folder: the deleted codebase still names it.
+    rmSync(screenshots, { recursive: true })
+
+    const alone = runtimeFor('forms-alone')
+    try {
+      // Rule 2: the folder has a repository inside it.
+      await alone.runtime.sessionFolders.resolve('forms-alone', { workingDirectory: solus, actor: HOST_ACTOR })
+      const [formed] = await codebasesRootedAt(solus)
+      expect(formed?.roots.map((each) => each.path)).toEqual([solus])
+      expect(alone.taken).toMatchObject([{ codebaseId: formed!.id }])
+      await codebases.saveCodebase('local', 'owner', { ...formed!, updatedAt: formed!.updatedAt + 1, deletedAt: Date.now() })
+    } finally {
+      alone.runtime.shutdown()
+    }
+
+    const withCloud = runtimeFor('forms-with-cloud')
+    try {
+      // Rule 4: now two deleted codebases have the folder as a root, and no one of them has these two roots.
+      await withCloud.runtime.sessionFolders.resolve('forms-with-cloud', { workingDirectory: solus, actor: HOST_ACTOR })
+      expect(await codebasesRootedAt(solus)).toEqual([])
+      await withCloud.runtime.sessionFolders.attach('forms-with-cloud', cloud, 'attached', HOST_ACTOR)
+      expect((await codebasesRootedAt(solus))[0]?.roots.map((each) => each.path)).toEqual([solus, cloud])
+      expect(dividersIn(withCloud.events)).toMatchObject([{ folders: ['solus', 'solus-cloud'] }])
+    } finally {
+      withCloud.runtime.shutdown()
     }
   })
 

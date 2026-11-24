@@ -133,6 +133,13 @@ describe('the codebase that the host makes for the folder of a draft', () => {
     expect(formsCodebaseFor([{ ...codebase('all', [['install-laptop', '/code']]), deletedAt: 5 }], 'install-laptop', found)).toBe(true)
   })
 
+  // A person deleted a wrong codebase that had this folder and a temporary folder. The host still makes the codebase of
+  // the folder alone, so the chip must promise it.
+  test('a deleted codebase with the folder and a second root does not stop the codebase of the folder', () => {
+    const wrong = { ...codebase('store', [['install-laptop', '/code/store'], ['install-laptop', '/var/folders/T/screens']]), deletedAt: 5 }
+    expect(formsCodebaseFor([wrong], 'install-laptop', found)).toBe(true)
+  })
+
   // It is one thing: a project that becomes a codebase at the first prompt. The note is not a second name.
   test('the chip shows the project with the note "New codebase", and the row has the name of the folder with the note "New"', () => {
     const option = newCodebaseOption(found, false)

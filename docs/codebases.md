@@ -56,7 +56,8 @@ At each turn start, in this order:
 
 When a folder is attached to a session that has no codebase:
 
-4. **Solus makes a codebase from the two folders.** Its roots are the
+4. **Solus makes a codebase from the two folders**, when the attached folder
+   is a Git repository or is in a project of the host. Its roots are the
    project folder and the attached folder. This applies to a folder that you
    attached, that the agent attached, that you allowed on a card, and that a
    project tool made. Thus a session in `~/solus` that is told to change
@@ -64,6 +65,10 @@ When a folder is attached to a session that has no codebase:
    with the two folders. For a folder that Solus only saw a write in (**Not
    attached**), Solus makes the codebase only when the folder is in a
    project of the host.
+
+A different folder that is attached (a folder of notes, a folder with no
+repository that is not a project) stays a folder of that session only, and
+Solus makes no codebase from it. You can add it to a codebase in Settings.
 
 When the session has a codebase already, an attached folder stays a folder of
 that session only. Its row offers **Add to** with the name of the codebase.
@@ -85,9 +90,11 @@ divider.
 Select the divider to open the page of the codebase in Settings. **Delete
 codebase** on that page is the way back. No file is deleted.
 
-**Your "no" is kept.** After you delete a codebase that has a folder as a
-root, Solus makes no codebase for that folder again. You can still make one
-by hand. **No codebase** on the project chip does the same for one session
+**Your "no" is kept.** After you delete a codebase, Solus does not make a
+codebase with the same folders again. It can still make a codebase with a
+different set of folders: when you delete a codebase of `~/solus` and a wrong
+folder, a session in `~/solus` that attaches `~/solus-cloud` makes the
+codebase of those two folders. You can also make each codebase by hand. **No codebase** on the project chip does the same for one session
 (see [Start a session in a codebase](#start-a-session-in-a-codebase)).
 
 **When Solus makes none.** Solus makes no codebase for a chat, for your home
@@ -304,8 +311,17 @@ A path names the folder to attach:
 - A path to a file that is in no repository attaches the folder of the file.
 
 The root of the file system and your home folder cannot be session folders.
+The data folder of Solus (`~/.solus`, and the data folder of the desktop app)
+and the files that clients uploaded to the host cannot be session folders
+also. A task folder and the folder of a chat are not refused, although
+Solus keeps them in its data folder.
 A path that is in the working directory or in a session folder is available
 already, so nothing is attached.
+
+A temporary folder of the system (`/tmp`, `/var/folders`, the temporary
+folder of your user) is attached only when you or the agent ask for it: with
+**Add folder…**, or with the `attach_folder` tool. No automatic trigger
+attaches it, and no automatic trigger attaches a folder that cannot be read.
 
 ### The rule for each permission mode
 
@@ -337,7 +353,7 @@ host, and to start a session there.
 
 | Trigger | What Solus does |
 |---|---|
-| Your prompt names a folder on the host (`~/x` or an absolute path), or names a file with an `@` mention or an attachment | In Full access and Auto, Solus attaches the folder before the turn starts. One prompt attaches at most three folders. In the other modes, the agent asks with `attach_folder`. |
+| Your prompt names a folder on the host in its text (`~/x` or an absolute path), or names a file or a folder with an `@` mention | In Full access and Auto, Solus attaches the folder before the turn starts. One prompt attaches at most three folders. In the other modes, the agent asks with `attach_folder`. A file that you paste or drop into the prompt attaches nothing: an attachment is not a request to work in a folder. |
 | Claude asks permission for a path outside its folders | In Auto, Solus attaches the folder and allows the call with no card. On a permission card, **Allow for Session** also attaches the folder. |
 | Codex asks approval for a write outside its sandbox | In Accept edits and Auto, Solus accepts the write with no card when each path is in a session folder. An approval for the session also attaches the folder. |
 | A file tool of the agent changed a file in a repository that is not a session folder | At the turn end, the repository shows in the Repositories section with **Not attached**. The agent was not given the folder. Select **Attach to this session** in the menu of the row to give it. |
@@ -677,6 +693,12 @@ The mobile app has no project panel.
 - The prompt trigger works only in Full access and Auto, for at most three
   folders in one prompt. It does not run for a retry or for a session with
   nobody present.
+- A pasted or dropped file attaches no folder. In Auto, a read of such a file
+  in a temporary folder of the system can show a permission card, because
+  Solus does not attach that folder automatically.
+- A codebase that has a temporary folder as a root keeps that root until you
+  remove it. When the system deletes the folder, the sessions of the codebase
+  do not get it, and the codebase page shows it as **Missing**.
 - Solus sees only the writes of the file tools of the agent. A write that a
   shell command makes is not observed.
 - A folder with no repository is never shown as **Not attached**, because it

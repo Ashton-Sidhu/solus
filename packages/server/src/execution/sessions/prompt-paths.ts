@@ -16,12 +16,19 @@ const PROMPT_PATH_SCAN_LIMIT = 64
 
 export interface PromptPath {
   path: string
-  /** The person pointed at the path: an `@` mention, or the line that a client writes for an attachment. */
+  /** The person pointed at the path with an `@` mention. */
   explicit: boolean
 }
 
-/** `[Attached file: /a path/with spaces.txt]`, the line that a client writes for an attachment. */
-const ATTACHED = /\[Attached [a-z-]+: ((?:~\/|\/)[^\]\n]+)\]/g
+/**
+ * What a client writes for a pasted or dropped file, which the person did not
+ * type: `[Attached file: /a path/with spaces.txt]` (also `image` and
+ * `design-selection`: each text in these brackets is from a client), and the
+ * `Annotated capture: <path>` line of a browser annotation. The file is where the system or the host put it (a temporary
+ * directory, the attachment store), so its path is not a request to work in
+ * its folder.
+ */
+const ATTACHMENT = /\[Attached [^\]\n]*\]|^Annotated capture: .*$/gm
 /** A path in quotes or backticks can contain spaces. An `@` before the first quote makes it a mention. */
 const QUOTED = /(@?)(["'`])((?:~\/|\/)[^"'`\n]*)\2/g
 /**
@@ -36,10 +43,8 @@ const TRAILING = /[.,;:!?]+$/
 
 export function pathsNamedInPrompt(text: string, limit = PROMPT_PATH_SCAN_LIMIT): PromptPath[] {
   const found: { at: number; path: string; explicit: boolean }[] = []
-  let rest = text
-  for (const match of rest.matchAll(ATTACHED)) found.push({ at: match.index, path: match[1], explicit: true })
   // A matched range becomes spaces, so the next pattern cannot read a part of it again.
-  rest = rest.replace(ATTACHED, (match) => ' '.repeat(match.length))
+  let rest = text.replace(ATTACHMENT, (match) => ' '.repeat(match.length))
   for (const match of rest.matchAll(QUOTED)) found.push({ at: match.index, path: match[3], explicit: match[1] === '@' })
   rest = rest.replace(QUOTED, (match) => ' '.repeat(match.length))
   for (const match of rest.matchAll(BARE)) found.push({ at: match.index, path: match[2], explicit: match[1] === '@' })
@@ -66,18 +71,17 @@ export function pathsNamedInPrompt(text: string, limit = PROMPT_PATH_SCAN_LIMIT)
  * - a path that names a directory on this host: the person named a folder
  *   ("make a change in ~/solus-cloud");
  * - a path that names a file, only when the person pointed at it with an `@`
- *   mention or an attachment. A file path in the text is not a request to
- *   work in its folder: a pasted log names many files.
+ *   mention. A file path in the text is not a request to work in its folder:
+ *   a pasted log names many files.
  *
- * `isExcluded` leaves out a resolved path that is not a folder of the work.
+ * The path of an attachment is not in the answer: a pasted or dropped file is
+ * not a request to work in a folder.
  */
-export async function attachablePromptPaths(text: string, isExcluded: (resolvedPath: string) => boolean = () => false): Promise<string[]> {
+export async function attachablePromptPaths(text: string): Promise<string[]> {
   const paths: string[] = []
   for (const { path, explicit } of pathsNamedInPrompt(text)) {
     if (paths.length === PROMPT_PATH_LIMIT) break
-    const resolved = resolveHomePath(path)
-    if (isExcluded(resolved)) continue
-    const entry = await stat(resolved).catch(() => null)
+    const entry = await stat(resolveHomePath(path)).catch(() => null)
     if (entry?.isDirectory() || (entry?.isFile() && explicit)) paths.push(path)
   }
   return paths

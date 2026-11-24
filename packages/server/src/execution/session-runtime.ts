@@ -123,6 +123,8 @@ interface SessionRuntimeOptions {
   buildHandoff?: typeof buildHandoff
   prepareSessionTask?: typeof prepareSessionTask
   queueDirectory?: string
+  /** The temporary directories of the system, which no automatic trigger attaches to a session. Default: those of this host. */
+  temporaryPlaces?: readonly string[]
 }
 
 /**
@@ -270,7 +272,7 @@ export class SessionRuntime extends EventEmitter {
       this.providerEvents.wire(backend)
     }
     this.sessionCheckouts = new SessionCheckouts(this)
-    this.sessionFolders = new SessionFolders(this)
+    this.sessionFolders = new SessionFolders(this, opts.temporaryPlaces)
     this.taskFolders = new SessionTaskFolders(this)
     for (const backend of this.backends.values()) backend.useSessionFolders?.(this.sessionFolders)
   }

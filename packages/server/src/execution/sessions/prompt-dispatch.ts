@@ -20,8 +20,6 @@ import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganization
 import { TurnRefusedError } from './turn-refusal'
 import { memberUsers, WorkspacePreparingError } from '../../host/member-users'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
-import { attachmentsRoot } from '../../data/assets/attachment-store'
-import { isInsideRoot } from '../../paths'
 import { attachablePromptPaths } from './prompt-paths'
 
 const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
@@ -97,15 +95,16 @@ export class PromptDispatch {
    * modes that ask nothing (`full-access`, `auto`), a folder that the prompt
    * names outside the folders of the session is attached before the launch,
    * and so is the folder of a file that the person pointed at with an `@`
-   * mention or an attachment (`attachablePromptPaths`). In the other modes
-   * the agent asks with `attach_folder`. A path that names nothing on this
-   * host is ignored, and no failure here stops the prompt.
+   * mention (`attachablePromptPaths`). The path of an attachment attaches
+   * nothing: a pasted or dropped file is not a request to work in a folder.
+   * In the other modes the agent asks with `attach_folder`. A path that names
+   * nothing on this host, a temporary directory of the system, and the data
+   * of Solus are ignored (`attachTargetOf`), and no failure here stops the
+   * prompt.
    */
   private async attachNamedFolders(sessionId: string, input: SessionRunInput, prompt: string, actor: Actor | undefined): Promise<void> {
     if (input.permissionMode !== 'full-access' && input.permissionMode !== 'auto') return
-    const uploads = attachmentsRoot()
-    // A file that a client uploaded is in the attachment store of the host, which is not a folder of the work.
-    for (const path of await attachablePromptPaths(prompt, (resolved) => isInsideRoot(uploads, resolved))) {
+    for (const path of await attachablePromptPaths(prompt)) {
       try {
         const outcome = await this.rt.sessionFolders.requestAttach(sessionId, path, 'attached', actor ?? HOST_ACTOR, {
           mode: input.permissionMode,

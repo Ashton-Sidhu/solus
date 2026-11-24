@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { attachablePromptPaths, pathsNamedInPrompt, PROMPT_PATH_LIMIT } from '@solus/server/execution/sessions/prompt-paths'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -14,11 +14,16 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let root: string
 let attachTargetOf: typeof import('@solus/server/execution/sessions/attach-target')['attachTargetOf']
+let refusalForAutomaticTrigger: typeof import('@solus/server/execution/sessions/attach-target')['refusalForAutomaticTrigger']
+let systemTemporaryPlaces: typeof import('@solus/server/execution/sessions/attach-target')['systemTemporaryPlaces']
 const at = (path: string): string => join(root, path)
+const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'solus-attach-target-')))
-  ;({ attachTargetOf } = await import('@solus/server/execution/sessions/attach-target'))
+  // The data folder of Solus for this file: the rule must refuse it, and it must not hold the other folders of the file.
+  process.env.SOLUS_DATA_DIR = at('solus-data')
+  ;({ attachTargetOf, refusalForAutomaticTrigger, systemTemporaryPlaces } = await import('@solus/server/execution/sessions/attach-target'))
   // The rule asks Git for the repository of a path; with no caller, it acts as the host.
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   const { git } = await import('@solus/server/git/exec')
@@ -30,7 +35,11 @@ beforeAll(async () => {
   symlinkSync(at('repo'), at('link-to-repo'))
 })
 
-afterAll(() => rmSync(root, { recursive: true, force: true }))
+afterAll(() => {
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
+  rmSync(root, { recursive: true, force: true })
+})
 
 describe('the folder that a path names', () => {
   test('a file or a folder in a repository names the root of the repository', async () => {
@@ -62,6 +71,59 @@ describe('the folder that a path names', () => {
   })
 })
 
+describe('the places that are never a session folder', () => {
+  test('the data folder of Solus and the attachment store are refused, also for a request by name', async () => {
+    // WHY: the data folder holds the database, the secrets, and the sessions of the host. No agent gets a grant there.
+    mkdirSync(at('solus-data/attachments/bucket'), { recursive: true })
+    writeFileSync(at('solus-data/attachments/bucket/shot.png'), '')
+    mkdirSync(at('solus-data/secrets'), { recursive: true })
+    expect(await attachTargetOf(at('solus-data'))).toEqual({ refused: expect.stringContaining('data folder of Solus') })
+    expect(await attachTargetOf(at('solus-data/secrets'))).toEqual({ refused: expect.stringContaining('data folder of Solus') })
+    expect(await attachTargetOf(at('solus-data/attachments/bucket/shot.png'))).toEqual({ refused: expect.stringContaining('attachment store') })
+  })
+
+  test('a task folder and the folder of a chat are folders of work, although they are in the data folder', async () => {
+    // WHY: Solus puts the worktrees of a task folder and the folder of each chat in its data folder. A session must still get them.
+    mkdirSync(at('solus-data/solus-task-folders/feature-0a1b2c3d/api'), { recursive: true })
+    mkdirSync(at('solus-data/solus-chats/chat-1'), { recursive: true })
+    expect(await attachTargetOf(at('solus-data/solus-task-folders/feature-0a1b2c3d/api'))).toEqual({ folder: at('solus-data/solus-task-folders/feature-0a1b2c3d/api') })
+    expect(await attachTargetOf(at('solus-data/solus-chats/chat-1'))).toEqual({ folder: at('solus-data/solus-chats/chat-1') })
+    // The folder that holds all of them is not one piece of work.
+    expect(await attachTargetOf(at('solus-data/solus-task-folders'))).toEqual({ refused: expect.stringContaining('data folder of Solus') })
+    expect(await attachTargetOf(at('solus-data/solus-chats'))).toEqual({ refused: expect.stringContaining('data folder of Solus') })
+  })
+})
+
+describe('the rule of an automatic trigger', () => {
+  test('a folder in a temporary directory of the system is refused, by its name and by its real path', async () => {
+    // WHY: a pasted screenshot is a file in a temporary directory. Its path attached that directory, and a codebase formed from it.
+    mkdirSync(at('system-temp/screens'), { recursive: true })
+    symlinkSync(at('system-temp'), at('link-to-temp'))
+    expect(await refusalForAutomaticTrigger(at('system-temp/screens'), [at('system-temp')])).toContain('temporary directory of the system')
+    expect(await refusalForAutomaticTrigger(at('system-temp'), [at('system-temp')])).toContain('temporary directory of the system')
+    // The list names the place through a link, as `/tmp` is a link on macOS.
+    expect(await refusalForAutomaticTrigger(at('system-temp/screens'), [at('link-to-temp')])).toContain('temporary directory of the system')
+    expect(await refusalForAutomaticTrigger(at('plain/docs'), [at('system-temp')])).toBeNull()
+  })
+
+  test('the default list has the temporary directory of this machine', async () => {
+    // Each folder of this file is in `os.tmpdir()`, on each machine that runs the test.
+    expect(systemTemporaryPlaces()).toContain(tmpdir())
+    expect(await refusalForAutomaticTrigger(at('plain/docs'), systemTemporaryPlaces())).toContain('temporary directory of the system')
+  })
+
+  // The user `root` reads each folder, so the rule cannot be shown for it.
+  test.skipIf(process.platform === 'win32' || userInfo().uid === 0)('a folder that cannot be read is refused', async () => {
+    mkdirSync(at('locked'))
+    chmodSync(at('locked'), 0o000)
+    try {
+      expect(await refusalForAutomaticTrigger(at('locked'), [])).toContain('cannot be read')
+    } finally {
+      chmodSync(at('locked'), 0o700)
+    }
+  })
+})
+
 describe('the paths that a prompt names', () => {
   const named = (text: string, limit?: number): string[] => pathsNamedInPrompt(text, limit).map((each) => each.path)
 
@@ -69,9 +131,23 @@ describe('the paths that a prompt names', () => {
     expect(named('Compare /Users/me/shop/api/main.ts with ~/libs/ui and src/local.ts')).toEqual(['/Users/me/shop/api/main.ts', '~/libs/ui'])
   })
 
-  test('quotes keep a path with spaces together, and an attachment line gives its file', () => {
-    expect(named('Open "/Users/me/My Projects/site/index.html" and `~/notes/a b.md`\n[Attached file: /tmp/up loads/spec v2.pdf]'))
-      .toEqual(['/Users/me/My Projects/site/index.html', '~/notes/a b.md', '/tmp/up loads/spec v2.pdf'])
+  test('quotes keep a path with spaces together', () => {
+    expect(named('Open "/Users/me/My Projects/site/index.html" and `~/notes/a b.md`'))
+      .toEqual(['/Users/me/My Projects/site/index.html', '~/notes/a b.md'])
+  })
+
+  test('the path of an attachment is not a path that the prompt names, in each form that a client writes', () => {
+    // WHY: the person pasted or dropped a file. The client wrote the path of the place where the system or the host put it.
+    expect(named([
+      '[Attached image: /var/folders/l_/T/TemporaryItems/NSIRD_screencaptureui_iYi4Yu/Screenshot 1.png]',
+      '[Attached file: /tmp/up loads/spec v2.pdf]',
+      '[Attached design-selection: ~/captures/selection.png]',
+      '[Attached image "shot.png" is saved at: /srv/attachments/shot.png (text extracted to: /srv/attachments/shot.txt)]',
+      '[Browser annotation: Header]',
+      'Annotated capture: /srv/attachments/bucket/annotated.png',
+      '',
+      'Why is the header wrong in /srv/app/header.css?',
+    ].join('\n'))).toEqual(['/srv/app/header.css'])
   })
 
   test('the punctuation of the sentence and its brackets are not a part of the path', () => {
@@ -87,13 +163,12 @@ describe('the paths that a prompt names', () => {
     expect(named('/b/two then "/a/one" then /b/two again')).toEqual(['/b/two', '/a/one'])
   })
 
-  test('only a mention and an attachment line say that the person pointed at the path', () => {
+  test('only a mention says that the person pointed at the path', () => {
     // WHY: a file path in the text is not a request to work in its folder, so the trigger must know which paths the person pointed at.
     expect(pathsNamedInPrompt('Fix /srv/app/run.sh, see @/srv/app/README.md and @"/srv/my app/notes.md"\n[Attached file: /srv/spec.pdf]')).toEqual([
       { path: '/srv/app/run.sh', explicit: false },
       { path: '/srv/app/README.md', explicit: true },
       { path: '/srv/my app/notes.md', explicit: true },
-      { path: '/srv/spec.pdf', explicit: true },
     ])
     expect(pathsNamedInPrompt('/srv/a.ts failed. Open @/srv/a.ts')).toEqual([{ path: '/srv/a.ts', explicit: true }])
   })
@@ -117,13 +192,18 @@ describe('the paths of a prompt whose folder is attached', () => {
     expect(await attachablePromptPaths(log)).toEqual([at('plain')])
   })
 
-  test('a file attaches its folder when the person pointed at it with a mention or an attachment', async () => {
-    expect(await attachablePromptPaths(`Read @${at('repo/packages/app/src/main.ts')}\n[Attached file: ${at('plain/docs/notes.md')}]`))
+  test('a file attaches its folder when the person pointed at it with a mention', async () => {
+    expect(await attachablePromptPaths(`Read @${at('repo/packages/app/src/main.ts')} and @"${at('plain/docs/notes.md')}"`))
       .toEqual([at('repo/packages/app/src/main.ts'), at('plain/docs/notes.md')])
   })
 
-  test('a path that is not on this host, and an excluded path, attach nothing', async () => {
-    expect(await attachablePromptPaths(`Work in ${at('nowhere')} and ${at('plain')}`, (path) => path === at('plain'))).toEqual([])
+  test('an attachment attaches nothing, also when its path names a folder', async () => {
+    // WHY: a pasted image is not a request to work in the folder that the system put it in.
+    expect(await attachablePromptPaths(`[Attached image: ${at('plain/docs/notes.md')}]\n[Attached file: ${at('plain/docs')}]\n\nWhat is wrong here?`)).toEqual([])
+  })
+
+  test('a path that is not on this host attaches nothing', async () => {
+    expect(await attachablePromptPaths(`Work in ${at('nowhere')}`)).toEqual([])
   })
 
   test('one prompt attaches the folders of at most three paths, in the order of the text', async () => {

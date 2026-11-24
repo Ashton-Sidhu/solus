@@ -12,7 +12,7 @@ import { readHostList } from '../../host/host-list'
 import { hostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
-import { attachTargetOf, realPathOf } from './attach-target'
+import { attachTargetOf, realPathOf, refusalForAutomaticTrigger } from './attach-target'
 import { answerToolQuestionWith } from './input-requests'
 
 const log = createLogger('SessionRuntime', 'session-folder-attach.ts')
@@ -45,6 +45,12 @@ export interface AttachRequestOptions {
   mode?: PermissionMode
   /** Where a session will work when no turn of it has started. */
   workingDirectory?: string
+  /**
+   * The agent asked for this folder by its name (the `attach_folder` tool).
+   * Without it, the request is an automatic trigger, which gets no temporary
+   * directory of the system (`refusalForAutomaticTrigger`).
+   */
+  byName?: boolean
 }
 
 /** The question of the attach card, and the labels of its choices. A choice is answered by its label. */
@@ -72,6 +78,8 @@ export interface AttachSession {
   sessionId: string
   state: AttachState
   mode: PermissionMode | undefined
+  /** The temporary directories of the system, which an automatic trigger does not attach. */
+  temporaryPlaces: readonly string[]
   /** Read the codebase and the disk again. */
   refresh(): Promise<void>
   /** What holds `path` in the session already: the working directory or a granted folder. */
@@ -97,6 +105,11 @@ export interface AttachSession {
  *   In a task folder session, the worktree of a repository stands in for it.
  * - A path in a root of the codebase on a different host, which is not on
  *   this host, is not attached: the answer names the host.
+ * - A folder in the data of Solus is not attached (`attachTargetOf`).
+ * - A request that is an automatic trigger attaches no temporary directory of
+ *   the system and no folder that cannot be read, in each mode
+ *   (`refusalForAutomaticTrigger`). A member of the codebase is not such a
+ *   request: a person put it in the codebase.
  * - Modes `full-access` and `auto` attach with no card.
  * - The other modes show one card for the folder. A second request for the
  *   same folder waits for the same answer, and a refused folder is not asked
@@ -120,6 +133,10 @@ export async function requestAttach(session: AttachSession, path: string, source
     await session.refresh()
     if (await session.holderOf(folder)) return { kind: 'attached', folder, addedToCodebase: false }
     return attachNow(session, folder, source, actor, false)
+  }
+  if (!options.byName) {
+    const refusal = await refusalForAutomaticTrigger(folder, session.temporaryPlaces)
+    if (refusal) return { kind: 'invalid', message: refusal }
   }
   const mode = options.mode ?? session.mode
   if (mode === 'full-access' || mode === 'auto') return attachNow(session, folder, source, actor, false)

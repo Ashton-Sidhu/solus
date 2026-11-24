@@ -443,6 +443,8 @@ describe('a session in a task folder', () => {
     try {
       const run = await start('isolated', input(shop, { codebaseId: codebase.id, worktreeRepositories: [api] }))
       // WHY: a member needs no card, so without this rule an agent that names the original gets the checkout that each session shares.
+      // The repositories of this file are in the temporary directory of the system, which an automatic trigger does not
+      // attach. A member of the codebase is not such a trigger: a person put it in the codebase.
       expect(await runtime.sessionFolders.requestAttach('isolated', join(api, 'README.md'), 'attached', HOST_ACTOR)).toEqual({ kind: 'available', folder: join(run.cwd, 'api') })
       expect(await runtime.sessionFolders.requestAttach('isolated', web, 'attached', HOST_ACTOR)).toEqual({ kind: 'attached', folder: join(run.cwd, 'web'), addedToCodebase: false })
       expect(runtime.sessionFolders.foldersOf('isolated').map((folder) => folder.path)).toEqual([join(run.cwd, 'api'), join(run.cwd, 'web')])

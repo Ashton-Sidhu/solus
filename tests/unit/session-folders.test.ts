@@ -113,6 +113,44 @@ describe('the folders of a session at a turn start', () => {
     }
   })
 
+  test('a root that is gone is not a folder, is not granted, and is not in the prompt block', async () => {
+    // WHY: a codebase can name a folder that the system deleted (a temporary folder). The turn must still start, and
+    // the provider and the agent must not get a folder that is not there.
+    mkdirSync(at('vanishes/tool'), { recursive: true })
+    git(['init', '-b', 'main'], at('vanishes/tool'))
+    const codebase = await savedCodebase(['libs/ui', 'vanishes'])
+    const { runtime } = runtimeFor('root-gone')
+    try {
+      const turn = { workingDirectory: at('shop/api'), codebaseId: codebase.id, actor: HOST_ACTOR }
+      expect(paths(await runtime.sessionFolders.resolve('root-gone', turn))).toEqual([at('libs/ui'), at('vanishes'), at('vanishes/tool')])
+
+      rmSync(at('vanishes'), { recursive: true })
+      expect(paths(await runtime.sessionFolders.resolve('root-gone', turn))).toEqual([at('libs/ui')])
+      expect(runtime.sessionFolders.grantedPaths('root-gone')).toEqual([at('libs/ui')])
+      expect(runtime.sessionFolders.grantedFolderOf('root-gone', at('vanishes/tool/main.ts'))).toBeNull()
+      expect(runtime.sessionFolders.promptFolders('root-gone')?.folders).toEqual([{ name: 'ui', path: at('libs/ui'), state: 'git' }])
+      // The record keeps the root: the folder can come back, and only a person removes a root.
+      expect((await codebases.getCodebase(ANY_ORGANIZATION, codebase.id))?.roots.map((each) => each.path)).toContain(at('vanishes'))
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
+  test('a root in the data folder of Solus is not a folder of the session', async () => {
+    // WHY: the data folder holds the database and the secrets of the host. A person can write each path as a root, and the provider must still get no grant there.
+    mkdirSync(at('data/exports'), { recursive: true })
+    const codebase = await savedCodebase(['libs/ui', 'data/exports'])
+    const { runtime } = runtimeFor('root-in-data')
+    try {
+      const folders = await runtime.sessionFolders.resolve('root-in-data', { workingDirectory: at('shop/api'), codebaseId: codebase.id, actor: HOST_ACTOR })
+      expect(paths(folders)).toEqual([at('libs/ui')])
+      expect(runtime.sessionFolders.grantedPaths('root-in-data')).toEqual([at('libs/ui')])
+      expect(runtime.sessionFolders.promptFolders('root-in-data')?.folders).toEqual([{ name: 'ui', path: at('libs/ui'), state: 'git' }])
+    } finally {
+      runtime.shutdown()
+    }
+  })
+
   test('the members inside a plain working directory are folders, and the provider gets no grant for them', async () => {
     // WHY: `~/shop` holds the repositories `api` and `web`. Git status, diff, and checkpoints work for each
     // repository only when it is a session folder. The provider reaches them through the working directory.

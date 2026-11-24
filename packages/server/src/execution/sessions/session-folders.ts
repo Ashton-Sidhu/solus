@@ -19,7 +19,7 @@ import { resolveHomePath } from '../../platform/paths'
 import type { CodebaseBlock } from '../agents/runtime-instructions'
 import type { SessionFolderGate } from '../agents/session-folder-gate'
 import type { SessionRuntime } from '../session-runtime'
-import { attachTargetOf, realPathOf } from './attach-target'
+import { attachTargetOf, realPathOf, refusalForAutomaticTrigger, refusalForSolusData, systemTemporaryPlaces } from './attach-target'
 import { ObservedWrites } from './observed-writes'
 import { codebaseForAttachedFolder, codebaseForProjectFolder, formationActivity, projectFolderOf, type SessionCodebase } from './session-codebase-formation'
 import { addCodebaseRoot, requestAttach, type AttachOutcome, type AttachRequestOptions, type AttachSession, type AttachState } from './session-folder-attach'
@@ -99,12 +99,18 @@ function byPath(a: FolderEntry, b: FolderEntry): number {
  *
  * `attach` adds a folder with no rule. `requestAttach` is the rule in front of
  * it (decision 8): each automatic trigger and the `attach_folder` tool call it.
+ * No folder of a session is in the data of Solus (`refusalForSolusData`).
  */
 export class SessionFolders implements SessionFolderGate {
   private readonly sessions = new Map<string, SessionFoldersState>()
   private readonly writes = new ObservedWrites()
 
-  constructor(private readonly rt: SessionRuntime) {
+  /**
+   * `temporaryPlaces`: the temporary directories of the system, which an
+   * automatic trigger does not attach. A test that makes its folders there
+   * gives its own list.
+   */
+  constructor(private readonly rt: SessionRuntime, private readonly temporaryPlaces: readonly string[] = systemTemporaryPlaces()) {
     rt.checkouts.onChange(({ state }) => {
       if (!state.checkout) return
       for (const [sessionId, session] of this.sessions) {
@@ -341,8 +347,9 @@ export class SessionFolders implements SessionFolderGate {
    * The folder is in `foldersOf` when this returns, also in the middle of a turn.
    *
    * This function has no permission rule and no card. The rule of
-   * docs/plans/codebases.md decision 8 goes in front of it. A session with no
-   * codebase can get one from the attach (decision 13, rule 4).
+   * docs/plans/codebases.md decision 8 goes in front of it. A folder in the
+   * data of Solus is refused for each caller. A session with no codebase can
+   * get one from the attach (decision 13, rule 4).
    */
   async attach(sessionId: string, path: string, source: SessionFolderSource, actor: Actor): Promise<SessionFolder[]> {
     const attached = await this.addFolder(sessionId, path, source, actor)
@@ -360,6 +367,8 @@ export class SessionFolders implements SessionFolderGate {
     const state = await this.stateOf(sessionId)
     if (!state.entries) await this.refresh(sessionId, state, actor)
     const realPath = await realPathOf(folderPath)
+    const refusal = await refusalForSolusData(folderPath, realPath)
+    if (refusal) throw new Error(refusal)
     const workingDirectory = state.place ? await realPathOf(state.place.workingDirectory) : null
     if (workingDirectory === realPath) {
       throw new Error(`"${folderPath}" is the working directory of the session.`)
@@ -396,6 +405,7 @@ export class SessionFolders implements SessionFolderGate {
       state,
       // Read when the rule asks: the mode of the session can change while the rule waits.
       get mode() { return modeOf(sessionId) },
+      temporaryPlaces: this.temporaryPlaces,
       refresh: () => this.refresh(sessionId, state, actor),
       holderOf: (held) => this.holderOf(state, held),
       grantedHolderOf: (realPath) => (state.entries ?? []).find((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))?.folder.path ?? null,
@@ -475,8 +485,10 @@ export class SessionFolders implements SessionFolderGate {
 
   /**
    * Attach the folder that `path` names, with no card, when the session does
-   * not have it. A session that no turn started in this process has no person
-   * to act for, and gets nothing.
+   * not have it. This is an automatic trigger: nobody asked for the folder by
+   * its name, so a temporary directory of the system is not attached. A
+   * session that no turn started in this process has no person to act for,
+   * and gets nothing.
    */
   private async attachFolderOf(sessionId: string, path: string, source: 'attached' | 'observed'): Promise<void> {
     const state = await this.stateOf(sessionId)
@@ -488,6 +500,7 @@ export class SessionFolders implements SessionFolderGate {
     if (await this.holderOf(state, named, isObserved)) return
     const target = await attachTargetOf(named)
     if ('refused' in target || await this.holderOf(state, target.folder, isObserved)) return
+    if (await refusalForAutomaticTrigger(target.folder, this.temporaryPlaces)) return
     if (isObserved && await folderStateOf(target.folder) !== 'git') return
     await this.attach(sessionId, target.folder, source, actor)
   }
@@ -667,7 +680,7 @@ export class SessionFolders implements SessionFolderGate {
       if (realPath === workingDirectory || entries.has(realPath)) continue
       entries.set(realPath, { folder: attachedFolder(path, folderState, attached.source), realPath, reached: isReached(realPath) })
     }
-    this.setEntries(sessionId, state, [...entries.values()])
+    this.setEntries(sessionId, state, await outsideSolusData([...entries.values()]))
   }
 
   /** Keep a new list: publish it when it changed, and hear the checkout of each `git` folder in it. */
@@ -691,6 +704,20 @@ export class SessionFolders implements SessionFolderGate {
       void this.rt.checkouts.refresh(path).catch((error) => log.warn('session_folder_refresh_failed', { sessionId, cwd: path, error: String(error) }))
     }
   }
+}
+
+/**
+ * The entries that are not in the data of Solus (docs/plans/codebases.md
+ * decision 8). A person can write each path as a root of a codebase, and an
+ * old session record can name each folder: such a folder is still not a
+ * folder of a session.
+ */
+async function outsideSolusData(entries: FolderEntry[]): Promise<FolderEntry[]> {
+  const kept: FolderEntry[] = []
+  for (const entry of entries) {
+    if (!await refusalForSolusData(entry.folder.path, entry.realPath)) kept.push(entry)
+  }
+  return kept
 }
 
 /** The task folder that the session works in, or null. Its record is read at each call: a repository can get its worktree in the middle of a turn. */
