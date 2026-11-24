@@ -10,7 +10,7 @@ import type { HostPersonalSettings, PersonalSettingsDocument, PersonalSettingsPa
 
 /** One host's copy of one person's settings, as its RPCs answer. */
 function fakeHost(hostId: string, options: { followsAccount?: boolean; settings?: PersonalSettingsDocument } = {}) {
-  const state: HostPersonalSettings = { settings: options.settings ?? {}, source: 'host', followsAccount: options.followsAccount ?? false, accountRevision: null, updatedAt: null }
+  const state: HostPersonalSettings = { settings: options.settings ?? {}, source: 'host', followsAccount: options.followsAccount ?? false, accountRevision: null, updatedAt: null, syncSettings: true }
   const calls: string[] = []
   const patches: PersonalSettingsPatch[] = []
   const host: PersonalSettingsHost & { state: HostPersonalSettings; calls: string[]; patches: PersonalSettingsPatch[] } = {

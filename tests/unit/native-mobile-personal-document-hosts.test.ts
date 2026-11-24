@@ -13,7 +13,7 @@ import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports
 
 /** One connected host: its copy of the person's settings, and the events it sends. */
 function phoneHost(hostId: string, copy: Partial<HostPersonalSettings> = {}) {
-  const state: HostPersonalSettings = { settings: {}, source: 'host', followsAccount: false, accountRevision: null, updatedAt: null, ...copy }
+  const state: HostPersonalSettings = { settings: {}, source: 'host', followsAccount: false, accountRevision: null, updatedAt: null, syncSettings: true, ...copy }
   const patches: PersonalSettingsPatch[] = []
   const profile: { entries: AgentProfile } = { entries: {} }
   const handlers = new Set<(payload: { kind: 'settings' | 'agent-profile' }) => void>()
