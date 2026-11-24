@@ -63,6 +63,8 @@ The archive, project picker, source control screens, settings queries, and previ
 
 The device and browser viewers share their selection and presentation helpers with the T3 features. Browser selection first considers pages used by the active Solus session. Solus owns device control leases, stream URLs, and host sign-in. Archive tag hiding and PR actions require corresponding host capabilities.
 
+Loopback browser pages stream from the selected Solus host. Its Host settings screen shows **Preview tunnel** when the host supports that setting. This control governs desktop port forwarding and shows the selected host’s policy lock.
+
 New-session and scheduled-task branch pickers use T3's branch paging hook. Their shared read uses Solus Git status and branch refs. Searching and paging reuse the checkout's answer. The host identifies a remote-only branch by its branch name and does not supply a remote tracking ref.
 
 The mobile notification and Live Activity presentation follows T3 Code revision `84a0c0516f53bfa3d0a9d64985f21083d757d93d`, including the expired Dynamic Island count fix. Solus supplies account-scoped attention snapshots and uses its own ActivityKit relay for linked hosts. Android uses T3’s native ongoing notification with the Solus session feed while the phone is connected. The Solus sign-in and host list own the data path. See [mobile delivery](../../docs/notifications.md#mobile-delivery).

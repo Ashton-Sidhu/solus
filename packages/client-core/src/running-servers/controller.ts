@@ -181,11 +181,18 @@ export class RunningServersController {
     this.checkoutRoots.clear()
     this.set({ status: source?.ready ? 'loading' : 'disconnected', servers: [], error: null })
     if (!source?.ready) return
-    this.stopEvents = source.events.subscribe('runningServers.changed', ({ servers, error }) => {
+    const stopServers = source.events.subscribe('runningServers.changed', ({ servers, error }) => {
       this.eventVersion++
       this.set({ status: error ? 'error' : 'ready', servers: error ? [] : servers, error })
       void this.renewForwards()
     })
+    const stopConfig = source.events.subscribe('config.changed', ({ config }) => {
+      if (config.previewTunnelEnabled !== false) return
+      for (const server of this.servers) {
+        for (const forward of server.forwards) void server.stopForward(forward.forwardId).catch(() => {})
+      }
+    })
+    this.stopEvents = () => { stopServers(); stopConfig() }
     void this.refresh()
   }
 

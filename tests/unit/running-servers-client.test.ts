@@ -1,15 +1,19 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test'
 import { RunningServersController, type RunningServersSource } from '@solus/client-core/running-servers'
+import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
+import { RUNNING_SERVER_TUNNEL_PATH } from '@solus/contracts/running-servers'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { RunningServer } from '@solus/contracts/running-servers'
 import { runningServer } from './running-server-fixtures'
+
+const tunnelPath = RUNNING_SERVER_TUNNEL_PATH + 'a'.repeat(43)
 
 function setup() {
   const events = new HostEventSubscriber()
   let resolve: (servers: RunningServer[]) => void = () => {}
   const watch = mock((_paths: string[]) => new Promise<RunningServer[]>((answer) => { resolve = answer }))
   const unwatch = mock(async () => {})
-  const source: RunningServersSource = { api: { runningServersWatch: watch, runningServersUnwatch: unwatch, runningServerStop: async () => ({ status: 'stopped' }), runningServerTunnel: async () => ({ relativeUrl: '/tunnel', expiresAt: 1 }), runningServersCheckoutRoots: async (paths) => paths.map((path) => ({ path, root: path })), projectConfigLoad: async () => null, projectConfigSave: async (_path, config) => config }, events, ready: true }
+  const source: RunningServersSource = { api: { runningServersWatch: watch, runningServersUnwatch: unwatch, runningServerStop: async () => ({ status: 'stopped' }), runningServerTunnel: async () => ({ relativeUrl: tunnelPath, expiresAt: 1 }), runningServersCheckoutRoots: async (paths) => paths.map((path) => ({ path, root: path })), projectConfigLoad: async () => null, projectConfigSave: async (_path, config) => config }, events, ready: true }
   let connectionChanged = () => {}
   const store = new RunningServersController(() => ({ ...source }), (changed) => { connectionChanged = changed; return () => {} })
   return { store, watch, unwatch, events, source,
@@ -174,7 +178,7 @@ test('checkout filtering uses the host root instead of a subfolder prefix', asyn
   release()
 })
 
-test('forwarding keeps discovery retained and Stop forwarding closes its last lease', async () => {
+test('a host that disables the preview tunnel releases the desktop forward and its lease', async () => {
   const s = setup()
   s.source.api.runningServersWatch = async () => [runningServer()]
   const stop = mock(async (_forwardId: string) => {})
@@ -185,14 +189,15 @@ test('forwarding keeps discovery retained and Stop forwarding closes its last le
   await ready
   const server = store.servers[0]
   await server.forward(server.endpoints[0])
-  expect(start.mock.calls[0][0].tunnelUrl).toBe('wss://host.test/tunnel')
+  expect(start.mock.calls[0][0].tunnelUrl).toBe('wss://host.test' + tunnelPath)
   release()
   expect(s.unwatch).not.toHaveBeenCalled()
   expect(server.forwards).toHaveLength(1)
-  await server.stopForward('forward')
+  s.events.receive({ type: 'config.changed', payload: { config: { ...DEFAULT_HOST_CONFIG, previewTunnelEnabled: false } }, occurredAt: 1 })
   expect(server.forwards).toEqual([])
   expect(stop).toHaveBeenCalledWith('forward')
-  // A watch still in flight when the last holder leaves is closed again when it answers.
+  // The released discovery lease closes at the end of the tick.
+  await Promise.resolve()
   expect(s.unwatch).toHaveBeenCalled()
 })
 
@@ -228,6 +233,11 @@ test('opening a local host endpoint in the system browser skips the forward', as
   await server.openExternal(endpoint, { isLocalHost: true })
   expect(start).not.toHaveBeenCalled()
   expect(openExternal).toHaveBeenLastCalledWith(endpoint.url)
+  const issue = s.source.api.runningServerTunnel
+  s.source.api.runningServerTunnel = async () => ({ relativeUrl: '//other.test' + tunnelPath, expiresAt: 1 })
+  await expect(server.openExternal(endpoint)).rejects.toThrow('invalid preview tunnel path')
+  expect(start).not.toHaveBeenCalled()
+  s.source.api.runningServerTunnel = issue
   await server.openExternal(endpoint)
   expect(start).toHaveBeenCalled()
   expect(openExternal).toHaveBeenLastCalledWith('http://127.0.0.1:1234/')

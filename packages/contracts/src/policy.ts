@@ -101,6 +101,8 @@ export const managedHostSettingsSchema = z.object({
   trustLocalNetwork: z.boolean(),
   /** false: no Solus Cloud tunnel. Registration still works. */
   cloudTunnel: z.boolean(),
+  /** Whether clients may forward this host’s loopback preview ports. */
+  previewTunnelEnabled: z.boolean(),
   updates: z.object({
     mode: z.enum(['auto', 'off']),
     /** A generic feed the desktop app updates from instead of the Solus releases. */

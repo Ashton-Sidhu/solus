@@ -854,7 +854,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     onHostConfigChanged: (snapshot) => {
-      events.broadcast('config.changed', snapshot)
+      publishHostConfig(snapshot)
       hostUpdates.refreshInstallations()
     },
     onProviderInstancesChanged: () => events.broadcast('provider-instances.changed', {}),
@@ -1438,7 +1438,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     actorOf: (id) => opts.sessionRuntime.actorOfSession(id),
   }, (clientId, event, payload, answer, timeoutMs) => ws.request(clientId, event, payload, answer, timeoutMs))
   setConfigToolHost({
-    hostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
+    hostConfigChanged: (snapshot) => publishHostConfig(snapshot),
     deviceManager: {
       settings: () => devices.manager.settings(),
       configure: (request) => configureDevices(devices, request),
@@ -1483,6 +1483,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
   const serverTunnels = registerRunningServerHandlers(server, serverRegistry, (port) => port === actualPort || port === tunnelPort)
+  let previewTunnelEnabled = getHostConfig().config.previewTunnelEnabled
+  function publishHostConfig(snapshot: ReturnType<typeof getHostConfig>): void {
+    previewTunnelEnabled = snapshot.config.previewTunnelEnabled
+    serverTunnels.applyPolicy()
+    events.broadcast('config.changed', snapshot)
+  }
   localMcpServers.follow(serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
@@ -2417,6 +2423,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
   policyStore.onChanged(() => {
+    const settings = getHostConfig()
+    if (previewTunnelEnabled !== settings.config.previewTunnelEnabled) publishHostConfig(settings)
     hostUpdates.refreshInstallations()
     void rebind(effectiveRemoteAccess()).catch((error) => log.warn('policy_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
     if (hostPolicies().hostSetting('cloudTunnel')?.value === false && uplinkManager.status().linked) {

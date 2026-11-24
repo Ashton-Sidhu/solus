@@ -141,6 +141,7 @@ Each object is strict. Solus refuses a key that it does not know or cannot enfor
 | `remoteAccess` | `false`: the host listens only on loopback. LAN discovery is off. Pairing codes, pair links, and host introductions are refused. Devices that paired from another machine before the policy are signed out. |
 | `trustLocalNetwork` | `false`: requesters on the local network must pair. You cannot set `true` when `remoteAccess` is `false`. |
 | `cloudTunnel` | `false`: no Solus Cloud tunnel. The host refuses a link, and a stored link does not resume. Registration with Solus Cloud still works, because the host needs it to get its cloud policies. |
+| `previewTunnelEnabled` | Locks the host’s **Preview tunnel** setting. `false` refuses new desktop port forwards and closes their active channels. The remote Browser pane can still stream pages. |
 | `updates.mode` | `auto` or `off`. `off`: the desktop app does not check for updates, and its update controls say "<Name> manages Solus updates." The host and `solus update` refuse to update. |
 | `updates.feedUrl` | An `https` URL of a generic update feed. The desktop app updates from this feed instead of the Solus releases. |
 

@@ -59,12 +59,10 @@ export function registerSettingsHandlers(
     if (!parsed.success) throw new Error(`Host config refused: ${z.prettifyError(parsed.error)}`)
     const patch = parsed.data
     const snapshot = Object.keys(patch).length ? setHostConfig(patch) : getHostConfig()
-    // Applied to the running process, not just persisted: an operator who turns
-    // export on should see data arrive without restarting the host.
-    if (patch.otel) await configureOtel(snapshot.config.otel, hostPolicies().hostSetting('otel') !== null)
-    // Broadcast so a second window or a second device converges rather than
-    // holding a settings panel that disagrees with the one just edited.
+    // Publish and revoke any disabled access as soon as the setting is stored.
     deps.onHostConfigChanged(snapshot)
+    // A telemetry change also applies to the running process.
+    if (patch.otel) await configureOtel(snapshot.config.otel, hostPolicies().hostSetting('otel') !== null)
     return snapshot
   })
 

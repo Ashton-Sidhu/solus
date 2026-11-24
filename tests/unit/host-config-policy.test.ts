@@ -16,7 +16,7 @@ let policy: typeof import('@solus/server/host/policy/host-policy-store')
 const LOCKS: PolicyDocument = {
   schemaVersion: 1,
   organization: { name: 'Example Corp' },
-  host: { analyticsEnabled: false, remoteAccess: false, archivedAutomationRetentionDays: 7 },
+  host: { previewTunnelEnabled: false, analyticsEnabled: false, remoteAccess: false, archivedAutomationRetentionDays: 7 },
 }
 
 beforeAll(async () => {
@@ -35,21 +35,25 @@ afterAll(() => {
 
 describe('host settings under a policy', () => {
   test('a locked key reads as the policy says, refuses a write, and is never written to the file', () => {
-    settings.setHostConfig({ analyticsEnabled: true, archivedAutomationRetentionDays: 30 })
-    settings.setRemoteAccess(true)
+    settings.setHostConfig({ previewTunnelEnabled: true, analyticsEnabled: true, archivedAutomationRetentionDays: 30 })
+    settings.setRemoteAccess('any')
     policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: { source: '/etc/solus/policy.json', document: LOCKS, fingerprint: 'test' }, standing: () => null }))
 
+    expect(settings.getHostConfig().config.previewTunnelEnabled).toBe(false)
+    expect(settings.effectivePreviewTunnelEnabled()).toBe(false)
     expect(settings.getHostConfig().config.analyticsEnabled).toBe(false)
     expect(settings.getHostConfig().config.archivedAutomationRetentionDays).toBe(7)
-    expect(settings.effectiveRemoteAccess()).toBe(false)
+    expect(settings.effectiveRemoteAccess()).toBe('off')
     // Without remote access, local network trust is off too.
     expect(settings.effectiveTrustLocalNetwork()).toBe(false)
 
+    expect(() => settings.setHostConfig({ previewTunnelEnabled: true })).toThrow('managed by the MDM policy of Example Corp')
     expect(() => settings.setHostConfig({ analyticsEnabled: true })).toThrow('managed by the MDM policy of Example Corp')
-    expect(() => settings.setRemoteAccess(true)).toThrow('managed by')
+    expect(() => settings.setRemoteAccess('any')).toThrow('managed by')
     // A key the policy does not lock stays the owner's to change, and the write keeps the owner's own locked values.
     settings.setHostConfig({ unfiledRecordingRetentionDays: 9 })
     const stored = JSON.parse(readFileSync(join(dataDir, 'server-settings.json'), 'utf8'))
+    expect(stored.hostConfig.previewTunnelEnabled).toBe(true)
     expect(stored.hostConfig.analyticsEnabled).toBe(true)
     expect(stored.hostConfig.archivedAutomationRetentionDays).toBe(30)
     expect(stored.hostConfig.unfiledRecordingRetentionDays).toBe(9)
@@ -57,6 +61,9 @@ describe('host settings under a policy', () => {
     // Removing the policy brings the owner's values back.
     policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => null }))
     expect(settings.getHostConfig().config.analyticsEnabled).toBe(true)
-    expect(settings.effectiveRemoteAccess()).toBe(true)
+    expect(settings.effectiveRemoteAccess()).toBe('any')
+    expect(settings.effectivePreviewTunnelEnabled()).toBe(true)
+    settings.setHostConfig({ previewTunnelEnabled: false })
+    expect(settings.effectivePreviewTunnelEnabled()).toBe(false)
   })
 })

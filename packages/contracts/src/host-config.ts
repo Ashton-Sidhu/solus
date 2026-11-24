@@ -18,6 +18,8 @@ import type { OtelSettings } from './types'
 export interface HostConfig {
   /** Whether this host may save sessions to Solus Cloud when the person is signed in. */
   sessionCloudSync: boolean
+  /** Allow desktop clients to forward this host’s loopback preview ports. */
+  previewTunnelEnabled: boolean
   /** Update only the native agent packages this host installed through Solus. */
   agentAutoUpdates: boolean
   solusTools: SolusToolPreferences
@@ -96,6 +98,7 @@ function field<const Value, Patch>(
 
 export const HOST_CONFIG_FIELDS = {
   sessionCloudSync: field(z.boolean().catch(true), true),
+  previewTunnelEnabled: field(z.boolean().describe("Allow connected desktop clients to forward this host’s loopback preview ports."), true),
   agentAutoUpdates: field(z.boolean().describe('Automatically download, verify, and select new native agent releases installed through Solus on this host. Active agent processes keep their current version. Other installations remain under their existing package manager.'), true),
   solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
@@ -137,8 +140,8 @@ export const DEFAULT_HOST_CONFIG: HostConfig = column('default')
  */
 export const HOST_CONFIG_AGENT_HIDDEN_KEYS: readonly HostConfigKey[] = ['otel']
 
-/** What an agent may change: every key it is shown. */
-export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true })
+/** Host access controls and collector credentials are writable only through host administration. */
+export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true, previewTunnelEnabled: true })
 
 /**
  * The caller's own TypeSafe key (docs/plans/access-model.md §2.6). Contains no

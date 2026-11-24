@@ -11,6 +11,7 @@ import type { HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-
  */
 export interface HostSettingsState {
   sessionCloudSync: boolean
+  previewTunnelEnabled: boolean | undefined
   agentAutoUpdates: boolean
   reviewWarmingByProject: Record<string, boolean>
   /** The host emitter's own consent. */
@@ -80,6 +81,10 @@ class HostSettingsStore {
     await this.write(serverId, { sessionCloudSync: enabled }, { sessionCloudSync: enabled })
   }
 
+  async setPreviewTunnelEnabled(serverId: string, enabled: boolean): Promise<void> {
+    await this.write(serverId, { previewTunnelEnabled: enabled }, { previewTunnelEnabled: enabled })
+  }
+
   async setAgentAutoUpdates(serverId: string, enabled: boolean): Promise<void> {
     await this.write(serverId, { agentAutoUpdates: enabled }, { agentAutoUpdates: enabled })
   }
@@ -112,6 +117,7 @@ class HostSettingsStore {
   private adopt(serverId: string, snapshot: HostConfigSnapshot): void {
     this.states.set(serverId, {
       sessionCloudSync: snapshot.config.sessionCloudSync,
+      previewTunnelEnabled: snapshot.config.previewTunnelEnabled,
       agentAutoUpdates: snapshot.config.agentAutoUpdates ?? false,
       reviewWarmingByProject: { ...snapshot.config.reviewWarmingByProject },
       analyticsEnabled: snapshot.config.analyticsEnabled,

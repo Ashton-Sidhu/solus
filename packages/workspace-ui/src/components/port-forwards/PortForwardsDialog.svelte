@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Dialog } from 'bits-ui';
   import { Square } from '@lucide/svelte';
+  import { hostSettingsStore } from '../../contexts/app/host-settings.store.svelte';
   import { hosts, serversStore } from '../../contexts';
   import { portForwards } from '../../contexts/running-servers/port-forwards.store.svelte';
   import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
@@ -15,7 +16,8 @@
   let error = $state<string | null>(null);
   const remoteHosts = $derived(serversStore.servers.filter((host) => !host.local));
   const eligibleHosts = $derived(remoteHosts.filter((host) =>
-    host.readiness === 'ready' && hosts.get(host.id).me.may('host.admin')
+    host.readiness === 'ready' && hosts.get(host.id).me.may('host.admin') &&
+    hostSettingsStore.states.get(host.id)?.previewTunnelEnabled !== false
   ));
   const selectedHostId = $derived(hostId || eligibleHosts.find((host) => host.id === preferredHostId)?.id || eligibleHosts[0]?.id || '');
   const canStart = $derived(eligibleHosts.some((host) => host.id === selectedHostId));
@@ -93,7 +95,7 @@
         </form>
       {/if}
       {#if !eligibleHosts.length}
-        <p class="text-(--solus-text-secondary)">Connect to a remote host you administer to forward a port.</p>
+        <p class="text-(--solus-text-secondary)">To forward a port, connect to a remote host you administer with its preview tunnel on.</p>
       {/if}
 
       {#if error}<p role="alert" class="text-(--solus-status-error)">{error}</p>{/if}

@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { NativeServerForward } from '@solus/contracts/running-servers'
+import { runningServerTunnelUrl } from '@solus/client-core/running-servers'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 
@@ -58,12 +59,15 @@ class PortForwardsStore {
       throw new Error('The host disconnected before forwarding started.')
     }
     const timer = setTimeout(() => this.#renew(key), 30_000)
-    const unwatch = serverConnections.onReadinessChange((changedHostId, readiness) => {
+    const unwatchReadiness = serverConnections.onReadinessChange((changedHostId, readiness) => {
       if (changedHostId === hostId && readiness !== 'ready') {
         void this.stop(hostId, remotePort).catch(() => {})
       }
     })
-    this.#active.set(key, { hostId, remotePort, native, timer, unwatch })
+    const unwatchConfig = serverConnections.eventsFor(hostId).subscribe('config.changed', ({ config }) => {
+      if (config.previewTunnelEnabled === false) void this.stop(hostId, remotePort).catch(() => {})
+    })
+    this.#active.set(key, { hostId, remotePort, native, timer, unwatch: () => { unwatchReadiness(); unwatchConfig() } })
     this.#rows.set(key, { hostId, remotePort, localPort: native.localPort })
   }
 
@@ -104,12 +108,14 @@ class PortForwardsStore {
   async #bind(key: string, hostId: string, remotePort: number): Promise<NativeServerForward> {
     if (serverConnections.readinessFor(hostId).readiness !== 'ready') throw new Error('The host is disconnected.')
     const origin = serverConnections.httpOriginFor(hostId)
-    const ticket = await serverConnections.apiFor(hostId).portForwardTunnel(remotePort)
-    const tunnel = new URL(ticket.relativeUrl, origin)
-    tunnel.protocol = tunnel.protocol === 'https:' ? 'wss:' : 'ws:'
+    const api = serverConnections.apiFor(hostId)
+    const ticket = await api.portForwardTunnel(remotePort)
+    if (origin !== serverConnections.httpOriginFor(hostId) || api !== serverConnections.apiFor(hostId)) {
+      throw new Error('The host connection changed.')
+    }
     return localApi.serverForwardStart({
       endpointKey: key,
-      tunnelUrl: tunnel.href,
+      tunnelUrl: runningServerTunnelUrl(origin, ticket.relativeUrl),
       targetUrl: `http://127.0.0.1:${remotePort}/`,
       expiresAt: ticket.expiresAt,
     })
