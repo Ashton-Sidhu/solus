@@ -24,7 +24,7 @@ merges them.
 ## Flow
 
 1. The phone starts the card with push enabled (`enablePushNotifications` in
-   `apps/mobile/app.json`). When iOS gives the push token, and each time the card
+   `apps/mobile/app.config.ts`). When iOS gives the push token, and each time the card
    changes, the phone calls `liveActivityRegister` on each host with the token, the
    card, the generation, and the phone's id for that host
    (`apps/mobile/src/features/live-activity/`).
@@ -110,8 +110,10 @@ the mobile hook cancels local timers and listeners; the cloud continues backgrou
   report. Its rows go stale as before.
 - Without APNs credentials the relay answers `503 push_not_configured`, and the card
   changes only while the app runs.
-- Android has no Live Activity. Desktop and web have no card. Claude and Codex are
-  the same here: the host reads the normalized session status.
+- Android renders an ongoing notification from the app's live session feed. It
+  uses the device connection and expires when it stops receiving updates.
+  Desktop and web have no native card. The mobile clients read the same
+  normalized session status for Claude Code and Codex.
 
 ## Configuration
 

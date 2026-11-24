@@ -15,6 +15,8 @@ import { solusWorkspaceState } from "./workspace-state";
 import { solusListHosts } from "./list-hosts";
 import { createSessionListProjection } from "./session-list";
 import { NearbyDiscovery } from "./discovery";
+import { installAgentActivity } from "../features/live-activity/install-agent-activity";
+import { installSolusAgentAlerts } from "../features/agent-awareness/solusAgentAlerts";
 import { createConversationTransport } from "./transport";
 
 export const solus = new SolusApp({
@@ -61,6 +63,7 @@ export function startSolus() {
   appAtomRegistry.set(mobileHostConnections, solus.connections);
   let active = true;
   let localReady = false;
+  let stopAgentAwareness: (() => void) | undefined;
   let scope = "";
   const restores = new Map<string, Promise<void> | null>();
   const hosts = new Map<string, () => void>();
@@ -242,6 +245,12 @@ export function startSolus() {
     if (!active) return;
     localReady = true;
     reconcile();
+    const stopActivity = installAgentActivity(solus);
+    const stopAlerts = installSolusAgentAlerts(solus);
+    stopAgentAwareness = () => {
+      stopActivity();
+      stopAlerts();
+    };
   }).then(
     () => {
       if (active) {
@@ -261,6 +270,7 @@ export function startSolus() {
   return () => {
     appAtomRegistry.set(mobileHostConnections, null);
     active = false;
+    stopAgentAwareness?.();
     stops.forEach((stop) => stop());
     hosts.forEach((stop) => stop());
   };

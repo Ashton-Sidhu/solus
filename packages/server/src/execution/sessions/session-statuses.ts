@@ -98,6 +98,11 @@ export class SessionStatuses {
     return this.rt.activeSessions.get(sessionId)?.status ?? null
   }
 
+  liveActivityStatus(sessionId: string): SessionStatus | null {
+    const status = this.liveSessionStatus(sessionId)
+    return status === 'awaiting_input' && this.approvalWaits.has(sessionId) ? 'awaiting_plan' : status
+  }
+
   /**
    * True while any session or detached utility agent is actually executing.
    * Narrower than isSessionBusyStatus on purpose: sessions parked on user input or a

@@ -4,9 +4,8 @@ import type { KeyValueStore } from "../../platform/ports";
 const KEY = "solus.liveActivities.enabled";
 
 /**
- * Whether this device shows agent work as a Live Activity. A device setting,
- * on by default as in T3 Code; iOS Settings can still turn Live Activities off
- * for the app, which `start` then reports by returning nothing.
+ * Whether this device shows a Live Activity on iOS or an ongoing notification
+ * on Android. This is on by default, subject to the device's permissions.
  */
 export class LiveActivityPreference {
   readonly changes = new Listeners();

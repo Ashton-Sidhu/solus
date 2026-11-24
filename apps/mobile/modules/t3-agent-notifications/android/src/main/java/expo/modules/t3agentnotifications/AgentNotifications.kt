@@ -219,12 +219,47 @@ object AgentNotifications {
     showActivity(context, scheme, data, data["active"] == "true", RUNNING_LIFETIME_MS)
   }
 
+  fun hasLocalActivity(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    return prefs.getLong("localExpiresAt", 0) > System.currentTimeMillis()
+  }
+
+  @Synchronized
+  fun updateLocalActivity(context: Context, scheme: String, data: Map<String, String>) {
+    val updatedAt = data["updated_at"]?.toLongOrNull() ?: return
+    if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    val active = data["active"] == "true"
+    val hasActivity = hasLocalActivity(context)
+    if (!hasActivity) prefs.edit().remove("lastActive").remove("dismissed").apply()
+    val wasActive = prefs.getBoolean("lastActive", false)
+    val expiresAt = if (!active && !wasActive && hasActivity) {
+      prefs.getLong("localExpiresAt", 0)
+    } else {
+      data["activity_expires_at"]?.toLongOrNull() ?: return
+    }
+    channels(context)
+    prefs.edit().putLong("localExpiresAt", expiresAt).apply()
+    updateActivity(context, prefs, data + ("activity_expires_at" to expiresAt.toString()),
+      updatedAt, false, scheme, ongoing = true)
+  }
+
+  @Synchronized
+  fun endLocalActivity(context: Context) {
+    val prefs = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    if (!prefs.contains("localExpiresAt")) return
+    cancelActivity(context)
+    prefs.edit().remove("localExpiresAt").remove("lastActive").remove("dismissed").apply()
+  }
+
   private fun updateActivity(
     context: Context,
     prefs: SharedPreferences,
     data: Map<String, String>,
     updatedAt: Long,
-    alerted: Boolean
+    alerted: Boolean,
+    scheme: String = prefs.getString("scheme", "t3code") ?: "t3code",
+    ongoing: Boolean = prefs.getBoolean("ongoing", false)
   ) {
     val terminal = singleTerminal(data)
     // Only a one-row card on the alert's own thread is known to show nothing more
@@ -245,7 +280,7 @@ object AgentNotifications {
     val remainingMs = (expiresAt - System.currentTimeMillis()).coerceAtMost(MAX_LIFETIME_MS)
     val wasActive = prefs.getBoolean("lastActive", false)
     prefs.edit().putBoolean("lastActive", active).apply()
-    if (remainingMs <= 0 || !prefs.getBoolean("ongoing", false)) {
+    if (remainingMs <= 0 || !ongoing) {
       cancelActivity(context)
       prefs.edit().putBoolean("dismissed", false).apply()
       return
@@ -256,7 +291,6 @@ object AgentNotifications {
     if (prefs.getBoolean("dismissed", false) || isCovered(prefs, terminal)) {
       cancelActivity(context)
     } else {
-      val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
       showActivity(context, scheme, data, active, remainingMs)
     }
   }

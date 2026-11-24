@@ -136,7 +136,7 @@ export class SolusApp {
   readonly cloudHistory: CloudHistory
   /** Each host's shelf (settled, snoozed), live status, and PR links, as T3 Code's list shows them. */
   readonly threadList: ThreadListState
-  /** Whether this device shows agent work as a Live Activity (iOS). */
+  /** Whether this device shows agent work in a system activity card. */
   readonly liveActivity: LiveActivityPreference
   readonly outbox: SendOutbox
   /** Notifications addressed to the person, from every host this device knows (plan 015). */

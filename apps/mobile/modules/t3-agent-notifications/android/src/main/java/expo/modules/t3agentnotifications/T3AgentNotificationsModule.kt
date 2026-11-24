@@ -30,6 +30,18 @@ class T3AgentNotificationsModule : Module() {
       appContext.reactContext?.let { AgentNotifications.showcase(it, scheme, data) }
     }
 
+    Function("hasLocalActivity") {
+      appContext.reactContext?.let { AgentNotifications.hasLocalActivity(it) } ?: false
+    }
+
+    Function("updateLocalActivity") { scheme: String, data: Map<String, String> ->
+      appContext.reactContext?.let { AgentNotifications.updateLocalActivity(it, scheme, data) }
+    }
+
+    Function("endLocalActivity") {
+      appContext.reactContext?.let { AgentNotifications.endLocalActivity(it) }
+    }
+
     Function("setThreadOnScreen") { path: String? ->
       AgentNotifications.setThreadOnScreen(path)
     }

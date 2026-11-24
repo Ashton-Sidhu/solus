@@ -41,16 +41,10 @@ export const requestAgentNotificationPermission: Effect.Effect<
     return { type: "unsupported" };
   }
 
-  if (Platform.OS === "android") {
-    yield* Effect.tryPromise({
-      try: () =>
-        Notifications.setNotificationChannelAsync("agent-alerts", {
-          name: m(msg("Agent alerts")),
-          importance: Notifications.AndroidImportance.HIGH,
-        }),
-      catch: (cause) => new NotificationPermissionRequestError({ cause }),
-    });
-  }
+  yield* Effect.tryPromise({
+    try: setupAgentAlertChannels,
+    catch: (cause) => new NotificationPermissionRequestError({ cause }),
+  });
 
   const existing = yield* Effect.tryPromise({
     try: () => Notifications.getPermissionsAsync(),
@@ -79,3 +73,20 @@ export const requestAgentNotificationPermission: Effect.Effect<
     ? { type: "granted" }
     : { type: "denied", canAskAgain: requested.canAskAgain };
 });
+
+export async function setupAgentAlertChannels(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  const name = m(msg("Agent alerts"));
+  await Promise.all([
+    Notifications.setNotificationChannelAsync("agent-alerts", {
+      name,
+      importance: Notifications.AndroidImportance.HIGH,
+    }),
+    Notifications.setNotificationChannelAsync("agent-alerts-silent", {
+      name: `${name} (silent)`,
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: null,
+      enableVibrate: false,
+    }),
+  ]);
+}

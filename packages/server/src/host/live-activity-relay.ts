@@ -114,14 +114,15 @@ export class LiveActivityRelay {
   }
 
   /** A session here changed status; the phone's row may name it by either id. */
-  sessionStatusChanged(event: { sessionId: string; agentSessionId: string | null; status: SessionStatus }): void {
+  sessionStatusChanged(event: { sessionId: string; agentSessionId: string | null; status: SessionStatus; awaitingApproval?: true }): void {
     this.dropExpired()
+    const status = event.status === 'awaiting_input' && event.awaitingApproval ? 'awaiting_plan' : event.status
     let changedAny = false
     for (const [pushToken, card] of this.cards) {
       let changed = false
       for (const row of card.rows) {
         const matches = row.sessionId === event.sessionId || row.sessionId === event.agentSessionId
-        if (matches && this.apply(row, event.status)) changed = true
+        if (matches && this.apply(row, status)) changed = true
       }
       if (changed) this.schedule(pushToken)
       changedAny ||= changed

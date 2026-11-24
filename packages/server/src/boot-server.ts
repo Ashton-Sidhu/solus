@@ -1794,13 +1794,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // The phone's Live Activity while the phone is suspended: this host reports its rows to the control plane.
   const liveActivityRelay = new LiveActivityRelay({
-    statusOf: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
+    statusOf: (sessionId) => opts.sessionRuntime.statuses.liveActivityStatus(sessionId),
     registration: () => registrar.current(),
     credential: () => registrar.credential(),
     savePath: join(dataDir(), 'live-activities.json'),
   })
   registerLiveActivityHandlers(server, liveActivityRelay)
-  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event))
+  const reportLiveActivityStatus = (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event)
+  opts.sessionRuntime.on('session-status', reportLiveActivityStatus)
+  opts.sessionRuntime.on('session-question', reportLiveActivityStatus)
   if (!apiMode) {
     // The host's user (plans/012 §1): its `local` id is minted once, before any
     // client connects. The Solus API has no host user.

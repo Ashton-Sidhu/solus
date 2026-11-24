@@ -46,6 +46,8 @@ The device and browser viewers share their selection and presentation helpers wi
 
 New-session and scheduled-task branch pickers use T3's branch paging hook. Their shared read uses Solus Git status and branch refs. Searching and paging reuse the checkout's answer. The host identifies a remote-only branch by its branch name and does not supply a remote tracking ref.
 
+The mobile notification and Live Activity presentation follows T3 Code revision `84a0c0516f53bfa3d0a9d64985f21083d757d93d`, including the expired Dynamic Island count fix. Solus supplies account-scoped attention snapshots and uses its own ActivityKit relay for linked hosts. Android uses T3’s native ongoing notification with the Solus session feed while the phone is connected. The Solus sign-in and host list own the data path. See [mobile delivery](../../docs/notifications.md#mobile-delivery).
+
 The T3 pull request and issue sheets use the selected host for edits, labels, reviewers, assignees, and review submission. A review names the head revision shown in the diff. Session review uses T3’s file list, line selection, and comment composer for working-tree, session, and turn diffs. The draft host and branch pickers use the Solus host list and checkout. A Solus session has one working directory, so a draft offers one project at a time. A session can work in more folders than its working directory: the session folders that its codebase and its attached folders give (see the last sections).
 
 The session review picker follows T3's Changes and Uncommitted choices. The Solus host supplies both comparisons and uses its own target branch selection. The picker also offers Session for the session's accumulated changes.

@@ -27,13 +27,14 @@ export type AgentActivityPhase =
   | "running"
   | "waiting_for_approval"
   | "waiting_for_input"
+  | "limited"
   | "completed"
   | "failed"
   | "stale";
 
 export interface AgentActivityRowProps {
-  readonly environmentId: string;
-  readonly threadId: string;
+  readonly environmentId?: string;
+  readonly threadId?: string;
   readonly projectTitle: string;
   readonly threadTitle: string;
   readonly modelTitle: string;
@@ -64,6 +65,7 @@ export interface AgentActivityText {
 }
 
 export interface AgentActivityProps {
+  readonly appScheme?: string;
   readonly text?: AgentActivityText;
   readonly title: string;
   readonly subtitle: string;
@@ -117,7 +119,7 @@ function AgentActivity(
   const phasePriority = (phase: AgentActivityPhase): number => {
     if (phase === "waiting_for_approval" || phase === "waiting_for_input") return 0;
     if (phase === "failed") return 1;
-    if (phase === "running" || phase === "starting") return 2;
+    if (phase === "running" || phase === "starting" || phase === "limited") return 2;
     return 3;
   };
   // Mark in-flight rows stale after expiry so they cannot claim agents still work.
@@ -125,7 +127,7 @@ function AgentActivity(
     ? props.activities.map((row) =>
         row.phase === "completed" || row.phase === "failed"
           ? row
-          : { ...row, phase: "stale", status: text?.outOfDate ?? "Out of date" },
+          : { ...row, phase: "stale", status: "Check status" },
       )
     : props.activities;
   const ordered = [...activities].sort((a, b) => phasePriority(a.phase) - phasePriority(b.phase));
@@ -158,7 +160,7 @@ function AgentActivity(
   const agentsLabel = allDone
     ? outcomeLabel
     : environment.isStale
-      ? (text?.statusOutOfDate ?? "Agent status out of date")
+      ? "Tap to refresh"
       : (text?.activeAgents[String(props.activeCount)] ??
         `${props.activeCount} active ${agentWord}`);
   const attentionSuffix =
@@ -169,16 +171,16 @@ function AgentActivity(
   const activeLabel = allDone
     ? doneLabel
     : environment.isStale
-      ? (text?.outOfDate ?? "Out of date")
+      ? "Refresh"
       : (text?.active[String(props.activeCount)] ?? `${props.activeCount} active`);
   const showCompactGlyph = !attentionRow && !failedRow && !allDone && !environment.isStale;
   const summary = attentionSuffix || activeLabel;
 
-  // Widget taps target the containing app, so its production scheme is safe in every build.
-  const deepLinkRow = attentionRow ?? row0;
+  // The relay serves the production bundle. Locally updated cards also support preview builds.
+  const deepLinkRow = attentionRow ?? activities.find((row) => row.phase === "stale") ?? row0;
   const deepLink =
     deepLinkRow && deepLinkRow.deepLink.startsWith("/") && !deepLinkRow.deepLink.startsWith("//")
-      ? `t3code://${deepLinkRow.deepLink.slice(1)}`
+      ? `${props.appScheme ?? "solus"}://${deepLinkRow.deepLink.slice(1)}`
       : null;
   const linkModifiers = deepLink ? [widgetURL(deepLink)] : [];
 
@@ -195,6 +197,8 @@ function AgentActivity(
         return "checkmark.circle.fill";
       case "starting":
         return "circle.dotted";
+      case "limited":
+        return "clock";
       case "stale":
         return "clock.arrow.circlepath";
       case "running":
@@ -253,9 +257,9 @@ function AgentActivity(
   // inherits.
   const renderLogo = (height: number, color: Foreground, modifiers: typeof linkModifiers = []) => (
     <HStack
-      modifiers={[frame({ width: height * 1.5, height }), foregroundStyle(color), ...modifiers]}
+      modifiers={[frame({ width: height, height }), foregroundStyle(color), ...modifiers]}
     >
-      <Image assetName="T3Mark" modifiers={[resizable()]} />
+      <Image assetName="SolusMark" modifiers={[resizable()]} />
     </HStack>
   );
 
@@ -389,7 +393,7 @@ function AgentActivity(
       <HStack spacing={5} alignment="center" modifiers={[padding({ leading: 4, vertical: 4 })]}>
         {renderLogo(15, tint)}
         <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(tint)]}>
-          {allDone ? doneLabel : `${props.activeCount}`}
+          {allDone ? doneLabel : environment.isStale ? activeLabel : `${props.activeCount}`}
         </Text>
       </HStack>
     ),
