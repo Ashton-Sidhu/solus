@@ -156,3 +156,11 @@ Queued message edits use T3's queue sheet, composer, and model picker. Solus
 loads the queued message's saved options and submits explicit picks with the
 message's revision. A text-only edit keeps the host's saved choice. Runtime mode
 stays with the session.
+
+The Linked environments section and batch sheet use Solus owner pairings and
+the host directory. They show the route and owner access for each link. A
+single confirmation authorizes one pairing per selected target. The linked
+session sheet uses the Solus Cloud copy when available and the source host's
+read-only transcript pages for linked machines or remote child sessions.
+Connect uses a separate device pairing through a known machine where possible
+and the existing add-environment form when a code is needed.

@@ -1,4 +1,5 @@
 import { HostPairingFollower } from '@solus/client-core/host-pairing-follower'
+import { canManageMachineLinks, connectThroughMachine, type LinkMachine } from '@solus/client-core/host-linking'
 import { forgetHostConnections, type HostConnectionOwner } from '@solus/client-core/forget-host'
 import type { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
@@ -144,6 +145,10 @@ export class HostConnections {
   /** The last diagnostics read per host, so a screen that reads them on each change sees the same object. */
   private readonly lastDiagnostics = new Map<string, HostDiagnostics>()
   readonly changes = new Listeners()
+  private linkRevision = 0
+  private linkMachines: LinkMachine[] | null = null
+  readonly machineLinksChanged = new Listeners()
+  machineLinksRevision = (): number => this.linkRevision
   private hiddenAt: number | null = null
   /** Introduces the hosts this phone owns to each other (docs/plans/host-reach.md §4). */
   private readonly introducer = new HostIntroducer(() => this.ownedHosts())
@@ -203,6 +208,8 @@ export class HostConnections {
       onReadinessChange: () => {
         if (!connection) return
         connection.syncState()
+        if (connection.state.readiness !== 'ready') connection.pairings?.clear()
+        this.notifyMachineLinks()
         this.changes.notify()
       },
       onOutcome: (outcome) => {
@@ -236,15 +243,20 @@ export class HostConnections {
       forget: (hostId) => this.deps.registry.forget(hostId), deviceLabel: () => 'Solus mobile',
       isRefused: (hostId) => this.readiness(hostId).refusedReason === 'auth',
       fetchImpl: this.deps.fetch,
+      healthNonce: this.deps.healthNonce,
     })
     // Whether the host is still setting this person up is in its server info (docs/plans/member-isolation.md §8.1).
     created.facts.subscribe((key) => {
-      if (key === 'serverInfo') this.changes.notify()
+      if (key === 'serverInfo') {
+        this.changes.notify()
+        this.notifyMachineLinks()
+      }
       if (key === 'capabilities') {
         created.hostVersion = created.facts.value('capabilities')?.version ?? created.hostVersion
         this.changes.notify()
       }
     })
+    created.pairings.subscribe(() => this.notifyMachineLinks())
     this.connections.set(host.id, created)
     link.start()
     return created
@@ -335,6 +347,37 @@ export class HostConnections {
   /** The hosts this phone is connected to now. */
   readyConnections(): HostConnection[] {
     return [...this.connections.values()].filter((connection) => connection.state.readiness === 'ready')
+  }
+
+  machineLinks(): readonly LinkMachine[] {
+    return this.linkMachines ??= this.readyConnections().flatMap((connection) => {
+      const info = connection.facts.value('serverInfo')
+      if (!info || !canManageMachineLinks(info) || !connection.pairings) return []
+      const generation = connection.state.sessionGeneration
+      return [{
+        label: this.deps.registry.host(connection.hostId)?.label ?? connection.hostId,
+        info,
+        api: connection.api,
+        snapshot: connection.pairings.snapshot(),
+        isCurrent: () => this.connections.get(connection.hostId) === connection
+          && connection.state.readiness === 'ready'
+          && connection.state.sessionGeneration === generation
+          && connection.facts.value('serverInfo')?.principal === 'local-owner',
+      }]
+    })
+  }
+
+  async pairThroughKnownMachine(installationId: string): Promise<boolean> {
+    const sources = this.readyConnections().flatMap((connection) => connection.pairings ?? [])
+    const paired = await connectThroughMachine(installationId, sources)
+    if (paired) this.retry(installationId)
+    return paired
+  }
+
+  private notifyMachineLinks(): void {
+    this.linkMachines = null
+    this.linkRevision++
+    this.machineLinksChanged.notify()
   }
 
   /** Stop host-owned connections before removing this client's pairing. */

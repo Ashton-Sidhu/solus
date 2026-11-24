@@ -54,6 +54,13 @@ export interface PairServerResult {
   installationId: string
 }
 
+/** A bounded pairing request on browser, Node, and React Native. */
+export async function withPairingTimeout<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5_000)
+  try { return await run(controller.signal) } finally { clearTimeout(timer) }
+}
+
 /** An address a host listens on, as `connectionsListEndpoints` answers it. */
 export interface PairEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'

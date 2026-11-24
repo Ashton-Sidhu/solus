@@ -8,7 +8,7 @@ import { readHostHealth, refreshHostSession } from '@solus/client-core/host-http
 import { dialHostSocket } from '@solus/client-core/host-socket'
 import { hostPairRequestSchema, type HostPairRequest, type HostPairingsSnapshot, type HostClientPairing } from '@solus/contracts/host-pairing'
 import type { HostListing } from '@solus/contracts/host-list'
-import { findHostRecord, hostCredential, readHostRecords, clearHostCredential, removeHostListing, saveHostConnection } from './host-list'
+import { findHostRecord, hostCredential, readHostRecords, clearHostCredential, removeHostConnection, removeHostListing, saveHostConnection } from './host-list'
 
 const TIMEOUT_MS = 5_000
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000
@@ -55,6 +55,8 @@ interface PairingTarget {
 export class HostPairings {
   // A forget or a second pair invalidates a pair that is still in flight.
   private readonly generations = new Map<string, number>()
+  private readonly renewals = new Map<string, Promise<string | null>>()
+  private readonly linking = new Set<string>()
   constructor(
     private readonly selfId: () => string,
     private readonly selfName: () => string,
@@ -67,7 +69,10 @@ export class HostPairings {
   snapshot(): HostPairingsSnapshot {
     const records = readHostRecords()
     return {
-      hosts: records.flatMap((record) => !record.forgotten && record.pairing ? [{ listing: record.listing, pairedAt: record.pairing.pairedAt }] : []),
+      hosts: records.flatMap((record) => !record.forgotten && record.pairing ? [{
+        listing: record.listing, pairedAt: record.pairing.pairedAt, url: record.pairing.url,
+        clientConnect: record.pairing.clientConnect,
+      }] : []),
       forgotten: records.filter((record) => record.forgotten).map((record) => record.listing.installationId),
     }
   }
@@ -79,14 +84,34 @@ export class HostPairings {
    */
   async pair(input: HostPairRequest, signal?: AbortSignal): Promise<HostListing> {
     const request = hostPairRequestSchema.parse(input)
+    const id = request.link?.installationId
+    if (!id) return this.pairAtAddress(request, signal)
+    if (this.linking.has(id)) throw new Error('This machine is already being linked.')
+    this.linking.add(id)
+    try { return await this.pairAtAddress(request, signal) }
+    finally { this.linking.delete(id) }
+  }
+
+  private async pairAtAddress(request: HostPairRequest, signal?: AbortSignal): Promise<HostListing> {
     const url = pairingUrl(request.url)
     // The shape check comes before any request: a value that is not a code goes nowhere.
     const way: { pairToken: string } | { checkCode: string } = request.code !== undefined ? { pairToken: pairingSecret(url, request.code) } : { checkCode: approvalCheckCode(request.checkCode) }
     const target = await this.target(url, signal)
+    if (request.link) {
+      if (target.installationId !== request.link.installationId) throw new Error('A different machine answered at this address.')
+      if (!await answersAsSavedHost(this.fetchImpl, { url, source: 'user' }, request.link, AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])]))) {
+        throw new Error('The selected machine did not prove its identity at this address.')
+      }
+      if (signal?.aborted || this.generations.get(target.installationId) !== target.generation) throw new Error('Pairing was canceled.')
+      if (target.before?.pairing && target.replaced && target.before.listing.identityKey === request.link.identityKey) {
+        return target.before.listing
+      }
+    }
     const result = 'pairToken' in way
       ? await this.pairWithCode(target, way.pairToken, request.label, signal)
       : await this.pairByApproval(target, way.checkCode, request.label, signal)
-    return this.save(target, result, signal)
+    if (request.link && result.server.identityKey !== request.link.identityKey) throw new Error('A different machine answered the pairing request.')
+    return this.save(target, result, signal, request.link ? 'on-request' : target.before?.pairing?.clientConnect)
   }
 
   private async pairWithCode(target: PairingTarget, pairToken: string, label: string | undefined, signal?: AbortSignal): Promise<PairServerResult> {
@@ -139,7 +164,7 @@ export class HostPairings {
     }
   }
 
-  private async save(target: PairingTarget, result: PairServerResult, signal?: AbortSignal): Promise<HostListing> {
+  private async save(target: PairingTarget, result: PairServerResult, signal?: AbortSignal, clientConnect?: 'on-request'): Promise<HostListing> {
     const { url, installationId } = target
     if (result.installationId !== installationId) throw new Error('A different host answered the pairing request. Nothing was saved.')
     if (!result.server.identityKey && url.startsWith('http:')) throw new Error('This host is too old to prove its identity over HTTP. Update it or use HTTPS.')
@@ -150,7 +175,7 @@ export class HostPairings {
     const listing = listingOf(result.server)
     if (!listing) throw new Error('The pairing reply did not name a remote host.')
     const now = this.now()
-    saveHostConnection(listing, { kind: 'pairing', token: sessionToken, settings: { url, pairedAt: now, refreshedAt: now } })
+    saveHostConnection(listing, { kind: 'pairing', token: sessionToken, settings: { url, pairedAt: now, refreshedAt: now, clientConnect } })
     return findHostRecord(installationId)!.listing
   }
 
@@ -163,13 +188,21 @@ export class HostPairings {
     return removeHostListing(installationId)
   }
 
+  unlink(installationId: string): boolean {
+    this.nextGeneration(installationId)
+    if (!findHostRecord(installationId)?.pairing) return false
+    removeHostConnection(installationId, 'pairing')
+    return true
+  }
+
   /** A token goes only to the saved host, and a late refresh cannot restore a forgotten connection. */
   async credential(installationId: string): Promise<string | null> {
     const record = findHostRecord(installationId)
     const connection = record?.pairing
     const token = hostCredential(installationId, 'pairing')
     if (!record || !connection || !token) return null
-    if (!await answersAsSavedHost(this.fetchImpl, { url: connection.url }, record.listing, AbortSignal.timeout(TIMEOUT_MS))) return null
+    const route = { url: connection.url, source: connection.clientConnect === 'on-request' ? 'user' as const : undefined }
+    if (!await answersAsSavedHost(this.fetchImpl, route, record.listing, AbortSignal.timeout(TIMEOUT_MS))) return null
     if (hostCredential(installationId, 'pairing') !== token) return null
     if (this.now() - connection.refreshedAt < REFRESH_AFTER_MS) return token
     const refreshed = await refreshHostSession(this.fetchImpl, connection.url, token, TIMEOUT_MS)
@@ -180,11 +213,29 @@ export class HostPairings {
     return refreshed.sessionToken
   }
 
+  /** A connection can stay open longer than the token's idle lifetime. Renew
+   * when it is used, at the same cadence as a fresh dial. */
+  async renewOnUse(installationId: string): Promise<boolean> {
+    const record = findHostRecord(installationId)
+    if (!record?.pairing || record.forgotten) return false
+    if (this.now() - record.pairing.refreshedAt < REFRESH_AFTER_MS) return true
+    let renewal = this.renewals.get(installationId)
+    if (!renewal) {
+      renewal = this.credential(installationId).finally(() => this.renewals.delete(installationId))
+      this.renewals.set(installationId, renewal)
+    }
+    return (await renewal) !== null
+  }
+
   /** The client's own pairing uses a fresh code; the persistent host credential never leaves this process. */
-  async forClient(installationId: string): Promise<HostClientPairing> {
+  async forClient(installationId: string, explicit = false): Promise<HostClientPairing> {
+    if (!explicit && findHostRecord(installationId)?.pairing?.clientConnect === 'on-request') {
+      throw new Error('Select Connect before using this machine link.')
+    }
     const token = await this.credential(installationId)
     const record = findHostRecord(installationId)
     if (!token || !record?.pairing) throw new Error('This host no longer has access to that machine. Pair it again.')
+    if (!explicit && record.pairing.clientConnect === 'on-request') throw new Error('Select Connect before using this machine link.')
     const url = record.pairing.url
     const dialed = await dialHostSocket(url, { credential: { kind: 'session-token', token } }, { timeoutMs: TIMEOUT_MS })
     if (!dialed.ok) throw new Error('The remote host refused this connection. Pair it again.')

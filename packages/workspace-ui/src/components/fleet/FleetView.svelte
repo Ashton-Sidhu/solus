@@ -5,6 +5,7 @@
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { runHost } from "../../contexts/workspace/run-location";
   import { connectionsNav } from "../connections/connections-nav.svelte";
+  import MachineLinksSection from "../connections/MachineLinksSection.svelte";
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
@@ -250,4 +251,5 @@
       onAsk={(row) => askAgentAboutHosts(workspace, machines.filter((machine) => row.serverIds.includes(machine.serverId)), row.kind)}
     />
   {/if}
+  <MachineLinksSection />
 </div>

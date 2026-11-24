@@ -194,7 +194,7 @@ export interface RouteParams {
   /** The record of a session on a host that cannot open its transcript: the
    *  organization's workspace service while the runner is offline
    *  (docs/plans/cloud-service-model.md R8). Read-only. */
-  sessionRecord: { sessionId: string; serverId: string; viaParentId?: string }
+  sessionRecord: { sessionId: string; serverId: string; viaParentId?: string; linkedHostId?: string }
 }
 
 export type RouteName = keyof RouteParams
@@ -682,13 +682,17 @@ export const ROUTES: RouteTable = {
   },
   sessionRecord: {
     parse: (s) => {
-      const [session, parent] = s.split('/')
+      const [session, parent, linkedHost] = s.split('/')
       const { id, serverId } = parseScopedId(session)
       if (!id || !serverId) return null
-      if (!parent) return { sessionId: id, serverId }
-      try { return { sessionId: id, serverId, viaParentId: decodeURIComponent(parent) } } catch { return null }
+      try {
+        if (linkedHost && !parent) return { sessionId: id, serverId, linkedHostId: decodeURIComponent(linkedHost) }
+        return parent ? { sessionId: id, serverId, viaParentId: decodeURIComponent(parent) } : { sessionId: id, serverId }
+      } catch { return null }
     },
-    serialize: (p) => serializeScopedId(p.sessionId, p.serverId) + (p.viaParentId ? `/${encodeURIComponent(p.viaParentId)}` : ''),
+    serialize: (p) => serializeScopedId(p.sessionId, p.serverId) + (p.viaParentId
+      ? `/${encodeURIComponent(p.viaParentId)}`
+      : p.linkedHostId ? `//${encodeURIComponent(p.linkedHostId)}` : ''),
     // Read like a conversation: the destination from the sidebar, a surface
     // from inside a page.
     placement: 'either',

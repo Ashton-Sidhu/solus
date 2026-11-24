@@ -11,6 +11,7 @@
   import { Skeleton } from "../../ui/skeleton";
   import { Button } from "../../ui/button";
   import { knownRunnerFor } from "@solus/client-core/session-runner";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { recordRunner, sessionRecordHeader } from "./lib/session-record-page";
   import RecordTranscript from "./RecordTranscript.svelte";
 
@@ -33,11 +34,12 @@
   let record = $state<SessionRecordStore | null>(null);
   $effect(() => {
     // On the host that runs the session, watch it so each turn lands as it happens.
-    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId, { watch: live === true, viaParentId: params.viaParentId });
+    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId, { watch: live === true, viaParentId: params.viaParentId, linkedHostId: params.linkedHostId });
     record = current;
     return () => current.dispose();
   });
   const meta = $derived(record?.meta ?? null);
+  const isLinkedRead = $derived(!!(params.viaParentId || params.linkedHostId));
   const messages = $derived(record?.messages ?? null);
   const loading = $derived(record?.loading ?? true);
   const loadError = $derived(record?.error ?? null);
@@ -48,6 +50,8 @@
   const runnerHostId = $derived(record?.runnerHostId ?? null);
   // A runner that answered but could not open the session leaves the record read only, not "Connecting".
   let revealFailed = $state(false);
+  let isConnecting = $state(false);
+  let connectionError = $state("");
   const knownRunnerId = $derived(runnerHostId ? knownRunnerFor(runnerHostId, serversStore.knownHosts) : null);
   const savedRunnerState = $derived(knownRunnerId ? serversStore.readinessFor(knownRunnerId) : null);
   const runnerServerId = $derived(savedRunnerState?.readiness === "ready" ? knownRunnerId : null);
@@ -62,7 +66,7 @@
   // No chip until the record says which runner it waits on: "Read only" before then would be a guess.
   const showsRecordState = $derived(live !== true && live !== null && !loading);
   const liveServerId = $derived(
-    params.viaParentId || live !== undefined || !workspace.workspace ? null
+    isLinkedRead || live !== undefined || !workspace.workspace ? null
       : runnerServerId && hosts.hasExecution(runnerServerId) ? runnerServerId
       : hosts.hasExecution(params.serverId) ? params.serverId
       : null,
@@ -89,6 +93,29 @@
 
   function close() {
     workspace.workspace?.router.close("sessionRecord");
+  }
+
+  async function connectRunner() {
+    const targetId = knownRunnerId ?? runnerHostId;
+    if (!targetId || isConnecting) return;
+    isConnecting = true;
+    connectionError = "";
+    try {
+      const connected = runnerServerId || (knownRunnerId && savedRunnerState?.refusedReason !== "auth" &&
+        await serversStore.connectNow(knownRunnerId)) ||
+        await serversStore.pairAgain(targetId, serverConnections.pairedUrlFor(targetId) ??
+          serversStore.servers.find((host) => host.id === targetId)?.url ?? "");
+      if (!connected) return;
+      if (isLinkedRead) {
+        const tabId = await workspace.workspace?.revealSession(params.sessionId, targetId);
+        if (tabId) close();
+        else connectionError = "The machine answered, but this session did not open.";
+      }
+    } catch {
+      connectionError = "Could not connect to the machine that runs this session.";
+    } finally {
+      isConnecting = false;
+    }
   }
 </script>
 
@@ -124,6 +151,7 @@
             <Empty.Media variant="icon"><CloudOffIcon /></Empty.Media>
             <Empty.Title>Couldn’t read this session</Empty.Title>
             <Empty.Description>{loadError}</Empty.Description>
+            {#if isLinkedRead}<Button size="xs" variant="outline" onclick={() => void record?.load()}>Try again</Button>{/if}
           </Empty.Header>
         </Empty.Root>
       {:else if header}
@@ -154,6 +182,7 @@
               <Empty.Media variant="icon"><CloudOffIcon /></Empty.Media>
               <Empty.Title>Couldn’t read the transcript</Empty.Title>
               <Empty.Description>{transcriptError}</Empty.Description>
+            {#if isLinkedRead}<Button size="xs" variant="outline" onclick={() => void record?.load()}>Try again</Button>{/if}
             </Empty.Header>
           </Empty.Root>
         {:else if messages === null}
@@ -178,9 +207,9 @@
               </div>
             {/if}
             {#each record.olderPages as page (page.key)}
-              <RecordTranscript messages={page.messages} serverId={params.serverId} {planFor} {workFor} {openWork} />
+              <RecordTranscript messages={page.messages} serverId={params.serverId} {planFor} {workFor} {openWork} linked={isLinkedRead} />
             {/each}
-            <RecordTranscript {messages} serverId={params.serverId} {planFor} {workFor} {openWork} />
+            <RecordTranscript {messages} serverId={params.serverId} {planFor} {workFor} {openWork} linked={isLinkedRead} />
           </div>
         {/if}
       {/if}
@@ -193,12 +222,18 @@
   <!-- The composer, present and inert: the reverse state of a prompt is a bar
        that says why it takes none, and when it will again. -->
   <div class="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]" data-testid="session-record-composer">
-    <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)" aria-disabled="true">
+    <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)">
       {#if waitsForRunner}<CloudIcon size={14} class="shrink-0" />{:else}<CloudOffIcon size={14} class="shrink-0" />{/if}
-      <span class="min-w-0 flex-1 truncate" data-testid="session-record-composer-note">{runner.note}</span>
-      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={runner.note}>
-        <SendIcon size={14} />
-      </Button>
+      <span class="min-w-0 flex-1 truncate" data-testid="session-record-composer-note">{connectionError || runner.note}</span>
+      {#if workspace.workspace && runnerHostId && live !== true && (isLinkedRead || !runnerServerId)}
+        <Button size="xs" variant="outline" disabled={isConnecting} onclick={() => void connectRunner()}>
+          {isConnecting ? "Connecting…" : runnerServerId ? "Open session" : "Connect to interact"}
+        </Button>
+      {:else}
+        <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={runner.note}>
+          <SendIcon size={14} />
+        </Button>
+      {/if}
     </div>
   </div>
 

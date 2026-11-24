@@ -1,5 +1,5 @@
 import type { Message, SessionMeta } from '@solus/contracts/types'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
 import { readSessionRecordMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -47,13 +47,16 @@ export class SessionRecordStore {
   private newestTurns = INITIAL_HISTORY_TURNS
   private pendingMessages: WireSessionLoadMessage[] | undefined
   private nextPageKey = 0
+  private readGeneration = 0
   /** A refresh and an older read never interleave: each reads the cursors the other sets. */
   private queue: Promise<void> = Promise.resolve()
   private readonly unsubscribe: () => void
   private readonly unsubscribeLive: (() => void) | null = null
   private readonly unsubscribeTree: (() => void) | null = null
   private readonly stopStatus: () => void
-  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string, private readonly options: { watch?: boolean; viaParentId?: string } = {}) {
+  private readonly unsubscribeLinks: (() => void) | null = null
+  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string, private readonly options: { watch?: boolean; viaParentId?: string; linkedHostId?: string } = {}) {
+    this.runnerHostId = options.linkedHostId ?? null
     const events = serverConnections.eventsFor(serverId)
     this.unsubscribe = events.subscribe('session.transcriptChanged', (event) => {
       if (event.sessionId === sessionId) this.loadSoon(200)
@@ -61,6 +64,7 @@ export class SessionRecordStore {
     if (options.viaParentId) this.unsubscribeTree = events.subscribe('session.digestChanged', (event) => {
       if (event.sessionId === options.viaParentId) this.loadSoon(250)
     })
+    if (options.linkedHostId) this.unsubscribeLinks = events.subscribe('host.listChanged', () => this.loadSoon(250))
     if (options.watch) {
       // A watched session streams every provider event; the page re-reads the
       // transcript once they pause, so a turn's tokens cost one read, not one each.
@@ -69,7 +73,14 @@ export class SessionRecordStore {
       })
     }
     this.stopStatus = serverConnections.onReadinessChange((id, status) => {
-      if (id !== serverId || status !== 'ready') return
+      if (id !== serverId) return
+      if (status !== 'ready') {
+        if (options.linkedHostId) {
+          this.readGeneration++
+          this.resetLinkedRead('Reconnect to the source machine to read this session.')
+        }
+        return
+      }
       if (options.watch) void this.watch()
       void this.load()
     })
@@ -91,10 +102,15 @@ export class SessionRecordStore {
     if (this.disposed) return
     if (this.loadingNow) { this.wanted = true; return }
     this.loadingNow = true
+    const generation = this.readGeneration
     try {
       await this.exclusive(() => this.refresh())
     } catch (error) {
-      if (!this.disposed) this.transcriptError = error instanceof Error ? error.message : String(error)
+      if (!this.disposed && generation === this.readGeneration) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (this.options.linkedHostId) this.resetLinkedRead(message)
+        else this.transcriptError = message
+      }
     } finally {
       this.loadingNow = false
       if (!this.disposed) {
@@ -108,13 +124,14 @@ export class SessionRecordStore {
     if (this.disposed || this.loadingOlder || this.olderCursor === null) return
     this.loadingOlder = true
     this.olderError = null
+    const generation = this.readGeneration
     try {
       await this.exclusive(async () => {
         const meta = this.meta
         const before = this.olderCursor
         if (!meta || before === null) return
-        const page = await readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: OLDER_HISTORY_TURNS, before, pendingMessages: this.pendingMessages, viaParentId: this.options.viaParentId })
-        if (this.disposed || this.olderCursor !== before) return
+        const page = await readSessionRecordPage(this.workspace, this.serverId, meta, { ...this.options, turnLimit: OLDER_HISTORY_TURNS, before, pendingMessages: this.pendingMessages })
+        if (this.disposed || generation !== this.readGeneration || this.olderCursor !== before) return
         if (page.before === before) throw new Error('History paging made no progress.')
         if (this.olderPages.length === 0) this.boundary = before
         this.olderPages.unshift({ key: this.nextPageKey++, messages: page.messages })
@@ -122,7 +139,7 @@ export class SessionRecordStore {
         this.pendingMessages = page.pendingMessages
       })
     } catch (error) {
-      if (!this.disposed) this.olderError = error instanceof Error ? error.message : String(error)
+      if (!this.disposed && generation === this.readGeneration) this.olderError = error instanceof Error ? error.message : String(error)
     } finally {
       if (!this.disposed) this.loadingOlder = false
     }
@@ -132,20 +149,26 @@ export class SessionRecordStore {
     this.unsubscribe()
     this.unsubscribeLive?.()
     this.unsubscribeTree?.()
+    this.unsubscribeLinks?.()
     this.stopStatus()
     if (this.timer) clearTimeout(this.timer)
     if (this.unsubscribeLive) void serverConnections.apiFor(this.serverId).unwatchSession(this.sessionId).catch(() => {})
   }
 
   private async refresh(): Promise<void> {
-    const { meta, runnerHostId } = await readSessionRecordMeta(this.serverId, this.sessionId)
-    if (this.disposed) return
+    const generation = this.readGeneration
+    const linked = this.options.linkedHostId
+    const read = linked
+      ? await serverConnections.apiFor(this.serverId).hostsLinkedSessionPage(linked, this.sessionId, null, this.newestTurns)
+      : await readSessionRecordMeta(this.serverId, this.sessionId)
+    const { meta } = read
+    if (this.disposed || generation !== this.readGeneration) return
     this.meta = meta
-    this.runnerHostId = runnerHostId
+    this.runnerHostId = 'runnerHostId' in read ? read.runnerHostId : linked ?? null
     if (!meta) { this.error = 'The workspace has no record of this session.'; return }
     this.error = null
-    const page = await this.readNewest(meta)
-    if (this.disposed) return
+    const page = await this.readNewest(meta, 'page' in read ? read.page : undefined)
+    if (this.disposed || generation !== this.readGeneration) return
     this.transcriptError = null
     if (this.boundary === null) {
       this.olderCursor = page.before
@@ -161,15 +184,25 @@ export class SessionRecordStore {
     }
   }
 
+  private resetLinkedRead(error: string): void {
+    this.error = error
+    this.meta = null
+    this.messages = null
+    this.olderPages.splice(0)
+    this.olderCursor = null
+    this.boundary = null
+    this.pendingMessages = undefined
+  }
+
   /**
    * The newest page. With older pages above it, new turns would push its start
    * past them and leave a gap, so it widens one turn at a time until it starts
    * where they end again. When it cannot, the older pages are let go: a
    * shorter history is honest, a gap is not.
    */
-  private async readNewest(meta: SessionMeta): Promise<SessionRecordPage> {
-    const read = () => readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: this.newestTurns, viaParentId: this.options.viaParentId })
-    let page = await read()
+  private async readNewest(meta: SessionMeta, initialPage?: SessionHistoryPage): Promise<SessionRecordPage> {
+    const read = (page?: SessionHistoryPage) => readSessionRecordPage(this.workspace, this.serverId, meta, { ...this.options, turnLimit: this.newestTurns }, page)
+    let page = await read(initialPage)
     if (this.boundary === null) return page
     for (let widened = 0; page.before !== this.boundary && page.before !== null && widened < MAX_WIDEN_TURNS; widened++) {
       this.newestTurns++

@@ -1,5 +1,6 @@
 import type { ProviderStartup } from "@solus/contracts/provider-startup";
 import { useAtomValue } from "@effect/atom-react";
+import { parseSessionHref } from "@solus/contracts/session-link";
 import { mobileHost } from "../../state/mobile-host";
 import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types";
 import { MessageVideo } from "../../solus/MessageVideo";
@@ -80,10 +81,10 @@ import {
   isOrchestrationV2WorkActive,
   type OrchestrationMessageContext,
   ThreadId,
+  EnvironmentId,
   type ChatAttachment,
   type ChatFileAttachment,
   type ChatImageAttachment,
-  type EnvironmentId,
   type MessageId,
   type OrchestrationV2ProjectedTurnItem,
   type RunId,
@@ -3574,6 +3575,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     if (parseThreadLinkHref(href)) {
       const target = resolveLinkedThread(href);
       if (target) openThreadLink(target);
+      return;
+    }
+    const sessionLink = parseSessionHref(href);
+    if (sessionLink) {
+      openThreadLink(scopeThreadRef(
+        EnvironmentId.make(sessionLink.serverId ?? props.environmentId),
+        ThreadId.make(sessionLink.sessionId),
+      ));
       return;
     }
     const media = resolveMarkdownMediaPreview(href, {

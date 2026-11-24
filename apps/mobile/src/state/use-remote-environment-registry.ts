@@ -75,7 +75,7 @@ export async function pairEnvironment(
       };
     if (
       expectedEnvironmentId &&
-      solus.registry.host(expectedEnvironmentId)?.installationId !== answer.preview.installationId
+      (solus.registry.host(expectedEnvironmentId)?.installationId ?? expectedEnvironmentId) !== answer.preview.installationId
     )
       return { ok: false, error: "This address belongs to another host." };
     if (discoveredId && discoveredId !== answer.preview.installationId)

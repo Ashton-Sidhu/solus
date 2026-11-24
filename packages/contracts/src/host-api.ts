@@ -504,11 +504,15 @@ export interface SolusAPI {
   /** Explicit owner pairing, used by chat tools and the CLI. */
   hostsPair(request: HostPairRequest): Promise<HostListing>
   hostsListPaired(): Promise<HostPairingsSnapshot>
+  /** Remove this host's pairing to another machine. */
+  hostsUnlink(installationId: string): Promise<{ removed: boolean }>
+  /** Metadata and a page of read-only text from an explicitly paired machine. */
+  hostsLinkedSessionPage(installationId: string, sessionId: string, before: string | null, turnLimit: number): Promise<{ meta: SessionMeta; page: SessionHistoryPage }>
   /** The open approval requests from machines that ask to pair with this host. */
   hostsPairApprovals(): Promise<PairApprovalRequest[]>
   /** Approves or denies one approval request. False when it is no longer open. */
   hostsPairApprovalDecide(requestId: string, decision: PairApprovalDecision): Promise<boolean>
-  hostsPairClient(installationId: string): Promise<HostClientPairing>
+  hostsPairClient(installationId: string, explicit?: boolean): Promise<HostClientPairing>
   hostsForget(installationId: string): Promise<{ removed: boolean }>
   hostListRead(): Promise<HostListing[]>
   /** Adds a host to the list, or replaces the listing with the same id. */

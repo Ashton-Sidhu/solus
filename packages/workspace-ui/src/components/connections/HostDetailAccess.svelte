@@ -21,6 +21,7 @@
   import OrganizationsSection from "./OrganizationsSection.svelte";
   import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
   import PairApprovalsSection from "./PairApprovalsSection.svelte";
+  import MachineLinksSection from "./MachineLinksSection.svelte";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
@@ -216,6 +217,7 @@
   <!-- Keyed so another host's list is read afresh. -->
   {#key serverId}
     <PairApprovalsSection {serverId} />
+    <MachineLinksSection {serverId} />
   {/key}
 {/if}
 

@@ -1290,11 +1290,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
     : principal.kind === 'owner' ? ownerReach() : null
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
-  registerHostPairingHandlers(server, hostPairings)
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
+  registerHostPairingHandlers(server, hostPairings, remoteHosts)
   registerSessionLineageHandlers(server, opts.sessionRuntime, remoteHosts, reachOf)
   domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)

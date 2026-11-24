@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { HostPairings } = await import('@solus/server/host/host-pairings')
-const { hostCredential, readHostRecords, removeHostListing, putHostListing, saveHostConnection } = await import('@solus/server/host/host-list')
+const { hostCredential, readHostRecords, readHostList, removeHostListing, putHostListing, saveHostConnection } = await import('@solus/server/host/host-list')
 const { getDb } = await import('@solus/server/db')
 import { loadHostIdentity } from '@solus/server/host/host-identity'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -332,4 +332,84 @@ test('an explicit pairing is available to owner agents, ahead of an old introduc
   expect(await h.service.credential('remote')).toBeNull()
   expect(hostCredential('remote', 'pairing')).toBeNull()
   expect(h.service.snapshot().hosts.map((host) => host.listing.installationId)).toEqual(['remote'])
+})
+
+test('a Settings link verifies the selected identity before spending its code and unlink leaves other routes', async () => {
+  const h = harness()
+  const wrong = { installationId: 'remote', identityKey: loadHostIdentity(mkdtempSync(join(folder, 'wrong-'))).publicKey() }
+  await expect(h.service.pair({ url: URL, code: CODE, link: wrong })).rejects.toThrow('did not prove its identity')
+  expect(h.pairTokens).toEqual([])
+  const listing = await h.service.pair({ url: URL, code: CODE, link: { installationId: 'remote', identityKey: identity.publicKey() } })
+  expect(h.service.snapshot().hosts[0]).toMatchObject({ url: URL, clientConnect: 'on-request' })
+  await expect(h.service.forClient('remote')).rejects.toThrow('Select Connect')
+  expect(readHostList()).toEqual([listing])
+  expect(readHostList({ forDevice: true })).toEqual([])
+  putHostListing(listing)
+  expect(readHostList({ forDevice: true })).toEqual([listing])
+  saveHostConnection(listing, { kind: 'introduction', token: 'introduced', settings: { url: URL, introducedAt: 1, refreshedAt: 1, grantedDeviceId: 'other' } })
+  expect(h.service.unlink('remote')).toBe(true)
+  expect(h.service.snapshot()).toEqual({ hosts: [], forgotten: [] })
+  expect(hostCredential('remote', 'pairing')).toBeNull()
+  expect(hostCredential('remote', 'introduction')).toBe('introduced')
+  expect(await h.service.renewOnUse('remote')).toBe(false)
+})
+
+test('an open link renews on use once it is due, coalesces requests and refuses revoked credentials', async () => {
+  const h = harness()
+  await h.service.pair({ url: URL, code: CODE })
+  expect(await h.service.renewOnUse('remote')).toBe(true)
+  expect(h.sent.filter(({ url }) => url.endsWith('/auth/refresh'))).toHaveLength(0)
+  h.advance()
+  expect(await Promise.all([h.service.renewOnUse('remote'), h.service.renewOnUse('remote')])).toEqual([true, true])
+  expect(h.sent.filter(({ url }) => url.endsWith('/auth/refresh'))).toHaveLength(1)
+  expect(hostCredential('remote', 'pairing')).toBe('refreshed-token')
+
+  const revoked = harness({ refuseRefresh: true })
+  await revoked.service.pair({ url: URL, code: CODE })
+  revoked.advance()
+  expect(await revoked.service.renewOnUse('remote')).toBe(false)
+  expect(hostCredential('remote', 'pairing')).toBeNull()
+})
+
+test('only a local owner can relay paged session text through an explicit link', async () => {
+  const { SolusServer } = await import('@solus/server/transport/server')
+  const { registerHostPairingHandlers } = await import('@solus/server/transport/handlers/host-pairing-handlers')
+  const { asHostApi } = await import('@solus/client-core/host-api')
+  const { HostEventSubscriber } = await import('@solus/client-core/host-event-subscriber')
+  const h = harness()
+  await h.service.pair({ url: URL, code: CODE })
+  const server = new SolusServer()
+  let calls = 0
+  registerHostPairingHandlers(server, h.service, {
+    connectPaired: (installationId) => {
+      calls++
+      if (installationId !== 'remote') return { error: 'This host is no longer linked to that machine.' }
+      return {
+        hostId: installationId, installationId, label: 'Remote',
+        events: new HostEventSubscriber(), onReconnected: () => () => {},
+        call: (_what, request) => request(),
+        api: asHostApi({
+          getSessionInfo: async (sessionId: string) => ({
+            sessionId, provider: 'codex', firstMessage: null, slug: null, lastTimestamp: '', size: 1, cwd: '/secret', projectPath: '/secret',
+          }),
+          loadSessionPage: async (request: { before?: string; turnLimit: number }) => {
+            expect(request).toMatchObject({ before: 'older', turnLimit: 12 })
+            return { messages: [
+              { role: 'assistant', content: 'A reply', timestamp: 1, forkPointId: 'private' },
+              { role: 'tool_use', content: 'private', timestamp: 2 },
+            ], before: 'next', turnDiffs: [{ turnIndex: 1, endedAt: 1 }] }
+          },
+        }),
+      }
+    },
+    disconnectPairing: () => {},
+  })
+  const owner = { clientId: 'local', principal: OWNER }
+  const grant = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'a', deviceLabel: 'Remote', expiresAt: 1 } as const
+  await expect(server.handle('hostsLinkedSessionPage', ['remote', 'session', 'older', 12], { ...owner, principal: grant })).rejects.toThrow()
+  expect(calls).toBe(0)
+  await expect(server.handle('hostsLinkedSessionPage', ['unlinked', 'session', 'older', 12], owner)).rejects.toThrow('no longer linked')
+  const read = await server.handle('hostsLinkedSessionPage', ['remote', 'session', 'older', 12], owner)
+  expect(read.page).toEqual({ before: 'next', messages: [{ role: 'assistant', content: 'A reply', timestamp: 1, messageId: undefined }] })
+  expect(read.meta).toMatchObject({ sessionId: 'session', provider: 'codex', cwd: '', projectPath: '' })
 })

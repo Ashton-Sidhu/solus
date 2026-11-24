@@ -177,3 +177,28 @@ solus host pair http://10.10.1.10:3000 --label Windows
 
 The command prints the check code and waits until the owner of that host
 approves or denies the request, or until it expires.
+
+## Link machines in Settings
+
+On desktop and web, open **Settings → Connections → Machine links**, or open a
+host's **Access** tab. On mobile, open **Settings → Environments** or a machine's
+detail page. The links show the source machine, target machine, saved route,
+and access. The desktop and web fleet map shows the routes from this device.
+Mobile shows those routes in the environment list.
+
+Choose **Link machines…**, select one or more targets, then choose **Link**.
+This approves owner access from the named source to each selected machine.
+Solus uses a local-owner connection to the target when it has one. Otherwise
+it can ask a known machine that already has an owner pairing to that target
+for a one-use code. Each target must prove its identity before it gets the code.
+Each pairing completes separately. If a target fails, retry that target.
+Choose **Unlink** to remove the source's pairing without removing a separate
+device connection. The target can revoke the source in its paired devices list.
+
+The host renews a pairing when a dial or a call uses it after the renewal
+interval. An expired or revoked token cannot be renewed. A Settings link
+does not pair this device. Open a session link to read its transcript through
+the source, or use its Solus Cloud copy where available. The linked read
+shows user and assistant text and supports earlier pages. **Connect to
+interact** requests a separate device pairing, or opens the existing pairing
+form when the device needs a code. The target still controls session access.

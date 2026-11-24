@@ -63,6 +63,7 @@
     planFor,
     workFor,
     openWork,
+    linked = false,
   }: {
     messages: Message[];
     serverId: string;
@@ -70,6 +71,7 @@
     workFor: (workId: string) => Pick<WorkMeta, "title" | "type"> | undefined;
     /** Absent where there is no workspace to open a work in. */
     openWork?: (workId: string) => void;
+    linked?: boolean;
   } = $props();
 
   const rows = $derived(recordRows(messages));
@@ -130,7 +132,9 @@
       {/if}
     {:else}
       {@const item = row.item}
-      {#if item.kind === "user"}
+      {#if linked && (item.kind === "user" || item.kind === "assistant")}
+        <p class="py-2 break-words whitespace-pre-wrap" data-testid={`${item.kind}-message`}>{item.message.content}</p>
+      {:else if item.kind === "user"}
         {@const notice = hostNoticeKind(item.message)}
         {#if notice === "pull-request-watch"}
           <PullRequestWatchRow message={item.message} skipMotion />

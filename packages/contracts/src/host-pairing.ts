@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { HostListing } from './host-list'
+import { hostIdentityKeySchema } from './host-identity'
 
 /**
  * An explicit owner pairing. Codes travel only through this request, never a listing.
@@ -12,7 +13,12 @@ export const hostPairRequestSchema = z.object({
   code: z.string().trim().min(1).max(2048).optional(),
   checkCode: z.string().trim().length(9).optional(),
   label: z.string().trim().min(1).max(200).optional(),
-}).strict().refine((request) => !!request.code !== !!request.checkCode, { message: 'Give a pairing code or a check code, not both.' })
+  /** A Settings link is bound to the selected machine and leaves client connection to the user. */
+  link: z.object({
+    installationId: z.string().min(1).max(200),
+    identityKey: hostIdentityKeySchema,
+  }).strict().optional(),
+}).strict().refine((request) => !!request.code !== !!request.checkCode && (!request.link || !!request.code), { message: 'Give one pairing code or one check code. A Settings link needs a pairing code.' })
 export type HostPairRequest = z.infer<typeof hostPairRequestSchema>
 
 /** A host this host paired. `pairedAt` changes only when the owner pairs it again:
@@ -20,6 +26,8 @@ export type HostPairRequest = z.infer<typeof hostPairRequestSchema>
 export interface HostPairing {
   listing: HostListing
   pairedAt: number
+  url?: string
+  clientConnect?: 'on-request'
 }
 
 export interface HostPairingsSnapshot {
