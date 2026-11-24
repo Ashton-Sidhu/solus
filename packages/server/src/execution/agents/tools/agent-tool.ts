@@ -8,6 +8,8 @@ import { compactToolSchema } from './compact-tool-schema'
 export interface AgentToolResult {
   ok: boolean
   text: string
+  /** The text is a JSON object that MCP adapters can also send as structured content. */
+  format?: 'json'
   /** Images the agent sees directly, not as host file paths, in order. Each is
    *  bounded (`MAX_AGENT_TOOL_IMAGE_BYTES`); both provider adapters send them all. */
   images?: AgentToolImage[]

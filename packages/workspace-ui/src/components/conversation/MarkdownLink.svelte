@@ -9,6 +9,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { webLinkIcon } from "@solus/client-core/web-link-icon";
+  import { fileDrag } from "../../lib/file-drag";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, Server as ServerIcon, Workflow as WorkflowIcon } from "@lucide/svelte";
@@ -286,6 +287,12 @@
   <button
     type="button"
     class={tokenClassName("file")}
+    use:fileDrag={() => {
+      const serverId = assetContext?.serverId();
+      return serverId && fileRef
+        ? { serverId, path: fileRef.path, ctx: assetContext?.ctx() }
+        : null;
+    }}
     data-solus-reference={fileReference}
     title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
     onclick={handleClick}

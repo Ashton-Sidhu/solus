@@ -1,3 +1,4 @@
+import type { CheckItem } from '@solus/contracts/checks-types'
 import type { AuthStatus, ChangedFileStat, DeviceCodePrompt, MergeMethod, ProviderId } from '@solus/contracts/types'
 import type {
   DraftReview,
@@ -34,6 +35,20 @@ import type { PullRequestHead } from '@solus/contracts/repository-key'
 
 export interface PullRequestOverviewPage extends PullRequestOverview {
   completeCommits?: () => Promise<PrCommit[]>
+}
+
+export interface CheckLogResult {
+  name: string
+  url: string | null
+  log: string | null
+  truncated: boolean
+  detail: string | null
+}
+
+export interface CheckRerunResult {
+  name: string
+  rerun: boolean
+  detail: string | null
 }
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
@@ -99,7 +114,87 @@ export interface PriorityNumbers {
  * the PR Review Mode spec; this interface only fixes the **signatures** so the
  * auth layer and the review feature can be built in parallel.
  */
+export interface AgentPullRequestSummary {
+  number: number
+  url: string
+  title: string
+  state: PullRequest['state']
+  isDraft: boolean
+  author: string | null
+  headBranch: string
+  baseBranch: string
+  headSha: string
+  baseSha: string
+  mergeability: 'mergeable' | 'conflicting' | 'unknown'
+  behindBy: number | null
+  autoMergeEnabled: boolean | null
+  checkRuns: Array<{ check: CheckItem; name: string; required: boolean }>
+  checksIncomplete: boolean
+  unresolvedThreads: number
+  unresolvedThreadsTruncated: boolean
+  body?: string
+}
+
+export interface AgentPullRequestListInput {
+  state: 'open' | 'closed' | 'merged' | 'all'
+  involvement: 'all' | 'reviewing' | 'authored'
+  query?: string
+  limit: number
+  cursor?: string
+}
+
+export interface AgentPullRequestListRow {
+  number: number
+  url: string
+  title: string
+  author: string | null
+  headBranch: string
+  baseBranch: string
+  state: PullRequest['state']
+  isDraft: boolean
+  reviewDecision: 'approved' | 'changes-requested' | 'review-required' | null
+  checksState: 'passing' | 'failing' | 'pending' | null
+  updatedAt: string
+}
+
+export interface AgentPullRequestConversationInput {
+  threads?: string | null
+  comments?: string | null
+  reviews?: string | null
+}
+
+export type AgentLinkedPullRequest = Pick<PullRequest, 'headRef' | 'baseRef' | 'stack'> & { isFork: boolean }
+
+export interface AgentReviewThread extends Pick<ReviewThread, 'id' | 'filePath' | 'line' | 'isResolved' | 'isOutdated'> {
+  comments: Array<Pick<ReviewComment, 'author' | 'body' | 'createdAt'>>
+  pullRequestId: string
+  nextCommentsCursor?: string
+}
+
+export interface AgentPullRequestConversationPage {
+  reviewThreads?: AgentReviewThread[]
+  comments?: Array<{
+    id: string
+    kind: 'issue-comment' | 'review' | 'review-comment'
+    author: string
+    body: string
+    createdAt: string
+    path: string | null
+    reviewState: string | null
+  }>
+  next: AgentPullRequestConversationInput
+}
+
 export interface ReviewProvider {
+  /** Apply a dispatched checkout's credential policy inside the current acting identity. */
+  agentPullRequestSummary?(repo: RepoRef, number: number, input: { body: boolean; fresh?: boolean; checksOnly?: boolean }): Promise<AgentPullRequestSummary>
+  agentPullRequestConversation?(repo: RepoRef, number: number, input: AgentPullRequestConversationInput): Promise<AgentPullRequestConversationPage>
+  agentReviewThreadComments?(repo: RepoRef, thread: AgentReviewThread): Promise<Pick<AgentReviewThread, 'comments' | 'nextCommentsCursor'>>
+  agentPullRequestList?(repo: RepoRef, input: AgentPullRequestListInput): Promise<{ pullRequests: AgentPullRequestListRow[]; nextCursor: string | null }>
+  agentPullRequestNumberForHead?(repo: RepoRef, head: PullRequestHead, fresh: boolean): Promise<number | undefined>
+  agentMergePullRequest?(repo: RepoRef, pullRequest: PullRequest, method: MergeMethod, auto: boolean): Promise<PullRequest['state']>
+  agentLinkedPullRequests?(repo: RepoRef, numbers: number[]): Promise<Map<number, AgentLinkedPullRequest | null>>
+  forCheckout?(cwd: string): ReviewProvider
   /**
    * A page of each repository's pull requests, in the order asked, in as few
    * requests as the host allows. Null for a repository the read could not
@@ -117,29 +212,32 @@ export interface ReviewProvider {
     state: NonNullable<PrFilter['state']>,
     viewer: string,
   ): Promise<Array<PriorityNumbers | null>>
+  defaultPullRequestBase?(repo: RepoRef): Promise<string>
   createPullRequest(
     repo: RepoRef,
-    input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },
+    input: { baseRef?: string; headRef: string; headRepo?: string; title: string; body: string; draft?: boolean; credentialCwd?: string },
   ): Promise<PullRequest>
   /** Open PRs that currently request or assign the given viewer's attention. */
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]>
   /** The pull request with its complete commit list and reviewers. */
+  getPullRequest?(repo: RepoRef, number: number): Promise<PullRequest>
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   /** A provider can let header readers finish before the commit list does. */
   getPullRequestOverviewPage?(
     repo: RepoRef, number: number
   ): Promise<PullRequestOverviewPage>
   updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequest>
-  getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string>
+  getPullRequestDiffBase(repo: RepoRef, pullRequest: Pick<PullRequest, 'number' | 'baseSha' | 'headSha'>): Promise<string>
   /** Take the pull request rather than its number, like `listReviewerCandidates`:
    *  the caller holds the detail the page was opened with, and re-reading it
    *  here cost a second host round trip per diff page. */
-  getPullRequestDiff(repo: RepoRef, pullRequest: PullRequest, request: PrDiffRequest): Promise<PrDiffSlice>
+  getPullRequestDiff(repo: RepoRef, pullRequest: Pick<PullRequest, 'number' | 'baseSha' | 'headSha'>, request: PrDiffRequest): Promise<PrDiffSlice>
   getPullRequestDiffFileContents(repo: RepoRef, pullRequest: PullRequest, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
+  containsReviewThread?(repo: RepoRef, number: number, threadId: string): Promise<boolean>
   /** The stack `number` is in, bottom to top; null when it is in none or the
    *  host keeps no stacks. */
-  getPullRequestStack(repo: RepoRef, number: number): Promise<PrStack | null>
+  getPullRequestStack(repo: RepoRef, number: number, options?: { headsOnly?: boolean }): Promise<PrStack | null>
   /** Takes the pull request rather than its number: every caller has already
    *  read the detail to check that the viewer may request reviewers, and the
    *  candidate list only needs the author off it. Asking for a number here made
@@ -149,6 +247,7 @@ export interface ReviewProvider {
   /** People who can be mentioned in the repository whose login or name
    *  matches `query`, at most `limit`: the list's author filter choices. */
   listMentionableUsers(repo: RepoRef, query: string, limit: number): Promise<PrFilterChoice[]>
+  changeLabels?(repo: RepoRef, number: number, change: { add: string[]; remove: string[] }): Promise<void>
   setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]>
   /** The pull requests into `repo` opened from each exact head, in every
    *  state, newest first, by head key, in as few requests as the host allows
@@ -158,6 +257,8 @@ export interface ReviewProvider {
    *  a number the repository does not have. */
   getPullRequests(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequest | null>>
   listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]>
+  readCheckLog?(repo: RepoRef, check: CheckItem, headSha: string, tailLines: number): Promise<CheckLogResult>
+  rerunChecks?(repo: RepoRef, checks: CheckItem[], headSha: string): Promise<CheckRerunResult[]>
   listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
   /** A fingerprint of each pull request a watch reads, in as few requests as
    *  the host allows (docs/plans/pr-watch.md §11). A number the host did not
@@ -194,7 +295,7 @@ export interface ReviewProvider {
 
   /** Merge via the host's merge button. Host refusals are returned as
    *  `merged: false` with a user-facing message. */
-  mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
+  mergePullRequest(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha?: string): Promise<{ merged: boolean; message?: string }>
   /** Arm the host's auto-merge with `method`, checked against the head the
    *  viewer saw. Answers the pull request as the mutation left it. */
   enablePullRequestAutoMerge(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
@@ -207,7 +308,7 @@ export interface ReviewProvider {
   /** Merge `request.number` and every open layer below it in its stack, after
    *  a check that each open layer still has the head the viewer saw. Answers
    *  the merged layers, bottom to top. A host without stacks refuses it. */
-  mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest): Promise<{ status: 'merged' | 'queued'; layers: number[] }>
+  mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest, options?: { byStackNumber?: boolean }): Promise<{ status: 'merged' | 'queued'; layers: number[] }>
   /** The workflow runs that wait for a maintainer on the head of a fork pull request. */
   listPendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<PrPendingWorkflowRun[]>
   /** Approve those runs. Answers how many the host approved. */

@@ -24,8 +24,8 @@ import { attributionOf } from '../../admission/actor'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../execution/agents/agent-runner'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { linkSessionPullRequest, sessionsOfPullRequest } from '../../data/sessions/session-pull-requests'
-import { standingAllows } from '@solus/contracts/permissions'
+import { linkSessionPullRequest } from '../../data/sessions/session-pull-requests'
+import { assertMayChangePullRequest } from '../../prs/pr-access'
 import type { ResourceAccess } from '../../admission/access-policy'
 import { completeTasksForMergedPullRequest } from '../../data/tasks/done-on-merge'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
@@ -33,6 +33,7 @@ import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
 import { prIndex, repoKeyOf, type PriorityReads } from '../../prs/pr-index'
 import { noRemoteError, PrUnavailableError, pushHeadFor, repoForScope, type CodeHost } from '../../prs/code-host'
 import { createGithubMediaUrl } from '../../providers/github/media'
+import { invalidateAgentPullRequestReads } from '../../providers/github/agent-pull-requests'
 import type { PullRequest } from '../../prs/pull-request'
 import type { PrSync, SyncInterest } from '../../prs/pr-sync'
 
@@ -129,21 +130,6 @@ interface PullRequestCaller {
   resources: ResourceAccess
 }
 
-/**
- * A pull request is part of its sessions (docs/plans/access-model.md §2.3): a
- * change to one that sessions link needs session.edit on one of them. One no
- * session links is the repository's alone, and the gate already asked for
- * host.git.write.
- */
-async function assertMayChangePullRequest(caller: PullRequestCaller, repository: string, number: number): Promise<void> {
-  const sessionIds = await sessionsOfPullRequest(repository, number)
-  if (!sessionIds.length) return
-  const standings = await Promise.all(sessionIds.map((id) => caller.resources.standingFor(caller.principal, { kind: 'session', id })))
-  if (!standings.some((standing) => standingAllows(standing, 'edit'))) {
-    throw new Error('This pull request is part of a session you cannot change.')
-  }
-}
-
 async function writePullRequest<T>(
   caller: PullRequestCaller,
   ref: PrRef,
@@ -152,7 +138,7 @@ async function writePullRequest<T>(
   const { repo, provider, number } = reviewTargetForPr(ref)
   await assertMayChangePullRequest(caller, repoKeyOf(repo), number)
   const pullRequest = prIndex.pullRequest(repo, provider, number)
-  const result = await write({ repo, provider, pullRequest })
+  const result = await write({ repo, provider, pullRequest }).finally(() => invalidateAgentPullRequestReads(repo))
   prIndex.invalidate(repo)
   return result
 }
@@ -671,7 +657,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       }
       if (!detail.viewerPermissions.actions.includes('merge')) throw new Error('You do not have permission to merge this pull request.')
       if (!detail.capabilities.mergeMethods.includes(method)) throw new Error(`The repository does not allow ${method} merges.`)
-      const result = await provider.review.mergePullRequest(repo, number, method)
+      const result = await provider.review.mergePullRequest(repo, number, method, expectedHeadSha)
       if (!result.merged) return result
       const detailAfterMerge = await pullRequest.readFresh()
       await completeTasksForMergedPullRequest(recordScopeOf(handlerCtx.principal), repoKeyOf(repo).toLowerCase(), number, {

@@ -9,6 +9,9 @@
   } from "@lucide/svelte";
   import { portal } from '../portal'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
+  import { fileDrag } from '../../lib/file-drag'
+  import { attachmentDownloadName } from '../conversation/lib/attachment-download'
+  import { videoAttachmentPath } from '../../lib/video-attachment'
   import { requestFilePreview } from '../../lib/filePreview'
   import { attachmentLabel } from '../../lib/attachment-label'
   import { browserMarkChips } from '../../lib/browser-annotation'
@@ -121,6 +124,12 @@
               ? `Retry uploading ${label}: ${upload.message}`
               : upload?.status === 'uploading' && a.dataUrl ? `Uploading ${label}`
               : a.dataUrl ? `Preview ${label}` : `Open ${label}`}
+            use:fileDrag={() => {
+              const path = videoAttachmentPath(a)
+              return a.type === 'file' && !upload && host && path
+                ? { ...host, serverId: a.hostServerId ?? host.serverId, path, name: attachmentDownloadName(a) }
+                : null
+            }}
             aria-busy={upload?.status === 'uploading'}
             title={upload?.status === 'failed' ? upload.message : undefined}
             class={a.dataUrl

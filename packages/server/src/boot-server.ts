@@ -260,6 +260,7 @@ import { registerAuthHandlers } from './transport/handlers/auth-handlers'
 import { registerSettingsHandlers } from './transport/handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './transport/lan-discovery'
 import { registerGoogleHandlers } from './transport/handlers/google-handlers'
+import { installPullRequestToolHost } from './execution/agents/tools/pull-request-tools'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
 import { liveCheckouts, sessionFolderCheckouts } from './prs/pr-sync-interest'
@@ -937,7 +938,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const linkExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const suggestions = new SessionSuggestions({ onChanged: (sessionId) => events.broadcast('session.suggestionsChanged', { sessionId }) })
   registerSuggestionHandlers(server, { suggestions, shares })
-  registerAssetHandlers(server)
+  registerAssetHandlers(server, shares)
   registerHistoryHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     events,
@@ -1453,6 +1454,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     prSync,
     guides,
     resources: shares,
+  })
+  installPullRequestToolHost({
+    resources: shares,
+    prSync,
+    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
   })
   registerChecksHandlers(server)
   // The clients that run on one seat; a seat's facts go to them and nobody else.

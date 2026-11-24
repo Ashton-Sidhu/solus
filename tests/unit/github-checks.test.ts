@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  agentCheckRuns,
   normalizePullRequestChecks,
   type GqlChecksPullRequest,
 } from '@solus/server/providers/github/checks'
@@ -38,6 +39,22 @@ const requiredRun = {
 }
 
 describe('GitHub PR check normalization', () => {
+  test('agent checks prefer active reruns and distinguish workflows with the same job name', () => {
+    const suite = (id: string, name: string, runNumber: number) => ({
+      app: { name: 'GitHub Actions' }, workflowRun: { event: 'pull_request', workflow: { id, name }, runNumber },
+    })
+    const selected = agentCheckRuns(pullRequest([
+      { ...requiredRun, name: 'cancelled matrix job', databaseId: 1, isRequired: false,
+        conclusion: 'CANCELLED', checkSuite: suite('1', 'CI', 1) },
+      { ...requiredRun, databaseId: 2, conclusion: 'FAILURE', checkSuite: suite('1', 'CI', 2) },
+      { ...requiredRun, databaseId: 3, status: 'IN_PROGRESS', conclusion: null, checkSuite: suite('1', 'CI', 2) },
+      { ...requiredRun, databaseId: 4, conclusion: 'FAILURE', checkSuite: suite('2', 'Deploy', 1) },
+    ]))
+    expect(selected.map(({ name, check }) => [name, check.id, check.inFlight])).toEqual([
+      ['Deploy / unit', '4', false], ['CI / unit', '3', true],
+    ])
+  })
+
   test('merges CheckRun and StatusContext nodes while preserving requiredness', () => {
     const summary = normalizePullRequestChecks(pullRequest([
       requiredRun,

@@ -159,7 +159,7 @@ function createClient(credential: GithubCredential): GitHubClient {
     })
     try {
       budget.admit(restResourceOf(endpoint.url))
-      if (endpoint.method !== 'GET') return await withRequestSlot(async () => request(options))
+      if (endpoint.method !== 'GET' || options.request?.parseSuccessResponseBody === false) return await withRequestSlot(async () => request(options))
       return await conditionalReads.read(
         `${endpoint.url}\0${endpoint.headers.accept ?? ''}`,
         (etag) => withRequestSlot(async () => {

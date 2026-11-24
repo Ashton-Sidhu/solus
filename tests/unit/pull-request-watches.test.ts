@@ -79,6 +79,23 @@ describe('pull request watches', () => {
     expect((await watches.readPullRequestWatches(['session-1']))[0]?.state).toEqual(told)
   })
 
+  test('reopening checks after a rerun preserves remarks and refuses old heads and old watch state', async () => {
+    const watch = await watchSeven()
+    const state = { ...watch.state, headSha: 'abc', passReported: true }
+    await watches.recordPullRequestWatchState(watch, state)
+    const [old] = await watches.readPullRequestWatches(['session-1'])
+    const marks = { ...state, remarksThrough: '2026-11-23T00:00:01.000Z', remarkIdsAtWatermark: ['one'] }
+    await watches.recordPullRequestWatchState(watch, marks)
+    const [current] = await watches.readPullRequestWatches(['session-1'])
+    const checks = [{ name: 'ci', previous: 'attempt-1' }]
+    expect(await watches.reopenPullRequestWatchChecks(old, 'abc', checks)).toBe(false)
+    expect(await watches.reopenPullRequestWatchChecks(current, 'different', checks)).toBe(false)
+    expect(await watches.reopenPullRequestWatchChecks(current, 'abc', checks)).toBe(true)
+    expect(await watches.recordPullRequestWatchState(current, state)).toBe(false)
+    const [reopened] = await watches.readPullRequestWatches(['session-1'])
+    expect(reopened.state).toEqual({ ...marks, passReported: false, rerunChecks: checks })
+  })
+
   test('a state stored before the approval hold reads with no hold', () => {
     const { approvalChecks: _, ...older } = rules.initialWatchState(1_000)
     expect(watches.pullRequestWatchStateSchema.parse(older).approvalChecks).toEqual([])

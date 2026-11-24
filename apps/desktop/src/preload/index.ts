@@ -79,6 +79,8 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.send('solus:log-share-dialog', row),
   rendererReady: () => ipcRenderer.send('solus:renderer-ready'),
   rendererMounted: () => ipcRenderer.send('solus:renderer-mounted'),
+  prepareFileDrag: (name: string, data: ArrayBuffer) => ipcRenderer.invoke('solus:prepare-file-drag', name, data),
+  startFileDrag: (token: string) => ipcRenderer.invoke('solus:start-file-drag', token),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   readAttachmentBytes: (path: string, mime: string) =>
     ipcRenderer.invoke('solus:read-attachment-bytes', path, mime),

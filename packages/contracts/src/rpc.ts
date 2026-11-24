@@ -42,6 +42,8 @@ export interface AssetCreateUrlRequest {
   path?: string
   /** Content-addressed asset created through assetUpload. */
   assetId?: string
+  /** Serve a file in the checkout or this draft/session’s upload folder as a download. */
+  download?: boolean
   /** Suggested download name for a stored attachment. */
   name?: string
 }

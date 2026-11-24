@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PrStackMergeRequest, RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { githubPullRequestAccess } from '@solus/server/providers/github/pull-request-actions'
-import { GithubStackMergeRefusal, mergeGithubPullRequestStack, type StackMergeClock } from '@solus/server/providers/github/stacks'
+import { GithubStackMergeRefusal, mergeGithubPullRequestStack, readPullRequestStack, type StackMergeClock } from '@solus/server/providers/github/stacks'
 
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'app' }
 
@@ -15,9 +15,9 @@ interface Layer {
 }
 
 const threeLayers = (overrides: Partial<Layer>[] = []): Layer[] => [
-  { number: 65, state: 'open', head: { ref: 'layer-1', sha: 'sha-65' } },
-  { number: 66, state: 'open', head: { ref: 'layer-2', sha: 'sha-66' } },
-  { number: 67, state: 'open', head: { ref: 'layer-3', sha: 'sha-67' } },
+  { number: 65, state: 'open', draft: false, head: { ref: 'layer-1', sha: 'sha-65' } },
+  { number: 66, state: 'open', draft: false, head: { ref: 'layer-2', sha: 'sha-66' } },
+  { number: 67, state: 'open', draft: false, head: { ref: 'layer-3', sha: 'sha-67' } },
 ].map((layer, index) => ({ ...layer, ...overrides[index] }))
 
 interface Sent { route: string; params: { [name: string]: string | number } }
@@ -164,4 +164,22 @@ describe('who may merge a stack or approve workflow runs', () => {
     expect(access(false).viewerPermissions.actions).not.toContain('merge-stack')
     expect(access(false).viewerPermissions.actions).not.toContain('approve-workflows')
   })
+})
+
+test('agent stack merge rereads known stack once, pins every affected layer and sends one write', async () => {
+  const { client, sent } = stackGitHub(threeLayers(), [{ status: 'merged', details: {} }])
+  const planned = await readPullRequestStack(client, repo, 66, { headsOnly: true })
+  expect(planned?.layers.slice(0, 2).map(({ number, headSha }) => ({ number, headSha }))).toEqual(mergeSecondLayer.expectedHeads)
+  const result = await mergeGithubPullRequestStack(client, repo, mergeSecondLayer, fakeClock(), { byStackNumber: true })
+  expect(result).toEqual({ status: 'merged', layers: [65, 66] })
+  expect(sent.map(entry => entry.route)).toEqual([
+    'GET /repos/{owner}/{repo}/stacks',
+    'GET /repos/{owner}/{repo}/stacks/{stack_number}',
+    'PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge-async',
+  ])
+  expect(merges(sent)[0].params.sha).toBe('sha-66')
+  const moved = stackGitHub(threeLayers([{ head: { ref: 'layer-1', sha: 'moved' } }]), [])
+  await expect(mergeGithubPullRequestStack(moved.client, repo, mergeSecondLayer, fakeClock(), { byStackNumber: true }))
+    .rejects.toThrow()
+  expect(merges(moved.sent)).toHaveLength(0)
 })

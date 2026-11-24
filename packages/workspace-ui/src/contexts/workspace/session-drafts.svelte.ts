@@ -1,3 +1,4 @@
+import { dictation } from '../../lib/dictation.svelte'
 import type { RunConfig, SessionSpec } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
@@ -147,7 +148,7 @@ export class SessionDrafts {
     const shown = pane ? activeSurface(pane) : null
     if (shown?.name !== 'draft' || shown.params.draftId === keepDraftId) return
     const draft = this.sessionDrafts.get(shown.params.draftId)
-    if (!draft?.isEmpty) return
+    if (!draft?.isEmpty || dictation.isMessageInFlight(`composer:${draft.id}`)) return
     this.dropDraft(draft.id)
     // A companion surface pointing at a dropped draft would render nothing.
     if (pane && pane !== this.workspace.router.leadingPane) {
@@ -228,7 +229,7 @@ export class SessionDrafts {
   undockDraft(draftId: string): void {
     this.dockedDraftIds.delete(draftId)
     const draft = this.sessionDrafts.get(draftId)
-    if (draft?.isEmpty) this.dropDraft(draftId)
+    if (draft?.isEmpty && !dictation.isMessageInFlight(`composer:${draftId}`)) this.dropDraft(draftId)
   }
 
   /** Go back to a draft that was written in and left — what its sidebar row
@@ -325,6 +326,7 @@ export class SessionDrafts {
   /** The one way a draft leaves the map, so nothing keyed on it outlives it —
    *  a draft's project rail owns Git action state the same way a tab's does. */
   private dropDraft(draftId: string): void {
+    dictation.releaseMessageConsumer(`composer:${draftId}`)
     this.sessionDrafts.delete(draftId)
     this.startTargetReads.delete(draftId)
     this.dockedDraftIds.delete(draftId)

@@ -7,8 +7,9 @@
     Minimize2 as CollapseIcon,
   } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { copyText } from "../../lib/toasts";
+  import { copyText, toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { copyMarkdownTable } from "./lib/table-clipboard";
   import { rowsToCsv, rowsToMarkdown, tableRows } from "./lib/table-copy";
 
   /** A reply's table scrolls sideways in its own box, so a wide table never
@@ -21,10 +22,18 @@
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
-  async function copyAs(format: "markdown" | "csv") {
+  async function copyAs(format: "html" | "markdown" | "csv") {
     if (!table) return;
-    const rows = tableRows(table);
-    await copyText(format === "markdown" ? rowsToMarkdown(rows) : rowsToCsv(rows));
+    try {
+      if (format === "html") await copyMarkdownTable(table);
+      else {
+        const rows = tableRows(table);
+        await copyText(format === "markdown" ? rowsToMarkdown(rows) : rowsToCsv(rows));
+      }
+    } catch {
+      toasts.error("Could not copy the table.");
+      return;
+    }
     copied = true;
     clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied = false), 1200);
@@ -79,6 +88,7 @@
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="min-w-40">
+        <DropdownMenu.Item onSelect={() => copyAs("html")}>Copy as HTML</DropdownMenu.Item>
         <DropdownMenu.Item onSelect={() => copyAs("markdown")}>Copy as Markdown</DropdownMenu.Item>
         <DropdownMenu.Item onSelect={() => copyAs("csv")}>Copy as CSV</DropdownMenu.Item>
       </DropdownMenu.Content>

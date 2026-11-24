@@ -8,6 +8,7 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 
+import { startComposerDraftOperation } from "../../state/composerDraftOperations";
 import { m } from "../../i18n/messages";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
@@ -82,6 +83,7 @@ export class VoiceInputSession {
   private readonly listeners = new Set<() => void>();
   private audioLevels = SILENT_LEVELS;
   private releaseKeepAwake: (() => void) | null = null;
+  private finishDraftOperation: (() => void) | null = null;
   private meteringInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(dependencies: VoiceInputSessionDependencies) {
@@ -132,18 +134,32 @@ export class VoiceInputSession {
 
   start(target: VoiceInputTarget): Promise<void> {
     if (voiceInputBlocksSubmission(this.controller.currentState)) return Promise.resolve();
+    this.finishDraftOperation?.();
+    const draftOperation = startComposerDraftOperation(target.ownerKey);
+    this.finishDraftOperation = draftOperation.finish;
+    draftOperation.signal.addEventListener("abort", () => {
+      if (this.target !== target) return;
+      this.target = null;
+      this.controller.cancel();
+    }, { once: true });
     this.target = target;
     this.startText = target.readDraft()?.text ?? null;
     return this.controller.start();
   }
 
   dispose(): void {
+    this.finishDraftOperation?.();
+    this.finishDraftOperation = null;
     this.controller.dispose();
     this.stopRecordingActivity();
     this.listeners.clear();
   }
 
   private handleStateChange(state: VoiceInputState): void {
+    if (state.phase === "idle") {
+      this.finishDraftOperation?.();
+      this.finishDraftOperation = null;
+    }
     const previousPhase = this.snapshot.state.phase;
     let elapsedSeconds = this.snapshot.elapsedSeconds;
     if (state.phase !== previousPhase) {

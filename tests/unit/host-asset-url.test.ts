@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcContext } from '@solus/contracts/types'
-import { createAssetUrl, serveAssetToken } from '@solus/server/data/assets/assets'
+import { createAssetUrl, createFileDownloadUrl, serveAssetToken } from '@solus/server/data/assets/assets'
 
 const secret = Buffer.alloc(32, 7)
 const now = 1_000
@@ -46,6 +46,19 @@ describe('signed URLs for host media files', () => {
     const { relativeUrl } = await createAssetUrl(ctx, { path: 'diagram.avif' }, { secret, now })
     expect((await serve(relativeUrl)).headers.get('content-type')).toBe('image/avif')
     await expect(createAssetUrl(undefined, { path: 'diagram.avif' }, { secret, now })).rejects.toThrow()
+  })
+
+  test('downloads the exact checkout file and rejects a symlink that leaves it', async () => {
+    await writeFile(join(projectRoot, 'notes.md'), '# Notes')
+    const { relativeUrl } = await createFileDownloadUrl(ctx, { path: 'notes.md', name: 'café.md' }, { scope: null, secret, now })
+    const response = await serve(relativeUrl)
+    expect(response.headers.get('content-type')).toBe('application/octet-stream')
+    expect(response.headers.get('content-disposition')).toContain("filename*=UTF-8''caf%C3%A9.md")
+    expect(await response.text()).toBe('# Notes')
+    const outside = join(sandbox, 'outside.md')
+    await writeFile(outside, 'outside')
+    await symlink(outside, join(projectRoot, 'link.md'))
+    await expect(createFileDownloadUrl(ctx, { path: 'link.md' }, { scope: null, secret, now })).rejects.toThrow('outside')
   })
 
   test('serves a PDF and seeks a video by byte range', async () => {

@@ -46,6 +46,8 @@
   } from "../browser/lib/annotation-attachment";
   import DeferredPromptEditor from "../ui/DeferredPromptEditor.svelte";
   import RecordingControls from "./RecordingControls.svelte";
+  import { fileDrag } from "../../lib/file-drag";
+  import { fileMentionTarget } from "../conversation/lib/markdown-text";
   import { dictation } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -332,7 +334,8 @@
   // getter; reversing these two controllers puts that value in the temporal
   // dead zone while a draft pane mounts.
   const composerVoice = useComposerVoice({
-    ownerId: voiceOwnerId,
+    ownerId: () => `composer:${targetTabId ?? draftId ?? voiceOwnerId}`,
+    prompt: () => prompt,
     active: () => active,
     isPrimary: () => isPrimary,
     isReadOnly: () => isReadOnly,
@@ -350,6 +353,11 @@
       !!(voice.partialTranscript.stable || voice.partialTranscript.tentative),
   );
   const voiceControlState = $derived(composerVoice.controlState);
+  const backgroundVoiceState = $derived(
+    !ownsVoice && voice.messageOwner?.startsWith("composer:") &&
+      voice.isMessageInFlight(voice.messageOwner)
+      ? (voice.starting ? "recording" : voice.state) : "idle",
+  );
   const micHoldsBarOpen = $derived(composerVoice.holdsBarOpen);
   const claimVoice = composerVoice.claim;
   const toggleVoice = composerVoice.toggle;
@@ -841,6 +849,10 @@
          the whole no-wrap placeholder, so the box grows past the padding that
          keeps the corner clear and the hint runs under mic and send. -->
     <div
+      use:fileDrag={(target) => {
+        const fileRef = target.getAttribute("data-file-ref");
+        return fileRef ? { ...attachmentHost, path: fileMentionTarget(fileRef).path } : null;
+      }}
       class="[&_.cm-content]:min-w-0 [&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
     >
       <DeferredPromptEditor
@@ -934,7 +946,7 @@
 {#snippet voiceButtons()}
   <RecordingControls
     variant="bar"
-    state={voiceControlState}
+    state={backgroundVoiceState === "idle" ? voiceControlState : backgroundVoiceState}
     rmsRef={voice.rmsRef}
     waiting={isVoiceWaiting}
     showMic={voiceHost?.transcribes === true && !isTouch}

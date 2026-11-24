@@ -246,12 +246,13 @@ class ReferenceWidget extends WidgetType {
     element.contentEditable = "false";
     element.spellcheck = false;
     element.dataset.referenceKind = this.token.kind;
+    if (this.token.kind === "file") element.dataset.fileRef = this.token.path;
     appendTokenIcon(element, this.token);
     const label = document.createElement("span");
     label.textContent = tokenLabel(this.token);
     element.appendChild(label);
     element.addEventListener("mousedown", (event: MouseEvent) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || element.draggable) return;
       // Keeps the focus in the editor and the caret where it was.
       event.preventDefault();
       selectFromChip(view, element, this.length, event, click !== null);

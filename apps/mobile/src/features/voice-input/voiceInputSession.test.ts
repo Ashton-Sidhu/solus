@@ -8,6 +8,8 @@ import {
   releaseAudioSession,
 } from "../../lib/audioSession";
 
+import { abortComposerDraftOperations } from "../../state/composerDraftOperations";
+
 const audio = vi.hoisted(() => ({
   setMode: vi.fn(async (_mode: unknown) => {}),
   setActive: vi.fn(async (_active: boolean) => {}),
@@ -299,6 +301,29 @@ describe("global voice input", () => {
       error: null,
       errorAction: null,
     });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("ignores pending transcription after the owning draft is discarded", async () => {
+    const { session, prepare } = createSession();
+    const transcription = Promise.withResolvers<string>();
+    const entered = Promise.withResolvers<void>();
+    prepare.mockResolvedValueOnce({
+      locale: "en-US",
+      transcribe: () => {
+        entered.resolve();
+        return transcription.promise;
+      },
+    });
+    const commit = vi.fn();
+    const key = "closed-session";
+    await session.start(createVoiceInputTarget(key, () => "", commit, { start: 0, end: 0 }));
+    const stopping = session.controller.stop();
+    await entered.promise;
+    abortComposerDraftOperations(key);
+    transcription.resolve("late");
+    await stopping;
+    expect(session.ownerKey).toBeNull();
     expect(commit).not.toHaveBeenCalled();
   });
 

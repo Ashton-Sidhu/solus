@@ -106,9 +106,14 @@ export async function namedPullRequest(projectKey: string, named: string): Promi
  * its PR sync watches the pull request: for an organization session, whose home
  * is the organization's Solus API, this host writes its own row as well.
  */
-async function putSessionPullRequest(home: ToolHome, sessionId: string, url: string, title: string | undefined, ctx: SessionLinkCtx): Promise<void> {
-  if (home.remote) await linkSessionPullRequest(sessionId, { url, title, source: 'agent', by: await toolAgentAttribution(ctx) })
+async function putSessionPullRequest(
+  home: ToolHome, sessionId: string, url: string, title: string | undefined, ctx: SessionLinkCtx, source: 'agent' | 'created' = 'agent',
+): Promise<void> {
+  if (home.remote && source === 'agent') await linkSessionPullRequest(sessionId, { url, title, source, by: await toolAgentAttribution(ctx) })
   await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url }, title })
+  // The workspace operation above admits the mutation. The execution host
+  // can now record that the agent opened this PR, including for a remote home.
+  if (source === 'created') await linkSessionPullRequest(sessionId, { url, title, source, by: await toolAgentAttribution(ctx) })
 }
 
 /** Link the pull request an agent names by number or URL. */
@@ -117,6 +122,7 @@ export async function linkCallerPullRequest(
   toolContext: () => ReturnType<typeof workspaceToolContext>,
   projectKey: string,
   input: { target_id?: string; title?: string },
+  source: 'agent' | 'created' = 'agent',
 ): Promise<AgentToolResult> {
   // Durable rows of a session are keyed by Solus's session id.
   const callerSessionId = ctx.sessionId
@@ -124,7 +130,7 @@ export async function linkCallerPullRequest(
   const named = input.target_id?.trim() ?? ''
   const identity = await namedPullRequest(projectKey, named)
   if (!identity) return { ok: false, text: `link could not find pull request "${named}". Pass its number or URL as target_id.` }
-  await putSessionPullRequest(await toolContext(), callerSessionId, identity.url, input.title, ctx)
+  await putSessionPullRequest(await toolContext(), callerSessionId, identity.url, input.title, ctx, source)
   return { ok: true, text: `Linked pull request #${identity.number} (${identity.repository}) to this session.` }
 }
 

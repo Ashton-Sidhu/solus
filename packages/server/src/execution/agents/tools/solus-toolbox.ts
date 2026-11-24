@@ -76,6 +76,7 @@ import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool } from '
 import { attachFolderAgentTool } from './folder-tools'
 import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
 import { checkoutStatusAgentTool, moveCheckoutAgentTool } from './worktree-tools'
+import { pullRequestTools } from './pull-request-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
@@ -192,6 +193,7 @@ export const solusToolbox = {
     list: listSessionsAgentTool,
     fork: forkSessionAgentTool,
     watchPullRequest: watchPullRequestAgentTool,
+    ...pullRequestTools,
     unlink: unlinkAgentTool,
     listLinks: listLinksAgentTool,
     link: linkAgentTool,

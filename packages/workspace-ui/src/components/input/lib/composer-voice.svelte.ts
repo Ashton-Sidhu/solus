@@ -6,10 +6,12 @@ import { dictation, isDictationTarget } from "../../../lib/dictation.svelte";
 import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
 import { requestInputFocus } from "../../../lib/inputFocus";
 import { toasts } from "../../../lib/toasts";
+import { dictationInsertion } from "./dictation-text";
 import { VoiceRetryTracker } from "./voice-retry.svelte";
 
 interface ComposerVoiceOptions {
-  ownerId: string;
+  ownerId: () => string;
+  prompt: () => { text: string };
   active: () => boolean;
   isPrimary: () => boolean;
   isReadOnly: () => boolean;
@@ -37,8 +39,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
   // a plain field dictating elsewhere must not light up the input bar. Primary
   // and split composers claim ownership on focus so transcripts land in the
   // draft the user is actually working in.
-  const voiceOwnerId = options.ownerId;
-  const ownsVoice = $derived(voice.messageOwner === voiceOwnerId);
+  const ownsVoice = $derived(voice.messageOwner === options.ownerId());
   const voiceState = $derived(
     ownsVoice && voice.mode === "message" ? voice.state : "idle",
   );
@@ -67,43 +68,47 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
       (ownsVoice && voice.mode === "message" && voice.starting),
   );
 
-  function handleVoiceTranscript(transcript: string) {
-    const text = transcript.trim();
-    if (!text || options.isConnecting() || options.isReadOnly()) return;
-    if (theme.autoSendVoiceTranscripts) {
-      options.sendPrompt(text, { refocus: false });
-    } else {
-      options.editor()?.insertTranscript(text);
-    }
+  function transcriptHandler() {
+    const prompt = options.prompt();
+    const owner = options.ownerId();
+    return (transcript: string) => {
+      const text = transcript.trim();
+      if (!text) return;
+      if (options.active() && options.ownerId() === owner && options.prompt() === prompt &&
+        !options.isConnecting() && !options.isReadOnly()) {
+        if (theme.autoSendVoiceTranscripts && options.sendPrompt(text, { refocus: false })) return;
+        const editor = options.editor();
+        if (editor) {
+          editor.insertTranscript(text);
+          return;
+        }
+      }
+      // A hidden or unmounted editor cannot supply the live destination.
+      prompt.text += dictationInsertion(text, prompt.text);
+    };
   }
 
   function claimVoice(startIfEnabled = false) {
     if (!options.active() || options.isReadOnly()) return;
-    const claimed = voice.claimMessageConsumer(
-      voiceOwnerId,
-      handleVoiceTranscript,
-      () => canAutoStart(),
-    );
-    if (claimed && startIfEnabled && canAutoStart())
-      voice.startConversational();
+    const claimed = voice.claimMessageConsumer(options.ownerId(), transcriptHandler(), canAutoStart);
+    if (claimed && startIfEnabled && canAutoStart()) voice.startConversational();
   }
 
   function toggleVoice() {
-    voice.toggleConversationalFor(voiceOwnerId, handleVoiceTranscript, () =>
-      canAutoStart(),
-    );
+    if (voice.messageOwner?.startsWith("composer:") && voice.isMessageInFlight(voice.messageOwner)) {
+      voice.stop();
+      return;
+    }
+    voice.toggleConversationalFor(options.ownerId(), transcriptHandler(), canAutoStart);
   }
 
-  // The visible primary composer is the default owner. A split composer takes
-  // over when the user focuses or activates its controls.
   $effect(() => {
+    const owner = options.ownerId();
     if (!options.active()) return;
-    const ownerId = voiceOwnerId;
-    // Claiming reads recorder state to decide whether auto-start is allowed.
-    // Keep those reads out of this ownership effect: otherwise starting the
-    // recorder reruns the effect, whose cleanup immediately cancels it.
     if (options.isPrimary()) untrack(() => claimVoice(true));
-    return () => voice.releaseMessageConsumer(ownerId);
+    return () => {
+      if (!voice.isMessageInFlight(owner)) voice.releaseMessageConsumer(owner);
+    };
   });
 
   // ─── Voice mode effects ───
@@ -245,7 +250,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
   useKeybinding("voice.toggle-recorder", toggleVoice, {
     enabled: () =>
       options.active() &&
-      ownsVoice &&
+      (ownsVoice || !!voice.messageOwner?.startsWith("composer:")) &&
       !options.isReadOnly() &&
       // The mic is hidden on a host that cannot transcribe, so the shortcut
       // that toggles it must go quiet too rather than opening a recording no

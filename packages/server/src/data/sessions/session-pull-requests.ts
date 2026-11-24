@@ -85,7 +85,8 @@ export function emitSessionPullRequestsChanged(sessionId: string): void {
  *   source, and a dismissed one stays dismissed.
  * - An explicit link (created, agent, manual) revives a dismissed row and
  *   claims a branch row, because it says more about the link than "found".
- * - An explicit link does not write over another explicit link.
+ * - A successful create can record its source on the agent link that was
+ *   just admitted. Other explicit links keep their source.
  */
 export function nextSessionPullRequestSource(
   stored: StoredSource | null,
@@ -93,6 +94,7 @@ export function nextSessionPullRequestSource(
 ): SessionPullRequestSource | null {
   if (stored === null) return incoming
   if (incoming === 'branch') return null
+  if (stored === 'agent' && incoming === 'created') return incoming
   return stored === 'dismissed' || stored === 'branch' ? incoming : null
 }
 

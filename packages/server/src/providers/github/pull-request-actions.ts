@@ -469,6 +469,36 @@ export async function enableGithubAutoMerge(
   return autoMergeUpdate(result.enablePullRequestAutoMerge?.pullRequest)
 }
 
+const IMMEDIATELY_MERGEABLE = new Set(['CLEAN', 'HAS_HOOKS', 'UNSTABLE'])
+
+/** Match GitHub CLI and T3: a queue always waits, while --auto lands a ready
+ * PR immediately. The target SHA guards both paths. */
+export async function mergeAgentPullRequest(
+  client: GitHubClient, repo: RepoRef, pr: Pick<PullRequest, 'number' | 'headSha'>, method: PrMergeMethod, auto: boolean,
+): Promise<PullRequest['state']> {
+  interface MergePlan {
+    id: string
+    headRefOid: string
+    isMergeQueueEnabled: boolean
+    mergeStateStatus: string | null
+  }
+  const { repository } = await client.graphql<{ repository: { pullRequest: MergePlan | null } | null }>(`
+    query AgentPullRequestMergePlan($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) { id headRefOid isMergeQueueEnabled mergeStateStatus }
+      }
+    }`, { owner: repo.owner, repo: repo.repo, number: pr.number })
+  const plan = repository?.pullRequest
+  if (!plan) throw new Error(`Pull request #${pr.number} is unavailable.`)
+  if (plan.headRefOid !== pr.headSha) throw new Error(`The head is now ${plan.headRefOid}, not ${pr.headSha}. Review the new commits first.`)
+  if (plan.isMergeQueueEnabled || (auto && !IMMEDIATELY_MERGEABLE.has(plan.mergeStateStatus ?? ''))) {
+    return (await enableGithubAutoMerge(client, plan.id, method, pr.headSha)).state
+  }
+  const { data } = await client.rest.pulls.merge({ owner: repo.owner, repo: repo.repo, pull_number: pr.number, merge_method: method, sha: pr.headSha })
+  if (!data.merged) throw new Error(data.message || 'GitHub could not merge the pull request.')
+  return 'merged'
+}
+
 export async function disableGithubAutoMerge(
   client: GitHubClient,
   pullRequestId: string,
