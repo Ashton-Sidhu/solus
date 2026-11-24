@@ -25,6 +25,9 @@ export function ThreadListFilters(props: {
   const selectedProject = props.projects.find(
     (project) => project.key === props.selectedProjectKey,
   );
+  const projects = selectedProject
+    ? [selectedProject, ...props.projects.filter((project) => project !== selectedProject)]
+    : props.projects;
   return (
     <ScrollView
       horizontal
@@ -66,16 +69,16 @@ export function ThreadListFilters(props: {
         accessibilityLabel={gt("Filter threads by project")}
         active={selectedProject !== undefined}
         actions={[
+          ...projects.map((project) => ({
+            id: JSON.stringify(project.key),
+            title: project.label,
+            state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
+          })),
           {
             id: "all",
             title: gt("All projects"),
             state: props.selectedProjectKey === null ? "on" : "off",
           },
-          ...props.projects.map((project) => ({
-            id: JSON.stringify(project.key),
-            title: project.label,
-            state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
-          })),
         ]}
         onSelect={(id) => {
           if (id === "all") props.onProjectChange(null);

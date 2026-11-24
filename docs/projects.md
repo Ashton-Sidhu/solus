@@ -66,7 +66,9 @@ dialog header to change it.
 ## Select a sidebar project
 
 Open the sidebar folder menu to select a project, clear the filter, or add a
-project. New opens a draft in the selected project. If the session on screen
+project. Project rows come first, with the selected project at the top. Use
+**All projects** to clear the filter or **Add project…** to add a project.
+New opens a draft in the selected project. If the session on screen
 uses that project, New prefers its host when that host can start a session.
 On desktop and web, Shift-click New follows the session on screen. Session
 rows show their host where the reader has access to that information.

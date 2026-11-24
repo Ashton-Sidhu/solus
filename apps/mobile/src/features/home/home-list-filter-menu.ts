@@ -66,16 +66,20 @@ export function buildHomeListFilterMenuItems(
   ];
 
   if (props.projects.length > 0 || props.onAddProject) {
+    const selectedProject = props.projects.find((project) => project.key === props.selectedProjectKey);
+    const projects = selectedProject
+      ? [selectedProject, ...props.projects.filter((project) => project !== selectedProject)]
+      : props.projects;
     items.push({
       id: "project",
       title: resolve(msg("Project", { $context: "filter menu heading" })),
       items: [
-        ...(props.onAddProject ? [{
-          id: "project:add",
-          title: resolve(msg("Add project")),
-          icon: "folder.badge.plus",
-          onPress: props.onAddProject,
-        }] : []),
+        ...projects.map((project) => ({
+          id: `project:${project.key}`,
+          title: project.label,
+          selected: props.selectedProjectKey === project.key,
+          onPress: () => props.onProjectChange(project.key),
+        })),
         {
           id: "project:all",
           title: resolve(msg("All projects")),
@@ -83,12 +87,12 @@ export function buildHomeListFilterMenuItems(
           selected: props.selectedProjectKey === null,
           onPress: () => props.onProjectChange(null),
         },
-        ...props.projects.map((project) => ({
-          id: `project:${project.key}`,
-          title: project.label,
-          selected: props.selectedProjectKey === project.key,
-          onPress: () => props.onProjectChange(project.key),
-        })),
+        ...(props.onAddProject ? [{
+          id: "project:add",
+          title: resolve(msg("Add project")),
+          icon: "folder.badge.plus",
+          onPress: props.onAddProject,
+        }] : []),
       ],
     });
   }

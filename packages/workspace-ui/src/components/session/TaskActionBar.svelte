@@ -92,7 +92,7 @@
                 menuOpen = false;
                 onFilter(option.key);
               }}
-              addAtTop
+              projectsFirst
               showAdd={!!onAddProject}
               {onAddProject}
             />

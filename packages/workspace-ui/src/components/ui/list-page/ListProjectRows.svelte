@@ -36,7 +36,7 @@
      *  input bar is in — one explicit step, never automatic
      *  (docs/plans/project-model.md §5). */
     onSelectCurrent?: () => void;
-    addAtTop?: boolean;
+    projectsFirst?: boolean;
     showAdd?: boolean;
     onAddProject?: () => void;
     onSearchSelect?: (option: ListProjectOption) => void;
@@ -49,7 +49,7 @@
     onSelectAll,
     allLabel = "All projects",
     onSelectCurrent,
-    addAtTop = false,
+    projectsFirst = false,
     showAdd = true,
     onAddProject,
     onSearchSelect,
@@ -58,10 +58,16 @@
   let query = $state("");
 
   const allActive = $derived(!!onSelectAll && !activeKey);
+  const showScopeRows = $derived(!query.trim() && (!!onSelectAll || !!onSelectCurrent));
+  const orderedProjects = $derived.by(() => {
+    if (!projectsFirst || !activeKey) return projects;
+    const selected = projects.find((project) => project.key === activeKey);
+    return selected ? [selected, ...projects.filter((project) => project !== selected)] : projects;
+  });
   // A handful of projects is a list you read; past that it is one you search.
   const showFind = $derived(projects.length > 6);
   const matches = $derived(
-    projects.filter(
+    orderedProjects.filter(
       (project) =>
         !query.trim() ||
         project.label.toLowerCase().includes(query.trim().toLowerCase()),
@@ -100,24 +106,8 @@
   </div>
 {/if}
 <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-  {#if showAdd && addAtTop && !query.trim()}
-    {@render addRow()}
-  {/if}
-  {#if onSelectAll && !query.trim()}
-    <DropdownMenu.Item
-      onSelect={onSelectAll}
-      data-menu-current={allActive ? "" : undefined}
-    >
-      <AllIcon size={15} class="shrink-0" />
-      <span class="min-w-0 flex-1 truncate">{allLabel}</span>
-      {#if allActive}{@render selectedCheck()}{/if}
-    </DropdownMenu.Item>
-  {/if}
-  {#if onSelectCurrent && !query.trim()}
-    <DropdownMenu.Item onSelect={onSelectCurrent}>
-      <span class="min-w-0 flex-1 truncate">Current project</span>
-      <kbd class="mr-1 shrink-0 font-sans text-muted-foreground opacity-70">{currentKey}</kbd>
-    </DropdownMenu.Item>
+  {#if showScopeRows && !projectsFirst}
+    {@render scopeRows()}
   {/if}
   {#each matches as project (project.key)}
     {@const isActive = project.key === activeKey}
@@ -153,11 +143,31 @@
   {#if matches.length === 0}
     <div class="px-2 py-3 text-menu text-muted-foreground">No project matches.</div>
   {/if}
+  {#if showScopeRows && projectsFirst}
+    {#if matches.length}<DropdownMenu.Separator />{/if}
+    {@render scopeRows()}
+  {/if}
 </div>
-{#if showAdd && !addAtTop}
+{#if showAdd && (!projectsFirst || !query.trim())}
   <DropdownMenu.Separator />
   {@render addRow()}
 {/if}
+
+{#snippet scopeRows()}
+  {#if onSelectAll}
+    <DropdownMenu.Item onSelect={onSelectAll} data-menu-current={allActive ? "" : undefined}>
+      <AllIcon size={15} class="shrink-0" />
+      <span class="min-w-0 flex-1 truncate">{allLabel}</span>
+      {#if allActive}{@render selectedCheck()}{/if}
+    </DropdownMenu.Item>
+  {/if}
+  {#if onSelectCurrent}
+    <DropdownMenu.Item onSelect={onSelectCurrent}>
+      <span class="min-w-0 flex-1 truncate">Current project</span>
+      <kbd class="mr-1 shrink-0 font-sans text-muted-foreground opacity-70">{currentKey}</kbd>
+    </DropdownMenu.Item>
+  {/if}
+{/snippet}
 
 {#snippet selectedCheck()}
   <span class="flex w-4 shrink-0 justify-center pointer-coarse:mr-1">
@@ -168,6 +178,6 @@
 {#snippet addRow()}
   <DropdownMenu.Item data-testid="project-filter-add" onSelect={onAddProject ?? (() => openAddProjectPicker(onSelect))}>
     <FolderPlusIcon size={14} class="shrink-0 text-muted-foreground" />
-    <span class="min-w-0 flex-1 truncate">{addAtTop ? "Add project…" : "Open project…"}</span>
+    <span class="min-w-0 flex-1 truncate">{projectsFirst ? "Add project…" : "Open project…"}</span>
   </DropdownMenu.Item>
 {/snippet}

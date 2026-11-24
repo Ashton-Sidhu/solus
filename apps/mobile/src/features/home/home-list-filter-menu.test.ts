@@ -46,8 +46,26 @@ it("can add the first project from the sidebar project menu", () => {
     onAddProject: () => { opened = true; },
   });
   const project = items.find(({ id }) => id === "project");
-  const add = project && "items" in project ? project.items[0] : undefined;
+  const add = project && "items" in project
+    ? project.items.find(({ id }) => id === "project:add")
+    : undefined;
   if (!add || !("onPress" in add)) throw new Error("Expected the Add project action");
   add.onPress();
   expect(opened).toBe(true);
+});
+
+it("shows the selected project first and keeps clear and add actions after the projects", () => {
+  const items = buildHomeListFilterMenuItems({
+    environments: [],
+    projects: [{ key: "site", label: "Site" }, { key: "solus", label: "Solus" }],
+    selectedEnvironmentId: null,
+    selectedProjectKey: "solus",
+    onEnvironmentChange: () => {},
+    onProjectChange: () => {},
+    onAddProject: () => {},
+  });
+  const project = items.find(({ id }) => id === "project");
+  expect(project && "items" in project && project.items.map(({ id }) => id)).toEqual([
+    "project:solus", "project:site", "project:all", "project:add",
+  ]);
 });
