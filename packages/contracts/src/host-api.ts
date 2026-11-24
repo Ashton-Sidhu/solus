@@ -1,8 +1,8 @@
 import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
 import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
 import type { VaultKeyRef, VaultKeySave, VaultKeyStatus } from './vault-keys'
-import type { PrReactionContent, PrReactions, PrUrlInspection } from './pr-social'
-import type { RepoRef } from './providers'
+import type { PrReactionContent, PrReactions } from './pr-social'
+import type { PrRef, RepoRef } from './providers'
 import type { TaskInvolvement, TaskProviderData, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-data'
 import type { RunningServer, StopRunningServerResult, RunningServerTunnel, NativeServerForward, NativeServerForwardRequest } from './running-servers'
 import type { VoiceTranscriptionOptions } from './voice-dictionary'
@@ -871,77 +871,82 @@ export interface SolusAPI {
    *  the rows a page has loaded. */
   prFilterOptions(ctx: IpcContext, field: PrFilterField, query: string): Promise<PrFilterChoice[]>
   /**
-   * Replace this client's interest in the ctx repository, and answer what PR
-   * sync knows about it now. Later changes arrive as `pr.changed`. The host
-   * drops the interest when the connection closes (docs/plans/pr-sync.md).
+   * Replace this client's interest in `repo`, and answer what PR sync knows
+   * about it now. Later changes arrive as `pr.changed`. The host drops the
+   * interest when the connection closes (docs/plans/pr-sync.md). A branch
+   * interest is resolved against `checkout`, and without one it is dropped.
    */
-  prSetInterest(ctx: IpcContext, interests: PrInterest[]): Promise<PrSyncChange>
+  prSetInterest(repo: RepoRef, interests: PrInterest[], checkout?: IpcContext): Promise<PrSyncChange>
+  /** The repository a project's pull requests belong to: its primary remote.
+   *  Read from the local checkout, never from the code host. */
+  prRepository(ctx: IpcContext): Promise<RepoRef>
   prGuideMetadata(ctx: IpcContext, request: PrGuideMetadataRequest): Promise<PrGuideMetadata | null>
   /** Resolve the exact host revision without changing local repository state. */
-  prOpenReview(ctx: IpcContext, number: number): Promise<PrReviewTarget>
-  prGetDiff(ctx: IpcContext, request: PrDiffRequest): Promise<PrDiffSlice>
-  prGetDiffFileContents(ctx: IpcContext, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
+  prOpenReview(pr: PrRef): Promise<PrReviewTarget>
+  prGetDiff(request: PrDiffRequest): Promise<PrDiffSlice>
+  prGetDiffFileContents(request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   prPrepareCheckout(ctx: IpcContext, target: PrReviewTarget): Promise<PrCheckoutContext>
   /** Fetch the PR's body, author, and state for the Activity overview. */
-  prGetDetail(ctx: IpcContext, number: number): Promise<PullRequest>
-  prUpdate(ctx: IpcContext, number: number, patch: PullRequestUpdate): Promise<PullRequest>
+  prGetDetail(pr: PrRef): Promise<PullRequest>
+  /** `sessionId` is the session that edits it, which then links it. */
+  prUpdate(pr: PrRef, patch: PullRequestUpdate, sessionId?: string): Promise<PullRequest>
   /** Adds or removes the viewer's reaction on the pull request (`targetId`
    *  null) or one of its comments or reviews. Answers with the target's
    *  reactions after the write, so no read follows it. Reactions are read
    *  with the pull request, its comments, and its threads. */
-  prReact(repo: RepoRef, number: number, targetId: string | null, content: PrReactionContent, add: boolean): Promise<PrReactions>
-  prInspectUrl(url: string): Promise<PrUrlInspection>
-  /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
+  prReact(pr: PrRef, targetId: string | null, content: PrReactionContent, add: boolean): Promise<PrReactions>
   /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
   /** Set includeCommits to false when the summary does not use the commit list. */
-  prGetOverview(ctx: IpcContext, number: number, options?: { includeCommits?: boolean }): Promise<PullRequestOverview>
+  prGetOverview(pr: PrRef, options?: { includeCommits?: boolean }): Promise<PullRequestOverview>
   /** Per-file +/- counts from the code host for the PR's changed files. */
-  prChangedFiles(ctx: IpcContext, number: number): Promise<ChangedFileStat[]>
-  prListThreads(ctx: IpcContext, number: number): Promise<ReviewThread[]>
-  prListComments(ctx: IpcContext, number: number): Promise<PrConversationItem[]>
-  prListCommits(ctx: IpcContext, number: number): Promise<PrCommit[]>
+  prChangedFiles(pr: PrRef): Promise<ChangedFileStat[]>
+  prListThreads(pr: PrRef): Promise<ReviewThread[]>
+  prListComments(pr: PrRef): Promise<PrConversationItem[]>
+  prListCommits(pr: PrRef): Promise<PrCommit[]>
   /** The stack this pull request is in, bottom to top; null when it is in none
    *  or the host keeps no stacks. */
-  prGetStack(ctx: IpcContext, number: number): Promise<PrStack | null>
-  prListReviewers(ctx: IpcContext, number: number): Promise<PrReviewer[]>
-  prListReviewerCandidates(ctx: IpcContext, number: number): Promise<PrReviewerCandidate[]>
-  prRequestReviewers(ctx: IpcContext, number: number, logins: string[]): Promise<PrReviewer[]>
-  prRemoveRequestedReviewer(ctx: IpcContext, number: number, reviewerId: string, kind?: PrReviewerKind): Promise<PrReviewer[]>
-  prListLabelCandidates(ctx: IpcContext, number: number): Promise<PrLabel[]>
+  prGetStack(pr: PrRef): Promise<PrStack | null>
+  prListReviewers(pr: PrRef): Promise<PrReviewer[]>
+  prListReviewerCandidates(pr: PrRef): Promise<PrReviewerCandidate[]>
+  prRequestReviewers(pr: PrRef, logins: string[]): Promise<PrReviewer[]>
+  prRemoveRequestedReviewer(pr: PrRef, reviewerId: string, kind?: PrReviewerKind): Promise<PrReviewer[]>
+  prListLabelCandidates(pr: PrRef): Promise<PrLabel[]>
   /** Replace the label set. Answers the whole pull request, the way every
    *  other write does, so one apply path keeps list rows and detail in step. */
-  prSetLabels(ctx: IpcContext, number: number, names: string[]): Promise<PullRequest>
-  prUpdateLifecycle(ctx: IpcContext, number: number, action: PrStateAction, expectedHeadSha: string): Promise<PullRequest>
-  prSubmitReview(ctx: IpcContext, number: number, review: DraftReview): Promise<void>
-  prAddIssueComment(ctx: IpcContext, number: number, body: string): Promise<void>
-  prDeleteIssueComment(ctx: IpcContext, number: number, commentId: string): Promise<void>
+  prSetLabels(pr: PrRef, names: string[]): Promise<PullRequest>
+  prUpdateLifecycle(pr: PrRef, action: PrStateAction, expectedHeadSha: string): Promise<PullRequest>
+  /** `checkout` is the project whose local Git keeps the review checkpoint
+   *  the next interdiff starts from; without one none is kept. */
+  prSubmitReview(pr: PrRef, review: DraftReview, checkout?: IpcContext): Promise<void>
+  prAddIssueComment(pr: PrRef, body: string): Promise<void>
+  prDeleteIssueComment(pr: PrRef, commentId: string): Promise<void>
   prInterdiff(ctx: IpcContext, pr: PrReviewContext): Promise<import('@solus/contracts/types').PrInterdiffResult>
-  prReplyThread(ctx: IpcContext, number: number, threadId: string, body: string): Promise<ReviewComment>
-  prResolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
-  prUnresolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
+  prReplyThread(pr: PrRef, threadId: string, body: string): Promise<ReviewComment>
+  prResolveThread(pr: PrRef, threadId: string): Promise<void>
+  prUnresolveThread(pr: PrRef, threadId: string): Promise<void>
   /** Queue background guide generation for these PRs; resolves once queued. */
   prGenerateGuides(ctx: IpcContext, numbers: number[]): Promise<void>
   /**
-   * A person's refresh: forget what the host remembered about this project's
+   * A person's refresh: forget what the host remembered about this repository's
    * pull requests and run a PR sync tick for it now. Changes arrive as
    * `pr.changed`. Reads share what has already been fetched; this is the one
    * way to opt out.
    */
-  prRefresh(ctx: IpcContext): Promise<void>
-  prMerge(ctx: IpcContext, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PrMergeResult>
+  prRefresh(repo: RepoRef): Promise<void>
+  prMerge(pr: PrRef, method: MergeMethod, expectedHeadSha: string): Promise<PrMergeResult>
   /** Ask the host to merge with `method` once its requirements pass. Answers
    *  the whole pull request, armed. */
-  prEnableAutoMerge(ctx: IpcContext, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
-  prDisableAutoMerge(ctx: IpcContext, number: number): Promise<PullRequest>
+  prEnableAutoMerge(pr: PrRef, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
+  prDisableAutoMerge(pr: PrRef): Promise<PullRequest>
   /** Bring the base branch into the head on the host, checked against the
    *  head the viewer saw. Answers the whole pull request after the update. */
-  prUpdateBranch(ctx: IpcContext, number: number, expectedHeadSha: string): Promise<PullRequest>
+  prUpdateBranch(pr: PrRef, expectedHeadSha: string): Promise<PullRequest>
   /** Open a new pull request that reverses a merged one. */
-  prRevert(ctx: IpcContext, number: number): Promise<PrRevertResult>
+  prRevert(pr: PrRef): Promise<PrRevertResult>
   /** Merge a stacked pull request and every open layer below it in one host
    *  operation. Needs `merge-stack` in both `capabilities.actions` and
    *  `viewerPermissions.actions`. */
-  prMergeStack(ctx: IpcContext, request: PrStackMergeRequest): Promise<PrStackMergeResult>
+  prMergeStack(request: PrStackMergeRequest): Promise<PrStackMergeResult>
   /** A host URL for media that a pull request points at on GitHub, such as
    *  `https://github.com/user-attachments/assets/<id>`. A private repository
    *  serves it only with a GitHub credential, so the host fetches it with its
@@ -951,19 +956,19 @@ export interface SolusAPI {
    *  it to serve an upload in an organization that enforces SAML SSO. */
   prMediaUrl(ctx: IpcContext | undefined, githubMediaUrl: string, repository?: string): Promise<AssetCreateUrlResult>
   /** The workflow runs of a fork pull request that wait for a maintainer. */
-  prPendingWorkflowRuns(ctx: IpcContext, number: number): Promise<PrPendingWorkflowRuns>
+  prPendingWorkflowRuns(pr: PrRef): Promise<PrPendingWorkflowRuns>
   /** Approve the waiting workflow runs of a fork pull request, checked against
    *  the head the viewer saw. Needs `approve-workflows` in both action lists. */
-  prApproveWorkflowRuns(ctx: IpcContext, number: number, expectedHeadSha: string): Promise<PrWorkflowApprovalResult>
+  prApproveWorkflowRuns(pr: PrRef, expectedHeadSha: string): Promise<PrWorkflowApprovalResult>
   /** Which files the viewer marked viewed, as the code host keeps it. Needs
    *  `capabilities.viewedFiles`. */
-  prViewedFiles(ctx: IpcContext, number: number): Promise<PrViewedFiles>
+  prViewedFiles(pr: PrRef): Promise<PrViewedFiles>
   /** Mark files viewed or not viewed on the code host. The last change to a
    *  path in `changes` wins. */
-  prSetFilesViewed(ctx: IpcContext, number: number, changes: PrViewedFileChange[]): Promise<void>
+  prSetFilesViewed(pr: PrRef, changes: PrViewedFileChange[]): Promise<void>
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
   /** Cached checks for the repository's open PRs; failures are represented in the snapshot. */
-  prChecks(ctx: IpcContext, numbers?: number[]): Promise<PrChecksSnapshot>
+  prChecks(repo: RepoRef, numbers?: number[]): Promise<PrChecksSnapshot>
 
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */

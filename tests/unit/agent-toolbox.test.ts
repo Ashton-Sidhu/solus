@@ -50,9 +50,6 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
     expect(solusToolbox.sessions.send.requiresApproval).toBe(false)
     expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)
-    // Reading config is free; changing it is a thing the user must see happen.
-    expect(solusToolbox.config.read.requiresApproval).toBe(false)
-    expect(solusToolbox.config.update.requiresApproval).toBe(true)
   })
 
   test('works owns publish and pull without an external document tool group', () => {

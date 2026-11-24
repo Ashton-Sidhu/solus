@@ -6,6 +6,7 @@
      button, which pull requests has no equivalent of — drawing the cluster
      wrong is the reflow this exists to prevent. -->
 <ListPageSkeleton
+  page="tasks"
   label="Loading tasks"
   hasPrimaryAction
   hasViewSwitcher={false}

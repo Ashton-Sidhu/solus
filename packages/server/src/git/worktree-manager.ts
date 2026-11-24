@@ -292,9 +292,14 @@ interface WorktreeStartPoint {
   refresh?: Promise<boolean>
 }
 
+/** A full SHA-1 or SHA-256 object name. A child session's worktree starts from its parent's commit. */
+const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+
 /**
- * A local `origin/<base>` is used at once, and its fetch runs beside the
- * checkout. Without a local copy, the fetch comes first.
+ * A commit is its own start point: it has no `origin/<commit>`, and it is
+ * fetched only when this host does not have it. A local `origin/<base>` is
+ * used at once, and its fetch runs beside the checkout. Without a local copy,
+ * the fetch comes first.
  */
 async function resolveWorktreeStartPoint(
   projectPath: string,
@@ -302,6 +307,22 @@ async function resolveWorktreeStartPoint(
   options: Pick<CreateWorktreeOptions, 'signal' | 'onStage'>,
 ): Promise<WorktreeStartPoint> {
   const { signal, onStage } = options
+  if (COMMIT_HASH.test(targetBranch)) {
+    if (await gitCommitExists(projectPath, targetBranch)) {
+      onStage?.('fetch', { status: 'skipped' })
+      return { startPoint: targetBranch }
+    }
+    onStage?.('fetch', { status: 'active' })
+    try {
+      await runAsync('git', ['fetch', '--no-tags', 'origin', targetBranch], projectPath, { signal })
+      onStage?.('fetch', { status: 'done' })
+    } catch (e) {
+      throwIfAborted(signal)
+      log.warn('worktree_start_commit_fetch_failed', { targetBranch, error: e instanceof Error ? e.message : String(e) })
+      onStage?.('fetch', { status: 'warning', detail: `Fetch of ${targetBranch.slice(0, 12)} failed` })
+    }
+    return { startPoint: targetBranch }
+  }
   const remoteRef = `origin/${targetBranch}`
   const [hasOrigin, hasLocalRef] = await Promise.all([
     runAsync('git', ['remote', 'get-url', 'origin'], projectPath, { signal }).then(() => true, () => false),

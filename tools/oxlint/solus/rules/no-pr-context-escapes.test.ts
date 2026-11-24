@@ -6,7 +6,6 @@ const tester = new RuleTester({ languageOptions: { parserOptions: { lang: 'ts' }
 
 const componentFile = 'packages/workspace-ui/src/components/pr-review/PrActions.svelte.ts'
 const contextFile = 'packages/workspace-ui/src/contexts/prs/pull-request.svelte.ts'
-const demoFile = 'apps/client/src/demo/handlers/pr.ts'
 const serverFile = 'packages/server/src/transport/handlers/provider-handlers.ts'
 // One of the two allowlisted holders of search results. The desktop palette
 // is the other; both own transient search candidates.
@@ -35,11 +34,6 @@ tester.run('solus/no-pr-context-escapes', noPrContextEscapesRule, {
     {
       code: 'const pr = pullRequests.projects.at(serverId, scope)?.prFor(number);',
       filename: componentFile,
-    },
-    // The demo answers these calls rather than making them.
-    {
-      code: "backend.register('prList', () => store.prList());",
-      filename: demoFile,
     },
     // The server has no context to route through.
     {

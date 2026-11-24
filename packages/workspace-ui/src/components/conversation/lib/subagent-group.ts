@@ -4,7 +4,7 @@ import type { DotMarkName } from '@solus/client-core/dot-marks'
 import { liveToolStep } from './activity-summary'
 import { subagentDotMark } from './agent-link'
 import { intentInProgress } from './activity-phrase'
-import { parseSubagentInput } from './subagent'
+import { parseSubagentInput, subagentTitle } from '@solus/contracts/subagent-input'
 import { z } from 'zod'
 
 /**
@@ -105,11 +105,6 @@ function resultSummary(message: Message, subs: Message[]): string {
   return first.length > 120 ? `${cutText(first, 117)}…` : first
 }
 
-export function subagentName(message: Message): string {
-  const parsed = parseSubagentInput(message.toolInput)
-  return (parsed.description || parsed.prompt || 'Sub-agent').trim()
-}
-
 export function subagentRow(
   message: Message,
   now: number,
@@ -122,7 +117,7 @@ export function subagentRow(
 
   return {
     id: message.id,
-    name: subagentName(message),
+    name: subagentTitle(message.toolInput),
     state,
     liveMark: state === 'running' ? subagentDotMark(message) : null,
     activity: live ? live.activity : resultSummary(message, subs),

@@ -198,14 +198,11 @@ export function useThreadScreenData({
     if (!controller.mayDrive) return false;
     if (edit && pickingEdit) return false;
     if (edit) setPickingEdit(true);
-    const count = edit
-      ? editUploads.length + edit.existingAttachments.length
-      : controller.attachments.length + controller.uploading;
-    return pick(count)
+    return pick()
       .then(async (files) => {
         if (!files.length) return false;
         if (edit) {
-          const uploads = await controller.uploadQueueFiles(files, count);
+          const uploads = await controller.uploadQueueFiles(files);
           if (currentEdit.current === edit.runId)
             setEditUploads((old) => [
               ...old,
@@ -588,7 +585,7 @@ export function useThreadScreenData({
     onPickDraftFiles: async () => {
       await pickFiles(pickComposerFiles);
     },
-    onNativePasteImages: (uris) => pickFiles(pastedComposerImages([...uris])),
+    onNativePasteImages: (uris) => pickFiles(() => pastedComposerImages(uris)),
     onNativePasteText: async (paste) =>
       setComposerDraftText(composerKey, getComposerDraftSnapshot(composerKey).text + paste.text),
     onRemoveDraftImage: (id) =>

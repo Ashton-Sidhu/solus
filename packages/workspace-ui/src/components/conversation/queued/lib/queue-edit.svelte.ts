@@ -21,7 +21,6 @@ export class QueueEdit {
     this.busy = true
     this.error = ''
     try {
-      if ((this.attachments?.length ?? 0) + files.length > 8) throw new Error('A prompt can have up to eight attachments.')
       if (this.attachments === undefined && (this.source.images?.length || this.source.attachments?.length)) {
         throw new Error('This older queue entry has no editable attachment metadata. Its existing files will be kept.')
       }

@@ -20,7 +20,8 @@
 
   interface Props {
     serverId: string;
-    /** Fires once the account is connected. */
+    /** Fires when a sign-in from this form finishes. It also serves a
+     *  connected account that signs in again for a new scope. */
     onconnected?: () => void;
   }
 
@@ -33,17 +34,13 @@
 
   const prompt = $derived(connections.providerPrompt);
 
-  $effect(() => {
-    if (connections.providerLoaded && connections.providerStatus?.connected) onconnected?.();
-  });
-
   // The device code arrives mid-`connectProvider` as a broadcast, so it can be
   // shown while the connect promise keeps polling.
   onMount(() => connections.listenForProviderDeviceCodes());
 
   async function connect() {
     try {
-      await connections.connectProvider(serverId, session.ctx);
+      if (await connections.connectProvider(serverId, session.ctx)) onconnected?.();
     } catch (error) {
       toasts.error("Couldn't connect to GitHub", {
         description: error instanceof Error ? error.message : String(error),

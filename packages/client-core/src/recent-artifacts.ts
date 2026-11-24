@@ -6,13 +6,14 @@ import type { OwnedArtifact } from './session-overview'
 /**
  * The row at the top of the Threads surface (docs/plans/session-artifacts.md
  * decision 17): the works, apps, files, and images of the session and the
- * sessions it started, pinned first, then the one the person opened, a work
- * changed, or a session linked last. Desktop, web, and the phone order the
- * row with this model. When the person opened an item is kept on each device.
+ * sessions it started. The ones the person opened come first, the latest open
+ * first; then the others, the latest made first (a session links an item when
+ * it makes it). Desktop, web, and the phone order the row with this model.
+ * When the person opened an item is kept on each device.
  */
 
-/** What last happened to an item, which its time in the row stands for. */
-export type RecentArtifactActivity = 'opened' | 'updated' | 'linked'
+/** What the item's time in the row stands for. */
+export type RecentArtifactActivity = 'opened' | 'linked'
 
 export interface RecentArtifact {
   owned: OwnedArtifact
@@ -44,16 +45,16 @@ export function recentArtifacts(
     const key = recentArtifactKey(artifact)
     if (seen.has(key)) continue
     seen.add(key)
-    const times: [RecentArtifactActivity, number | null][] = [
-      ['opened', openedAt(artifact)],
-      ['updated', artifact.kind === 'work' ? (artifact.updatedAt ?? null) : null],
-      ['linked', artifactLinkedAt(artifact)],
-    ]
-    let latest: [RecentArtifactActivity, number] = ['linked', artifactLinkedAt(artifact)]
-    for (const [activity, at] of times) if (at !== null && at > latest[1]) latest = [activity, at]
-    row.push({ owned: entry, pinned: artifact.kind === 'work' && artifact.pinned === true, activity: latest[0], at: latest[1] })
+    const opened = openedAt(artifact)
+    row.push({
+      owned: entry,
+      pinned: artifact.kind === 'work' && artifact.pinned === true,
+      activity: opened === null ? 'linked' : 'opened',
+      at: opened ?? artifactLinkedAt(artifact),
+    })
   }
-  return row.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.at - a.at).slice(0, limit)
+  const isOpened = (item: RecentArtifact) => Number(item.activity === 'opened')
+  return row.sort((a, b) => isOpened(b) - isOpened(a) || b.at - a.at).slice(0, limit)
 }
 
 /** One name per item for the row and the open log: the record it stands for. */
@@ -68,14 +69,14 @@ export function recentArtifactKey(artifact: SessionArtifact): string {
   }
 }
 
-const ACTIVITY_WORD = { opened: 'Opened', updated: 'Updated', linked: 'Added' } as const satisfies { [activity in RecentArtifactActivity]: string }
+const ACTIVITY_WORD = { opened: 'Opened', linked: 'Added' } as const satisfies { [activity in RecentArtifactActivity]: string }
 
 /** How long ago the item's time was, short: "now", "10m", "3h", "2d", else the date. */
 export function recentArtifactAge(item: RecentArtifact, now: number): string {
   return notificationAge(item.at, now)
 }
 
-/** The item's time in words, for a tooltip: "Updated 10m ago". */
+/** The item's time in words, for a tooltip: "Opened 10m ago". */
 export function recentArtifactTimeLabel(item: RecentArtifact, now: number): string {
   const age = recentArtifactAge(item, now)
   return `${ACTIVITY_WORD[item.activity]} ${age === 'now' ? 'now' : /^\d+[mhd]$/.test(age) ? `${age} ago` : `on ${age}`}`

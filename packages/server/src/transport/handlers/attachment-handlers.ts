@@ -6,7 +6,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentU
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, namedUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
+import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, namedUploadPath, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -16,12 +16,8 @@ export interface AttachmentHandlerDeps {
 
 /**
  * Which conversation's folder an upload belongs to. Uploads are stored per
- * conversation so one session cannot read another's files and so the count cap
- * has something to count against — neither needs the conversation to have
- * *started*. A draft owns a run, a working directory, and a prompt holding the
- * attachments, so it is a bucket in its own right; the folder it mints keeps
- * its name after the draft starts a session, because the path already travelled
- * to the client as `hostPath`.
+ * conversation, including drafts. A draft keeps its upload folder after it
+ * starts a session because the client already has the file's `hostPath`.
  */
 export function uploadBucketId(ctx: IpcContext | undefined): string | undefined {
   return ctx?.session?.sessionId || ctx?.session?.draftId || undefined
@@ -67,11 +63,7 @@ const attachmentUploadTokenPayloadSchema = z
   })
   .strict()
 
-/**
- * Name an upload and sign a capability for exactly `size` bytes. Reserve its
- * slot only when bytes arrive, so cancelled or expired tokens do not exhaust
- * the conversation's attachment limit.
- */
+/** Name an upload and sign a capability for exactly `size` bytes. */
 export async function createAttachmentUploadToken(
   ctx: IpcContext,
   request: AttachmentUploadTokenRequest,
@@ -152,14 +144,7 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
 
   let received = 0
   const head = new Uint8Array(12)
-  let release: (() => Promise<void>) | undefined
-  let completed = false
   try {
-    try {
-      release = await reserveAttachmentSlot(dirname(payload.path))
-    } catch (error) {
-      return new Response(error instanceof Error ? error.message : 'Cannot reserve an upload slot', { status: 409 })
-    }
     for await (const chunk of body) {
       if (received < head.length) head.set(chunk.subarray(0, head.length - received), received)
       received += chunk.byteLength
@@ -178,12 +163,10 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
       }
       throw error
     }
-    completed = true
     return new Response(null, { status: 204 })
   } finally {
     await handle.close().catch(() => {})
     await unlink(partialPath).catch(() => {})
-    if (!completed) await release?.()
   }
 }
 

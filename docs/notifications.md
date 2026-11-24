@@ -155,6 +155,19 @@ rows alone and one message says how many did not change. A row that a filter
 hides, or that its source removes, leaves the selection: an action reaches only
 rows on screen.
 
+## When a source does not answer
+
+The Notifications page reads every host on your host list and every
+organization home. When a source does not answer, the page shows one info
+toast for each visit. The toast names the source and gives the reason, for
+example "Unreachable. The source did not answer in time." It says "showing what
+was loaded" only when rows from that source are on screen. A saved host that is
+off is a normal state, so the toast is not an error.
+
+Two hosts can have the same machine name, for example an old install on the
+same machine. Then each label also names the host: "(this device)" for the
+machine you use, or the address the client dials for the other.
+
 ## Mark a session unread
 
 Choose **Mark Unread** from a session context menu on desktop or web, or from

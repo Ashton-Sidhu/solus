@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { AgentId, AgentMetadata, ModelConfig, RunConfig, StartInfo } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * A host with only one agent installed must not be handed the other one by a
@@ -34,7 +35,7 @@ function agent(id: AgentId, available: boolean): AgentMetadata {
 function run(provider: AgentId | null): RunConfig {
   return {
     provider,
-    workingDirectory: '/repo',
+    location: folderLocation({ serverId: 'host', path: '/repo' }),
     modelConfig: { modelId: 'claude-opus-5', reasoningEffort: 'high', contextWindow: null, fastMode: false },
   } as RunConfig
 }
@@ -53,12 +54,13 @@ function lifecycleFor(activeAgent: AgentId, runs: RunConfig[]) {
     registry: { tabOrder: [], sessionFor: () => undefined },
     settings,
     config: {
+      refreshDefaultModel: () => {},
       followActiveSessionAgent: (agentId: AgentId) => { settings.activeAgent = agentId },
       defaultModelConfigFor: () => ({ ...CODEX_DEFAULT }),
     },
     planStore: { hydrateAnnotations() {} },
     agent: { hydrate() {} },
-    defaultRunConfig: () => ({ workingDirectory: '/repo' }),
+    defaultRunConfig: () => ({ location: folderLocation({ serverId: 'host', path: '/repo' }) }),
     unstartedRuns: () => runs,
     refreshGitState: async () => ({ ok: true }),
     ctxFor: () => ({ session: { sessionId: 'tab-1' } }),

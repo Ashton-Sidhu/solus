@@ -38,7 +38,10 @@ mock.module('@solus/client-core/server-connections', () => ({
   },
 }))
 // The stores hold `$state` fields; outside a Svelte build the rune is a plain value.
-Object.assign(globalThis, { $state: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => structuredClone(value) }) })
+Object.assign(globalThis, {
+  $state: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => structuredClone(value) }),
+  localStorage: memoryStorage(),
+})
 const { AgentProfileStore, profileAppliesTo } = await import('@solus/workspace-ui/contexts/seats/agent-profile.store.svelte')
 const { AgentProfileLocalStore } = await import('@solus/workspace-ui/contexts/seats/agent-profile-local.store.svelte')
 const { mergeComputerProfile } = await import('@solus/workspace-ui/contexts/seats/lib/agent-profile-local')

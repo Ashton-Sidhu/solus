@@ -15,6 +15,8 @@ const host = vi.hoisted(() => ({
     { path: "/other", folderName: "Other", repositoryKey: "github.com/team/other" },
   ]),
   prListProjects: vi.fn(),
+  // The host's spelling of the project remote differs from `baseRepo` on purpose.
+  prRepository: vi.fn(async (_ctx: { projectRoot: string }) => ({ host: "github.com", owner: "Team", repo: "App" })),
   prGetDetail: vi.fn(),
   prGetOverview: vi.fn(),
   prChecks: vi.fn(),
@@ -57,7 +59,10 @@ vi.mock("./runtime", async () => {
       personal: {
         current: () => ({ taskSources: [{ kind: "github-repo", owner: "team", repo: "app" }] }),
       },
-      pullRequests: { context: (projectRoot: string) => ({ projectRoot }) },
+      pullRequests: {
+        context: (projectRoot: string) => ({ projectRoot }),
+        repository: (_hostId: string, projectRoot: string) => host.prRepository({ projectRoot }),
+      },
       threads: { projects: () => [] },
     },
   };
@@ -259,6 +264,8 @@ const pr = {
   labels: [{ name: "keep" }],
 };
 const quiet = { reportFailure: false };
+/** The pull request the calls name: the host's repository answer and the number. */
+const hostPr = { repo: { host: "github.com", owner: "Team", repo: "App" }, number: 7 };
 
 it("loads the PR summary with reviewers and leaves commits to Activity", async () => {
   const registry = AtomRegistry.make();
@@ -277,7 +284,8 @@ it("loads the PR summary with reviewers and leaves commits to Activity", async (
       _tag: "Success",
       value: { title: "Keep summary fast", reviewers: [{ login: "reviewer" }] },
     });
-    expect(host.prGetOverview).toHaveBeenCalledWith({ projectRoot: "/repo" }, 7, { includeCommits: false });
+    expect(host.prGetOverview).toHaveBeenCalledWith(hostPr, { includeCommits: false });
+    expect(host.prChecks).toHaveBeenCalledWith(hostPr.repo, [7]);
   } finally {
     registry.dispose();
   }
@@ -294,7 +302,7 @@ it("applies a label change to the current host labels", async () => {
       quiet,
     );
     expect(result._tag).toBe("Success");
-    expect(host.prSetLabels).toHaveBeenCalledWith({ projectRoot: "/repo" }, 7, ["keep", "bug"]);
+    expect(host.prSetLabels).toHaveBeenCalledWith(hostPr, ["keep", "bug"]);
   } finally {
     registry.dispose();
   }
@@ -321,12 +329,17 @@ it("posts a review against the selected revision and keeps deleted lines on the 
     expect((await runAtomCommand(registry, reviewPr, { environmentId, input }, quiet))._tag).toBe(
       "Success",
     );
-    expect(host.prSubmitReview).toHaveBeenCalledWith({ projectRoot: "/repo" }, 7, {
-      commitId: "reviewed",
-      event: "REQUEST_CHANGES",
-      body: "Please revise",
-      comments: [{ path: "a.ts", body: "Keep this", side: "LEFT", line: 8, startLine: 6 }],
-    });
+    // The project checkout keeps the review checkpoint.
+    expect(host.prSubmitReview).toHaveBeenCalledWith(
+      hostPr,
+      {
+        commitId: "reviewed",
+        event: "REQUEST_CHANGES",
+        body: "Please revise",
+        comments: [{ path: "a.ts", body: "Keep this", side: "LEFT", line: 8, startLine: 6 }],
+      },
+      { projectRoot: "/repo" },
+    );
     expect((await runAtomCommand(registry, reviewPr, { environmentId, input }, quiet))._tag).toBe(
       "Failure",
     );
@@ -398,7 +411,9 @@ it("reads both sides of a renamed review file from the revision shown", async ()
       _tag: "Success",
       value: { oldContents: "old", newContents: "new" },
     });
-    expect(host.prGetDiffFileContents.mock.lastCall?.[1]).toMatchObject({
+    expect(host.prOpenReview).toHaveBeenLastCalledWith(hostPr);
+    expect(host.prGetDiffFileContents.mock.lastCall?.[0]).toMatchObject({
+      ...hostPr,
       baseSha: "base",
       headSha: "reviewed",
       oldPath: "old.ts",

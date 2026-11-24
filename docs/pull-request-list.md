@@ -90,13 +90,15 @@ reactions, so no read follows it. A failed write puts back what was shown and
 says why. The server checks that the target is this pull request, or a visible
 comment or review on it, before it writes.
 
-Use **Inspect a PR URL** to read a GitHub PR without adding a project or preparing
-a checkout. Inspection reads the description, conversation and inline comments.
-It is read-only on every client and uses the selected host's GitHub connection.
-Other code hosts and invalid URLs give an error. The response has a text budget
-of 256,000 characters and bounds of 100 conversation entries, 50 threads, 100
-inline comments, 100 commits and 100 reviewers. A notice links to the full record
-on GitHub when content is omitted.
+Use **Open PR URL** in the page's head row, beside Refresh, to open one GitHub
+pull request by its URL. A popover takes the URL, the same as **Open issue URL**
+on the Tasks page. The pull request opens in the side panel, the same panel a
+row opens. The URL's `owner/name` names its repository. A project that is a
+checkout of that repository, on a connected host, reads it, as the list does.
+With no such project, the repository itself is read by its key, as a linked pull
+request of another repository is. Its checkout actions then need a checkout of
+that repository. A URL that is not a GitHub pull request gives an error under
+the field. Without a workspace, the pull request opens on GitHub.
 
 ## Memory on this device
 

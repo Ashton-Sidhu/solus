@@ -23,9 +23,9 @@ already exist.
   surface until 2026-11-13; the route id and the command ids keep the old
   name, so saved layouts and custom shortcuts still work. On mobile, the
   Threads screen reached from the thread's menu.
-- **recent row** — the "Pinned and recent" section of pictures at the top of the surface: the
-  session's works, apps, files, and images, pinned first, then the latest
-  opened, changed, or added (decision 17).
+- **recent row** — the "Recently viewed" section of pictures at the top of the surface: the
+  session's works, apps, files, and images, the ones this device opened first,
+  latest open first, then the others, latest made first (decision 17).
 - **own** — the session's own artifacts. **children** — one group per session
   below it in its delegation tree: the sessions it started, oldest started
   first, then the ones they started, level by level.
@@ -228,13 +228,15 @@ or a message, and do not call the scope a filter.
     scanned once for each appended message, and never for a streamed token.
 17. **The recent row shows what a person comes back for.** At the top of the
     surface, under the head, a section of its own with no card around it,
-    labelled "Pinned and recent"
-    (not "Artifacts": it holds what was pinned or touched last, not every
+    labelled "Recently viewed"
+    (not "Artifacts": it holds what the person opened first, not every
     item), holds one row of the works,
     apps, files, and images of the session and the sessions it started; pull
-    requests and automations stay in their cards. Pinned works come first;
-    then each item by the latest of three times: when this device last opened
-    it, when a work last changed (`updatedAt`), and when a session linked it.
+    requests and automations stay in their cards. The items this device opened
+    come first, the latest open first; then the others, the latest made first
+    (by when a session linked it). A pin or a change to a work does not move an
+    item (changed 2026-11-23; it was "Pinned and recent", pinned first, then
+    the latest opened, changed, or linked).
     An item two sessions linked shows once. The row holds at most 12, scrolls
     sideways, and is the whole session's: a turn or a search does not narrow
     it. Its label folds it, as the cards' labels fold them, and its arrows
@@ -246,9 +248,8 @@ or a message, and do not call the scope a filter.
     marks a pinned work. One model orders the row on every client
     (`packages/client-core/src/recent-artifacts.ts`).
     - The read gives each work its `pinned`, `updatedAt`, and `preview`
-      (optional: an older host leaves them out, and the row orders by the
-      link time alone). A client reads the list again on every `works.changed`
-      for a work the list holds, so a pin or an edit moves the row.
+      (optional: an older host leaves them out). A client reads the list again on every `works.changed`
+      for a work the list holds, so its pin and picture stay current.
     - An artifact draws itself with script, so its text says nothing of what
       it shows. The host that reads the list takes a still of each artifact
       work in light and dark, once for each content, in the headless browser

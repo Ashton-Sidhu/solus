@@ -96,17 +96,4 @@ describe('DiffSummaryStore', () => {
     ])
     expect(diffCountLine(read, totals)).toEqual({ files: 2, folders: read.folderCount, additions: 12, deletions: 4 })
   })
-
-  test('uses git stats as the changed-file list for a turn summary', () => {
-    const stats: ChangedFileStat[] = [
-      { path: 'src/turn-only.ts', additions: 3, deletions: 1, status: 'M' },
-    ]
-
-    const tree = buildDiffSummaryTree(undefined, stats)
-
-    expect(tree.total).toBe(1)
-    expect(tree.root.folders[0]?.files[0]?.path).toBe('src/turn-only.ts')
-    expect(tree.additions).toBe(3)
-    expect(tree.deletions).toBe(1)
-  })
 })

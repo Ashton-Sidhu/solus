@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind } from '@solus/contracts/media-types'
 import { uuid } from '@solus/contracts/uuid'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
@@ -65,7 +65,6 @@ function readFileDataUrl(file: Blob): Promise<string> {
 }
 
 async function uploadFiles(transport: WsTransport, files: File[], ctx: IpcContext): Promise<Attachment[] | null> {
-  if (files.length > MAX_ATTACHMENT_UPLOAD_COUNT) return null
   try {
     const attachments: Attachment[] = []
     for (const file of files) {

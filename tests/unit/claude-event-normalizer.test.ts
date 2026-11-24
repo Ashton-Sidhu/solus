@@ -43,6 +43,19 @@ describe('ClaudeTurnNormalizer', () => {
     expect(JSON.stringify(normalizer.push(progress))).not.toContain('/tmp/script')
   })
 
+  test('a tool block ends with its call id, and a text block ends no call', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+    const stream = (event: unknown) => normalizer.push({ type: 'stream_event', event } as ClaudeEvent)
+    stream({ type: 'message_start', message: { id: 'm' } })
+    stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+    expect(stream({ type: 'content_block_stop', index: 0 })).toEqual([])
+    stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_agent', name: 'Agent' } })
+    stream({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"description":"Audit"}' } })
+    expect(stream({ type: 'content_block_stop', index: 1 })).toEqual([
+      { type: 'tool_call_complete', index: 1, toolId: 'toolu_agent', toolInput: '{"description":"Audit"}' },
+    ])
+  })
+
   test('normalizes a main-thread turn without backend bookkeeping', async () => {
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
     const { events, normalizer } = await normalizeClaudeFixture('claude-main-thread.jsonl')
@@ -56,7 +69,7 @@ describe('ClaudeTurnNormalizer', () => {
       },
       { type: 'text_chunk', text: 'Hello ' },
       { type: 'tool_call', toolName: 'Bash', toolId: 'tool-1', index: 1 },
-      { type: 'tool_call_complete', index: 1, toolInput: '{"command":"pwd"}' },
+      { type: 'tool_call_complete', index: 1, toolId: 'tool-1', toolInput: '{"command":"pwd"}' },
       {
         type: 'task_complete',
         result: 'done',
@@ -296,7 +309,8 @@ describe('ClaudeTurnNormalizer', () => {
         durationMs: 4500,
         lastToolName: 'Read',
       },
-      { type: 'tool_call_complete', index: 2, toolInput: '{"description":"Design plan"}' },
+      // The stop names only the block's index; the normalizer names the call, so a reader finds the agent by id.
+      { type: 'tool_call_complete', index: 2, toolId: 'agent-async-1', toolInput: '{"description":"Design plan"}' },
       {
         type: 'tool_result',
         toolUseId: 'agent-async-1',

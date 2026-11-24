@@ -13,10 +13,7 @@ import {
 import { serveAssetToken } from '@solus/server/data/assets/assets'
 import { signToken } from '@solus/server/admission/signed-token'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind } from '@solus/contracts/media-types'
-import {
-  MAX_ATTACHMENT_UPLOAD_BYTES,
-  MAX_ATTACHMENT_UPLOAD_COUNT,
-} from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import {
   attachmentUploadRoute,
@@ -190,9 +187,6 @@ describe('attachment upload handler', () => {
     expect(await readFile(path)).toEqual(contents)
   })
 
-  // Each conversation gets its own folder — that separation is what stops one
-  // from reading another's uploads or spending another's slot cap. A draft is
-  // not exempt from it just because it has no session id.
   test('files each draft in its own folder', async () => {
     const write = (ctx: IpcContext) => writeAttachmentUpload(
       ctx,
@@ -206,23 +200,6 @@ describe('attachment upload handler', () => {
     const startedSession = await write(context('session-one'))
 
     expect(new Set([draft, otherDraft, startedSession].map(folderOf)).size).toBe(3)
-  })
-
-  test('a draft spends its own slot cap, not a started session\'s', async () => {
-    const ctx = draftContext('capped-draft')
-    for (let index = 0; index < MAX_ATTACHMENT_UPLOAD_COUNT; index++) {
-      await writeAttachmentUpload(
-        ctx,
-        { name: `${index}.txt`, mime: 'text/plain', dataUrl: dataUrl(Buffer.from(String(index))) },
-        { attachmentsDir: root },
-      )
-    }
-
-    await expect(writeAttachmentUpload(
-      ctx,
-      { name: 'extra.txt', mime: 'text/plain', dataUrl: dataUrl(Buffer.from('extra')) },
-      { attachmentsDir: root },
-    )).rejects.toThrow(`at most ${MAX_ATTACHMENT_UPLOAD_COUNT}`)
   })
 
   test('refuses an upload with neither a session nor a draft behind it', async () => {
@@ -242,36 +219,17 @@ describe('attachment upload handler', () => {
     )).rejects.toThrow('10 MB')
   })
 
-  test('enforces the shared per-session count cap', async () => {
-    const ctx = context('counted-session')
-    for (let index = 0; index < MAX_ATTACHMENT_UPLOAD_COUNT; index++) {
-      await writeAttachmentUpload(
-        ctx,
-        { name: `${index}.txt`, mime: 'text/plain', dataUrl: dataUrl(Buffer.from(String(index))) },
-        { attachmentsDir: root },
-      )
-    }
-
-    await expect(writeAttachmentUpload(
-      ctx,
-      { name: 'extra.txt', mime: 'text/plain', dataUrl: dataUrl(Buffer.from('extra')) },
-      { attachmentsDir: root },
-    )).rejects.toThrow(`at most ${MAX_ATTACHMENT_UPLOAD_COUNT}`)
-  })
-
-  test('keeps the count cap under concurrent uploads', async () => {
-    const ctx = context('concurrent-session')
-    const results = await Promise.allSettled(
-      Array.from({ length: MAX_ATTACHMENT_UPLOAD_COUNT + 1 }, (_, index) =>
+  test('stores more than eight screenshots in one draft or session', async () => {
+    for (const ctx of [draftContext('many-screenshots'), context('concurrent-session')]) {
+      const screenshots = Array.from({ length: 12 }, (_, index) => Buffer.from(String(index)))
+      const paths = await Promise.all(screenshots.map((bytes) =>
         writeAttachmentUpload(
           ctx,
-          { name: `${index}.txt`, mime: 'text/plain', dataUrl: dataUrl(Buffer.from(String(index))) },
+          { name: 'screenshot.png', mime: 'image/png', dataUrl: dataUrl(bytes, 'image/png') },
           { attachmentsDir: root },
-        )),
-    )
-
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(MAX_ATTACHMENT_UPLOAD_COUNT)
-    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+        )))
+      expect(await Promise.all(paths.map((path) => readFile(path)))).toEqual(screenshots)
+    }
   })
 })
 
@@ -297,8 +255,7 @@ describe('streamed attachment upload', () => {
     for (const part of parts) yield part
   }
 
-  /** Only slot locks may remain in the bucket: no partial file, no half target. */
-  const bucketFiles = async (hostPath: string) => (await readdir(dirname(hostPath))).filter((name) => !name.startsWith('.slot-'))
+  const bucketFiles = (hostPath: string) => readdir(dirname(hostPath))
 
   test('streams exactly the declared bytes into the path the token named', async () => {
     const bytes = Buffer.from('fake mp4 bytes')
@@ -399,23 +356,12 @@ describe('streamed attachment upload', () => {
     await expect(tokenFor(0)).rejects.toThrow()
   })
 
-  test('unused tokens spend no slots, while simultaneous uploads enforce the count cap', async () => {
-    const tokens = await Promise.all(Array.from({ length: MAX_ATTACHMENT_UPLOAD_COUNT + 2 }, () => tokenFor(1)))
+  test('streams more than eight attachments into the same conversation', async () => {
+    const tokens = await Promise.all(Array.from({ length: 12 }, () => tokenFor(1)))
     const results = await Promise.all(tokens.map(({ token }) => receiveAttachmentUpload(
       token, { contentLength: '1', body: chunks(Buffer.from('x')) }, { secret, now },
     )))
-    expect(results.filter((result) => result.status === 204)).toHaveLength(MAX_ATTACHMENT_UPLOAD_COUNT)
-    expect(results.filter((result) => result.status === 409)).toHaveLength(2)
-  })
-
-  test('failed uploads give their slots back for a fresh token', async () => {
-    for (let index = 0; index < MAX_ATTACHMENT_UPLOAD_COUNT + 1; index++) {
-      const { token } = await tokenFor(2)
-      const response = await receiveAttachmentUpload(token, { contentLength: '2', body: chunks(Buffer.from('x')) }, { secret, now })
-      expect(response.status).toBe(400)
-    }
-    const { token } = await tokenFor(1)
-    expect((await receiveAttachmentUpload(token, { contentLength: '1', body: chunks(Buffer.from('x')) }, { secret, now })).status).toBe(204)
+    expect(results.map((result) => result.status)).toEqual(tokens.map(() => 204))
   })
 
   test('refuses a token with neither a session nor a draft behind it', async () => {

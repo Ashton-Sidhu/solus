@@ -52,6 +52,7 @@ describe('what a prompt to the run host carries', () => {
     // a turn start on a current host makes no network request).
     expect(hostTurns(turn('a', 3), turn('b', 2)).syncSource('a')).toBeNull()
     expect(hostTurns().syncSource('a')).toBeNull()
+    expect(hostTurns(turn('a', 3), turn('b', 2)).syncOrigin('a', null)).toBeNull()
   })
 
   test('the newest head and its host when another host is ahead', () => {

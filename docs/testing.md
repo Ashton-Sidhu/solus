@@ -1,23 +1,54 @@
 # Tests that protect app behavior
 
+## Choose the smallest test
+
 A test belongs in the app suite when it drives production behavior and checks
 an outcome that matters to a user. State changes, saved data, permissions,
 provider requests, navigation, error recovery, and resource use all qualify.
 A small function test qualifies when its result controls one of these outcomes.
 
-Do not test source spelling, import style, component structure, Tailwind classes,
-fixed pixel values, copied registries, dependency exports, or instructional prose.
-These checks can pass while the feature is broken. Keep development lint rules
-and their own tests separate from the app suite.
+Cover each regression at the lowest layer where it reproduces. Add a case or
+assertion to an existing test when its setup already fits. Cover distinct
+platform or transport behavior where it can fail independently. Shared logic
+needs one test even when multiple clients call it.
 
 Use real production logic with small fixtures. Mock external boundaries, then
-assert the resulting state, output, or request. A test that only confirms what
-its own mock returned provides no app coverage. Compiling and executing a real
-Svelte controller is useful; searching its source for an effect is not.
+assert the resulting state, output, or request. Skip checks for type guarantees,
+trivial wiring, mock responses echoed unchanged, static copy, source spelling,
+component structure, and exact CSS classes or visual values. Keep source rules
+in lint and test the lint rules with small fixtures. Contract and packaging
+checks can protect dependencies and files required at runtime.
 
-Keep distinct failure paths and boundary cases. Remove repeated assertions of
-the same outcome when another test already covers them. Update stale fixtures
-for useful tests. Keep a failing test when it exposes a current app defect.
+## Prove a bug fix
+
+- For logic, data, state, and protocol bugs, first run a focused test against the
+  code before the fix. Confirm that it fails on the outcome the bug breaks.
+  Run the same test again with the fix. Backend behavior changes need focused
+  tests.
+- Use a browser or Electron workflow when the outcome depends on real
+  rendering, focus, scrolling, pointer input, or native window behavior.
+  Use the existing Playwright fixture for Electron and the Replay provider
+  for flows that need an agent. Use a native client when the behavior depends
+  on the device.
+- For a purely visual fix, use before-and-after captures of the affected
+  surface. Use an automated test when the change also fixes a behavior that
+  can regress.
+- In review, ask for a test only when it would catch a specific regression.
+  Fix stale fixtures for useful tests. Keep failing assertions that expose a
+  current defect.
+
+## Wait for the outcome
+
+- In unit and integration tests, await the event, receipt, worker drain, or
+  completion signal for the operation under test. Use a fake clock when time
+  is part of the behavior. Keep wall-clock waits for external process or
+  network deadlines.
+- In browser tests, use Playwright's retrying assertions on observable state.
+  Avoid fixed sleeps and frame counts. Fix flaky tests at the point where
+  they lose synchronization.
+- Use the runner's timeout. If a test must be quarantined, record the tracking
+  issue and reason next to the skip. State the platform or fixture requirement
+  next to a conditional skip.
 
 ## Run the suite
 
@@ -27,10 +58,12 @@ bun run test:unit task-writes.test.ts
 bun run test:unit browser-inspect.test.ts log-file-path.test.ts
 ```
 
-The runner starts a fresh Bun process for each file, with at most four files
-running at once. Each file gets a temporary `SOLUS_DATA_DIR` and a 30-second
+The runner finds JavaScript and TypeScript test files under `tests/unit` and
+starts a fresh Bun process for each file, with at most four files running at
+once. Each file gets a temporary `SOLUS_DATA_DIR` and a 30-second
 deadline. Bun's runtime transpiler cache is disabled for these processes because
 cached modules on Bun 1.3.14 intermittently fail to resolve the SQLite mock.
+The runner enables the `svelte` export condition for renderer dependencies.
 Failures include the file's output and make the command fail. Optional
 arguments select paths by substring. A selection with no matches fails.
 
@@ -38,11 +71,17 @@ On macOS and Linux, the runner owns a process group for each test file and stops
 its remaining descendants when the file exits, times out, or is cancelled.
 Windows uses Bun's `--no-orphans` and direct child termination; descendant
 cleanup on Windows has not been verified. Tests must still close their own
-resources and remove their fixtures.
+resources and remove their fixtures. If the OS refuses a process group signal,
+the runner reports the affected file, continues the suite, and exits with an error.
+
+The pull request workflow runs the Bun suite on macOS and Windows. It also
+runs selected Linux desktop checks and the mobile `test:logic` suite on macOS.
+Playwright workflows run separately with a developer-built Electron test app.
 
 Use temporary data for all tests. Never start a test against live Solus data.
 The Bun preload also isolates direct `bun test` commands: it replaces inherited
-`SOLUS_DATA_DIR`, selects SQLite, and clears `DATABASE_URL`. Postgres tests must
+`SOLUS_DATA_DIR`, selects SQLite, and clears `DATABASE_URL`. It supplies the
+test adapter for Node's SQLite module when running in Bun. Postgres tests must
 use `bun run test:unit --engine=postgres` with `POSTGRES_ADMIN_URL`; the runner
 creates and authorizes one `solus_test_*` database per file. Test database opens
 reject SQLite paths outside the temporary directory (including symlinks) and

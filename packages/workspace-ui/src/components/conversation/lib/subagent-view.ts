@@ -1,5 +1,5 @@
 import type { Message } from '@solus/contracts/types'
-import { parseSubagentInput, subagentInputText } from './subagent'
+import { parseSubagentInput, subagentInputText } from '@solus/contracts/subagent-input'
 import { subagentState } from './subagent-group'
 
 /**

@@ -24,27 +24,13 @@ async function chooseAction(page: import('@playwright/test').Page, label: string
 }
 
 test.describe('Open project flow', () => {
-  test('opens on one screen with the machine already chosen, not on a question about it', async ({ page }) => {
+  test('one connected machine opens the project actions without a machine picker', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
     await openFlow(page)
 
     await expect(page.locator(TITLE)).toHaveText('Open project')
-    // Opening a folder and cloning are always offered; GitHub only when signed in.
-    const labels = await page.locator(OPTION).allInnerTexts()
-    expect(labels.some((text) => text.includes('Open an existing folder'))).toBe(true)
-    expect(labels.some((text) => text.includes('Clone from a URL'))).toBe(true)
-
-    await page.keyboard.press('Escape')
-    await expect(page.locator(DIALOG)).toBeHidden()
-  })
-
-  test('one connected machine is not a choice, so nothing asks about it', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await openFlow(page)
-
-    // No machine step on the way in, and no chip to change an answer of one.
+    await expect(page.locator(OPTION).filter({ hasText: 'Open an existing folder' })).toBeVisible()
     await expect(page.locator(CHIP)).toBeHidden()
 
     await chooseAction(page, 'Clone from a URL')

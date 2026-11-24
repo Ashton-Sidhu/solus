@@ -165,7 +165,7 @@
       {kicker.title}
       {#if cwdParts}
         <span class="text-(--muted-foreground)">in</span>
-        <span class="interrupt-chip" title={cwdParts.head + cwdParts.tail}><FolderIcon size={11} />{cwdParts.tail}</span>
+        <span class="interrupt-chip" title={cwdParts.head + cwdParts.tail}><FolderIcon size={13} />{cwdParts.tail}</span>
       {/if}
     </p>
     {#if destructive}

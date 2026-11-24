@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { anchorEdge, focusEdge } from "../../packages/workspace-ui/src/lib/chip-selection";
 
 // A chip copies as its whole link (`[foo.ts](src/foo.ts)`). A selection end
@@ -31,12 +29,4 @@ describe("chip selection edges", () => {
     expect(focusEdge(-1, 1, false)).toBe("before");
     expect(focusEdge(1, -1, false)).toBe("after");
   });
-});
-
-test("a button chip can start a selection", () => {
-  // WHY: a <button> does not start a drag selection or a double-click word
-  // selection, so a highlight could only start beside a chip.
-  const css = readFileSync(join(import.meta.dir, "../../packages/workspace-ui/src/workspace.css"), "utf8");
-  const rule = css.match(/\nbutton\.solus-token \{([^}]*)\}/)?.[1] ?? "";
-  expect(rule).toMatch(/(^|\n)\s*user-select:\s*text;/);
 });

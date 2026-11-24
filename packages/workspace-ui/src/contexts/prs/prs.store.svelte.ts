@@ -128,7 +128,8 @@ export class PrsStore {
     if (wants.sentInterests === signature) return
     wants.sentInterests = signature
     try {
-      const known = await project.hostApi.prSetInterest(detached(project.hostContext), [...byJson.values()])
+      const checkout = project.checkoutContext
+      const known = await project.hostApi.prSetInterest(await project.repository(), [...byJson.values()], checkout && detached(checkout))
       this.applyChange(project.serverId, known, project)
       if (!byJson.size && !bySurface.size && this.wants.get(project.key) === wants) this.wants.delete(project.key)
     } catch {

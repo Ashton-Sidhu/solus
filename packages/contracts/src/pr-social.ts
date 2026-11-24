@@ -1,4 +1,3 @@
-import type { PrConversationItem, PullRequestOverview, ReviewThread } from './providers'
 export type PrReactionContent =
   'THUMBS_UP' | 'THUMBS_DOWN' | 'LAUGH' | 'HOORAY' | 'CONFUSED' | 'HEART' | 'ROCKET' | 'EYES'
 export interface PrReaction {
@@ -20,11 +19,4 @@ export interface PrReactions {
   viewerCanReact: boolean
   /** The reactions someone made, in GitHub's order. None has a count of zero. */
   groups: PrReaction[]
-}
-export interface PrUrlInspection {
-  overview: PullRequestOverview
-  comments: PrConversationItem[]
-  threads: ReviewThread[]
-  readOnly: true
-  truncated: boolean
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const root = join(import.meta.dir, '../..')
 
@@ -142,8 +142,7 @@ describe('host log file path', () => {
     // WHY: a test is a development runtime started from the repo root. Its logger
     // truncated the live `dev.log` and wrote fixture entries into it, so the
     // developer read a log that had lost its history and mixed in another process.
-    expect(process.env.SOLUS_DEV_LOG).toBeTruthy()
-    expect(process.env.SOLUS_DEV_LOG).not.toBe(join(root, 'dev.log'))
+    expect(process.env.SOLUS_DEV_LOG).toBe(join(dirname(process.env.SOLUS_DATA_DIR!), 'dev.log'))
     const dataDir = mkdtempSync(join(tmpdir(), 'solus-log-override-'))
     try {
       const loggerModule = join(root, 'packages/server/src/logger.ts')

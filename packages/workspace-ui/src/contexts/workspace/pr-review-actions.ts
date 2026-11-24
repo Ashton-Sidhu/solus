@@ -255,7 +255,8 @@ export class PrReviewActions {
   async preparePrReview(number: number, opts: { ctx?: IpcContext; serverId?: string } = {}): Promise<{ pr: PrReviewTarget }> {
     const ctx = opts.ctx ?? this.workspace.ctx
     const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.workspace.apiForContext(ctx)
-    const pr = await api.prOpenReview(ctx, number)
+    const serverId = opts.serverId ?? this.workspace.serverIdForContext(ctx)
+    const pr = await this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).openReview()
     return { pr }
   }
 

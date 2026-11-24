@@ -60,7 +60,7 @@
     actions?: Snippet;
     /** Keep the actions on the card line above a body: the body is a form with its own buttons. */
     actionsOnCardLine?: boolean;
-    /** Everything else, behind ⋯. */
+    /** Extra actions behind ⋯. When present, the split action also goes here. */
     menu?: Snippet;
     body?: Snippet;
   }
@@ -103,8 +103,9 @@
   const actionsInHeader = $derived(
     !showBody || actionsOnCardLine || bodyLayout === "media" || bodyLayout === "player",
   );
-  /** Beside the split icon, a quiet Open is an icon too, so the line reads as
-   *  one row of icons. A filled action waits on the user and keeps its word. */
+  const directSplitAction = $derived(menu ? undefined : onOpenSecondary);
+  /** Keep a quiet Open compact on cards with a split action.
+   *  A filled action waits on the user and keeps its word. */
   const openAsIcon = $derived(!!onOpenSecondary && !actionFilled);
   const endsInButton = $derived(
     !!(actionLabel || menu || onOpenSecondary || actions || isDisclosure),
@@ -112,7 +113,7 @@
 
   function handleClick(e: MouseEvent) {
     if (!onOpen || isNestedInteractive(e.target, e.currentTarget)) return;
-    // Cmd-click opens into the pane, the same as the split icon.
+    // Cmd-click opens into the pane, the same as the split action.
     if ((e.metaKey || e.ctrlKey) && onOpenSecondary) {
       onOpenSecondary();
       return;
@@ -190,7 +191,7 @@
       </div>
     {/if}
     <!-- ⋯ stays in the header, so the footer never holds it alone. -->
-    {#if !actionsInHeader && (actions || onOpenSecondary || (actionLabel && onOpen))}
+    {#if !actionsInHeader && (actions || directSplitAction || (actionLabel && onOpen))}
       <div class="flex flex-wrap items-center justify-end gap-1 px-(--tx-card-pad-r) pb-2">
         {@render cardActions(false)}
       </div>
@@ -199,7 +200,7 @@
 </div>
 
 {#snippet cardActions(withMenu: boolean)}
-  {#if actions || onOpenSecondary || actionLabel || (withMenu && menu)}
+  {#if actions || directSplitAction || actionLabel || (withMenu && menu)}
     <!-- On the card line the actions keep their width and the title truncates:
          a wrapped action falls below the 40px line and the card clips it. -->
     <div
@@ -209,13 +210,11 @@
     >
       {#if actions}{@render actions()}{/if}
       {#if withMenu && menu}{@render cardMenu(menu)}{/if}
-      <!-- Always visible, never hover-only: the split has to be found on a
-           static card too. -->
-      {#if onOpenSecondary}
+      {#if directSplitAction}
         <TranscriptCardAction
           kind="icon"
           label={secondaryActionLabel}
-          onclick={onOpenSecondary}
+          onclick={directSplitAction}
         >
           <PanelRightIcon size={14} strokeWidth={1.5} />
         </TranscriptCardAction>
@@ -262,6 +261,18 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="flex flex-col gap-0.5" onclick={(e) => e.stopPropagation()}>
+        {#if onOpenSecondary}
+          <TranscriptCardAction
+            kind="item"
+            onclick={() => {
+              menuOpen = false;
+              onOpenSecondary?.();
+            }}
+          >
+            <PanelRightIcon size={14} strokeWidth={1.5} />
+            Open in split view
+          </TranscriptCardAction>
+        {/if}
         {@render content()}
       </div>
     </Popover.Content>

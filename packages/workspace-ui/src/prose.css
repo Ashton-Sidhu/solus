@@ -338,8 +338,10 @@
   /* Both providers lead a summary with a `**title**`. In a thought that bold
      is structure, not emphasis. */
   .prose-thought strong { font-weight: inherit; }
-  /* Inside a tool group a thought takes the steps' size and tone. */
+  /* Inside a tool group a thought takes the steps' face, size, and tone, so
+     opening it does not change how it reads beside the commands. */
   .prose-thought.is-step {
+    font-family: var(--solus-code-font-family);
     --prose-size: var(--text-tool-step);
     --prose-ink: currentColor;
     opacity: 0.8;

@@ -200,7 +200,7 @@
         fallbackCtx: () => targetCtx ?? session.ctx,
         ctxForDirectory: (path) => session.ctxForDirectory(path),
         threadSource: (ctx, number) => pullRequests.projects.get(api, serverId, ctx).get(number),
-        loadDiff: (ctx, request) => api.prGetDiff(ctx, request),
+        loadDiff: (request) => api.prGetDiff(request),
         prepareCheckout: (ctx, target) => api.prPrepareCheckout(ctx, target),
         loadInterdiff: (ctx, target, force) =>
           pullRequests.projects.get(api, serverId, ctx).get(target.number).loadInterdiff(target, { force }),

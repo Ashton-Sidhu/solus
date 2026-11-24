@@ -636,32 +636,28 @@
 <!-- Where the person's tasks come from, and the one place to change it. With
      no source, the empty state adds the first one instead. -->
 {#snippet sourceStrip()}
-  <!-- The sources, then the one issue a person opens by its URL without
-       adding its source. -->
-  <div class="flex min-w-0 items-center gap-1">
-    <div class="min-w-0 flex-1">
-      <TaskSourceStrip
-        sourceKey={view.source?.sourceKey ?? null}
-        counts={view.sourceCounts}
-        allCount={view.allSourcesCount}
-        onSelect={selectViewSource}
-        onChanged={() => void store.load()}
-      />
-    </div>
-    <TaskUrlInspector {resolveIssue} onOpen={openExternalIssue} />
-  </div>
+  <TaskSourceStrip
+    sourceKey={view.source?.sourceKey ?? null}
+    counts={view.sourceCounts}
+    allCount={view.allSourcesCount}
+    onSelect={selectViewSource}
+    onChanged={() => void store.load()}
+  />
 {/snippet}
 
 <!-- GitHub, Jira and Linear own every task, so a person with no task source has
      no tasks. The body is the source setup. -->
 {#snippet sourceSetup()}
-  <TaskSourceSetup onChanged={setupChanged} />
+  <TaskSourceSetup
+    onChanged={setupChanged}
+    onDone={() => (isAddingSources = false)}
+  />
 {/snippet}
 
-{#snippet issueUrlOnly()}
-  <div class="flex justify-end">
-    <TaskUrlInspector {resolveIssue} onOpen={openExternalIssue} />
-  </div>
+<!-- Opening one issue by its URL is a page action, not a source, so it has
+     one place in every state: the head row, beside Refresh. -->
+{#snippet headActions()}
+  <TaskUrlInspector {resolveIssue} onOpen={openExternalIssue} />
 {/snippet}
 
 {#snippet filterBar()}
@@ -735,15 +731,14 @@
       primaryAction={splitList
         ? undefined
         : isSettingUp
-          ? configured.length > 0
-            ? { label: "Show tasks", run: () => (isAddingSources = false) }
-            : undefined
+          ? undefined
           : canCreate
             ? { label: "New task", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
             : undefined}
       onClose={workspace ? close : undefined}
       toolbarFilters
-      scopes={splitList ? undefined : isSettingUp ? issueUrlOnly : sourceStrip}
+      actions={headActions}
+      scopes={splitList || isSettingUp ? undefined : sourceStrip}
       filters={isSettingUp ? undefined : filterBar}
       contentOwnsScroll
       bind:contentHeight

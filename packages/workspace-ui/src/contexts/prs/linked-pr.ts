@@ -1,4 +1,4 @@
-import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
+import { parseGitHubPullRequestUrl, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import type { TaskLink, TaskPrSnapshot, TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { IpcContext } from '@solus/contracts/types'
@@ -33,6 +33,13 @@ export function linkedPrIdentity(link: PrLink, fallbackScope: string | null): Om
     title: link.title || `#${number}`,
     url: parsed?.url ?? link.url ?? null,
   }
+}
+
+/** The repository a repository scope names (`host/owner/repo`); null for a
+ *  project's folder. */
+export function repositoryOfScope(scope: string): RepoRef | null {
+  const match = /^([^/.~][^/]*)\/([^/.][^/]*)\/([^/.][^/]*)$/.exec(scope)
+  return match ? { host: match[1], owner: match[2], repo: match[3] } : null
 }
 
 /** A context that reads one repository's pull requests rather than a

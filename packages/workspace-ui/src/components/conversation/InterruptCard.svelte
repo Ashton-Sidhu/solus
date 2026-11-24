@@ -282,18 +282,23 @@
     opacity: 0.8;
   }
 
-  /* The chip that names where a permission runs. */
+  /* The chip that names where a permission runs. It reads as a word of the
+     title: same font, aligned on the title's baseline, no taller than its line. */
   :global(.interrupt-chip) {
     display: inline-flex;
-    height: 1.375rem;
     align-items: center;
-    gap: 0.3rem;
-    border-radius: 0.4rem;
-    background: color-mix(in oklch, var(--foreground) 6%, transparent);
-    padding: 0 0.5rem;
-    vertical-align: 0.125rem;
-    font-family: var(--solus-code-font-family);
-    font-size: 0.75rem;
+    gap: 0.25rem;
+    border-radius: 0.375rem;
+    background: color-mix(in oklch, var(--foreground) 5%, transparent);
+    padding: 0 0.375rem;
+    vertical-align: baseline;
+    font-size: 0.9em;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--solus-text-primary);
+  }
+  :global(.interrupt-chip svg) {
+    flex-shrink: 0;
     color: var(--solus-text-secondary);
   }
 

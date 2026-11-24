@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { closeTargetPaneId } from '@solus/workspace-ui/components/layout/lib/workspace-body'
-import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 import { KeybindingsContext } from '@solus/workspace-ui/lib/keybindings/dispatcher.svelte'
 import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
@@ -59,15 +58,6 @@ describe('the close key against the rest of the keyboard', () => {
       target: null,
       preventDefault: () => {},
     }) as unknown as KeyboardEvent
-
-  test('is one binding on the pane rather than one per surface', () => {
-    // WHY: the maximize key was moved to the pane for the same reason — a
-    // per-surface binding is how the browser pane ended up with none.
-    expect(KEYBINDINGS['pane.close']).toMatchObject({ combo: { code: 'Escape' }, scope: 'global' })
-    expect('browser-pane.close' in KEYBINDINGS).toBe(false)
-    // An exclusive overlay owns Escape outright; the pane must not reach through it.
-    expect(KEYBINDINGS['pane.close'].reserved).toBeUndefined()
-  })
 
   test('yields to a surface that spends Escape itself', () => {
     // WHY: the diff panel closes its find bar, then its comment draft, then

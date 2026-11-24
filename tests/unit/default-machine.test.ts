@@ -5,6 +5,7 @@ import { HostFacts } from '@solus/client-core/host-facts'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { chooseRunOnHost, type KnownHost } from '@solus/client-core/known-host'
 import type { SettingsContext } from '@solus/workspace-ui/contexts/app/settings.context.svelte'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // docs/plans/workspace-and-machines.md §5.1: new work goes to a machine, never
 // to the organization's workspace service, which runs nothing.
@@ -94,10 +95,10 @@ describe('a window with no machine', () => {
     const lifecycle = new WorkspaceLifecycleStore({
       registry: { tabOrder: [], activeTabId: '', sessionFor: () => undefined, activeSession: null },
       settings: { activeAgent: 'codex' },
-      config: {},
+      config: { refreshDefaultModel: () => {} },
       planStore: {},
       agent,
-      defaultRunConfig: () => ({ workingDirectory: '/w' }),
+      defaultRunConfig: () => ({ location: folderLocation({ serverId: 'machine-1', path: '/w' }) }),
       unstartedRuns: () => [],
       refreshGitState: async () => ({ ok: true }),
       ctxFor: () => ({ session: { sessionId: null } }),

@@ -1,18 +1,9 @@
 import type { HostApi } from '@solus/client-core/host-api'
 import type { Attachment, HostCapabilities, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
-import {
-  MAX_ATTACHMENT_UPLOAD_BYTES,
-  MAX_ATTACHMENT_UPLOAD_COUNT,
-} from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, isDngFile, videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
-
-export function assertUploadCount(count: number): void {
-  if (count > MAX_ATTACHMENT_UPLOAD_COUNT) {
-    throw new Error(`Attach up to ${MAX_ATTACHMENT_UPLOAD_COUNT} files at a time.`)
-  }
-}
 
 function assertUploadSize(size: number): void {
   if (size > MAX_ATTACHMENT_UPLOAD_BYTES) {

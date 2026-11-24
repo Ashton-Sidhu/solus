@@ -59,6 +59,18 @@ describe('reading sources', () => {
     expect(client.unreadCount()).toEqual({ unread: 1, isCapped: false, isComplete: true })
   })
 
+  test('a source that is listed again with a new label shows the new label and keeps its rows', async () => {
+    const vm = new FakeNotificationSource()
+    vm.add({ id: 'kept', createdAt: 1 })
+    const client = hub({ 'host:vm': vm })
+    client.setSources([host('vm')])
+    await client.idle()
+    client.setSources([{ ...host('vm'), label: 'vm (this device)' }])
+    expect(client.sources.get('host:vm')?.source.label).toBe('vm (this device)')
+    expect(titles(client)).toEqual(['kept'])
+    expect(lists(vm)).toBe(1)
+  })
+
   test('an older host is unsupported, not an empty inbox', async () => {
     const old = new FakeNotificationSource()
     old.isUnsupported = true

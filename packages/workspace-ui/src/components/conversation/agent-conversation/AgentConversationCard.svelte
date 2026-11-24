@@ -201,21 +201,13 @@
   />
 {/snippet}
 
-<!-- The split and ⋯ stay out of the way until the row is hovered or focused;
-     on touch, where nothing hovers, they always show. -->
+<!-- Show ⋯ on hover or focus, and always on touch. -->
 {#snippet rowActions()}
   <span
-    class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/agent:opacity-100 group-hover/agent:opacity-100 pointer-coarse:opacity-100 {menuOpen
+    class="flex shrink-0 items-center opacity-0 transition-opacity group-focus-within/agent:opacity-100 group-hover/agent:opacity-100 pointer-coarse:opacity-100 {menuOpen
       ? 'opacity-100'
       : ''}"
   >
-    <TranscriptCardAction
-      kind="icon"
-      label="Open {agentName} beside this conversation"
-      onclick={() => open({ split: true })}
-    >
-      <PanelRightIcon size={14} strokeWidth={1.5} />
-    </TranscriptCardAction>
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger>
         {#snippet child({ props })}
@@ -256,6 +248,16 @@
       {provenance}
     </div>
   {/if}
+  <TranscriptCardAction
+    kind="item"
+    onclick={() => {
+      menuOpen = false;
+      open({ split: true });
+    }}
+  >
+    <PanelRightIcon size={14} strokeWidth={1.5} />
+    Open in split view
+  </TranscriptCardAction>
   {#if taskId}
     <TranscriptCardAction kind="item" onclick={() => session.goToTask(taskId, "click")}>
       Open its task

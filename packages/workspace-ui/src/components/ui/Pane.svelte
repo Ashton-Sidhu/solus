@@ -147,7 +147,7 @@
       {:else if ref.name === "prs"}
         <PrsPageSkeleton />
       {:else if ref.name === "folio"}
-        <ListPageSkeleton label="Loading workspace" hasPrimaryAction />
+        <ListPageSkeleton page="folio" label="Loading workspace" hasPrimaryAction />
       {:else if ref.name === "reviewMode"}
         <PrReviewSkeleton />
       {:else if ref.name === "plan"}

@@ -22,14 +22,17 @@
    * (docs/tasks.md), drawn in the list page's own group lines, over cards:
    * the repositories of their recent projects, the sources they added from a
    * provider's menu, and a button for each provider. Adding does not leave the
-   * page, so they add as many as they like and take one back; "Show tasks", the
-   * page's own action, ends the setup.
+   * page, so they add as many as they like and take one back. "Add projects",
+   * the page's own action, adds every project repository not added yet and
+   * ends the setup.
    */
   interface Props {
     /** Called after the sources change, so the page reads their tasks. */
     onChanged: () => void;
+    /** End the setup and show the tasks. */
+    onDone: () => void;
   }
-  let { onChanged }: Props = $props();
+  let { onChanged, onDone }: Props = $props();
 
   const settings = getSettingsContext();
   const config = $derived({ taskSources: settings.taskSources });
@@ -71,21 +74,30 @@
     if (saveTaskSources(settings, patch)) onChanged();
   }
 
+  // The page's action. With every project repository added already, it only
+  // ends the setup.
+  const hasSource = $derived(config.taskSources.length > 0);
+  function addProjects() {
+    if (notAddedProjects.length > 0) {
+      save(withTaskSources(config, notAddedProjects.map((project) => project.source)));
+    }
+    onDone();
+  }
+
   function toggle(row: ProjectSourceRow) {
     save(row.isAdded ? withoutTaskSource(config, row.sourceKey) : withTaskSource(config, row.source));
   }
 </script>
 
-{#snippet groupLine(label: string, count: number | null, trailing?: Snippet)}
-  <!-- ListGroup's line, with room for one action at its end. The label starts
-       on the title's line and the rule runs to the cards' edge. -->
+{#snippet groupLine(label: string, count: number | null)}
+  <!-- ListGroup's line. The label starts on the title's line and the rule runs
+       to the cards' edge. -->
   <div class="flex h-[30px] items-center gap-2.5 pl-2.5">
     <span class="text-xs font-normal text-muted-foreground uppercase">{label}</span>
     {#if count !== null}
       <span class="text-xs tabular-nums text-muted-foreground opacity-70">{count}</span>
     {/if}
     <span class="h-px flex-1 bg-[var(--hairline)]"></span>
-    {#if trailing}{@render trailing()}{/if}
   </div>
 {/snippet}
 
@@ -104,22 +116,25 @@
   </div>
 {/snippet}
 
-{#snippet addAll()}
-  <button
-    type="button"
-    class="shrink-0 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 text-xs font-medium text-(--solus-accent) transition-colors duration-150 hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-9"
-    onclick={() => save(withTaskSources(config, notAddedProjects.map((project) => project.source)))}
-  >Add all {notAddedProjects.length}</button>
-{/snippet}
-
 <div class="flex w-full flex-col gap-7 pt-1 pb-12">
-  <p class="m-0 px-2.5 text-[13px] leading-[1.45] text-(--solus-text-secondary)">
-    Add as many GitHub, Jira and Linear sources as you like. Their issues show up here, ready to hand to an agent.
-  </p>
+  <!-- The action shows once the person has added a source. Until then it is
+       invisible but keeps its place, so nothing moves when it shows. -->
+  <div class="flex min-h-8 items-center gap-4 pl-2.5">
+    <p class="m-0 min-w-0 flex-1 text-[13px] leading-[1.45] text-(--solus-text-secondary)">
+      Add as many GitHub, Jira and Linear sources as you like. Their issues show up here, ready to hand to an agent.
+    </p>
+    <Button
+      class="gap-[7px] px-[13px] text-workspace-chrome hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] {hasSource ? '' : 'invisible'}"
+      onclick={addProjects}
+    >
+      <PlusIcon class="size-4" />
+      Add projects
+    </Button>
+  </div>
 
   {#if isReadingProjects || projectRows.length > 0}
     <section class="flex flex-col gap-1" aria-label="From your projects">
-      {@render groupLine("From your projects", isReadingProjects ? null : projectRows.length, notAddedProjects.length > 1 ? addAll : undefined)}
+      {@render groupLine("From your projects", isReadingProjects ? null : projectRows.length)}
       <div class="grid grid-cols-1 gap-2 @min-[40rem]/pane:grid-cols-3">
         {#if isReadingProjects}
           <div class="flex items-center gap-3 rounded-xl bg-card py-3 pl-2.5 shadow-[inset_0_0_0_0.5px_var(--hairline-strong)]" aria-busy="true" aria-label="Reading your projects">

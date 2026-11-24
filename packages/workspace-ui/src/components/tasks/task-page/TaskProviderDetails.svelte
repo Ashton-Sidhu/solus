@@ -60,7 +60,7 @@
 </script>
 
 {#if task.kind === 'issue' && provider}
-  <section class="grid gap-3 border-t border-border/60 py-5" aria-label="Issue provider">
+  <section class="grid gap-3 py-5" aria-label="Issue provider">
       {#if value?.unavailableReason}<p
           class="text-sm text-muted-foreground"
         >

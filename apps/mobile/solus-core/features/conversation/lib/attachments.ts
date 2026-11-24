@@ -1,5 +1,5 @@
 import { hostReferenceContext } from '@solus/contracts/host-link'
-import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, videoMimeType } from '@solus/contracts/media-types'
 import type { IpcContext, PromptImageRef } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -51,8 +51,7 @@ export interface AttachmentUploadDeps {
 export class AttachmentRefusedError extends Error {}
 
 /** Why these files cannot join the prompt, or null when they can. */
-export function attachmentLimitProblem(files: readonly PickedFile[], alreadyAttached: number): string | null {
-  if (files.length + alreadyAttached > MAX_ATTACHMENT_UPLOAD_COUNT) return `A message can carry up to ${MAX_ATTACHMENT_UPLOAD_COUNT} attachments.`
+export function attachmentSizeProblem(files: readonly PickedFile[]): string | null {
   for (const file of files) {
     const video = videoMimeType({ name: file.name, mimeType: file.mimeType ?? '' })
     const limit = video ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES

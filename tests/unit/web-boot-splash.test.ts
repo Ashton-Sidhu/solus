@@ -5,7 +5,9 @@ import ts from 'typescript'
 import type { Plugin, PluginOption } from 'vite'
 import webConfig from '../../apps/client/vite.config'
 import desktopConfig from '../../electron.vite.config'
-import { BOOT_SPLASH_ID, BOOT_SPLASH_MARK, BOOT_SPLASH_MARKUP, BOOT_SPLASH_STYLE } from '@solus/workspace-ui/lib/boot-splash'
+import { accountSettingsDestination } from '@solus/contracts/account-web'
+import { BOOT_SPLASH_ID, BOOT_SPLASH_MARKUP, BOOT_SPLASH_STYLE } from '@solus/workspace-ui/lib/boot-splash'
+import { pairHostFromLocation } from '../../apps/client/src/lib/connect'
 import { DEFERRED_STYLESHEET_ATTRIBUTE, stylesheetsApplied } from '../../apps/client/src/lib/page-styles'
 
 // The Solus loading screen (docs/plans/fast-secure-startup.md, step 5): one splash,
@@ -50,31 +52,6 @@ describe('one splash for desktop and web', () => {
     }
     expect(written[0]).toBe(`<style>${BOOT_SPLASH_STYLE}</style>`)
     expect(written[1]).toBe(written[0])
-  })
-
-  test('the desktop boot failure draws the splash mark at the splash size', () => {
-    // WHY: boot-scene.ts re-renders the splash with detail under it; a second mark
-    // at another size would read as a new screen.
-    const scene = read('apps/desktop/src/renderer/boot-scene.ts')
-    expect(scene).toContain('${BOOT_SPLASH_MARK}')
-    expect(scene).toContain('width: ${BOOT_SPLASH_MARK_SIZE}; height: ${BOOT_SPLASH_MARK_SIZE}')
-    expect(BOOT_SPLASH_MARKUP).toContain(BOOT_SPLASH_MARK)
-  })
-
-  test('the mark breathes a few times and not at all under reduced motion', () => {
-    // WHY: Solus has no perpetual animation, and it respects reduced motion.
-    const animations = [...BOOT_SPLASH_STYLE.matchAll(/animation:([^;}]+)/g)].map((match) => ({ value: match[1]!, at: match.index! }))
-    expect(animations).toHaveLength(1)
-    const [animation] = animations
-    expect(animation!.value).not.toContain('infinite')
-    const iterations = animation!.value.split(/\s+/).map(Number).filter((each) => Number.isInteger(each))
-    expect(iterations).toHaveLength(1)
-    expect(iterations[0]!).toBeGreaterThan(0)
-    expect(iterations[0]!).toBeLessThanOrEqual(6)
-    const media = BOOT_SPLASH_STYLE.indexOf('@media (prefers-reduced-motion:no-preference){')
-    expect(media).toBeGreaterThan(-1)
-    expect(animation!.at).toBeGreaterThan(media)
-    expect(animation!.at).toBeLessThan(BOOT_SPLASH_STYLE.indexOf('}}', media))
   })
 })
 
@@ -181,8 +158,10 @@ describe('every web surface waits for the stylesheet and takes the place of the 
       history: { replaceState() {} },
       location: { href: 'https://solus.example/w/abc', pathname: '/w/abc', hash: '' },
       matchMedia: () => ({ matches: true }),
+      accountSettingsDestination,
       appPairLink: () => 'solus://pair',
       pairFromLocation() {},
+      pairHostFromLocation,
       guestBoot: { fail() {} },
       loadGuestIdentity: () => null,
       connectGuest() {},

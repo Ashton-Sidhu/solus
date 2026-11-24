@@ -49,7 +49,6 @@ export class SessionQueueController {
   }
 
   async upload(tabId: string, files: File[]): Promise<QueueAttachment[]> {
-    if (files.length > 8) throw new Error('A prompt can have up to eight attachments.')
     const api = this.workspace.apiFor(tabId)
     const ctx = this.workspace.ctxFor(tabId)
     const result: QueueAttachment[] = []

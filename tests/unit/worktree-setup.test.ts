@@ -1,5 +1,5 @@
 import { afterEach, expect, test, spyOn, mock, beforeAll } from 'bun:test'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import * as filesystem from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -56,6 +56,21 @@ test('successful preparation retains its checkout and cancellation creates nothi
   const checkout = await createWorktree(directory, 'main')
   expect(git(['branch', '--show-current'], checkout.worktreePath!)).toBe(checkout.branch)
   expect(git(['worktree', 'list', '--porcelain'], directory).match(/^worktree /gm)).toHaveLength(2)
+})
+
+test('a new worktree copies only local files matched by both ignore and include rules', async () => {
+  const directory = repository()
+  writeFileSync(join(directory, '.gitignore'), 'config/local.env\nignored.txt\n')
+  writeFileSync(join(directory, '.worktreeinclude'), 'config/local.env\nunignored.txt\n')
+  mkdirSync(join(directory, 'config'))
+  writeFileSync(join(directory, 'config/local.env'), 'LOCAL=1')
+  writeFileSync(join(directory, 'ignored.txt'), 'not included')
+  writeFileSync(join(directory, 'unignored.txt'), 'not ignored')
+
+  const { worktreePath } = await createWorktree(directory, 'main')
+  expect(readFileSync(join(worktreePath!, 'config/local.env'), 'utf8')).toBe('LOCAL=1')
+  expect(existsSync(join(worktreePath!, 'ignored.txt'))).toBe(false)
+  expect(existsSync(join(worktreePath!, 'unignored.txt'))).toBe(false)
 })
 
 

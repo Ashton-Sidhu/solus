@@ -16,6 +16,13 @@ export interface RepoRef {
   host: string
 }
 
+/** One pull request: its repository and its number. Reading or changing it
+ *  needs nothing else, no project and no checkout (docs/plans/pr-identity.md). */
+export interface PrRef {
+  repo: RepoRef
+  number: number
+}
+
 export interface GitHubPullRequestUrl {
   number: number
   baseRepo: RepoRef
@@ -289,8 +296,7 @@ export interface PrStackHead {
 }
 
 /** Merge `number` and every open layer below it in stack `stackNumber`. */
-export interface PrStackMergeRequest {
-  number: number
+export interface PrStackMergeRequest extends PrRef {
   /** The stack the viewer saw `number` in. A different stack is a refusal. */
   stackNumber: number
   method: PrMergeMethod
@@ -443,10 +449,10 @@ export interface PrReviewTarget {
   headRepo: { owner: string; repo: string; isFork: boolean }
 }
 
-export interface PrDiffRequest {
-  /** Recorded guide comparison. Repository identity is independent of the active session. */
-  repo?: RepoRef
-  number: number
+export interface PrDiffRequest extends PrRef {
+  /** A recorded guide comparison, read from the guide's checkout with Git
+   *  rather than from the code host. */
+  guide?: boolean
   baseSha: string
   /** Reject the response if the pull request moved after the review opened. */
   headSha: string
@@ -464,10 +470,9 @@ export interface PrDiffSlice {
 
 export type PrDiffChangeType = 'change' | 'rename-pure' | 'rename-changed' | 'new' | 'deleted'
 
-export interface PrDiffFileContentsRequest {
-  /** Recorded guide comparison, including guides for an older PR revision. */
-  repo?: RepoRef
-  number: number
+export interface PrDiffFileContentsRequest extends PrRef {
+  /** A recorded guide comparison, including guides for an older PR revision. */
+  guide?: boolean
   baseSha: string
   headSha: string
   commitSha?: string

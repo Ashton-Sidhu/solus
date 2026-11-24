@@ -268,7 +268,7 @@ export class SessionOverview {
   /** One card for each kind of link the scope holds. */
   readonly linkCards: LinkSection[] = $derived.by(() => linkSections(this.linked))
 
-  /** The works, apps, files, and images to show first: pinned, then the latest opened, changed, or linked. */
+  /** The works, apps, files, and images to show first: the latest opened, then the latest made. */
   readonly recent: RecentArtifact[] = $derived.by(() => recentArtifacts(this.allOwned, (artifact) => artifactOpensStore.openedAt(artifact)))
 
   // ─── The whole ───

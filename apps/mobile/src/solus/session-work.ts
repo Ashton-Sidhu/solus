@@ -13,6 +13,7 @@ import { atomFromConversation } from "./session-detail";
 import { agentCardStatus } from "@solus-mobile/features/conversation/lib/agent-cards";
 import type { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
 import type { AgentId } from "@solus/contracts/types";
+import { subagentTitle } from "@solus/contracts/subagent-input";
 
 export function sessionAgents(model: TranscriptModel, id: string, provider: AgentId) {
   const subagents = model.agentRows.map((item): OrchestrationV2Subagent => {
@@ -36,7 +37,7 @@ export function sessionAgents(model: TranscriptModel, id: string, provider: Agen
       nativeTaskRef: agent
         ? null
         : { driver: ProviderDriverKind.make(driver), nativeId: item.toolId, strength: "strong" },
-      title: agent ? item.title : item.subagent,
+      title: agent ? item.title : subagentTitle(item.input ?? undefined),
       prompt: agent ? item.prompt : "",
       model: agent ? item.model : null,
       status:

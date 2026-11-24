@@ -20,6 +20,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { prSurfaceError, prUnavailable, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { PrMirrors } from './pr-mirror'
 import { PullRequest } from './pull-request.svelte'
+import { repositoryOfScope } from './linked-pr'
 
 /** A plain, detached copy of an argument bound for the host. A `$state` proxy
  *  cannot be structured-cloned by the transport, and a live one would let a
@@ -28,6 +29,14 @@ export function detached<T>(value: T): T {
   // SAFETY: `$state.snapshot` returns the same shape with the proxies removed,
   // which is what `structuredClone` then copies; neither changes the type.
   return structuredClone($state.snapshot(value)) as T
+}
+
+/** The repository a scope's pull requests belong to, for a reader with no
+ *  `ProjectPrs` to ask: a repository scope names it, and a project's comes
+ *  from its checkout's remote. */
+export function repositoryOfContext(api: HostApi, ctx: IpcContext): Promise<Contracts.RepoRef> {
+  const named = repositoryOfScope(projectScopeOf(ctx.session))
+  return named ? Promise.resolve(named) : api.prRepository(detached(ctx))
 }
 
 export function projectPrsKey(serverId: string, ctx: IpcContext): string {
@@ -81,6 +90,10 @@ export class ProjectPrs {
   /** The repository this project reads, as PR sync names it (lowercase
    *  `host/owner/repo`); null until a pull request of it has been seen. */
   repositoryKey: string | null = null
+
+  /** The repository a per-PR call names, as the host spells it: a scope that
+   *  is a repository already says it; a project asks its host once. */
+  #repository: Promise<Contracts.RepoRef> | null = null
 
   private revision = 0
   private listingToken = 0
@@ -141,6 +154,34 @@ export class ProjectPrs {
     const created = new PullRequest(this, number)
     this.prs.set(number, created)
     return created
+  }
+
+  /** The repository this project's pull requests belong to. A project's comes
+   *  from its checkout's remote, never from a pull request's own record: the
+   *  host keeps what it read under that spelling. A failed answer is asked
+   *  again next time. */
+  repository(): Promise<Contracts.RepoRef> {
+    if (!this.#repository) {
+      const named = repositoryOfScope(this.projectScope)
+      this.#repository = named
+        ? Promise.resolve(named)
+        : this.api.prRepository(detached(this.ctx)).catch((error: unknown) => {
+            this.#repository = null
+            throw error
+          })
+    }
+    return this.#repository
+  }
+
+  /** The checkout this project is read through; none for a scope that is a
+   *  repository with no checkout here. A branch is resolved against it. */
+  get checkoutContext(): IpcContext | undefined {
+    return repositoryOfScope(this.projectScope) ? undefined : this.ctx
+  }
+
+  /** Pull request `number` of this project, as a per-PR call names it. */
+  async ref(number: number): Promise<Contracts.PrRef> {
+    return { repo: await this.repository(), number }
   }
 
   /** The host handle this project reads through. Read by `PullRequest`, which
@@ -436,7 +477,7 @@ export class ProjectPrs {
    */
   async refreshHost(): Promise<void> {
     try {
-      await this.api.prRefresh(detached(this.ctx))
+      await this.api.prRefresh(await this.repository())
     } catch {
       // Intentionally ignored; see above.
     }

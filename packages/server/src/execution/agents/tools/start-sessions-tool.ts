@@ -56,7 +56,7 @@ const sessionFields = {
     .enum(REASONING_VALUES)
     .optional()
     .describe("Reasoning effort. Defaults to the model's default level."),
-  permission_mode: z.enum(PERMISSION_MODES).optional().describe('Inherit your permission mode, or request a narrower mode.'),
+  permission_mode: z.enum(PERMISSION_MODES).optional(),
   host: HOST_FIELD.describe('Host id or name from list_hosts. Omit for this host. On another host, cwd, provider, and model must exist there.'),
   cwd: z
     .string()

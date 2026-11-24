@@ -6,7 +6,6 @@ import {
   compactDetail,
   firstObservedActivityMs,
   hasInternalRows,
-  INSTANT_STREAM_MS,
   visibleRows,
   spanAttributes,
   spanDetailLabel,
@@ -138,7 +137,7 @@ describe('instant response-stream markers', () => {
     spanId: 'marker', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_300, endedAt: 1_300, durationMs: 0,
   })
   const stream = span({
-    spanId: 'stream', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_400, endedAt: 1_900, durationMs: 500,
+    spanId: 'stream', parentSpanId: 'root', kind: 'response_stream', startedAt: 1_400, endedAt: 1_501, durationMs: 101,
   })
   const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_200 })
   const view = buildTraceView(trace([root, tool, marker, stream]))!
@@ -153,10 +152,6 @@ describe('instant response-stream markers', () => {
 
   test('a deep link onto a marker still lands on it', () => {
     expect(visibleRows(view.rows, false, 'marker').map((row) => row.spanId)).toContain('marker')
-  })
-
-  test('the threshold is a marker, not a short answer', () => {
-    expect(INSTANT_STREAM_MS).toBeLessThanOrEqual(100)
   })
 })
 

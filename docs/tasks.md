@@ -45,14 +45,15 @@ the source.
 ### Add a source
 
 Open the Tasks page. With no source, the page lists the GitHub repositories of
-your recent projects on the task host; select **Add** on each one you want,
-**Add all** to add every one, and **Added** to take one back. **GitHub**,
+your recent projects on the task host; select a project to add it, and
+select it again to take it back. **GitHub**,
 **Jira** and **Linear** each open the add menu with that provider's choices,
 and the menu stays open, so you can add several. Selecting a provider that
 is not connected connects it in place (Jira signs in to your Atlassian site,
 Linear takes a personal API key), and then its menu opens; what you add there shows
-under **Added**. Adding does not leave the setup; **Show tasks**, at the top of the page where
-**New task** usually is, ends it. They are ordinary sources: they sync,
+under **Added**. Adding does not leave the setup. After you add your first
+source, **Add projects** shows at the end of the setup's first line. It adds
+every project you did not add yet and shows your tasks. They are ordinary sources: they sync,
 show on the row of sources, and you can remove them. Solus does not read a
 project's repository until you add it, because your sources are yours on every
 device and the project list belongs to one host. A project that is a checkout
@@ -74,16 +75,17 @@ connections offer:
 - the Linear teams of your Linear connection;
 - the Jira projects and the Jira boards of the connected Atlassian site.
 
-When Linear is not connected, the menu shows a key field. Paste a personal
-Linear API key and select **Connect**. The menu then lists the Linear teams,
-so you choose one without leaving the menu. The key goes where Settings ›
-Integrations puts it (see Connections). Only a person who may change the
-host's connections sees the field on a host where they are not signed in.
-
-Another kind that offers nothing says why in the one-row footer of the menu:
-the logo of each provider with a problem, and "Connect GitHub and Jira",
-which opens Settings › Integrations. Each logo shows its full reason as a
-tooltip, for example "Connect GitHub again to add Projects".
+When a provider offers nothing because of its connection, the one-row footer
+of the menu says so: **Connect**, then a button with the logo and name of each
+such provider. Each button shows its full reason as a tooltip, for example
+"Connect GitHub again to add Projects". Each button opens a dialog that
+connects the provider in place: **GitHub** signs in with a device code (also
+again, to add the Projects scope), **Jira** (not connected) signs in to your
+Atlassian site, and **Linear** takes a personal API key. When the connection
+is made, the menu opens again and lists the new choices. The key goes where
+Settings › Integrations puts it (see Connections). Other repairs, such as an
+Atlassian site without Jira, open Settings › Integrations. With no problem, the footer shows **Manage
+connections**.
 
 To add a source that the list does not show, type or paste it into the search
 field of the control:
@@ -325,7 +327,7 @@ Removing a source does not change a project or delete provider issues.
 Connect GitHub, Atlassian (Jira), and Linear in **Settings › Integrations**. GitHub
 is also in **Settings › Source Control**. On mobile, open the host's settings and
 select **Integrations**. The footer of task source setup opens the same page.
-The task source menu, and the mobile task sources screen, also take a Linear key.
+The task source menu, and the mobile task sources screen, also connect Linear.
 
 Linear connects with a personal API key (Linear Settings › Security & access):
 

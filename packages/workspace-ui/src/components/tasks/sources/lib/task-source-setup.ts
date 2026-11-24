@@ -234,14 +234,8 @@ export function sourceConnectionNotes(options: TaskSourceOptions): SourceConnect
   return notes
 }
 
-const PROVIDER_NAME = { github: 'GitHub', jira: 'Jira', linear: 'Linear' } satisfies Record<SourceConnectionNote['provider'], string>
-
-/** The providers of the notes as one short phrase: "GitHub, Jira, and Linear". */
-export function connectionProviderNames(notes: readonly SourceConnectionNote[]): string {
-  const names = [...new Set(notes.map((note) => PROVIDER_NAME[note.provider]))]
-  if (names.length <= 2) return names.join(' and ')
-  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
-}
+/** The name each provider shows on its connect action. */
+export const SOURCE_PROVIDER_NAMES = { github: 'GitHub', jira: 'Jira', linear: 'Linear' } satisfies Record<SourceConnectionNote['provider'], string>
 
 /** The choices of a group that a search text keeps. */
 export function matchingChoices(group: SourceChoiceGroup, query: string): SourceChoice[] {

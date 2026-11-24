@@ -8,8 +8,7 @@ import {
   fileCardDetail,
   userMessageLayout,
 } from '@solus/workspace-ui/components/conversation/lib/user-message-layout'
-import { attachmentLabel } from '@solus/workspace-ui/lib/attachment-label'
-import { attachmentCardDetail, attachmentDisplayName } from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
+import { attachmentCardDetail } from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
 
 let clock = 1_000
 function msg(partial: Partial<Message> & Pick<Message, 'role'>): Message {
@@ -90,11 +89,8 @@ describe('user message layout', () => {
     expect(collageCell(4, 3)).toEqual({ spansRows: false, spansColumns: false })
   })
 
-  test('a large paste reads as pasted text, on desktop and on the phone', () => {
+  test('a pasted file card shows its type and any available size', () => {
     const paste = { type: 'file' as const, name: 'pasted text 2026-10-31 142233.txt', size: 40_960 }
-    expect(attachmentLabel(paste)).toBe('Pasted text')
-    expect(attachmentDisplayName(paste.name)).toBe('Pasted text')
-    expect(attachmentLabel({ type: 'file', name: 'notes.txt' })).toBe('notes.txt')
     expect(fileCardDetail(paste, 'sent')).toBe('Text · 40 KB')
     expect(attachmentCardDetail(paste.name, false)).toBe('Text')
   })

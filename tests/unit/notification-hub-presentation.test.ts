@@ -43,8 +43,11 @@ describe('notification presentation', () => {
       source: { sourceId: 'host:vm', serverId: 'vm', kind: 'host', label: 'VM' }, status, count: null, hasMore: false, oldestLoadedAt: null,
     })
     expect(sourceStatusNote(state('ready'))).toBeNull()
-    expect(sourceStatusNote(state('offline'))).toContain('Unreachable')
     expect(sourceStatusNote(state('unsupported'))).toContain('Update Solus')
+    // An unreachable source says why, and claims loaded rows only when it has some.
+    expect(sourceStatusNote(state('offline'))).toBe('Unreachable')
+    expect(sourceStatusNote({ ...state('offline'), error: 'The source did not answer in time' })).toBe('Unreachable. The source did not answer in time.')
+    expect(sourceStatusNote({ ...state('offline'), oldestLoadedAt: 5, error: 'ECONNREFUSED.' })).toBe('Unreachable — showing what was loaded. ECONNREFUSED.')
   })
 
   test('the page toasts each source problem, and a changed problem is said again', () => {
@@ -52,10 +55,10 @@ describe('notification presentation', () => {
       source: { sourceId: 'host:vm', serverId: 'vm', kind: 'host', label: 'VM' }, status, count: null, hasMore: false, oldestLoadedAt: null,
     })
     expect(sourceNotices([state('ready'), state('loading')], [])).toEqual([])
-    const [offline] = sourceNotices([state('offline')], [])
-    expect(offline).toMatchObject({ message: 'VM', isError: true })
+    const [offline] = sourceNotices([{ ...state('offline'), error: 'The source did not answer in time' }], [])
+    // The notice names the source and carries the reason the read failed.
+    expect(offline).toEqual({ key: 'source:host:vm:offline', message: 'VM', description: 'Unreachable. The source did not answer in time.' })
     const [unsupported] = sourceNotices([state('unsupported')], [])
-    expect(unsupported.isError).toBe(false)
     expect(unsupported.key).not.toBe(offline.key)
     expect(sourceNotices([], ['org-1'])[0].message).toContain('org-1')
   })

@@ -44,7 +44,6 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { sessionStarterFromHostSchema } from '@solus/contracts/session-starter'
 import { recordingRetention } from '../../browser/recording-retention'
 import { getIndexedSession } from '../../db/session-indexer'
-import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import { promptImageRefSchema } from '../../data/assets/attachment-store'
 import { queuePromptAfterSessionSync } from './session-sync-prompt'
@@ -54,7 +53,7 @@ const execFileAsync = promisify(execFile)
 
 /** Images another host uploaded here. The run reads only files inside this
  *  host's attachment store (`resolvePromptImages`), so a path is checked there. */
-const imageRefsSchema = z.array(promptImageRefSchema).max(MAX_ATTACHMENT_UPLOAD_COUNT).optional()
+const imageRefsSchema = z.array(promptImageRefSchema).optional()
 /** A denial's message to the agent that asked: text, never blank. */
 const permissionFeedbackSchema = z.string().trim().min(1).optional()
 

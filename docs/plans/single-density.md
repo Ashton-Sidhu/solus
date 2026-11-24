@@ -48,7 +48,6 @@ had these problems:
   autocomplete menu width, the code-intel reference list height, and the
   document outline margin gate) now use their desktop values.
 - Removed the `laptop-outranks-touch` rule from `lint:layout`.
-- `tests/unit/single-density.test.ts` fails if a display-size class returns.
 
 ## Known effects
 

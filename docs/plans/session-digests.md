@@ -185,7 +185,7 @@ needs an open conversation, a checkout on the client, or a call to git.
    before digests has `digest: null` until its next turn.
 
 10. **An agent filter scopes the Threads surface (built 2026-11-22).** When the
-    session started agents, a row of chips sits under "Pinned and recent":
+    session started agents, a row of chips sits under "Recently viewed":
     All, This session, then each session it started, oldest started first,
     each with its state (`AgentFilter.svelte`, `lib/agent-filter.ts`). It is a
     radio group: one chip is in the tab order, and Left and Right step. The

@@ -69,7 +69,7 @@ test('the turn log keeps no partial tool input: each one comes again whole with 
   try {
     runtime.publish('live', { type: 'tool_call', toolName: 'mcp__solus__charts__chart', toolId: 'toolu_1', index: 0 })
     runtime.publish('live', { type: 'tool_call_update', toolId: 'toolu_1', index: 0, toolInput: '{"region":"we', inputPartial: true })
-    runtime.publish('live', { type: 'tool_call_complete', index: 0, toolInput: '{"region":"west"}' })
+    runtime.publish('live', { type: 'tool_call_complete', index: 0, toolId: 'toolu_1', toolInput: '{"region":"west"}' })
     expect(runtime.turnLog.get('live')?.map((event) => event.type)).toEqual(['tool_call', 'tool_call_complete'])
   } finally { runtime.shutdown() }
 })

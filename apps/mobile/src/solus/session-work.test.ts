@@ -67,3 +67,17 @@ it("opens a native agent through the provider tool call in its parent session", 
   });
   expect(agent?.id).not.toBe("provider-call");
 });
+
+it("names a provider sub-agent by its own description, as the desktop card and the host do", () => {
+  const model = new TranscriptModel("parent");
+  model.apply({ type: "tool_call", toolName: "Agent", toolId: "provider-call", index: 0, isSubagent: true });
+  // Claude streams the input after the call starts.
+  expect(sessionAgents(model, "parent", "claude-code")?.subagents[0]?.title).toBe("Sub-agent");
+  model.apply({
+    type: "tool_call_complete",
+    index: 0,
+    toolId: "provider-call",
+    toolInput: JSON.stringify({ description: "Audit the auth module", prompt: "Read every file" }),
+  });
+  expect(sessionAgents(model, "parent", "claude-code")?.subagents[0]?.title).toBe("Audit the auth module");
+});

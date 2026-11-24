@@ -20,7 +20,6 @@ import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnOrder } from 
 import type { ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
-import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
 import { findRemoteSession, type OrganizationApi, type RemoteSession } from '../../orchestration/remote-session-read'
 import type { AwaitedTasksResult } from '../../sessions/background-work'
@@ -149,11 +148,13 @@ export const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
 
 export const HOST_FIELD = z.string().trim().min(1).optional()
 
+const MAX_SESSION_TOOL_ATTACHMENTS = 8
+
 export const ATTACHMENTS_FIELD = z
   .array(z.string().min(1))
-  .max(MAX_ATTACHMENT_UPLOAD_COUNT)
+  .max(MAX_SESSION_TOOL_ATTACHMENTS)
   .optional()
-  .describe(`Up to ${MAX_ATTACHMENT_UPLOAD_COUNT} files on this host, 10 MB each, as absolute or cwd-relative paths. Copied now to the target host. PNG, JPEG, GIF and WebP arrive as images; other files arrive as readable paths.`)
+  .describe(`Up to ${MAX_SESSION_TOOL_ATTACHMENTS} files on this host, 10 MB each, as absolute or cwd-relative paths. Copied now to the target host. PNG, JPEG, GIF and WebP arrive as images; other files arrive as readable paths.`)
 
 const listAgentTargetsFields = {
   host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_sessions cwd. Omit for this host.'),

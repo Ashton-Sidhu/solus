@@ -109,10 +109,9 @@ export interface AutomationRunOptions {
  * gets a runId without blocking. Results land in the store when the run settles
  * and are read back via the run-result tools.
  *
- * Recursion guard: the spawned run gets the full `solus` tool suite (works,
- * tasks, artifacts, start_sessions) EXCEPT the automation
- * CRUD/run tools, on both providers — so an automation cannot create or trigger
- * more automations. This is the fork-bomb guard; everything else is available.
+ * The run can list, read, and edit existing automations with the creator's
+ * permissions. Automation runs have no tools to create, delete, or start
+ * automations.
  */
 export async function triggerAutomationRun(automation: Automation, options: AutomationRunOptions = {}): Promise<AutomationRun> {
   if (updatesPaused) throw new Error('This host is waiting to update Solus. Cancel the update to start an automation.')

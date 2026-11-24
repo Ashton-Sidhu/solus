@@ -223,8 +223,9 @@ rule reads, and they are the only places outside `roleOf` that touch a role:
   the people with a role on it; a deletion names only an id. The agent tools
   (`list_automations` and the rest) act as the turn's person
   (`workspaceToolAuthority`): an automation they may not reach answers as one
-  that does not exist. The scheduler and the runner are the host's own work and
-  run as before (the runner as the creator, `unattendedActorFor`).
+  that does not exist. An automation run uses the creator's permissions
+  (`unattendedActorFor`) to list, read, and edit existing automations. Edits
+  to its own prompt apply to future runs.
 - **Projects.** `workspace_projects.owner_key` (migration `0020_project_owners`)
   is the person who added it. The directory stays the organization's: every
   member lists every project of the organization (`workspaceProjectList` is

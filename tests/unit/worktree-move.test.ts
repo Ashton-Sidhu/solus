@@ -605,7 +605,7 @@ describe('WorktreeOffers', () => {
   async function claudeTool(offers: WorktreeOffersInstance, toolId: string, toolName: string, input: unknown, result = '', isError = false) {
     const events: NormalizedEvent[] = [
       { type: 'tool_call', toolName, toolId, index: 1 },
-      { type: 'tool_call_complete', index: 1, toolInput: JSON.stringify(input) },
+      { type: 'tool_call_complete', index: 1, toolId, toolInput: JSON.stringify(input) },
       { type: 'tool_result', toolUseId: toolId, content: result, isError },
     ]
     for (const event of events) offers.observe('s1', event)

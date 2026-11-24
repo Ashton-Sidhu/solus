@@ -13,11 +13,8 @@ export const SUB_PAGE_CRUMB_BTN =
 export const SUB_PAGE_CRUMB_TEXT =
   'flex h-7 shrink-0 items-center px-[7px] text-muted-foreground'
 
-/** A round icon control: stepper arrows, pane controls, a record's verbs.
- *  A soft raised pill, the page header's window controls (`PAGE_SOFT_ICON_BTN`). */
-export const SUB_PAGE_ROUND_BTN =
-  'flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-background pointer-coarse:tap-area'
-
-/** A pill chip in the action slot: an upstream state, a provider mark. */
+/** A pill chip in the action slot: an upstream state, a provider mark. The
+ *  same height and type as the band's pill groups (`PAGE_PILL_GROUP`), as the
+ *  review panel's change chip is beside its pill. */
 export const SUB_PAGE_CHIP =
-  'flex h-6.5 shrink-0 items-center gap-[7px] rounded-full bg-background px-2.5 text-xs text-muted-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
+  'flex h-8 shrink-0 items-center gap-[7px] rounded-full bg-background px-2.5 text-workspace-chrome text-muted-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'

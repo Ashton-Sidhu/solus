@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PullRequest } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { IpcContext } from '@solus/contracts/types'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
@@ -79,6 +79,7 @@ describe('PrsStore every-project read', () => {
     const callsB: { roots: string[] }[] = []
     let perProjectReads = 0
     const apiA = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1), pr(2)]), '/repos/c': page([pr(5)]) }, callsA),
       prList: async () => { perProjectReads++; return page([]) },
     })
@@ -114,6 +115,7 @@ describe('PrsStore every-project read', () => {
     const store = await newStore()
     let call = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListProjects: async (_ctx: IpcContext, roots: string[]): Promise<PrProjectListing[]> => {
         if (++call === 1) return roots.map((projectRoot) => ({ projectRoot, page: page([pr(1)]) }))
         throw new Error('transient failure')
@@ -139,6 +141,7 @@ describe('PrsStore every-project read', () => {
     const store = await newStore()
     const calls: { roots: string[] }[] = []
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({
         '/workspace': 'no-remote',
         '/repos/a': page([pr(1)]),
@@ -167,7 +170,7 @@ describe('PrsStore every-project read', () => {
   test('a fresh list is not read again when the page mounts again; a refresh still reads', async () => {
     const store = await newStore()
     const calls: { roots: string[] }[] = []
-    const api = asHostApi({ ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls), prRefresh: async () => {} })
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls), prRefresh: async () => {} })
     const projects = [target('h', '/repos/a', api), target('h', '/repos/b', api)]
 
     await store.listProjects(projects, { state: 'open' })
@@ -186,6 +189,7 @@ describe('PrsStore every-project read', () => {
     const calls: { roots: string[] }[] = []
     let refreshes = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls),
       prRefresh: async () => { refreshes++ },
     })
@@ -207,7 +211,9 @@ describe('PrsStore every-project read', () => {
     const store = await newStore()
     const order: string[] = []
     const api = asHostApi({
-      prRefresh: async (ctx: IpcContext) => { order.push(`forget ${ctx.session.projectPath}`) },
+      // Each project is a checkout of its own repository.
+      prRepository: async (ctx: IpcContext) => ({ host: 'github.com', owner: 'acme', repo: ctx.session.projectPath.split('/').pop()! }),
+      prRefresh: async (repo: RepoRef) => { order.push(`forget ${repo.repo}`) },
       prListProjects: async (_ctx: IpcContext, roots: string[]): Promise<PrProjectListing[]> => {
         order.push('read')
         return roots.map((projectRoot) => ({ projectRoot, page: page([]) }))
@@ -216,19 +222,21 @@ describe('PrsStore every-project read', () => {
 
     await store.listProjects([target('h', '/repos/a', api), target('h', '/repos/b', api)], { state: 'open' }, { force: true })
 
-    expect(order).toEqual(['forget /repos/a', 'forget /repos/b', 'read'])
+    expect(order).toEqual(['forget a', 'forget b', 'read'])
   })
 
   test('a stale answer cannot land after a newer read has begun', async () => {
     const store = await newStore()
     const slowGate: { resolve: (() => void) | null } = { resolve: null }
     const slowApi = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListProjects: async (_ctx: IpcContext, roots: string[]): Promise<PrProjectListing[]> => {
         await new Promise<void>((resolve) => { slowGate.resolve = resolve })
         return roots.map((projectRoot) => ({ projectRoot, page: page([pr(999, { title: 'stale' })]) }))
       },
     })
     const fastApi = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1, { title: 'fresh' })]) }),
       prRefresh: async () => {},
     })
@@ -248,6 +256,7 @@ describe('PrsStore every-project read', () => {
   test('load more pages only the named project, after the shared first page', async () => {
     const store = await newStore()
     const apiA = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1)], true) }),
       prList: async (_ctx: IpcContext, _filter: PrFilter, pageNumber = 1, cursor?: string): Promise<PrListPage> => {
         // The next page continues from where the first page said it ends.
@@ -274,6 +283,7 @@ test('loading more of several projects is one read per host, from each cursor', 
   const store = await newStore()
   const reads: Array<{ roots: string[]; after: PrProjectCursor[] | undefined }> = []
   const api = asHostApi({
+    prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
     prListProjects: async (_ctx: IpcContext, roots: string[], _filter?: PrFilter, after?: PrProjectCursor[]): Promise<PrProjectListing[]> => {
       reads.push({ roots, after })
       return roots.map((projectRoot) => ({
@@ -304,6 +314,7 @@ describe('PrsStore one-project page read', () => {
     const calls: { roots: string[] }[] = []
     let pageReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1), pr(40)]) }, calls),
       prList: async () => { pageReads++; return page([]) },
     })
@@ -334,6 +345,7 @@ describe('PrsStore every-project reading flags', () => {
     const refreshed = deferred<PrProjectListing[]>()
     let calls = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prListProjects: async (): Promise<PrProjectListing[]> =>
         ++calls === 1 ? [{ projectRoot: '/repos/a', page: page([pr(1)]) }] : refreshed.promise,
       prRefresh: async () => {},
@@ -356,6 +368,7 @@ describe('PrsStore every-project reading flags', () => {
     const store = await newStore()
     const second = deferred<PrListPage>()
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       ...hostServing({ '/repos/a': page([pr(1)], true) }),
       prList: async (): Promise<PrListPage> => second.promise,
     })
@@ -378,7 +391,7 @@ describe('qualified PR identity', () => {
       serverId,
       projectRoot,
       label: projectRoot,
-      api: asHostApi({}),
+      api: asHostApi({prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),}),
       ctx: ctxFor(projectRoot),
       items,
     }
@@ -420,7 +433,7 @@ describe('qualified PR identity', () => {
 describe('prProjectTargets', () => {
   const reach = {
     isOnlineCheckout: (serverId: string) => serverId === 'sprite',
-    apiFor: () => asHostApi({}),
+    apiFor: () => asHostApi({prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),}),
     ctxFor,
   }
 

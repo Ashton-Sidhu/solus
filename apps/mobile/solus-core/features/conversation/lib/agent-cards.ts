@@ -24,6 +24,8 @@ export interface AgentItem {
   readonly sessionId: string
   readonly provider: AgentId | null
   readonly title: string
+  readonly serverId?: string
+  readonly reasoningEffort?: string
   readonly model: string | null
   /** The newest message this conversation sent it. */
   readonly prompt: string
@@ -76,6 +78,8 @@ interface Opening {
   provider?: AgentId
   title?: string
   model?: string
+  reasoningEffort?: string
+  serverId?: string
   timestamp: number
 }
 
@@ -90,6 +94,7 @@ export interface AgentCardStore {
 const startedSessionInputSchema = z.object({
   prompt: z.string().optional().catch(undefined),
   title: z.string().trim().min(1).optional().catch(undefined),
+  reasoning_effort: z.string().optional().catch(undefined),
   model_id: z.string().optional().catch(undefined),
   agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
 })
@@ -129,7 +134,7 @@ export class AgentCards {
       case 'dispatched':
         this.open(update.sessionId, {
           messageId: update.messageId, prompt: update.prompt, provider: update.provider,
-          title: update.title, model: update.model, timestamp: update.dispatchedAt,
+          title: update.title, model: update.model, reasoningEffort: update.reasoningEffort, serverId: update.serverId, timestamp: update.dispatchedAt,
         })
         return
       // The session's id is known from dispatch; nothing on the card changes.
@@ -182,7 +187,7 @@ export class AgentCards {
     sessionId: string,
     result: AgentConversationResultProjection | undefined,
     sent: { prompt: string; title?: string },
-    input: { agent_provider?: AgentId; model_id?: string },
+    input: { agent_provider?: AgentId; model_id?: string; reasoning_effort?: string },
     timestamp: number,
   ): void {
     const card = this.open(sessionId, {
@@ -191,6 +196,8 @@ export class AgentCards {
       provider: result?.provider ?? input.agent_provider,
       title: sent.title,
       model: input.model_id,
+      reasoningEffort: input.reasoning_effort,
+      serverId: result?.serverId,
       timestamp,
     })
     const messageId = card.exchanges.at(-1)!.messageId
@@ -229,6 +236,8 @@ export class AgentCards {
         prompt: opening.prompt || current.prompt,
         title: opening.title || current.title,
         model: opening.model ?? current.model,
+        reasoningEffort: opening.reasoningEffort ?? current.reasoningEffort,
+        serverId: opening.serverId ?? current.serverId,
         provider: opening.provider ?? current.provider,
         exchanges: [...current.exchanges, exchange],
         settledAt: null,
@@ -244,6 +253,8 @@ export class AgentCards {
         provider: opening.provider ?? null,
         title: opening.title || (opening.prompt ? promptTitle(opening.prompt) : 'Agent session'),
         model: opening.model ?? null,
+        reasoningEffort: opening.reasoningEffort,
+        serverId: opening.serverId,
         prompt: opening.prompt,
         reply: null,
         exchanges: [exchange],

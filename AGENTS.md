@@ -206,14 +206,17 @@ An empty store is often a poor test, but live state is never test data.
 
 ## Verifying
 
-Use the smallest proof that demonstrates the change:
+Follow [the testing guide](docs/testing.md). Use the smallest proof that
+demonstrates the change.
 
-1. Run focused unit tests for the behavior you changed, for example: `bun test tests/unit/<feature>.test.ts`.
+1. Run focused tests for the behavior you changed, for example `bun run test:unit <feature>.test.ts`.
 2. Run any targeted typecheck, lint, or generator validation that owns the changed area.
 
 Do not run the full Playwright suite, start a dev server, or perform browser/computer-use verification unless asked. User-visible frontend changes may receive one integrated pass after the implementation is complete and the developer has agreed to it.
 
-Backend behavior changes should ship with focused tests. Prefer deterministic event, receipt, and lifecycle assertions over sleeps or polling. A test that passes only because of an arbitrary timeout is unreliable.
+Test a regression at the lowest layer that reproduces it. For a logic, data,
+state, or protocol bug, show the test failing before the fix and passing after
+it. For a purely visual fix, use before-and-after captures.
 
 Real agent turns cost money. To watch a turn render, use the Replay (dev) provider (model `showcase`); use a real provider only when the change depends on its behavior, then its cheapest model. See `docs/replay-provider.md`.
 

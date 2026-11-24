@@ -63,18 +63,19 @@ export const updateIssue = hostCommand(
 
 async function prSource(id: string, input: PullRequestRef) {
   const api = sourceControlApi(id),
-    ctx = solus.pullRequests.context(input.projectId);
-  const pr = await api.prGetDetail(ctx, input.number);
+    ctx = solus.pullRequests.context(input.projectId),
+    ref = { repo: await solus.pullRequests.repository(id, input.projectId), number: input.number };
+  const pr = await api.prGetDetail(ref);
   if (
     pr.baseRepo.owner + "/" + pr.baseRepo.repo !== input.repository ||
     (input.host && input.host !== pr.baseRepo.host)
   )
     throw new Error("The checkout now points to a different repository.");
-  return { api, ctx, pr };
+  return { api, ctx, ref, pr };
 }
 export const prLabelChoices = hostQuery(async (id, input: PullRequestRef) => {
-  const { api, ctx, pr } = await prSource(id, input);
-  const labels = await api.prListLabelCandidates(ctx, input.number);
+  const { api, ref, pr } = await prSource(id, input);
+  const labels = await api.prListLabelCandidates(ref);
   return {
     candidates: labels.map((l) => ({
       ...l,
@@ -85,8 +86,8 @@ export const prLabelChoices = hostQuery(async (id, input: PullRequestRef) => {
   };
 });
 export const prReviewerChoices = hostQuery(async (id, input: PullRequestRef) => {
-  const { api, ctx, pr } = await prSource(id, input);
-  const people = await api.prListReviewerCandidates(ctx, input.number);
+  const { api, ref, pr } = await prSource(id, input);
+  const people = await api.prListReviewerCandidates(ref);
   return {
     candidates: people.map((p) => {
       const login = p.kind === "team" ? p.slug : p.login;
@@ -127,42 +128,41 @@ function prCommand<I extends PullRequestRef>(
 }
 export const editPr = prCommand<PullRequestUpdateInput>(
   "pullRequests.update",
-  ({ api, ctx }, i) => {
+  ({ api, ref }, i) => {
     if (i.maintainerCanModify !== undefined)
       throw new Error("This host cannot change maintainer access.");
-    return api.prUpdate(ctx, i.number, { title: i.title, body: i.body });
+    return api.prUpdate(ref, { title: i.title, body: i.body });
   },
 );
 export const labelPr = prCommand<PullRequestLabelChangeInput>(
   "pullRequests.setLabels",
-  ({ api, ctx, pr }, i) => {
+  ({ api, ref, pr }, i) => {
     const names = new Set(pr.labels.map((l) => l.name));
     for (const label of i.labels) {
       if (i.applied) names.add(label);
       else names.delete(label);
     }
-    return api.prSetLabels(ctx, i.number, [...names]);
+    return api.prSetLabels(ref, [...names]);
   },
 );
 export const requestPrReviewers = prCommand<PullRequestReviewerRequestInput>(
   "pullRequests.requestReviewers",
-  async ({ api, ctx }, i) => {
+  async ({ api, ref }, i) => {
     if (i.requested) {
       if (i.reviewers.some((r) => r.kind === "team"))
         throw new Error("This host can request reviews from individual users.");
       await api.prRequestReviewers(
-        ctx,
-        i.number,
+        ref,
         i.reviewers.map((r) => r.id),
       );
     } else
       for (const reviewer of i.reviewers)
-        await api.prRemoveRequestedReviewer(ctx, i.number, reviewer.id, reviewer.kind);
+        await api.prRemoveRequestedReviewer(ref, reviewer.id, reviewer.kind);
   },
 );
 export const commentPr = prCommand<PullRequestRef & { body: string }>(
   "pullRequests.comment",
-  ({ api, ctx }, i) => api.prAddIssueComment(ctx, i.number, i.body),
+  ({ api, ref }, i) => api.prAddIssueComment(ref, i.body),
 );
 function anchor(p: PullRequestReviewPosition) {
   return p.kind === "deleted" || (p.kind === "context" && p.side === "left")
@@ -171,30 +171,34 @@ function anchor(p: PullRequestReviewPosition) {
 }
 export const reviewPr = prCommand<PullRequestSubmitReviewInput & { headSha: string }>(
   "pullRequests.submitReview",
-  async ({ api, ctx, pr }, i) => {
+  async ({ api, ctx, ref, pr }, i) => {
     if (pr.headSha !== i.headSha)
       throw new Error("The pull request changed. Refresh the diff before submitting.");
-    await api.prSubmitReview(ctx, i.number, {
-      commitId: i.headSha,
-      body: i.body,
-      event:
-        i.verdict === "approve"
-          ? "APPROVE"
-          : i.verdict === "request-changes"
-            ? "REQUEST_CHANGES"
-            : "COMMENT",
-      comments: i.comments.map((comment) => {
-        const end = anchor(comment.position);
-        const start = comment.startPosition && anchor(comment.startPosition);
-        if (start && start.side !== end.side)
-          throw new Error("Select a range on one side of the diff.");
-        return {
-          path: comment.path,
-          body: comment.body,
-          ...end,
-          ...(start && { startLine: start.line }),
-        };
-      }),
-    });
+    await api.prSubmitReview(
+      ref,
+      {
+        commitId: i.headSha,
+        body: i.body,
+        event:
+          i.verdict === "approve"
+            ? "APPROVE"
+            : i.verdict === "request-changes"
+              ? "REQUEST_CHANGES"
+              : "COMMENT",
+        comments: i.comments.map((comment) => {
+          const end = anchor(comment.position);
+          const start = comment.startPosition && anchor(comment.startPosition);
+          if (start && start.side !== end.side)
+            throw new Error("Select a range on one side of the diff.");
+          return {
+            path: comment.path,
+            body: comment.body,
+            ...end,
+            ...(start && { startLine: start.line }),
+          };
+        }),
+      },
+      ctx,
+    );
   },
 );

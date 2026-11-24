@@ -4,6 +4,7 @@ import type { PrReviewTarget } from '@solus/contracts/providers'
 import type { ReviewGuideTarget } from '@solus/contracts/review'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { repositoryOfContext } from '../../prs/project-prs.svelte'
 
 /**
  * Every destination Solus can navigate to, declared once.
@@ -566,7 +567,8 @@ export const ROUTES: RouteTable = {
     component: () => import('../../../components/pr-review/PrReviewRoutePane.svelte'),
     resolve: (params, ctx) => {
       const api = params.serverId ? serverConnections.apiFor(params.serverId) : ctx.api
-      return api.prOpenReview(ctx.ipc(params.cwd), params.number).then((target) => {
+      const scope = ctx.ipc(params.cwd)
+      return repositoryOfContext(api, scope).then((repo) => api.prOpenReview({ repo, number: params.number })).then((target) => {
         const expected = params.expectedRepo
         if (
           expected &&

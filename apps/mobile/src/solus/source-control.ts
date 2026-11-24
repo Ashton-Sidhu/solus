@@ -363,10 +363,10 @@ export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; 
 export const solusPrDetail = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestDetail> => {
     const api = sourceControlApi(id);
-    const context = solus.pullRequests.context(input.projectId);
+    const repo = await solus.pullRequests.repository(id, input.projectId);
     const [{ pullRequest: pr, reviewers }, checksSnapshot] = await Promise.all([
-      api.prGetOverview(context, input.number, { includeCommits: false }),
-      api.prChecks(context, [input.number]).catch(() => null),
+      api.prGetOverview({ repo, number: input.number }, { includeCommits: false }),
+      api.prChecks(repo, [input.number]).catch(() => null),
     ]);
     const summary = checksSnapshot?.checks.find((check) => check.number === input.number)?.summary;
     const checkRow = (item: CheckItem, required: boolean) => {
@@ -453,11 +453,11 @@ export const solusPrDetail = hostQuery(
 export const solusPrActivity = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestActivity> => {
     const api = sourceControlApi(id),
-      ctx = solus.pullRequests.context(input.projectId);
+      pr = { repo: await solus.pullRequests.repository(id, input.projectId), number: input.number };
     const [events, commits, threads] = await Promise.all([
-      api.prListComments(ctx, input.number),
-      api.prListCommits(ctx, input.number),
-      api.prListThreads(ctx, input.number),
+      api.prListComments(pr),
+      api.prListCommits(pr),
+      api.prListThreads(pr),
     ]);
     const actor = (login: string, avatarUrl?: string) => ({
       login,
@@ -519,10 +519,10 @@ export const solusPrActivity = hostQuery(
 export const solusPrBreakdown = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestChangeBreakdown> =>
     summarizeChangedFiles(
-      await sourceControlApi(id).prChangedFiles(
-        solus.pullRequests.context(input.projectId),
-        input.number,
-      ),
+      await sourceControlApi(id).prChangedFiles({
+        repo: await solus.pullRequests.repository(id, input.projectId),
+        number: input.number,
+      }),
     ),
   {
     label: "environment-data:pull-requests:change-breakdown",
@@ -534,7 +534,8 @@ export const solusPrBreakdown = hostQuery(
 export async function prDiffSource(id: string, input: PullRequestRef & { expectedHead?: string }) {
   const api = sourceControlApi(id);
   const ctx = solus.pullRequests.context(input.projectId);
-  const target = await api.prOpenReview(ctx, input.number);
+  const pr = { repo: await solus.pullRequests.repository(id, input.projectId), number: input.number };
+  const target = await api.prOpenReview(pr);
   if (
     target.owner + "/" + target.repo !== input.repository ||
     (input.host && input.host !== target.host)
@@ -542,14 +543,14 @@ export async function prDiffSource(id: string, input: PullRequestRef & { expecte
     throw new Error("The project now points to a different repository.");
   if (input.expectedHead && target.headSha !== input.expectedHead)
     throw new Error("The pull request changed. Refresh the diff.");
-  return { api, ctx, target };
+  return { api, ctx, pr, target };
 }
 
 export const prDiffContents = hostQuery(
   async (id, input: PullRequestDiffFileContentsInput & { expectedHead?: string }) => {
-    const { api, ctx, target } = await prDiffSource(id, input);
-    return api.prGetDiffFileContents(ctx, {
-      number: input.number,
+    const { api, pr, target } = await prDiffSource(id, input);
+    return api.prGetDiffFileContents({
+      ...pr,
       baseSha: target.baseSha,
       headSha: target.headSha,
       commitSha: input.commit,
@@ -567,9 +568,9 @@ export const solusPrDiff = hostQuery(
     id,
     input: PullRequestDiffInput & { expectedHead?: string },
   ): Promise<PullRequestDiffResult> => {
-    const { api, ctx, target } = await prDiffSource(id, input);
-    return api.prGetDiff(ctx, {
-      number: input.number,
+    const { api, pr, target } = await prDiffSource(id, input);
+    return api.prGetDiff({
+      ...pr,
       baseSha: target.baseSha,
       headSha: target.headSha,
       cursor: input.cursor,

@@ -38,6 +38,14 @@ const provider = {
     getPullRequestDiffBase: async (_repo: RepoRef, pullRequest: PullRequest) => `base-of-${pullRequest.headSha}`,
   },
 } as unknown as Provider
+const gitHelpers = await import('@solus/server/git/git-helpers')
+mock.module('@solus/server/git/git-helpers', () => ({
+  ...gitHelpers,
+  resolveRepoRef: async () => repo,
+  resolvePrimaryRepoRef: async () => repo,
+  resolveRepoRoot: async (cwd: string) => cwd,
+  computeGitState: async () => null,
+}))
 mock.module('@solus/server/providers/registry', () => ({
   providerForRepo: () => provider,
   getProvider: () => provider,
@@ -45,8 +53,9 @@ mock.module('@solus/server/providers/registry', () => ({
 
 const { openPrReview, preparePrCheckout } = await import('@solus/server/transport/handlers/provider-handlers')
 
-// A project named by its repository, so no git runs.
-const ctx = { session: { projectPath: 'github.com/owner/repo', workingDirectory: 'github.com/owner/repo' } } as IpcContext
+// A checkout of the repository: the checkout is a project call, and it reads
+// the project's remote.
+const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 
 beforeEach(() => {
   remembered = pullRequestFixture(7, { headSha: 'sha-old', baseRepo: repo })
@@ -56,7 +65,7 @@ beforeEach(() => {
 
 describe('opening a pull request for review', () => {
   test('answers from what the host remembers, without asking the code host', async () => {
-    const target = await openPrReview(ctx, 7)
+    const target = await openPrReview({ repo, number: 7 })
 
     expect(reads).toEqual(['remembered'])
     expect(target.headSha).toBe('sha-old')
@@ -64,7 +73,7 @@ describe('opening a pull request for review', () => {
   })
 
   test('a checkout of a pull request pushed since the open is still refused', async () => {
-    const target = await openPrReview(ctx, 7)
+    const target = await openPrReview({ repo, number: 7 })
     onHost = pullRequestFixture(7, { headSha: 'sha-new', baseRepo: repo })
     const checkouts = { preparePullRequest: async () => { throw new Error('must not check out') } }
 

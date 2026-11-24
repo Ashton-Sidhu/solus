@@ -3,7 +3,6 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { PrStackMergeRequest, PullRequest, RepoRef } from '@solus/contracts/providers'
-import type { IpcContext } from '@solus/contracts/types'
 import type { Provider } from '@solus/server/providers/types'
 import { SolusServer } from '@solus/server/transport/server'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
@@ -39,7 +38,9 @@ mock.module('@solus/server/prs/pr-index', () => ({
     invalidate: () => {},
   },
 }))
+const gitHelpers = await import('@solus/server/git/git-helpers')
 mock.module('@solus/server/git/git-helpers', () => ({
+  ...gitHelpers,
   resolveRepoRef: async () => repo,
   resolvePrimaryRepoRef: async () => repo,
   resolveRepoRoot: async (cwd: string) => cwd,
@@ -72,7 +73,6 @@ mock.module('@solus/server/providers/registry', () => ({
 
 const { registerProviderHandlers } = await import('@solus/server/transport/handlers/provider-handlers')
 
-const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 const applied: number[] = []
 
 function server(): SolusServer {
@@ -98,6 +98,7 @@ beforeEach(() => {
 })
 
 const stackRequest: PrStackMergeRequest = {
+  repo,
   number: 66,
   stackNumber: 4,
   method: 'squash',
@@ -110,7 +111,7 @@ describe('merging a stack through the host', () => {
     hostFacts.set(66, facts(66))
     landedLayers = [65, 66]
 
-    const result = await server().handle('prMergeStack', [ctx, stackRequest], TEST_HANDLER_CTX)
+    const result = await server().handle('prMergeStack', [stackRequest], TEST_HANDLER_CTX)
 
     expect(result.status).toBe('merged')
     // The answer is each layer as the host reads it after the merge.
@@ -124,7 +125,7 @@ describe('merging a stack through the host', () => {
     readOnly.viewerPermissions.actions = readOnly.viewerPermissions.actions.filter((action) => action !== 'merge-stack')
     hostFacts.set(66, readOnly)
 
-    await expect(server().handle('prMergeStack', [ctx, stackRequest], TEST_HANDLER_CTX))
+    await expect(server().handle('prMergeStack', [stackRequest], TEST_HANDLER_CTX))
       .rejects.toThrow('You do not have permission to merge this stack.')
     expect(calls).toEqual([])
   })
@@ -136,7 +137,7 @@ describe('merging a stack through the host', () => {
     noStacks.capabilities.actions = noStacks.capabilities.actions.filter((action) => action !== 'merge-stack')
     hostFacts.set(66, noStacks)
 
-    await expect(server().handle('prMergeStack', [ctx, stackRequest], TEST_HANDLER_CTX))
+    await expect(server().handle('prMergeStack', [stackRequest], TEST_HANDLER_CTX))
       .rejects.toThrow('This code host cannot merge a stack.')
     expect(calls).toEqual([])
   })
@@ -150,9 +151,9 @@ describe('approving the workflow runs of a fork', () => {
     hostFacts.set(13, facts(13))
     const solus = server()
 
-    expect(await solus.handle('prPendingWorkflowRuns', [ctx, 12], TEST_HANDLER_CTX))
+    expect(await solus.handle('prPendingWorkflowRuns', [{ repo: repo, number: 12 }], TEST_HANDLER_CTX))
       .toEqual({ headSha: 'sha-12', runs: [{ id: 1, name: 'CI', url: null }] })
-    expect(await solus.handle('prPendingWorkflowRuns', [ctx, 13], TEST_HANDLER_CTX))
+    expect(await solus.handle('prPendingWorkflowRuns', [{ repo: repo, number: 13 }], TEST_HANDLER_CTX))
       .toEqual({ headSha: 'sha-13', runs: [] })
     expect(calls).toEqual(['list-runs'])
   })
@@ -162,7 +163,7 @@ describe('approving the workflow runs of a fork', () => {
     // push after the viewer read the change must not ride on their approval.
     hostFacts.set(12, facts(12, { headRepo: fork, headSha: 'pushed-later' }))
 
-    await expect(server().handle('prApproveWorkflowRuns', [ctx, 12, 'sha-12'], TEST_HANDLER_CTX))
+    await expect(server().handle('prApproveWorkflowRuns', [{ repo: repo, number: 12 }, 'sha-12'], TEST_HANDLER_CTX))
       .rejects.toThrow('This pull request changed. Refresh it before you approve its workflow runs.')
     expect(calls).toEqual([])
   })
@@ -170,7 +171,7 @@ describe('approving the workflow runs of a fork', () => {
   test('approves for the head the viewer saw', async () => {
     hostFacts.set(12, facts(12, { headRepo: fork }))
 
-    expect(await server().handle('prApproveWorkflowRuns', [ctx, 12, 'sha-12'], TEST_HANDLER_CTX)).toEqual({ approved: 1 })
+    expect(await server().handle('prApproveWorkflowRuns', [{ repo: repo, number: 12 }, 'sha-12'], TEST_HANDLER_CTX)).toEqual({ approved: 1 })
     expect(calls).toEqual(['approve-runs'])
   })
 })
@@ -178,9 +179,9 @@ describe('approving the workflow runs of a fork', () => {
 describe('marking files viewed', () => {
   test('refuses a change with no path, and sends nothing for no change', async () => {
     const solus = server()
-    await expect(solus.handle('prSetFilesViewed', [ctx, 7, [{ path: '', viewed: true }]], TEST_HANDLER_CTX))
+    await expect(solus.handle('prSetFilesViewed', [{ repo: repo, number: 7 }, [{ path: '', viewed: true }]], TEST_HANDLER_CTX))
       .rejects.toThrow('A file path is required.')
-    await solus.handle('prSetFilesViewed', [ctx, 7, []], TEST_HANDLER_CTX)
+    await solus.handle('prSetFilesViewed', [{ repo: repo, number: 7 }, []], TEST_HANDLER_CTX)
     expect(calls).toEqual([])
   })
 })

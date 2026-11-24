@@ -138,7 +138,7 @@ describe('each way a session starts names its starter on the run', () => {
     expect(runs[1]?.startedBy).toBeUndefined()
   })
 
-  test('a run is offered every tool of the toolbox; an unattended session is not offered automations or webhooks', async () => {
+  test('interactive sessions receive the full toolbox and webhook sessions omit automation and webhook tools', async () => {
     // WHY: each run names the toolbox groups it offers. A group nobody names
     // is a tool no agent can call, on either provider, with no error anywhere:
     // create_app shipped that way.
@@ -152,6 +152,7 @@ describe('each way a session starts names its starter on the run', () => {
     await dispatch.submitPrompt(ctx('existing', 'thread-1'), { prompt: 'Again.' })
     await dispatch.startUnattendedSession({
       prompt: 'Review.', provider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: '/repo', actor: HOST_ACTOR,
+      organizationId: 'local',
       startedBy: { kind: 'webhook', webhookId: 'w-1', deliveryId: 'd-1' },
     })
 
@@ -163,11 +164,31 @@ describe('each way a session starts names its starter on the run', () => {
     expect(Object.values(automations).length + Object.values(webhooks).length).toBeGreaterThan(0)
   })
 
+  test.each(['codex', 'claude-code'] as const)('an automation run on %s can read and edit existing automations', async (provider) => {
+    const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
+    const { HOST_ACTOR } = await import('@solus/server/admission/actor')
+    const { dispatch, runs } = await dispatchWithRuns()
+    await dispatch.startUnattendedSession({
+      prompt: 'Update the schedule.', provider, modelId: null, reasoningEffort: 'medium', cwd: '/repo',
+      organizationId: 'local', actor: HOST_ACTOR,
+      startedBy: { kind: 'automation', automationId: 'automation-1', runId: 'run-1' },
+    })
+
+    const automationToolNames = new Set(Object.values(solusToolbox.automations).map((tool) => tool.name))
+    const tools = runs[0]?.tools.filter((tool) => automationToolNames.has(tool.name))
+    expect(tools).toEqual([
+      solusToolbox.automations.list,
+      solusToolbox.automations.read,
+      solusToolbox.automations.update,
+    ])
+  })
+
   test('a webhook delivery names its webhook and delivery', async () => {
     const { HOST_ACTOR } = await import('@solus/server/admission/actor')
     const { dispatch, runs } = await dispatchWithRuns()
     await dispatch.startUnattendedSession({
       prompt: 'Review.', provider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: '/repo', actor: HOST_ACTOR,
+      organizationId: 'local',
       startedBy: { kind: 'webhook', webhookId: 'w-1', deliveryId: 'd-1' },
     })
     expect(runs[0]?.startedBy).toEqual({ kind: 'webhook', webhookId: 'w-1', deliveryId: 'd-1' })

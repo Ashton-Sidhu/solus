@@ -22,33 +22,15 @@ test.describe('Streaming text rendering', () => {
     await conversation.typeAndSend(MARKDOWN_PROMPT)
     await conversation.waitForResponse()
 
-    const msgLocator = page.locator(`${ACTIVE_TAB} [data-testid="assistant-message"]`).last()
+    const messages = page.locator(`${ACTIVE_TAB} [data-testid="assistant-message"]`)
 
     // A <strong> element must exist — bold text was rendered, not left as **…**.
-    await expect(msgLocator.locator('strong').first()).toBeVisible()
+    await expect(messages.last().locator('strong').first()).toBeVisible()
+    await expect(messages).toHaveCount(1)
 
     // Raw markdown syntax must NOT appear in the text content.
-    const rawText = await msgLocator.textContent() ?? ''
+    const rawText = await messages.first().textContent() ?? ''
     expect(rawText).not.toContain('**')
     expect(rawText).not.toContain('##')
-  })
-
-  test('no orphan streaming node and no duplication after task_complete', async ({ page }) => {
-    // WHY: streamed and committed render paths must converge to a single message node.
-    // Fails if the streaming block is left behind after commit, or if the text appears twice.
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    await conversation.typeAndSend(MARKDOWN_PROMPT)
-    await conversation.waitForResponse()
-
-    // Exactly one assistant-message block.
-    const msgCount = await page.locator(`${ACTIVE_TAB} [data-testid="assistant-message"]`).count()
-    expect(msgCount).toBe(1)
-
-    // The committed message contains the rendered bold text.
-    const msgLocator = page.locator(`${ACTIVE_TAB} [data-testid="assistant-message"]`).first()
-    await expect(msgLocator.locator('strong').first()).toBeVisible()
   })
 })

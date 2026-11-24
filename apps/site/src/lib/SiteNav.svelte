@@ -9,7 +9,6 @@
 		{ href: "/#data", label: "Data" },
 		{ href: "/#workflow", label: "Workflow" },
 		{ href: "/#observability", label: "Observability" },
-		{ href: "/demo", label: "Demo" },
 		{ href: "/docs", label: "Docs" },
 	];
 

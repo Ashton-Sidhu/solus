@@ -1,24 +1,25 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
+import { providerDefaultModel } from '@solus/contracts/provider-model-settings'
 import { BUNDLED_MODEL_PROFILES, MODEL_PROFILES, replaceModelProfiles, type AgentMetadata, type IpcContext, type ModelProfilesStatus, type PromptOptions } from '@solus/contracts/types'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
-import { canChoosePermissionMode, canRouteAuto, modelChoices, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
+import { canChoosePermissionMode, canRouteAuto, modelChoices, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
 import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
 describe('native run settings', () => {
   test('a saved Claude session resumes with the window it ran at, never none', () => {
-    expect(savedSessionModel('claude-code', 'claude-opus-5-5[1m]', null)).toEqual({ preferredModel: 'claude-opus-5-5', reasoningEffort: 'medium', contextWindow: 1_000_000, fastMode: false })
+    expect(savedSessionModel('claude-code', 'claude-opus-5-5[1m]', 'medium')).toEqual({ preferredModel: 'claude-opus-5-5', reasoningEffort: 'medium', contextWindow: 1_000_000, fastMode: false })
+    expect(savedSessionModel('claude-code', 'claude-opus-5-5[1m]', null).reasoningEffort)
+      .toBe(BUNDLED_MODEL_PROFILES['claude-code']!['claude-opus-5-5']!.defaultReasoningEffort)
     expect(savedSessionModel('codex', 'gpt-6-astra', 'high')).toEqual({ preferredModel: 'gpt-6-astra', reasoningEffort: 'high', contextWindow: 1_050_000, fastMode: false })
   })
 
   test('a new session starts on the host default model, else the profile default', () => {
     expect(newSessionModel('claude-code', { defaultModels: { 'claude-code': 'claude-haiku-4-5-20251001' }, modelOptionsByProvider: {} }).preferredModel).toBe('claude-haiku-4-5-20251001')
-    expect(newSessionModel('codex', null).preferredModel).toBe('gpt-6-astra')
+    expect(newSessionModel('codex', null).preferredModel).toBe(providerDefaultModel('codex'))
   })
 
   test('a model keeps the person\'s saved effort only when the model offers it', () => {
@@ -84,7 +85,10 @@ describe('native run settings in a conversation', () => {
   })
 
   test('model and permission changes apply to the next prompt while current work continues', async () => {
-    const idle = await controllerFor({ hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'codex', workingDirectory: '/w' } }, { ...DEFAULT_RUN_SETTINGS, defaultPermissionMode: 'supervised' })
+    const idle = await controllerFor(
+      { hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'codex', workingDirectory: '/w' } },
+      { ...DEFAULT_RUN_SETTINGS, defaultModels: { codex: 'gpt-6-astra' }, defaultPermissionMode: 'supervised' },
+    )
     expect(idle.controller.run).toMatchObject({ preferredModel: 'gpt-6-astra', permissionMode: 'supervised' })
     expect(idle.controller.updateRun({ model: 'gpt-6-luna', permissionMode: 'plan' })).toBe(true)
     await idle.controller.send('plan it')
@@ -146,7 +150,7 @@ describe('native mode and model capability', () => {
 
     const unkeyed = await controllerFor(newCodex, { ...DEFAULT_RUN_SETTINGS, defaultModels: { codex: 'auto' } }, 'idle', hostWith([], null))
     expect(unkeyed.controller.autoNeedsKey).toBe(true)
-    expect(unkeyed.controller.run.preferredModel).toBe('gpt-6-astra')
+    expect(unkeyed.controller.run.preferredModel).toBe(providerDefaultModel('codex'))
   })
 
   test('fast mode rides with a Codex model that has it, and clears on one without', async () => {
@@ -191,19 +195,6 @@ describe('native reopened session fast mode', () => {
     }))
     const { controller } = await controllerFor(codexRecord, fastSaved(true), 'idle', api)
     expect(controller.run.fastMode).toBe(false)
-  })
-})
-
-describe('native permission mode icons', () => {
-  test('each mode wears the desktop icon\'s native twin, read from the desktop mapping', () => {
-    // WHY: the phone and desktop must show one mark per mode (lock, open lock...).
-    // The desktop names a Lucide icon; this is its SF Symbol / Tabler twin.
-    const nativeTwin = { Lock: 'lock', FilePenLine: 'square.and.pencil', Sparkles: 'sparkles', LockOpen: 'lock.open', ListTodo: 'checklist' } as const
-    const desktop = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/lib/permission-modes.ts'), 'utf8')
-    for (const mode of Object.keys(PERMISSION_MODE_ICON) as Array<keyof typeof PERMISSION_MODE_ICON>) {
-      const lucide = new RegExp(`'?${mode}'?: \\{[^}]*icon: (\\w+)`).exec(desktop)?.[1] as keyof typeof nativeTwin | undefined
-      expect({ mode, icon: PERMISSION_MODE_ICON[mode] }).toEqual({ mode, icon: nativeTwin[lucide!] })
-    }
   })
 })
 

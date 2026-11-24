@@ -32,12 +32,8 @@ const log = createLogger('automations', 'automation-tools.ts')
 
 /**
  * Provider-neutral automation tools for full CRUD plus run-now and run-result
- * access. Tools return error text
- * (never throw) so a bad call degrades to a message the agent can recover from.
- *
- * Phase 1: run-now only (no scheduling, no templating). The run executes on the
- * automation's own agent (Claude or Codex) with 'full-access' permissions, and gets no
- * automation tools (fork-bomb guard, see runner).
+ * access. Tools return error text so the agent can recover from a failed call.
+ * PromptDispatch selects which tools each kind of session receives.
  */
 
 const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const

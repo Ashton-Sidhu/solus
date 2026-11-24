@@ -8,7 +8,6 @@ import {
   matchingChoices,
   sourceChoiceGroups,
   sourceConnectionNotes,
-  connectionProviderNames,
   sourceHealthNote,
   MAX_SETUP_PROJECT_ROWS,
   projectSourceRows,
@@ -262,15 +261,16 @@ describe('what can be added', () => {
     expect(sourceConnectionNotes({ ...options, jira: { ...options.jira, boards: [], boardsError } })).toEqual([{ provider: 'jira', text: boardsError }])
   })
 
-  test('the footer names each provider once, as one short phrase', () => {
-    // WHY: the footer is one row. Two GitHub notes or a list of sentences made it a block of text.
-    const github = { provider: 'github' as const, text: 'a' }
-    const jira = { provider: 'jira' as const, text: 'b' }
-    const linear = { provider: 'linear' as const, text: 'c' }
+  test('the footer has one connect action for each provider', () => {
+    // WHY: the footer is one row of a button for each provider. A second note
+    // for one provider made two buttons that open the same connection.
+    const notes = sourceConnectionNotes({
+      github: { ...options.github, connected: false },
+      jira: { ...options.jira, connected: false },
+      linear: { connected: false, teams: [], error: 'Linear key expired' },
+    })
 
-    expect(connectionProviderNames([github])).toBe('GitHub')
-    expect(connectionProviderNames([github, jira])).toBe('GitHub and Jira')
-    expect(connectionProviderNames([github, github, jira, linear])).toBe('GitHub, Jira, and Linear')
+    expect(notes.map((note) => note.provider)).toEqual(['github', 'jira', 'linear'])
   })
 
   test('the search of the menu matches the kind, the label and the detail', () => {

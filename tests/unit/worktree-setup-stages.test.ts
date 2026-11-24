@@ -125,6 +125,34 @@ describe('the stages of a new worktree', () => {
     expect(exec.git(['rev-parse', 'HEAD'], checkout.worktreePath!)).toBe(exec.git(['rev-parse', 'main'], directory))
   })
 
+  test('a base commit that the host has skips the fetch', async () => {
+    // WHY: a child session starts from its parent's commit. That commit has no
+    // origin/<commit> ref, so a fetch step would always end in a false warning.
+    const clone = cloneOf(repository())
+    writeFileSync(join(clone, 'local.txt'), 'not pushed\n')
+    fixtureGit(['add', 'local.txt'], clone)
+    fixtureGit(['commit', '-q', '-m', 'Local only'], clone)
+    const commit = exec.git(['rev-parse', 'HEAD'], clone)
+    const stages = recorder()
+    const checkout = await worktreeManager.createWorktree(clone, commit, { onStage: stages.onStage })
+    expect(stages.sequence()).toEqual(['fetch:skipped', 'checkout:active', 'checkout:done', 'submodules:skipped'])
+    expect(exec.git(['rev-parse', 'HEAD'], checkout.worktreePath!)).toBe(commit)
+  })
+
+  test('a base commit that the host does not have is fetched from origin', async () => {
+    // WHY: a session on another host names a commit that only the remote has.
+    const upstream = repository()
+    const clone = cloneOf(upstream)
+    writeFileSync(join(upstream, 'later.txt'), 'later\n')
+    fixtureGit(['add', 'later.txt'], upstream)
+    fixtureGit(['commit', '-q', '-m', 'Later'], upstream)
+    const commit = exec.git(['rev-parse', 'HEAD'], upstream)
+    const stages = recorder()
+    const checkout = await worktreeManager.createWorktree(clone, commit, { onStage: stages.onStage })
+    expect(stages.sequence()).toEqual(['fetch:active', 'fetch:done', 'checkout:active', 'checkout:done', 'submodules:skipped'])
+    expect(exec.git(['rev-parse', 'HEAD'], checkout.worktreePath!)).toBe(commit)
+  })
+
   test('a repository with submodules loads them into the worktree', async () => {
     const library = repository()
     const directory = repository()

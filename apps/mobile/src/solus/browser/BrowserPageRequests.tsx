@@ -115,7 +115,7 @@ function FileChooserCard(props: { readonly hostId: string; readonly page: Browse
   const answer = (pick: boolean) => {
     setBusy(true);
     void (async () => {
-      const files = pick ? await pickComposerFiles(0) : null;
+      const files = pick ? await pickComposerFiles() : null;
       // A picker the person closed gives no files; the page keeps asking.
       if (pick && files?.length === 0) return;
       await app.browser.answerFileChooser(

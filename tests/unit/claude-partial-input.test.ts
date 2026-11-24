@@ -29,7 +29,7 @@ test('an integration tool streams its input so far, ten times a second at most, 
   advance(PARTIAL_INPUT_INTERVAL_MS)
   expect(claude.push(delta('st"'))).toEqual([{ type: 'tool_call_update', toolId: 'toolu_1', index: 0, toolInput: '{"region":"west"', inputPartial: true }])
   expect(claude.push(delta('}'))).toEqual([])
-  expect(claude.push(stop)).toEqual([{ type: 'tool_call_complete', index: 0, toolInput: '{"region":"west"}' }])
+  expect(claude.push(stop)).toEqual([{ type: 'tool_call_complete', index: 0, toolId: 'toolu_1', toolInput: '{"region":"west"}' }])
 })
 
 test('other tools, calls inside a subagent, and a very long input send no partial input', () => {

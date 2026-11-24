@@ -4,7 +4,7 @@ import type { PrProjectListing, PrSyncChange, PullRequest } from '@solus/contrac
 import { PullRequestDirectory } from '../../apps/mobile/solus-core/features/prs/pull-request-directory'
 import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
-import { deferred, detailApi, hostWorld, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
+import { deferred, detailApi, hostWorld, PR, PR_REF, project, pullRequest, REPO as REPO_REF, repositoryApi } from './helpers/native-mobile-prs-fixtures'
 
 // The phone reads pull requests over the network, where every call costs a
 // round trip. These tests pin what makes the Pull Requests tab feel fast: a
@@ -23,7 +23,7 @@ const failingChecks = (headSha: string): PrChecksSummary => ({
 const sync = (change: Partial<PrSyncChange>): PrSyncChange => ({ repo: REPO, pullRequests: [], missing: [], checks: [], ...change })
 
 function listApi(api: FakeApi, prs: PullRequest[] = [pullRequest(7)]): FakeApi {
-  return api
+  return repositoryApi(api)
     .on('listProjects', () => [project('/work/app', REPO)])
     .on('prListProjects', () => [page('/work/app', prs)])
     .on('providerViewer', () => ({ login: 'me' }))
@@ -192,7 +192,12 @@ describe('pull requests kept fresh by PR sync', () => {
     const releaseRow = directory.want('inst-a', '/work/app', [{ kind: 'pull-request', number: 7 }])
     const releaseDetail = directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
     await flushPromises()
-    expect(api.callsOf('prSetInterest')).toEqual([[expect.anything(), [{ kind: 'pull-request', number: 7 }, { kind: 'review', number: 7 }]]])
+    // The host's repository, and the project checkout a branch interest is resolved against.
+    expect(api.callsOf('prSetInterest')).toEqual([[
+      REPO_REF,
+      [{ kind: 'pull-request', number: 7 }, { kind: 'review', number: 7 }],
+      expect.objectContaining({ session: expect.objectContaining({ projectPath: '/work/app' }) }),
+    ]])
     releaseDetail()
     releaseRow()
     await flushPromises()
@@ -311,6 +316,46 @@ describe('pull requests kept fresh by PR sync', () => {
   })
 })
 
+describe('a pull request is named by its repository', () => {
+  test('every part of a detail names the repository the host answered, asked once for each project', async () => {
+    // WHY: the host keys its pull request cache by the project remote's
+    // spelling, so a call must name that repository and not the list row's
+    // `baseRepo`. The answer comes from Git, so one question per project is enough.
+    const api = detailApi(new FakeApi())
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadDetail(PR_REF)
+    await directory.loadDetail(PR_REF, { force: true })
+    for (const method of ['prGetOverview', 'prListComments', 'prListThreads', 'prChangedFiles', 'prGetStack']) {
+      expect(api.callsOf(method)).toEqual([[PR], [PR]])
+    }
+    expect(api.callsOf('prRepository')).toEqual([[expect.objectContaining({ session: expect.objectContaining({ projectPath: '/work/app' }) })]])
+
+    // A host forgotten (an account switch) asks again.
+    directory.forgetHost('inst-a')
+    await directory.loadDetail(PR_REF)
+    expect(api.callsOf('prRepository')).toHaveLength(2)
+  })
+
+  test('a failed repository answer is not kept', async () => {
+    let fails = true
+    const api = detailApi(new FakeApi()).on('prRepository', () => {
+      if (fails) throw new Error('no remote')
+      return REPO_REF
+    })
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadDetail(PR_REF)
+    expect(directory.detailOf(PR_REF).kind).toBe('error')
+    expect(api.callsOf('prGetOverview')).toHaveLength(0)
+
+    fails = false
+    await directory.loadDetail(PR_REF)
+    expect(directory.detailOf(PR_REF).kind).toBe('loaded')
+    expect(api.callsOf('prRepository')).toHaveLength(2)
+  })
+})
+
 describe('a pull request a turn card shows', () => {
   test('the card gets the full pull request PR sync pushes for its repository, and only while it wants it', async () => {
     // WHY: the card shows the author and size, which only a full pull request
@@ -323,7 +368,9 @@ describe('a pull request a turn card shows', () => {
 
     const release = directory.wantLinked('inst-a', REPO, 7)
     await flushPromises()
-    expect(api.callsOf('prSetInterest').at(-1)?.[1]).toEqual([{ kind: 'pull-request', number: 7 }])
+    // A repository scope names its repository: no project, no checkout, no `prRepository`.
+    expect(api.callsOf('prSetInterest').at(-1)).toEqual([{ host: 'github.com', owner: 'o', repo: 'r' }, [{ kind: 'pull-request', number: 7 }], undefined])
+    expect(api.callsOf('prRepository')).toHaveLength(0)
     expect(directory.linkedOf('inst-a', REPO, 7)?.title).toBe('Answered')
 
     world.transports[0]!.emit('pr.changed', sync({ pullRequests: [pullRequest(7, { title: 'Renamed', updatedAt: '2026-02-01T00:00:00Z' })] }))

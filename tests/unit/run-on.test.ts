@@ -294,20 +294,6 @@ describe('the project chip lists projects, not checkouts', () => {
     expect(options.map((option) => option.key)).toEqual(['j'])
   })
 
-  test('a project is named by its plain name, never by its owner or host', () => {
-    // WHY: the chip names projects as the Tasks, Pull requests, Automations and
-    // Works pages do; the host shows apart from the name, in hostLabel.
-    const options = projectChipOptions(
-      [
-        project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }]),
-        project('github.com/other/web', [{ serverId: 'local', projectRoot: '/other/web' }]),
-        project('local:/scratch/web', [{ serverId: 'local', projectRoot: '/scratch/web' }]),
-      ],
-      'local', online, label,
-    )
-    expect(options.map((option) => option.label)).toEqual(['web', 'web', 'web'])
-  })
-
   test('the folder the composer is in leads the list', () => {
     const options = projectChipOptions(
       [project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }])],

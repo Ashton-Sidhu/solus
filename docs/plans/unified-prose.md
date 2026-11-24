@@ -247,11 +247,6 @@ PRs gain callouts.
 
 ## Tests
 
-- `prose-single-ruleset.test.ts` fails if a `workspace.css` rule sets the type
-  of a prose element under a prose host. It proves it can see such a rule.
-- `reference-token-shell.test.ts`: inline code is never a chip, and it sets at
-  the body's x-height (`font-size-adjust: from-font` on the root, `1em` on the
-  code).
 - `document-model.test.ts`: callouts round-trip byte for byte through the host
   and the editor codecs; each kind is kept; a plain quote and a marker with
   text on its line stay quotes; a lower-case marker saves in capitals; the

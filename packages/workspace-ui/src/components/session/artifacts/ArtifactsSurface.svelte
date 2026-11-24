@@ -56,7 +56,7 @@
 
   /**
    * The Threads surface (docs/plans/session-artifacts.md): what a session made,
-   * as a row of pictures, pinned and latest first; its turns as a timeline of
+   * as a row of pictures, the latest viewed first; its turns as a timeline of
    * tool calls; then its changed files, the agents it started,
    * its pull requests, and its works and files. Selecting a turn scopes
    * everything below the timeline to that turn. A row opens its record as a
@@ -312,7 +312,7 @@
         The session's turns, its changed files, the agents it starts, and the pull requests, works, and files it links appear here.
       </PageEmpty>
     {:else}
-      <!-- What the session made, pinned and latest first, as a card of its own: the whole session's, whatever the scope. -->
+      <!-- What the session made, the latest viewed first, as a card of its own: the whole session's, whatever the scope. -->
       {#if overview.recent.length > 0}
         <div class="px-3.5 pt-4">
           <RecentArtifactsRow items={overview.recent} {serverId} isDark={settings.isDark} onOpen={(item) => openLinked(item.owned)} />

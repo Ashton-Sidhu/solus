@@ -1,7 +1,14 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
+  import PageCrumbLine from "../ui/list-page/PageCrumbLine.svelte";
   import InsightsResultSkeleton from "./InsightsResultSkeleton.svelte";
 </script>
+
+<!-- Reset, then the close control the real header ends with. -->
+{#snippet windowControls()}
+  <Skeleton class="h-6 w-14 rounded-md opacity-45" />
+  <Skeleton class="size-6.5 rounded-full opacity-40" />
+{/snippet}
 
 <!-- Mirrors the Insights shell while its lazy module loads. The titlebar, the
      console band, and the answer geometry stay in place, so the pane does not
@@ -16,15 +23,10 @@
   <header
     class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] pointer-coarse:h-9 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
   >
-    <span class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome font-semibold"
-      >Insights</span
-    >
-    <span class="px-[3px] text-workspace-chrome text-muted-foreground opacity-25" aria-hidden="true">/</span>
-    <Skeleton class="h-3.5 w-12 rounded opacity-55" />
-    <span class="flex-1"></span>
-    <Skeleton class="h-6 w-14 rounded-md opacity-45" />
-    <!-- The move-across control the real header ends with. -->
-    <Skeleton class="size-[1.625rem] rounded-[0.4375rem] opacity-40" />
+    <!-- The page's own crumb line, so the title is drawn by one component in
+         both states and does not change when the page replaces this shell.
+         "Turns" is what the page names its list before the first answer. -->
+    <PageCrumbLine page="insights" trailingCrumb="Turns" actions={windowControls} />
   </header>
   </div>
 

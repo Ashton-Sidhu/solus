@@ -50,18 +50,6 @@ test.describe('Context usage meter', () => {
     await expect(meter).toHaveAccessibleName('Context usage not reported yet')
   })
 
-  test('a task lead reports how much context is used once usage arrives', async ({ page }) => {
-    const app = new AppPage(page)
-    const conversation = new ConversationPage(page)
-    await app.waitForAppReady()
-
-    await sendAsTaskLead(page, conversation, 'Report tokens __MOCK_USAGE__')
-
-    // 60K occupancy of 200K is 30%. Were the 1.2K of output counted as
-    // occupancy the figure would rise, so this pins output out of the window.
-    await expect(page.locator(METER)).toHaveAccessibleName('30% of context used', { timeout: 5000 })
-  })
-
   test('clicking the meter opens a detail popover with the token breakdown', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
@@ -69,6 +57,7 @@ test.describe('Context usage meter', () => {
 
     await sendAsTaskLead(page, conversation, 'Open details __MOCK_USAGE__')
 
+    await expect(page.locator(METER)).toHaveAccessibleName('30% of context used')
     await page.locator(METER).click()
 
     const popover = page.locator(`${ACTIVE_TAB} [data-testid="context-meter-popover"]`)

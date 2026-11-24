@@ -7,13 +7,10 @@
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
+  import { PAGE_PILL_ICON_BTN } from "../../../lib/page-chrome";
+  import { Button } from "../../ui/button";
   import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
-  import {
-    SourceLogo,
-    SubPageCrumbLine,
-    SUB_PAGE_CHIP,
-    SUB_PAGE_ROUND_BTN,
-  } from "../../ui/list-page";
+  import { SourceLogo, SubPageCrumbLine, SUB_PAGE_CHIP } from "../../ui/list-page";
 
   /**
    * The task page's head at every rung but the record one: the sub page band
@@ -64,7 +61,7 @@
        there. Pressing it reads the task from the provider again. -->
   <button
     type="button"
-    class="{SUB_PAGE_CHIP} mr-2 cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
+    class="{SUB_PAGE_CHIP} cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
     onclick={onRefresh}
     disabled={refreshing}
     title="{task.reference ?? `${providerName} draft`} · click to read it from {providerName} again"
@@ -78,55 +75,62 @@
     <span>{refreshing ? "Reading" : providerName}</span>
     <span class="text-xs opacity-70">{taskRef(task)}</span>
   </button>
+{/snippet}
 
+<!-- The task's icon verbs join the pane's ✕ in one pill. -->
+{#snippet tools()}
   {#if onCopyLink}
-    <button
-      type="button"
-      class={SUB_PAGE_ROUND_BTN}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class={PAGE_PILL_ICON_BTN}
       onclick={onCopyLink}
       title="Copy {providerName} link"
       aria-label="Copy the {providerName} link of this task"
       data-testid="task-copy-link"
     >
-      <LinkIcon size={15} strokeWidth={1.5} />
-    </button>
+      <LinkIcon class="size-4" strokeWidth={1.5} />
+    </Button>
   {/if}
 
   {#if onOpenPage}
-    <button
-      type="button"
-      class={SUB_PAGE_ROUND_BTN}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class={PAGE_PILL_ICON_BTN}
       onclick={onOpenPage}
       title="Open task page"
       aria-label="Open task page"
     >
-      <ArrowsOutSimpleIcon size={15} strokeWidth={1.5} />
-    </button>
+      <ArrowsOutSimpleIcon class="size-4" strokeWidth={1.5} />
+    </Button>
   {/if}
 
   {#if onOpenSource}
-    <button
-      type="button"
-      class={SUB_PAGE_ROUND_BTN}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class={PAGE_PILL_ICON_BTN}
       onclick={onOpenSource}
       title={`Open in ${providerName}`}
       aria-label={`Open task in ${providerName}`}
     >
-      <ArrowSquareOutIcon size={15} strokeWidth={1.5} />
-    </button>
+      <ArrowSquareOutIcon class="size-4" strokeWidth={1.5} />
+    </Button>
   {/if}
 
   {#if onDelete}
-    <button
-      type="button"
-      class={SUB_PAGE_ROUND_BTN}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class={PAGE_PILL_ICON_BTN}
       onclick={onDelete}
       title="Delete draft"
       aria-label="Delete this draft"
       data-testid="task-delete"
     >
-      <TrashIcon size={15} strokeWidth={1.5} />
-    </button>
+      <TrashIcon class="size-4" strokeWidth={1.5} />
+    </Button>
   {/if}
 {/snippet}
 
@@ -138,6 +142,7 @@
   copyText={task.reference ?? task.id}
   copyTitle={task.reference ? "Copy task reference" : "Copy task key"}
   {actions}
+  {tools}
   stepper={{ onPrevious: onPrevious ?? null, onNext: onNext ?? null, itemLabel: "task" }}
   {onClose}
   divided={false}

@@ -74,12 +74,19 @@ export function unreadCountLabel(count: { unread: number; isCapped: boolean; isC
   return count.isComplete ? String(count.unread) : `${count.unread}+`
 }
 
-/** Why a source shows no fresh rows, for the source strip. Null when it is fine. */
+/**
+ * Why a source shows no fresh rows, for the source strip. Null when it is fine.
+ * An unreachable source says why, and claims loaded rows only when it has some.
+ */
 export function sourceStatusNote(state: HubSourceState): string | null {
   switch (state.status) {
     case 'ready': return null
     case 'loading': return 'Loading…'
-    case 'offline': return 'Unreachable — showing what was loaded'
+    case 'offline': {
+      const note = state.oldestLoadedAt === null ? 'Unreachable' : 'Unreachable — showing what was loaded'
+      const reason = state.error?.trim().replace(/\.+$/, '')
+      return reason ? `${note}. ${reason}.` : note
+    }
     case 'unsupported': return 'This host has no notifications yet. Update Solus on it.'
   }
 }

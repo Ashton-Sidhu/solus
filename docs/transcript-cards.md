@@ -34,7 +34,7 @@ Source: the "Conversation Cards Spec" design project (turns 2b, 3a, 3b, 4a, 4b).
 | Type word | Lowercase, muted, never truncates. A failure reason goes here. |
 | Target | Optional path, branch, or file. Sans, `--text-tool-step`. |
 | Rail | Counts and time only, never prose. Sans with tabular figures, `--text-transcript-meta`, 70%. |
-| Actions | 24px targets (32px on touch), 8px from the card edge. Icons 14px. At most one primary and one ghost button, plus split and ⋯. |
+| Actions | 24px targets (32px on touch), 8px from the card edge. Icons 14px. At most one primary and one ghost button, plus a split icon or ⋯. |
 
 Body layouts (`bodyLayout`):
 
@@ -54,9 +54,11 @@ Body layouts (`bodyLayout`):
 - `icon` — 24px square. Split and dismiss.
 - `item` — a row in the ⋯ menu.
 
-The split icon is always visible, never hover-only. Cmd-click on a card does the
-same. Beside the split icon, a quiet Open is an icon too (↗, labelled by `actionLabel`),
-so the line reads ⋯, split, ↗ as one row of icons. A filled action keeps its word. The ⋯ menu holds publish, task link, copy id, provenance, stop, and change.
+If the card has a ⋯ menu, select **Open in split view** there. If the card has
+no menu, the split icon stays visible. Cmd-click or Ctrl-click on a card also
+opens it in split view. On cards with a split action, a quiet Open uses an icon
+(↗, labelled by `actionLabel`). A filled action keeps its word. The ⋯ menu can
+also hold publish, task link, copy id, provenance, stop, and change.
 Cards with a visible prose or rows body place actions in a wrapping footer at the
 bottom-right. Header-only cards and media cards keep actions at the right edge of
 the card line, so an action never floats alone under a picture. Disclosure controls and the ⋯
@@ -248,10 +250,11 @@ elapsed time, and a chevron. It is folded until the reader opens it. A folded,
 settled header is at 55% opacity. The header and the rows share one card;
 open, the rows show under a hairline.
 
-A session row keeps its split and ⋯ controls before the time. They show on
-hover or focus, and always on touch. Cmd-click opens the session beside this
-conversation. When the other agent waits on a person here (a request or a
-plan decision), the decision shows under the row, indented to the title.
+A session row shows ⋯ before the time on hover or focus, and always on touch.
+Select **Open in split view** from the menu, or Cmd-click or Ctrl-click the row
+to open the session beside this conversation. When the other agent waits on a
+person here (a request or a plan decision), the decision shows under the row,
+indented to the title.
 
 Consecutive thoughts and commands share an activity group. While work runs,
 the collapsed group previews the latest thought above its status. It shows the

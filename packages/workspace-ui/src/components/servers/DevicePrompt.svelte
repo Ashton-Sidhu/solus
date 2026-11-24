@@ -1,12 +1,15 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  /** A browser-auth prompt: what to confirm or return, where, and why.
-   *  The browser is opened for the user already — the Open action is the
-   *  fallback for when it wasn't, or landed behind another window. */
+  /** A browser-auth prompt: why, then its two steps on a rail — the page,
+   *  and what to confirm or return there. The browser is opened for the user
+   *  already — the Open action is the fallback for when it wasn't, or landed
+   *  behind another window. */
   import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
+  import StepRail from "../steps/StepRail.svelte";
+  import { devicePromptSteps } from "./lib/device-prompt-steps";
 
   interface Props {
     url: string;
@@ -34,6 +37,7 @@
    *  few seconds to answer. Without a state to show, Submit looks like it did
    *  nothing and they paste it again. */
   let submitState = $state<"idle" | "submitting" | "sent">("idle");
+  const steps = $derived(devicePromptSteps(code ? "enter-code" : requiresCodeInput ? "paste-code" : "approve", submitState === "sent"));
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -52,51 +56,48 @@
 </script>
 
 <div class="text-xs mt-3 flex flex-col gap-2.5">
-  <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">
-    {submitState === "sent" ? `Code sent — finishing sign-in on the host…` : why}
-  </p>
-  {#if code}
-    <div class="flex items-center gap-2">
-      <code
-        class="font-sans text-sm font-medium tracking-wider tabular-nums text-(--solus-text-primary)"
-      >
-        {code}
-      </code>
-      <CopyButton text={code} />
-    </div>
-  {/if}
-  {#if requiresCodeInput}
-    {#if submitState === "sent"}
-      <span class="flex items-center gap-2 text-(--solus-text-tertiary)" role="status">
-        <CircleNotchIcon size={12} class="shrink-0 animate-spin text-(--solus-accent)" />
-        Waiting for {label} to accept it.
-      </span>
-    {:else}
-      <form class="flex items-center gap-2" onsubmit={submit}>
-        <Input
-          bind:value={returnedCode}
-          class="h-8 min-w-0 flex-1"
-          placeholder="Paste code"
-          autocomplete="one-time-code"
-          aria-label="{label} sign-in code"
-          dictation={false}
-          disabled={submitState === "submitting"}
-          autofocus
-        />
-        <!-- Neutral until there is a code to send: a disabled accent button
-             reads as a washed-out block, not as the next step. -->
-        <Button
-          type="submit"
-          class="h-8 px-3"
-          size="sm"
-          variant={returnedCode.trim() ? "default" : "secondary"}
-          disabled={!returnedCode.trim() || submitState === "submitting"}
-        >
-          {submitState === "submitting" ? "Sending…" : "Submit"}
-        </Button>
-      </form>
-    {/if}
-  {/if}
+  <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">{why}</p>
+  <div class="text-activity-label">
+    <StepRail {steps}>
+      {#snippet detail(_step, index)}
+        {#if index === 1 && code}
+          <div class="mt-2 flex items-center gap-2">
+            <code class="font-sans text-sm font-medium tracking-wider tabular-nums text-(--solus-text-primary)">{code}</code>
+            <CopyButton text={code} />
+          </div>
+        {:else if index === 1 && requiresCodeInput && submitState === "sent"}
+          <span class="mt-2 flex items-center gap-2 text-xs text-(--muted-foreground)" role="status">
+            <CircleNotchIcon size={12} class="shrink-0 animate-spin text-(--solus-accent)" />
+            Waiting for {label} to accept it.
+          </span>
+        {:else if index === 1 && requiresCodeInput}
+          <form class="mt-2 flex items-center gap-2" onsubmit={submit}>
+            <Input
+              bind:value={returnedCode}
+              class="h-8 min-w-0 flex-1"
+              placeholder="Paste code"
+              autocomplete="one-time-code"
+              aria-label="{label} sign-in code"
+              dictation={false}
+              disabled={submitState === "submitting"}
+              autofocus
+            />
+            <!-- Neutral until there is a code to send: a disabled accent button
+                 reads as a washed-out block, not as the next step. -->
+            <Button
+              type="submit"
+              class="h-8 px-3"
+              size="sm"
+              variant={returnedCode.trim() ? "default" : "secondary"}
+              disabled={!returnedCode.trim() || submitState === "submitting"}
+            >
+              {submitState === "submitting" ? "Sending…" : "Submit"}
+            </Button>
+          </form>
+        {/if}
+      {/snippet}
+    </StepRail>
+  </div>
   <!-- Where a code goes back, Submit is the step that finishes sign-in, so
        Open and Cancel step down to quiet text actions under it, aligned with
        the field's edge. Otherwise Open is the one action. -->

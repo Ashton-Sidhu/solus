@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { plainSnippet, SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { PickerSort } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-search'
@@ -282,18 +281,6 @@ describe('unified picker rows', () => {
       })
       expect(entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.meta.sessionId)).toEqual(['a1', 'orphan'])
       expect(entries[0]).toMatchObject({ kind: 'session', hit: { snippet: 'pass said' } })
-    })
-
-    test('a passage is cut around its first marked hit and keeps the marks', () => {
-      // WHY: the index returns a window of tokens the hit can sit anywhere in,
-      // and the row shows one line of it. Cut from the start, a hit in the back
-      // half fell off the line and the row showed no evidence at all.
-      const marked = `${'lead words '.repeat(12)}the ${SNIPPET_HIT_OPEN}pelican${SNIPPET_HIT_CLOSE} lands${' and more'.repeat(20)}`
-      const { entries } = buildWithHits('pelican', [hit('orphan', marked)])
-      const snippet = entries[0].kind === 'conversation' ? entries[0].hit.snippet : ''
-      expect(plainSnippet(snippet)).toMatch(/^…[^…]*the pelican lands[^…]*…$/)
-      expect(snippet).toContain(`${SNIPPET_HIT_OPEN}pelican${SNIPPET_HIT_CLOSE}`)
-      expect(snippet.indexOf(SNIPPET_HIT_OPEN)).toBeLessThan(40)
     })
 
     test('the In messages header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {

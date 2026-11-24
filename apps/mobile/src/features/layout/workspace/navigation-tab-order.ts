@@ -67,9 +67,14 @@ export function toggleNavigationTabVisibility(
   return hidden.includes(tab) ? hidden.filter((candidate) => candidate !== tab) : [...hidden, tab];
 }
 
-export function enabledNavigationTabs(saved?: readonly unknown[], hidden?: readonly unknown[]) {
+export function enabledNavigationTabs(
+  saved?: readonly unknown[],
+  hidden?: readonly unknown[],
+): NavigationTab[] {
   const excluded = resolveHiddenNavigationTabs(hidden);
-  return resolveNavigationTabOrder(saved).filter((tab) => !excluded.includes(tab));
+  return resolveNavigationTabOrder(saved).filter(
+    (tab) => tab !== "usage" && !excluded.includes(tab),
+  );
 }
 
 export function visibleNavigationTabs(

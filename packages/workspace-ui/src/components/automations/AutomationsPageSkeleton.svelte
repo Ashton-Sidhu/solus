@@ -6,6 +6,7 @@
      and its rows carry a wide name column — the same values the live page
      passes to ListSkeleton once it has loaded. -->
 <ListPageSkeleton
+  page="automations"
   label="Loading automations"
   hasViewSwitcher={false}
   hasPrimaryAction

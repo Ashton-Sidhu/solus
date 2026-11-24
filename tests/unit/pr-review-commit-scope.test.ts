@@ -60,7 +60,7 @@ function makeDeps(loadDiff: (request: PrDiffRequest) => Promise<PrDiffSlice>): P
     fallbackCtx: () => ({}) as ReturnType<PrReviewDeps['fallbackCtx']>,
     ctxForDirectory: unused,
     threadSource: unused,
-    loadDiff: (_ctx, request) => loadDiff(request),
+    loadDiff,
     prepareCheckout: unused,
     loadInterdiff: unused,
     diffStats: unused,

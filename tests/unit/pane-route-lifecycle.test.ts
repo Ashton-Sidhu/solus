@@ -50,6 +50,7 @@ test('pane route changes isolate params and preserve same-route state', async ()
         import { ROUTES } from ${JSON.stringify(registry)};
         const getWorkspaceContext = () => ({ router: { leadingPane: { id: 'main' } } });
         const paneActions = () => ({});
+        const setUnderStrip = () => {};
       `)
     const pane = component(source, 'pane')
     const harness = component(`<script>

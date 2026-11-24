@@ -35,22 +35,6 @@ export class ConversationPage {
     )
   }
 
-  async getLastAssistantMessage(): Promise<string> {
-    const selector = `${ACTIVE_TAB} [data-testid="assistant-message"]`
-    await this.page.waitForFunction(
-      (sel) => {
-        const els = [...document.querySelectorAll(sel)]
-        return els.length > 0 && (els[els.length - 1].textContent?.trim().length ?? 0) > 0
-      },
-      selector,
-      { timeout: 10_000 },
-    )
-    return this.page.evaluate((sel) => {
-      const els = [...document.querySelectorAll(sel)]
-      return els[els.length - 1]?.textContent?.trim() ?? ''
-    }, selector)
-  }
-
   async getAllAssistantMessages(): Promise<string[]> {
     const selector = `${ACTIVE_TAB} [data-testid="assistant-message"]`
     return this.page.evaluate((sel) => {

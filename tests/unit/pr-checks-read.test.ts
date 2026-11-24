@@ -1,7 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { localOwnerCtx } from './helpers/handler-ctx'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import type { IpcContext } from '@solus/contracts/types'
 import type { Provider } from '@solus/server/providers/types'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { NumberedPrChecksSummary, PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
@@ -12,6 +11,9 @@ import { SolusServer } from '@solus/server/transport/server'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { registerChecksHandlers } = await import('@solus/server/transport/handlers/checks-handlers')
+
+/** The repository a client names; each test's resolver says which one it reads. */
+const askedRepo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'asked' }
 
 /**
  * Check runs as a read. An open review pane's checks are kept fresh by PR
@@ -32,16 +34,16 @@ describe('PR checks read', () => {
       },
     } as unknown as Provider
     registerChecksHandlers(server, {
-      resolveReviewTarget: async () => ({
+      resolveReviewTarget: () => ({
         repo: { host: 'github.com', owner: 'owner', repo: 'scoped-cold-read' },
         provider,
       }),
     })
 
-    await server.handle('prChecks', [{} as IpcContext, []], localOwnerCtx('local'))
-    await server.handle('prChecks', [{} as IpcContext, [7, 9]], localOwnerCtx('local'))
+    await server.handle('prChecks', [askedRepo, []], localOwnerCtx('local'))
+    await server.handle('prChecks', [askedRepo, [7, 9]], localOwnerCtx('local'))
     // A fresh answer that covers what is asked is shared, not read again.
-    await server.handle('prChecks', [{} as IpcContext, [7]], localOwnerCtx('local'))
+    await server.handle('prChecks', [askedRepo, [7]], localOwnerCtx('local'))
 
     expect(checkedNumbers).toEqual([[7, 9]])
   })
@@ -64,15 +66,15 @@ describe('PR checks read', () => {
       },
     } as unknown as Provider
     registerChecksHandlers(server, {
-      resolveReviewTarget: async () => ({
+      resolveReviewTarget: () => ({
         repo: { host: 'github.com', owner: 'owner', repo: 'scoped-answer' },
         provider,
       }),
     })
 
-    await server.handle('prChecks', [{} as IpcContext, [1, 2, 3]], localOwnerCtx('local'))
-    const one = await server.handle('prChecks', [{} as IpcContext, [2]], localOwnerCtx('local')) as PrChecksSnapshot
-    const more = await server.handle('prChecks', [{} as IpcContext, [3, 4]], localOwnerCtx('local')) as PrChecksSnapshot
+    await server.handle('prChecks', [askedRepo, [1, 2, 3]], localOwnerCtx('local'))
+    const one = await server.handle('prChecks', [askedRepo, [2]], localOwnerCtx('local')) as PrChecksSnapshot
+    const more = await server.handle('prChecks', [askedRepo, [3, 4]], localOwnerCtx('local')) as PrChecksSnapshot
 
     expect(one.checks.map((entry) => entry.number)).toEqual([2])
     expect(more.checks.map((entry) => entry.number)).toEqual([3, 4])
@@ -92,15 +94,15 @@ describe('PR checks read', () => {
       },
     } as unknown as Provider
     registerChecksHandlers(server, {
-      resolveReviewTarget: async () => ({
+      resolveReviewTarget: () => ({
         repo: { host: 'github.com', owner: 'owner', repo: 'shared-read' },
         provider,
       }),
     })
 
     await Promise.all([
-      server.handle('prChecks', [{} as IpcContext, [5]], localOwnerCtx('local')),
-      server.handle('prChecks', [{} as IpcContext, [5]], localOwnerCtx('local')),
+      server.handle('prChecks', [askedRepo, [5]], localOwnerCtx('local')),
+      server.handle('prChecks', [askedRepo, [5]], localOwnerCtx('local')),
     ])
 
     expect(checkedNumbers).toEqual([[5]])
@@ -119,14 +121,14 @@ describe('PR checks read', () => {
       },
     } as unknown as Provider
     registerChecksHandlers(server, {
-      resolveReviewTarget: async () => ({
+      resolveReviewTarget: () => ({
         repo: { host: 'github.com', owner: 'owner', repo: 'failed-read' },
         provider,
       }),
     })
 
-    const failed = await server.handle('prChecks', [{} as IpcContext, [6]], localOwnerCtx('local')) as PrChecksSnapshot
-    const retried = await server.handle('prChecks', [{} as IpcContext, [6]], localOwnerCtx('local')) as PrChecksSnapshot
+    const failed = await server.handle('prChecks', [askedRepo, [6]], localOwnerCtx('local')) as PrChecksSnapshot
+    const retried = await server.handle('prChecks', [askedRepo, [6]], localOwnerCtx('local')) as PrChecksSnapshot
 
     expect(failed.loadFailed).toBe(true)
     expect(retried.loadFailed).toBe(false)
@@ -148,11 +150,11 @@ describe('PR checks read', () => {
       },
     } as unknown as Provider
     registerChecksHandlers(server, {
-      resolveReviewTarget: async () => ({ repo: { host: 'github.com', owner: 'owner', repo }, provider }),
+      resolveReviewTarget: () => ({ repo: { host: 'github.com', owner: 'owner', repo }, provider }),
     })
     const read = async (name: string) => {
       repo = name
-      await server.handle('prChecks', [{} as IpcContext, [1]], localOwnerCtx('local'))
+      await server.handle('prChecks', [askedRepo, [1]], localOwnerCtx('local'))
     }
 
     await read('bounded-first')

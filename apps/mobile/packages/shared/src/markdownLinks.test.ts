@@ -1,4 +1,3 @@
-import { workspaceRelativeFilePath } from "./path.ts";
 import { describe, expect, it } from "vite-plus/test";
 import { serializeComposerFileLink } from "./composerTrigger.ts";
 import { extractMarkdownLinkHrefs, resolveMarkdownFileLinkTarget } from "./markdownLinks.ts";
@@ -171,17 +170,6 @@ describe("parseMarkdownFileLink", () => {
       line: 42,
       column: 7,
     });
-  });
-});
-
-describe("workspaceRelativeFilePath", () => {
-  // regression: #12449 workspace root links resolve to "."
-  it.each([
-    ["/repo/project", "/repo/project", "."],
-    ["C:/", "c:/", "."],
-    ["/repo/project/a.ts", undefined, null],
-  ])("relates %s to %s", (path, workspaceRoot, relativePath) => {
-    expect(workspaceRelativeFilePath(path, workspaceRoot)).toBe(relativePath);
   });
 });
 

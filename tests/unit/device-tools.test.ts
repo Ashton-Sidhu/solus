@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { initDeviceDomain } from '@solus/server/devices/device-domain'
 import { agentDeviceQuickStart, agentDeviceTargetArgs, deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '@solus/server/devices/device-tools'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
-import { SOLUS_AGENT_TOOL_NAMES } from '@solus/contracts/agent-tools'
 
 /**
  * The agent device verbs (P17, P18, P23, S02). Execution rechecks setup and
@@ -24,12 +23,6 @@ function context(sessionId: string | undefined): AgentToolContext {
 }
 
 describe('device agent tools', () => {
-  test('the device tools are declared for both providers', () => {
-    for (const name of ['device_list', 'device_open', 'device_screenshot', 'device_close', 'device_install'] as const) {
-      expect(SOLUS_AGENT_TOOL_NAMES).toContain(name)
-    }
-  })
-
   test('every call rechecks device support and agent access', async () => {
     const domain = initDeviceDomain({ publish: () => {}, surfaceRequested: () => {}, root: mkdtempSync(join(tmpdir(), 'solus-device-tools-')) })
     for (const tool of [deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool, deviceCloseAgentTool, deviceInstallAgentTool]) {

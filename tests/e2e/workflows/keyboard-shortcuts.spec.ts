@@ -92,7 +92,7 @@ test.describe('Keybindings editor', () => {
 
     // The recorded shortcut must change the sidebar, not only its displayed chip.
     await page.keyboard.press('Escape')
-    const expandSidebar = page.locator('.workspace-layout .tab-chrome-lead[aria-label="Expand sidebar"]')
+    const expandSidebar = page.getByRole('button', { name: 'Expand sidebar', exact: true })
     await expect(expandSidebar).not.toBeVisible()
     await page.keyboard.press('Alt+y')
     await expect(expandSidebar).toBeVisible()

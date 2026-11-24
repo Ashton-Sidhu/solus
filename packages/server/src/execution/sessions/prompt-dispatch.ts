@@ -449,6 +449,7 @@ export class PromptDispatch {
       executionPreferences: lockedPreferences,
     }
     const sessionId = crypto.randomUUID()
+    const { list, read, update } = solusToolbox.automations
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
@@ -467,6 +468,7 @@ export class PromptDispatch {
         solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
+        req.startedBy.kind === 'automation' ? { list, read, update } : {},
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
       options: req.startedBy.kind === 'automation'

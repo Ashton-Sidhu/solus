@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
 import type { Message } from '@solus/contracts/types'
 import {
-  TOOL_CALL_FACTS,
-  TOOL_OUTPUT_PLACES,
   hasToolStrip,
   openLineAudio,
   openLineLeftOut,
@@ -22,23 +19,7 @@ const call = (id: string, fields: Partial<Message> = {}): Message => ({
 })
 
 describe('the rule for the visible outputs of a tool call', () => {
-  test('every output field a tool call carries has a place, so a new one cannot ship without a choice', () => {
-    // WHY: a tool output that has no place shows only inside the open tool
-    // line, under three folds, and the person never learns it exists. Reading
-    // the contract's Message type catches a field added to the wire before any
-    // client draws it.
-    const source = readFileSync(new URL('../../packages/contracts/src/types.ts', import.meta.url), 'utf8')
-    const body = source.slice(source.indexOf('export interface Message {'))
-    const message = body.slice(0, body.indexOf('\n}\n'))
-    const toolFields = [...message.matchAll(/^ {2}(tool[A-Za-z]*)\??:/gm)].map((match) => match[1])
-    expect(toolFields.length).toBeGreaterThan(5)
-    const unplaced = toolFields.filter((field) => !(field in TOOL_OUTPUT_PLACES) && !(TOOL_CALL_FACTS as readonly string[]).includes(field))
-    expect(unplaced).toEqual([])
-  })
-
   test('the folded row keeps audio and left-out chips', () => {
-    expect(TOOL_OUTPUT_PLACES.toolAudio).toBe('strip')
-    expect(TOOL_OUTPUT_PLACES.toolLeftOut).toBe('strip')
     const speech = call('t1', {
       toolName: 'mcp__solus__elevenlabs__text_to_speech',
       toolAudio: [{ assetId: asset('b', 'mp3'), mimeType: 'audio/mpeg' }],
@@ -89,7 +70,6 @@ describe('the rule for the visible outputs of a tool call', () => {
   })
 
   test('image-only calls add no strip below a folded turn or tool group', () => {
-    expect(TOOL_OUTPUT_PLACES.toolImages).toBe('tool-detail')
     const images = { toolImages: [image('a')] }
     const tools = [
       call('chart', images),

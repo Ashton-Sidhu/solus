@@ -48,7 +48,7 @@ The mobile Issues list can open a pasted issue URL in the T3 issue screen. The s
 
 Solus uses GitHub Octicons for issue and pull request navigation and status icons. The native iOS PNGs and Android drawables match the shared SVG paths in `packages/client-core/src/github-octicons.ts`.
 
-The mobile Usage tab and command palette use a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
+Mobile hides the Usage tab on phones and tablets. The Usage command still opens provider usage limits and uses a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
 
 Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` for the Input and Done indicators and linked pull request badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet. Solus also shows the session’s recorded Git branch on active and compact rows, even when the session has no linked PR.
 
@@ -65,3 +65,7 @@ The mobile PR list, detail, activity, diff pages, change breakdown, and review g
 Solus replaces the working and waiting icons of T3's session rows with state marks: animated dot marks for live work and still line glyphs for the states that need the person (`docs/plans/session-state-marks.md`). Keep them when an upstream update changes the row's status indicator.
 
 Phone and tablet use T3 Code's **Fork from this response** button and its **Forked from conversation** row, checked at `9f24cac6d42f99e92569b7cbd97ec07932f232d8`. The Solus host supplies the completed Codex or Claude Code response, saves the new session, and reads its history through that response. The first prompt uses the source provider on that host.
+
+The started-session card follows the model row in T3 Code revision `58b7878eb750d3e1f80b9a0a42b8802efba2adda`. It shows the provider icon, model display name, and reported reasoning effort. Solus supplies the child session's settings from live dispatch and saved tool history.
+
+A tap anywhere on a started-session card opens the child thread. It uses the thread inspector when available. A linked host without a direct connection opens through the parent host in read-only mode.

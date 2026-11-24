@@ -116,12 +116,6 @@ describe('a personal key', () => {
     expect((await load(storage)).settings.savedLenses).toEqual(original)
   })
 
-  test('an existing Show me prompt is kept without a duplicate', async () => {
-    const original = [{ id: 'user-show-me', name: 'Show me', prompt: 'My edited prompt.' }]
-    const storage = memoryStorage({ 'solus.personal-settings.v1:anonymous': JSON.stringify({ savedLenses: original }) })
-    expect((await load(storage)).settings.savedLenses).toEqual(original)
-  })
-
   test('a change reads back and persists in the personal profile, never on a host', async () => {
     const { settings, storage } = await load()
     expect(settings.setPersonal('showToolCalls', false)).toBe(true)

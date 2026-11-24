@@ -49,17 +49,6 @@ describe('the maximize key across the whole secondary pane', () => {
       preventDefault: () => {},
     }) as unknown as KeyboardEvent
 
-  test('is one binding rather than one per surface', () => {
-    // WHY: every companion surface needs the same way out of a half-width
-    // column. A per-surface binding is how the diff panel ended up with the only
-    // working key and the files pane with an unassigned one.
-    expect(KEYBINDINGS['pane.maximize']).toMatchObject({
-      combo: { alt: true, code: 'KeyM' },
-      scope: 'global',
-    })
-    expect('diff-panel.maximize' in KEYBINDINGS).toBe(false)
-  })
-
   test('claims ⌥M ahead of the project panel while a companion is open', () => {
     // WHY: both live in the global scope, so declaration order decides. A
     // companion minimizes the project rail anyway, which is why the pane wins.

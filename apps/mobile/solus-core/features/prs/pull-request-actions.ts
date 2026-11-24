@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestAction.ts and usePullRequestAgentActions.ts (MIT, see UPSTREAM.md).
 import type { MergeMethod, PrMergeResult } from '@solus/contracts/types'
 import { worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
-import type { PrFilterChoice, PrFilterField, PrLabel, PrMergeMethod, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest, PullRequestUpdate } from '@solus/contracts/providers'
+import type { PrFilterChoice, PrFilterField, PrLabel, PrMergeMethod, PrRef, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest, PullRequestUpdate } from '@solus/contracts/providers'
 import { mergeFilterChoices } from '@solus/client-core/pr-filter-choices'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -61,22 +61,22 @@ export class PullRequestActions {
   /** Merges with `method` on the head the person was shown; a head that
    *  moved since makes the host refuse. */
   async merge(ref: PullRequestRef, method: MergeMethod, expectedHeadSha: string): Promise<PrMergeResult> {
-    const result = await this.write(ref, 'merge', true, (api, ctx) => api.prMerge(ctx, ref.number, method, expectedHeadSha))
+    const result = await this.write(ref, 'merge', true, (api, { pr }) => api.prMerge(pr, method, expectedHeadSha))
     if (!result.merged) throw new Error(result.message ?? 'The host did not merge this pull request.')
     return result
   }
 
   enableAutoMerge(ref: PullRequestRef, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest> {
-    return this.write(ref, 'auto-merge', false, (api, ctx) => api.prEnableAutoMerge(ctx, ref.number, method, expectedHeadSha))
+    return this.write(ref, 'auto-merge', false, (api, { pr }) => api.prEnableAutoMerge(pr, method, expectedHeadSha))
   }
 
   disableAutoMerge(ref: PullRequestRef): Promise<PullRequest> {
-    return this.write(ref, 'auto-merge', false, (api, ctx) => api.prDisableAutoMerge(ctx, ref.number))
+    return this.write(ref, 'auto-merge', false, (api, { pr }) => api.prDisableAutoMerge(pr))
   }
 
   /** Brings the base branch into the head on the host. */
   updateBranch(ref: PullRequestRef, expectedHeadSha: string): Promise<PullRequest> {
-    return this.write(ref, 'update-branch', false, (api, ctx) => api.prUpdateBranch(ctx, ref.number, expectedHeadSha))
+    return this.write(ref, 'update-branch', false, (api, { pr }) => api.prUpdateBranch(pr, expectedHeadSha))
   }
 
   /**
@@ -86,19 +86,19 @@ export class PullRequestActions {
    * put the layers in its merge queue.
    */
   mergeStack(ref: PullRequestRef, input: { stackNumber: number; method: PrMergeMethod; expectedHeads: PrStackHead[] }): Promise<PrStackMergeResult> {
-    return this.write(ref, 'merge', true, (api, ctx) => api.prMergeStack(ctx, { number: ref.number, ...input }))
+    return this.write(ref, 'merge', true, (api, { pr }) => api.prMergeStack({ ...pr, ...input }))
   }
 
   /** Opens a pull request that reverses a merged one, and answers where it is. */
   async revert(ref: PullRequestRef): Promise<PullRequestRef> {
-    const opened = await this.write(ref, 'revert', true, (api, ctx) => api.prRevert(ctx, ref.number))
+    const opened = await this.write(ref, 'revert', true, (api, { pr }) => api.prRevert(pr))
     return { hostId: ref.hostId, projectPath: ref.projectPath, number: opened.number }
   }
 
   /** Lets the held workflow runs start. `expectedHeadSha` is the head that
    *  `prPendingWorkflowRuns` named; the host refuses when the head moved. */
   async approveWorkflowRuns(ref: PullRequestRef, expectedHeadSha: string): Promise<number> {
-    const result = await this.write(ref, 'workflows', false, (api, ctx) => api.prApproveWorkflowRuns(ctx, ref.number, expectedHeadSha))
+    const result = await this.write(ref, 'workflows', false, (api, { pr }) => api.prApproveWorkflowRuns(pr, expectedHeadSha))
     return result.approved
   }
 
@@ -142,7 +142,7 @@ export class PullRequestActions {
     }
     try {
       const connection = this.host(ref)
-      await connection.api.prSetFilesViewed(this.context(ref), ref.number, Array.from(sent, ([path, viewed]) => ({ path, viewed })))
+      await connection.api.prSetFilesViewed(await this.deps.directory.prRef(ref, connection), Array.from(sent, ([path, viewed]) => ({ path, viewed })))
     } catch (error) {
       settle()
       marks.error = error instanceof Error ? error.message : 'Could not update the viewed files.'
@@ -157,25 +157,27 @@ export class PullRequestActions {
 
   /** Close, reopen, mark ready, or convert to draft. */
   setLifecycle(ref: PullRequestRef, action: PrStateAction, expectedHeadSha: string): Promise<PullRequest> {
-    return this.write(ref, 'lifecycle', true, (api, ctx) => api.prUpdateLifecycle(ctx, ref.number, action, expectedHeadSha))
+    return this.write(ref, 'lifecycle', true, (api, { pr }) => api.prUpdateLifecycle(pr, action, expectedHeadSha))
   }
 
   /** People and teams the host can ask for a review. */
   async reviewerCandidates(ref: PullRequestRef): Promise<PrReviewerCandidate[]> {
-    return this.host(ref).api.prListReviewerCandidates(this.context(ref), ref.number)
+    const connection = this.host(ref)
+    return connection.api.prListReviewerCandidates(await this.deps.directory.prRef(ref, connection))
   }
 
   async requestReviewers(ref: PullRequestRef, logins: string[]): Promise<void> {
-    await this.write(ref, 'reviewers', false, (api, ctx) => api.prRequestReviewers(ctx, ref.number, logins))
+    await this.write(ref, 'reviewers', false, (api, { pr }) => api.prRequestReviewers(pr, logins))
   }
 
   async removeReviewer(ref: PullRequestRef, reviewerId: string, kind?: PrReviewerKind): Promise<void> {
-    await this.write(ref, 'reviewers', false, (api, ctx) => api.prRemoveRequestedReviewer(ctx, ref.number, reviewerId, kind))
+    await this.write(ref, 'reviewers', false, (api, { pr }) => api.prRemoveRequestedReviewer(pr, reviewerId, kind))
   }
 
   /** The repository's labels, for the label picker. */
   async labelCandidates(ref: PullRequestRef): Promise<PrLabel[]> {
-    return this.host(ref).api.prListLabelCandidates(this.context(ref), ref.number)
+    const connection = this.host(ref)
+    return connection.api.prListLabelCandidates(await this.deps.directory.prRef(ref, connection))
   }
 
   /** The labels, or the people who can be mentioned, that match `query` in
@@ -193,12 +195,12 @@ export class PullRequestActions {
 
   /** Replaces the whole label set. */
   setLabels(ref: PullRequestRef, names: string[]): Promise<PullRequest> {
-    return this.write(ref, 'labels', true, (api, ctx) => api.prSetLabels(ctx, ref.number, names))
+    return this.write(ref, 'labels', true, (api, { pr }) => api.prSetLabels(pr, names))
   }
 
   /** Changes the title or the description. The list shows the title, so it is read again too. */
   update(ref: PullRequestRef, patch: PullRequestUpdate): Promise<PullRequest> {
-    return this.write(ref, 'edit', true, (api, ctx) => api.prUpdate(ctx, ref.number, patch))
+    return this.write(ref, 'edit', true, (api, { pr }) => api.prUpdate(pr, patch))
   }
 
   /**
@@ -209,30 +211,30 @@ export class PullRequestActions {
   async submitReview(ref: PullRequestRef, input: { verdict: PrReviewVerdict; body: string; headSha: string; baseSha?: string }): Promise<void> {
     const draft = this.deps.drafts.draftOf(ref)
     const submitted = { summary: draft.summary, comments: currentReviewComments(draft, input.headSha) }
-    await this.write(ref, 'review', false, async (api, ctx) => {
-      await api.prSubmitReview(ctx, ref.number, draftReview({ ...input, comments: submitted.comments }))
+    await this.write(ref, 'review', false, async (api, { pr, ctx }) => {
+      await api.prSubmitReview(pr, draftReview({ ...input, comments: submitted.comments }), ctx)
       this.deps.drafts.clearSubmitted(ref, submitted)
     })
   }
 
   async replyToThread(ref: PullRequestRef, threadId: string, body: string): Promise<void> {
-    await this.write(ref, 'thread', false, (api, ctx) => api.prReplyThread(ctx, ref.number, threadId, body.trim()))
+    await this.write(ref, 'thread', false, (api, { pr }) => api.prReplyThread(pr, threadId, body.trim()))
   }
 
   async setThreadResolved(ref: PullRequestRef, threadId: string, resolved: boolean): Promise<void> {
-    await this.write(ref, 'thread', false, (api, ctx) => resolved
-      ? api.prResolveThread(ctx, ref.number, threadId)
-      : api.prUnresolveThread(ctx, ref.number, threadId))
+    await this.write(ref, 'thread', false, (api, { pr }) => resolved
+      ? api.prResolveThread(pr, threadId)
+      : api.prUnresolveThread(pr, threadId))
   }
 
   /** A comment on the pull request's conversation. */
   async comment(ref: PullRequestRef, body: string): Promise<void> {
-    await this.write(ref, 'comment', false, (api, ctx) => api.prAddIssueComment(ctx, ref.number, body.trim()))
+    await this.write(ref, 'comment', false, (api, { pr }) => api.prAddIssueComment(pr, body.trim()))
   }
 
   /** Deletes a conversation comment the person wrote. */
   async deleteComment(ref: PullRequestRef, commentId: string): Promise<void> {
-    await this.write(ref, 'comment', false, (api, ctx) => api.prDeleteIssueComment(ctx, ref.number, commentId))
+    await this.write(ref, 'comment', false, (api, { pr }) => api.prDeleteIssueComment(pr, commentId))
   }
 
   /**
@@ -243,7 +245,7 @@ export class PullRequestActions {
    */
   async startAgentWork(ref: PullRequestRef, task: PullRequestAgentTask, pr: PullRequest, question = ''): Promise<{ hostId: string; sessionId: string }> {
     if (task === 'ask' && !question.trim()) throw new Error('Write your question first.')
-    const { workingDirectory, prompt } = await this.write(ref, 'agent', false, async (api, ctx) => {
+    const { workingDirectory, prompt } = await this.write(ref, 'agent', false, async (api, { pr: prRef, ctx }) => {
       if (task === 'conflicts') {
         const prepared = await api.prPrepareConflictResolution(ctx, ref.number)
         if (!prepared.success || !prepared.review) throw new Error(prepared.error ?? 'The host could not prepare the conflict worktree.')
@@ -253,7 +255,7 @@ export class PullRequestActions {
           prompt: conflictResolutionPrompt({ number: review.number, title: review.title, baseRef: review.baseRef, headRef: prepared.headRef, conflictFiles: prepared.conflictFiles }),
         }
       }
-      const target = await api.prOpenReview(ctx, ref.number)
+      const target = await api.prOpenReview(prRef)
       const checkout = await api.prPrepareCheckout(ctx, target)
       if (checkout.headSha !== target.headSha) throw new Error('The pull request changed while its checkout was made. Try again.')
       return { workingDirectory: worktreeProjectRoot(checkout.worktreePath), prompt: pullRequestAgentPrompt(task, pr, question) }
@@ -275,7 +277,7 @@ export class PullRequestActions {
     ref: PullRequestRef,
     kind: PullRequestActionKind,
     listChanges: boolean,
-    run: (api: HostConnection['api'], ctx: IpcContext) => Promise<T>,
+    run: (api: HostConnection['api'], target: { pr: PrRef; ctx: IpcContext }) => Promise<T>,
     options: { refresh: boolean } = { refresh: true },
   ): Promise<T> {
     const connection = this.host(ref)
@@ -283,7 +285,7 @@ export class PullRequestActions {
     this.running.set(key, kind)
     this.changes.notify()
     try {
-      return await run(connection.api, this.context(ref))
+      return await run(connection.api, { pr: await this.deps.directory.prRef(ref, connection), ctx: this.context(ref) })
     } finally {
       if (this.running.get(key) === kind) this.running.delete(key)
       this.changes.notify()

@@ -90,7 +90,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
-    const api = asHostApi({})
+    const api = asHostApi({prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),})
     const root = store.get(api, 'host-a', ctxFor('/repos/a'))
     const worktree = store.get(api, 'host-a', ctxFor('/repos/a/.git/solus/worktrees/feature'))
     expect(worktree).toBe(root)
@@ -140,6 +140,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     const store = new PrsStore()
 
     const apiA = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({
         items: [pr(65, { title: 'A-65', headRef: 'feature/a' })],
         page: 1,
@@ -148,6 +149,7 @@ describe('PrsStore lookups are scoped to one project', () => {
       ...NO_CHECKS,
     })
     const apiB = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({
         items: [pr(65, { title: 'B-65', headRef: 'feature/b' })],
         page: 1,
@@ -171,6 +173,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     const store = new PrsStore()
 
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({ items: [pr(65)], page: 1, hasMore: false }),
       ...NO_CHECKS,
     })
@@ -187,6 +190,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     const store = new PrsStore()
 
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({
         items: [pr(7, { headRef: 'feature/login' })],
         page: 1,
@@ -209,6 +213,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
     const reads: string[] = []
     for (const serverId of ['host-a', 'host-b']) {
       const api = asHostApi({
+        prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
         prList: async (): Promise<PrListPage> => {
           reads.push(serverId)
           return { items: [pr(7, { title: serverId, headRef: 'feature/x' })], page: 1, hasMore: false }
@@ -227,7 +232,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
     const store = new PrsStore()
     let reads = 0
     const response = Promise.withResolvers<PrListPage>()
-    const api = asHostApi({ prList: async (_ctx, filter) => {
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prList: async (_ctx, filter) => {
       expect(filter).toEqual({ state: 'all', head: 'feature/x' })
       reads++
       return response.promise
@@ -253,7 +258,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
     // request of the person's own `main`.
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
-    const api = asHostApi({ prList: async (): Promise<PrListPage> => ({
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prList: async (): Promise<PrListPage> => ({
       items: [
         pr(7, { headRef: 'main', headRepo: { owner: 'stranger', repo: 'a', isFork: true } }),
         pr(8, { headRef: 'fix', headRepo: { owner: 'me', repo: 'a', isFork: true } }),
@@ -274,7 +279,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     let reads = 0
-    const api = asHostApi({ prList: async (): Promise<PrListPage> => {
+    const api = asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prList: async (): Promise<PrListPage> => {
       if (++reads === 1) throw new Error('Host disconnected')
       return { items: [pr(7, { headRef: 'feature/x' })], page: 1, hasMore: false }
     } })
@@ -295,6 +300,7 @@ describe('one pull request, one object', () => {
     const ctx = ctxFor('/repos/a')
 
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({
         items: [pr(7, { title: 'From the list', headRef: 'feature/x' })],
         page: 1,
@@ -551,6 +557,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
 
     let detailReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prGetDetail: async () => {
         detailReads++
         return pr(42)
@@ -583,6 +590,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
 
     let detailReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prGetDetail: async () => {
         detailReads++
         return pr(42, { title: 'Real title', headRef: 'feature/new' })
@@ -609,6 +617,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
 
     let detailReads = 0
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prGetDetail: async () => {
         detailReads++
         return pr(1)
@@ -635,6 +644,7 @@ describe('PrsStore indexes the full detail so surfaces cannot go stale', () => {
     const store = new PrsStore()
 
     const api = asHostApi({
+      prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }),
       prList: async (): Promise<PrListPage> => ({ items: [pr(9)], page: 1, hasMore: false }),
       ...NO_CHECKS,
     })
@@ -662,7 +672,7 @@ describe('PrsStore keeps a mergeability verdict until the host computes a new on
     const store = new PrsStore()
     const ctx = ctxFor('/repos/a')
     const computed = pr(4, { mergeable: true, mergeStateStatus: 'clean', requiredApprovingReviewCount: 1 })
-    await store.get(asHostApi({ prGetDetail: async () => computed }), 'host-a', ctx).get(4).loadDetail()
+    await store.get(asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prGetDetail: async () => computed }), 'host-a', ctx).get(4).loadDetail()
     const project = store.at('host-a', projectScopeOf(ctx.session))!
 
     project.applyPullRequest(pr(4, { mergeable: null, mergeStateStatus: null }))
@@ -709,7 +719,7 @@ describe('PrsStore carries an optimistic lifecycle edit and its rollback', () =>
     // A surface has the pull request open, which is what creates the scope —
     // `applyDetail` deliberately does not allocate one per host broadcast.
     const previous = detailOf(5, { draft: true })
-    await store.get(asHostApi({ prGetDetail: async () => previous }), 'host-a', ctx).get(5).loadDetail()
+    await store.get(asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prGetDetail: async () => previous }), 'host-a', ctx).get(5).loadDetail()
     expect((store.at('host-a', '/repos/a')?.prFor(5) ?? null)?.draft).toBe(true)
 
     const optimistic = { ...previous, draft: false }
@@ -730,7 +740,7 @@ describe('PrsStore carries an optimistic lifecycle edit and its rollback', () =>
     const ctx = ctxFor('/repos/a')
 
     const first = detailOf(9, { title: 'Before' })
-    await store.get(asHostApi({ prGetDetail: async () => first }), 'host-a', ctx).get(9).loadDetail()
+    await store.get(asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prGetDetail: async () => first }), 'host-a', ctx).get(9).loadDetail()
     const held = store.at('host-a', '/repos/a')?.prFor(9) ?? null
 
     // A surface that captured the pull request sees the edit, because the store
@@ -747,7 +757,7 @@ describe('PrsStore carries an optimistic lifecycle edit and its rollback', () =>
     const ctx = ctxFor('/repos/a')
 
     const optimistic = detailOf(6, { draft: false })
-    await store.get(asHostApi({ prGetDetail: async () => detailOf(6) }), 'host-a', ctx).get(6).loadDetail()
+    await store.get(asHostApi({ prRepository: async () => ({ host: 'github.com', owner: 'acme', repo: 'a' }), prGetDetail: async () => detailOf(6) }), 'host-a', ctx).get(6).loadDetail()
     store.at('host-a', projectScopeOf(ctx.session))?.applyPullRequest(optimistic)
 
     // A provider broadcast lands while the mutation is still in flight.

@@ -440,13 +440,22 @@ export class SessionEventReducer {
 
       case 'tool_call': {
         session.currentActivity = ''
+        // A client that joins a running turn loads its history, then the host
+        // replays the turn: a call history holds is the same card, live again.
+        // Its result, if it has one, is replayed after it.
+        const loaded = event.toolId ? this.findToolMsgInTurn(session.messages, event.toolId) : undefined
+        if (loaded) {
+          loaded.toolStatus = 'running'
+          loaded.toolCompletedAt = undefined
+          if (event.toolInput) loaded.toolInput = event.toolInput
+          break
+        }
         const toolMessage: Message = {
           id: nextMsgId(),
           role: 'tool',
           content: '',
           toolName: event.toolName,
           toolId: event.toolId,
-          toolIndex: event.index,
           toolInput: event.toolInput ?? '',
           toolStatus: 'running',
           subMessages: event.isSubagent ? [] : undefined,
@@ -471,8 +480,7 @@ export class SessionEventReducer {
           if (
             m.role === 'tool' &&
             m.toolStatus === 'running' &&
-            (!event.toolId || m.toolId === event.toolId) &&
-            (event.index === undefined || m.toolIndex === event.index)
+            m.toolId === event.toolId
           ) {
             if (event.toolInput !== undefined) {
               m.toolInput = event.toolInput
@@ -498,8 +506,7 @@ export class SessionEventReducer {
           if (
             m.role === 'tool' &&
             m.toolStatus === 'running' &&
-            (!event.toolId || m.toolId === event.toolId) &&
-            (event.index === undefined || m.toolIndex === event.index)
+            m.toolId === event.toolId
           ) {
             // A main-thread tool's input arrives whole here (it streamed as deltas
             // the normalizer accumulated); set it before addChangedFilesFromMessage
@@ -1252,6 +1259,16 @@ export class SessionEventReducer {
     return undefined
   }
 
+  /** A tool message of the open turn: after the prompt that started it. A steer joins that turn. */
+  private findToolMsgInTurn(list: Message[], toolId: string): Message | undefined {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i]
+      if (m.role === 'user' && m.delivery !== 'steer') return undefined
+      if (m.role === 'tool' && m.toolId === toolId) return m
+    }
+    return undefined
+  }
+
   /** A running MCP call's own progress (docs/plans/mcp-first-class.md §5), on its card in place. */
   private applyToolProgress(session: Session, event: Extract<WireNormalizedEvent, { type: 'tool_progress' }>): void {
     // The id is the call's own: its card may sit inside a sub-agent's transcript.
@@ -1390,7 +1407,6 @@ export class SessionEventReducer {
           content: '',
           toolName: event.toolName,
           toolId: event.toolId,
-          toolIndex: event.index,
           toolInput: event.toolInput ?? '',
           toolStatus: 'running',
           timestamp: Date.now(),
@@ -1403,8 +1419,7 @@ export class SessionEventReducer {
           if (
             m.role === 'tool' &&
             m.toolStatus === 'running' &&
-            (!event.toolId || m.toolId === event.toolId) &&
-            (event.index === undefined || m.toolIndex === event.index)
+            m.toolId === event.toolId
           ) {
             if (event.toolInput !== undefined) m.toolInput = event.toolInput
             break
@@ -1431,8 +1446,7 @@ export class SessionEventReducer {
           if (
             m.role === 'tool' &&
             m.toolStatus === 'running' &&
-            (!event.toolId || m.toolId === event.toolId) &&
-            (event.index === undefined || m.toolIndex === event.index)
+            m.toolId === event.toolId
           ) {
             if (event.toolInput !== undefined) m.toolInput = event.toolInput
             m.toolStatus = 'completed'
