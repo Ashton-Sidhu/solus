@@ -24,7 +24,7 @@ import { attachTargetOf, automaticAttachTarget, isInTemporaryPlace, refusalForSo
 import { generateCodebaseName, resolveCodebaseNaming } from './codebase-name'
 import { ObservedWrites } from './observed-writes'
 import { codebaseForAttachedFolder, codebaseOfProjectFolder, containerCodebaseOf, formationActivity, formationFor, projectFolderOf, renameFormed, type SessionCodebase } from './session-codebase-formation'
-import { addCodebaseRoot, requestAttach, type AttachCodebase, type AttachOutcome, type AttachRequestOptions, type AttachSession, type AttachState } from './session-folder-attach'
+import { addCodebaseRoot, requestAttach, type AttachCodebase, type AttachOutcome, type AttachRequest, type AttachRequestOptions, type AttachState } from './session-folder-attach'
 
 import { NOT_A_FOLDER, taskFolderStandIns, worktreeOfMember } from './task-folder-stand-ins'
 
@@ -434,7 +434,7 @@ export class SessionFolders implements SessionFolderGate {
   }
 
   /**
-   * `AttachSession.formationOf`: the codebase that an attach of `folder` forms
+   * `AttachRequest.formationOf`: the codebase that an attach of `folder` forms
    * now, for the attach card, or null when it forms none: the session has a
    * codebase, the person chose "No codebase", or the folder is no real second
    * project (`formationFor`).
@@ -489,20 +489,22 @@ export class SessionFolders implements SessionFolderGate {
     }
     if (!state.entries) await this.refresh(sessionId, state, actor)
     const modeOf = (id: string) => this.modeOf(id)
-    const session: AttachSession = {
+    const request: AttachRequest = {
       sessionId,
       state,
+      actor,
+      source,
       // Read when the rule asks: the mode of the session can change while the rule waits.
       get mode() { return modeOf(sessionId) },
       temporaryPlaces: this.temporaryPlaces,
       refresh: () => this.refresh(sessionId, state, actor),
       holderOf: (held) => this.holderOf(state, held),
       grantedHolderOf: (realPath) => (state.entries ?? []).find((entry) => entry.folder.granted && isInsideRoot(entry.realPath, realPath))?.folder.path ?? null,
-      attach: async (folder, folderSource, codebase = {}) => { await this.attach(sessionId, folder, folderSource, actor, { byName: options.byName, ...codebase }) },
-      formationOf: (folder, folderSource) => this.formationOf(state, folder, folderSource, actor),
+      attach: async (folder, codebase = {}) => { await this.attach(sessionId, folder, source, actor, { byName: options.byName, ...codebase }) },
+      formationOf: (folder) => this.formationOf(state, folder, source, actor),
       standInFor: (member) => this.standInFor(sessionId, state, member, actor),
     }
-    return requestAttach(session, path, source, actor, options)
+    return requestAttach(request, path, options)
   }
 
   /** `SessionFolderGate`: the rule with no card, for a path that the provider was refused. */
@@ -650,7 +652,7 @@ export class SessionFolders implements SessionFolderGate {
   }
 
   /**
-   * `AttachSession.standInFor`: in a task folder session, a repository of the
+   * `AttachRequest.standInFor`: in a task folder session, a repository of the
    * codebase is reached only through its worktree, so the session stays
    * isolated. A repository that has its worktree is available there. One that
    * has none gets it now. Null for a session with no task folder, and for a

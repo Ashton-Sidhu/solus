@@ -111,10 +111,16 @@ export interface AttachState {
   refused: Set<string>
 }
 
-/** The folders of one session, as the attach rule reads and changes them. `SessionFolders` gives it. */
-export interface AttachSession {
+/**
+ * One request of the attach rule: the folders of one session, as the rule
+ * reads and changes them, the person that the request acts for, and how the
+ * folder is attached. `SessionFolders` gives it.
+ */
+export interface AttachRequest {
   sessionId: string
   state: AttachState
+  actor: Actor
+  source: SessionFolderSource
   mode: PermissionMode | undefined
   /** The temporary directories of the system, which an automatic trigger does not attach. */
   temporaryPlaces: readonly string[]
@@ -125,12 +131,12 @@ export interface AttachSession {
   /** The granted folder that holds the real path `realPath`, read with no wait. */
   grantedHolderOf(realPath: string): string | null
   /** Add the folder with no rule (`SessionFolders.attach`). `codebase` is the decision of the card about the codebase that the attach forms. */
-  attach(folder: string, source: SessionFolderSource, codebase?: AttachCodebase): Promise<void>
+  attach(folder: string, codebase?: AttachCodebase): Promise<void>
   /**
    * The codebase that an attach of `folder` forms now (decision 13, rule 2),
    * with its proposed name, or null when the attach forms none.
    */
-  formationOf(folder: string, source: SessionFolderSource): Promise<{ name: string } | null>
+  formationOf(folder: string): Promise<{ name: string } | null>
   /**
    * In a task folder session: the outcome for a repository of the codebase,
    * whose worktree stands in for it. Null when the rule goes on.
@@ -161,43 +167,43 @@ export interface AttachSession {
  *   none, and the folder is a real second project), the card says so, and
  *   the person can change the name of the codebase before it is made.
  */
-export async function requestAttach(session: AttachSession, path: string, source: SessionFolderSource, actor: Actor, options: AttachRequestOptions = {}): Promise<AttachOutcome> {
-  const { state } = session
+export async function requestAttach(request: AttachRequest, path: string, options: AttachRequestOptions = {}): Promise<AttachOutcome> {
+  const { state } = request
   const named = resolve(resolveHomePath(path.trim()))
   const otherHost = await rootOnOtherHost(state, named)
   if (otherHost) return otherHost
-  const holder = await session.holderOf(named)
+  const holder = await request.holderOf(named)
   if (holder) return { kind: 'available', folder: holder }
   const target = await attachTargetOf(named)
   if ('refused' in target) return { kind: 'invalid', message: target.refused }
   let { folder } = target
 
   if (state.codebase && await isMember(state.codebase, folder)) {
-    const standIn = await session.standInFor(folder)
+    const standIn = await request.standInFor(folder)
     if (standIn) return standIn
     // The disk changed after the turn start: the read of the members gives the folder.
-    await session.refresh()
-    if (await session.holderOf(folder)) return { kind: 'attached', folder, addedToCodebase: false }
-    return attachNow(session, folder, source, actor, false)
+    await request.refresh()
+    if (await request.holderOf(folder)) return { kind: 'attached', folder, addedToCodebase: false }
+    return attachNow(request, folder, false)
   }
   if (!options.byName) {
-    const automatic = await automaticAttachTarget(folder, session.temporaryPlaces)
+    const automatic = await automaticAttachTarget(folder, request.temporaryPlaces)
     if ('refused' in automatic) return { kind: 'invalid', message: automatic.refused }
     // The project that the host lists is the folder of the work, not the folder of the path inside it.
     folder = automatic.folder
   }
-  const mode = options.mode ?? session.mode
-  if (mode === 'full-access' || mode === 'auto') return attachNow(session, folder, source, actor, false)
+  const mode = options.mode ?? request.mode
+  if (mode === 'full-access' || mode === 'auto') return attachNow(request, folder, false)
   const realFolder = await realPathOf(folder)
   // From here to the card there is no wait: a request for the folder that finished, or that opened its card, is seen.
-  const attached = session.grantedHolderOf(realFolder)
+  const attached = request.grantedHolderOf(realFolder)
   if (attached) return { kind: 'available', folder: attached }
   if (state.refused.has(folder)) return { kind: 'refused', folder }
   const open = state.openCards.get(folder)
   if (open) return open
   const { asker } = options
   if (!asker) return { kind: 'not-asked', folder }
-  const card = askToAttach(session, folder, source, actor, asker).finally(() => state.openCards.delete(folder))
+  const card = askToAttach(request, folder, asker).finally(() => state.openCards.delete(folder))
   state.openCards.set(folder, card)
   return card
 }
@@ -219,24 +225,24 @@ async function isMember(codebase: Codebase, folder: string): Promise<boolean> {
   return false
 }
 
-async function attachNow(session: AttachSession, folder: string, source: SessionFolderSource, actor: Actor, addToCodebase: boolean, codebase?: AttachCodebase): Promise<AttachOutcome> {
+async function attachNow(request: AttachRequest, folder: string, addToCodebase: boolean, codebase?: AttachCodebase): Promise<AttachOutcome> {
   try {
-    await session.attach(folder, source, codebase)
+    await request.attach(folder, codebase)
   } catch (error) {
     // A request for the same folder at the same time attached it first.
-    const holder = await session.holderOf(folder)
+    const holder = await request.holderOf(folder)
     if (holder) return { kind: 'available', folder: holder }
     return { kind: 'invalid', message: error instanceof Error ? error.message : String(error) }
   }
-  return { kind: 'attached', folder, addedToCodebase: addToCodebase && await addCodebaseRoot(session.sessionId, session.state, folder, actor) }
+  return { kind: 'attached', folder, addedToCodebase: addToCodebase && await addCodebaseRoot(request.sessionId, request.state, folder, request.actor) }
 }
 
 /** Show the attach card of one folder, and do what the person chose. */
-async function askToAttach(session: AttachSession, folder: string, source: SessionFolderSource, actor: Actor, asker: AttachAsker): Promise<AttachOutcome> {
-  const { sessionId, state } = session
+async function askToAttach(request: AttachRequest, folder: string, asker: AttachAsker): Promise<AttachOutcome> {
+  const { sessionId, state } = request
   const questionId = `${ATTACH_QUESTION_ID_PREFIX}${crypto.randomUUID()}`
   // The attach forms a codebase: the card says so, and the person can name it.
-  const formation = state.codebase ? null : await session.formationOf(folder, source)
+  const formation = state.codebase ? null : await request.formationOf(folder)
   const question = formation
     ? `The agent wants to work in the folder "${folder}". Solus then makes the codebase "${formation.name}" from this folder and the project of the session. Allow it?`
     : `The agent wants to work in the folder "${folder}". Allow it?`
@@ -273,11 +279,11 @@ async function askToAttach(session: AttachSession, folder: string, source: Sessi
   const { choice, typed } = attachAnswerOf(answer)
   log.info('session_folder_card_answered', { sessionId, path: folder, choice })
   if (formation) {
-    if (choice === ATTACH_CHOICE.make) return attachNow(session, folder, source, actor, false, typed ? { codebaseName: typed.slice(0, CODEBASE_NAME_MAX) } : {})
-    if (choice === ATTACH_CHOICE.sessionOnly) return attachNow(session, folder, source, actor, false, { sessionOnly: true })
+    if (choice === ATTACH_CHOICE.make) return attachNow(request, folder, false, typed ? { codebaseName: typed.slice(0, CODEBASE_NAME_MAX) } : {})
+    if (choice === ATTACH_CHOICE.sessionOnly) return attachNow(request, folder, false, { sessionOnly: true })
   } else {
-    if (choice === ATTACH_CHOICE.session) return attachNow(session, folder, source, actor, false)
-    if (choice === ATTACH_CHOICE.codebase && state.codebase) return attachNow(session, folder, source, actor, true)
+    if (choice === ATTACH_CHOICE.session) return attachNow(request, folder, false)
+    if (choice === ATTACH_CHOICE.codebase && state.codebase) return attachNow(request, folder, true)
   }
   state.refused.add(folder)
   return { kind: 'refused', folder }

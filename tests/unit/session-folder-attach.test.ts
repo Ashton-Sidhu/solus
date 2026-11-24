@@ -26,7 +26,7 @@ mock.module('@solus/server/execution/agents/writing-backend', () => ({ writingBa
 
 type Runtime = import('@solus/server/execution/session-runtime').SessionRuntime
 type Question = Extract<NormalizedEvent, { type: 'question_request' }>
-type AttachSession = import('@solus/server/execution/sessions/session-folder-attach').AttachSession
+type AttachRequest = import('@solus/server/execution/sessions/session-folder-attach').AttachRequest
 
 let root: string
 let runtimeModule: typeof import('@solus/server/execution/session-runtime')
@@ -369,9 +369,11 @@ describe('the choices of the attach card', () => {
       let atCard = 0
       const waiting: (() => void)[] = []
       const attachedFolders: string[] = []
-      const session: AttachSession = {
+      const request: AttachRequest = {
         sessionId: live.sessionId,
         state: { codebaseId: null, codebase: null, openCards: new Map(), refused: new Set() },
+        actor: HOST_ACTOR,
+        source: 'attached',
         mode: 'supervised',
         temporaryPlaces: [],
         refresh: async () => {},
@@ -386,7 +388,7 @@ describe('the choices of the attach card', () => {
         formationOf: async () => null,
       }
       const requests = ['libs/ui/src/main.ts', 'libs/ui', 'libs/ui/src']
-        .map((path) => attachRule.requestAttach(session, at(path), 'attached', HOST_ACTOR, { asker: live.asker }))
+        .map((path) => attachRule.requestAttach(request, at(path), { asker: live.asker }))
       while (atCard < requests.length) await new Promise<void>((wake) => { waiting.push(wake) })
       expect(live.cards).toHaveLength(1)
 
