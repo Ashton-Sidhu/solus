@@ -162,10 +162,16 @@ export class PersonalSettingsHosts {
     if (!this.ports.isSignedIn() && hostId === this.homeHostId) void this.syncHome()
   }
 
-  /** Signed in: the account's copy changed (a start, a confirmed write, a change from another device). */
+  /**
+   * The copy on screen moved to another source (a sign-in or a sign-out), or the
+   * account's copy changed (a start, a confirmed write, a change from another
+   * device). Signed in, each ready host takes it again; signed out, the home host
+   * is read again.
+   */
   accountChanged(): void {
     this.accountCopies.clear()
-    void this.nudge()
+    this.readHomeId = null
+    this.refresh()
   }
 
   // ── Signed out: the home host ──

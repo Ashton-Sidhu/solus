@@ -16,7 +16,8 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { RunLocation } from '@solus/contracts/types'
 import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
-import { HostPreferencesPublisher } from '@solus/client-core/host-preferences'
+import { PersonalSettingsHosts, personalSettingsHomeId } from '@solus/client-core/host-personal-settings'
+import { accountSyncStore } from '../account/account-sync.store.svelte'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
 import { pairApprovalsStore } from '../connections/pair-approvals.store.svelte'
@@ -121,16 +122,37 @@ export function initializeRuntime(
     void sessionListStore.loadConnected(connection.serverId)
   })
 
-  // Each connected host keeps a copy of the person's preferences, which their work there reads (docs/plans/host-preferences.md).
-  const hostPreferences = new HostPreferencesPublisher({
-    preferences: () => session.settings.executionPreferences,
+  // A person's settings on their hosts (docs/plans/personal-settings-source.md): signed out, the
+  // home host is their source; signed in, every host takes the account's copy.
+  const personal = session.settings.personal
+  const personalHosts = new PersonalSettingsHosts({
     readyHosts: () => serverConnections.serverIds()
       .filter((serverId) => serverConnections.readinessFor(serverId).readiness === 'ready')
       .map((serverId) => ({ hostId: serverId, api: serverConnections.apiFor(serverId) })),
+    homeHostId: () => personalSettingsHomeId({ deviceHostId: serverConnections.deviceHostId(), defaultServerId: serverConnections.defaultServerId() }),
+    isSignedIn: () => personal.isSignedIn,
+    document: () => personal.storedDocument,
+    adoptHostCopy: (settings) => personal.adoptHostCopy(settings),
+    storage: localStorage,
   })
-  const stopPreferencesHosts = serverConnections.onReadinessChange(() => hostPreferences.publish())
-  const stopPreferencesChanges = session.settings.personal.onChange(() => hostPreferences.publish())
-  hostPreferences.publish()
+  const refreshPersonalHosts = () => {
+    personalHosts.refresh()
+    personal.homeHostId = personalHosts.homeHostId
+  }
+  const stopPersonalHosts = serverConnections.onReadinessChange(refreshPersonalHosts)
+  const stopPersonalPrimary = serverConnections.onPrimaryChange(refreshPersonalHosts)
+  const stopPersonalChanges = personal.onChange((change, origin) => {
+    // Signed in, the person's own change goes to the account (`accountSyncStore`), and the hosts follow it.
+    if (origin === 'local' && !personal.isSignedIn) personalHosts.recordLocalChange(change)
+  })
+  const stopPersonalAccount = accountSyncStore.onSettingsCopyChanged(() => {
+    personalHosts.accountChanged()
+    personal.homeHostId = personalHosts.homeHostId
+  })
+  const stopPersonalHostEvents = subscribeAllHosts('personalDocument.changed', (serverId, payload) => {
+    if (payload.kind === 'settings') personalHosts.hostChanged(serverId)
+  })
+  refreshPersonalHosts()
 
   // The durable send outbox drains when a host's supervisor reports live:
   // queued work survives a dead host and delivers on the next session.
@@ -168,8 +190,11 @@ export function initializeRuntime(
     stopCatalog()
     stopProviderInstances()
     stopConnections()
-    stopPreferencesHosts()
-    stopPreferencesChanges()
+    stopPersonalHosts()
+    stopPersonalPrimary()
+    stopPersonalChanges()
+    stopPersonalAccount()
+    stopPersonalHostEvents()
     stopReadiness()
     stopUnreadRose()
     stopStallToasts()

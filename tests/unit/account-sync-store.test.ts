@@ -251,6 +251,30 @@ describe('signing in', () => {
     expect(sync.state).toBe('synced')
   })
 
+  test("the first sign-in seeds an empty account from the home host's copy, and the hosts hear each move of the settings", async () => {
+    // WHY: ADR 0007 decisions 3 and 4. Signed out, the copy on screen is the home host's; the account takes it when it has
+    // none. The cloud cannot push, so every host is told when the copy moves to the account and when a write is confirmed.
+    const { personal, sync, settingsCloud, signIn } = await storesOn()
+    let heard = 0
+    sync.onSettingsCopyChanged(() => { heard += 1 })
+    personal.adoptHostCopy({ themeMode: 'dark', extraInstructions: 'From the host.' })
+    await signIn()
+    expect(settingsCloud.document.settings).toEqual({ themeMode: 'dark', extraInstructions: 'From the host.' })
+    const afterSignIn = heard
+    expect(afterSignIn).toBeGreaterThan(0)
+
+    personal.set('fontSize', 18)
+    await settle()
+    expect(heard).toBeGreaterThan(afterSignIn)
+    // Signed in, a host's copy never replaces the account's on screen.
+    personal.adoptHostCopy({ themeMode: 'light' })
+    expect(personal.storedDocument.themeMode).toBe('dark')
+
+    const beforeSignOut = heard
+    sync.setAccount(null)
+    expect(heard).toBe(beforeSignOut + 1)
+  })
+
   test('there is no way to turn sync off on one device', async () => {
     installDom(memoryStorage())
     const { AccountSyncStore } = await import('@solus/workspace-ui/contexts/account/account-sync.store.svelte')

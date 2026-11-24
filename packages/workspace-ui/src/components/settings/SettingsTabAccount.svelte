@@ -8,7 +8,8 @@
    * agent profile, with the settings' conflicts resolved here and the
    * profile's on its own tab; each host with what it holds of the profile;
    * and, last, the two clear actions. Signed in is synced: there is no
-   * switch. The page needs no host.
+   * switch. Signed out, it names the host that keeps the settings on screen
+   * (ADR 0007). The page needs no host.
    */
   import AccountConnectionsLink from "./AccountConnectionsLink.svelte";
   import { untrack } from "svelte";
@@ -37,6 +38,8 @@
   // Only the desktop hosts a server on this computer; a browser has none to link.
   const localServerId = $derived(serversStore.servers.find((server) => server.local)?.id ?? null);
   const hasComputer = $derived(localServerId !== null);
+  // Signed out, the settings on screen are this host's (docs/plans/personal-settings-source.md).
+  const homeHostLabel = $derived(session.settings.personal.homeHostId ? serversStore.hostFor(session.settings.personal.homeHostId)?.label ?? null : null);
   let now = $state(Date.now());
   const statusTone = $derived(accountSyncTone(sync.state));
   // The badge already says "Synced"; the line under it says when, or what is wrong.
@@ -101,6 +104,9 @@
   {:else}
     <SettingsRow
       {...settingsDefinitions["account.not-signed-in"]}
+      description={homeHostLabel
+        ? `Your settings and your agent profile are kept on ${homeHostLabel}. Each host keeps its own. Sign in to Solus to keep them in your account and use them on every host and device.`
+        : settingsDefinitions["account.not-signed-in"].description}
     >
       {#snippet control()}
         {#if accountStore.isAvailable}
