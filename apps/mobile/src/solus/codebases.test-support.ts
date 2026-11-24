@@ -34,7 +34,11 @@ function member(path: string, rootPath: string, state: CodebaseMemberState): Cod
   };
 }
 
-/** A host that keeps codebases as a Solus host does: the newer `updatedAt` wins, and members come from its disk. */
+/**
+ * A host that keeps codebases as a Solus host does: the newer `updatedAt`
+ * wins, and members come from its disk. It looks inside a container root
+ * only: a root with no mark is one project.
+ */
 export class FakeHost {
   readonly copies = new Map<string, Codebase>();
   readonly saves: Codebase[] = [];
@@ -71,7 +75,9 @@ export class FakeHost {
             const folder = this.disk.get(root.path);
             return [
               member(root.path, root.path, folder?.state ?? "missing"),
-              ...(folder?.found ?? []).map((path) => member(path, root.path, "git")),
+              ...(root.container ? (folder?.found ?? []) : []).map((path) =>
+                member(path, root.path, "git"),
+              ),
             ];
           });
       },
@@ -159,7 +165,7 @@ export async function settle(): Promise<void> {
   for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** A folder on a host that no test connects: the second folder of a codebase, which has two or more. */
+/** A folder on a host that no test connects: the second folder of a codebase of two projects. */
 export const ELSEWHERE: Codebase["roots"][number] = {
   installationId: "installation-elsewhere",
   path: "/srv/elsewhere",

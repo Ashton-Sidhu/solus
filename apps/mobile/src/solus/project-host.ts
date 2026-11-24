@@ -1,8 +1,11 @@
 import { findExistingAddProject } from "@t3tools/client-runtime/operations/projects";
-import type {
-  EnvironmentId,
-  FilesystemBrowseInput,
-  FilesystemBrowseResult,
+import { isContainerScan } from "@solus/contracts/codebases";
+import { hostPathBaseName } from "@solus/contracts/host-path";
+import {
+  ProjectId,
+  type EnvironmentId,
+  type FilesystemBrowseInput,
+  type FilesystemBrowseResult,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -57,7 +60,17 @@ export const browseProjectFolders = hostQuery(
   5_000,
 );
 
-export async function addLocalProject(environmentId: EnvironmentId, path: string) {
+/**
+ * Add a folder on a host as a project, and answer where its draft opens. A
+ * container (a folder that is no repository and that holds two or more
+ * repositories) is a codebase, not a project: the host makes its codebase,
+ * no project list shows the folder, and the draft opens in the folder
+ * (docs/plans/codebases.md decision 14).
+ */
+export async function addLocalProject(
+  environmentId: EnvironmentId,
+  path: string,
+): Promise<{ readonly id: ProjectId; readonly title: string } | null> {
   const api = projectApi(environmentId);
   const directory = await api.listDirectory(path);
   if (directory.error) throw new Error(directory.error);
@@ -70,7 +83,11 @@ export async function addLocalProject(environmentId: EnvironmentId, path: string
   const existing = lookup();
   if (existing) return existing;
   await api.trackRecentProject(directory.currentPath);
-  await solus.threads.load(environmentId);
+  const scan = await api.codebaseScanFolder(directory.currentPath);
+  await Promise.all([solus.threads.load(environmentId), solus.codebases.load(environmentId)]);
+  if (isContainerScan(scan)) {
+    return { id: ProjectId.make(scan.path), title: hostPathBaseName(scan.path) || scan.path };
+  }
   return lookup();
 }
 
@@ -87,8 +104,9 @@ export async function addCodebaseFolder(
 
 /**
  * Make a codebase of two folders on one host: the folder of a project and a
- * second folder that the person chose. A codebase has two or more folders
- * (docs/plans/codebases.md decision 14).
+ * second folder that the person chose (docs/plans/codebases.md decision 14).
+ * A container needs no such step: the host makes its codebase when the
+ * folder is added (`addLocalProject`).
  */
 export async function makeCodebase(
   environmentId: EnvironmentId,

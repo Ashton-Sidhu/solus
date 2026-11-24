@@ -1,5 +1,5 @@
 import { CodebaseRootRefused } from "@solus/client-core/codebases";
-import { CODEBASE_ROOTS_MAX } from "@solus/contracts/codebases";
+import { CODEBASE_ROOTS_MAX, type Codebase } from "@solus/contracts/codebases";
 import { expect, it, vi } from "vite-plus/test";
 import { codebase, ELSEWHERE, FakeHost, FakePhone, settle } from "./codebases.test-support";
 
@@ -188,32 +188,80 @@ it("stores the path that the scan resolved, and refuses a duplicate, a folder in
   stop();
 });
 
-it("makes no codebase of one folder, and removes no folder when two are left", async () => {
-  // WHY: one folder is a project, and a project is never also a codebase (decision 14). The person deletes
-  // the codebase to take one of its last two folders out.
+it("makes a codebase of one container or of two folders, and of nothing less", async () => {
+  // WHY: a project is one folder or one repository. A folder that is no repository and that holds two or
+  // more repositories is a container, and a container is a codebase (decision 14).
   const laptop = new FakeHost("laptop");
-  laptop.disk.set("/code/shop", { state: "plain" });
+  laptop.disk.set("/code/shop", { state: "plain", found: ["/code/shop/api", "/code/shop/web"] });
+  laptop.disk.set("/code/notes", { state: "plain" });
+  laptop.disk.set("/code/mono", { state: "git", found: ["/code/mono/a", "/code/mono/b"] });
   laptop.disk.set("/code/ui", { state: "git" });
   laptop.copies.set("old", codebase("old", 5, [{ installationId: "laptop", path: "/code/old", name: "old" }]));
   const phone = new FakePhone(laptop);
   const stop = phone.codebases.watch();
   await settle();
 
-  // A copy with one folder that a host kept is not a codebase.
+  // A copy with one folder that is no container is not a codebase.
   expect(phone.codebases.codebases()).toEqual([]);
   expect(phone.codebases.codebasesOfFolder("laptop", "/code/old")).toEqual([]);
 
-  await expect(
-    phone.codebases.create("Shop", [{ hostId: "laptop", path: "/code/shop" }]),
-  ).rejects.toThrow(/at least 2 folders/);
-  const made = await phone.codebases.create("Shop", [
+  // One folder with no repositories inside it, and one repository, are each one project.
+  for (const path of ["/code/notes", "/code/mono", "/code/ui"]) {
+    await expect(phone.codebases.create("One", [{ hostId: "laptop", path }])).rejects.toThrow(
+      /One folder is a project/,
+    );
+  }
+  expect(laptop.saves).toEqual([]);
+
+  // The scan of the host says that the folder is a container: the root gets the mark.
+  const container = await phone.codebases.create("shop", [{ hostId: "laptop", path: "/code/shop" }]);
+  expect(container.roots).toEqual([
+    { installationId: "laptop", path: "/code/shop", name: "shop", container: true },
+  ]);
+  expect(phone.codebases.codebaseOf(container.id)).toBeDefined();
+
+  const two = await phone.codebases.create("Notes and UI", [
+    { hostId: "laptop", path: "/code/notes" },
+    { hostId: "laptop", path: "/code/ui" },
+  ]);
+  expect(two.roots.some((root) => root.container)).toBe(false);
+  stop();
+});
+
+it("removes a folder only when the folders that stay are still a codebase", async () => {
+  // WHY: the person deletes the codebase to take out a folder that it cannot be without.
+  const laptop = new FakeHost("laptop");
+  laptop.disk.set("/code/shop", { state: "plain", found: ["/code/shop/api", "/code/shop/web"] });
+  laptop.disk.set("/code/notes", { state: "plain" });
+  laptop.disk.set("/code/ui", { state: "git" });
+  const phone = new FakePhone(laptop);
+  const stop = phone.codebases.watch();
+  await settle();
+  const root = (path: string) => ({ installationId: "laptop", path });
+
+  const two = await phone.codebases.create("Notes and UI", [
+    { hostId: "laptop", path: "/code/notes" },
+    { hostId: "laptop", path: "/code/ui" },
+  ]);
+  const lastTwo = phone.codebases.removeRoot(two.id, root("/code/ui"));
+  await expect(lastTwo).rejects.toMatchObject({ refusal: "too-few" });
+  await expect(lastTwo).rejects.toThrow(/delete the codebase/);
+  expect(phone.codebases.codebaseOf(two.id)?.roots).toHaveLength(2);
+
+  const withContainer = await phone.codebases.create("Shop and UI", [
     { hostId: "laptop", path: "/code/shop" },
     { hostId: "laptop", path: "/code/ui" },
   ]);
-  const refused = phone.codebases.removeRoot(made.id, { installationId: "laptop", path: "/code/ui" });
-  await expect(refused).rejects.toMatchObject({ refusal: "last-two" });
-  await expect(refused).rejects.toThrow(/delete the codebase/);
-  expect(phone.codebases.codebaseOf(made.id)?.roots).toHaveLength(2);
+  // The container goes: one project would stay, and that is no codebase.
+  await expect(
+    phone.codebases.removeRoot(withContainer.id, root("/code/shop")),
+  ).rejects.toMatchObject({ refusal: "too-few" });
+  // The project goes: the container that stays is a codebase by itself.
+  const alone = await phone.codebases.removeRoot(withContainer.id, root("/code/ui"));
+  expect(alone.roots.map((entry) => entry.path)).toEqual(["/code/shop"]);
+  await expect(phone.codebases.removeRoot(alone.id, root("/code/shop"))).rejects.toMatchObject({
+    refusal: "too-few",
+  });
   stop();
 });
 
@@ -222,8 +270,8 @@ it("groups the members by host, keeps the last answer of a host that is away, an
   const server = new FakeHost("server");
   laptop.disk.set("/code/shop", { state: "plain", found: ["/code/shop/api", "/code/shop/web"] });
   server.disk.set("/srv/infra", { state: "git" });
-  const roots = [
-    { installationId: "laptop", path: "/code/shop", name: "shop" },
+  const roots: Codebase["roots"] = [
+    { installationId: "laptop", path: "/code/shop", name: "shop", container: true },
     { installationId: "server", path: "/srv/infra", name: "infra" },
     { installationId: "desktop-at-work", path: "/work/tools", name: "tools" },
   ];
@@ -329,46 +377,37 @@ it("drops what a removed host gave, and tells its listeners about each change", 
   stopHosts();
 });
 
-it("answers what the folder of a project holds, also when a codebase holds the folder", async () => {
-  // WHY: a project covers the repositories inside it with no codebase (decision 14). The project page and
-  // the repositories of a new worktree read them from the scan of the folder.
-  const laptop = new FakeHost("laptop");
-  laptop.disk.set("/code/store", { state: "plain", found: ["/code/store/api", "/code/store/web"] });
+it("says that the container root of a codebase is not a project folder", async () => {
+  // WHY: a container is a codebase, never a project, so no project list of the phone shows it (decision 14).
+  const laptop = new FakeHost("laptop", "installation-laptop");
+  const server = new FakeHost("server", "installation-server");
+  laptop.disk.set("/code/shop", { state: "plain", found: ["/code/shop/api", "/code/shop/web"] });
+  const phone = new FakePhone(laptop, server);
+  const stop = phone.codebases.watch();
+  await settle();
+  expect(phone.codebases.isContainerRoot("laptop", "/code/shop")).toBe(false);
+
+  const shop = await phone.codebases.create("shop", [{ hostId: "laptop", path: "/code/shop" }]);
+  expect(phone.codebases.isContainerRoot("laptop", "/code/shop")).toBe(true);
+  expect(phone.codebases.isContainerRoot("laptop", "/code/shop/")).toBe(true);
+  expect(phone.codebases.containerCodebaseAt("laptop", "/code/shop")?.id).toBe(shop.id);
+  // A repository inside the container is a project.
+  expect(phone.codebases.isContainerRoot("laptop", "/code/shop/api")).toBe(false);
+  // The same path on a different host is a different folder.
+  expect(phone.codebases.isContainerRoot("server", "/code/shop")).toBe(false);
+  // A host that this phone does not know has no folder here.
+  expect(phone.codebases.isContainerRoot("tablet", "/code/shop")).toBe(false);
+
+  // A root with no mark is one project, also when a codebase holds it.
   laptop.disk.set("/code/ui", { state: "git" });
-  const phone = new FakePhone(laptop);
-  const stop = phone.codebases.watch();
-  await settle();
-
-  // Before the folder is read, the phone knows nothing about it.
-  expect(phone.codebases.projectScanAt("laptop", "/code/store")).toBeNull();
-  await phone.codebases.readFolder("laptop", "/code/store");
-  const found = () =>
-    phone.codebases
-      .projectScanAt("laptop", "/code/store")
-      ?.members.filter((member) => member.discovered)
-      .map((member) => member.path);
-  expect(found()).toEqual(["/code/store/api", "/code/store/web"]);
-
-  await phone.codebases.create("store + ui", [
-    { hostId: "laptop", path: "/code/store" },
+  laptop.disk.set("/code/notes", { state: "plain" });
+  await phone.codebases.create("UI and notes", [
     { hostId: "laptop", path: "/code/ui" },
+    { hostId: "laptop", path: "/code/notes" },
   ]);
-  expect(found()).toEqual(["/code/store/api", "/code/store/web"]);
-  stop();
-});
+  expect(phone.codebases.isContainerRoot("laptop", "/code/ui")).toBe(false);
 
-it("forgets what a folder holds when the account changes", async () => {
-  const laptop = new FakeHost("laptop");
-  laptop.disk.set("/code/store", { state: "plain", found: ["/code/store/api"] });
-  const phone = new FakePhone(laptop);
-  const stop = phone.codebases.watch();
-  await settle();
-  await phone.codebases.readFolder("laptop", "/code/store");
-  expect(phone.codebases.projectScanAt("laptop", "/code/store")).not.toBeNull();
-
-  phone.scope = "other-account organization";
-  await phone.changed();
-  await settle();
-  expect(phone.codebases.projectScanAt("laptop", "/code/store")).toBeNull();
+  await phone.codebases.delete(shop.id);
+  expect(phone.codebases.isContainerRoot("laptop", "/code/shop")).toBe(false);
   stop();
 });

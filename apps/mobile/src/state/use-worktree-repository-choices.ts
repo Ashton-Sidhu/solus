@@ -1,7 +1,5 @@
 import { useMemo } from "react";
 
-import { startMembers } from "@solus/client-core/codebases";
-import type { CodebaseMember } from "@solus/contracts/codebases";
 import type { EnvironmentId } from "@t3tools/contracts";
 
 import { codebaseFolders } from "../solus/codebase-folders";
@@ -24,8 +22,6 @@ interface WorktreeRepositoryChoices {
   readonly tracksGitRepositories: boolean;
 }
 
-const NO_MEMBERS: ReadonlyArray<CodebaseMember> = Object.freeze([]);
-
 const NO_CODEBASE: WorktreeRepositoryChoices = Object.freeze({
   choices: Object.freeze([]),
   repositories: null,
@@ -34,16 +30,14 @@ const NO_CODEBASE: WorktreeRepositoryChoices = Object.freeze({
 
 /**
  * The repositories that a new worktree thread of this project can take (docs/plans/codebases.md
- * §7): the repositories that the host found in the folder of the project (`foundMembers`: a
- * project covers them with no codebase, decision 14), then the `git` members of the thread's
- * codebase on the host of the project.
+ * §7): the `git` members of the thread's codebase on the host of the project. A thread with no
+ * codebase is in one project: it has one checkout, and no repositories to choose.
  */
 export function useWorktreeRepositoryChoices(
   project: {
     readonly environmentId: EnvironmentId;
     readonly workspaceRoot: string;
     readonly codebaseId: string | null;
-    readonly foundMembers?: ReadonlyArray<CodebaseMember> | null;
   } | null,
 ): WorktreeRepositoryChoices {
   const codebaseId = project?.codebaseId ?? null;
@@ -53,13 +47,12 @@ export function useWorktreeRepositoryChoices(
       : null,
   );
   const workspaceRoot = project?.workspaceRoot ?? null;
-  const foundMembers = project?.foundMembers ?? null;
-  const ofCodebase = codebaseId === null ? NO_MEMBERS : members.data;
+  const ofCodebase = members.data;
   return useMemo(() => {
-    if (workspaceRoot === null || (codebaseId === null && foundMembers === null)) return NO_CODEBASE;
+    if (workspaceRoot === null || codebaseId === null) return NO_CODEBASE;
     // Not read yet: the host decides, so a worktree send still gets the host's own default.
     if (ofCodebase === null) return { choices: null, repositories: null, tracksGitRepositories: true };
-    const repositories = worktreeRepositoryOptions(startMembers(foundMembers ?? [], ofCodebase), workspaceRoot);
+    const repositories = worktreeRepositoryOptions(ofCodebase, workspaceRoot);
     // The folder of the project is not a member: the host makes one worktree, in its repository.
     if (repositories === null) return NO_CODEBASE;
     return {
@@ -69,5 +62,5 @@ export function useWorktreeRepositoryChoices(
         (option) => option.unavailable === undefined,
       ),
     };
-  }, [codebaseId, foundMembers, ofCodebase, workspaceRoot]);
+  }, [codebaseId, ofCodebase, workspaceRoot]);
 }

@@ -118,7 +118,7 @@ vi.mock("../../solus/runtime", () => ({
 }));
 vi.mock("../../solus/codebase-folders", () => ({
   codebaseFolders: {},
-  readProjectCodebases: () => ({ status: "ready", sections: [] }),
+  readFolderCodebases: () => [],
 }));
 
 import { NewTaskFlowProvider, useNewTaskFlow } from "./new-task-flow-provider";

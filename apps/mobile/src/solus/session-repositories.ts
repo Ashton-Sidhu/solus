@@ -191,8 +191,8 @@ export type SessionFolderMark = "worktree" | "attached" | "created" | "observed"
 
 export function sessionFolderMark(folder: SessionFolder): SessionFolderMark | null {
   if (!sameHostPath(folder.path, folder.repositoryPath)) return "worktree";
-  // A repository of the project and a member of the codebase are the folders of the work: no mark.
-  return folder.source === "codebase" || folder.source === "project" ? null : folder.source;
+  // A member of the codebase is a folder of the work: no mark.
+  return folder.source === "codebase" ? null : folder.source;
 }
 
 export function sessionFolderMarkText(

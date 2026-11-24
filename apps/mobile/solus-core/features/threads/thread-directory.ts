@@ -127,6 +127,13 @@ export class ThreadDirectory {
     /** One read of a host's pins, shared with the thread list (`ThreadListState.loadPins`). */
     private readonly readPins: (hostId: string, connection: HostConnection) => Promise<readonly PinnedSession[]> = (_hostId, connection) => connection.api.pinnedSessionsList(),
     private readonly cache?: MobileSessionCache,
+    /**
+     * True for a folder that is the container root of a codebase. Such a
+     * folder is a codebase, never a project, so `projects()` leaves it out
+     * (docs/plans/codebases.md decision 14). Each project list of the app
+     * reads `projects()`, so they agree.
+     */
+    private readonly isContainerRoot: (hostId: string, path: string) => boolean = () => false,
   ) {
     runHosts?.changes.subscribe(() => this.remerge())
     cloud?.changes.subscribe(() => this.remerge())
@@ -172,7 +179,16 @@ export class ThreadDirectory {
 
   unlistedThreads = (): readonly SolusThreadShell[] => this.merged.unlisted
 
+  /** Every readable host's projects, by folder name. A container root of a codebase is not one of them. */
   projects = (): readonly SolusProjectShell[] => this.merged.projects
+
+  /** The codebases changed: a folder that is a container root now leaves the project list, and a folder that is one no longer comes back. */
+  followContainerRoots(): void {
+    const projects = this.listedProjects()
+    if (sameItems(projects, this.merged.projects)) return
+    this.merged = { ...this.merged, projects }
+    this.changes.notify()
+  }
 
   /** Hears the sessions a read finds newly shared with this person, newest
    *  grant first (docs/plans/shared-with-you.md §5). */
@@ -510,7 +526,6 @@ export class ThreadDirectory {
   private remerge(): void {
     const threads: SolusThreadShell[] = []
     const unlisted: SolusThreadShell[] = []
-    const projects: SolusProjectShell[] = []
     const managed = this.managedHostIds()
     const listedByHost = new Set<string>()
     for (const [hostId, state] of this.hosts) {
@@ -522,13 +537,12 @@ export class ThreadDirectory {
       const usesFilter = usesWindowFilter(hostId, managed)
       threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
-      projects.push(...value.projects)
     }
     this.cloudShells = this.cloudOnlyShells(listedByHost)
     threads.push(...this.cloudShells.values())
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     unlisted.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
-    projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
+    const projects = this.listedProjects()
     // A list whose items did not change keeps its array: a host that starts
     // reading again, or a change to sessions only, leaves the project list as it was.
     const held = this.merged
@@ -545,6 +559,19 @@ export class ThreadDirectory {
       projects: sameItems(projects, held.projects) ? held.projects : projects,
     }
     this.changes.notify()
+  }
+
+  /** The projects that each host lists, by folder name, with no container root of a codebase. */
+  private listedProjects(): SolusProjectShell[] {
+    const projects: SolusProjectShell[] = []
+    for (const [hostId, state] of this.hosts) {
+      const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
+      if (!value) continue
+      for (const project of value.projects) {
+        if (!this.isContainerRoot(hostId, project.project.path)) projects.push(project)
+      }
+    }
+    return projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
   }
 
   /** One row for each session only the cloud lists; a host's record of a session always wins. */

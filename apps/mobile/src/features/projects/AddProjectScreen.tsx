@@ -1,4 +1,5 @@
 import { createProject, cloneProject, addLocalProject, addCodebaseFolder, makeCodebase, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
+import { plainCodebaseName } from "@solus/contracts/codebases";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import { useEnvironmentQuery } from "../../state/query";
 import { useCheckoutAccess } from "../../solus/use-checkout-files";
@@ -1061,9 +1062,12 @@ export function AddProjectLocalFolderScreen(props: {
     if (codebaseWith !== null) {
       const environmentId = environment.environmentId;
       Dialog.prompt({
-        title: gt("Make a codebase"),
-        message: gt("Give the codebase a name."),
-        initialValue: `${hostPathBaseName(codebaseWith)} + ${hostPathBaseName(resolved.path)}`,
+        title: gt("Codebase name"),
+        // The name that Solus gives a codebase of these two folders: the person can change it.
+        initialValue: plainCodebaseName([
+          hostPathBaseName(codebaseWith),
+          hostPathBaseName(resolved.path),
+        ]),
         confirmText: gt("Make", { $context: "verb, makes a new codebase" }),
         onConfirm: (name) => {
           setIsSubmitting(true);

@@ -5,16 +5,17 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { useMessages } from "gt-react-native";
 
 import { useWorktreeRepositoryChoices } from "../state/use-worktree-repository-choices";
-import { readProjectCodebases } from "./codebase-folders";
+import { readFolderCodebases } from "./codebase-folders";
 import { solus } from "./runtime";
 import { draftCodebase, resolveWorktreeRepositories } from "./session-repositories";
 
 /**
  * What a new session of a project starts with (docs/plans/codebases.md §7):
  * its codebase, and the repositories that get a worktree with a new worktree.
- * The codebases model owns each read. This hook applies the rule for the
- * folder of the draft and gives the answer to the draft controls and to the
- * repositories checklist.
+ * A draft with no codebase is in one project: one checkout, and no
+ * repositories to choose. The codebases model owns each read. This hook
+ * applies the rule for the folder of the draft and gives the answer to the
+ * draft controls and to the repositories checklist.
  */
 export function useDraftStart(store: ConversationStore) {
   const { controller } = store;
@@ -23,13 +24,11 @@ export function useDraftStart(store: ConversationStore) {
   const hostId = controller.hostId;
   const canChoose = meta.runOptions.canChooseStart;
   const projectDirectory = meta.run.projectDirectory;
-  // The model reads the codebases of each host only while a screen asks for them.
-  useEffect(() => (canChoose ? solus.codebases.watch() : undefined), [canChoose]);
-  const { sections } = useListened(solus.codebases.changes, () =>
-    readProjectCodebases(hostId, projectDirectory),
+  const codebases = useListened(solus.codebases.changes, () =>
+    readFolderCodebases(hostId, projectDirectory),
   );
   const codebase = draftCodebase({
-    codebases: sections.map((section) => section.codebase),
+    codebases,
     isPicked: meta.run.isCodebasePicked,
     codebaseId: meta.run.codebaseId,
   });
@@ -38,21 +37,12 @@ export function useDraftStart(store: ConversationStore) {
   useEffect(() => {
     if (canChoose) controller.followFolderCodebase(automatic);
   }, [automatic, canChoose, controller]);
-  // A project covers the repositories inside it, with no codebase (decision 14). The folder is read
-  // here, and its repositories are in the list of a new worktree.
-  useEffect(() => {
-    if (canChoose && projectDirectory) void solus.codebases.readFolder(hostId, projectDirectory);
-  }, [canChoose, hostId, projectDirectory]);
-  const foundMembers = useListened(solus.codebases.changes, () =>
-    canChoose ? (solus.codebases.projectScanAt(hostId, projectDirectory)?.members ?? null) : null,
-  );
   const choices = useWorktreeRepositoryChoices(
-    canChoose && (codebase.codebaseId !== null || foundMembers !== null)
+    canChoose && codebase.codebaseId !== null
       ? {
           environmentId: EnvironmentId.make(hostId),
           workspaceRoot: projectDirectory,
           codebaseId: codebase.codebaseId,
-          foundMembers,
         }
       : null,
   );

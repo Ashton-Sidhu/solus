@@ -100,6 +100,7 @@ const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; desc
   delegationInstructions: { label: 'Delegation instructions', describe: () => 'set delegation instructions' },
   sourceControlWriting: { label: 'Commit and pull request writing', describe: () => 'a set writing style for commits and pull requests' },
   worktreeBranchNaming: { label: 'Branch naming', describe: () => 'a set branch name format' },
+  codebaseNaming: { label: 'Codebase names', describe: (value) => (value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names') },
   defaultPermissionMode: { label: 'Default mode', describe: (value) => `${PERMISSION_MODE_TEXT[value].label} by default` },
   agentTaskLifecyclePolicy: { label: 'Task status by agents', describe: (value) => TASK_LIFECYCLE[value] },
   rateLimitBehavior: { label: 'Rate limits', describe: (value) => RATE_LIMIT_BEHAVIOR[value] },

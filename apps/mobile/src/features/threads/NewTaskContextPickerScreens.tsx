@@ -591,7 +591,7 @@ function RepositoriesPickerScreen(props: {
             <Text className="text-center text-sm text-foreground-muted">
               {choices === null
                 ? gt("Loading repositories…")
-                : gt("This codebase has no other repositories on this host")}
+                : gt("No other repositories")}
             </Text>
           </View>
         ) : (
@@ -621,9 +621,9 @@ function RepositoriesPickerScreen(props: {
                 selected={selected.has(item.repositoryPath)}
                 subtitle={
                   item.unavailable === "submodule"
-                    ? gt("Submodule: it comes with the worktree of its parent repository")
+                    ? gt("Submodule")
                     : item.unavailable === "no-commit"
-                      ? gt("No commit: a repository needs a commit to get a worktree")
+                      ? gt("No commit")
                       : item.relativePath !== undefined && item.relativePath !== item.name
                         ? item.relativePath
                         : undefined

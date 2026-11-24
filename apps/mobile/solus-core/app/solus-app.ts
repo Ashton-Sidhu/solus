@@ -242,7 +242,7 @@ export class SolusApp {
     })
     this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
     this.sessionCache = new MobileSessionCache(this.pullRequestCache, () => JSON.stringify([this.account.syncAccount, this.account.organizationId]))
-    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache)
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.liveActivity = new LiveActivityPreference(storage)
     this.diffFilter = new DiffFilterPreference(storage)
@@ -289,6 +289,8 @@ export class SolusApp {
       },
       uuid: platform.uuid,
     })
+    // A container root of a codebase is not a project: the project list follows the codebases.
+    this.codebases.changes.subscribe(() => this.threads.followContainerRoots())
     const connectionFor = (hostId: string) => this.connections.connection(hostId)
     const organizationId = () => this.account.organizationId
     this.pullRequests = new PullRequestDirectory(connectionFor, organizationId, this.pullRequestCache)

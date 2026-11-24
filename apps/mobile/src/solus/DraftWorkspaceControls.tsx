@@ -16,8 +16,8 @@ import { useDraftStart } from "./use-draft-start";
 /**
  * The base that a new worktree of a plain project folder names. The host
  * needs a base for each new worktree. No repository has a branch with this
- * name, so each repository starts from its own default branch, as the text of
- * the control says (docs/plans/codebases.md §7).
+ * name, so each repository starts from its own default branch: the control
+ * says "Default branches" (docs/plans/codebases.md §7).
  */
 const REPOSITORY_DEFAULTS_BASE = "HEAD";
 
@@ -35,18 +35,14 @@ function CodebaseControl(props: {
     ? gt("Choose codebase")
     : (selected?.name ?? gt("No codebase"));
   const choose = () =>
-    Dialog.alert(
-      gt("Codebase"),
-      gt("The folders that this thread works in come from its codebase."),
-      [
-        ...codebase.options.map((option) => ({
-          text: option.name,
-          onPress: () => controller.chooseCodebase(option.id),
-        })),
-        { text: gt("No codebase"), onPress: () => controller.chooseCodebase(null) },
-        { text: gt("Cancel"), style: "cancel" as const },
-      ],
-    );
+    Dialog.alert(gt("Codebase"), undefined, [
+      ...codebase.options.map((option) => ({
+        text: option.name,
+        onPress: () => controller.chooseCodebase(option.id),
+      })),
+      { text: gt("No codebase"), onPress: () => controller.chooseCodebase(null) },
+      { text: gt("Cancel"), style: "cancel" as const },
+    ]);
   return (
     <ChoiceControl
       accessibilityHint={gt("Chooses the codebase of the new thread")}
@@ -87,7 +83,7 @@ function ChoiceControl(props: {
   );
 }
 
-/** The branch of the checkout, or the base of the new worktree. A plain folder has no branch: each repository then starts from its own default. */
+/** The branch of the checkout, or the base of the new worktree. A plain folder has no branch: each repository then starts from its own default branch. */
 function BranchControl(props: {
   readonly startsNewWorktree: boolean;
   readonly isRepo: boolean;
@@ -100,7 +96,7 @@ function BranchControl(props: {
     return (
       <View className="min-h-8 min-w-0 shrink justify-center px-2">
         <Text className="text-sm text-foreground-muted" numberOfLines={1}>
-          <T>Each repository starts from its own default branch</T>
+          <T>Default branches</T>
         </Text>
       </View>
     );

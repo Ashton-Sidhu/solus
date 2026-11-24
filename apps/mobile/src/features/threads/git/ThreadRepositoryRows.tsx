@@ -198,9 +198,7 @@ function OtherRepositoriesPicker(props: {
     if (props.pinnedCount >= THREAD_REPOSITORY_SECTIONS_VISIBLE) props.onShowAll();
     setIsOpen(false);
   };
-  const hint = worksInTaskFolder
-    ? gt("Add a worktree of a repository of the codebase")
-    : gt("Show a repository of the codebase in this thread");
+  const hint = worksInTaskFolder ? gt("Add a worktree") : gt("Show in this thread");
   return (
     <>
       <ListRow

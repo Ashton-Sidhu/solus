@@ -7,13 +7,9 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import {
-  PROJECT_TRACKED_FOLDERS_MAX,
-  type ProjectTrackedFolder,
-  type WorkspaceFolderState,
-} from "@t3tools/contracts";
+import { PROJECT_TRACKED_FOLDERS_MAX, type ProjectTrackedFolder } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { msg, T, useGT, useMessages } from "gt-react-native";
+import { T, useGT } from "gt-react-native";
 import { useState, type ReactNode } from "react";
 import { Pressable } from "react-native";
 
@@ -22,30 +18,27 @@ import * as Dialog from "../../components/ui/Dialog";
 import { ListActionRow } from "../../components/ui/ListActionRow";
 import { ListRowLayout } from "../../components/ui/ListRowLayout";
 import { codebaseFolders } from "../../solus/codebase-folders";
+import { codebaseFolderRowKey, type CodebaseFolderRow } from "../../solus/codebase-rows";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 
-export const FOLDER_STATE_LABELS: Record<WorkspaceFolderState, string> = {
-  git: msg("Git repository"),
-  plain: msg("Folder", { $context: "a plain folder that is not a Git repository" }),
-  missing: msg("Missing", { $context: "folder state: not found on disk" }),
-};
-
 /**
- * The folders of one Solus codebase are paths on one environment, so each environment of a
- * codebase gets its own section. `member` names that environment.
+ * The folders of one Solus codebase, in one section: the folders on the environment that
+ * `member` names, then the folders on each other environment of the codebase, each with the name
+ * of its environment below it.
  */
 export function ProjectRepositoriesSection(props: {
   readonly member: Pick<EnvironmentProject, "environmentId" | "trackedFolders">;
   readonly codebaseId: string;
   readonly title: string;
+  /** In the heading of the section, for example the menu of the codebase. */
+  readonly trailing?: ReactNode;
   /** Rows after the folders, for example an action that adds a folder. */
   readonly children?: ReactNode;
 }) {
   const { member, codebaseId } = props;
   const gt = useGT();
-  const m = useMessages();
   const tracked = member.trackedFolders ?? [];
   const canEdit = useAtomValue(codebaseFolders.update.permissionAtom(member.environmentId));
   // The record and the members of a codebase need the same permission.
@@ -59,8 +52,9 @@ export function ProjectRepositoriesSection(props: {
         })
       : null,
   );
-  const folders: ReadonlyArray<ProjectTrackedFolder & { state?: WorkspaceFolderState }> =
-    listQuery.data?.folders ?? tracked;
+  const folders: ReadonlyArray<CodebaseFolderRow> = listQuery.data?.folders ?? tracked;
+  // A folder on a different environment is not a path of this one.
+  const onMember = folders.filter((folder) => folder.otherHost === undefined);
   // Only a workspace file's folders are offered: the rest is found without asking.
   const scanQuery = useEnvironmentQuery(
     canReadFiles
@@ -70,17 +64,17 @@ export function ProjectRepositoriesSection(props: {
         })
       : null,
   );
-  const suggested = suggestedTrackedFolders(folders, scanQuery.data?.folders ?? []);
+  const suggested = suggestedTrackedFolders(onMember, scanQuery.data?.folders ?? []);
   const updateProject = useAtomCommand(codebaseFolders.update, { reportFailure: false });
   const [isSaving, setIsSaving] = useState(false);
   // A save builds on the listed folders, so it waits for the list that follows the last one.
   const isBusy = isSaving || listQuery.isPending;
-  const added = folders.filter((folder) => folder.discovered !== true);
+  const added = onMember.filter((folder) => folder.discovered !== true);
 
   // One folder in or out: the server applies it to its own list, which another client may have
   // changed while a confirmation was open here.
   const save = async (
-    change: { readonly track: ProjectTrackedFolder } | { readonly untrack: string },
+    change: { readonly track: ProjectTrackedFolder } | { readonly untrack: CodebaseFolderRow },
   ) => {
     setIsSaving(true);
     const result = await updateProject({
@@ -89,7 +83,9 @@ export function ProjectRepositoriesSection(props: {
         codebaseId,
         ...("track" in change
           ? { trackFolders: [{ path: change.track.path, name: change.track.name }] }
-          : { untrackFolders: [change.untrack] }),
+          : {
+              untrackFolders: [{ path: change.untrack.path, otherHost: change.untrack.otherHost }],
+            }),
       },
     });
     setIsSaving(false);
@@ -106,7 +102,7 @@ export function ProjectRepositoriesSection(props: {
     listQuery.refresh();
   };
 
-  const remove = (folder: ProjectTrackedFolder) =>
+  const remove = (folder: CodebaseFolderRow) =>
     Dialog.confirm({
       title: gt("Remove folder"),
       message: gt(
@@ -115,7 +111,7 @@ export function ProjectRepositoriesSection(props: {
       ),
       confirmText: gt("Remove", { $context: "verb, removes a folder from the codebase" }),
       destructive: true,
-      onConfirm: () => void save({ untrack: folder.path }),
+      onConfirm: () => void save({ untrack: folder }),
     });
 
   const add = (folder: ProjectTrackedFolder) => {
@@ -130,38 +126,20 @@ export function ProjectRepositoriesSection(props: {
     void save({ track: folder });
   };
 
-  if (folders.length === 0 && suggested.length === 0) {
-    return (
-      <SettingsSection
-        title={props.title}
-        footer={gt(
-          "Repositories inside a folder of this codebase are part of it as soon as they are there.",
-        )}
-      >
-        {props.children ?? null}
-      </SettingsSection>
-    );
-  }
-
   return (
-    <SettingsSection title={props.title}>
+    <SettingsSection title={props.title} trailing={props.trailing}>
       {folders.map((folder) => (
         <ListRowLayout
-          key={folder.path}
+          key={codebaseFolderRowKey(folder)}
           icon="folder"
           label={folder.name}
-          description={folder.path}
-          meta={
-            folder.state === undefined ? undefined : (
-              <Text
-                textRole="footnote"
-                className={
-                  folder.state === "missing" ? "text-warning-foreground" : "text-foreground-muted"
-                }
-              >
-                {m(FOLDER_STATE_LABELS[folder.state])}
-              </Text>
-            )
+          description={
+            folder.otherHost ? (folder.otherHost.label ?? gt("Unknown host")) : folder.path
+          }
+          detail={
+            folder.state === "missing"
+              ? gt("Missing", { $context: "folder state: not found on disk" })
+              : undefined
           }
           accessory={
             // A repository inside the project folder is there for as long as it is on disk.
@@ -186,7 +164,7 @@ export function ProjectRepositoriesSection(props: {
           key={folder.path}
           icon="plus"
           label={gt("Add {name}", { name: folder.name })}
-          description={gt("Listed in the workspace file · {path}", { path: folder.path })}
+          description={folder.path}
           disabled={!canEdit || isBusy}
           onPress={() => add(folder)}
         />

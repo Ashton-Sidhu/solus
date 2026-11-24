@@ -236,6 +236,8 @@ export function startSolus() {
     solus.connections.changes.subscribe(hostsChanged),
     solus.threads.changes.subscribe(changed),
     solus.threadList.changes.subscribe(changed),
+    // The project lists leave out each container root of a codebase, so the codebases are read for as long as the app runs.
+    solus.codebases.watch(),
     watchAppLifecycle(solus.connections, refresh),
   ];
   void solus.load(() => {

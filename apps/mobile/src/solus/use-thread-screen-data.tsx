@@ -21,11 +21,14 @@ import { removeQueuedRunEditAttachment } from "../state/queued-run-edit";
 import { videoMimeType } from "@solus/contracts/media-types";
 import type { DraftComposerAttachment } from "../lib/composerImages";
 import { composerUploadMedia } from "./upload-images";
-import { pendingInputAnswers, pendingInputQuestions } from "./pending-question";
+import {
+  pendingInputAnswers,
+  pendingInputQuestions,
+  toggleQuestionOption,
+  typeQuestionRemark,
+} from "./pending-question";
 import {
   buildPendingUserInputAnswers,
-  togglePendingUserInputOptionSelection,
-  setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "@t3tools/client-runtime/state/pending-user-input";
 import { connectionTone } from "../features/connection/connectionTone";
@@ -63,6 +66,7 @@ import {
   setComposerDraftText,
   setComposerDraftContext,
 } from "../state/use-composer-drafts";
+import { useListened } from "@solus-mobile/app/app-context";
 import { solus, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
 const wip = () => Alert.alert("WIP");
@@ -179,9 +183,13 @@ export function useThreadScreenData({
     (p) => p.environmentId === hostId && p.id === shell.projectId,
   );
   useRememberThreadProject(project ?? null);
+  // A container is a codebase, not a project: a draft or a session in its folder names the codebase.
+  const containerName = useListened(solus.codebases.changes, () =>
+    project ? undefined : solus.codebases.containerCodebaseAt(hostId, shell.projectId)?.name,
+  );
+  const placeName = project?.title ?? containerName;
   const draftTitle =
-    project?.title ??
-    (isChat(meta.run.workingDirectory) ? "No project" : meta.run.workingDirectory);
+    placeName ?? (isChat(meta.run.workingDirectory) ? "No project" : meta.run.workingDirectory);
   const edit = useQueuedRunEdit(key);
   const inputKey = draftKey ?? key;
   const composerKey = edit ? queuedEditDraftKey(key, edit.runId) : inputKey;
@@ -512,20 +520,11 @@ export function useThreadScreenData({
         id,
         drafts: {
           ...drafts,
-          [q.id]: togglePendingUserInputOptionSelection(q, drafts[q.id], value),
+          [q.id]: toggleQuestionOption(q, drafts[q.id], value),
         },
       }),
-    onChangeUserInputCustomAnswer: (id, key, value) => {
-      const q = pending?.questions.find((item) => item.id === key);
-      if (q)
-        setDraftState({
-          id,
-          drafts: {
-            ...drafts,
-            [key]: setPendingUserInputCustomAnswer(q, drafts[key], value),
-          },
-        });
-    },
+    onChangeUserInputCustomAnswer: (id, key, value) =>
+      setDraftState({ id, drafts: { ...drafts, [key]: typeQuestionRemark(drafts[key], value) } }),
     onSubmitUserInput: async () => {
       if (!pending || !answers || !controller.mayApprove || respondingQuestion) return;
       setRespondingQuestion(pending.requestId);
@@ -617,7 +616,7 @@ export function useThreadScreenData({
       title: shell.title,
       subtitle: showingDraft
         ? ""
-        : [project?.title, env?.environmentLabel].filter(Boolean).join(" · "),
+        : [placeName, env?.environmentLabel].filter(Boolean).join(" · "),
       draft: showingDraft,
     },
   };

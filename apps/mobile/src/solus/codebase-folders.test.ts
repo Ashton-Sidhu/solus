@@ -2,7 +2,11 @@ import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
-import { codebaseFolders, readProjectCodebases } from "./codebase-folders";
+import {
+  codebaseFolders,
+  readFolderCodebases,
+  readProjectPageCodebases,
+} from "./codebase-folders";
 import { codebase, ELSEWHERE, FakeHost, FakePhone, settle } from "./codebases.test-support";
 
 interface MockedRuntime {
@@ -38,14 +42,26 @@ function phoneWithShop() {
   laptop.resolved.set("~/libs", "/code/libs");
   laptop.copies.set(
     "shop",
-    codebase("shop", 10, [{ installationId: "laptop", path: "/code/shop", name: "shop" }, ELSEWHERE]),
+    codebase("shop", 10, [
+      { installationId: "laptop", path: "/code/shop", name: "shop", container: true },
+      ELSEWHERE,
+    ]),
   );
   host.phone = new FakePhone(laptop);
   host.mayUse = true;
+  // The app reads the codebases of each host from its start.
+  host.phone.codebases.watch();
   return laptop;
 }
 
-it("gives T3's repositories section the members of a codebase, and reads them because the section shows", async () => {
+/** The row of the folder on the host that no test connects: this phone does not know that host. */
+const elsewhereRow = {
+  path: ELSEWHERE.path,
+  name: ELSEWHERE.name,
+  otherHost: { installationId: ELSEWHERE.installationId, label: null },
+};
+
+it("gives T3's repositories section the folders of a codebase, and reads the members because the section shows", async () => {
   const laptop = phoneWithShop();
   const registry = AtomRegistry.make();
   try {
@@ -53,6 +69,8 @@ it("gives T3's repositories section the members of a codebase, and reads them be
       environmentId: laptopId,
       input: { codebaseId: "shop" },
     });
+    await settle();
+    expect(laptop.memberReads).toBe(0);
     const close = registry.mount(folders);
     await settle();
     const answer = registry.get(folders);
@@ -61,6 +79,7 @@ it("gives T3's repositories section the members of a codebase, and reads them be
       folders: [
         { path: "/code/shop", name: "shop", state: "plain" },
         { path: "/code/shop/api", name: "api", state: "git", discovered: true },
+        elsewhereRow,
       ],
     });
     // A refresh reads the disk of the host again. An answer that says the same keeps the same rows.
@@ -101,43 +120,48 @@ it("adds a folder through the scan of its host and takes a root out, as one chan
     ]);
     await settle();
     const rows = AsyncResult.getOrElse(registry.get(folders), () => null)?.folders;
-    expect(rows?.at(-1)).toEqual({ path: "/code/libs", name: "libs", state: "git" });
+    expect(rows).toContainEqual({ path: "/code/libs", name: "libs", state: "git" });
 
     const again = await update({ codebaseId: "shop", trackFolders: [{ path: "/code/libs", name: "libs" }] });
     expect(again._tag).toBe("Failure");
 
-    const removed = await update({ codebaseId: "shop", untrackFolders: ["/code/shop"] });
+    // The row of a folder on a different host takes out the root of that host, not a path of this one.
+    const removed = await update({ codebaseId: "shop", untrackFolders: [elsewhereRow] });
     expect(removed._tag).toBe("Success");
     expect(laptop.copies.get("shop")?.roots.map((root) => root.path)).toEqual([
-      ELSEWHERE.path,
+      "/code/shop",
       "/code/libs",
     ]);
-    // A codebase has two or more folders: one of the last two stays.
-    const lastTwo = await update({ codebaseId: "shop", untrackFolders: ["/code/libs"] });
-    expect(lastTwo._tag).toBe("Failure");
+    const removedHere = await update({ codebaseId: "shop", untrackFolders: [{ path: "/code/libs" }] });
+    expect(removedHere._tag).toBe("Success");
+    // The container is the one folder that is left: the codebase cannot be without it.
+    const last = await update({ codebaseId: "shop", untrackFolders: [{ path: "/code/shop" }] });
+    expect(last._tag).toBe("Failure");
 
     // A connection that lost the permission to use the host makes no change.
     host.mayUse = false;
-    const refused = await update({ codebaseId: "shop", untrackFolders: ["/code/libs"] });
+    const refused = await update({ codebaseId: "shop", trackFolders: [{ path: "~/libs", name: "libs" }] });
     expect(refused._tag).toBe("Failure");
-    expect(laptop.copies.get("shop")?.roots).toHaveLength(2);
+    expect(laptop.copies.get("shop")?.roots).toHaveLength(1);
     close();
   } finally {
     registry.dispose();
   }
 });
 
-it("gives the project overview the same answer until the codebases change", async () => {
+it("gives a screen the same answer until the codebases change", async () => {
+  // WHY: a screen reads these answers as store snapshots. A new object for the same answer draws it again.
   phoneWithShop();
-  const stop = phone().codebases.watch();
   await settle();
-  const first = readProjectCodebases("laptop", "/code/shop");
-  expect(first.sections.map((section) => section.codebase.id)).toEqual(["shop"]);
-  expect(readProjectCodebases("laptop", "/code/shop")).toBe(first);
+  const checkouts = [{ hostId: "laptop", path: "/code/shop/api" }];
+  const folder = readFolderCodebases("laptop", "/code/shop/api");
+  const page = readProjectPageCodebases(checkouts);
+  expect(folder.map((entry) => entry.id)).toEqual(["shop"]);
+  expect(page.sections.map((section) => section.codebase.id)).toEqual(["shop"]);
+  expect(readFolderCodebases("laptop", "/code/shop/api")).toBe(folder);
+  expect(readProjectPageCodebases([...checkouts])).toBe(page);
 
   await phone().codebases.rename("shop", "Shop web");
-  const renamed = readProjectCodebases("laptop", "/code/shop");
-  expect(renamed).not.toBe(first);
-  expect(renamed.sections[0]?.codebase.name).toBe("Shop web");
-  stop();
+  expect(readFolderCodebases("laptop", "/code/shop/api")[0]?.name).toBe("Shop web");
+  expect(readProjectPageCodebases(checkouts).sections[0]?.codebase.name).toBe("Shop web");
 });

@@ -32,10 +32,8 @@ import {
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 import { useLiveThreadLinkLabels } from "../../state/entities";
-import {
-  isPendingUserInputOptionSelected,
-  type PendingUserInputDraftAnswer,
-} from "@t3tools/client-runtime/state/pending-user-input";
+import type { PendingUserInputDraftAnswer } from "@t3tools/client-runtime/state/pending-user-input";
+import { isQuestionOptionSelected } from "../../solus/pending-question";
 import type { PendingUserInput } from "../../lib/threadActivity";
 
 export interface PendingUserInputCardProps {
@@ -304,7 +302,8 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
               <View className="gap-2">
                 {question.options.map((option) => {
                   const optionValue = option.value ?? option.label.trim();
-                  const selected = isPendingUserInputOptionSelected(question, draft, optionValue);
+                  // Solus: a chosen option stays chosen while the answer field has words.
+                  const selected = isQuestionOptionSelected(draft, optionValue);
                   const description =
                     option.description !== option.label ? option.description : undefined;
                   return (

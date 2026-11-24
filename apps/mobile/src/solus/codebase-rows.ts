@@ -1,9 +1,5 @@
 import type { Codebase, CodebaseMember, CodebaseRoot } from "@solus/contracts/codebases";
-import type {
-  Codebases,
-  CodebaseHostMembers,
-  CodebaseHostStatus,
-} from "@solus-mobile/features/codebases/codebases";
+import type { Codebases, CodebaseHostMembers } from "@solus-mobile/features/codebases/codebases";
 import type {
   ProjectTrackedFolder,
   WorkspaceFolderState,
@@ -13,12 +9,20 @@ import type {
 /**
  * The translation from a Solus codebase to the rows of T3's repositories
  * section (docs/plans/codebases.md §10). A Solus project is one folder on one
- * host; the folder list that the section shows is the members of one codebase
- * on one host. Pure: `codebase-folders.ts` binds it to the model.
+ * host; the folder list that the section shows is the folders of one
+ * codebase. Pure: `codebase-folders.ts` binds it to the model.
  */
 
-/** One row of T3's repositories section. `state` is absent until the host reads its disk. */
-export type CodebaseFolderRow = ProjectTrackedFolder & { readonly state?: WorkspaceFolderState };
+/**
+ * One row of T3's repositories section. `state` is absent until the host
+ * reads its disk. `otherHost` is set for a folder on a host that is not the
+ * host of the section: the row names that host in place of the path. Its
+ * `label` is null for a host that this phone does not know.
+ */
+export type CodebaseFolderRow = ProjectTrackedFolder & {
+  readonly state?: WorkspaceFolderState;
+  readonly otherHost?: { readonly installationId: string; readonly label: string | null };
+};
 
 /** T3 limits the name of a folder. */
 const FOLDER_NAME_MAX = 128;
@@ -32,13 +36,8 @@ function rootRow(root: CodebaseRoot, member: CodebaseMember | null): CodebaseFol
   return member ? { ...row, state: member.state } : row;
 }
 
-/**
- * The folders of one codebase on one host as T3 folder rows: each root that a
- * person added, then the repositories that the host found inside it. A found
- * row has `discovered`, so the section gives it no Remove button.
- */
-export function codebaseFolderRows(host: CodebaseHostMembers | undefined): CodebaseFolderRow[] {
-  if (!host) return [];
+/** The folders on one host: each root that a person added, then the repositories that the host found inside it. */
+function hostFolderRows(host: CodebaseHostMembers): CodebaseFolderRow[] {
   return host.roots.flatMap(({ root, member, found }) => [
     rootRow(root, member),
     ...found.map((repository) => ({
@@ -48,6 +47,36 @@ export function codebaseFolderRows(host: CodebaseHostMembers | undefined): Codeb
       discovered: true,
     })),
   ]);
+}
+
+/** The key of a row: two hosts can have a folder at the same path. */
+export function codebaseFolderRowKey(row: CodebaseFolderRow): string {
+  return `${row.otherHost?.installationId ?? ""}\n${row.path}`;
+}
+
+/**
+ * The folders of one codebase as the rows of one section: the folders on the
+ * host `hostId` first, then the folders on each other host, in the order of
+ * the roots. A found row has `discovered`, so the section gives it no Remove
+ * button. A host that is away, or that this phone does not know, keeps its
+ * rows.
+ */
+export function codebaseFolderRows(
+  hosts: readonly CodebaseHostMembers[],
+  hostId: string,
+): CodebaseFolderRow[] {
+  const own = hosts.find((host) => host.hostId === hostId);
+  return [
+    ...(own ? hostFolderRows(own) : []),
+    ...hosts
+      .filter((host) => host !== own)
+      .flatMap((host) =>
+        hostFolderRows(host).map((row) => ({
+          ...row,
+          otherHost: { installationId: host.installationId, label: host.label },
+        })),
+      ),
+  ];
 }
 
 /**
@@ -87,61 +116,52 @@ export function codebaseScannedFolders(
   );
 }
 
-/** The roots of a codebase on a host that is not the host of the project. */
-export interface CodebaseOtherHost {
-  readonly installationId: string;
-  /** This phone's id for the host. Null when this phone does not know the host. */
-  readonly hostId: string | null;
-  /** Null when this phone does not know the host. */
-  readonly label: string | null;
-  /** `ready`: the section can change the roots. Each other value is read-only. */
-  readonly presence: CodebaseHostMembers["presence"];
-  /** The states are the last answer of the host, not a current one. */
-  readonly isStale: boolean;
-  readonly folders: CodebaseFolderRow[];
+/** One checkout of the project that a page shows: its folder on its host. */
+export interface ProjectCheckout {
+  readonly hostId: string;
+  readonly path: string;
 }
 
-/** One codebase that holds the folder of a project. */
-export interface ProjectCodebaseSection {
-  readonly codebase: Codebase;
-  /** The members on the host of the project. */
-  readonly folders: CodebaseFolderRow[];
-  /** The roots on each other host, in the order of the roots. A host that this phone does not know stays in the list. */
-  readonly otherHosts: CodebaseOtherHost[];
+/** What the project page shows of codebases for the checkouts of one project. */
+export interface ProjectPageCodebases {
+  /**
+   * One section for each codebase that holds a checkout, by name. `hostId` is
+   * the host of the first checkout that the codebase holds: the section lists
+   * the folders on that host first.
+   */
+  readonly sections: readonly { readonly codebase: Codebase; readonly hostId: string }[];
+  /** The checkouts that no codebase holds, on a host whose codebases are read: each can make a codebase. */
+  readonly loose: readonly (ProjectCheckout & { readonly hostLabel: string })[];
+  /** The hosts that this phone can do work on now: a folder can be added on each. */
+  readonly readyHosts: readonly { readonly hostId: string; readonly label: string }[];
 }
 
-export interface ProjectCodebases {
-  /** The read of the codebases of the project's host. Null while the host is away. */
-  readonly status: CodebaseHostStatus | null;
-  /** One section for each codebase that holds the folder of the project. Empty for a project in no codebase. */
-  readonly sections: ProjectCodebaseSection[];
-}
-
-/** The data of the project overview: the codebases that hold the folder of a project on its host. */
-export function projectCodebases(
-  codebases: Pick<Codebases, "hosts" | "codebasesOfFolder" | "membersOf">,
-  hostId: string,
-  path: string,
-): ProjectCodebases {
+export function projectPageCodebases(
+  codebases: Pick<Codebases, "hosts" | "codebasesOfFolder">,
+  checkouts: readonly ProjectCheckout[],
+): ProjectPageCodebases {
+  const sections = new Map<string, { codebase: Codebase; hostId: string }>();
+  const loose: (ProjectCheckout & { hostLabel: string })[] = [];
+  const hosts = codebases.hosts();
+  for (const checkout of checkouts) {
+    const holding = codebases.codebasesOfFolder(checkout.hostId, checkout.path);
+    for (const codebase of holding) {
+      if (!sections.has(codebase.id)) sections.set(codebase.id, { codebase, hostId: checkout.hostId });
+    }
+    const host = hosts.find((entry) => entry.hostId === checkout.hostId);
+    // A list that is not read does not show that the checkout is in no codebase.
+    if (holding.length === 0 && host?.status === "ready") {
+      loose.push({ ...checkout, hostLabel: host.label });
+    }
+  }
   return {
-    status: codebases.hosts().find((host) => host.hostId === hostId)?.status ?? null,
-    sections: codebases.codebasesOfFolder(hostId, path).map((codebase) => {
-      const hosts = codebases.membersOf(codebase.id);
-      const projectHost = hosts.find((host) => host.hostId === hostId);
-      return {
-        codebase,
-        folders: codebaseFolderRows(projectHost),
-        otherHosts: hosts
-          .filter((host) => host !== projectHost)
-          .map((host) => ({
-            installationId: host.installationId,
-            hostId: host.hostId,
-            label: host.label,
-            presence: host.presence,
-            isStale: host.isStale,
-            folders: codebaseFolderRows(host),
-          })),
-      };
-    }),
+    sections: [...sections.values()].sort(
+      (a, b) =>
+        a.codebase.name.localeCompare(b.codebase.name) || a.codebase.id.localeCompare(b.codebase.id),
+    ),
+    loose,
+    readyHosts: hosts
+      .filter((host) => host.isReady)
+      .map((host) => ({ hostId: host.hostId, label: host.label })),
   };
 }

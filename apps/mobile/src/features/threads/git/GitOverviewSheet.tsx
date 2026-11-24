@@ -104,7 +104,6 @@ function SessionFolderActionRows(props: {
         <ListRow
           icon="plus"
           label={gt("Track with Git")}
-          description={gt("Make a Git repository in this folder")}
           disabled={!props.canWriteGit || isChanging}
           onPress={() =>
             void change(gt("Could not make a repository"), () =>
@@ -117,7 +116,6 @@ function SessionFolderActionRows(props: {
         <ListRow
           icon="folder.badge.plus"
           label={gt("Attach")}
-          description={gt("The agent changed this folder, but it was not given the folder")}
           disabled={!controller.mayDrive || isChanging}
           onPress={() =>
             void change(gt("Could not attach the folder"), () =>
@@ -130,7 +128,6 @@ function SessionFolderActionRows(props: {
         <ListRow
           icon="xmark"
           label={gt("Detach")}
-          description={gt("Remove this folder from the thread")}
           disabled={!controller.mayDrive || isChanging}
           onPress={() =>
             void change(gt("Could not detach the folder"), async () => {
@@ -165,7 +162,8 @@ function isolatedWorktreePath(folder: SessionFolder | undefined): string | null 
 
 /**
  * The text for a thread whose working directory stands in for a plain folder in a task folder:
- * that folder holds links to the originals, and the host says so (`taskFolderOf`).
+ * that folder has no worktree and holds links to the originals, and the host says so
+ * (`taskFolderOf`).
  */
 function LinkedFolderNotice(props: { readonly environmentId: string; readonly cwd: string }) {
   const gt = useGT();
@@ -182,9 +180,7 @@ function LinkedFolderNotice(props: { readonly environmentId: string; readonly cw
   return (
     <ListSection title={gt("Linked folder")}>
       <Text selectable textRole="footnote" className="p-4 text-foreground-muted">
-        {gt(
-          "This folder is not a repository, so it has no worktree. Its files are links to the originals: an edit of a linked file changes the original for every session.",
-        )}
+        {gt("An edit here changes the original file.")}
       </Text>
     </ListSection>
   );
@@ -383,9 +379,7 @@ function GitOverviewSheetContent(
             />
           ) : (
             <Text textRole="footnote" className="px-4 py-3 text-foreground-muted">
-              {gt(
-                "This repository is not a folder of the thread. Its Git state shows here, and Git actions are not available.",
-              )}
+              {gt("Not a folder of this thread")}
             </Text>
           )}
         </>

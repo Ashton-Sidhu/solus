@@ -440,19 +440,8 @@ function ProjectOverviewContent(props: {
           );
         })}
       </SettingsSection>
-      {props.members.map((member) => {
-        const environment = props.environments.find(
-          (entry) => entry.environmentId === member.environmentId,
-        )?.label;
-        // Solus: the folder list of a project comes from the codebases that hold its folder.
-        return (
-          <ProjectCodebases
-            key={`${member.environmentId}:${member.id}`}
-            project={member}
-            hostLabel={props.members.length === 1 ? undefined : (environment ?? gt("Environment"))}
-          />
-        );
-      })}
+      {/* Solus: the folder list of a project comes from the codebases that hold its folder. */}
+      <ProjectCodebases projects={props.members} />
       <SettingsSection
         title={gt("Danger", { $context: "section heading for destructive actions" })}
       >

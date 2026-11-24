@@ -30,6 +30,8 @@ const state = vi.hoisted(() => ({
     repositoryIdentity?: { canonicalKey: string };
   }[],
   cloneDestinations: [] as string[],
+  /** The folders that the host reads as a container: no repository, and two repositories inside. */
+  containers: new Set<string>(),
   createResult: null as Promise<unknown> | null,
   createNewResult: null as Promise<unknown> | null,
   startCloneResult: null as Promise<unknown> | null,
@@ -212,6 +214,24 @@ vi.mock("../../solus/runtime", () => {
               state.projects.push(path);
               await state.createResult;
             },
+            codebaseScanFolder: async (path: string) => {
+              const isContainer = state.containers.has(path);
+              return {
+                path,
+                state: isContainer ? "plain" : "git",
+                members: (isContainer ? ["api", "web"] : []).map((name) => ({
+                  path: `${path}/${name}`,
+                  name,
+                  state: "git",
+                  repositoryKey: null,
+                  rootPath: path,
+                  discovered: true,
+                  hasCommit: true,
+                  submodule: false,
+                })),
+                suggestions: [],
+              };
+            },
             setupCreateProject: async ({ name }: { name: string }) => {
               await state.createNewResult;
               return { path: NodePath.join(state.newProjectsRoot!, name) };
@@ -232,6 +252,7 @@ vi.mock("../../solus/runtime", () => {
           },
         }),
       },
+      codebases: { load: async () => {} },
       threads: {
         load: async (id: string) => {
           const result = await state.waitForProject();
@@ -639,6 +660,7 @@ describe("local project navigation", () => {
     state.scopes = new Set([AuthOrchestrationOperateScope]);
     state.baseDirectory = baseDirectory;
     state.projects = [];
+    state.containers.clear();
     state.dispatch.mockReset();
     state.alert.mockReset();
     state.waitForProject.mockReset();
@@ -667,6 +689,30 @@ describe("local project navigation", () => {
       "Project added",
       "The project was created but has not reached this device yet. It will appear in the project list once the connection catches up.",
     );
+  });
+
+  it("opens the draft in a container folder, which no project list shows", async () => {
+    // WHY: a container is a codebase, never a project. The host makes its codebase when the folder is
+    // added, and the project list leaves the folder out, so the draft must not wait for a project.
+    const { created, projected, submit } = await setup();
+    state.containers.add("/tmp/t3-mobile-audit-fixture");
+    const navigation = mountProjectFlow(false, false, true);
+    const submission = submit();
+    created.resolve(AsyncResult.success(undefined));
+    projected.resolve(null);
+    await submission;
+
+    expect(state.alert).not.toHaveBeenCalled();
+    expect(navigation.getState().routes.at(-1)).toMatchObject({
+      name: "Thread",
+      params: {
+        draft: {
+          environmentId: "environment",
+          projectId: "/tmp/t3-mobile-audit-fixture",
+          title: "t3-mobile-audit-fixture",
+        },
+      },
+    });
   });
 
   it("opens an existing project typed as a home-relative path instead of creating it", async () => {

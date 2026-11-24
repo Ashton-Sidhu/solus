@@ -111,7 +111,7 @@ import { useEnvironmentShellReadiness } from "../../state/shell";
 import { useWorktreeRepositoryChoices } from "../../state/use-worktree-repository-choices";
 import { type WorktreeRepositorySelection } from "@t3tools/client-runtime/state/thread-repositories";
 import { useListened } from "@solus-mobile/app/app-context";
-import { readProjectCodebases } from "../../solus/codebase-folders";
+import { readFolderCodebases } from "../../solus/codebase-folders";
 import { solus } from "../../solus/runtime";
 import {
   draftCodebase,
@@ -406,10 +406,10 @@ export function NewTaskFlowProvider(
     selectedProject === null
       ? null
       : draftCodebase({
-          codebases: readProjectCodebases(
+          codebases: readFolderCodebases(
             selectedProject.environmentId,
             selectedProject.workspaceRoot,
-          ).sections.map((section) => section.codebase),
+          ),
           isPicked: false,
           codebaseId: null,
         }).codebaseId,

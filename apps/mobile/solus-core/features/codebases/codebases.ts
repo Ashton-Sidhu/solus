@@ -3,6 +3,7 @@ import {
   CodebaseRootRefused,
   codebasesHolding,
   hostRootsKey,
+  isContainerRoot,
   isLiveCodebase,
   isSameRoot,
   liveCodebases,
@@ -15,9 +16,8 @@ import {
   rootRemovalRefusal,
 } from '@solus/client-core/codebases'
 import {
-  CODEBASE_ROOTS_MIN,
+  hasEnoughRoots,
   type Codebase,
-  type CodebaseFolderScan,
   type CodebaseFolderSuggestion,
   type CodebaseMember,
   type CodebaseRoot,
@@ -175,8 +175,6 @@ export class Codebases {
   private readonly memberReadTokens = new Map<string, number>()
   private memberReadCount = 0
   private readonly membersWatched = new Map<string, number>()
-  /** What the folder of a draft holds, by host and path: the last answer of its host. */
-  private readonly folderScans = new Map<string, CodebaseFolderScan>()
   private readonly followed = new Map<string, FollowedHost>()
   private watchCount = 0
   private stopWatching: (() => void) | null = null
@@ -250,6 +248,22 @@ export class Codebases {
   }
 
   /**
+   * True when a folder on a host of this phone is the container root of a
+   * codebase. Such a folder is a codebase, never a project: no project list
+   * shows it (docs/plans/codebases.md decision 14).
+   */
+  isContainerRoot(hostId: string, path: string): boolean {
+    return this.containerCodebaseAt(hostId, path) !== undefined
+  }
+
+  /** The codebase whose container root is a folder on a host of this phone. A draft in that folder shows its name. */
+  containerCodebaseAt(hostId: string, path: string): Codebase | undefined {
+    const installationId = this.installationIdOf(hostId)
+    if (installationId === null) return undefined
+    return this.codebases().find((codebase) => isContainerRoot([codebase], installationId, path))
+  }
+
+  /**
    * The roots of one codebase, grouped by host, with the members that each
    * host read. A host that is away keeps its last answer with `isStale`. A
    * root on a host that this phone does not know stays in the list with
@@ -311,42 +325,13 @@ export class Codebases {
     }
   }
 
-  /** What a folder on a host holds, before it is a root. The answer has the resolved absolute path. */
-  scanFolder(hostId: string, path: string): Promise<CodebaseFolderScan> {
-    return this.requiredConnection(hostId).api.codebaseScanFolder(path)
-  }
-
   /**
-   * Read what the folder of a project holds, and keep the answer for
-   * `projectScanAt`. A failure keeps the last answer.
-   */
-  async readFolder(hostId: string, path: string): Promise<void> {
-    const key = `${hostId}\n${hostPathKey(path)}`
-    const token = ++this.memberReadCount
-    this.memberReadTokens.set(key, token)
-    const scopeCount = this.scopeCount
-    const scan = await Promise.resolve().then(() => this.scanFolder(hostId, path)).catch(() => null)
-    if (!scan || scopeCount !== this.scopeCount || this.memberReadTokens.get(key) !== token) return
-    this.folderScans.set(key, scan)
-    this.changed()
-  }
-
-  /**
-   * What the folder of a project holds, as its host last read it: the folder,
-   * then the repositories inside it. A project covers these with no codebase
-   * (docs/plans/codebases.md decision 14). Null when the folder was not read.
-   */
-  projectScanAt(hostId: string, path: string): CodebaseFolderScan | null {
-    return this.folderScans.get(`${hostId}\n${hostPathKey(path)}`) ?? null
-  }
-
-  /**
-   * Make a codebase of two or more folders. Each root is scanned on its host,
-   * and the resolved path is stored. One folder is refused: it is a project.
+   * Make a codebase of one container folder, or of two or more folders. Each
+   * root is scanned on its host, and the resolved path is stored. One folder
+   * that is not a container is refused: it is a project.
    */
   async create(name: string, roots: readonly CodebaseRootChoice[]): Promise<Codebase> {
     const codebaseName = requiredName(name)
-    if (roots.length < CODEBASE_ROOTS_MIN) throw new Error(NEW_CODEBASE_NEEDS_FOLDERS)
     const scannedRoots: CodebaseRoot[] = []
     for (const choice of roots) {
       const root = await this.scannedRoot(choice)
@@ -354,6 +339,7 @@ export class Codebases {
       if (refusal) throw new CodebaseRootRefused(refusal)
       scannedRoots.push(root)
     }
+    if (!hasEnoughRoots(scannedRoots)) throw new Error(NEW_CODEBASE_NEEDS_FOLDERS)
     return this.commit({ id: this.deps.uuid(), name: codebaseName, roots: scannedRoots, updatedAt: this.now(), deletedAt: null })
   }
 
@@ -384,14 +370,14 @@ export class Codebases {
 
   /**
    * Take a root out of the codebase. No file is deleted. Throws
-   * `CodebaseRootRefused` when only two roots are left: a codebase has two or
-   * more folders, so the person deletes the codebase.
+   * `CodebaseRootRefused` when the roots that stay are not a codebase (fewer
+   * than two, and no container): the person deletes the codebase.
    */
   async removeRoot(codebaseId: string, root: Pick<CodebaseRoot, 'installationId' | 'path'>): Promise<Codebase> {
     const current = this.requiredCodebase(codebaseId)
     const roots = current.roots.filter((existing) => !isSameRoot(existing, root))
     if (roots.length === current.roots.length) return current
-    const refusal = rootRemovalRefusal(current.roots)
+    const refusal = rootRemovalRefusal(current.roots, root)
     if (refusal) throw new CodebaseRootRefused(refusal)
     const saved = await this.commit({ ...current, roots, updatedAt: nextUpdatedAt(current, this.now()) })
     this.readChangedMembers(saved)
@@ -439,9 +425,6 @@ export class Codebases {
     }
     for (const key of this.memberReads.keys()) {
       if (key.endsWith(`\n${hostId}`)) this.dropMemberRead(key)
-    }
-    for (const key of this.folderScans.keys()) {
-      if (key.startsWith(`${hostId}\n`)) this.folderScans.delete(key)
     }
     this.changed()
   }
@@ -511,7 +494,6 @@ export class Codebases {
     this.hostStatus.clear()
     this.listReads.clear()
     this.sends.clear()
-    this.folderScans.clear()
     this.memberReads.clear()
     this.memberReadTokens.clear()
     this.changed()
@@ -543,7 +525,7 @@ export class Codebases {
     if (!installationId) throw new Error('This host is not ready. Wait until it is connected, then try again.')
     const scan = await connection.api.codebaseScanFolder(choice.path)
     if (scan.state === 'missing') throw new CodebaseRootRefused('missing')
-    return rootFor(installationId, scan.path)
+    return rootFor(installationId, scan)
   }
 
   /**

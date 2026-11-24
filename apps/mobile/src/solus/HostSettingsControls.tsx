@@ -1,10 +1,11 @@
 import { resourceAllows } from "@solus/contracts/permissions";
 import { Note, useSettingsAction } from "./SettingsFeedback";
-import { Fragment, useCallback } from "react";
+import { useCallback } from "react";
 import { Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { ProjectConfig } from "@solus/contracts/types";
+import { CODEBASE_NAMING_MODES } from "@solus/contracts/codebases";
 import { WORKTREE_BRANCH_NAMING_MODES } from "@solus/contracts/worktree-branch-naming";
 import { useListened } from "@solus-mobile/app/app-context";
 import {
@@ -105,7 +106,9 @@ export function LabsSettings() {
   );
 }
 export function WorktreeSettings() {
-  const settings = useListened(solus.personal.changes, solus.personal.current).worktreeBranchNaming;
+  const personal = useListened(solus.personal.changes, solus.personal.current);
+  const settings = personal.worktreeBranchNaming;
+  const codebaseNaming = personal.codebaseNaming;
   const change = (patch: Partial<typeof settings>) => {
     if (
       solus.personal.set({
@@ -142,6 +145,16 @@ export function WorktreeSettings() {
           save={(template) => change({ template })}
         />
       )}
+      <SettingsSection title="Codebase naming">
+        {CODEBASE_NAMING_MODES.map((mode) => (
+          <ListChoiceRow
+            key={mode}
+            label={{ generated: "Generated name", folders: "From the folder names" }[mode]}
+            selected={codebaseNaming === mode}
+            onPress={() => solus.personal.set({ codebaseNaming: mode })}
+          />
+        ))}
+      </SettingsSection>
     </SettingsPage>
   );
 }
@@ -268,19 +281,14 @@ export function ProjectSettings() {
         </Note>
       )}
       {selectedProjects.map((p) => (
-        <Fragment key={p.environmentId + p.id}>
-          <CheckoutSettings path={p.workspaceRoot} hostId={p.environmentId} label={p.title} />
-          <ProjectCodebases
-            project={p}
-            hostLabel={
-              selectedProjects.length > 1
-                ? scopedTargets.find((host) => host.environmentId === p.environmentId)
-                    ?.environmentLabel
-                : undefined
-            }
-          />
-        </Fragment>
+        <CheckoutSettings
+          key={p.environmentId + p.id}
+          path={p.workspaceRoot}
+          hostId={p.environmentId}
+          label={p.title}
+        />
       ))}
+      <ProjectCodebases projects={selectedProjects} />
     </SettingsPage>
   );
 }
