@@ -29,7 +29,7 @@
   import * as Tooltip from "../ui/tooltip";
   import SessionProgressButton from "./SessionProgressButton.svelte";
   import SessionActionList from "./SessionActionList.svelte";
-  import { openPromptStash } from "../input/lib/prompt-stash.store.svelte";
+  import { hasStashedPrompts, openPromptStash } from "../input/lib/prompt-stash.store.svelte";
   import { sessionComposerMode } from "../../contexts/sharing/resource-roles";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import type { SessionAction } from "./lib/session-actions";
@@ -252,7 +252,8 @@
         run: openSessionInsights,
       });
     }
-    if (sess && !sess.readOnlyReason && !hosts.get(runHost(sess.run)).me.isGuest &&
+    if (sess && hasStashedPrompts(sess.organizationId ?? serversStore.activeOrganizationId) &&
+        !sess.readOnlyReason && !hosts.get(runHost(sess.run)).me.isGuest &&
         sessionComposerMode(runHost(sess.run), sess.id) !== "view") {
       actions.push({
         id: "prompt-stash",

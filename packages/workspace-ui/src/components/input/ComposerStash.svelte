@@ -1,12 +1,14 @@
 <script lang="ts">
   import { Bookmark, ChevronDown, File, FileText, X } from '@lucide/svelte'
   import { tick } from 'svelte'
-  import * as Popover from '../ui/popover'
+  import { getPopoverLayer } from '../popoverLayer.svelte'
+  import { portal } from '../portal'
   import { getSettingsContext } from '../../contexts'
   import { effectiveCombo } from '../../lib/keybindings/editing'
   import { formatComboText } from '../../lib/keybindings/match'
   import { relativeTime } from '../../lib/relative-time'
   import { stashPreview } from './lib/prompt-stash'
+  import { positionStashDrawer } from './lib/stash-drawer'
   import type { usePromptStash } from './lib/prompt-stash.store.svelte'
 
   let { stash, anchor, refocus }: {
@@ -15,6 +17,7 @@
     refocus: () => void
   } = $props()
 
+  const layer = getPopoverLayer()
   const settings = getSettingsContext()
   const combo = $derived(effectiveCombo('global.prompt-stash', settings.keybindings))
   let menu = $state<HTMLElement | null>(null)
@@ -26,77 +29,100 @@
     refocus()
   }
 
-  function focusRow(index: number) {
-    const rows = menu?.querySelectorAll<HTMLButtonElement>('[data-stash-restore]:enabled')
-    const row = rows?.[Math.min(index, rows.length - 1)]
-    if (row) {
-      row.focus({ preventScroll: true })
-      row.scrollIntoView({ block: 'nearest' })
-    } else {
-      menu?.focus()
+  function selectRow(index: number, moveFocus = !!menu?.contains(document.activeElement)) {
+    const row = menu?.querySelectorAll<HTMLButtonElement>('[data-stash-restore]')[index]
+    highlightedId = stash.entries[index]?.id ?? null
+    if (moveFocus) {
+      if (row) row.focus({ preventScroll: true })
+      else refocus()
     }
+    row?.scrollIntoView({ block: 'nearest' })
   }
 
   function erase(index: number) {
     const entry = stash.entries[index]
     if (!entry) return
+    const moveFocus = !!menu?.contains(document.activeElement)
     stash.remove(entry)
-    void tick().then(() => focusRow(index))
+    void tick().then(() => selectRow(Math.min(index, stash.entries.length - 1), moveFocus))
+  }
+
+  function dismissOutside(event: PointerEvent) {
+    if (!(event.target instanceof Element)) return
+    if (menu?.contains(event.target)) return
+    if (event.target.closest('[data-session-action="prompt-stash"]')) return
+    stash.close()
+  }
+
+  function isComposerEditor(target: EventTarget | null): boolean {
+    return target instanceof Element && anchor.contains(target) &&
+      target.matches('textarea, [contenteditable="true"]')
   }
 
   function move(event: KeyboardEvent) {
-    if (event.isComposing || event.keyCode === 229 || stash.isRestoring) return
+    const target = event.target
+    if (event.isComposing || event.keyCode === 229 || !(target instanceof Element)) return
+    const inEditor = isComposerEditor(target)
+    if (!inEditor && !menu?.contains(target) && !target.closest('[data-session-action="prompt-stash"]')) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      close()
+      return
+    }
     const length = stash.entries.length
-    if (!length) return
+    if (!length || stash.isRestoring) return
     const index = stash.entries.findIndex((entry) => entry.id === highlighted?.id)
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
+      event.stopPropagation()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      focusRow((index + direction + length) % length)
+      selectRow((index + direction + length) % length)
     } else if (event.key === 'Backspace' && (event.metaKey || event.ctrlKey) && index >= 0) {
       event.preventDefault()
+      event.stopPropagation()
       erase(index)
+    } else if (event.key === 'Enter' && inEditor && highlighted) {
+      event.preventDefault()
+      event.stopPropagation()
+      void stash.restore(highlighted)
     }
   }
+
+  $effect(() => {
+    if (!anchor.contains(document.activeElement)) refocus()
+  })
 </script>
 
-<Popover.Root open={stash.open} onOpenChange={stash.setOpen}>
-  <Popover.Content
-    bind:ref={menu}
-    customAnchor={anchor}
-    side="top"
-    align="center"
-    sideOffset={2}
-    collisionPadding={12}
-    tabindex={-1}
+<svelte:window
+  onkeydowncapture={move}
+  oninputcapture={(event) => { if (isComposerEditor(event.target)) stash.close() }}
+  onblur={stash.close}
+/>
+<svelte:document onpointerdowncapture={dismissOutside} />
+
+{#if layer.el}
+  <div
+    bind:this={menu}
+    use:portal={layer.el}
+    use:positionStashDrawer={anchor}
+    role="dialog"
     aria-label="Stashed prompts"
-    class="@container/stash z-[10002] w-[calc(var(--bits-popover-anchor-width)-0.5rem)] max-w-(--bits-popover-content-available-width) max-h-(--bits-popover-content-available-height) min-h-0 gap-0 overflow-hidden rounded-t-2xl rounded-b-md bg-(--solus-input-pill-bg) p-1 dark:shadow-none motion-reduce:animate-none"
-    onkeydown={move}
-    onEscapeKeydown={(event) => {
-      event.preventDefault()
-      close()
-    }}
-    onInteractOutside={(event) => {
-      if (event.target instanceof Element && event.target.closest('[data-session-action="prompt-stash"]')) {
-        event.preventDefault()
-      }
-    }}
-    onOpenAutoFocus={(event) => {
-      event.preventDefault()
-      requestAnimationFrame(() => focusRow(0))
-    }}
-    onCloseAutoFocus={(event) => event.preventDefault()}
+    tabindex={-1}
+    data-composer-stash-drawer
+    class="stash-drawer @container/stash pointer-events-auto fixed z-30 flex min-h-0 flex-col rounded-t-2xl border-x border-t border-(--solus-container-border) bg-(--solus-input-pill-bg) p-1 text-workspace-chrome text-(--solus-text-primary) shadow-[0_-4px_16px_-8px_rgb(0_0_0/20%)] outline-hidden dark:shadow-none"
   >
     <button
       type="button"
       aria-label="Close stash"
       aria-expanded="true"
+      onpointerdown={(event) => event.preventDefault()}
       onclick={close}
-      class="flex min-h-8 shrink-0 items-center gap-2 rounded-xl px-2 text-left text-muted-foreground hover:bg-foreground/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+      class="flex min-h-6 shrink-0 items-center gap-2 rounded-xl px-2 text-left text-muted-foreground hover:bg-foreground/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11"
     >
       <Bookmark size={16} class="shrink-0" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">Stash</span>
-      <span class="min-w-5 text-center tabular-nums">{stash.entries.length}</span>
+      <span class="min-w-6 text-center font-medium tabular-nums">{stash.entries.length}</span>
       <ChevronDown size={16} class="shrink-0" aria-hidden="true" />
     </button>
 
@@ -107,7 +133,7 @@
           {@const images = entry.prompt.attachments.filter((attachment) => attachment.type === 'image' && !!attachment.dataUrl).slice(0, 3)}
           {@const fileCount = entry.prompt.attachments.filter((attachment) => attachment.type === 'file').length}
           <li
-            class="flex min-w-0 items-center gap-1 rounded-md text-foreground/80 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+            class="flex min-w-0 items-center gap-1 rounded-md text-foreground/80 data-highlighted:bg-(--solus-surface-active) data-highlighted:text-foreground"
             data-highlighted={highlighted?.id === entry.id ? '' : undefined}
             onpointerenter={() => (highlightedId = entry.id)}
           >
@@ -116,9 +142,10 @@
               data-stash-restore
               aria-label="Restore stashed prompt: {label}"
               disabled={stash.isRestoring}
+              onpointerdown={(event) => event.preventDefault()}
               onfocus={() => (highlightedId = entry.id)}
               onclick={() => void stash.restore(entry)}
-              class="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:min-h-11"
+              class="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:min-h-11"
             >
               <FileText size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate">{label}</span>
@@ -142,9 +169,10 @@
               type="button"
               aria-label="Delete stashed prompt: {label}"
               disabled={stash.isRestoring}
+              onpointerdown={(event) => event.preventDefault()}
               onfocus={() => (highlightedId = entry.id)}
               onclick={() => erase(index)}
-              class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:size-11"
+              class="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:size-11"
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -157,5 +185,17 @@
         {#if combo}Press {formatComboText(combo)} with a prompt in the composer to stash it.{/if}
       </p>
     {/if}
-  </Popover.Content>
-</Popover.Root>
+  </div>
+{/if}
+
+<style>
+  .stash-drawer {
+    /* The drawer is inset from both shoulders. Its bottom edge meets the card
+       so they read as one surface, even while the transcript scrolls. */
+    --stash-inset: min(1.375rem, calc(var(--stash-card-width) / 10));
+    left: calc(var(--stash-card-left) + var(--stash-inset));
+    width: calc(var(--stash-card-width) - var(--stash-inset) * 2);
+    bottom: calc(100dvh - var(--stash-card-top));
+    max-height: max(5rem, calc(var(--stash-card-top) - 1.5rem));
+  }
+</style>
