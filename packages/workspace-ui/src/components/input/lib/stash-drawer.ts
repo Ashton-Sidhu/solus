@@ -12,11 +12,12 @@ export function stashDrawerVerticalPosition(
   return { bottom, maxHeight: bottom - top }
 }
 
-/** Put the drawer just before the composer card, so the card paints over its
- *  bottom edge: the drawer reads as a tray that comes out from behind the card.
- *  It is inset from the card's shoulders and reaches down past the card's
- *  rounded top corners, which hide its lower end. */
-export function tuckStashDrawer(drawer: HTMLElement, anchor: HTMLElement) {
+/** Put the drawer just before the composer card, inset from the card's
+ *  shoulders, with its open bottom edge 1px over the card's top hairline. The
+ *  drawer paints over that hairline, so the tray and the card read as one
+ *  shape. The inset is wider than the card's corner radius, so the drawer
+ *  meets the straight part of the card's top edge. */
+export function attachStashDrawer(drawer: HTMLElement, anchor: HTMLElement) {
   const card = anchor.closest<HTMLElement>('[data-slot="composer"]') ?? anchor
   card.parentElement?.insertBefore(drawer, card)
   const viewport = window.visualViewport
@@ -31,7 +32,7 @@ export function tuckStashDrawer(drawer: HTMLElement, anchor: HTMLElement) {
     const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 0
     const inset = Math.min(radius + 6, bounds.width / 10)
     const { bottom, maxHeight } = stashDrawerVerticalPosition(
-      bounds.top + radius,
+      bounds.top + 1,
       viewport?.offsetTop ?? 0,
       viewport?.height ?? window.innerHeight,
     )
@@ -39,7 +40,6 @@ export function tuckStashDrawer(drawer: HTMLElement, anchor: HTMLElement) {
     drawer.style.width = `${bounds.width - inset * 2}px`
     drawer.style.bottom = `${box.bottom - bottom}px`
     drawer.style.maxHeight = `${maxHeight}px`
-    drawer.style.paddingBottom = `${radius + 4}px`
   }
 
   function schedule() {

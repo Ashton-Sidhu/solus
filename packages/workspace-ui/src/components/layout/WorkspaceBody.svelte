@@ -1256,7 +1256,7 @@
     contain: layout paint;
     background: var(--solus-container-bg);
   }
-  /* The stash tray comes out from behind the composer, above the dock's box.
+  /* The stash tray sits on the composer's top edge, above the dock's box.
      Paint containment would clip it, so the dock drops it while the tray is
      open. The `:has()` looks only inside the dock. */
   .input-dock:has(:global([data-composer-stash-drawer])) {

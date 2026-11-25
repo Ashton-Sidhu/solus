@@ -6,7 +6,7 @@
   import { formatComboText } from '../../lib/keybindings/match'
   import { relativeTime } from '../../lib/relative-time'
   import { stashPreview } from './lib/prompt-stash'
-  import { tuckStashDrawer } from './lib/stash-drawer'
+  import { attachStashDrawer } from './lib/stash-drawer'
   import type { usePromptStash } from './lib/prompt-stash.store.svelte'
 
   let { stash, anchor, refocus }: {
@@ -111,16 +111,17 @@
 />
 <svelte:document onpointerdowncapture={dismissOutside} />
 
-<!-- The tray has the card's resting hairline. While it is open, the card keeps
+<!-- The tray has the card's resting hairline on its top and sides, and its open
+     bottom covers the card's top hairline. While it is open, the card keeps
      that hairline in place of its focus ring, so the two read as one shape. -->
 <div
   bind:this={menu}
-  use:tuckStashDrawer={anchor}
+  use:attachStashDrawer={anchor}
   role="dialog"
   aria-label="Stashed prompts"
   tabindex={-1}
   data-composer-stash-drawer
-  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)] outline-hidden"
+  class="@container/stash absolute z-[1] flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-x-[0.5px] border-t-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) outline-hidden"
 >
   <button
     type="button"
