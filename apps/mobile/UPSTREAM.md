@@ -15,7 +15,7 @@ The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a35
 
 This import compares public T3 Code main at `a7a6126a7d9b364c0fbef3f7fe1a087c4b004393` with the last full import at `620cf4770d992d642f822a13dc2539c2605a3500`. The full comparison base stays at `620cf4770d992d642f822a13dc2539c2605a3500`. The fork revision records the earlier fork import. The composer path fixes and Live Activity fixes already listed here were reconciled with the public changes.
 
-This import includes file-backed composer photos, the iOS paste preparation and original image formats, media actions on each image page, Android language refresh, the Favorites only model filter, session ordering with disconnected hosts, swipe label spacing, the larger Viewed control in PR diffs, and limits on which links can open in previews. The Solus adapters keep signed resources and the trusted host registry. A manual pairing code uses the shown address. The review sheet passes the revision the user reviewed to the Solus host. The feed keeps the Solus conversation cards, collapsed tool calls, and changed-files summaries.
+This import includes file-backed composer photos, the iOS paste preparation and original image formats, media actions on each image page, Android language refresh, the Favorites only model filter, session ordering with disconnected hosts, swipe label spacing, the larger Viewed control in PR diffs, and limits on which links can open in previews. The Solus adapters keep signed resources and the trusted host registry. A manual pairing code uses the shown address. The review sheet passes the revision the user reviewed to the Solus host. This import kept the Solus conversation cards, collapsed tool calls, and changed-files summaries.
 
 Pending upstream work includes Workflows and the T3 agent feedback screens, full-text downloads past the host's file preview, the T3 linked-thread paging presentation, and model changes for queued messages. Those paths need the corresponding Solus host operations or adapter behavior. The import keeps the Solus thread route and live checkout confirmation. It takes the Unicode branch label change from the Git menu.
 
@@ -57,10 +57,12 @@ The conversation adapter translates messages and ordinary tools into T3 turn ite
 Chat uses the provider startup behavior from T3 Code PR #41928. Solus supplies
 the active provider and startup step through the session event stream. Claude
 receives Solus MCP servers as query options and can report its first API request.
-Codex reports thread resume and pre-turn MCP startup. The changed-files card
-from before T3 Code PR #41317 is available in Chat settings. It is off by
-default. Solus supplies the active checkout's turn summary through the host's
-snapshot read. The card opens native Review at that turn.
+Codex reports thread resume and pre-turn MCP startup.
+
+Mobile follows [T3 Code PR #41317](https://github.com/pingdotgg/t3code/pull/41317)
+for turn diffs. Open **Review changes** from the thread's Git menu to see a
+turn's diff. The mobile Chat settings can set the shared preferences for
+changed-files summaries on desktop and web.
 
 Solus background command notices mark the start of a turn in the T3 feed. Live notices use the host's origin tag. Saved history uses the same text parser as desktop and web. The compact row opens to show the command and the available output in the thread and in read-only history.
 

@@ -1,4 +1,3 @@
-import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import type { ReactNode } from "react";
 import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
@@ -46,7 +45,6 @@ export function conversationFeed(
       leadingRun: RunId | null;
       superseded: boolean;
       group: ArtifactGroup | undefined;
-      checkpoint: ThreadCheckpointSummary | undefined;
       sources: ThreadFeedSourceRow[];
     }
   >();
@@ -57,7 +55,6 @@ export function conversationFeed(
     leadingRun: RunId | null,
     superseded: boolean,
     group: ArtifactGroup | undefined,
-    checkpoint: ThreadCheckpointSummary | undefined,
   ): ThreadFeedSourceRow[] => {
     // The group card shows at its first member; the other members are in it.
     if (group && group.id !== key) return [];
@@ -233,7 +230,6 @@ export function conversationFeed(
     };
     const row: ThreadFeedSourceRow = {
       hostTime: createdAt,
-      ...(checkpoint && { hostCheckpointSummary: checkpoint }),
       hostBackgroundCommand: item.kind === "user" ? item.backgroundCommand : undefined,
       ...(item.kind === "assistant" && item.forkPointId && { hostForkPointId: item.forkPointId }),
       sourceItemId: base.id,
@@ -259,7 +255,7 @@ export function conversationFeed(
   };
   const feedCache = createThreadFeedCache();
   const artifactGroups = createArtifactGrouping();
-  return (order: readonly string[], checkpoints?: ReadonlyMap<string, ThreadCheckpointSummary>) => {
+  return (order: readonly string[]) => {
     const observed = new Map<string, NonNullable<ReturnType<ConversationStore["item"]>>>();
     const rows = new Map<string, ThreadFeedSourceRow[]>();
     const latest = new Map<string, string>();
@@ -281,21 +277,18 @@ export function conversationFeed(
       const superseded =
         !group && item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
-      const checkpoint = checkpoints?.get(key);
       let held = cache.get(item);
       if (
         !held ||
         held.leadingRun !== leadingRun ||
         held.superseded !== superseded ||
-        held.group !== group ||
-        held.checkpoint !== checkpoint
+        held.group !== group
       ) {
         held = {
           leadingRun,
           superseded,
           group,
-          checkpoint,
-          sources: project(key, item, leadingRun, superseded, group, checkpoint),
+          sources: project(key, item, leadingRun, superseded, group),
         };
         cache.set(item, held);
       }

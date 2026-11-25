@@ -6,7 +6,6 @@ import {
   TranscriptModel,
   type TranscriptItem,
 } from "@solus-mobile/features/conversation/lib/transcript-model";
-import { conversationCheckpoints } from "./conversation-checkpoints";
 import { conversationFeed as createFeed } from "./conversation-feed";
 
 function conversationFeed(
@@ -535,38 +534,4 @@ it("enables a response checkpoint as soon as its live turn finishes", () => {
     type: "message",
     message: { streaming: false, sourceThreadId: "provider-thread", hostForkPointId: "completed-turn" },
   });
-});
-
-it("puts opt-in change stats below the last reply in the matching settled turn", () => {
-  const user = (id: string, timestamp: number): TranscriptItem => ({
-    kind: "user", id, timestamp, text: id, attachments: [], delivery: "sent", error: null,
-  });
-  const reply = (id: string, timestamp: number): TranscriptItem => ({
-    kind: "assistant", id, timestamp, text: id,
-  });
-  const items = [user("first", 100), reply("progress", 120), reply("final", 140), user("second", 200), reply("live", 220)];
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const order = items.map((item) => item.id);
-  const readItem = (id: string) => byId.get(id);
-  const project = createFeed(
-    { item: readItem, subscribeFeedItems: () => () => {} },
-    "session", () => null, async (path) => path, async (key) => key,
-  );
-  const first = {
-    index: 0, sha: "first-checkpoint", fromTreeSha: "", toTreeSha: "", partial: false,
-    timestamp: 150, userMessagePreview: "first", filesChanged: 2, additions: 9, deletions: 3,
-  };
-  const snapshots = [first, { ...first, index: 1, timestamp: 240 }];
-  const cards = (latestOnly: boolean, isWorking: boolean, enabled = true) =>
-    project(order, conversationCheckpoints(order, readItem, enabled ? snapshots : undefined, latestOnly, isWorking)).get().flatMap((row) => row.type === "message" && row.message.checkpointSummary
-      ? [[row.message.id, row.message.checkpointSummary.checkpointTurnCount, row.message.checkpointSummary.filesTotal]]
-      : []);
-  const totals = { count: 2, additions: 9, deletions: 3 };
-  expect(cards(false, false, false)).toEqual([]);
-  expect(cards(true, true)).toEqual([]);
-  expect(cards(false, true)).toEqual([["final", 1, totals]]);
-  expect(cards(true, false)).toEqual([["live", 2, totals]]);
-  expect(cards(false, false)).toEqual([
-    ["final", 1, totals], ["live", 2, totals],
-  ]);
 });
