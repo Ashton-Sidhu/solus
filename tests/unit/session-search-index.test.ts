@@ -104,6 +104,19 @@ describe('searchSessionIndex', () => {
     expect(results[0]!.snippet).toBe(`the ${SNIPPET_HIT_OPEN}websocket${SNIPPET_HIT_CLOSE} ${SNIPPET_HIT_OPEN}reconnect${SNIPPET_HIT_CLOSE} loop`)
   })
 
+  test('phrase retrieval checks original text before keeping the newest passages', () => {
+    seed('phrase', '/repo', ['the Café\n header', ...Array(4).fill('the cafe, header')])
+    seed('spread', '/repo', ['cafe', 'header'])
+    seed('near', '/repo', ['header cafe', 'cafe new header', 'cafe headers'])
+    const { results, total } = search.searchSessionIndex('“cafe header”', { limit: 1 })
+    expect(total).toBe(1)
+    expect(results.map(result => result.session.sessionId)).toEqual(['phrase'])
+    expect(results[0]?.snippet).toBe(`the ${SNIPPET_HIT_OPEN}Café header${SNIPPET_HIT_CLOSE}`)
+    expect(results[0]?.additionalMatches).toEqual([])
+    expect(search.searchSessionIndex('"cafe header', { limit: 1 }).total).toBe(3)
+    expect(search.searchSessionIndex('"cafe header"', { sinceTs: 200 }).total).toBe(0)
+  })
+
   test('a session is found by its title, its branch and its pull requests, and a name hit ranks first with no passage', async () => {
     // WHY: generated and renamed titles are rarely words anyone said. A
     // session a person named is found by that name, above sessions that only

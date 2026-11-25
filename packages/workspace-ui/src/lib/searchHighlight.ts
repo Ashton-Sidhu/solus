@@ -30,10 +30,20 @@ export function highlightRuns(text: string, query: string): TextRun[] {
  *  index matches by, where the words are ANDed and need not sit next to each
  *  other. "auth" marks "auth" and "Authentication", not the tail of "oauth". */
 export function highlightWordRuns(text: string, query: string): TextRun[] {
-  const { words } = new SearchQuery(query);
+  const search = new SearchQuery(query);
+  const { words } = search;
   if (!words.length) return [{ text, hit: false }];
   const runs: TextRun[] = [];
   let from = 0;
+  if (search.exactPhrase) {
+    for (const { start, end } of search.hits(text)) {
+      if (start > from) runs.push({ text: text.slice(from, start), hit: false });
+      runs.push({ text: text.slice(start, end), hit: true });
+      from = end;
+    }
+    if (from < text.length) runs.push({ text: text.slice(from), hit: false });
+    return runs.length ? runs : [{ text, hit: false }];
+  }
   for (const token of searchTokens(text)) {
     const word = words.filter(word => searchTokenMatches(token.text, word)).sort((a, b) => b.length - a.length)[0];
     if (!word) continue;

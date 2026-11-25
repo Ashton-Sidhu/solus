@@ -51,7 +51,7 @@ export async function searchTaskComments(reader: TaskReader, input: TaskCommentS
   for (const [taskId, comments] of byTask) {
     if (!visible.has(taskId)) continue
     // Read in their own case: lower-casing first would hide camelCase words.
-    if (!query.holdsEveryWord(comments.map((comment) => comment.body).join('\n'))) continue
+    if (!query.exactPhrase && !query.holdsEveryWord(comments.map((comment) => comment.body).join('\n'))) continue
     // Newest first already; the first comment with the most words wins.
     let best = 0
     let bestCount = -1
@@ -59,6 +59,7 @@ export async function searchTaskComments(reader: TaskReader, input: TaskCommentS
       const count = query.heldWords(comment.body)
       if (count > bestCount) { best = index; bestCount = count }
     })
+    if (query.exactPhrase && bestCount === 0) continue
     const comment = comments[best]!
     hits.push({
       taskId,
