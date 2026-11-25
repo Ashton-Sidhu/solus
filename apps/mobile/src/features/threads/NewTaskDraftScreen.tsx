@@ -7,6 +7,7 @@ import { useComposerAttachmentActions } from "../../state/use-composer-attachmen
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
 import { finishDraftSubmission } from "./finish-draft-submission";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
+import type { ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import { draftThreadShell } from "./draft-thread-shell";
 import { useRememberThreadProject } from "./useRememberThreadProject";
 import { scopedProjectKey } from "../../lib/scopedEntities";
@@ -575,7 +576,11 @@ export function NewTaskDraftScreen(props: {
     locked: isComposerInteractionLocked,
   });
 
-  async function handleStart(): Promise<import("@t3tools/contracts").MessageId | null> {
+  const handleStart: ThreadDetailScreenProps["onSendMessage"] = async (
+    _followUp,
+    _beforeDispatch,
+    onWillEnqueue,
+  ) => {
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
     if (
@@ -680,6 +685,7 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     // Persist locally before clearing or leaving the draft; server setup runs on the thread.
+    onWillEnqueue?.();
     flow.setSubmitting(true);
     const queued = await settlePromise(() => enqueueThreadOutboxMessage(message));
     flow.setSubmitting(false);
@@ -691,10 +697,15 @@ export function NewTaskDraftScreen(props: {
       );
       return null;
     }
-    finishDraftSubmission(navigation, promptInputRef.current, draftKey, draft.text,
-      message.environmentId, message.threadId);
+    finishDraftSubmission(
+      navigation,
+      draftKey,
+      draft.text,
+      message.environmentId,
+      message.threadId,
+    );
     return message.messageId;
-  }
+  };
 
   // Keep the current surface until the local draft selection is ready. Publishing
   // an empty loading surface here flashes between two already-cached threads.

@@ -223,7 +223,10 @@ import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
-import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-scroll-position";
+import {
+  finishThreadFeedSubmission,
+  resolveThreadFeedSubmissionAnchor,
+} from "./thread-feed-scroll-position";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
 import type { OrchestrationV2ProviderSession } from "@t3tools/contracts";
@@ -443,10 +446,15 @@ function ThreadDetailBody(
   const gt = useGT();
   const messages = useMessages();
   const [openedAsDraft] = useState(() => props.draftMode !== undefined);
-  const [submittingDraftContent, setSubmittingDraftContent] = useState<
-    NonNullable<ThreadDetailScreenProps["draftMode"]>["content"] | null
-  >(null);
-  const draftContent = props.draftMode?.content ?? submittingDraftContent;
+  const [submittingDraft, setSubmittingDraft] = useState<{
+    readonly content: NonNullable<ThreadDetailScreenProps["draftMode"]>["content"];
+    readonly feedReady: boolean;
+  } | null>(null);
+  const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
+  if (submittingDraft?.feedReady && !props.draftMode && !isKeyboardVisible) {
+    setSubmittingDraft(null);
+  }
+  const draftContent = props.draftMode?.content ?? submittingDraft?.content ?? null;
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const deviceType = useDeviceType();
   const workspace = useWorkspaceTabs();
@@ -494,7 +502,6 @@ function ThreadDetailBody(
       ...(tabId === undefined ? {} : { tabId }),
     });
   };
-  const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
   // Android can lose IME hide callbacks on backgrounding. Quarantine translation on resume unless focused input retained its keyboard.
   const [keyboardStateSuspect, setKeyboardStateSuspect] = useState(false);
@@ -579,8 +586,6 @@ function ThreadDetailBody(
   };
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [isAtEnd, setIsAtEnd] = useState(true);
-  const [sendingWithKeyboard, setSendingWithKeyboard] = useState(false);
-  if (sendingWithKeyboard && !isKeyboardVisible) setSendingWithKeyboard(false);
   const hasSidebarTabBar = useSidebarWorkspaceTabs() === "picker";
   const composerBottomInset = useComposerBottomInset();
   const composerKeyboardOffset = composerBottomInset;
@@ -1391,25 +1396,16 @@ function ThreadDetailBody(
             );
           }
         : undefined;
-    let dismissingKeyboard = false;
+    let isSubmittingPrompt = false;
     const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
-      if (!scope.aborted && props.draftMode) {
-        const content = props.draftMode.content;
-        setSubmittingDraftContent(() => content);
+      if (scope.aborted) return;
+      isSubmittingPrompt = true;
+      if (props.draftMode) {
+        setSubmittingDraft({ content: props.draftMode.content, feedReady: false });
       }
-      if (
-        scope.aborted ||
-        Platform.OS !== "ios" ||
-        !hasUserMessage ||
-        !KeyboardController.isVisible()
-      )
-        return;
-      setSendingWithKeyboard(true);
-      dismissingKeyboard = true;
     });
     if (messageId === null || scope.aborted) {
-      if (!scope.aborted && props.draftMode) setSubmittingDraftContent(null);
-      if (dismissingKeyboard && !scope.aborted) setSendingWithKeyboard(false);
+      if (!scope.aborted && props.draftMode) setSubmittingDraft(null);
       return messageId;
     }
 
@@ -1424,26 +1420,29 @@ function ThreadDetailBody(
       deliveryDeferred: props.connectionStateLabel !== "connected",
     });
     setAnchorMessageId(nextAnchorMessageId);
-    if (!dismissingKeyboard) composerEditorRef.current?.blur();
-    const followSubmission =
-      contentPresentationKind === "ready" &&
-      (dismissingKeyboard || nextAnchorMessageId === messageId);
-    if (dismissingKeyboard || followSubmission) {
-      // Commit the optimistic row before UIKit chooses the closing scroll offset.
-      requestAnimationFrame(() => {
+    // The next frame sees the optimistic row and first-prompt anchor in the list.
+    requestAnimationFrame(() => {
+      if (scope.aborted) return;
+      const keyboardVisible = KeyboardController.isVisible();
+      const followSubmission =
+        !props.draftMode &&
+        contentPresentationKind === "ready" &&
+        (nextAnchorMessageId === messageId ||
+          (isSubmittingPrompt && Platform.OS === "ios" && hasUserMessage && keyboardVisible));
+      const blurEditor = () =>
+        (composerEditorRef.current ?? defaultComposerEditorRef.current)?.blur();
+      void finishThreadFeedSubmission({
+        keyboardVisible,
+        animated: !reduceMotion,
+        blurEditor,
+        dismissKeyboard: KeyboardController.dismiss,
+        scrollMessageToEnd: followSubmission && listRef.current ? scrollMessageToEnd : null,
+      })?.catch(() => {
         if (scope.aborted) return;
-        // Check the final viewport after dismissal. End following usually lands the message.
-        void KeyboardController.dismiss()
-          .then(() => {
-            if (!followSubmission || scope.aborted) return;
-            if (Platform.OS === "ios" && listRef.current?.getState().isAtEnd) return;
-            return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
-          })
-          .catch(() => {
-            if (!scope.aborted) freeze.set(false);
-          });
+        freeze.set(false);
+        blurEditor();
       });
-    }
+    });
     return messageId;
   };
 
@@ -1557,8 +1556,8 @@ function ThreadDetailBody(
     feedTouchStartRef.current = null;
   };
 
-  // Prepare the first rows while the draft still covers them. Keep the draft in
-  // place until the list can paint the prompt, even if the route has already changed.
+  // Prepare the first rows behind the draft. Reveal them after the list is
+  // ready and the keyboard has settled.
   const showThreadFeed =
     showContent &&
     (!props.draftMode ||
@@ -1568,10 +1567,10 @@ function ThreadDetailBody(
   const coverThreadFeed = draftContent !== null && contentPresentationKind === "ready";
   // Release the cover if layout fails so the feed can expose its error or retry.
   useEffect(() => {
-    if (props.draftMode || submittingDraftContent === null) return;
-    const timeout = setTimeout(() => setSubmittingDraftContent(null), 1200);
+    if (props.draftMode || submittingDraft === null) return;
+    const timeout = setTimeout(() => setSubmittingDraft(null), 1200);
     return () => clearTimeout(timeout);
-  }, [props.draftMode, submittingDraftContent]);
+  }, [props.draftMode, submittingDraft]);
 
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
@@ -1618,7 +1617,14 @@ function ThreadDetailBody(
                   workspaceRoot={props.threadCwd}
                   feed={props.selectedThreadFeed}
                   openedAsDraft={openedAsDraft}
-                  onReady={submittingDraftContent !== null ? () => setSubmittingDraftContent(null) : undefined}
+                  onReady={
+                    submittingDraft !== null
+                      ? () =>
+                          setSubmittingDraft((current) =>
+                            current && !current.feedReady ? { ...current, feedReady: true } : current,
+                          )
+                      : undefined
+                  }
                   pendingHandoff={props.pendingHandoff}
                   statusLines={statusLines}
                   worktreeSetup={props.worktreeSetup}
@@ -1649,7 +1655,6 @@ function ThreadDetailBody(
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
-                  sendingWithKeyboard={sendingWithKeyboard}
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={
                     questionInFlow

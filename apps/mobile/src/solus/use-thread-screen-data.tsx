@@ -580,7 +580,6 @@ export function useThreadScreenData({
           if (showingDraft) {
             finishDraftSubmission(
               navigation,
-              firstPromptEditor.current,
               inputKey,
               draft.text,
               hostId,

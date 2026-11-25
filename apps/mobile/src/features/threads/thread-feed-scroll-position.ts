@@ -12,6 +12,25 @@ export function resolveThreadWorkGroupInitialScroll(
   return index >= 0 && position ? { index, viewOffset: -position.offsetWithinRow } : undefined;
 }
 
+export function finishThreadFeedSubmission(input: {
+  readonly keyboardVisible: boolean;
+  readonly animated: boolean;
+  readonly blurEditor: () => void;
+  readonly dismissKeyboard: () => Promise<void>;
+  readonly scrollMessageToEnd:
+    | ((options: { animated: boolean; closeKeyboard: boolean }) => Promise<void>)
+    | null;
+}) {
+  if (!input.keyboardVisible) input.blurEditor();
+  if (input.scrollMessageToEnd) {
+    return input.scrollMessageToEnd({
+      animated: input.animated,
+      closeKeyboard: input.keyboardVisible,
+    });
+  }
+  if (input.keyboardVisible) return input.dismissKeyboard();
+}
+
 export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
   readonly currentAnchorMessageId: AnchorId | null;
   readonly submittedMessageId: AnchorId;

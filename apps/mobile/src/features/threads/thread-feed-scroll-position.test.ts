@@ -1,8 +1,49 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  finishThreadFeedSubmission,
   resolveThreadFeedSubmissionAnchor,
   resolveThreadWorkGroupInitialScroll,
 } from "./thread-feed-scroll-position";
+
+describe("finishThreadFeedSubmission", () => {
+  const setup = () => ({
+    keyboardVisible: true,
+    animated: true,
+    blurEditor: vi.fn(),
+    dismissKeyboard: vi.fn(async () => {}),
+    scrollMessageToEnd: vi.fn(async () => {}),
+  });
+
+  it("closes the keyboard and follows the new message in one list operation", async () => {
+    const commands = setup();
+    await finishThreadFeedSubmission(commands);
+    expect(commands.scrollMessageToEnd).toHaveBeenCalledExactlyOnceWith({
+      animated: true,
+      closeKeyboard: true,
+    });
+    expect(commands.dismissKeyboard).not.toHaveBeenCalled();
+    expect(commands.blurEditor).not.toHaveBeenCalled();
+  });
+
+  it("dismisses the keyboard once when the first prompt lands in a draft", async () => {
+    const commands = setup();
+    await finishThreadFeedSubmission({ ...commands, scrollMessageToEnd: null });
+    expect(commands.dismissKeyboard).toHaveBeenCalledOnce();
+    expect(commands.scrollMessageToEnd).not.toHaveBeenCalled();
+    expect(commands.blurEditor).not.toHaveBeenCalled();
+  });
+
+  it("blurs a hardware keyboard's input and follows without dismissing a soft keyboard", async () => {
+    const commands = setup();
+    await finishThreadFeedSubmission({ ...commands, keyboardVisible: false, animated: false });
+    expect(commands.blurEditor).toHaveBeenCalledOnce();
+    expect(commands.scrollMessageToEnd).toHaveBeenCalledExactlyOnceWith({
+      animated: false,
+      closeKeyboard: false,
+    });
+    expect(commands.dismissKeyboard).not.toHaveBeenCalled();
+  });
+});
 
 describe("tool-group scroll restoration", () => {
   const position = {
