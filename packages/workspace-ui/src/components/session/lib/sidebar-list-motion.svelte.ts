@@ -1,5 +1,5 @@
-// Adapted from T3 Code's sidebar list motion (apps/web/src/components/Sidebar.motion.ts,
-// MIT License, Copyright (c) 2026 T3 Tools Inc.).
+// Adapted from T3 Code's Sidebar.motion.ts (MIT, Copyright (c) 2026 T3 Tools Inc.).
+// Scroll clamping follows pingdotgg/t3code@bcb9217e8.
 
 // A filter change or a search swaps a large part of the list at once. Fades
 // are the expensive part — every removed row gets a deep clone, and every
@@ -83,6 +83,21 @@ export function createSidebarListMotion(
   let disposed = false
   const view = parent.ownerDocument.defaultView
   const reducedMotion = view?.matchMedia('(prefers-reduced-motion: reduce)')
+  let scrollElement: HTMLElement | undefined
+  let scrollTop = 0
+  const trackScroll = () => {
+    // The frame reads the new layout. Keep the previous offset if the browser
+    // delivers its scroll event for that layout first.
+    if (!frame) scrollTop = scrollElement?.scrollTop ?? 0
+  }
+  const bindScroller = (element: HTMLElement | undefined) => {
+    if (scrollElement === element) return
+    scrollElement?.removeEventListener('scroll', trackScroll)
+    scrollElement = element
+    scrollTop = element?.scrollTop ?? 0
+    element?.addEventListener('scroll', trackScroll, { passive: true })
+  }
+  let frame = 0
   const isRow = (node: Element): node is HTMLElement =>
     !!view && node instanceof view.HTMLElement && !exiting.has(node)
   const running = new Map<HTMLElement, { animation: Animation; offset: number }>()
@@ -99,7 +114,7 @@ export function createSidebarListMotion(
     entering.clear()
     exiting.clear()
   }
-  const fadeOut = (node: HTMLElement, position: RowPosition) => {
+  const fadeOut = (node: HTMLElement, position: RowPosition, scrollShift: number) => {
     if (position.height === 0) return
     // Svelte owns the removed row; only an inert copy stays for the fade. It
     // must not be a tree item the keyboard can land on, or a row the sidebar's
@@ -123,7 +138,7 @@ export function createSidebarListMotion(
     clone.inert = true
     Object.assign(clone.style, {
       position: 'absolute',
-      top: `${position.top + remainingOffset(node)}px`,
+      top: `${position.top + remainingOffset(node) + scrollShift}px`,
       left: `${position.left}px`,
       width: `${position.width}px`,
       height: `${position.height}px`,
@@ -156,6 +171,11 @@ export function createSidebarListMotion(
   const cancel = (node: HTMLElement) => {
     running.get(node)?.animation.cancel()
     running.delete(node)
+  }
+  const suspend = () => {
+    for (const node of running.keys()) cancel(node)
+    clearFades()
+    positions = null
   }
   const move = (node: HTMLElement, offset: number) => {
     cancel(node)
@@ -190,8 +210,7 @@ export function createSidebarListMotion(
   }
 
   /** The scroller's visible part, in the coordinates of `offsetTop`. */
-  const visibleBand = (): Band => {
-    const element = scroller()
+  const visibleBand = (element: HTMLElement | undefined): Band => {
     if (!element) return { top: -Infinity, bottom: Infinity }
     const top = element.getBoundingClientRect().top - parent.getBoundingClientRect().top
     return { top, bottom: top + element.clientHeight }
@@ -238,17 +257,20 @@ export function createSidebarListMotion(
     next: Map<HTMLElement, RowPosition>,
     crossing: Set<HTMLElement>,
     band: Band,
+    scrollShift: number,
   ) => {
     let count = 0
     for (const [node, { top, height }] of previous) {
-      if (!next.has(node) && isSeen(band, top, top, height)) count++
+      if (next.has(node)) continue
+      const drawnTop = top + remainingOffset(node) + scrollShift
+      if (isSeen(band, drawnTop, drawnTop, height)) count++
     }
     for (const [node, { top, height }] of next) {
       if (!previous.has(node) && isSeen(band, top, top, height)) count++
     }
     for (const node of crossing) {
       const { top, height } = next.get(node)!
-      const drawnTop = previous.get(node)!.top + remainingOffset(node)
+      const drawnTop = previous.get(node)!.top + remainingOffset(node) + scrollShift
       if (isSeen(band, drawnTop, top, height)) count += 2
     }
     return count
@@ -275,6 +297,7 @@ export function createSidebarListMotion(
     next: Map<HTMLElement, RowPosition>,
     crossing: Set<HTMLElement>,
     band: Band,
+    scrollShift: number,
   ) => {
     for (const [node, { top, height }] of next) {
       const previousTop = previous.get(node)?.top
@@ -289,46 +312,70 @@ export function createSidebarListMotion(
         if (isSeen(band, top, top, height)) fadeIn(node)
         continue
       }
-      if (previousTop === top) continue
-      const drawnTop = previousTop + remainingOffset(node)
+      if (previousTop + scrollShift === top) continue
+      const drawnTop = previousTop + remainingOffset(node) + scrollShift
       if (isSeen(band, drawnTop, top, height)) move(node, drawnTop - top)
       else cancel(node)
     }
   }
 
-  return {
-    /** Read every row's position and animate from the last reading. `animate`
-     *  false only takes the reading, for the first pass. */
-    update(animate: boolean) {
-      if (disposed) return
-      const next = readPositions()
-      const previous = positions
-      const band = visibleBand()
-      const crossing = previous ? findCrossing(previous, next) : new Set<HTMLElement>()
-      const shouldAnimate =
-        animate &&
-        previous !== null &&
-        !reducedMotion?.matches &&
-        durationMs() > 0 &&
-        countFades(previous, next, crossing, band) <= MAX_FADED_ROWS_PER_UPDATE
-      if (!shouldAnimate) clearFades()
-      // A leaving or crossing row fades from where it is drawn, which includes
-      // its own slide in flight, so it is read before stale slides are cancelled.
-      else {
-        for (const [node, position] of previous) {
-          if (next.has(node) && !crossing.has(node)) continue
-          const drawnTop = position.top + remainingOffset(node)
-          if (isSeen(band, drawnTop, drawnTop, position.height)) fadeOut(node, position)
-        }
+  /** Read each row's position. Animate from the previous visible reading. */
+  const update = (animate: boolean) => {
+    if (disposed) return
+    const element = scroller()
+    bindScroller(element)
+    if (parent.getClientRects().length === 0) {
+      suspend()
+      return
+    }
+    const next = readPositions()
+    // Removing a row near the bottom can clamp scrollTop. Use the old
+    // on-screen positions so the rows slide instead of jumping with the clamp.
+    let scrollShift = 0
+    if (element) {
+      const max = Math.max(0, element.scrollHeight - element.clientHeight)
+      const currentScrollTop = element.scrollTop
+      if (scrollTop > max && currentScrollTop >= max - 1) scrollShift = currentScrollTop - scrollTop
+      scrollTop = currentScrollTop
+    }
+    const previous = positions
+    const band = visibleBand(element)
+    const crossing = previous ? findCrossing(previous, next) : new Set<HTMLElement>()
+    const shouldAnimate =
+      animate &&
+      previous !== null &&
+      !reducedMotion?.matches &&
+      durationMs() > 0 &&
+      countFades(previous, next, crossing, band, scrollShift) <= MAX_FADED_ROWS_PER_UPDATE
+    if (!shouldAnimate) clearFades()
+    // A leaving or crossing row fades from its drawn position before any
+    // slide in flight is cancelled.
+    else {
+      for (const [node, position] of previous) {
+        if (next.has(node) && !crossing.has(node)) continue
+        const drawnTop = position.top + remainingOffset(node) + scrollShift
+        if (isSeen(band, drawnTop, drawnTop, position.height)) fadeOut(node, position, scrollShift)
       }
-      settleStale(next, shouldAnimate)
-      if (shouldAnimate) animateRemaining(previous, next, crossing, band)
-      positions = next
+    }
+    settleStale(next, shouldAnimate)
+    if (shouldAnimate) animateRemaining(previous, next, crossing, band, scrollShift)
+    positions = next
+  }
+
+  return {
+    update,
+    scheduleUpdate() {
+      // Coalesce layout reads and run after the DOM update, before it paints.
+      if (!view || disposed || frame) return
+      frame = view.requestAnimationFrame(() => {
+        frame = 0
+        update(true)
+      })
     },
     dispose() {
-      for (const node of running.keys()) cancel(node)
-      clearFades()
-      positions = null
+      if (frame) view?.cancelAnimationFrame(frame)
+      bindScroller(undefined)
+      suspend()
       disposed = true
     },
   }
@@ -351,24 +398,10 @@ export function sidebarListMotion(
     // Derived, so a re-render that leaves the order as it was compares equal
     // and never reaches the effect below.
     const key = $derived(orderKey())
-    let hasRead = false
-    let frame = 0
     $effect(() => {
       void key
-      // The rows are read in the next frame, before it paints, so the slides
-      // still start from where each row was drawn. Read in this effect, they
-      // forced a layout in the middle of the DOM update — on a session open,
-      // the layout of the whole new transcript — and the frame laid out again.
-      if (frame) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        motion.update(hasRead)
-        hasRead = true
-      })
+      motion.scheduleUpdate()
     })
-    return () => {
-      cancelAnimationFrame(frame)
-      motion.dispose()
-    }
+    return () => motion.dispose()
   }
 }

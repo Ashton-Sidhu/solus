@@ -5,7 +5,7 @@ import { createSidebarListMotion } from '@solus/workspace-ui/components/session/
 type Played = { node: Element; keyframes: Keyframe[]; options?: KeyframeAnimationOptions }
 
 function setup(options: { reducedMotion?: boolean } = {}) {
-  const dom = new JSDOM('<div id="list"></div>')
+  const dom = new JSDOM('<div id="list"></div>', { pretendToBeVisual: true })
   const window = dom.window
   window.matchMedia = () => ({ matches: options.reducedMotion ?? false }) as MediaQueryList
   const played: Played[] = []
@@ -20,6 +20,9 @@ function setup(options: { reducedMotion?: boolean } = {}) {
     } as unknown as Animation
   }
   const list = window.document.getElementById('list')!
+  // JSDOM does not report a layout box for visible elements.
+  let isVisible = true
+  list.getClientRects = () => (isVisible ? [list.getBoundingClientRect()] : []) as unknown as DOMRectList
   // JSDOM has no layout: each row's top comes from its index in the list.
   const rowHeight = 40
   const layOut = () => {
@@ -35,7 +38,8 @@ function setup(options: { reducedMotion?: boolean } = {}) {
     element.innerHTML = `<button role="treeitem" data-task-key="${name}" tabindex="0">${name}</button>`
     return element
   }
-  return { list, played, layOut, row, rowHeight }
+  const setVisible = (visible: boolean) => { isVisible = visible }
+  return { list, played, layOut, row, rowHeight, setVisible, window }
 }
 
 describe('sidebar list motion', () => {
@@ -232,6 +236,61 @@ describe('sidebar list motion', () => {
     layOut()
     motion.update(true)
 
+    expect(played).toHaveLength(0)
+  })
+
+  test('removing a row at the bottom keeps the rows above it at their drawn positions', async () => {
+    const { list, played, layOut, row, rowHeight, window } = setup()
+    const scroller = list.ownerDocument.createElement('div')
+    scroller.append(list)
+    const rows = Array.from({ length: 10 }, (_, index) => row(`row-${index}`))
+    list.append(...rows)
+    layOut()
+    Object.defineProperty(scroller, 'clientHeight', { value: 5 * rowHeight })
+    Object.defineProperty(scroller, 'scrollHeight', {
+      get: () => rows.filter((element) => element.parentElement === list).length * rowHeight,
+    })
+    list.getBoundingClientRect = () => ({ top: -scroller.scrollTop }) as DOMRect
+    const motion = createSidebarListMotion(list, () => 150, () => scroller)
+    motion.update(false)
+
+    scroller.scrollTop = 5 * rowHeight
+    scroller.dispatchEvent(new window.Event('scroll'))
+    rows[8]!.remove()
+    layOut()
+    motion.scheduleUpdate()
+    // The browser can deliver the clamp's scroll event before the animation frame.
+    scroller.scrollTop = 4 * rowHeight
+    scroller.dispatchEvent(new window.Event('scroll'))
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+
+    expect(played.find((entry) => entry.node === rows[7])?.keyframes).toEqual([
+      { transform: `translateY(${-rowHeight}px)` }, { transform: 'translateY(0px)' },
+    ])
+    expect(played.some((entry) => entry.node === rows[9])).toBe(false)
+    const copy = played.find((entry) => entry.keyframes.at(-1)?.opacity === 0)?.node as HTMLElement
+    expect(copy.style.top).toBe(`${7 * rowHeight}px`)
+    motion.dispose()
+  })
+
+  test('reopening a hidden list takes a fresh reading without animating hidden changes', () => {
+    const { list, played, layOut, row, setVisible } = setup()
+    const existing = row('existing')
+    list.append(existing)
+    layOut()
+    const motion = createSidebarListMotion(list, () => 150)
+    motion.update(false)
+
+    setVisible(false)
+    list.prepend(row('first hidden arrival'))
+    layOut()
+    motion.update(true)
+    expect(played).toHaveLength(0)
+
+    setVisible(true)
+    list.prepend(row('second hidden arrival'))
+    layOut()
+    motion.update(true)
     expect(played).toHaveLength(0)
   })
 })
