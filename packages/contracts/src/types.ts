@@ -867,6 +867,8 @@ export interface Attachment {
   dataUrl?: string
   /** File size in bytes */
   size?: number
+  /** The composer must replace or remove this file before it can send the draft. */
+  needsReattach?: true
   designData?: DesignSelectionData
 }
 

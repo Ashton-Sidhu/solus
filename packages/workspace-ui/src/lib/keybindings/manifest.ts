@@ -29,6 +29,7 @@ export const KEYBINDINGS = {
   // a project, so the web default takes the one free letter beside it.
   'global.switch-organization': { combo: { alt: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyE' }, scope: 'global', label: 'Switch organization…', group: 'General' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
+  'global.prompt-stash':      { combo: { mod: true, code: 'KeyS' },                       scope: 'global',             label: 'Stash or restore prompt',  group: 'Compose' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   // The letter layer is already occupied by other global actions. Semicolon
   // gives Files one collision-free default on desktop and web without making

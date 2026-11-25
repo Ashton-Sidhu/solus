@@ -11,7 +11,7 @@ import { desktopCaptureSupport } from "@solus/client-core/desktop-capture";
 
 import { localApi } from "@solus/client-core/local-api";
 
-import { uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
+import { attachmentUploads, uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 import { runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
@@ -52,6 +52,7 @@ export function createDesktopAttachments(
   async function handleScreenshot(tabId?: string) {
     if (!desktopHandlersAvailable || !captureSupport.screenshot) return;
     const { targetTabId, serverId, ctx } = attachmentTarget(session, tabId);
+    const finish = attachmentUploads.beginPreparation(serverId, ctx);
     const targetStillExists = () => {
       const current = attachmentTarget(session, targetTabId);
       if (current.serverId !== serverId) return false;
@@ -75,12 +76,15 @@ export function createDesktopAttachments(
       session.addAttachments(attachments, targetTabId);
     } catch (error) {
       toasts.error(error instanceof Error ? error.message : "Could not take a screenshot.");
+    } finally {
+      finish();
     }
   }
 
   async function handleAttachFile(tabId?: string) {
     const { targetTabId, serverId, ctx } = attachmentTarget(session, tabId);
     const targetApi = serverConnections.apiFor(serverId);
+    const finish = attachmentUploads.beginPreparation(serverId, ctx);
     try {
       const capabilities = await serverConnections.capabilitiesFor(serverId);
       if (capabilities.attachUpload !== true) {
@@ -114,6 +118,8 @@ export function createDesktopAttachments(
       toasts.error(
         error instanceof Error ? error.message : "Couldn't attach files",
       );
+    } finally {
+      finish();
     }
   }
 
