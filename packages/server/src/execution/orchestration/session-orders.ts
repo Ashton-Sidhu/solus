@@ -61,6 +61,8 @@ export interface CreateSessionOrder {
   contextWindow: number | null
   cwd: string
   worktreeBaseBranch?: string | null
+  /** The branch at the source commit for other repositories, or null to use their defaults. */
+  worktreeSiblingBaseBranch?: string | null
   /** The codebase the new session starts with: a child gets the codebase of its sender (docs/plans/codebases.md decision 5). */
   codebaseId: string | null
   exchangeIds?: string[]

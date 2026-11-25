@@ -418,6 +418,7 @@ export class PromptDispatch {
       codebaseId: req.codebaseId,
       gitContext: null,
       worktreeBaseBranch: req.worktreeBaseBranch ?? null,
+      worktreeSiblingBaseBranch: req.worktreeSiblingBaseBranch,
       contextWindow: req.contextWindow,
       model,
       preferredModel: req.modelId,

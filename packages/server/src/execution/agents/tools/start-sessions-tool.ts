@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import {
@@ -11,6 +12,10 @@ import { childPermissionMode } from '../../sessions/child-permissions'
 import { resolveHomePath } from '../../../platform/paths'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { getHeadCommit } from '../../../git/worktree-manager'
+import { runAsync } from '../../../git/exec'
+import { isContainer } from '../../../files/codebase-members'
+import { realPathOf } from '../../../paths'
+import { holdsTooMuch } from '../../sessions/session-codebase-formation'
 import { createLogger } from '../../../logger'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { PERMISSION_MODES } from '@solus/contracts/types'
@@ -72,13 +77,13 @@ const sessionFields = {
   isolation: z
     .enum(['shared', 'worktree'])
     .default('shared')
-    .describe('shared (default): work in cwd. worktree: its own checkout, for separate edits or a pull request.'),
+    .describe('shared (default): work in cwd. worktree: its own checkout, or a task folder for a container with multiple repositories.'),
   worktree_base_branch: z
     .string()
     .trim()
     .min(1)
     .optional()
-    .describe('With worktree: the base branch or commit. Defaults to the commit in cwd.'),
+    .describe('With worktree: the base branch or commit. Defaults to the commit in a Git checkout or to each repository’s default branch in a plain container.'),
   report: z
     .boolean()
     .optional()
@@ -153,7 +158,7 @@ interface Caller {
   permissionMode: PermissionMode | undefined
   workerModel: PersonalSettings['workerModel']
   fallbackModel: PersonalSettings['fallbackModel']
-  /** The codebase of the calling session: each session it starts gets it. */
+  /** The codebase of the calling session, used unless the child names a different container. */
   codebaseId: string | null
 }
 
@@ -257,6 +262,7 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   const workspace = place.target ? remoteWorkspace(session) : await localWorkspace(session, deps.ctx?.cwd)
   if ('error' in workspace) return workspace
   const order: SpawnOrder = {
+    codebaseId: caller.codebaseId,
     ...workspace,
     prompt: session.prompt,
     independent: session.independent,
@@ -266,7 +272,6 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
     modelId: runner.modelId,
     reasoningEffort: runner.reasoningEffort,
     contextWindow: runner.contextWindow,
-    codebaseId: caller.codebaseId,
   }
   const attachError = await attachTo(order, session.attachments, deps)
   if (attachError) return { error: attachError }
@@ -286,18 +291,39 @@ async function remotePlace(hostRef: string, callerSessionId: string | undefined)
 interface Workspace {
   cwd: string
   worktreeBaseBranch: string | null
+  worktreeSiblingBaseBranch?: string | null
+  codebaseId?: null
 }
 
-/** Bind a session to its checkout before launch; a worktree starts from the
- *  commit checked out in cwd unless the session names a base. */
+/** Bind a session to its Git checkout or let the launcher plan a task folder for a container. */
 async function localWorkspace(session: SessionInput, callerCwd: string | undefined): Promise<Checked<Workspace>> {
   const cwd = resolveHomePath(session.cwd || callerCwd || '~')
   if (session.isolation === 'shared') {
     return session.worktree_base_branch ? { error: 'worktree_base_branch requires isolation=worktree.' } : { cwd, worktreeBaseBranch: null }
   }
   const [root, commit] = await Promise.all([resolveRepoRoot(cwd), getHeadCommit(cwd)])
-  if (!root || !commit) return { error: 'An isolated session needs a Git repository with a commit.' }
-  return { cwd: resolveHomePath(root), worktreeBaseBranch: session.worktree_base_branch ?? commit }
+  if (root && commit) {
+    const workspace: Workspace = { cwd: resolveHomePath(root), worktreeBaseBranch: session.worktree_base_branch ?? commit }
+    if (session.worktree_base_branch) return workspace
+    workspace.worktreeSiblingBaseBranch = null
+    const ref = await runAsync('git', ['symbolic-ref', '--quiet', 'HEAD'], cwd).catch(() => null)
+    if (!ref?.startsWith('refs/heads/')) return workspace
+    const branchCommit = await runAsync('git', ['rev-parse', '--verify', ref], resolveHomePath(root)).catch(() => null)
+    if (branchCommit === commit) workspace.worktreeSiblingBaseBranch = ref.slice('refs/heads/'.length)
+    return workspace
+  }
+  const folder = resolve(cwd)
+  if (root || await holdsTooMuch(folder) || !await isContainer(folder)) {
+    return { error: 'An isolated session needs a Git repository with a commit or a folder that contains multiple repositories.' }
+  }
+  const workspace: Workspace = {
+    cwd: resolveHomePath(folder),
+    // HEAD requests worktree setup. A plain member's worktrees use their own defaults.
+    worktreeBaseBranch: session.worktree_base_branch ?? 'HEAD',
+  }
+  // A different container settles its own codebase in the launcher.
+  if (session.cwd && callerCwd && await realPathOf(folder) !== await realPathOf(resolveHomePath(callerCwd))) workspace.codebaseId = null
+  return workspace
 }
 
 /** A path on the other host: it is resolved there, never here. */
@@ -342,7 +368,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
 
 export const startSessionsAgentTool: AgentTool = {
   name: 'start_sessions',
-  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. independent=true starts a separate conversation instead. isolation=worktree gives a session its own checkout. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
+  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. independent=true starts a separate conversation instead. isolation=worktree gives a session its own checkout or task folder. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
   inputFields: startSessionsFields,
   strictInput: true,
   requiresApproval: false,
