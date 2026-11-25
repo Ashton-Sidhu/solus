@@ -40,18 +40,27 @@ export async function searchMirroredSessions(db: Db, request: SessionMatchQuery)
       ? sql`t.search @@ plainto_tsquery('simple', ${normalized})
           AND (' ' || t.search_text || ' ') LIKE ${`% ${normalized.replace(/[!%_]/g, '!$&')} %`} ESCAPE '!'`
       : sql`t.rowid IN (SELECT rowid FROM session_transcripts_fts WHERE session_transcripts_fts MATCH ${ftsExactPhrase(words)})`
-    const rows = await db.all(sql`
-      SELECT ${passageFields} FROM session_transcripts t JOIN session_records ON ${visible}
-      WHERE ${request.records} AND ${written} AND ${match}
-      ORDER BY t.position DESC
-    `)
-    for (const row of rows) {
-      const passage = passageSchema.parse(row)
-      if (!query.holdsEveryWord(passage.content)) continue
-      let hits = exact.get(passage.session_id)
-      if (!hits) exact.set(passage.session_id, hits = { count: 0, newest: [] })
-      hits.count++
-      if (hits.newest.length < 3) hits.newest.push(passage)
+    // Verify candidates against the original text in batches. A common
+    // quoted word can match most of a person's history.
+    const batchSize = 250
+    let after = sql``
+    for (;;) {
+      const rows = passageSchema.array().parse(await db.all(sql`
+        SELECT ${passageFields} FROM session_transcripts t JOIN session_records ON ${visible}
+        WHERE ${request.records} AND ${written} AND ${match} ${after}
+        ORDER BY t.session_id, t.position DESC
+        LIMIT ${batchSize}
+      `))
+      for (const passage of rows) {
+        if (!query.holdsEveryWord(passage.content)) continue
+        let hits = exact.get(passage.session_id)
+        if (!hits) exact.set(passage.session_id, hits = { count: 0, newest: [] })
+        hits.count++
+        if (hits.newest.length < 3) hits.newest.push(passage)
+      }
+      if (rows.length < batchSize) break
+      const last = rows.at(-1)!
+      after = sql`AND (t.session_id > ${last.session_id} OR (t.session_id = ${last.session_id} AND t.position < ${last.position}))`
     }
   }
   const readCounts = async (match: SQL) => new Map(countSchema.array().parse(await db.all(sql`
