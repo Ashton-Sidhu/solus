@@ -15,9 +15,8 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { getIndexedSession, indexedTaskFolderDirectories } from '../../db/session-indexer'
 import { membersOf } from '../../files/codebase-members'
-import { gitCommitExists } from '../../git/exec'
 import {
-  addRepository, createTaskFolder, findTaskFolderContaining, listTaskFolders, planTaskFolder, removeTaskFolder, renameBranch, restoreTaskFolder,
+  addRepository, createTaskFolder, findTaskFolderContaining, listTaskFolders, planTaskFolder, removeTaskFolder, renameBranch, restoreTaskFolder, taskFolderBaseRef,
   type TaskFolderPlan, type TaskFolderProgress, type TaskFolderRecord, type TaskFolderRemoval,
 } from '../../git/task-folders'
 import { captureWorktreeBranchNaming, capturedWorktreeBranchNamer, resolveWorktreeBranchNamer } from '../../git/worktree-branch-name'
@@ -51,6 +50,7 @@ export interface CreateSessionTaskFolder {
   /** A new branch that the caller names, used as it is. The naming does not apply. */
   exactBranch?: string
   baseBranch: string | null
+  siblingBaseBranch?: string | null
   signal?: AbortSignal
   onRepository?: TaskFolderProgress
 }
@@ -255,6 +255,7 @@ export class SessionTaskFolders {
       ...taskFolderBaseFor(options.actor.principal),
       branch: firstName,
       baseBranch: options.baseBranch,
+      siblingBaseBranch: options.siblingBaseBranch,
       sessionId,
       signal: options.signal,
       onRepository: options.onRepository,
@@ -268,11 +269,7 @@ export class SessionTaskFolders {
     log.info('session_task_folder_created', { sessionId, root: taskFolder.root, branch, repositoryCount: checkoutsOf(taskFolder).length })
     if (!taskFolder.primaryIsWorktree) return { taskFolder, checkout: null }
     const repository = taskFolder.primaryRepositoryPath
-    const { baseBranch } = options
-    // As `createTaskFolder` chose: the base branch when the repository has it, else the default branch of the repository.
-    const startsFromBase = !!baseBranch
-      && (await gitCommitExists(repository, `refs/heads/${baseBranch}`) || await gitCommitExists(repository, `refs/remotes/origin/${baseBranch}`))
-    const targetBranch = startsFromBase && baseBranch ? baseBranch : await getDefaultBranch(repository)
+    const targetBranch = await taskFolderBaseRef(repository, options.baseBranch) ?? await getDefaultBranch(repository)
     return { taskFolder, checkout: { branch, targetBranch, worktreePath: taskFolder.primaryPath, repoRoot: repository } }
   }
 

@@ -70,7 +70,7 @@ interface SetupStepUpdate extends Pick<StatusCardStep, 'percent' | 'detail' | 's
 }
 
 /** What the setup of a turn gives the creation of its task folder. */
-interface TaskFolderSetup extends Pick<CreateSessionTaskFolder, 'actor' | 'naming' | 'baseBranch' | 'signal'> {
+interface TaskFolderSetup extends Pick<CreateSessionTaskFolder, 'actor' | 'naming' | 'baseBranch' | 'siblingBaseBranch' | 'signal'> {
   onStage: (stage: string, update: SetupStepUpdate) => void
   /** Add one line to the output of the setup card. */
   note: (line: string) => void
@@ -311,6 +311,7 @@ export class RunLauncher {
           actor: options.actor,
           naming: options.naming,
           baseBranch: options.baseBranch,
+          siblingBaseBranch: options.siblingBaseBranch,
           signal: options.signal,
           onRepository: taskFolderStages(repositories, options.onStage, (name, count) => options.note(`Worktree ${count} of ${repositories.length}: ${name}`)),
         })
@@ -748,6 +749,7 @@ export class RunLauncher {
           actor: turnActor,
           naming: input.executionPreferences?.worktreeBranchNaming,
           baseBranch,
+          siblingBaseBranch: input.worktreeSiblingBaseBranch,
           signal: setupController.signal,
           onStage,
           note: (line) => { if (stagesOpen) setupOutput.push(line) },

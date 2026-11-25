@@ -194,6 +194,72 @@ function plane(): Plane {
 const taskFolderRoots = (): string[] => store.listTaskFolders().map((record) => record.root)
 
 describe('the launch of a new worktree session', () => {
+  test('start_sessions isolates a container and uses the requested or inherited Git bases', async () => {
+    const shop = join(root, 'delegated-shop')
+    const api = repository(join(shop, 'api'))
+    const web = repository(join(shop, 'apps', 'web'))
+    const head = (path: string) => git(path, 'rev-parse', 'HEAD')
+    const defaultHeads = [head(api), head(web)]
+    for (const [name, repositoryPath] of [['api', api], ['web', web]]) {
+      git(repositoryPath, 'switch', '-q', '-c', 'release')
+      git(repositoryPath, 'commit', '-qm', `release ${name}`, '--allow-empty')
+    }
+    const releaseHeads = [head(api), head(web)]
+    git(web, 'switch', '-q', 'main')
+    const { runtime, backend } = plane()
+    const { setSessionController, setSessionOrchestration } = await import('@solus/server/execution/agents/tools/session-tools')
+    const { startSessionsAgentTool } = await import('@solus/server/execution/agents/tools/start-sessions-tool')
+    setSessionController({
+      listAgentTargets: async () => [{
+        provider: 'claude-code', label: 'Claude Code', available: true, defaultModel: 'claude-opus-5',
+        models: [{ id: 'claude-opus-5', label: 'Opus', reasoningLevels: ['medium'], defaultReasoningEffort: 'medium', defaultContextWindow: 1000 }],
+      }],
+      getSessionInfo: async () => null, liveStatus: () => null, pendingInputEvents: () => [],
+      loadSessionTail: async () => [], loadPlanContent: async () => null, listPlans: async () => [], invalidatePlanCaches: () => {},
+    })
+    setSessionOrchestration({
+      spawn: async (sourceSessionId, order) => ({
+        ...await runtime.dispatch.createSession({ ...order, sourceSessionId }, HOST_ACTOR),
+        exchangeId: 'container-exchange',
+      }),
+      send: async () => ({ exchangeId: 'unused', disposition: 'started' }), releaseRateLimit: () => false, stop: () => false,
+    })
+    try {
+      const context = {
+        provider: 'claude-code' as const, cwd: shop, sessionId: () => undefined, emit: () => {},
+        abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+      }
+      const delegate = async (settings: { cwd?: string; worktree_base_branch?: string } = {}) => {
+        expect(await startSessionsAgentTool.execute({
+          sessions: [{ prompt: 'Review both repositories', model_id: 'claude-opus-5', isolation: 'worktree', ...settings }],
+        }, context)).toMatchObject({ ok: true })
+        return store.findTaskFolderContaining(backend.runs.at(-1)!.cwd)!
+      }
+      const taskFolder = await delegate()
+      expect(taskFolder).toMatchObject({ primaryRepositoryPath: shop, primaryIsWorktree: false })
+      expect(await codebases.getCodebase('local', taskFolder.codebaseId!)).toMatchObject({ roots: [{ path: shop, container: true }] })
+      expect(taskFolder.repositories.map(({ repositoryPath }) => repositoryPath)).toEqual([api, web])
+      expect(isLinkedWorktree(join(taskFolder.primaryPath, 'api'))).toBe(true)
+      expect(isLinkedWorktree(join(taskFolder.primaryPath, 'apps', 'web'))).toBe(true)
+      expect(taskFolder.repositories.map(({ worktreePath }) => head(worktreePath))).toEqual(defaultHeads)
+
+      const explicitBranch = await delegate({ worktree_base_branch: 'release' })
+      expect(explicitBranch.repositories.map(({ worktreePath }) => head(worktreePath))).toEqual(releaseHeads)
+      const explicitCommit = await delegate({ worktree_base_branch: releaseHeads[0] })
+      expect(explicitCommit.repositories.map(({ worktreePath }) => head(worktreePath))).toEqual([releaseHeads[0], defaultHeads[1]])
+
+      // The source commit stays pinned even when the branch's remote-tracking ref differs.
+      git(api, 'update-ref', 'refs/remotes/origin/release', defaultHeads[0]!)
+      const namedSource = await delegate({ cwd: api })
+      expect([head(namedSource.primaryPath), head(namedSource.repositories[0]!.worktreePath)]).toEqual(releaseHeads)
+      git(api, 'switch', '-q', '--detach', 'HEAD')
+      const detachedSource = await delegate({ cwd: api })
+      expect([head(detachedSource.primaryPath), head(detachedSource.repositories[0]!.worktreePath)]).toEqual([releaseHeads[0], defaultHeads[1]])
+    } finally {
+      runtime.shutdown()
+    }
+  }, LONG)
+
   test('a plain working member with two repositories works in a task folder', async () => {
     const { shop, api, web, codebase } = await shopCodebase()
     const { runtime, start, cardsOf, foldersPublishedFor } = plane()

@@ -2405,6 +2405,8 @@ export interface SessionRunInput {
   noCodebase?: boolean
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** A local delegate's branch for the other repositories, or null to use their defaults. */
+  worktreeSiblingBaseBranch?: string | null
   /**
    * The member paths of the session's codebase that get a worktree when this
    * run starts a new worktree. Null or absent is the default set, which the

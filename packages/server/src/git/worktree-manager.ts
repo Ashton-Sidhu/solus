@@ -298,7 +298,7 @@ interface WorktreeStartPoint {
 }
 
 /** A full SHA-1 or SHA-256 object name. A child session's worktree starts from its parent's commit. */
-const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+export const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
 
 /**
  * A commit is its own start point: it has no `origin/<commit>`, and it is
