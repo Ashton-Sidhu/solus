@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { Paperclip, X } from '@lucide/svelte'
+  import { Bookmark, ChevronDown, FileText, Paperclip, X } from '@lucide/svelte'
   import { tick } from 'svelte'
-  import { getPopoverLayer } from '../popoverLayer.svelte'
-  import { portal } from '../portal'
   import { getSettingsContext } from '../../contexts'
   import { effectiveCombo } from '../../lib/keybindings/editing'
   import { formatComboText } from '../../lib/keybindings/match'
   import { relativeTime } from '../../lib/relative-time'
   import { stashPreview } from './lib/prompt-stash'
-  import { positionStashDrawer } from './lib/stash-drawer'
+  import { tuckStashDrawer } from './lib/stash-drawer'
   import type { usePromptStash } from './lib/prompt-stash.store.svelte'
 
   let { stash, anchor, refocus }: {
@@ -17,7 +15,6 @@
     refocus: () => void
   } = $props()
 
-  const layer = getPopoverLayer()
   const settings = getSettingsContext()
   const combo = $derived(effectiveCombo('global.prompt-stash', settings.keybindings))
   let menu = $state<HTMLElement | null>(null)
@@ -114,32 +111,28 @@
 />
 <svelte:document onpointerdowncapture={dismissOutside} />
 
-{#if layer.el}
-  <div
-    bind:this={menu}
-    use:portal={layer.el}
-    use:positionStashDrawer={anchor}
-    role="dialog"
-    aria-label="Stashed prompts"
-    tabindex={-1}
-    data-composer-stash-drawer
-    class="stash-drawer @container/stash pointer-events-auto fixed z-30 flex min-h-0 flex-col overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 text-(--solus-text-primary) shadow-[0_4px_14px_rgb(0_0_0/10%),0_12px_28px_rgb(0_0_0/12%)] outline-hidden dark:shadow-[0_4px_14px_rgb(0_0_0/30%),0_12px_28px_rgb(0_0_0/36%)]"
+<div
+  bind:this={menu}
+  use:tuckStashDrawer={anchor}
+  role="dialog"
+  aria-label="Stashed prompts"
+  tabindex={-1}
+  data-composer-stash-drawer
+  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)] outline-hidden"
+>
+  <button
+    type="button"
+    aria-label="Close stash"
+    aria-expanded="true"
+    onpointerdown={(event) => event.preventDefault()}
+    onclick={close}
+    class="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2 text-left text-[0.8125rem] text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:h-11 pointer-coarse:text-sm"
   >
-    <div class="flex h-8 shrink-0 items-center gap-2 pr-1 pl-2.5 text-chrome-dense pointer-coarse:h-10">
-      <span class="min-w-0 flex-1 truncate font-medium text-(--solus-text-secondary)">Stashed prompts</span>
-      {#if combo}
-        <kbd class="shrink-0 font-sans text-(--solus-text-tertiary)">{formatComboText(combo)} to stash</kbd>
-      {/if}
-      <button
-        type="button"
-        aria-label="Close stash"
-        onpointerdown={(event) => event.preventDefault()}
-        onclick={close}
-        class="flex size-6 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:size-10"
-      >
-        <X size={14} aria-hidden="true" />
-      </button>
-    </div>
+    <Bookmark size={16} class="shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+    <span class="min-w-0 flex-1 truncate">Stash</span>
+    <span class="shrink-0 text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{stash.entries.length}</span>
+    <ChevronDown size={16} class="shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+  </button>
 
     {#if stash.entries.length}
       <ul role="list" aria-label="Stashed prompts" class="grid min-h-0 max-h-[min(20rem,40dvh)] gap-0.5 overflow-y-auto overscroll-contain">
@@ -160,8 +153,9 @@
               onpointerdown={(event) => event.preventDefault()}
               onfocus={() => (highlightedId = entry.id)}
               onclick={() => void stash.restore(entry)}
-              class="flex h-8 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-lg pr-1 pl-2.5 text-left text-[0.8125rem] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:h-11 pointer-coarse:text-sm"
+              class="flex h-8 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-lg pr-1 pl-2 text-left text-[0.8125rem] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:h-11 pointer-coarse:text-sm"
             >
+              <FileText size={16} class="shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate">{label}</span>
               {#if images.length}
                 <span class="hidden shrink-0 items-center -space-x-1 @min-[14rem]/stash:flex" aria-hidden="true">
@@ -194,21 +188,9 @@
         {/each}
       </ul>
     {:else}
-      <p class="px-2.5 pb-2 text-chrome-dense text-(--solus-text-tertiary)">
+      <p class="px-2 py-1 text-chrome-dense text-(--solus-text-tertiary)">
         Nothing stashed yet.
         {#if combo}Press {formatComboText(combo)} with a prompt in the composer to stash it.{/if}
       </p>
     {/if}
-  </div>
-{/if}
-
-<style>
-  .stash-drawer {
-    /* A floating card centered over the composer, narrower than it so it reads
-       as a menu rather than part of the card. */
-    width: min(30rem, calc(var(--stash-card-width) - 2rem));
-    left: calc(var(--stash-card-left) + (var(--stash-card-width) - min(30rem, calc(var(--stash-card-width) - 2rem))) / 2);
-    bottom: var(--stash-bottom);
-    max-height: var(--stash-max-height);
-  }
-</style>
+</div>

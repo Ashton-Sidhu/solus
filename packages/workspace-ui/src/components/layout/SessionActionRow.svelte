@@ -414,10 +414,10 @@
         >
           <action.icon size={16} />
           {#if action.count !== undefined}
-            <!-- A small count on the icon's corner, cut out from the icon by a
-                 ring in the page color, so the button keeps its size. -->
+            <!-- A quiet count on the icon's corner, in the icon's own color,
+                 so the button keeps its size. -->
             <span
-              class="pointer-events-none absolute -top-0.5 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-(--solus-text-secondary) px-[3px] text-[0.625rem] leading-none font-semibold tabular-nums text-(--background) ring-2 ring-(--background)"
+              class="pointer-events-none absolute top-0.5 right-0.5 text-[0.625rem] leading-none font-medium tabular-nums"
               aria-hidden="true"
             >{action.count > 9 ? "9+" : action.count}</span>
           {/if}

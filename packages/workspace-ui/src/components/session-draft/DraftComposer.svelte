@@ -105,7 +105,7 @@
   data-slot="composer"
   data-session-drop-area
   class={cn(
-    "@container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3 has-[[data-session-drop-target]]:outline-1 has-[[data-session-drop-target]]:outline-dashed has-[[data-session-drop-target]]:outline-primary/50",
+    "relative @container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3 has-[[data-session-drop-target]]:outline-1 has-[[data-session-drop-target]]:outline-dashed has-[[data-session-drop-target]]:outline-primary/50",
     // Over a page the card lifts off it; on a pane it rests with a soft drop
     // in light mode and on its ring alone in dark.
     floating

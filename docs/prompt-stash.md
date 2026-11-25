@@ -6,9 +6,9 @@ attachments, and references, then clears the composer. Wait for uploads to
 finish before you stash a prompt.
 
 With an empty composer, press the same shortcut to restore a single stash or
-open the stash menu above the composer. When the stash has saved prompts, the
-bookmark in the Session actions row shows their count on a small badge and
-opens the menu above the row.
+open the stash tray, which comes out from behind the top of the composer.
+When the stash has saved prompts, the bookmark in the Session actions row shows
+their count beside its corner and opens the tray.
 Select a prompt to restore it or use its delete button to remove it. When
 you restore into a composer with text, Solus adds it below your draft.
 

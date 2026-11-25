@@ -45,6 +45,13 @@
     transition-delay: 0s;
   }
 
+  /* The stash tray comes out of the bar where the row sits, so the row steps
+     aside while the tray is open. */
+  [data-composer-column]:has(> [data-composer-dock] [data-composer-stash-drawer])
+    .session-action-root {
+    visibility: hidden;
+  }
+
   /* The fold is a cut under reduced motion, so the row cuts with it. */
   @media (prefers-reduced-motion: reduce) {
     .session-action-root {
