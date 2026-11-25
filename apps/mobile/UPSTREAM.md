@@ -108,7 +108,7 @@ The T3 pull request and issue sheets use the selected host for edits, labels, re
 
 Mobile keeps T3's review draft file on the device. Solus scopes it by account and host. The PR Activity author rows already expose native headings for reviews, comments, and discussions, as in T3 Code PR #39648.
 
-The native PR merge controls use Solus host RPCs for stack membership, immediate merge, and auto-merge. The selected host checks permissions and the heads that the confirmation showed. GitHub reports stack auto-merge on the layer where it was turned on.
+The native PR merge controls use Solus host RPCs for stack membership, immediate merge, and auto-merge. The selected host checks permissions and the heads that the confirmation showed. GitHub reports stack auto-merge on the layer where it was turned on. The T3 workflow approval control also uses Solus host calls. The host supplies the waiting runs, and the confirmation sends the head commit shown to the user. This follows T3 Code PR #26561 for same-repository and fork pull requests.
 
 The session review picker follows T3's Changes and Uncommitted choices. The Solus host supplies both comparisons and uses its own target branch selection. The picker also offers Session for the session's accumulated changes.
 

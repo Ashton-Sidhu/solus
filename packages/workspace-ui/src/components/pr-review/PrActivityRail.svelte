@@ -90,7 +90,7 @@
     /** The page's one reading of whether the pull request can land, which
      *  the status card states and the actions act on. Null until detail. */
     readiness: MergeReadiness | null;
-    /** The indexed pull request, which reads and approves fork workflow runs. */
+    /** The indexed pull request, which reads and approves waiting workflow runs. */
     pullRequest?: IndexedPullRequest | null;
     reviewers: PrReviewer[];
     reviewersLoading: boolean;

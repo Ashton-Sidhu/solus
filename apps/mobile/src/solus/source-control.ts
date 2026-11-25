@@ -422,7 +422,7 @@ export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; 
 });
 
 const SOLUS_PR_ACTIONS = [
-  "merge", "close", "reopen", "ready", "draft", "enable-auto-merge", "disable-auto-merge",
+  "merge", "close", "reopen", "ready", "draft", "enable-auto-merge", "disable-auto-merge", "approve-workflows",
 ] satisfies PullRequestAction[];
 
 export const solusPrStack = hostQuery(
@@ -451,8 +451,9 @@ export const solusPrDetail = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestDetail> => {
     const api = sourceControlApi(id);
     const repo = await solus.pullRequests.repository(id, input.projectId);
+    const ref = { repo, number: input.number };
     const [{ pullRequest: pr, reviewers }, checksSnapshot] = await Promise.all([
-      api.prGetOverview({ repo, number: input.number }, { includeCommits: false }),
+      api.prGetOverview(ref, { includeCommits: false }),
       api.prChecks(repo, [input.number]).catch(() => null),
     ]);
     const summary = checksSnapshot?.checks.find((check) => check.number === input.number)?.summary;
@@ -477,6 +478,9 @@ export const solusPrDetail = hostQuery(
       (input.host && pr.baseRepo.host !== input.host)
     )
       throw new Error("The project now points to a different repository.");
+    const workflowRuns = pr.state === "open" && pr.capabilities.actions.includes("approve-workflows")
+      ? await api.prPendingWorkflowRuns(ref).catch(() => null)
+      : null;
     const project = solus.threads
       .projects()
       .find((p) => p.hostId === id && p.project.path === input.projectId)?.project;
@@ -487,6 +491,8 @@ export const solusPrDetail = hostQuery(
     return {
       ...row,
       headSha: pr.headSha,
+      workflowApprovalsRequired: workflowRuns?.headSha === pr.headSha
+        ? workflowRuns.runs.length : undefined,
       workspaceRoot: input.projectId,
       body: pr.body,
       changedFiles: pr.changedFiles ?? 0,

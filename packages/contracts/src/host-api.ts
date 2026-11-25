@@ -1023,9 +1023,9 @@ export interface SolusAPI {
    *  request's `owner/name`, which can differ from the checkout. GitHub needs
    *  it to serve an upload in an organization that enforces SAML SSO. */
   prMediaUrl(ctx: IpcContext | undefined, githubMediaUrl: string, repository?: string): Promise<AssetCreateUrlResult>
-  /** The workflow runs of a fork pull request that wait for a maintainer. */
+  /** The workflow runs of a pull request that wait for a maintainer. */
   prPendingWorkflowRuns(pr: PrRef): Promise<PrPendingWorkflowRuns>
-  /** Approve the waiting workflow runs of a fork pull request, checked against
+  /** Approve the waiting workflow runs of a pull request, checked against
    *  the head the viewer saw. Needs `approve-workflows` in both action lists. */
   prApproveWorkflowRuns(pr: PrRef, expectedHeadSha: string): Promise<PrWorkflowApprovalResult>
   /** Which files the viewer marked viewed, as the code host keeps it. Needs

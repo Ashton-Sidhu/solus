@@ -42,7 +42,7 @@ export interface PullRequestPermissions {
   canUpdateHead: boolean
   /** A merged pull request can be reverted in a new pull request. */
   canRevert: boolean
-  /** The person may let the held workflow runs of a fork pull request start. */
+  /** The person may let the waiting workflow runs start. */
   canApproveWorkflows: boolean
 }
 

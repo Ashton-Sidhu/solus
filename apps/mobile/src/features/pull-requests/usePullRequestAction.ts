@@ -36,7 +36,12 @@ export function usePullRequestAction(params: PullRequestParams, pr: PullRequestD
     setBusy(true);
     const response = await run({
       ...target,
-      input: { ...target.input, action, ...(updateMethod ? { updateMethod } : {}) },
+      input: {
+        ...target.input,
+        action,
+        updateMethod,
+        expectedHeadSha: action === "approve-workflows" ? pr?.headSha : undefined,
+      },
     });
     pending.current = false;
     setBusy(false);
