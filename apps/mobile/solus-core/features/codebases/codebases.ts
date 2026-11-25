@@ -22,6 +22,7 @@ import {
   type CodebaseMember,
   type CodebaseRoot,
 } from '@solus/contracts/codebases'
+import { withCodebaseBadge, type CodebaseColor, type CodebaseIcon } from '@solus/contracts/codebase-badge'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import { hostPathKey } from '@solus/contracts/host-path'
 import { Listeners } from '../../lib/listeners'
@@ -241,6 +242,10 @@ export class Codebases {
     return codebase && isLiveCodebase(codebase) ? codebase : undefined
   }
 
+  isDeleted(codebaseId: string): boolean {
+    return this.newest.get(codebaseId)?.deletedAt != null
+  }
+
   /** The codebases that hold a folder on a host of this phone: the folder is a root, or it is inside a root. */
   codebasesOfFolder(hostId: string, path: string): Codebase[] {
     const installationId = this.installationIdOf(hostId)
@@ -348,6 +353,20 @@ export class Codebases {
     const current = this.requiredCodebase(codebaseId)
     if (current.name === codebaseName) return current
     return this.commit({ ...current, name: codebaseName, updatedAt: nextUpdatedAt(current, this.now()) })
+  }
+
+  /**
+   * Choose the colour or the icon of the badge, or clear the choice (`null`),
+   * so it comes from the name again. An absent field keeps its choice.
+   */
+  async setBadge(codebaseId: string, change: { color?: CodebaseColor | null; icon?: CodebaseIcon | null }): Promise<Codebase> {
+    const current = this.requiredCodebase(codebaseId)
+    const badge = withCodebaseBadge(current.badge, change)
+    if (JSON.stringify(badge) === JSON.stringify(current.badge)) return current
+    const { badge: _previous, ...rest } = current
+    const next: Codebase = { ...rest, updatedAt: nextUpdatedAt(current, this.now()) }
+    if (badge) next.badge = badge
+    return this.commit(next)
   }
 
   /**

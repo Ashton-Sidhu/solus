@@ -184,8 +184,7 @@
           data-sidebar-section={item.section}
           class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.folderKey === undefined && (item.section === 'sessions' ||
           item.section === 'shared' ||
-          item.section === 'working' ||
-          (item.section === 'pinned' && item.key.endsWith(':card')))
+          item.section === 'working')
             ? '[contain-intrinsic-size:auto_62px]'
             : '[contain-intrinsic-size:auto_36px]'} {item.section === 'completed' ? 'opacity-80' : ''}"
         >

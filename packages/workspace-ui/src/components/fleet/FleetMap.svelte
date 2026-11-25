@@ -1,24 +1,28 @@
 <script lang="ts">
   import { ChevronRight, KeyRound, Laptop, Link2, Plus, RotateCw, Terminal } from "@lucide/svelte";
-  import type { LinkedOnlyMachine, MachineLinkTone, MachineLinkView } from "@solus/client-core/host-linking";
+  import * as Tooltip from "../ui/tooltip";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import FleetMapCard from "./FleetMapCard.svelte";
   import FleetTile from "./FleetTile.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
+  import FleetStatusLine from "./FleetStatusLine.svelte";
+  import RouteKindIcon from "./RouteKindIcon.svelte";
   import type { FoundMachine } from "./lib/discover";
-  import { machineLinkSummary, mapLinkLines } from "./lib/machine-link-map";
   import {
     CARD_HEIGHT,
     groupsOf,
-    isZoneTroubled,
     linkPath,
     MAP_HEIGHT,
     machineMatches,
     machinesByZone,
     mapLayout,
     rollup,
+    routeInUseLabel,
     toneOf,
+    trafficOf,
+    trafficText,
+    trafficWidth,
     travelSeconds,
     ZONE_HEADER,
     type AddWay,
@@ -36,8 +40,9 @@
    * your machines, for Solus Cloud, and for the hosts shared with you, and a link
    * to each host, or one link for a zone too full for cards.
    * Its only continuous motion is the approved light on busy links (D5), paused
-   * by `isLive`. Machine links (D13) are lines between the cards: faint at rest,
-   * clear for the machine under the pointer.
+   * by `isLive`. Each host's line shows the mark of the route this device is
+   * on, or tries, at its card, and is as wide as its traffic (D13). The status
+   * of the fleet is one line above this device.
    */
   interface Props {
     machines: FleetMachine[];
@@ -57,43 +62,30 @@
     onPointFound: (key: string | null) => void;
     /** Reads a zone's hosts again after its read failed. */
     onRetry: (zone: FleetZoneId) => void;
-    /** Every link between two machines (D13). */
-    links: MachineLinkView[];
-    /** The machines that links reach and that this device has no entry for. */
-    linked: LinkedOnlyMachine[];
-    /** The machine known only through a link that is under the pointer; null when the pointer leaves it. */
-    focusLinkedId: string | null;
-    onPointLinked: (installationId: string | null) => void;
-    /** Adds a machine known only through a link to this device. */
-    onConnectLinked: (machine: LinkedOnlyMachine) => void;
   }
 
-  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry, links, linked, focusLinkedId, onPointLinked, onConnectLinked }: Props = $props();
+  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry }: Props = $props();
 
   /** The map's own box, in px. Its height is `MAP_HEIGHT` rem, so the two give its width in rem. */
   let mapWidth = $state(0);
   let mapHeight = $state(0);
 
-  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers, linked));
+  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
-  const linkLines = $derived(mapLinkLines(map, links, device?.installationId ?? null));
-  /** The machine whose links are clear: the host or the linked machine under the pointer. */
-  const focusInstallationId = $derived(focusLinkedId ?? machines.find((machine) => machine.serverId === focusId)?.installationId ?? null);
-  const linkColor = {
-    ok: "var(--solus-text-tertiary)",
-    warn: "var(--warning)",
-    bad: "var(--solus-status-error)",
-    unknown: "var(--hairline-strongest)",
-  } satisfies Record<MachineLinkTone, string>;
   const tunneled = $derived(map.zones.flatMap(({ zone, hosts }) => (zone.isViaTunnel ? hosts : [])));
   const hubPort = $derived({ x: map.hub.x + map.hub.w / 2, y: map.hub.y });
   const tunnelSummary = $derived(rollup(tunneled));
+  /** The tunnel carries the traffic of every host past it. */
+  const tunnelWidth = $derived(trafficWidth(trafficOf(tunneled)));
+  /** The words of a route mark: the route, how it goes, and its traffic (D13). */
+  const routeMarkLabel = (machine: FleetMachine, route: NonNullable<FleetMachine["routeInUse"]>) => {
+    const traffic = trafficText(machine.traffic);
+    return traffic ? `${routeInUseLabel(route)} · ${traffic}` : routeInUseLabel(route);
+  };
 
   const isZoneLit = (hosts: FleetMachine[]) => !focusId || hosts.some((machine) => machine.serverId === focusId);
   const isLit = (serverId: string) => !focusId || focusId === serverId;
-  const slotKey = (slot: ZoneSlot) => `${slot.kind}:${slot.kind === "host" ? slot.machine.serverId : slot.kind === "found" ? slot.machine.key : slot.kind === "linked" ? slot.machine.installationId : ""}`;
-  /** At rest a link is faint; the links of the machine under the pointer are clear, and the others fade. */
-  const linkOpacity = (ends: [string, string]) => (!focusInstallationId ? 0.5 : ends.includes(focusInstallationId) ? 1 : 0.12);
+  const slotKey = (slot: ZoneSlot) => `${slot.kind}:${slot.kind === "host" ? slot.machine.serverId : slot.kind === "found" ? slot.machine.key : ""}`;
   const addCards = {
     cloud: { title: "New machine", subtitle: "Ready in a minute" },
     pair: { title: "Pair a machine", subtitle: "With the code it shows" },
@@ -184,14 +176,14 @@
     </div>
   {/each}
 
-  <!-- Links: green when connected, the problem's color when not; a terracotta light moves along a link that carries sessions. -->
+  <!-- Links: green when connected, the problem's color when not, as wide as their traffic; a terracotta light moves along a link that carries sessions. -->
   <svg class="pointer-events-none absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
     {#if tunneled.length}
       <g opacity={isZoneLit(tunneled) ? 1 : 0.35}>
-        <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width="1.5" vector-effect="non-scaling-stroke"
+        <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width={tunnelWidth} vector-effect="non-scaling-stroke"
           style:stroke={tunnelSummary.answering ? "color-mix(in oklch, var(--success) 80%, transparent)" : "var(--hairline-strong)"} />
         {#if tunnelSummary.sessions}
-          <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"
+          <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width={tunnelWidth} stroke-linecap="round" vector-effect="non-scaling-stroke"
             class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(tunnelSummary.sessions)}s" />
         {/if}
       </g>
@@ -200,10 +192,10 @@
       {#if isFull}
         {@const summary = rollup(hosts)}
         {@const path = linkPath(linkStart, port)}
-        {@const width = 1.5 + Math.min(1.5, summary.sessions / 120)}
+        {@const width = trafficWidth(trafficOf(hosts))}
         <g opacity={isZoneLit(hosts) ? 1 : 0.35}>
           <path d={path} fill="none" stroke-width={width} vector-effect="non-scaling-stroke"
-            style:stroke={isZoneTroubled(summary) ? "var(--warning)" : "color-mix(in oklch, var(--success) 80%, transparent)"} />
+            style:stroke={summary.answering ? "color-mix(in oklch, var(--success) 80%, transparent)" : "var(--hairline-strong)"} />
           {#if summary.sessions}
             <path d={path} fill="none" stroke-width={width} stroke-linecap="round" vector-effect="non-scaling-stroke"
               class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(summary.sessions)}s" />
@@ -213,44 +205,22 @@
         {#each hosts as machine, index (machine.serverId)}
           {@const tone = toneOf(machine.state)}
           {@const path = linkPath(linkStart, rows[index]!.port)}
+          {@const width = trafficWidth(trafficOf([machine]))}
           <g opacity={isLit(machine.serverId) ? 1 : 0.3}>
             <path d={path} fill="none" vector-effect="non-scaling-stroke"
-              stroke-width={focusId === machine.serverId ? 2.25 : 1.5}
+              stroke-width={width + (focusId === machine.serverId ? 0.75 : 0)}
               stroke-dasharray={machine.routeKind === "forwarded" ? "5 4" : tone === "ok" ? undefined : tone === "off" ? "3 4" : "2 4"}
               class:crawl={tone === "warn"}
               style:stroke={lineColor(machine)} />
             {#if tone === "ok" && machine.sessions}
-              <path d={path} fill="none" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"
+              <path d={path} fill="none" stroke-width={width} stroke-linecap="round" vector-effect="non-scaling-stroke"
                 class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(machine.sessions)}s" />
             {/if}
           </g>
         {/each}
       {/if}
     {/each}
-    <!-- Machine links (D13): a line from the machine that holds the link to the one it reaches; dotted when it wants attention. -->
-    {#each linkLines as line (line.id)}
-      <path d={line.d} fill="none" vector-effect="non-scaling-stroke"
-        stroke-width={focusInstallationId && line.ends.includes(focusInstallationId) ? 1.75 : 1.25}
-        stroke-dasharray={line.tone === "ok" ? undefined : "2 3"}
-        style:stroke={linkColor[line.tone]}
-        style:opacity={linkOpacity(line.ends)} />
-    {/each}
   </svg>
-
-  <!-- Arrowheads: where a link reaches a machine. The map stretches its lines, so a head is drawn in the page, not in the line. -->
-  {#each linkLines as line (line.id)}
-    {#each line.arrows as arrow, index (index)}
-      <span
-        aria-hidden="true"
-        class="pointer-events-none absolute z-15 size-0 -translate-y-1/2 border-y-[3.5px] border-y-transparent {arrow.dir === 1 ? 'border-l-[6px] -translate-x-full' : 'border-r-[6px]'}"
-        style:left="{arrow.at.x}%"
-        style:top="{arrow.at.y}%"
-        style:border-left-color={arrow.dir === 1 ? linkColor[line.tone] : undefined}
-        style:border-right-color={arrow.dir === -1 ? linkColor[line.tone] : undefined}
-        style:opacity={linkOpacity(line.ends)}
-      ></span>
-    {/each}
-  {/each}
 
   <!-- Ports: where a link meets its card, or the edge of a full zone. -->
   {#each map.zones as { zone, hosts, isFull, rows, port } (zone.id)}
@@ -260,7 +230,7 @@
         class="absolute z-15 size-[5px] -translate-1/2 rounded-full ring-[1.5px] ring-background"
         style:left="{port.x}%"
         style:top="{port.y}%"
-        style:background={isZoneTroubled(rollup(hosts)) ? portColor.warn : portColor.ok}
+        style:background={rollup(hosts).answering ? portColor.ok : portColor.off}
         style:opacity={isZoneLit(hosts) ? 1 : 0.35}
       ></span>
     {:else}
@@ -278,6 +248,40 @@
     {/if}
   {/each}
 
+  <!-- The route of each host, on its line at its card (D13). The tunnel is drawn as its own mark, so a tunneled line needs no name. -->
+  {#each map.zones as { zone, hosts, isFull, rows } (zone.id)}
+    {#if !isFull}
+      {#each hosts as machine, index (machine.serverId)}
+        {@const route = machine.routeInUse}
+        {@const cardPort = rows[index]!.port}
+        {#if route && route.kind !== "tunnel"}
+          <Tooltip.Root delayDuration={150}>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <span
+                  {...props}
+                  role="img"
+                  aria-label={routeMarkLabel(machine, route)}
+                  class="absolute z-15 grid size-[18px] -translate-y-1/2 place-items-center rounded-full border bg-card transition-opacity duration-300 motion-reduce:transition-none
+                    {zone.isViaTunnel ? '-translate-x-[calc(100%+0.375rem)]' : 'translate-x-1.5'}
+                    {route.phase === 'refused'
+                      ? 'border-(--solus-status-error)/40 text-(--solus-status-error)'
+                      : route.phase === 'connecting'
+                        ? 'border-(--warning)/40 text-(--warning)'
+                        : 'border-border/70 text-muted-foreground'}"
+                  style:left="{cardPort.x}%"
+                  style:top="{cardPort.y}%"
+                  style:opacity={isLit(machine.serverId) ? 1 : 0.3}
+                ><RouteKindIcon kind={route.kind} size={10} /></span>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content value={routeMarkLabel(machine, route)} />
+          </Tooltip.Root>
+        {/if}
+      {/each}
+    {/if}
+  {/each}
+
   {#if tunneled.length}
     <span
       role="img"
@@ -291,6 +295,11 @@
       <Link2 size={11} />
     </span>
   {/if}
+
+  <!-- The status of the fleet on one line, above this device, where no line passes (D13). -->
+  <div class="absolute z-20 w-max -translate-x-1/2 -translate-y-full" style:left="{map.hub.x}%" style:top="calc({map.hub.y}% - 2.5rem)">
+    <FleetStatusLine {machines} />
+  </div>
 
   <!-- This device: the center. A web client has no host of its own, so its center is the browser. -->
   <div class="absolute z-20 -translate-1/2" style:left="{map.hub.x}%" style:top="{map.hub.y}%" style:width="{map.hub.w}%">
@@ -333,7 +342,6 @@
           machine={slot.machine}
           {at}
           width={map.cardWidth}
-          links={machineLinkSummary(links, slot.machine.installationId)}
           isDimmed={!machineMatches(slot.machine, query)}
           {onPoint}
           {onOpen}
@@ -341,8 +349,6 @@
         />
       {:else if slot.kind === "found"}
         {@render foundCard(slot.machine, at)}
-      {:else if slot.kind === "linked"}
-        {@render linkedCard(slot.machine, at)}
       {:else if slot.kind === "add"}
         {@render addCard(slot.way, at)}
       {:else if slot.kind === "unread"}
@@ -383,30 +389,6 @@
     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
       <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.name}</span>
       <span class="truncate text-chrome-dense">Found nearby</span>
-    </span>
-    <Plus size={13} class="shrink-0 group-hover:text-foreground" />
-  </button>
-{/snippet}
-
-<!-- A machine known only through a link: dashed, as it is not on this device yet. Selecting it connects this device. -->
-{#snippet linkedCard(machine: LinkedOnlyMachine, at: Point)}
-  <button
-    type="button"
-    onclick={() => onConnectLinked(machine)}
-    onmouseenter={() => onPointLinked(machine.installationId)}
-    onmouseleave={() => onPointLinked(null)}
-    onfocus={() => onPointLinked(machine.installationId)}
-    onblur={() => onPointLinked(null)}
-    class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none"
-    style:left="{at.x}%"
-    style:top="{at.y}%"
-    style:width="{map.cardWidth}%"
-    style:height="{CARD_HEIGHT}rem"
-  >
-    <span class="grid size-[30px] shrink-0 place-items-center"><Link2 size={13} /></span>
-    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.label}</span>
-      <span class="truncate text-chrome-dense">Linked from {machine.viaLabels.join(", ")}</span>
     </span>
     <Plus size={13} class="shrink-0 group-hover:text-foreground" />
   </button>

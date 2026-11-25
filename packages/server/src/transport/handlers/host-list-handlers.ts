@@ -16,7 +16,7 @@ export function registerHostListHandlers(server: SolusServer, deps: { broadcast:
 
   server.register('hostListRead', (_args, ctx) => {
     ownerOnly(ctx)
-    return readHostList({ forDevice: true })
+    return readHostList()
   })
 
   server.register('hostListPut', ([listing], ctx) => {

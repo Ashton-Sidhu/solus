@@ -54,6 +54,16 @@ describe('settings search', () => {
     }
   })
 
+  // App-wide choices live on General so the page is not near empty; each row has one home.
+  test('the code editor, fallback terminal, and session names are found on General only', () => {
+    for (const [query, id] of [['Code editor', 'code-editor'], ['Fallback terminal', 'terminal'], ['Name sessions automatically', 'auto-rename']]) {
+      expect(settingsPageMatches('general', query)).toBe(true)
+      expect(settingVisible(settingsPageQuery('general', query), settingsByPage.general, id)).toBe(true)
+      expect(settingsPageMatches('tools', query)).toBe(false)
+      expect(settingsPageMatches('sessions', query)).toBe(false)
+    }
+  })
+
   test('section headings and nested controls open their page without hiding all rows', () => {
     expect(settingsPageMatches('appearance', 'Typography')).toBe(true)
     expect(settingsPageQuery('appearance', 'Typography')).toBe('')

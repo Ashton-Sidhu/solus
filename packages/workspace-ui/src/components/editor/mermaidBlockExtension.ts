@@ -3,15 +3,9 @@ import { MermaidBlock } from '@solus/document-model/blocks'
 import { MERMAID_SOURCE_INFO } from '@solus/document-model/fences'
 import MermaidBlockNodeView from './MermaidBlockNodeView.svelte'
 
-interface MermaidBlockExtensionOptions {
-  /** The app theme, read through the shell that built this extension: a node
-   *  view cannot reach the settings context itself. */
-  isDark: () => boolean
-}
-
 /** A ```mermaid fence drawn in place. The node and its markdown are the
  *  document model's; this adds the drawing and its source editor. */
-export function createMermaidBlockExtension(options: MermaidBlockExtensionOptions) {
+export function createMermaidBlockExtension() {
   return MermaidBlock.extend({
     addNodeView() {
       return ({ node, editor, getPos }) => {
@@ -22,7 +16,6 @@ export function createMermaidBlockExtension(options: MermaidBlockExtensionOption
           target: dom,
           props: {
             source: current.source,
-            isDark: options.isDark,
             // Committed on blur or Done, never per keystroke: a transaction per
             // character would redraw the diagram as fast as the reader types.
             onCommit: (source: string) => {

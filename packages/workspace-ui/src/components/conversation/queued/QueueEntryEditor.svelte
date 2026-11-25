@@ -19,6 +19,7 @@
     <!-- svelte-ignore a11y_autofocus -->
     <textarea bind:this={editor} bind:value={edit.text} disabled={edit.busy} rows={3} autofocus aria-label="Queued prompt text"
       class="block max-h-[12lh] w-full resize-none bg-transparent field-sizing-content text-transcript-card leading-(--text-transcript-card--line-height) text-(--solus-text-primary) outline-none"
+      onpaste={(event) => { if (event.clipboardData && edit.paste(event.clipboardData)) event.preventDefault(); }}
       onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); close(); } if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); } }}></textarea>
     {#if edit.attachments?.length}
       <div class="mt-1.5 flex flex-wrap gap-1.5">

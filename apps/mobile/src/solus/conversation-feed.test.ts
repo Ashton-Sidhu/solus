@@ -6,7 +6,7 @@ import {
   TranscriptModel,
   type TranscriptItem,
 } from "@solus-mobile/features/conversation/lib/transcript-model";
-import { conversationFeed as createFeed } from "./conversation-feed";
+import { conversationFeed as createFeed, hostFeedWork } from "./conversation-feed";
 
 function conversationFeed(
   store: Parameters<typeof createFeed>[0],
@@ -410,13 +410,30 @@ it("restores an image-only message as one gallery and resolves the host photo on
   });
   expect(gallery).toMatchObject([
     { kind: "image", uri: "data:image/png;base64,AA" },
-    { kind: "image", name: "Camera", mimeType: "image/jpeg", resource: { path: "/uploads/saved" } },
+    { kind: "image", name: "Camera", resource: { mimeType: "image/jpeg", _tag: "attachment", attachmentId: "upload:session//uploads/saved" } },
   ]);
   expect(resolve).not.toHaveBeenCalled();
   const saved = gallery[1];
   if (!saved || !("resource" in saved)) throw new Error("Missing host photo");
-  await saved.resolveUrl?.(true);
-  expect(resolve.mock.calls).toEqual([["/uploads/saved", true]]);
+  expect(saved).not.toHaveProperty("resolveUrl");
+});
+
+it("keeps the working timer off the previous turn while the next prompt belongs to the pending feed", () => {
+  const model = new TranscriptModel("session");
+  model.addOptimisticUser("old", "Earlier question");
+  model.apply({ type: "assistant_message", text: "Finished" });
+  const read = (pending: boolean) => {
+    const feed = conversationFeed(
+      { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+      model.order, "session", () => null,
+    ).get();
+    const work = hostFeedWork(feed, true, pending);
+    return deriveThreadFeedPresentation(feed, null, new Set(), new Set(), work.activeWorkStartedAt, work.runlessWorkActive)
+      .filter((row) => row.type === "run-fold" && row.workingSince).map((row) => row.id);
+  };
+  expect(read(true)).toEqual([]);
+  model.addOptimisticUser("next", "Next question");
+  expect(read(false)).toEqual(["run-fold:runless:next"]);
 });
 
 it("keeps streaming the first answer while a follow-up waits in the queue", () => {
@@ -480,6 +497,27 @@ it("keeps a sent document in the T3 message and opens the upload from its origin
   expect(rows[0]).toMatchObject({ type: "message", message: { attachments: [{type:"file", id:"upload:source//uploads/notes.md", name:"notes.md"}] } });
 });
 
+it("opens a converted HEIC as an image in a queued or sent message", async () => {
+  const { isUploadImage, queueChatAttachment } = await import("./upload-images");
+  const { splitAttachedFiles } = await import("@solus-mobile/features/conversation/lib/message-attachments");
+  const hostPath = "/uploads/c6bc17110d37cdfa0afa6ded-photo.jpg";
+  const sign = vi.fn(async () => "https://host/signed");
+  const queued = queueChatAttachment({ id: "attachment", type: "file", name: "photo.heic", mimeType: "image/heic", hostPath }, sign);
+  expect(queued).toMatchObject({ type: "image", name: "photo.jpg", mimeType: "image/jpeg" });
+  expect(isUploadImage(queued)).toBe(true);
+  if (!isUploadImage(queued) || !("path" in queued.preview)) throw new Error("Missing image preview");
+  expect(sign).not.toHaveBeenCalled();
+  expect(await queued.preview.resolveUrl()).toBe("https://host/signed");
+  expect(sign).toHaveBeenCalledWith(hostPath, undefined);
+
+  const { text, files } = splitAttachedFiles(`[Attached file: ${hostPath}]\n\nLook`);
+  const item: TranscriptItem = { kind: "user", id: "photo", text, attachments: files, delivery: "sent", error: null };
+  const feed = conversationFeed({ item: () => item, subscribeFeedItems: () => () => {} }, [item.id], "s", () => null);
+  expect(feed.get()).toMatchObject([
+    { type: "message", message: { attachments: [{ type: "image", name: "photo.jpg", id: "upload:s/" + hostPath }] } },
+  ]);
+});
+
 it("shows the upstream fork marker between inherited history and the new conversation", () => {
   const model = TranscriptModel.fromHistory("fork", {
     before: null,
@@ -534,4 +572,16 @@ it("enables a response checkpoint as soon as its live turn finishes", () => {
     type: "message",
     message: { streaming: false, sourceThreadId: "provider-thread", hostForkPointId: "completed-turn" },
   });
+});
+
+it("carries the host's saved render dimensions into the message that the thread screen reads", () => {
+  const text = "```html render\n<p>Chart</p>\n```";
+  const frame = { start: 0, end: text.length, bodyStart: 15, bodyEnd: 27,
+    title: "Chart", height: 323, attachmentId: "frame", heights: [[390, 323] as const] };
+  const model = TranscriptModel.fromHistory("saved", {
+    before: null,
+    messages: [{ role: "assistant", messageId: "reply", content: text, timestamp: 1, replyHtmlLayout: [frame] }],
+  });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} }, model.order, "saved", () => null);
+  expect(feed.get()).toMatchObject([{ type: "message", message: { text, replyHtmlLayout: [frame] } }]);
 });

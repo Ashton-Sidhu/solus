@@ -3,6 +3,13 @@ import { useNavigation } from "@react-navigation/native";
 import { useListened } from "@solus-mobile/app/app-context";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { Codebase } from "@solus/contracts/codebases";
+import {
+  CODEBASE_COLORS,
+  codebaseColorSchema,
+  codebaseIconText,
+  parseCodebaseIcon,
+  type CodebaseColor,
+} from "@solus/contracts/codebase-badge";
 import { EnvironmentId } from "@t3tools/contracts";
 import { useGT } from "gt-react-native";
 import { useState } from "react";
@@ -124,6 +131,44 @@ function CodebaseSection(props: {
           solus.codebases.rename(codebase.id, name),
         ),
     });
+  // The badge marks each session of the codebase in the session list (docs/plans/codebases.md §9, "Badge").
+  const changeIcon = () =>
+    Dialog.prompt({
+      title: gt("Codebase icon"),
+      message: gt("One or two letters, or one emoji. Leave it empty to use the initials of the name."),
+      initialValue: codebaseIconText(codebase.badge?.icon),
+      confirmText: gt("Save"),
+      onConfirm: (text) => {
+        const icon = parseCodebaseIcon(text);
+        if (icon === "invalid") {
+          Dialog.alert(gt("Failed to change the icon"), gt("Type one or two letters, or one emoji."));
+          return;
+        }
+        void run(gt("Failed to change the icon"), () => solus.codebases.setBadge(codebase.id, { icon }));
+      },
+    });
+  const changeColor = (color: CodebaseColor | null) =>
+    void run(gt("Failed to change the colour"), () => solus.codebases.setBadge(codebase.id, { color }));
+  const colorTitles = {
+    gray: gt("Gray"),
+    red: gt("Red"),
+    orange: gt("Orange"),
+    amber: gt("Amber"),
+    yellow: gt("Yellow"),
+    lime: gt("Lime"),
+    green: gt("Green"),
+    emerald: gt("Emerald"),
+    teal: gt("Teal"),
+    cyan: gt("Cyan"),
+    sky: gt("Sky"),
+    blue: gt("Blue"),
+    indigo: gt("Indigo"),
+    violet: gt("Violet"),
+    purple: gt("Purple"),
+    fuchsia: gt("Fuchsia"),
+    pink: gt("Pink"),
+    rose: gt("Rose"),
+  } satisfies Record<CodebaseColor, string>;
   const remove = () =>
     Dialog.confirm({
       title: gt("Delete {codebase}?", { codebase: codebase.name }),
@@ -158,6 +203,30 @@ function CodebaseSection(props: {
               attributes: { disabled },
             },
             {
+              id: "icon",
+              title: gt("Icon"),
+              image: "face.smiling",
+              attributes: { disabled },
+            },
+            {
+              id: "color",
+              title: gt("Colour"),
+              image: "paintbrush",
+              attributes: { disabled },
+              subactions: [
+                {
+                  id: "color:automatic",
+                  title: gt("Automatic"),
+                  state: codebase.badge?.color ? "off" : "on",
+                },
+                ...CODEBASE_COLORS.map((color) => ({
+                  id: `color:${color}`,
+                  title: colorTitles[color],
+                  state: codebase.badge?.color === color ? ("on" as const) : ("off" as const),
+                })),
+              ],
+            },
+            {
               id: "delete",
               title: gt("Delete", { $context: "verb, deletes a codebase" }),
               image: "trash",
@@ -165,8 +234,14 @@ function CodebaseSection(props: {
             },
           ]}
           onPressAction={({ nativeEvent }) => {
-            if (nativeEvent.event === "rename") rename();
-            else if (nativeEvent.event === "delete") remove();
+            const event = nativeEvent.event;
+            if (event === "rename") rename();
+            else if (event === "icon") changeIcon();
+            else if (event === "color:automatic") changeColor(null);
+            else if (event.startsWith("color:")) {
+              const color = codebaseColorSchema.safeParse(event.slice("color:".length));
+              if (color.success) changeColor(color.data);
+            } else if (event === "delete") remove();
           }}
         >
           <ControlPill icon="ellipsis" accessibilityLabel={optionsLabel} />

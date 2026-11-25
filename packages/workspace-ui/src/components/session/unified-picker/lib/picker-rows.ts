@@ -25,6 +25,7 @@ import {
   type TaskSession,
 } from './picker-session-listings'
 import { hostPathBaseName } from '@solus/contracts/host-path'
+import { codebaseOnClient } from '../../../../contexts/codebases/codebase-rules'
 
 /** The empty query: lists that ignore what is typed. */
 const NO_QUERY = new SearchQuery('')
@@ -729,10 +730,19 @@ export function pickerSessionTaskTitle(row: PickerSessionEntry): string | null {
 /** The folder the session ran in. A task has no folder of its own: its
  *  session names one. */
 export function pickerSessionProject(row: PickerSessionEntry): string {
+  // A session in a codebase this client knows names the codebase, as its sidebar row does.
+  const codebaseId = pickerSessionCodebaseId(row)
+  const codebase = codebaseId ? codebaseOnClient(codebaseId) : undefined
+  if (codebase) return codebase.name
   if (row.kind !== 'session') return conversationProjectLabel(row.meta)
   const projectKey = row.session.projectKey
   if (isChat(projectKey)) return CHAT_LABEL
   return (projectKey && hostPathBaseName(projectKey)) || '~'
+}
+
+/** The codebase of the session, for its mark and its name. */
+export function pickerSessionCodebaseId(row: PickerSessionEntry): string | undefined {
+  return row.kind === 'session' ? row.session.codebaseId : row.meta.codebaseId
 }
 
 /** The folder the session ran in, for its project's logo: a chat's own

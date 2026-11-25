@@ -69,6 +69,11 @@ describe('global skill management', () => {
     expect(await listInstalledSkills()).toEqual({ ok: true, skills: JSON.parse(installed), scope: 'host' })
     expect(calls[0]).toEqual(['-y', 'skills', 'list', '-g', '--json'])
   })
+  test('a skill whose folder is gone does not hide the skills that are installed', async () => {
+    const missing = { name: 'deslop', path: null, scope: 'global', agents: [], source: 'cursor/plugins', status: 'missing' }
+    replies.push(JSON.stringify([...JSON.parse(installed), missing]))
+    expect(await listInstalledSkills()).toEqual({ ok: true, skills: JSON.parse(installed), scope: 'host' })
+  })
   test('does not present a CLI failure or invalid inventory as an empty list', async () => {
     replies.push(new Error('offline'), 'not json')
     expect((await listInstalledSkills()).ok).toBe(false)

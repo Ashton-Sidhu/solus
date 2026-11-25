@@ -189,7 +189,7 @@ export class CodexNativeChildren {
       }
       child.isDetached = true
       detached.push(threadId)
-      this.hooks.emit(sessionId, { type: 'background_task_started', taskId: threadId, toolUseId: child.toolUseId })
+      this.hooks.emit(sessionId, { type: 'background_task_started', taskId: threadId, toolUseId: child.toolUseId, kind: 'subagent' })
     }
     return detached
   }

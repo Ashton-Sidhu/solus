@@ -8,7 +8,7 @@ import { hostUpdater } from '../../contexts/updates/host-updater.svelte'
 import { hostSetupStore } from '../servers/host-setup.store.svelte'
 import { hostReadinessSummary } from '../servers/lib/host-onboarding'
 import { isManagedHost } from '../servers/lib/managed-host'
-import { fleetMachine, type FleetMachine, type FleetZoneId, type ZoneAnswers } from './lib/fleet-model'
+import { fleetMachine, type FleetMachine, type FleetZoneId, type Traffic, type ZoneAnswers } from './lib/fleet-model'
 
 /** Machine load moves slowly, and a host caches it for 5 s. */
 const LOAD_REFRESH_MS = 5_000
@@ -26,6 +26,8 @@ export interface HostLoad {
   cpuCount: number | null
   totalMemoryBytes: number | null
   cpuHistory: number[]
+  /** KB/s each way on this device's connection to the host, between the last two reads; null until there are two (D13). */
+  traffic: Traffic | null
 }
 
 /**
@@ -37,6 +39,8 @@ export interface HostLoad {
 class FleetStore {
   readonly loads = new SvelteMap<string, HostLoad>()
   readonly #holders = new Map<string, number>()
+  /** The byte counts of each host's connection at its last read, to take a rate from the next. */
+  readonly #trafficReads = new Map<string, { at: number; in: number; out: number }>()
   #timer: ReturnType<typeof setInterval> | null = null
   #isReading = false
 
@@ -63,9 +67,10 @@ class FleetStore {
       readinessCopy: hostReadinessCopy(serversStore.readinessFor(server.id), server.label),
       managedState: server.uplink?.managedState,
       routeKind: server.local ? null : routeKindInUse(server),
+      dialedRouteKind: server.local ? undefined : dialedRouteKind(server),
       address: server.local ? undefined : server.url,
       sessions,
-      load: load ? { cpu: load.cpu, memory: load.memory, latencyMs: load.latencyMs } : null,
+      load: load ? { cpu: load.cpu, memory: load.memory, latencyMs: load.latencyMs, traffic: load.traffic } : null,
       hasUpdate: hostUpdatesStore.pendingCountFor(server.id) > 0,
       needsSetup: hostSetupStore.hasProbed(server.id) && !hostReadinessSummary(hostSetupStore.stepsFor(server.id)).ready,
     })
@@ -134,6 +139,23 @@ class FleetStore {
     }
   }
 
+  /**
+   * KB/s each way on this device's connection to the host since the last read,
+   * from the byte counts of its transport. A new connection counts from zero, so
+   * a count that went down starts a new rate.
+   */
+  private readTraffic(serverId: string): Traffic | null {
+    const counted = serverConnections.connectionFor(serverId)?.transport.traffic
+    if (!counted) return null
+    const at = performance.now()
+    const last = this.#trafficReads.get(serverId)
+    this.#trafficReads.set(serverId, { at, ...counted })
+    if (!last || counted.in < last.in || counted.out < last.out || at <= last.at) return null
+    const seconds = (at - last.at) / 1000
+    const rate = (bytes: number) => Math.round((bytes / 1024 / seconds) * 10) / 10
+    return { down: rate(counted.in - last.in), up: rate(counted.out - last.out) }
+  }
+
   private async readLoad(serverId: string): Promise<void> {
     const startedAt = performance.now()
     try {
@@ -151,6 +173,7 @@ class FleetStore {
         cpuCount: resources.cpuCount,
         totalMemoryBytes: resources.totalMemoryBytes,
         cpuHistory: cpu === null ? history : [...history, cpu].slice(-HISTORY_POINTS),
+        traffic: this.readTraffic(serverId),
       })
     } catch {
       // A dropped host shows its readiness; its last load stays until it answers again.
@@ -160,8 +183,13 @@ class FleetStore {
 
 /** The kind of the route this client dials the host on now; its first route when none is dialed. */
 function routeKindInUse(server: ServerItem) {
+  return dialedRouteKind(server) ?? server.routes[0]?.kind ?? null
+}
+
+/** The kind of the route this client dials the host on now; undefined when it dials none. */
+function dialedRouteKind(server: ServerItem) {
   const dialed = serverConnections.dialedUrl(server.id)
-  return (dialed ? server.routes.find((route) => route.url === dialed)?.kind : undefined) ?? server.routes[0]?.kind ?? null
+  return dialed ? server.routes.find((route) => route.url === dialed)?.kind : undefined
 }
 
 export const fleetStore = new FleetStore()

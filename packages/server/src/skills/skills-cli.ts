@@ -86,12 +86,14 @@ const skillSearchSchema = z.object({
     source: z.string(),
   })),
 })
+// The CLI lists a skill whose folder is gone with `path: null` and `status: "missing"`;
+// it is not installed, and it must not hide the skills that are.
 const installedSkillSchema = z.array(z.object({
   name: z.string().min(1),
-  path: z.string(),
+  path: z.string().nullable(),
   agents: z.array(z.string()),
   source: z.string().nullable().optional().transform((value) => value ?? null),
-}))
+})).transform((skills) => skills.flatMap(({ path, ...skill }) => path === null ? [] : [{ ...skill, path }]))
 
 // CLI options, paths, and control characters cannot identify one global skill.
 // eslint-disable-next-line no-control-regex

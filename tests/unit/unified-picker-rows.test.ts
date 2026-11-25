@@ -4,8 +4,10 @@ import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { PickerSort } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-search'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { NO_PICKER_FILTERS } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-filters'
+import { provideCodebaseRules } from '@solus/workspace-ui/contexts/codebases/codebase-rules'
 import {
   conversationProjectLabel,
+  pickerSessionProject,
   buildPickerRows,
   pickerRowHeight,
   previewHitTarget,
@@ -640,5 +642,24 @@ describe('search across tasks and sessions', () => {
     expect(result.entries).toHaveLength(1)
     expect(result.entries[0]).toMatchObject({ kind: 'conversation', hit: undefined })
     expect(previewHitTarget(result.entries[0]!)).toBeNull()
+  })
+})
+
+describe('the place a session row names', () => {
+  // WHY: the session picker, the sidebar row, and the project picker name one codebase one way.
+  test('a session in a codebase this client knows names the codebase; a deleted or unknown one names its project', () => {
+    provideCodebaseRules({
+      isContainerRoot: () => false,
+      codebaseOf: (id) => (id === 'cb-1' ? { id, name: 'Solus', roots: [], updatedAt: 1, deletedAt: null } : undefined),
+    })
+    const row = (codebaseId?: string) => ({
+      kind: 'conversation' as const,
+      key: 'k',
+      entryIndex: 0,
+      meta: { sessionId: 's', serverId: 'mac', projectRoot: '/code/solus', cwd: '/code/solus', codebaseId } as SessionMeta,
+    })
+    expect(pickerSessionProject(row('cb-1'))).toBe('Solus')
+    expect(pickerSessionProject(row('cb-gone'))).toBe('solus')
+    expect(pickerSessionProject(row())).toBe('solus')
   })
 })

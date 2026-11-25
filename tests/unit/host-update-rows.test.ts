@@ -58,7 +58,7 @@ test('a provider update uses the selected host action and leaves busy rows disab
   const status = { agent: 'claude' as const, installedVersion: '1.0.0', check: { kind: 'available' as const, latestVersion: '2.0.0', checkedAt: 0 } }
   const rows = providerUpdateRows([{ id: 'claude', label: 'Claude Code', state: 'done', detail: 'Installed' }], [status], () => { updated = true })
   expect(rows[0]?.detail).toContain('Installed · 1.0.0')
-  expect(rows[0]?.detail).toContain('Last check:')
+  expect(rows[0]?.detail).toBe('Installed · 1.0.0')
   expect(rows[0]?.update?.label).toBe('Update to 2.0.0')
   rows[0]?.update?.run()
   expect(updated).toBe(true)

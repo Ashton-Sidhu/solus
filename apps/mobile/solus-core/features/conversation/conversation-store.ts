@@ -1,3 +1,4 @@
+import type { ThreadHistoryMeta } from '@t3tools/client-runtime/state/thread-history-merge'
 import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStarterFromHost, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
@@ -22,6 +23,7 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
 export interface ConversationMeta {
   phase: ConversationPhase
   status: SessionStatus
+  pendingText: ConversationController['pendingText']
   providerStartup: ConversationController['model']['providerStartup']
   latestSettledTurnId: string | null
   canStopTurn: boolean
@@ -34,9 +36,7 @@ export interface ConversationMeta {
   queue: SessionQueueSnapshot
   /** Prompts this device holds that the host has not taken yet: the run host stays as it is. */
   hasUnsentPrompts: boolean
-  hasOlder: boolean
-  historyError: string | null
-  loadingOlder: boolean
+  history: ThreadHistoryMeta
   /** The agent session on another host that started this one. */
   startedBy: SessionStarterFromHost | null
   pendingPlan: Extract<TranscriptItem, { kind: 'plan' }> | null
@@ -228,6 +228,7 @@ export class ConversationStore {
       phase: this.controller.phase,
       status: model.status,
       providerStartup: model.providerStartup,
+      pendingText: this.controller.pendingText,
       latestSettledTurnId: model.latestSettledTurnId,
       canStopTurn: this.controller.canStopTurn,
       backgroundWorkRunning: model.backgroundWorkRunning,
@@ -237,9 +238,7 @@ export class ConversationStore {
       queued: model.queued,
       queue: this.controller.queue,
       hasUnsentPrompts: this.controller.hasUnsentPrompts,
-      hasOlder: model.history.hasMoreHistory,
-      historyError: model.history.error,
-      loadingOlder: model.history.loading,
+      history: model.history,
       startedBy: this.controller.startedBy,
       pendingPlan: model.pendingPlan(),
       setupStep: setupActivityLabel(model.activeSetupCard()),

@@ -15,6 +15,9 @@ export interface DraftRow {
   projectLabel: string
   /** The project the row files under (`groupKeyFor`). */
   groupKey: string
+  /** The codebase of the session (docs/plans/codebases.md). Its mark is
+   *  then the codebase icon, not the mark of one of its projects. */
+  codebaseId?: string
   serverId: string
   /** True when the prompt carries files the title cannot show. */
   hasAttachments: boolean

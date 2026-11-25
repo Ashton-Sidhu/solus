@@ -67,6 +67,16 @@ export function SolusChatSections() {
           }
         />
         <SettingsSwitchRow
+          label={settingsDefinitions["chat.hide-server-background-work"].label}
+          subtitle={
+            settingsDefinitions["chat.hide-server-background-work"].description
+          }
+          value={settings.hideServerBackgroundWork}
+          onValueChange={(value) =>
+            app.personal.set({ hideServerBackgroundWork: value })
+          }
+        />
+        <SettingsSwitchRow
           label={settingsDefinitions["chat.auto-open-artifacts"].label}
           subtitle="Open new artifacts on desktop and web. Mobile keeps new items in the thread menu."
           value={settings.autoOpenArtifacts}

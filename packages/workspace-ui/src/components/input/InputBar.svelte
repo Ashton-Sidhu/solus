@@ -64,6 +64,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { useComposerFold } from "./lib/composer-fold.svelte";
+  import { useSkyScene } from "../../lib/sky-scene.svelte";
   import { sessionComposerMode, SUGGEST_ONLY_REASON, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
@@ -167,6 +168,9 @@
 
 
   const theme = getSettingsContext();
+  // Send wears the sky of the sidebar's header while the sky shows.
+  const sky = useSkyScene(() => theme.skySceneChoice);
+  const sendSky = $derived(theme.showsSidebarSky ? sky.current : undefined);
   const agent = getAgentContext();
   const voiceHost = $derived(hosts.transcription);
   const voiceReady = $derived(voiceHost?.voiceReady ?? false);
@@ -889,7 +893,9 @@
        button stays put and goes neutral rather than disappearing: fill is spent
        on send, and only once there is something to send. Stop is a light red,
        the lightest that keeps 3:1 with its white square. A click on a folded
-       bar sends without taking the keyboard, so the bar stays folded. -->
+       bar sends without taking the keyboard, so the bar stays folded. While the
+       sidebar's sky shows, Send wears its scene, muted until there is something
+       to send (`[data-send-sky]` in workspace.css). -->
   {#if voiceControlState !== "recording" || stopsRun}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -900,16 +906,19 @@
             onclick={() => (stopsRun ? stopRun() : handleSend("steer", { refocus: !isCollapsed }))}
             disabled={!canSend && !stopsRun}
             data-testid={stopsRun ? "stop-button" : "send-button"}
+            data-send-sky={stopsRun ? undefined : sendSky}
             aria-label={stopsRun
               ? "Stop this run"
               : canSteer
                 ? "Steer the live turn"
                 : "Send message"}
-            class="group pointer-coarse:tap-area flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {stopsRun
+            class="group pointer-coarse:tap-area flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform,filter,opacity] duration-150 enabled:active:scale-[0.96] {stopsRun
               ? 'text-white'
-              : canSend
-                ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
-                : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
+              : sendSky
+                ? 'disabled:cursor-default'
+                : canSend
+                  ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
+                  : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
           >
             {#if stopsRun}
               <span class="flex size-6 items-center justify-center rounded-md bg-(--solus-stop-bg)/85 transition-colors duration-150 group-hover:bg-(--solus-stop-bg)">

@@ -6,24 +6,19 @@ import type { SolusServer, HandlerCtx } from '../server'
 import type { RemoteHosts } from '../../execution/orchestration/remote-hosts'
 import { transcriptText } from '../../execution/sessions/session-forks'
 
-export function registerHostPairingHandlers(server: SolusServer, pairings: HostPairings, remoteHosts?: Pick<RemoteHosts, 'connectPaired' | 'disconnectPairing'>): void {
+/** `onPaired` runs after each new pairing, so this host introduces the machines it holds (host-reach.md §4.4). */
+export function registerHostPairingHandlers(server: SolusServer, pairings: HostPairings, remoteHosts?: Pick<RemoteHosts, 'connectPaired'>, onPaired?: () => void): void {
   const ownerOnly = (ctx: HandlerCtx) => {
     if (!isHostOwner(ctx.principal) || ctx.principal.via !== 'local') throw new Error('Only the local owner can pair hosts.')
   }
-  server.register('hostsPair', ([input], ctx) => { ownerOnly(ctx); return pairings.pair(hostPairRequestSchema.parse(input), ctx.abortSignal) })
-  server.register('hostsListPaired', (_args, ctx) => { ownerOnly(ctx); return pairings.snapshot() })
-  server.register('hostsLinkHealth', (_args, ctx) => { ownerOnly(ctx); return pairings.health() })
-  server.register('hostsUnlink', ([id], ctx) => {
+  server.register('hostsPair', async ([input], ctx) => {
     ownerOnly(ctx)
-    const installationId = z.string().min(1).max(200).parse(id)
-    const removed = pairings.unlink(installationId)
-    if (removed) remoteHosts?.disconnectPairing(installationId)
-    return { removed }
+    const listing = await pairings.pair(hostPairRequestSchema.parse(input), ctx.abortSignal)
+    onPaired?.()
+    return listing
   })
-  server.register('hostsPairClient', ([id, explicit], ctx) => {
-    ownerOnly(ctx)
-    return pairings.forClient(z.string().min(1).parse(id), z.boolean().optional().parse(explicit))
-  })
+  server.register('hostsListPaired', (_args, ctx) => { ownerOnly(ctx); return pairings.listed() })
+  server.register('hostsPairClient', ([id], ctx) => { ownerOnly(ctx); return pairings.forClient(z.string().min(1).parse(id)) })
   server.register('hostsForget', ([id], ctx) => { ownerOnly(ctx); return { removed: pairings.forget(z.string().min(1).parse(id)) } })
   server.register('hostsLinkedSessionPage', async (args, ctx) => {
     ownerOnly(ctx)

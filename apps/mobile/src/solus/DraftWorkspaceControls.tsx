@@ -1,5 +1,4 @@
 import { useNavigation } from "@react-navigation/native";
-import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { T, useGT, useMessages } from "gt-react-native";
 import { View } from "react-native";
@@ -11,6 +10,8 @@ import { NewTaskWorkspaceIcon } from "../features/threads/NewTaskDraftScreen";
 import { resolveNewTaskWorkspaceLabel } from "../features/threads/new-task-context-presentation";
 import { useFolderBranch } from "./CheckoutGit";
 import { checkoutBranch } from "./checkout-git";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { retargetNewTaskDraft } from "../state/use-composer-drafts";
 import type { DraftCodebase } from "./session-repositories";
 import { useDraftStart } from "./use-draft-start";
 
@@ -25,11 +26,11 @@ const REPOSITORY_DEFAULTS_BASE = "HEAD";
 /** The codebase of the new thread. It shows only when more than one codebase holds the folder: one codebase needs no choice. */
 function CodebaseControl(props: {
   readonly codebase: DraftCodebase;
-  readonly controller: ConversationController;
+  readonly onChoose: (codebaseId: string | null) => void;
   readonly disabled: boolean;
 }) {
   const gt = useGT();
-  const { codebase, controller } = props;
+  const { codebase, onChoose } = props;
   if (codebase.options.length < 2) return null;
   const selected = codebase.options.find((option) => option.id === codebase.codebaseId);
   const label = codebase.needsChoice
@@ -39,9 +40,9 @@ function CodebaseControl(props: {
     Dialog.alert(gt("Codebase"), undefined, [
       ...codebase.options.map((option) => ({
         text: option.name,
-        onPress: () => controller.chooseCodebase(option.id),
+        onPress: () => onChoose(option.id),
       })),
-      { text: gt("No codebase"), onPress: () => controller.chooseCodebase(null) },
+      { text: gt("No codebase"), onPress: () => onChoose(null) },
       { text: gt("Cancel"), style: "cancel" as const },
     ]);
   return (
@@ -130,6 +131,7 @@ function BranchControl(props: {
 export function DraftWorkspaceControls(props: {
   readonly store: ConversationStore;
   readonly disabled: boolean;
+  readonly draftKey?: string;
 }) {
   const gt = useGT();
   const messages = useMessages();
@@ -163,10 +165,20 @@ export function DraftWorkspaceControls(props: {
       : git.error
         ? gt("Git unavailable")
         : gt("Loading branches…"));
+  const chooseCodebase = (codebaseId: string | null) => {
+    controller.chooseCodebase(codebaseId);
+    if (props.draftKey && controller.canChooseStart) {
+      retargetNewTaskDraft(props.draftKey, {
+        environmentId: EnvironmentId.make(hostId),
+        projectId: ProjectId.make(meta.run.projectDirectory),
+        codebaseId,
+      });
+    }
+  };
 
   return (
     <View className="flex-row flex-wrap items-center gap-x-1 px-2 pb-1">
-      <CodebaseControl codebase={codebase} controller={controller} disabled={props.disabled} />
+      <CodebaseControl codebase={codebase} onChoose={chooseCodebase} disabled={props.disabled} />
       <ComposerInlineControl
         accessibilityHint={
           startsNewWorktree

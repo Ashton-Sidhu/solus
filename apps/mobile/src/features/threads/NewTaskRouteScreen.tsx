@@ -1,7 +1,10 @@
 import { prepareDraftCheckout, type DraftAttachmentSource } from "../../solus/draft-checkout";
 import { NEW_CHAT_DIRECTORY, isChat } from "@solus/contracts/chat";
-import { ProjectId } from "@t3tools/contracts";
-import { useSolusWorkspace } from "../../solus/runtime";
+import { sameHostPath } from "@solus/contracts/host-path";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { solus, useSolusWorkspace } from "../../solus/runtime";
+import { useListened } from "@solus-mobile/app/app-context";
+import { codebasePickerDestinations, type DraftCodebaseContext } from "../../solus/codebase-picker";
 import { isDraftThreadRoute } from "./thread-route-state";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { msg, T, useGT, useMessages } from "gt-react-native";
@@ -36,6 +39,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { useServerConfigs } from "../../state/entities";
 import {
+  createNewTaskDraft,
   retargetNewTaskDraft,
   retargetSavedNewTaskDraft,
   waitForComposerDraftsLoaded,
@@ -51,10 +55,12 @@ import {
   resolveNewTaskScratchOption,
 } from "./new-task-project-selection";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
+import { NewTaskCodebaseRows } from "./NewTaskCodebaseRows";
 
 type NewTaskRouteParams = {
   readonly source?: DraftAttachmentSource;
   readonly environmentId?: string;
+  readonly currentCodebase?: DraftCodebaseContext;
   readonly incomingShareId?: string | string[];
   /** An existing draft whose project is gone; the chosen project takes it over. */
   readonly draftId?: string | string[];
@@ -165,7 +171,7 @@ function NewTaskHeader(props: {
         search={{
           value: props.searchText,
           onChangeText: props.onSearchTextChange,
-          placeholder: gt("Search projects"),
+          placeholder: gt("Search projects and codebases"),
         }}
       />
     </>
@@ -177,6 +183,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const m = useMessages();
   const { projects, environments, state: catalogState } = useSolusWorkspace();
   const hostFilter = route.params?.environmentId;
+  const current = route.params?.currentCodebase;
   const connectedEnvironments = hostFilter
     ? environments.filter((e) => e.environmentId === hostFilter)
     : environments;
@@ -210,7 +217,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               count: incomingShare.attachments.length,
             })
     : null;
-  const screenTitle = incomingShare ? gt("Start a task") : gt("Choose project");
+  const screenTitle = incomingShare ? gt("Start a task") : gt("Choose project or codebase");
   const projectEmptyState = deriveProjectEmptyState(catalogState, m);
   const serverConfigs = useServerConfigs();
   const listScopes = pickableProjectGroups(projectScopes)
@@ -247,6 +254,28 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       .filter((environment) => environment.connectionState === "connected")
       .map((environment) => environment.environmentId),
   );
+  const codebases = useListened(solus.codebases.changes, () => solus.codebases.codebases());
+  const hosts = solus.codebases.hosts().filter((host) => !hostFilter || host.hostId === hostFilter);
+  const preferredHostId = hostFilter ?? current?.hostId ?? selectedEnvironmentId ??
+    connectedEnvironments.find((host) => host.connectionState === "connected")?.environmentId ?? null;
+  const query = searchText.trim().toLowerCase();
+  const codebaseOptions = codebases.flatMap((codebase) => {
+    const destinations = codebasePickerDestinations(codebase, hosts, current);
+    if (hostFilter && destinations.length === 0) return [];
+    return [{ codebase, destinations }];
+  });
+  const codebaseRows = codebaseOptions.filter(({ codebase, destinations }) =>
+    codebase.name.toLowerCase().includes(query) || destinations.some((host) =>
+      host.label.toLowerCase().includes(query) ||
+      host.roots.some(({ path }) => path.toLowerCase().includes(query)),
+    ),
+  );
+  const canClearCodebase = current && (!hostFilter || current.hostId === hostFilter) &&
+    hosts.some((host) => host.hostId === current.hostId && host.isReady) &&
+    (current.codebaseId !== null || solus.codebases.codebasesOfFolder(current.hostId, current.path).length > 1) &&
+    gt("No codebase").toLowerCase().includes(query);
+  const hasCodebaseRows = codebaseRows.length > 0 || canClearCodebase;
+  const hasVisibleRows = visibleScopes.length > 0 || hasCodebaseRows;
   const scratchOption = reservedDestinationProject
     ? null
     : resolveNewTaskScratchOption({
@@ -260,14 +289,18 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         ),
       });
   const canStartScratch = scratchOption?.ready === true;
-  const pendingScratchRef = useRef<AbortController | null>(null);
-  const cancelPendingScratch = useCallback(() => {
-    pendingScratchRef.current?.abort();
-    pendingScratchRef.current = null;
+  const pendingSelection = useRef<AbortController | null>(null);
+  const cancelPendingSelection = useCallback(() => {
+    pendingSelection.current?.abort();
+    pendingSelection.current = null;
   }, []);
-  useFocusEffect(useCallback(() => cancelPendingScratch, [cancelPendingScratch]));
+  useFocusEffect(useCallback(() => cancelPendingSelection, [cancelPendingSelection]));
 
-  async function selectProject(project: EnvironmentProject, signal?: AbortSignal): Promise<void> {
+  async function selectProject(
+    project: EnvironmentProject | Pick<EnvironmentProject, "environmentId" | "id" | "workspaceRoot">,
+    signal: AbortSignal,
+    codebaseId?: string | null,
+  ): Promise<void> {
     if (incomingShare?.destination && !reservedDestinationProject) {
       try {
         await releaseShareReservation(incomingShare.id, incomingShare.destination);
@@ -287,7 +320,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       : navigation.getParent();
     const rootState = root?.getState();
     const threadRoute = rootState?.routes[rootState.index - 1];
-    if (routeDraftId === undefined && isDraftThreadRoute(threadRoute)) {
+    if (routeDraftId === undefined && codebaseId === undefined && "title" in project && isDraftThreadRoute(threadRoute)) {
       setProject(project);
       if (root && threadRoute?.key)
         root.dispatch({
@@ -299,6 +332,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       root?.goBack();
       return;
     }
+    const projectTarget = {
+      environmentId: project.environmentId,
+      projectId: project.id,
+    };
+    const target = codebaseId === undefined ? projectTarget : { ...projectTarget, codebaseId };
     if (route.params?.source && routeDraftId) {
       try {
         const threadId = prepareDraftCheckout(
@@ -306,11 +344,10 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           project.environmentId,
           project.workspaceRoot,
         );
-        const target = { environmentId: project.environmentId, projectId: project.id };
         retargetNewTaskDraft(routeDraftId, target);
         selectDetail({
           name: "Thread",
-          params: { threadId, draft: { ...target, draftId: routeDraftId } },
+          params: { threadId, draft: { ...projectTarget, draftId: routeDraftId } },
         });
       } catch (error) {
         Dialog.alert(gt("Could not change project"), String(error));
@@ -323,7 +360,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         ? false
         : await retargetSavedNewTaskDraft(
             routeDraftId,
-            { environmentId: project.environmentId, projectId: project.id },
+            target,
             signal,
           ).then(
             (found) => found,
@@ -337,7 +374,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       );
       return;
     }
-    const draftId = retargeted ? routeDraftId : undefined;
+    const draftId = retargeted ? routeDraftId : codebaseId !== undefined ? createNewTaskDraft(target) : undefined;
     selectDetail({
       name: "Thread",
       params: {
@@ -352,15 +389,42 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   }
 
   function chooseProject(project: EnvironmentProject): void {
-    cancelPendingScratch();
-    void selectProject(project);
+    const sameProject = current?.hostId === project.environmentId && sameHostPath(current.path, project.workspaceRoot);
+    startSelection(project, sameProject && current.codebaseId !== null ? null : undefined);
+  }
+
+  function startSelection(project: Parameters<typeof selectProject>[0], codebaseId?: string | null) {
+    cancelPendingSelection();
+    const request = new AbortController();
+    pendingSelection.current = request;
+    void selectProject(project, request.signal, codebaseId).finally(() => {
+      if (pendingSelection.current === request) pendingSelection.current = null;
+    });
+  }
+
+  function chooseCodebase(codebaseId: string, hostId: string, path?: string) {
+    if (hostFilter && hostFilter !== hostId) return;
+    const codebase = solus.codebases.codebaseOf(codebaseId);
+    const destination = codebase && codebasePickerDestinations(codebase, solus.codebases.hosts(), current)
+      .find((host) => host.hostId === hostId && host.isReady);
+    if (!destination) return;
+    const folder = path === undefined ? destination.path : destination.roots.find((root) => root.path === path)?.path;
+    if (folder) chooseCodebaseFolder(hostId, folder, codebaseId);
+  }
+
+  function chooseCodebaseFolder(hostId: string, path: string, codebaseId: string | null) {
+    startSelection({
+      environmentId: EnvironmentId.make(hostId),
+      id: ProjectId.make(path),
+      workspaceRoot: path,
+    }, codebaseId);
   }
 
   async function startScratch(): Promise<void> {
-    if (!canStartScratch || !scratchOption || pendingScratchRef.current) return;
+    if (!canStartScratch || !scratchOption || pendingSelection.current) return;
     const environmentId = scratchOption.environmentId;
     const request = new AbortController();
-    pendingScratchRef.current = request;
+    pendingSelection.current = request;
     try {
       await waitForComposerDraftsLoaded();
       if (request.signal.aborted) return;
@@ -386,7 +450,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           errorDisplayMessage(error, m) ?? String(error),
         );
     } finally {
-      if (pendingScratchRef.current === request) pendingScratchRef.current = null;
+      if (pendingSelection.current === request) pendingSelection.current = null;
     }
   }
 
@@ -445,12 +509,12 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             paddingBottom: Math.max(insets.bottom, 18) + 18,
             paddingHorizontal: Platform.OS === "android" ? 16 : 20,
             paddingTop: Platform.OS === "android" ? 16 : 8,
-            ...(Platform.OS === "android" && visibleScopes.length === 0
+            ...(Platform.OS === "android" && !hasVisibleRows
               ? { flexGrow: 1, justifyContent: "center" as const }
               : {}),
           }}
         >
-          {scratchOption !== null && listScopes.length > 0 ? (
+          {scratchOption !== null && (listScopes.length > 0 || codebaseOptions.length > 0) ? (
             Platform.OS === "android" ? (
               <View collapsable={false} className="overflow-hidden rounded-[28px] bg-grouped-card">
                 <NavigationRow
@@ -507,7 +571,19 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               </View>
             )
           ) : null}
-          {listScopes.length === 0 ? (
+          {hasCodebaseRows ? (
+            <NewTaskCodebaseRows
+              rows={codebaseRows}
+              preferredHostId={preferredHostId}
+              currentCodebaseId={current?.codebaseId ?? null}
+              disabled={reservedDestinationProject !== null}
+              onChoose={chooseCodebase}
+              onClear={canClearCodebase && current
+                ? () => chooseCodebaseFolder(current.hostId, current.path, null)
+                : undefined}
+            />
+          ) : null}
+          {listScopes.length === 0 && codebaseOptions.length === 0 && !hasCodebaseRows ? (
             <View
               collapsable={false}
               className={cn(
@@ -580,16 +656,16 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 </>
               )}
             </View>
-          ) : visibleScopes.length === 0 ? (
+          ) : !hasVisibleRows ? (
             <View className="items-center gap-2 px-6 py-8">
               <Text className="text-center text-lg font-t3-bold text-foreground">
-                <T>No matching projects</T>
+                <T>No matching projects or codebases</T>
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
-                <T>Try a different project name or workspace path.</T>
+                <T>Try a different name or folder path.</T>
               </Text>
             </View>
-          ) : (
+          ) : visibleScopes.length > 0 ? (
             <View
               collapsable={false}
               className={
@@ -684,7 +760,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 );
               })}
             </View>
-          )}
+          ) : null}
         </ScrollView>
       </ScreenContent>
     </View>

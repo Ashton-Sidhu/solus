@@ -4,6 +4,7 @@ import { SOLUS_THEME_SNAPSHOT, sandboxThemeCss, wrapSandboxDocument } from '@sol
 import { BROWSER_PARTITION_PREFIX, type BrowserConsoleEntry } from '@solus/contracts/browser-types'
 import { inlineLocalImages } from '@solus/contracts/html-local-images'
 import { browserHeadlessHost, type BrowserSurfaceDriver } from '../../browser/surface-driver'
+import { saveArtifactMeasurements, type ArtifactMeasurements } from './artifact-layout'
 import { createLogger } from '../../logger'
 
 const log = createLogger('folio', 'artifact-preview.ts')
@@ -246,8 +247,8 @@ export function inlineHostImages(html: string) {
 /**
  * Render agent HTML the way the conversation will show it — the sandbox page,
  * the Solus theme, local images written in — and report what the reader would
- * see: a screenshot, the height the page needs, and what it logged. Nothing is
- * saved and nothing is shown to the user.
+ * see: a screenshot, the height the page needs, and what it logged. Keep
+ * the measured frame sizes for clients that later open the same reply.
  */
 export async function previewArtifactHtml(input: {
   html: string
@@ -278,12 +279,31 @@ export async function previewArtifactHtml(input: {
       appearance,
     })
     await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    const screenshot = await driver.captureScreenshot()
+    const consoleEntries = driver.consoleEntries()
+    // The preview browser already has the page and its fonts. Record narrow
+    // frames here so opening a saved conversation never launches a browser.
+    const sizes: ArtifactMeasurements = [[width, Math.max(1, contentHeight)]]
+    try {
+      for (const frameWidth of [320, 375, 430, 728]) {
+        if (frameWidth === width) continue
+        await driver.applyEmulation({
+          viewport: { mode: 'custom', orientation: 'landscape', width: frameWidth, height: HTML_PREVIEW_MEASURE_HEIGHT, deviceScaleFactor: 1, hasTouch: false },
+          appearance,
+        })
+        const height = Number(JSON.parse(await driver.evaluate(MEASURE_SCRIPT)))
+        if (Number.isFinite(height) && height > 0) sizes.push([frameWidth, height])
+      }
+      await saveArtifactMeasurements(input.html, sizes.sort((a, b) => a[0] - b[0]))
+    } catch (error) {
+      log.debug('artifact_layout_unavailable', { error: String(error) })
+    }
     return {
-      screenshot: await driver.captureScreenshot(),
+      screenshot,
       width,
       appearance,
       contentHeight,
-      console: driver.consoleEntries(),
+      console: consoleEntries,
       missingImages: inlined.missing,
     }
   } catch (error) {

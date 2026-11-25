@@ -3,6 +3,8 @@ import { AtomRegistry } from "effect/reactivity";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
+import type { ComposerDraftProject } from "../state/use-composer-drafts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 interface TestRecord {
   sessionId: string;
@@ -19,6 +21,14 @@ const state = vi.hoisted(() => ({
   read: vi.fn<(sessionId: string) => Promise<TestRecord | null>>(),
   observe: vi.fn(() => () => {}),
   retry: vi.fn(),
+  chooseCodebase: vi.fn(),
+  draftProject: vi.fn<() => ComposerDraftProject | undefined>(),
+  availableCodebase: "",
+  isReadingCodebases: false,
+}));
+
+vi.mock("../state/use-composer-drafts", () => ({
+  useComposerDraftProject: (key?: string) => key === "saved-draft" ? state.draftProject() : undefined,
 }));
 
 vi.mock("./runtime", () => {
@@ -43,6 +53,15 @@ vi.mock("./runtime", () => {
     solus: {
       registry: { host: () => ({ label: "Test host" }) },
       account: { changes, organizationId: null },
+      personal: { current: () => ({ activeAgent: "codex" }) },
+      codebases: {
+        changes,
+        hosts: () => [{ hostId: "host", isReady: true, status: state.isReadingCodebases ? "loading" : "ready" }],
+        codebasesOfFolder: (hostId: string, path: string) =>
+          hostId === "host" && path === "/shop" && state.availableCodebase
+            ? [{ id: state.availableCodebase }]
+            : [],
+      },
       connections: {
         changes,
         state: () => ({ readiness: state.readiness }),
@@ -66,8 +85,13 @@ vi.mock("./runtime", () => {
       sessionCache: { scope: () => state.scope },
       newSessionId: () => "draft",
       openConversation: () => null,
-      conversation: (hostId: string, { record }: { record: TestRecord }) => ({
-        controller: { hostId, run: { sessionId: record.sessionId }, title: record.title },
+      conversation: (hostId: string, target: { record?: TestRecord; newSession?: { sessionId: string } }) => ({
+        controller: {
+          hostId,
+          run: { sessionId: target.record?.sessionId ?? target.newSession?.sessionId },
+          title: target.record?.title,
+          chooseCodebase: state.chooseCodebase,
+        },
       }),
       observeConversation: state.observe,
     },
@@ -93,20 +117,24 @@ function mountRoute() {
   state.read.mockReset();
   state.retry.mockClear();
   state.observe.mockClear();
+  state.chooseCodebase.mockClear();
+  state.draftProject.mockReset();
+  state.availableCodebase = "";
+  state.isReadingCodebases = false;
   const registry = AtomRegistry.make();
   const root = createRoot(document.createElement("div"));
   let current: ReturnType<typeof useThreadSession>;
-  function Route({ threadId }: { threadId: string }) {
-    current = useThreadSession({ environmentId: "host", threadId });
+  function Route(props: Parameters<typeof useThreadSession>[0]) {
+    current = useThreadSession(props);
     return null;
   }
   return {
     get current() { return current; },
-    render: (threadId: string) =>
+    render: (threadId: string, draft?: Parameters<typeof useThreadSession>[0]["draft"]) =>
       act(async () => {
         root.render(
           <RegistryContext.Provider value={registry}>
-            <Route threadId={threadId} />
+            <Route threadId={threadId} environmentId="host" draft={draft} />
           </RegistryContext.Provider>,
         );
       }),
@@ -116,6 +144,34 @@ function mountRoute() {
     },
   };
 }
+
+it("restores an explicit codebase only when it holds the saved draft folder", async () => {
+  const route = mountRoute();
+  const draft = { draftId: "saved-draft", environmentId: "host", projectId: "/shop" };
+  state.draftProject.mockReturnValue({
+    environmentId: EnvironmentId.make("host"),
+    projectId: ProjectId.make("/shop"),
+    codebaseId: "shop",
+    createdAt: "2026-11-24T00:00:00Z",
+  });
+  state.isReadingCodebases = true;
+  try {
+    await route.render("draft", draft);
+    expect(route.current.kind).toBe("loading");
+    expect(state.chooseCodebase).not.toHaveBeenCalled();
+
+    await act(async () => {
+      state.availableCodebase = "shop";
+      state.isReadingCodebases = false;
+      notify();
+    });
+    expect(state.chooseCodebase).toHaveBeenCalledExactlyOnceWith("shop");
+    expect(route.current.kind).toBe("ready");
+    expect(state.observe).toHaveBeenCalledOnce();
+  } finally {
+    route.close();
+  }
+});
 
 it("opens a cached session with one watch and no exact record request", async () => {
   const route = mountRoute();

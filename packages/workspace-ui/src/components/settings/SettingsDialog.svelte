@@ -48,7 +48,9 @@
            The zoom is on this full-viewport layer, so it scales from the
            card's centre and keeps no transform after it ends. -->
 
-      <div class="@container/pane pointer-events-auto fixed top-1/2 left-1/2 flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl dark:shadow-none [--solus-page-top-inset:0px]" style={resizable.style}>
+      <!-- 93rem: the navigation column, the page padding, and a 72rem reading
+           column. The content fills the card, so a resize changes it. -->
+      <div class="@container/pane pointer-events-auto fixed top-1/2 left-1/2 flex h-[min(76rem,88dvh)] w-[min(93rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl dark:shadow-none [--solus-page-top-inset:0px]" style={resizable.style}>
         <Dialog.Title class="sr-only">Settings</Dialog.Title>
         <Dialog.Description class="sr-only">Change Solus settings. Close to return to your workspace.</Dialog.Description>
         {#await page}

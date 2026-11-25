@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { codebaseBadgeSchema, type CodebaseBadge } from '@solus/contracts/codebase-badge'
 import { CODEBASE_ROOTS_MAX, CODEBASE_ROOTS_MIN, codebaseRootSchema, hasEnoughRoots, type Codebase, type CodebaseListOptions, type CodebaseRoot } from '@solus/contracts/codebases'
 import { codebaseRootKey, codebasesHolding } from '@solus/client-core/codebases'
 import { isAbsoluteHostPath, isInsideHostPath } from '@solus/contracts/host-path'
@@ -32,11 +33,12 @@ const codebaseRowSchema = z.object({
   roots: z.string().transform(parseStoredRoots),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
+  badge: z.string().nullable().transform(parseStoredBadge),
 })
 
 type CodebaseRow = z.infer<typeof codebaseRowSchema>
 
-const CODEBASE_COLUMNS = sql`id, name, roots, updated_at, deleted_at`
+const CODEBASE_COLUMNS = sql`id, name, roots, updated_at, deleted_at, badge`
 
 /** The stored roots of a row. A value that cannot be read is no roots; the next save replaces it. */
 function parseStoredRoots(stored: string): CodebaseRoot[] {
@@ -47,8 +49,20 @@ function parseStoredRoots(stored: string): CodebaseRoot[] {
   }
 }
 
+/** The stored badge of a row. A value that cannot be read is no badge: the codebase takes its colour and icon from its name. */
+function parseStoredBadge(stored: string | null): CodebaseBadge | undefined {
+  if (!stored) return undefined
+  try {
+    return codebaseBadgeSchema.parse(JSON.parse(stored))
+  } catch {
+    return undefined
+  }
+}
+
 function codebaseFromRow(row: CodebaseRow): Codebase {
-  return { id: row.id, name: row.name, roots: row.roots, updatedAt: row.updated_at, deletedAt: row.deleted_at }
+  const codebase: Codebase = { id: row.id, name: row.name, roots: row.roots, updatedAt: row.updated_at, deletedAt: row.deleted_at }
+  if (row.badge) codebase.badge = row.badge
+  return codebase
 }
 
 /** A row that a read answers: a tombstone, or a codebase with the least number of roots, or with a container root. */
@@ -126,11 +140,12 @@ export async function saveCodebase(organizationId: string, createdBy: string, co
   assertValidCodebase(codebase)
   const db = getDatabase()
   const written = await db.run(sql`
-    INSERT INTO ${codebases} (id, organization_id, created_by, name, roots, updated_at, deleted_at)
-    VALUES (${codebase.id}, ${organizationId}, ${createdBy}, ${codebase.name}, ${JSON.stringify(codebase.roots)}, ${codebase.updatedAt}, ${codebase.deletedAt})
+    INSERT INTO ${codebases} (id, organization_id, created_by, name, roots, updated_at, deleted_at, badge)
+    VALUES (${codebase.id}, ${organizationId}, ${createdBy}, ${codebase.name}, ${JSON.stringify(codebase.roots)}, ${codebase.updatedAt}, ${codebase.deletedAt}, ${codebase.badge ? JSON.stringify(codebase.badge) : null})
     ON CONFLICT (id) DO UPDATE SET
       name = excluded.name,
       roots = excluded.roots,
+      badge = excluded.badge,
       updated_at = excluded.updated_at,
       deleted_at = excluded.deleted_at
     WHERE codebases.organization_id = excluded.organization_id AND excluded.updated_at > codebases.updated_at

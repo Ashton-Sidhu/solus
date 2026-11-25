@@ -81,6 +81,7 @@ export class ProviderEvents {
     for (const [toolId, taskId] of session.lineageTaskIds ?? []) {
       if (taskId === event.taskId) session.lineageTaskIds?.delete(toolId)
     }
+    session.backgroundTasks?.delete(event.taskId)
     if (session.backgroundTaskIds?.delete(event.taskId) && !session.backgroundTaskIds.size) {
       this.rt.publish(session.sessionId, { type: 'background_work', running: false })
     }
@@ -394,6 +395,7 @@ export class ProviderEvents {
         if (event.type === 'background_task_started') {
           const wasRunning = !!session.backgroundTaskIds?.size
           ;(session.backgroundTaskIds ??= new Set()).add(event.taskId)
+          if (event.kind) (session.backgroundTasks ??= new Map()).set(event.taskId, { taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
           if (event.lineageTask) (session.lineageTaskIds ??= new Map()).set(event.toolUseId ?? event.taskId, event.taskId)
           if (!wasRunning) this.rt.publish(session.sessionId, { type: 'background_work', running: true })
           if (event.awaitable) (session.awaitableTaskIds ??= new Set()).add(event.taskId)
@@ -577,6 +579,7 @@ export class ProviderEvents {
         // A Claude task that the exit killed sends no settle: its row leaves here.
         if (exited?.backgroundTaskIds?.size && !hasBackgroundWork) {
           exited.backgroundTaskIds.clear()
+          exited.backgroundTasks?.clear()
           exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
           this.rt.publish(sessionId, { type: 'background_work', running: false })
         }

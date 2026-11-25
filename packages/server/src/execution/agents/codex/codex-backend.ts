@@ -287,6 +287,8 @@ interface RunningCommand {
   /** Codex's handle to the command's terminal; null until Codex names it. */
   processId: string | null
   client: CodexAppServerClient
+  /** The command line, which names the task in the clients' background row. */
+  command?: string
   /** It outlived the turn that started it. */
   isBackground: boolean
   /** Commands hold by default; false explicitly leaves a service running. */
@@ -1616,6 +1618,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.runningCommands.set(params.item.id, {
         threadId: sessionId,
         processId: optionalString(params.item.processId) ?? null,
+        command: optionalString(params.item.command)?.trim().slice(0, 240) || undefined,
         client,
         isBackground: false,
       })
@@ -1891,7 +1894,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       for (const [itemId, command] of this.runningCommands) {
         if (command.threadId !== sessionId || command.isBackground) continue
         command.isBackground = true
-        this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId, awaitable: command.waiting === false } satisfies NormalizedEvent)
+        this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId, awaitable: command.waiting === false, kind: 'command', ...(command.command && { description: command.command }) } satisfies NormalizedEvent)
       }
       this.scheduleBackgroundCommandCheck()
     }

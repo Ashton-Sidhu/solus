@@ -5,10 +5,11 @@
    *  in. "Add repository" gives a task folder session one more worktree. */
   import { FolderGit2 as RepositoryIcon, GitFork as WorktreeIcon } from "@lucide/svelte";
   import type { SessionFolder } from "@solus/contracts/codebases";
-  import { getSessionEnvironmentStore, getWorkspaceContext } from "../../contexts";
+  import { getSessionEnvironmentStore, getWorkspaceContext, groupKeyFor } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import MenuRow from "./MenuRow.svelte";
   import {
     candidateRows,
@@ -101,6 +102,10 @@
   {#each fold.visible as row (row.key)}
     {@const reading = gitRepositoryReading(row, environmentStore.statusFor(serverId, row.path))}
     {@const isChosen = row.key === chosenKey}
+    <!-- The mark of the repository's project: a worktree wears the mark of the repository it checks out. -->
+    {#snippet repositoryFavicon()}
+      <ProjectFavicon projectKey={groupKeyFor(serverId, row.repositoryPath)} class="size-4" />
+    {/snippet}
     <MenuRow
       item={{
         key: row.key,
@@ -113,6 +118,7 @@
       }}
       ariaLabel={chosenKey === null ? `${row.name}: open its files` : gitRepositoryRowLabel(row, isChosen)}
       current={isChosen}
+      iconSnippet={repositoryFavicon}
       onActivate={() => onChoose(row)}
     />
   {/each}
@@ -169,7 +175,7 @@
     {:else}
       {#each candidates.rows as candidate (candidate.path)}
         <DropdownMenu.Item title={candidate.path} onSelect={() => void addRepository(candidate.path)}>
-          <RepositoryIcon />
+          <ProjectFavicon projectKey={groupKeyFor(serverId, candidate.path)} class="size-4" />
           <span class="min-w-0 flex-1 truncate">{candidate.name}</span>
         </DropdownMenu.Item>
       {/each}

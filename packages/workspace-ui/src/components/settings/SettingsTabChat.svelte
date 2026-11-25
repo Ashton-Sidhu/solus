@@ -69,6 +69,20 @@
   </SettingsRow>
 
   <SettingsRow
+    {...settingsDefinitions["chat.hide-server-background-work"]}
+    visible={isVisible("hide-server-background-work")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.hideServerBackgroundWork}
+        onCheckedChange={(next) => theme.setPersonal("hideServerBackgroundWork", next)}
+        size="default"
+        aria-label="Hide the background row for servers"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
     {...settingsDefinitions["chat.auto-open-artifacts"]}
     visible={isVisible("auto-open-artifacts")}
   >

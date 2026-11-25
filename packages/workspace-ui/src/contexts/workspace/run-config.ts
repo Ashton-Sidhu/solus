@@ -2,9 +2,10 @@ import type { AgentId, GitCheckout, ModelConfig, ModelProfile, ReasoningEffort, 
 import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
+import { isChat } from '@solus/contracts/chat'
 import { restoredModelConfig } from './model-options'
 import type { ProjectLocation } from '../app/settings.context.svelte'
-import { checkoutPlace, fileTasksOn, folderLocation, inheritedLocation, projectHome } from './run-location'
+import { checkoutPlace, codebaseOf, fileTasksOn, folderLocation, inheritedLocation, projectHome, projectRoot } from './run-location'
 
 /**
  * The rules that operate on a `RunConfig` — where a session starts and what it
@@ -181,8 +182,23 @@ export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig
 }
 
 /**
+ * What the active session leaves for a new session that has no session to
+ * inherit from, by the rule of `usedCodebase`: a session that used a codebase
+ * leaves the codebase; a session that used a project leaves the project with
+ * no codebase. A chat leaves nothing: its folder is its own.
+ */
+export function startProjectOf(run: RunConfig): ProjectLocation | null {
+  const directory = projectRoot(run)
+  if (!directory || isChat(directory)) return null
+  const { serverId } = projectHome(run)
+  const codebaseId = codebaseOf(run)
+  return codebaseId ? { serverId, directory, codebaseId } : { serverId, directory, noCodebase: true }
+}
+
+/**
  * Where a new session starts when nothing on screen names a project: the
- * project the last session started in, unless its host is known to be down;
+ * project or the codebase of the last active session (`startProjectOf`),
+ * unless its host is known to be down;
  * else a new chat on the default host. "Known to be down", not
  * "not yet up": at boot every host is still connecting, and the draft seeded
  * then must already name the right project. A session opened *from* something

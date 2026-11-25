@@ -18,12 +18,16 @@ export interface SessionHistoryPageRequest {
   provider: AgentId
   turnLimit: number
   before?: string
+  /** Include contiguous older turns through this message when they fit in one bounded response. */
+  throughEntryId?: string
   /** The client reads a saved `render_artifact` HTML from its work when the
    *  frame mounts, so the page leaves it out and names its `toolInputKey`.
    *  A compiled render is 100–300 KB, and a page carries every revision. */
   deferArtifactHtml?: boolean
   /** Hashes of groups of rows held by this reader. Only these clients receive a historyBlocks manifest. */
   knownHistoryBlocks?: string[]
+  /** Include layout for HTML pages inside assistant replies. */
+  replyLayout?: boolean
 }
 
 /** The rows after which a history page ends at its next turn start. */
@@ -159,8 +163,26 @@ export interface AgentConversationResultProjection {
   progress?: ExchangeProgress
 }
 
+/** Solus replies written before layout was recorded have no author-specified
+ * height. They get a scrollable preview of a fixed size, including on reopen. */
+export const UNMEASURED_REPLY_HEIGHT = 320
+
+/** Offsets in the original reply, in UTF-16 code units. Only a complete top-level
+ * HTML fence with a literal body has this projection. */
+export interface ReplyHtmlLayout {
+  attachmentId: string
+  start: number
+  end: number
+  bodyStart: number
+  bodyEnd: number
+  title: string
+  height: number
+  heights?: Array<readonly [width: number, height: number]>
+}
+
 /** History row shape allowed across the host-to-client boundary. */
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  replyHtmlLayout?: ReplyHtmlLayout[]
   /** Existing question-tool output, retained for answer details on reload. */
   questionResult?: string
   /** A `request_secret` call's outcomes: names and statuses, never a ref or a path. */

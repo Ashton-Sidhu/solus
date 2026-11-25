@@ -2,7 +2,6 @@
   import { untrack } from "svelte";
   import {
     Folder as FolderIcon,
-    FolderGit2 as CodebaseIcon,
     MessageCircle as ChatIcon,
   } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -16,14 +15,21 @@
   import { projectFaviconResolver } from "../../lib/project-favicon";
   import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
   import { projectBadgeColors, projectInitials } from "@solus/contracts/project-badge";
+  import { codebaseMark } from "@solus/contracts/codebase-badge";
+  import CodebaseBadge from "../codebases/CodebaseBadge.svelte";
 
   let {
     projectKey,
+    codebaseId = null,
     class: className = "size-3.5",
   }: {
     /** The project, as `projectsStore` keys it. Never a bare path: a path
      *  names a folder on one host only. */
     projectKey: string;
+    /** The codebase of the session the mark is for (docs/plans/codebases.md).
+     *  The mark is then the codebase's own badge, not the mark of one of its
+     *  projects. A codebase this client does not know shows the project. */
+    codebaseId?: string | null;
     class?: string;
   } = $props();
 
@@ -39,17 +45,18 @@
   const projectRoot = $derived(checkout?.projectRoot ?? "");
   const hasRoot = $derived(isAbsoluteHostPath(projectRoot));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
-  // A container root is a codebase, never a project (docs/plans/codebases.md
-  // decision 14), so it wears the codebase icon, not a project's mark.
-  const isCodebase = $derived(
-    hasRoot && !!resolvedServerId && codebasesStore.isContainerRoot({ serverId: resolvedServerId, path: projectRoot }),
-  );
   // A project with no favicon wears its initials on its own colour, so
   // projects tell apart at a glance in every place that shows one.
   const projectName = $derived(hasRoot ? hostPathBaseName(projectRoot) : "");
   const initials = $derived(projectInitials(projectName));
   const badgeLight = $derived(projectBadgeColors(projectName, "light"));
   const badgeDark = $derived(projectBadgeColors(projectName, "dark"));
+  // A codebase wears its own badge: the colour and icon that a person chose,
+  // else its initials on a colour from its name. A session whose codebase was
+  // deleted, or one this client has not read, shows its project: a session
+  // with a deleted codebase has none (docs/plans/codebases.md decision 5).
+  const codebase = $derived(codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
+  const inCodebase = $derived(!!codebase);
   let source = $state<{
     key: string;
     status: "pending" | "ready";
@@ -60,7 +67,7 @@
     const key = requestKey;
     const faviconServerId = resolvedServerId;
     const root = projectRoot;
-    if (inChat || isCodebase || !hasRoot || !faviconServerId) {
+    if (inChat || inCodebase || !hasRoot || !faviconServerId) {
       source = { key, status: "ready", url: null };
       return;
     }
@@ -91,8 +98,8 @@
 >
   {#if inChat}
     <ChatIcon size="100%" class="text-(--solus-text-tertiary)" />
-  {:else if isCodebase}
-    <CodebaseIcon size="100%" class="text-(--solus-text-tertiary)" />
+  {:else if codebase}
+    <CodebaseBadge mark={codebaseMark(codebase)} />
   {:else}
     {#if !hasRoot || (source.key === requestKey && source.status === "ready" && !source.url)}
       {#if initials}

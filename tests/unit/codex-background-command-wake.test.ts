@@ -83,7 +83,7 @@ describe('Codex background command wake', () => {
       if (event.type === 'background_task_started') tasks.push(event)
     })
     backend.on('exit', () => events.push('exit'))
-    internals.runningCommands.set('item-3', { ...backgroundCommand(), isBackground: false })
+    internals.runningCommands.set('item-3', { ...backgroundCommand(), command: 'bun run dev', isBackground: false })
     if (waiting !== undefined) {
       expect(backend.setBackgroundCommandWaiting('thread-1', 'proc-1', false)).toBe('item-3')
       expect(backend.setBackgroundCommandWaiting('thread-1', 'proc-1', waiting)).toBe('item-3')
@@ -97,7 +97,8 @@ describe('Codex background command wake', () => {
 
     expect(events).toEqual(['background_task_started', 'task_complete', 'exit'])
     expect(backend.hasBackgroundTasks('thread-1')).toBe(true)
-    expect(tasks).toEqual([{ type: 'background_task_started', taskId: 'item-3', toolUseId: 'item-3', awaitable }])
+    // The command line names the task in the clients' background row.
+    expect(tasks).toEqual([{ type: 'background_task_started', taskId: 'item-3', toolUseId: 'item-3', awaitable, kind: 'command', description: 'bun run dev' }])
   })
 
   test('a background command that finishes settles its task, then wakes the agent', () => {

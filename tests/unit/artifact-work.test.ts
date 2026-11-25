@@ -474,7 +474,10 @@ describe('render_artifact checks a page before and after it is shown', () => {
       expect(page).toContain('src="data:image/png;base64,')
       expect(preview.missingImages).toEqual(['/no/such.png'])
       // The capture grows to the page rather than stopping at one screen.
-      expect(viewports.at(-1)).toMatchObject({ width: 736, height: 1234 })
+      expect(viewports[0]).toMatchObject({ width: 736, height: 1234 })
+      const { artifactLayoutId, readArtifactMeasurements } = await import('@solus/server/data/works/artifact-layout')
+      const sizes = await readArtifactMeasurements(artifactLayoutId(`<img src="${imagePath}"><img src="/no/such.png">`))
+      expect(sizes).toEqual([[320, 1234], [375, 1234], [430, 1234], [728, 1234], [736, 1234]])
       expect(preview.contentHeight).toBe(1234)
       expect(preview.console[0].text).toContain('TypeError')
       expect(disposed).toBe(true)

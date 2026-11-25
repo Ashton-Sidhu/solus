@@ -195,7 +195,7 @@
     // through this getter rather than the settings context.
     artifactEmbed: createArtifactEmbedExtension({ ...embedOptions, isDark: () => theme.isDark }),
     htmlBlock: createHtmlBlockExtension({ isDark: () => theme.isDark }),
-    mermaidBlock: createMermaidBlockExtension({ isDark: () => theme.isDark }),
+    mermaidBlock: createMermaidBlockExtension(),
   };
   const embedChoices = $derived.by(() => {
     const works = session.worksStore.visibleWorks.sort((a, b) =>

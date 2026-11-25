@@ -66,10 +66,7 @@ export interface SidebarListInput {
 export function taskItem(task: SidebarTask, section: SidebarSection): Extract<SidebarListItem, { kind: 'task' }> {
   // A working row keeps the card it had, so a row that starts or finishes a
   // turn slides between sections rather than changing shape.
-  // A pinned row keeps the shape its state gives it, as the row draws itself.
-  const isCard = section === 'pinned'
-    ? task.lifecycle === 'active' || !!task.share
-    : section === 'sessions' || section === 'shared' || section === 'working'
+  const isCard = section === 'sessions' || section === 'shared' || section === 'working'
   const variant = isCard ? 'card' : 'slim'
   return { kind: 'task', key: `${task.key}:${variant}`, section, task }
 }

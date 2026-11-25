@@ -2,7 +2,9 @@
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { ChevronRight as CaretIcon } from "@lucide/svelte";
   import { flattenDiffTree, type DiffFolderNode, type DiffTree } from "../../conversation/lib/diff-summary-tree";
+  import { groupKeyFor } from "../../../contexts";
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
+  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import LineCounts from "./LineCounts.svelte";
   import { folderPaths } from "./lib/change-tree";
 
@@ -15,6 +17,8 @@
    */
   interface Props {
     tree: DiffTree;
+    /** The host of the session: a repository folder's project mark is read there. */
+    serverId: string;
     /** Git has answered: the rows carry counts and status letters. */
     counted: boolean;
     /** Whether the folders start open: a small change, or a search. */
@@ -22,7 +26,7 @@
     /** Opens a file's diff. Absent when the session has no conversation open to show it in. */
     onOpen?: (path: string) => void;
   }
-  let { tree, counted, startsOpen, onOpen }: Props = $props();
+  let { tree, serverId, counted, startsOpen, onOpen }: Props = $props();
 
   /** The folders the reader opened or closed by hand; the others follow `startsOpen`. */
   const toggled = new SvelteMap<string, boolean>();
@@ -64,7 +68,11 @@
             ? 'rotate-90'
             : ''}"
         />
-        <FileIcon path="{row.node.path}/" size={16} />
+        {#if row.node.repositoryPath}
+          <ProjectFavicon projectKey={groupKeyFor(serverId, row.node.repositoryPath)} class="size-4" />
+        {:else}
+          <FileIcon path="{row.node.path}/" size={16} />
+        {/if}
         <span class="min-w-0 shrink truncate">{row.node.label}</span>
         <span class="shrink-0 text-xs tabular-nums text-muted-foreground opacity-70">{row.node.fileCount}</span>
         <span class="flex-1"></span>

@@ -1,3 +1,4 @@
+import { readUploadAttachmentId } from "../solus/upload-attachment-id";
 import { attachmentUrl } from "../solus/attachment-resource";
 import { checkoutMediaAsset, signCheckoutAsset } from "../solus/checkout-files";
 import { mobileHost, fileAccountScope } from "./mobile-host";
@@ -44,6 +45,10 @@ const emptyHostMediaState = Atom.make<AssetUrlState | null>(null).pipe(
 );
 
 function hostMediaPath(resource: AssetResource | null) {
+  if (resource?._tag === "attachment") {
+    const upload = readUploadAttachmentId(resource.attachmentId);
+    return upload ? { cwd: "~", ...upload } : null;
+  }
   if (resource?._tag !== "media-file" && resource?._tag !== "draft-workspace-file") return null;
   if (
     mediaTypeFor(resource.path)?.kind !== "image" &&
@@ -63,6 +68,7 @@ const hostMediaState = Atom.family(
     environmentId: EnvironmentId;
     cwd: string;
     path: string;
+    sessionId?: string;
     revision?: string | null;
   }) =>
     Atom.make((get): AssetUrlState => {
@@ -155,15 +161,23 @@ export function useRefreshAssetUrl(
   environmentId: EnvironmentId | null,
   resource: AssetResource | null,
 ): () => Promise<string | null> {
-  const isHostMedia = hostMediaPath(resource) !== null;
-  const connection = usePreparedConnection(isHostMedia ? null : environmentId);
+  const media = hostMediaPath(resource);
+  const connection = usePreparedConnection(media ? null : environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const createUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     refresh: true,
     reportFailure: false,
   });
   return async () => {
-    if (isHostMedia && environmentId && resource)
+    if (media && environmentId && resource?._tag === "attachment") {
+      const scope = appAtomRegistry.get(fileAccountScope);
+      const host = appAtomRegistry.get(mobileHost(environmentId));
+      const atom = checkoutMediaAsset({ environmentId, accountKey: scope.key, input: media });
+      const result = await executeAtomQuery(appAtomRegistry, atom, { refresh: true, reportFailure: false });
+      return result._tag === "Success" && appAtomRegistry.get(fileAccountScope) === scope &&
+        appAtomRegistry.get(mobileHost(environmentId)) === host ? result.value.url : null;
+    }
+    if (media && environmentId && resource)
       return refreshAssetUrl(environmentId, resource).catch(() => null);
     if (environmentId && resource?._tag === "attachment")
       return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);

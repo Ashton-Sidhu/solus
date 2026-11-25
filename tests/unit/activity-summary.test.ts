@@ -97,6 +97,30 @@ describe('describeBackgroundWait', () => {
     expect(settledBackgroundWait([])).toEqual({ label: 'Running in the background', command: '' })
   })
 
+  test('names the work an earlier turn launched from the host, not the general words', () => {
+    // WHY: a dev server started three turns ago, or before this client loaded
+    // the history, left the row saying only "Running in the background". The
+    // host names each running task, so the row says what still runs.
+    expect(settledBackgroundWait([], [{ taskId: 't1', kind: 'command', description: 'Start the dev server' }])).toEqual({
+      label: 'Starting the dev server in the background',
+      command: '',
+    })
+    expect(settledBackgroundWait([], [{ taskId: 't1', kind: 'command', description: 'bun run dev' }]).label).toBe(
+      'Running “bun run dev” in the background',
+    )
+    expect(settledBackgroundWait([], [{ taskId: 't1', kind: 'monitor' }]).label).toBe('Running a monitor in the background')
+  })
+
+  test('counts the named tasks by kind when several run', () => {
+    expect(
+      settledBackgroundWait([], [
+        { taskId: 't1', kind: 'command', description: 'Start the dev server' },
+        { taskId: 't2', kind: 'command', description: 'Watch the tests' },
+        { taskId: 't3', kind: 'monitor', description: 'errors in the log' },
+      ]).label,
+    ).toBe('Running 2 commands and a monitor in the background')
+  })
+
   test('stops naming the command once its task settles', () => {
     // WHY: the settle is the only signal a backgrounded tool gets that the work
     // stopped — its tool_result landed at launch. Without it the row waits forever.

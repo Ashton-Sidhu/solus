@@ -60,7 +60,7 @@ import { type SessionEnvironmentStore } from '../git/session-environment.store.s
 
 import { makeSession, makeTab } from './session.factories'
 import { SessionDraft, existingTaskId } from './session-draft.svelte'
-import { defaultStartProject, resolveNewRunConfig } from './run-config'
+import { defaultStartProject, resolveNewRunConfig, startProjectOf } from './run-config'
 import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import type { DiffScope } from '@solus/contracts/git-types'
@@ -73,7 +73,7 @@ import { unavailableSessionMessage } from './session-errors'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { projectDirLabel } from '../../lib/paths'
-import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -94,7 +94,7 @@ import {
   reviewGuideStore,
 } from '../../components/review/review-guide.store.svelte'
 import { z } from 'zod'
-import { checkoutGit, checkoutPlace, chooseStart, fileTasksOn, folderLocation, projectHome, projectRoot, runHost, startsWorktree } from './run-location'
+import { checkoutGit, checkoutPlace, chooseStart, fileTasksOn, folderLocation, projectHome, projectRoot, runHost, startsWorktree, usedCodebase } from './run-location'
 
 export interface PullRequestOpenTarget {
   number: number
@@ -379,6 +379,10 @@ export class WorkspaceContext implements SurfaceContext {
       refreshTurnSnapshots: (sessionId) => { void this.lifecycle.refreshTurnSnapshots(sessionId) },
       setGitStatus: (serverId, cwd, status) => this.environment.set(serverId, cwd, status),
       onWorktreeSetupDone: (sessionId) => { void this.opening.settleStandIn(sessionId) },
+      onSessionCodebase: (sessionId) => {
+        const active = this.activeSession
+        if (active?.id === sessionId) this.rememberLastProject(active.run)
+      },
       playNotificationIfHidden: (sessionId, trigger) => {
         void notificationsStore.playSound(sessionId, this.sessions.byId[sessionId]?.agentSessionId ?? null, trigger)
       },
@@ -613,6 +617,8 @@ export class WorkspaceContext implements SurfaceContext {
 
   setActiveTab(tabId: string): void {
     this.registry.setActiveTab(tabId)
+    const run = this.sessionFor(tabId)?.run
+    if (run) this.rememberLastProject(run)
     // The conversation owns the strip beside it: a review of the session left
     // behind goes with that session's strip.
     this.router.syncDestination()
@@ -760,6 +766,15 @@ export class WorkspaceContext implements SurfaceContext {
    */
   runFor(sourceId: string): RunConfig | undefined {
     return this.sessionFor(sourceId)?.run ?? this.drafts.sessionDrafts.get(sourceId)?.run
+  }
+
+  /** The run a new session inherits from `sourceId`. A draft gives its run as
+   *  it is. A session gives what it used: its codebase, or its project with no
+   *  codebase (`usedCodebase`). */
+  inheritedRunFor(sourceId: string): RunConfig | undefined {
+    const session = this.sessionFor(sourceId)
+    if (!session) return this.drafts.sessionDrafts.get(sourceId)?.run
+    return { ...session.run, location: usedCodebase(session.run.location) }
   }
 
   /** Point a source's run at a new location, through whichever owns it: a
@@ -995,11 +1010,13 @@ export class WorkspaceContext implements SurfaceContext {
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       session.backgroundWorkRunning = !!info.backgroundWorkRunning
+      session.backgroundTasks = info.backgroundTasks
       this.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
     } else {
       // Background tasks live in the run's query, so with no run none are left.
       if (session.status === 'background') session.status = 'idle'
       session.backgroundWorkRunning = false
+      session.backgroundTasks = undefined
       // No run is alive on the host, so no blocking request it asked can be answered.
       for (const request of session.permissionQueue) request.expired ??= 'run_ended'
       for (const request of session.questionQueue) {
@@ -1045,9 +1062,20 @@ export class WorkspaceContext implements SurfaceContext {
       this.router.navigate({ name: 'goal', params: { sessionId, serverId: runHost(this.sessions.byId[sessionId]?.run) } })
       return
     }
+    this.expandPanelSection(tabId, 'goal')
+  }
+
+  /** Show the servers the conversation's background row names: open the project
+   *  panel and expand its Running servers section. A client without the panel
+   *  has nothing to open. */
+  revealRunningServers(tabId: string): void {
+    if (this.shell.hasProjectPanel) this.expandPanelSection(tabId, 'servers')
+  }
+
+  private expandPanelSection(tabId: string, section: 'goal' | 'servers'): void {
     const isSplit = tabId === this.chatSurfaceTabId
     const collapsed = isSplit ? this.settings.splitProjectPanelCollapsed : this.settings.projectPanelCollapsed
-    collapsed.goal = false
+    collapsed[section] = false
     this.settings.setLayout(isSplit ? 'splitProjectPanelOpen' : 'projectPanelOpen', true)
     this.settings.setLayout(isSplit ? 'splitProjectPanelCollapsed' : 'projectPanelCollapsed', collapsed)
   }
@@ -1057,7 +1085,7 @@ export class WorkspaceContext implements SurfaceContext {
 
   async createTab(cwd?: string, options: CreateTabOptions = {}): Promise<string> {
     const sourceId = options.sourceId ?? this.focusedSourceId ?? this.activeTabId
-    const run = resolveNewRunConfig(this.defaultRunConfig, this.runFor(sourceId), {
+    const run = resolveNewRunConfig(this.defaultRunConfig, this.inheritedRunFor(sourceId), {
       freshTask: options.freshTask,
       workingDirectory: cwd,
       gitContext: options.gitContext,
@@ -1139,7 +1167,6 @@ export class WorkspaceContext implements SurfaceContext {
     this.sessions.byId[session.id] = session
     this.tabs[tabId] = makeTab(session.id, { id: tabId })
     this.addTabToOrder(tabId)
-    this.rememberLastProject(session.run)
     track('tab_created', {
       via: options.via,
       worktree: startsWorktree(session.run),
@@ -1158,15 +1185,19 @@ export class WorkspaceContext implements SurfaceContext {
     return tabId
   }
 
-  /** The one write to `lastProject`: a session the user composed has started. */
+  /** The one write to `lastProject`: the project or the codebase of the active
+   *  session, kept when it becomes active and when the host gives it a codebase. */
   private rememberLastProject(run: RunConfig): void {
-    const directory = projectRoot(run)
-    // A chat is not a project to start in again: its folder is its own.
-    if (!directory || isChat(directory)) return
-    const { serverId } = projectHome(run)
+    const next = startProjectOf(run)
+    if (!next) return
     const last = this.settings.lastProject
-    if (last?.serverId === serverId && last.directory === directory) return
-    this.settings.setLayout('lastProject', { serverId, directory })
+    if (
+      last?.serverId === next.serverId &&
+      last.directory === next.directory &&
+      last.codebaseId === next.codebaseId &&
+      last.noCodebase === next.noCodebase
+    ) return
+    this.settings.setLayout('lastProject', next)
   }
 
   /** Where a session starts when nothing is carried over: the app's own saved
@@ -1185,7 +1216,7 @@ export class WorkspaceContext implements SurfaceContext {
       { serverId: this.fallbackServerId, directory: NEW_CHAT_DIRECTORY },
     )
     return {
-      location: folderLocation({ serverId: project.serverId, path: project.directory }),
+      location: folderLocation({ serverId: project.serverId, path: project.directory }, { codebaseId: project.codebaseId, noCodebase: project.noCodebase }),
       modelConfig: defaults.modelConfig,
       // New work takes the window's organization; the policy on its host lowers the default (plans/030 §7).
       permissionMode: workPolicy(project.serverId).defaultMode(defaults.permissionMode),

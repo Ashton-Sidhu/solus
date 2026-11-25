@@ -1185,6 +1185,9 @@ export interface Session {
   /** Background work of the session runs on its host, held or not
    *  (`background_work`). Unset until the host says so. */
   backgroundWorkRunning?: boolean
+  /** The running background tasks the host named (`background_task_started`,
+   *  `RuntimeSessionInfo.backgroundTasks`). Unset until the host says so. */
+  backgroundTasks?: BackgroundTask[]
   lastResult: RunResult | null
   /** What currently occupies the context window. Drives the context meter. */
   contextUsage: ContextUsage | null
@@ -2093,8 +2096,9 @@ export type NormalizedEvent =
   | { type: 'turn_settled'; turnId: string; outcome: 'completed' | 'failed' | 'interrupted' | 'dead'; settledAt: number }
   /** `awaitable`: the task holds its session only while the agent marks it as
    *  awaited (`background_wait`). Shells, Monitors, and Codex commands;
-   *  absent for sub-agents, which always hold. */
-  | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean; lineageTask?: { kind: 'subagent' | 'workflow'; title: string } }
+   *  absent for sub-agents, which always hold. `kind` and `description` name
+   *  the task in the clients' background row; absent from older hosts. */
+  | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean; kind?: BackgroundTaskKind; description?: string; lineageTask?: { kind: 'subagent' | 'workflow'; title: string } }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string; workflow?: import('./session-digest').DigestWorkflow }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   /** Whether any background work of the session runs, held or not. Sent when
@@ -2468,6 +2472,8 @@ export interface BackendSession {
    *  once it settles. Which of them hold the session in 'background' is
    *  `backgroundWorkHolds` (docs/background-work.md). */
   backgroundTaskIds?: Set<string>
+  /** What each task in `backgroundTaskIds` is, for the clients' background row. */
+  backgroundTasks?: Map<string, BackgroundTask>
   lineageTaskIds?: Map<string, string>
   /** Tasks in flight that hold the session only while awaited: Claude's shells and Monitors. */
   awaitableTaskIds?: Set<string>
@@ -2487,8 +2493,22 @@ export interface RuntimeSessionInfo {
   rateLimitInfo: RateLimitInfo | null
   handoffFrom?: SessionHandoffLineage
   backgroundTaskIds?: string[]
+  /** What each running task is. Absent from older hosts. */
+  backgroundTasks?: BackgroundTask[]
   /** Background work of the session runs, held or not (`background_work`). */
   backgroundWorkRunning?: boolean
+}
+
+/** What a background task does, so a client can name it. */
+export type BackgroundTaskKind = 'command' | 'monitor' | 'subagent' | 'workflow' | 'schedule'
+
+/** One background task of a session (docs/background-work.md). `description`
+ *  is the agent's own words for it: a shell's description or command, a
+ *  sub-agent's task, a schedule's prompt. */
+export interface BackgroundTask {
+  taskId: string
+  kind: BackgroundTaskKind
+  description?: string
 }
 
 export interface WatchSessionInput {

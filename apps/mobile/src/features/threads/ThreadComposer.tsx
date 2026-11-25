@@ -1024,6 +1024,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                       size={30}
                       borderRadius={8}
                       compact
+                      onRetryHostAttachment={isSubmissionLocked ? undefined : props.onRetryHostAttachment}
                       onPressPreview={isSubmissionLocked ? undefined : onPressPreview}
                       onPressVideo={isSubmissionLocked ? undefined : onPressVideo}
                     />

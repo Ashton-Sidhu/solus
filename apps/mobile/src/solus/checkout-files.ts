@@ -135,11 +135,13 @@ export const readTextPage = checkoutQuery(
 
 export async function signCheckoutAsset(
   api: Pick<HostApi, "assetCreateUrl">,
-  { cwd, path }: { cwd: string; path: string },
+  { cwd, path, sessionId }: { cwd: string; path: string; sessionId?: string },
   organizationId: string | null,
   httpBaseUrl: string,
 ) {
-  const signed = await api.assetCreateUrl(projectContext(cwd, organizationId), { path });
+  const context = projectContext(cwd, organizationId);
+  if (sessionId) context.session.sessionId = sessionId;
+  const signed = await api.assetCreateUrl(context, { path });
   return {
     url: new URL(signed.relativeUrl, new URL(httpBaseUrl).origin).toString(),
     expiresAt: signed.expiresAt,
@@ -152,6 +154,6 @@ export const checkoutAssetUrl = checkoutQuery(
 );
 
 export const checkoutMediaAsset = checkoutQuery(
-  (api, input: { cwd: string; path: string; revision?: string | null }, organizationId, httpBaseUrl) =>
+  (api, input: { cwd: string; path: string; sessionId?: string; revision?: string | null }, organizationId, httpBaseUrl) =>
     signCheckoutAsset(api, input, organizationId, httpBaseUrl),
 );

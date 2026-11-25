@@ -60,6 +60,7 @@ function drafts(enabled: boolean) {
     defaultRunConfig: run(),
     focusedSourceId: null,
     runFor: () => undefined,
+    inheritedRunFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async () => {},

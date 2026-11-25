@@ -5,6 +5,7 @@ import type { ResourceRole, ShareSummary } from '@solus/contracts/sharing'
 import type { SessionRecordStatus } from '@solus/contracts/types'
 import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from '@solus/contracts/work-review'
 import { projectKeyLabel } from '@solus/client-core/project-identity'
+import { codebaseOnClient } from '../../../contexts/codebases/codebase-rules'
 
 /** Facet type of a ledger item. Slides works fold into `doc` — the Workspace
  *  ledger distinguishes docs and HTML artifacts. */
@@ -203,7 +204,7 @@ export interface WorkspaceSessionItem {
   serverId: string
   sessionId: string
   title: string
-  /** The project folder's last segment. */
+  /** The codebase's name for a session in a codebase this client knows, else the project folder's last segment. */
   projectLabel: string
   branch: string | null
   status: SessionRecordStatus
@@ -231,7 +232,8 @@ export function buildSharedSessionItems(sessions: ListedSession[]): WorkspaceSes
       serverId: listed.serverId,
       sessionId: listed.sessionId,
       title: listed.title || 'Untitled session',
-      projectLabel: lastSegment(listed.projectPath),
+      // A session in a codebase names the codebase, as its sidebar row does.
+      projectLabel: (listed.codebaseId ? codebaseOnClient(listed.codebaseId)?.name : undefined) ?? lastSegment(listed.projectPath),
       branch: listed.branch,
       status: listed.status,
       role: listed.role,

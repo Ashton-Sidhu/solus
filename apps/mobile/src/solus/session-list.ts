@@ -11,12 +11,19 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import { sameItems } from "@solus/client-core/keep-equal";
 import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
-import type { ProjectIconOverride, ThreadPullRequestLink } from "@t3tools/contracts";
+import type { ThreadPullRequestLink } from "@t3tools/contracts";
+import type { Codebase } from "@solus/contracts/codebases";
+import { codebaseMark, type CodebaseMark } from "@solus/contracts/codebase-badge";
 import { toThreadShell, type SessionRow } from "./session";
 
 export type SessionListThread = EnvironmentThreadShell & {
   automationName?: string | null;
-  fallbackProject?: { title: string; workspaceRoot: string; projectIcon?: ProjectIconOverride };
+  fallbackProject?: { title: string; workspaceRoot: string };
+  /** The codebase of the session (docs/plans/codebases.md). The row shows the
+   *  codebase's badge, not the mark of one of its projects. Absent for a
+   *  codebase that was deleted or that the phone has not read: the row shows
+   *  its project, as a session with no codebase does (decision 5). */
+  codebase?: { mark: CodebaseMark };
   /** The live facts the row's state mark reads (docs/plans/session-state-marks.md). */
   agentActivity?: AgentActivity;
   starting?: true;
@@ -58,12 +65,8 @@ function sessionPullRequestLinks(links: readonly SessionPullRequestLink[]): Thre
   });
 }
 
-/** A container root is a codebase, never a project (docs/plans/codebases.md
- *  decision 14), so its rows wear the codebase icon, not a project's mark. */
-const CODEBASE_ICON: ProjectIconOverride = { kind: "lucide", name: "folder-git-2", color: "gray" };
-
 export function createSessionListProjection(
-  isContainerRoot: (hostId: string, path: string) => boolean = () => false,
+  codebaseOf: (codebaseId: string) => Codebase | undefined = () => undefined,
 ) {
   const cache = new WeakMap<
     SessionRow,
@@ -80,7 +83,8 @@ export function createSessionListProjection(
       since: number | undefined;
       viewedAt: number | null;
       projectPath: string;
-      isCodebase: boolean;
+      /** The codebase the row was drawn from: null while the phone has not read it, undefined for a session with none. */
+      codebase: Codebase | null | undefined;
       hostLinks: readonly SessionPullRequestLink[] | undefined;
       shell: SessionListThread;
     }
@@ -89,7 +93,7 @@ export function createSessionListProjection(
   return (
     rows: ReadonlyArray<
       Pick<SolusThreadShell, "hostId" | "key"> & {
-        record: SessionRow & { startedBy?: SessionStarter | null; place?: SessionPlace | null };
+        record: SessionRow & { startedBy?: SessionStarter | null; place?: SessionPlace | null; codebaseId?: string | null };
       }
     >,
     facts: Pick<ThreadListV2Facts, "views" | "states" | "pins"> &
@@ -150,8 +154,7 @@ export function createSessionListProjection(
       const readEvent = facts.viewedAt?.get(key);
       const viewedAt = readEvent === undefined ? (view?.viewedAt ?? null) : readEvent;
       const hostLinks = facts.pullRequests?.get(key) ?? record.pullRequests;
-      const faviconRoot = threadFaviconRoot(record, null);
-      const isCodebase = faviconRoot !== null && isContainerRoot(hostId, faviconRoot);
+      const codebase = record.codebaseId ? (codebaseOf(record.codebaseId) ?? null) : undefined;
       const held = cache.get(record);
       if (
         held &&
@@ -168,7 +171,7 @@ export function createSessionListProjection(
         held.pendingQuestion === pendingQuestion &&
         held.hostLinks === hostLinks &&
         held.projectPath === projectPath &&
-        held.isCodebase === isCodebase
+        held.codebase === codebase
       )
         return held.shell;
       const shell: SessionListThread = toThreadShell(
@@ -189,10 +192,11 @@ export function createSessionListProjection(
           viewedAt,
         },
       );
+      const faviconRoot = threadFaviconRoot(record, null);
       if (faviconRoot) {
         shell.fallbackProject = { title: hostPathBaseName(faviconRoot) || faviconRoot, workspaceRoot: faviconRoot };
-        if (isCodebase) shell.fallbackProject.projectIcon = CODEBASE_ICON;
       }
+      if (codebase) shell.codebase = { mark: codebaseMark(codebase) };
       if (automationName !== undefined) shell.automationName = automationName;
       if (agentActivity) shell.agentActivity = agentActivity;
       if (liveStatus === "connecting") shell.starting = true;
@@ -211,7 +215,7 @@ export function createSessionListProjection(
         pendingQuestion,
         viewedAt,
         projectPath,
-        isCodebase,
+        codebase,
         shell,
       });
       return shell;

@@ -22,6 +22,22 @@ it("retains task names on reconnect and clears completed background work", () =>
   expect(backgroundTasks(model)).toEqual([]);
 });
 
+it("names each task by the kind the host sent", () => {
+  // WHY: without the kind every task read "Running a background task", and a
+  // dev server could not be told from a monitor.
+  const model = new TranscriptModel("session");
+  model.setBackgroundWorkRunning(true, ["dev", "watch", "cron"], [
+    { taskId: "dev", kind: "command", description: "bun run dev" },
+    { taskId: "watch", kind: "monitor" },
+    { taskId: "cron", kind: "schedule", description: "check the log" },
+  ]);
+  expect(backgroundTasks(model).map((task) => [task.taskId, task.kind, task.description])).toEqual([
+    ["dev", "command", "bun run dev"],
+    ["watch", "monitor", undefined],
+    ["cron", "background_task", "check the log"],
+  ]);
+});
+
 it("a later prompt hides the completed agents pill and leaves its turn history intact", () => {
   const model = new TranscriptModel("session");
   model.agentRows = [

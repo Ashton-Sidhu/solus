@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { RunConfig } from '@solus/contracts/types'
-import { defaultStartProject } from '@solus/workspace-ui/contexts/workspace/run-config'
+import { defaultStartProject, resolveNewRunConfig, startProjectOf } from '@solus/workspace-ui/contexts/workspace/run-config'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
-import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { checkoutPlace, codebaseOf, folderLocation, refusesCodebase, usedCodebase } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * Where a new session starts. ⌘N used to land in the chat folder when it was
@@ -31,6 +31,66 @@ describe('the project a session starts in when nothing on screen names one', () 
   })
 })
 
+describe('what the active session leaves for a new session with nothing to inherit from', () => {
+  // WHY: boot, and closing the last tab, open a draft with no session on screen.
+  // The rule: a session that used a codebase gives the next one the codebase;
+  // a session that used a project gives it the project. ⌘N follows the same rule.
+  test('is its codebase when it used one', () => {
+    const run = runIn('/code/solus')
+    run.location = folderLocation({ serverId: 'studio', path: '/code/solus' }, { codebaseId: 'cb-1' })
+    const left = startProjectOf(run)
+    expect(left).toEqual({ serverId: 'studio', directory: '/code/solus', codebaseId: 'cb-1' })
+    // The next draft starts with the same codebase.
+    const project = defaultStartProject(left, () => false, NEW_CHAT)
+    expect(codebaseOf({ location: folderLocation({ serverId: project.serverId, path: project.directory }, { codebaseId: project.codebaseId }) })).toBe('cb-1')
+  })
+
+  test('is its project with no codebase when it used a project', () => {
+    // A folder that one codebase holds gets that codebase when nothing says
+    // "No codebase", so the project alone would not stay a project.
+    expect(startProjectOf(runIn('/code/solus'))).toEqual({ serverId: 'local', directory: '/code/solus', noCodebase: true })
+  })
+
+  test('keeps the refusal of a codebase, so the next session also uses the project', () => {
+    const run = runIn('/code/solus')
+    run.location = folderLocation({ serverId: 'local', path: '/code/solus' }, { noCodebase: true })
+    const left = startProjectOf(run)
+    expect(left).toEqual({ serverId: 'local', directory: '/code/solus', noCodebase: true })
+    const next = folderLocation({ serverId: 'local', path: left!.directory }, { codebaseId: left!.codebaseId, noCodebase: left!.noCodebase })
+    expect(refusesCodebase({ location: next })).toBe(true)
+  })
+
+  test('is nothing for a chat', () => {
+    expect(startProjectOf(runIn(NEW_CHAT_DIRECTORY))).toBeNull()
+  })
+})
+
+describe('a new session from a session', () => {
+  // WHY: the screen recording. The active session used the solus project, and
+  // the new draft showed the codebase that holds the solus folder.
+  const defaults = runIn(NEW_CHAT_DIRECTORY)
+
+  test('from a session that used a project uses the project, with no codebase', () => {
+    const session = runIn('/code/solus')
+    const next = resolveNewRunConfig(defaults, { ...session, location: usedCodebase(session.location) }, { freshTask: true })
+    expect(checkoutPlace(next).path).toBe('/code/solus')
+    expect(codebaseOf(next)).toBeNull()
+    expect(refusesCodebase(next)).toBe(true)
+  })
+
+  test('from a session that used a codebase uses the codebase', () => {
+    const session = runIn('/code/solus')
+    session.location = folderLocation({ serverId: 'local', path: '/code/solus' }, { codebaseId: 'cb-1' })
+    const next = resolveNewRunConfig(defaults, { ...session, location: usedCodebase(session.location) }, { freshTask: true })
+    expect(codebaseOf(next)).toBe('cb-1')
+    expect(refusesCodebase(next)).toBe(false)
+  })
+
+  test('from a chat is a new chat, with no codebase choice', () => {
+    expect(usedCodebase(runIn(NEW_CHAT_DIRECTORY).location).noCodebase).toBeUndefined()
+  })
+})
+
 // ─── ⌘N through the drafts controller ───
 
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
@@ -45,7 +105,7 @@ let SessionDrafts: typeof import('@solus/workspace-ui/contexts/workspace/session
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
-    { snapshot: <T>(value: T) => value },
+    { snapshot: <T>(value: T) => value, raw: <T>(value: T) => value },
   )
   ;({ SessionDrafts } = await import('@solus/workspace-ui/contexts/workspace/session-drafts.svelte'))
 })
@@ -79,6 +139,7 @@ function draftsInOnePane(modelOptionsByProvider: import('@solus/contracts/host-c
       return shown?.name === 'draft' ? shown.params.draftId : null
     },
     runFor: (sourceId: string) => drafts.sessionDrafts.get(sourceId)?.run,
+    inheritedRunFor: (sourceId: string) => drafts.sessionDrafts.get(sourceId)?.run,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async () => {},

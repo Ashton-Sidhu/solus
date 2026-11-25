@@ -51,6 +51,7 @@ function draftsBesideAWorkPage() {
     defaultRunConfig: runIn('/Users/me/.solus/my-workspace'),
     focusedSourceId: null,
     runFor: () => undefined,
+    inheritedRunFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async () => {},

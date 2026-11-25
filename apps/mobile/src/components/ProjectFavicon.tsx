@@ -11,6 +11,7 @@ import {
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
 import { useAtomValue } from "@effect/atom-react";
+import type { CodebaseMark } from "@solus/contracts/codebase-badge";
 import { Atom } from "effect/reactivity";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { projectFaviconUrlAtom } from "../state/assets";
@@ -42,8 +43,14 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
   readonly workspaceRoot?: string | null;
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
+  /** Set for a session in a codebase: the mark is the codebase's badge, not the
+   *  project's. */
+  readonly codebase?: { readonly mark: CodebaseMark };
 }) {
   const size = props.size ?? 42;
+  if (props.codebase) {
+    return <CodebaseBadge mark={props.codebase.mark} size={size} />;
+  }
   const symbol = resolveProjectIconSymbol(props.projectIcon);
   const glyph = resolveProjectIconGlyph(props.projectIcon, props.projectTitle);
   const faviconUrl = useAtomValue(
@@ -90,6 +97,35 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
     />
   );
 });
+
+/** The badge of a codebase (docs/plans/codebases.md §9, "Badge"): its letters
+ *  or emoji on its colour, as T3 draws a project's monogram, stacked on a
+ *  second card so it does not read as one project. */
+export function CodebaseBadge(props: { readonly mark: CodebaseMark; readonly size: number }) {
+  const { mark } = props;
+  if (!mark.emoji && !mark.letters) {
+    return <SymbolView name="folder" size={props.size} tintColorClassName="accent-icon-subtle" type="monochrome" />;
+  }
+  const card = props.size * 0.8;
+  const colors = projectIconColorClassNames(mark.color);
+  return (
+    <View style={{ width: props.size, height: props.size }}>
+      <View
+        className={colors.background}
+        style={{ position: "absolute", top: 0, right: 0, width: card, height: card, borderRadius: card * 0.25 }}
+      />
+      <View
+        className={mark.emoji ? colors.background : undefined}
+        style={{ position: "absolute", bottom: 0, left: 0, borderRadius: card * 0.25 }}
+      >
+        <ProjectIconGlyphView
+          glyph={mark.emoji ? { kind: "emoji", emoji: mark.emoji } : { kind: "monogram", text: mark.letters, color: mark.color }}
+          size={card}
+        />
+      </View>
+    </View>
+  );
+}
 
 function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonly size: number }) {
   const { glyph, size } = props;

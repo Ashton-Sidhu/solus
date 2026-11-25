@@ -1,15 +1,11 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { CircleArrowUp, Link2, Pause, Plus, Radar, Radio, Search } from "@lucide/svelte";
+  import { CircleArrowUp, Pause, Plus, Radar, Radio, Search } from "@lucide/svelte";
   import { isSessionBusyStatus } from "@solus/contracts/types";
-  import { linkedOnlyMachines, machineLinksHiddenText, machineLinkViews, type LinkedOnlyMachine } from "@solus/client-core/host-linking";
-  import { MachineLinks } from "../../contexts/connections/machine-links.svelte";
   import { hostRoutesStore } from "../connections/host-routes.store.svelte";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { runHost } from "../../contexts/workspace/run-location";
   import { connectionsNav } from "../connections/connections-nav.svelte";
-  import LinkMachinesDialog from "../connections/LinkMachinesDialog.svelte";
-  import MachineLinksSection from "../connections/MachineLinksSection.svelte";
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
@@ -18,13 +14,12 @@
   import FleetMap from "./FleetMap.svelte";
   import FleetMapFooter from "./FleetMapFooter.svelte";
   import FleetRouteTree from "./FleetRouteTree.svelte";
-  import FleetSummary from "./FleetSummary.svelte";
+  import FleetLoad from "./FleetLoad.svelte";
   import FleetZoneDetail from "./FleetZoneDetail.svelte";
   import { askAgentAboutHosts } from "./ask-agent";
   import { discoverStore } from "./discover.store.svelte";
   import { fleetStore } from "./fleet.store.svelte";
   import { machineMatches, machinesByZone, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode } from "./lib/fleet-model";
-  import { machineLinkSummary } from "./lib/machine-link-map";
   import { hostAskOf } from "./lib/host-agent";
 
   /**
@@ -39,9 +34,6 @@
   let query = $state("");
   let pointedId = $state<string | null>(null);
   let pointedFoundKey = $state<string | null>(null);
-  let pointedLinkedId = $state<string | null>(null);
-  /** The machine links of every owner connection (D13): one view for the map, the area below it, and the Machine links section. */
-  let links = $state<MachineLinks>();
   let openZoneId = $state<FleetZoneId | null>(null);
   let isPaused = $state(false);
   let isInView = $state(true);
@@ -63,8 +55,6 @@
   const focused = $derived(machines.find((machine) => machine.serverId === focusId) ?? null);
   /** The context menu of one host on the map (D12), and where it opened. */
   let hostMenu = $state<{ serverId: string; x: number; y: number } | null>(null);
-  /** The open Link machines dialog, the host it links from when one was chosen, and the machines it selects first. */
-  let linkDialog = $state<{ sourceServerId?: string; targetIds?: string[] } | null>(null);
   const menuMachine = $derived(machines.find((machine) => machine.serverId === hostMenu?.serverId) ?? null);
   const pointedFound = $derived(discoverStore.found.find((machine) => machine.key === pointedFoundKey) ?? null);
   const openZone = $derived(ZONES.find((zone) => zone.id === openZoneId) ?? null);
@@ -73,29 +63,18 @@
   /** Motion and load reads run only while the map is seen (D5, D6). */
   const isLive = $derived(view === "map" && isInView && isWindowVisible && !isPaused);
   const serverIds = $derived(machines.map((machine) => machine.serverId).join("\n"));
-  const linkViews = $derived(links ? machineLinkViews([...links.machines.values()], links.health, Date.now()) : []);
-  const linkedOnly = $derived(linkedOnlyMachines(linkViews, new Set(machines.flatMap((machine) => (machine.installationId ? [machine.installationId] : [])))));
-  const pointedLinked = $derived(linkedOnly.find((machine) => machine.installationId === pointedLinkedId) ?? null);
-  const focusedLinksHidden = $derived.by(() => {
-    const reason = focused ? links?.hidden.get(focused.serverId) : undefined;
-    // A host you do not own never has links to show: say nothing rather than a reason that does not help.
-    return reason && reason !== "not-owner" && focused?.zone !== "shared" ? machineLinksHiddenText(reason) : null;
-  });
 
   onMount(() => {
     // Opening Hosts is one of the directory's refresh points (C1).
     void serversStore.refreshDirectory();
     void hostSetupStore.probeUnprobedOnline(serversStore.executionServers);
     const stopDiscover = discoverStore.watch();
-    const machineLinks = new MachineLinks();
-    links = machineLinks;
     const observer = new IntersectionObserver(([entry]) => (isInView = entry?.isIntersecting ?? true), { threshold: 0.05 });
     if (root) observer.observe(root);
     const onVisibility = () => (isWindowVisible = document.visibilityState === "visible");
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       stopDiscover();
-      machineLinks.dispose();
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
     };
@@ -108,24 +87,12 @@
     return untrack(() => fleetStore.hold(ids));
   });
 
-  // So is the health of the machine links: each read asks every linked machine whether it answers.
-  $effect(() => {
-    if (!isLive || !links) return;
-    const machineLinks = links;
-    return untrack(() => machineLinks.holdHealth());
-  });
-
   /** The one fix of a host's problem (`hostReadinessCopy`). */
   function fix(machine: FleetMachine) {
     const action = machine.problem?.action;
     if (action === "retry") fleetStore.retryHosts([machine.serverId]);
     else if (action === "start") fleetStore.startHosts([machine.serverId]);
     else if (action === "pair-again") void serversStore.pairAgain(machine.serverId, machine.address ?? "");
-  }
-
-  /** A machine known only through a link joins this device through the host that links to it, or with a code when that fails. */
-  function connectLinked(machine: LinkedOnlyMachine) {
-    void serversStore.pairAgain(machine.installationId, machine.url ?? "");
   }
 
   /** A host on the map names itself with `data-host-id`. The menu key gives no pointer place, so the menu opens on the host. */
@@ -159,9 +126,6 @@
         {#if withUpdate.length}
           <Button variant="ghost" size="sm" onclick={() => fleetStore.updateHosts(withUpdate)}><CircleArrowUp size={14} />Update {withUpdate.length}</Button>
         {/if}
-        {#if machines.length > 1}
-          <Button variant="ghost" size="sm" onclick={() => (linkDialog = {})}><Link2 size={14} />Link machines</Button>
-        {/if}
         <Button size="sm" onclick={() => connectionsNav.openAdd()}><Plus size={14} />Add machine</Button>
       </div>
     </div>
@@ -170,7 +134,7 @@
   {#if view === "list"}
     <HostDirectory />
   {:else}
-    <FleetSummary {machines} />
+    <FleetLoad {machines} onOpen={(serverId) => connectionsNav.open(serverId)} onShowAll={() => (view = "list")} />
 
     <section class="flex flex-col gap-3">
       <div class="flex min-h-7 flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -252,11 +216,6 @@
               onStart={(serverId) => fleetStore.startHosts([serverId])}
               onPointFound={(key) => (pointedFoundKey = key)}
               onRetry={(zone) => fleetStore.retryZone(zone)}
-              links={linkViews}
-              linked={linkedOnly}
-              focusLinkedId={pointedLinkedId}
-              onPointLinked={(installationId) => (pointedLinkedId = installationId)}
-              onConnectLinked={connectLinked}
             />
           </div>
           <div class="@min-[37.5rem]/fleet:hidden">
@@ -271,20 +230,14 @@
               onOpen={(serverId) => connectionsNav.open(serverId)}
               onOpenZone={(zone) => (openZoneId = zone)}
               onAddFound={() => connectionsNav.openAdd("nearby")}
-              links={linkViews}
-              linked={linkedOnly}
-              onConnectLinked={connectLinked}
             />
           </div>
         {/if}
         <FleetMapFooter
           machine={focused}
           found={pointedFound}
-          linked={pointedLinked}
           {colorMode}
           routes={focused ? hostRoutesStore.statesFor(focused.serverId) : []}
-          links={focused ? machineLinkSummary(linkViews, focused.installationId) : null}
-          linksHidden={focusedLinksHidden}
           onFix={fix}
         />
       </div>
@@ -298,7 +251,6 @@
         onAsk={() => askAgentAboutHosts(workspace, [menuMachine], hostAskOf(menuMachine))}
         onOpen={() => connectionsNav.open(menuMachine.serverId)}
         onNewSession={() => workspace.drafts.openSessionDraft({ freshTask: true, serverId: menuMachine.serverId, via: "click" })}
-        onLink={() => (linkDialog = { sourceServerId: menuMachine.serverId })}
         onRetry={() => fleetStore.retryHosts([menuMachine.serverId])}
         onStart={() => fleetStore.startHosts([menuMachine.serverId])}
         onUpdate={() => fleetStore.updateHosts([menuMachine.serverId])}
@@ -313,16 +265,5 @@
       onAsk={(row) => askAgentAboutHosts(workspace, machines.filter((machine) => row.serverIds.includes(machine.serverId)), row.kind)}
       onPairAgain={(serverId) => { const machine = machines.find((entry) => entry.serverId === serverId); if (machine) fix(machine); }}
     />
-  {/if}
-  {#if links}
-    <MachineLinksSection
-      {links}
-      views={linkViews}
-      onLinkMachines={() => (linkDialog = {})}
-      onLinkBack={(sourceServerId, targetId) => (linkDialog = { sourceServerId, targetIds: [targetId] })}
-    />
-  {/if}
-  {#if linkDialog}
-    <LinkMachinesDialog sourceServerId={linkDialog.sourceServerId} targetIds={linkDialog.targetIds} onClose={() => (linkDialog = null)} />
   {/if}
 </div>

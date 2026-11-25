@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { Message, TurnStartKind } from '@solus/contracts/types'
+import type { BackgroundTask, BackgroundTaskKind, Message, TurnStartKind } from '@solus/contracts/types'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { prettyToolName } from '../../../contexts/workspace/session.utils'
 import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-tool-label'
@@ -295,13 +295,53 @@ function subagentWait(message: Message): string {
  * a state marker here, not a sentence still being said, so it drops the
  * trailing ellipsis the live row uses.
  */
-export function settledBackgroundWait(items: GroupedItem[]): BackgroundWait {
-  const wait = describeBackgroundWait(items)
+export function settledBackgroundWait(items: GroupedItem[], tasks?: readonly BackgroundTask[]): BackgroundWait {
+  // The host names each running task, also one an earlier turn or a history
+  // this client never loaded launched. A wait on other sessions is no task.
+  const wait = (tasks?.length && !agentsAwaitingReply(items) && backgroundTasksWait(tasks)) || describeBackgroundWait(items)
   return {
     label: (wait?.label ?? 'Running in the background').replace(/…$/, ''),
     command: wait?.command ?? '',
     ...(wait?.agentCardKey && { agentCardKey: wait.agentCardKey }),
     ...(wait?.agentsNeedYou && { agentsNeedYou: wait.agentsNeedYou }),
+  }
+}
+
+const TASK_NOUNS = {
+  command: ['command', 'commands'],
+  monitor: ['monitor', 'monitors'],
+  subagent: ['subagent', 'subagents'],
+  workflow: ['workflow', 'workflows'],
+  schedule: ['scheduled prompt', 'scheduled prompts'],
+} as const satisfies Record<BackgroundTaskKind, readonly [string, string]>
+
+/** "Starting the dev server in the background", or "Running 2 commands and a
+ *  monitor in the background". One task says the agent's words for it. */
+export function backgroundTasksWait(tasks: readonly BackgroundTask[]): BackgroundWait {
+  if (tasks.length === 1) return { label: backgroundTaskLabel(tasks[0]), command: '' }
+  const counts = new Map<BackgroundTaskKind, number>()
+  for (const task of tasks) counts.set(task.kind, (counts.get(task.kind) ?? 0) + 1)
+  const groups = [...counts].map(([kind, count]) => count === 1 ? `a ${TASK_NOUNS[kind][0]}` : `${count} ${TASK_NOUNS[kind][1]}`)
+  const listed = groups.length === 1 ? groups[0] : `${groups.slice(0, -1).join(', ')} and ${groups[groups.length - 1]}`
+  return { label: `Running ${listed} in the background`, command: '' }
+}
+
+function backgroundTaskLabel(task: BackgroundTask): string {
+  const description = task.description?.trim().replace(/\.$/, '')
+  if (!description) return `Running a ${TASK_NOUNS[task.kind][0]} in the background`
+  switch (task.kind) {
+    case 'command':
+      return `${intentInProgress(description) ?? `Running “${description}”`} in the background`
+    case 'subagent': {
+      const purpose = intentAsPurpose(description)
+      return purpose ? `Waiting on a subagent ${purpose}` : `Waiting on the subagent “${description}”`
+    }
+    case 'monitor':
+      return `Watching “${description}” in the background`
+    case 'workflow':
+      return `Running the workflow “${description}” in the background`
+    case 'schedule':
+      return `Scheduled to run “${description}”`
   }
 }
 

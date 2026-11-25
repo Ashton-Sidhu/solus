@@ -1,7 +1,7 @@
 <script lang="ts">
   import { LoaderCircle, Monitor, Package, Plus, Settings2, X } from "@lucide/svelte";
-  import type { DeviceAction, DeviceButton, DeviceInput, DevicePreview, DeviceSummary } from "@solus/contracts/device-types";
-  import { serverConnections } from "@solus/client-core/server-connections";
+  import type { DeviceAction, DeviceButton, DevicePreview, DeviceSummary } from "@solus/contracts/device-types";
+  import { saveDeviceScreenshot } from "./lib/device-screenshot";
   import { getWorkspaceContext } from "../../contexts";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -20,7 +20,7 @@
   import DeviceRunButton from "./DeviceRunButton.svelte";
   import DeviceToolbar from "./DeviceToolbar.svelte";
   import DeviceTools from "./DeviceTools.svelte";
-  import { deviceLiveState, devicesPaneView, liveStateLabel, previewGroups, screenshotFileName, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
+  import { deviceLiveState, devicesPaneView, liveStateLabel, previewGroups, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
   import { deviceViewState } from "./lib/device-view-state.svelte";
   import { hasActiveRun } from "./lib/run-app.svelte";
   import { pendingKey } from "./lib/device-tools";
@@ -80,7 +80,7 @@
   let opening = $state<string | null>(null);
   let pendingAction = $state<string | null>(null);
   let renaming = $state<string | null>(null);
-  let stream = $state<{ focusKeyboard: () => void; resetPose: () => void; sendInputs: (inputs: DeviceInput[]) => Promise<void> } | null>(null);
+  let stream = $state<ReturnType<typeof DeviceStream> | null>(null);
   /** This client failed to draw 3D once; it shows the flat view until reload. */
   let phoneUnavailable = $state(false);
 
@@ -182,17 +182,18 @@
     }
   }
 
+  let capturing = $state(false);
+
   async function screenshot() {
-    if (!preview || !device) return;
-    const shot = await run(() => devicesStore.screenshot(serverId, preview), "Couldn't take a screenshot");
-    if (!shot) return;
-    const name = screenshotFileName(device, shot.capturedAt);
-    const signed = await serverConnections.apiFor(serverId).assetCreateUrl(undefined, { assetId: shot.assetId, name }).catch(failed("Couldn't download the screenshot"));
-    if (!signed) return;
-    const link = document.createElement("a");
-    link.href = new URL(signed.relativeUrl, serverConnections.httpOriginFor(serverId)).toString();
-    link.download = name;
-    link.click();
+    if (capturing || !preview || !device) return;
+    capturing = true;
+    try {
+      await saveDeviceScreenshot(serverId, device);
+    } catch (error) {
+      failed("Couldn't save the screenshot")(error);
+    } finally {
+      capturing = false;
+    }
   }
 
   function tabLabel(target: DevicePreview): string {
@@ -341,10 +342,11 @@
           {#if hostStatus?.detail}<p class="text-(--solus-text-tertiary)">{hostStatus.detail}</p>{/if}
         </div>
       {:else}
-        {#key `${preview.deviceHostId}:${preview.deviceId}`}
+        {#key JSON.stringify([serverId, preview.deviceHostId, preview.deviceId])}
           <div class="relative flex min-h-0 flex-1 p-[1.625rem]">
             <DeviceStream {sourceKind} bind:this={stream} {serverId} deviceHostId={preview.deviceHostId} deviceId={preview.deviceId} platform={preview.platform}
               deviceName={device?.name ?? ""} showPhone={deviceViewState.presentation === "phone" && !phoneUnavailable}
+              onRecordingError={(error) => failed("Couldn't record the device")(error)}
               onPhoneUnavailable={() => (phoneUnavailable = true)}
               active={surfaceVisible && liveState === "live"} {canInteract} onInputError={(message) => toasts.error("The device did not take that input", { description: message })} />
           </div>
@@ -366,7 +368,11 @@
           onResumeAgent={() => void devicesStore.resumeAgent(serverId, preview).catch(failed("Couldn't resume the agent"))}
           onButton={sendButton}
           onRotate={rotate}
+          {capturing}
           onScreenshot={() => void screenshot()}
+          recording={stream?.isRecording() ?? false}
+          canRecord={stream?.canRecord() ?? false}
+          onRecord={() => stream?.toggleRecording()}
           onKeyboard={() => stream?.focusKeyboard()}
           onToggleTools={() => (toolsOpen = !toolsOpen)}
           onShutdown={() => void shutdown()}

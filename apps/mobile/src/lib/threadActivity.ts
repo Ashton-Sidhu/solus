@@ -158,6 +158,7 @@ export interface ThreadFeedMessage {
   readonly updatedAt: string;
   readonly projectedItem?: OrchestrationV2ProjectedTurnItem;
   readonly hostForkPointId?: string;
+  readonly replyHtmlLayout?: import("@solus/contracts/session-history").ReplyHtmlLayout[];
   readonly backgroundCommand?: BackgroundCommandWake;
 }
 
@@ -2474,6 +2475,7 @@ export type ThreadFeedSourceRow =
   | (OrchestrationV2ProjectedTurnItem & {
       readonly hostTime?: string;
       readonly hostForkPointId?: string;
+      readonly replyHtmlLayout?: import("@solus/contracts/session-history").ReplyHtmlLayout[];
       readonly hostBackgroundCommand?: BackgroundCommandWake;
       readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> };
     })
@@ -2733,6 +2735,7 @@ export function buildThreadFeed(
           updatedAt,
           ...(row.hostTime === undefined && { projectedItem: row }),
           ...(row.hostForkPointId && { hostForkPointId: row.hostForkPointId }),
+          ...(row.replyHtmlLayout && { replyHtmlLayout: row.replyHtmlLayout }),
           backgroundCommand: row.hostBackgroundCommand,
         },
       };

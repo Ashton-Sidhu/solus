@@ -1,29 +1,26 @@
-import { beginHostQueuedRunEdit, hostQueueMessage, hostQueuedEditMutation } from "./queue-messages";
+import { beginHostQueuedRunEdit, hostQueueMessage, saveHostQueuedRunEdit } from "./queue-messages";
 import {
   hostApprovalCard,
   hostApprovalResponder,
   sendHostApprovalFeedback,
   useHostApprovalResponses,
 } from "./approval-requests";
+import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
+import { confirmComposerDispatch, submitThreadComposerMessage } from "../state/submit-thread-composer-message";
+import { enqueueHostThreadMessage } from "./enqueue-thread-message";
+import type { QueuedThreadMessage } from "../state/thread-outbox-model";
 import { hostComposerDelivery } from "./composer-delivery";
 import { backgroundTasks } from "./session-work";
-import { sessionPromptText } from "./review-prompt";
-import { finishDraftSubmission } from "../features/threads/finish-draft-submission";
+import { submitNewTaskDraft } from "../features/threads/finish-draft-submission";
 import type { ThreadDetailScreenProps } from "../features/threads/ThreadDetailScreen";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { mobilePreferencesAtom } from "../state/preferences";
 import type { ComposerEditorHandle } from "../components/ComposerEditor";
-import {
-  useQueuedRunEdit,
-  endQueuedRunEdit,
-  queuedEditDraftKey,
-  startQueuedRunEditSave,
-} from "../state/queued-run-edit";
+import { useThreadComposerInput } from "../state/use-thread-composer-input";
 import type { QueueAttachment } from "@solus/contracts/session-queue";
 import { isChat } from "@solus/contracts/chat";
 import { useRememberThreadProject } from "../features/threads/useRememberThreadProject";
-import { removeQueuedRunEditAttachment } from "../state/queued-run-edit";
 import { videoMimeType } from "@solus/contracts/media-types";
 import type { DraftComposerAttachment } from "../lib/composerImages";
 import { composerUploadMedia } from "./upload-images";
@@ -58,16 +55,15 @@ import { scopedThreadKey } from "../lib/scopedEntities";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { EnvironmentId, MessageId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
+import { CommandId, EnvironmentId, MessageId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { isSessionBusyStatus, isSteerableStatus, requestExpiryText } from "@solus/contracts/types";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
-import { conversationFeed } from "./conversation-feed";
+import { conversationFeed, hostFeedWork } from "./conversation-feed";
 import {
   clearComposerDraft,
-  clearComposerDraftContent,
   createNewTaskDraft,
   getComposerDraftSnapshot,
-  mergeComposerDraftContent,
+  composerContextImportsAtom,
   questionAttachmentDraftsAtom,
   sameComposerDraftState,
   setComposerDraftText,
@@ -135,17 +131,23 @@ export function useThreadScreenData({
   const followUpBehavior = AsyncResult.isSuccess(preferences)
     ? preferences.value.followUpBehavior ?? "queue"
     : "queue";
-  const queuedMessages = useMemo(
-    () =>
-      meta.queue.entries
-        .filter((entry) => entry.kind !== "provider_switch")
-        .map((entry) =>
-          hostQueueMessage(environmentId, threadId, entry, (path, refresh) =>
-            resolveConversationImage(store, path, refresh).then((image) => image.uri),
-          ),
-        ),
-    [meta.queue.entries, environmentId, threadId, store],
-  );
+  const queuedMessages = useMemo(() => {
+    const hostMessages = meta.queue.entries
+      .filter((entry) => entry.kind !== "provider_switch")
+      .map((entry) => hostQueueMessage(environmentId, threadId, entry, (path, refresh) =>
+        resolveConversationImage(store, path, refresh).then((image) => image.uri),
+      ));
+    const pending = meta.pendingText;
+    if (!pending || hostMessages.some((message) => message.messageId === pending.messageId)) return hostMessages;
+    return [...hostMessages, {
+      environmentId, threadId,
+      messageId: MessageId.make(pending.messageId),
+      commandId: CommandId.make(pending.commandId),
+      createdAt: pending.createdAt,
+      text: pending.text,
+      attachments: [],
+    }];
+  }, [meta.pendingText, meta.queue.entries, environmentId, threadId, store]);
   const directory = useSolusWorkspace();
   const navigation = useNavigation();
   const [openedAt] = useState(Date.now);
@@ -187,14 +189,18 @@ export function useThreadScreenData({
   const showingDraft =
     isDraft &&
     (startingDraft !== null ||
-      !feed.some((row) => row.type === "message" && row.message.role === "user"));
+      (!meta.pendingText && !feed.some((row) => row.type === "message" && row.message.role === "user")));
   const key = scopedThreadKey(environmentId, threadId);
   const chooseDraftContext = (environment: boolean) => {
     const source =
       meta.attachments.length || meta.uploading ? { hostId, sessionId: id } : undefined;
     const saved =
       draftKey ??
-      createNewTaskDraft({ environmentId: shell.environmentId, projectId: shell.projectId });
+      createNewTaskDraft({
+        environmentId: shell.environmentId,
+        projectId: shell.projectId,
+        codebaseId: meta.run.isCodebasePicked ? meta.run.codebaseId : undefined,
+      });
     if (!draftKey) {
       const draft = getComposerDraftSnapshot(key);
       setComposerDraftText(saved, draft.text);
@@ -202,24 +208,31 @@ export function useThreadScreenData({
     }
     if (environment)
       navigation.navigate("NewTaskEnvironment", { draftId: saved, environmentId: hostId, source });
-    else navigation.navigate("NewTaskProject", { draftId: saved, source });
+    else navigation.navigate("NewTaskProject", {
+      draftId: saved,
+      source,
+      currentCodebase: { hostId, path: meta.run.projectDirectory, codebaseId: meta.run.codebaseId },
+    });
   };
   const project = directory.projects.find(
     (p) => p.environmentId === hostId && p.id === shell.projectId,
   );
   useRememberThreadProject(project ?? null);
-  // A container is a codebase, not a project: a draft or a session in its folder names the codebase.
-  const containerName = useListened(solus.codebases.changes, () =>
-    project ? undefined : solus.codebases.containerCodebaseAt(hostId, shell.projectId)?.name,
-  );
-  const placeName = project?.title ?? containerName;
+  const codebaseName = useListened(solus.codebases.changes, () => {
+    if (meta.run.codebaseId) return solus.codebases.codebaseOf(meta.run.codebaseId)?.name;
+    if (!project && !meta.run.isCodebasePicked)
+      return solus.codebases.containerCodebaseAt(hostId, shell.projectId)?.name;
+    return undefined;
+  });
+  const placeName = codebaseName ?? project?.title;
   const draftTitle =
     placeName ?? (isChat(meta.run.workingDirectory) ? "No project" : meta.run.workingDirectory);
-  const edit = useQueuedRunEdit(key);
-  const editedModel = edit?.hostModelSelection ?? edit?.hostInitialModel;
   const inputKey = draftKey ?? key;
-  const composerKey = edit ? queuedEditDraftKey(key, edit.runId) : inputKey;
-  const [savingEdit, setSavingEdit] = useState(false);
+  const {
+    queuedRunEdit: edit, composerDraftKey: composerKey, currentDraftKey, beginQueuedEditSave,
+    cancelQueuedRunEdit, onChangeDraftMessage, onRemoveQueuedEditAttachment, isSavingQueuedEdit,
+  } = useThreadComposerInput(key, inputKey);
+  const editedModel = edit?.hostModelSelection ?? edit?.hostInitialModel;
   const [editUploads, setEditUploads] = useState<(QueueAttachment & { previewUri: string })[]>([]);
   const [pickingEdit, setPickingEdit] = useState(false);
   const editRunId = edit?.runId;
@@ -359,6 +372,15 @@ export function useThreadScreenData({
     projectedApproval?.optionIds ?? new Map(),
     respondToPermission,
   );
+  const historyControls = useMemo(() => {
+    const history = meta.history;
+    if (!history.hasMoreHistory && history.error === null) return undefined;
+    return {
+      ...history,
+      onLoadEarlier: () => void controller.loadOlder(),
+      onLoadThrough: (throughEntryId: string) => void controller.loadOlder(throughEntryId),
+    };
+  }, [meta.history, controller]);
   const binding = {
     selectedThread: { ...shell, pendingBackgroundTasks: backgroundTasks(controller.model) },
     onStopBackgroundWork: () => void controller.stopBackgroundWork(),
@@ -394,13 +416,7 @@ export function useThreadScreenData({
       meta.phase.kind === "error" && (meta.phase.noAccess || !feed.length)
         ? { kind: "unavailable", title: "Session unavailable", detail: meta.phase.message }
         : { kind: feed.length || meta.phase.kind === "error" ? "ready" : meta.phase.kind },
-    historyControls: {
-      hasMoreHistory: meta.hasOlder,
-      loading: meta.loadingOlder,
-      error: meta.historyError,
-      onLoadEarlier: () => void controller.loadOlder(),
-      onLoadThrough: () => void controller.loadOlder(),
-    },
+    historyControls,
     environmentLabel: env?.environmentLabel ?? null,
     connectionStateLabel: env?.connectionState ?? "offline",
     canOperateThread: controller.mayDrive,
@@ -435,161 +451,97 @@ export function useThreadScreenData({
     respondingApprovalId: respondingPermissionId ? RuntimeRequestId.make(respondingPermissionId) : null,
     onRespondToApproval: respondToApproval,
     composerDraftKey: composerKey,
-    onChangeDraftMessage: (text) => setComposerDraftText(composerKey, text),
+    onChangeDraftMessage,
     onSendCommand: async (text) => {
       if (!controller.mayDrive) return null;
-      let commandId: MessageId | null = null;
-      await controller.send(text, {
-        onSubmitted: (id) => {
-          commandId = MessageId.make(id);
-        },
-      });
-      return commandId;
+      const submission = controller.submit(text);
+      await submission.delivered;
+      return submission.messageId === null ? null : MessageId.make(submission.messageId);
     },
     onSendMessage: async (action, before, onWillEnqueue) => {
-      const accountScope = solus.sessionCache.scope();
+      const isCurrent = () => accountScope === solus.sessionCache.scope();
+      if (!isCurrent() || composerKey !== currentDraftKey() || appAtomRegistry.get(composerContextImportsAtom)[composerKey]) return null;
       const draft = getComposerDraftSnapshot(composerKey);
       const sameDraft = () =>
-        accountScope === solus.sessionCache.scope() &&
+        isCurrent() &&
         sameComposerDraftState(draft, getComposerDraftSnapshot(composerKey));
-      const prompt = sessionPromptText(draft.text, draft.context);
       if (edit) {
         if (
           !controller.mayDrive ||
           pickingEdit ||
-          (!prompt.trim() && !edit.existingAttachments.length && !editUploads.length)
+          (!draft.text.trim() && !draft.context?.records.length && !edit.existingAttachments.length && !editUploads.length)
         )
           return null;
-        const finish = startQueuedRunEditSave(key);
+        const finish = beginQueuedEditSave();
         if (!finish) return null;
-        const entry = store.metaSnapshotOf().queue.entries.find((item) => item.queueId === edit.runId);
-        if (!entry) {
-          if (finish(false))
-            Alert.alert("Could not edit queued message", "This message already left the queue.");
-          return null;
-        }
-        setSavingEdit(true);
         const scope = hostQueryScope(hostId);
         try {
-          await controller.changeQueue(hostQueuedEditMutation(
-            edit, entry, prompt, editUploads.map(({ previewUri, ...file }) => file),
-          ));
-          if (!finish(true) || scope !== hostQueryScope(hostId)) return null;
+          await saveHostQueuedRunEdit(store, edit, draft, editUploads.map(({ previewUri, ...file }) => file));
+          const current = scope === hostQueryScope(hostId);
+          if (!finish(current) || !current) return null;
           if (sameDraft()) setComposerDraftText(composerKey, "");
           return edit.messageId;
         } catch (error) {
           if (finish(false) && scope === hostQueryScope(hostId))
             Alert.alert("Could not edit queued message", String(error));
           return null;
-        } finally {
-          setSavingEdit(false);
         }
       }
       if (
-        (!prompt.trim() && !controller.attachments.length && !controller.uploading) ||
+        (!draft.text.trim() && !draft.context?.records.length && !controller.attachments.length && !controller.uploading) ||
         store.metaSnapshotOf().questions.some((question) => !question.expired)
       )
         return null;
       const permission = store.metaSnapshotOf().permissions.find((item) => !item.expired);
-      if (permission) {
-        if (before) {
-          if (approval?.requestId !== permission.questionId) return null;
-          const result = await before(
-            draft.text,
-            Boolean(draft.context || controller.attachments.length || controller.uploading),
-          );
-          if (result === "responded" && sameDraft()) clearComposerDraftContent(inputKey);
+      if (before) {
+        if (permission && approval?.requestId !== permission.questionId) return null;
+        const proceed = await confirmComposerDispatch(
+          composerKey, draft, before,
+          Boolean(draft.context || controller.attachments.length || controller.uploading),
+          sameDraft,
+        );
+        if (!proceed || permission) return null;
+      } else if (permission) {
+        if (!controller.mayApprove || draft.context || controller.attachments.length || controller.uploading)
           return null;
-        }
-        if (
-          !controller.mayApprove ||
-          draft.context !== undefined ||
-          controller.attachments.length ||
-          controller.uploading
-        )
-          return null;
-        if (await sendHostApprovalFeedback(permission, prompt, respondToPermission)) {
-          if (sameDraft())
-            setComposerDraftText(inputKey, "");
-        }
+        if (await sendHostApprovalFeedback(permission, draft.text, respondToPermission) && sameDraft())
+          setComposerDraftText(inputKey, "");
         return null;
       }
-      if (before) {
-        const response = await before(
-          draft.text,
-          Boolean(draft.context || controller.attachments.length || controller.uploading),
-        );
-        if (!sameDraft()) return null;
-        if (response === "responded") clearComposerDraftContent(inputKey);
-        if (response !== true) return null;
-      }
-      if (!controller.mayDrive || accountScope !== solus.sessionCache.scope()) return null;
-      const status = store.metaSnapshotOf().status;
-      const delivery = hostComposerDelivery(status, followUpBehavior, action);
+      if (!controller.mayDrive || !isCurrent()) return null;
+      const metadata = makeQueuedMessageMetadata();
+      const message: QueuedThreadMessage = {
+        ...metadata,
+        environmentId,
+        threadId,
+        messageId: MessageId.make(metadata.messageId),
+        commandId: CommandId.make(metadata.commandId),
+        text: draft.text.trim(),
+        context: draft.context,
+        attachments: draft.attachments,
+        dispatchMode: hostComposerDelivery(store.metaSnapshotOf().status, followUpBehavior, action),
+      };
+      const report = (error: unknown) => {
+        if (isCurrent()) Alert.alert("Send failed", error instanceof Error ? error.message : String(error));
+      };
+      const enqueue = (message: QueuedThreadMessage) => enqueueHostThreadMessage(controller, message, report);
       onWillEnqueue?.();
       if (showingDraft) {
         setStartingDraft({
           media: composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos, meta.failedAttachments),
           count: meta.attachments.length + meta.uploading + meta.failedAttachments.length,
         });
+        try {
+          return await submitNewTaskDraft(navigation, inputKey, draft.text, message, enqueue, isCurrent);
+        } catch (error) {
+          report(error);
+          return null;
+        } finally {
+          if (isCurrent()) setStartingDraft(null);
+        }
       }
-      return new Promise<MessageId | null>((resolve) => {
-        let cleared = false;
-        const accept = (messageId: string) => {
-          if (accountScope !== solus.sessionCache.scope()) {
-            resolve(null);
-            return;
-          }
-          if (showingDraft) {
-            finishDraftSubmission(
-              navigation,
-              inputKey,
-              draft.text,
-              hostId,
-              id,
-            );
-            setStartingDraft(null);
-          } else if (sameDraft()) {
-            clearComposerDraftContent(inputKey);
-            cleared = true;
-          }
-          resolve(MessageId.make(messageId));
-        };
-        const recover = () => {
-          if (accountScope === solus.sessionCache.scope()) {
-            if (showingDraft) setStartingDraft(null);
-            if (cleared) {
-              void mergeComposerDraftContent(inputKey, draft).catch((error) =>
-                Alert.alert("Could not restore draft", String(error)),
-              );
-            }
-          }
-          resolve(null);
-        };
-        void controller
-          .send(prompt, {
-            delivery,
-            // Upstream leaves a new draft after its local save. An open thread
-            // clears immediately and recovers its draft if that save fails.
-            ...(showingDraft ? { onQueued: accept } : { onSubmitted: accept }),
-            onUploadFailed: () => {
-              recover();
-              if (showingDraft && accountScope === solus.sessionCache.scope())
-                Alert.alert("Could not send prompt", "Check the attachments and try again.");
-            },
-          })
-          .then(
-            () => {
-              if (showingDraft && accountScope === solus.sessionCache.scope())
-                setStartingDraft(null);
-              resolve(null);
-            },
-            (error) => {
-              recover();
-              if (accountScope === solus.sessionCache.scope())
-                Alert.alert("Send failed", String(error));
-            },
-          );
+      return submitThreadComposerMessage(inputKey, message, enqueue, {
+        content: draft, isCurrent, onSaveError: report,
       });
     },
     selectedThreadQueueCount: meta.queue.entries.length,
@@ -612,7 +564,7 @@ export function useThreadScreenData({
             resolveConversationImage(store, path, refresh).then((image) => image.uri),
           );
         },
-    dispatchingMessageId: null,
+    dispatchingMessageId: meta.pendingText ? MessageId.make(meta.pendingText.messageId) : null,
     serverConfig: null,
     activePendingUserInput: pending,
     questionAttachmentAccess: isAsyncQuestion
@@ -682,22 +634,19 @@ export function useThreadScreenData({
     onDismissFeedback: wip,
     activityRun: null,
     providerStartup: busy ? meta.providerStartup : null,
-    runlessWorkActive: busy,
-    activeWorkStartedAt: busy
-      ? feed.findLast((entry) => entry.type === "message" && entry.message.role === "user")
-          ?.createdAt || null
-      : null,
+    ...hostFeedWork(feed, busy, Boolean(meta.pendingText)),
     isCompacting: false,
     creationState: null,
     queuedRunEdit: edit,
-    isSavingQueuedEdit: savingEdit,
-    onCancelQueuedRunEdit: () => endQueuedRunEdit(key),
-    onRemoveQueuedEditAttachment: (id) => removeQueuedRunEditAttachment(key, id),
+    isSavingQueuedEdit,
+    onCancelQueuedRunEdit: cancelQueuedRunEdit,
+    onRemoveQueuedEditAttachment,
     canSwitchThreadProvider: false,
     offersSideChat: false,
   } satisfies Omit<ThreadDetailScreenProps, "header">;
   return {
     binding,
+    sessionFolders: meta.sessionFolders,
     draft: showingDraft
       ? {
           editorRef: firstPromptEditor,

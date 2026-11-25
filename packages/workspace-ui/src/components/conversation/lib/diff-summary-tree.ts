@@ -26,6 +26,8 @@ export interface DiffFolderNode {
   path: string
   /** What the row shows: several segments once a single-child chain compresses. */
   label: string
+  /** Set on the folder that stands for one repository of the change: that repository's folder on the host. */
+  repositoryPath?: string
   folders: DiffFolderNode[]
   files: DiffFileNode[]
   fileCount: number
@@ -89,6 +91,7 @@ export function buildDiffSummaryTree(
       // The working directory has no path in front of its files: `.` keeps its folder apart from the root.
       prefix = inRepository.repository.prefix || '.'
       folder = childFolder(root, prefix, inRepository.repository.name)
+      folder.repositoryPath = inRepository.repository.path
     }
     for (const segment of segments) {
       prefix = prefix ? `${prefix}/${segment}` : segment

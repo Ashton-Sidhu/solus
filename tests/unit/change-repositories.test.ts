@@ -99,6 +99,16 @@ describe('the files of a summary, by repository', () => {
     expect(opened.flatMap((row) => (row.kind === 'file' ? [row.node.path] : []))).toEqual(['../api/src/main.ts', '../api/README.md'])
   })
 
+  test('a repository folder names its folder on the host, so it wears that project mark; its inner folders do not', () => {
+    const tree = buildDiffSummaryTree(undefined, TWO_REPOSITORIES.files, repositories)
+    const opened = flattenDiffTree(tree, new Set(['../api']), new Set())
+    expect(opened.flatMap((row) => (row.kind === 'folder' ? [[row.node.label, row.node.repositoryPath]] : []))).toEqual([
+      ['web/src', '/work/web'],
+      ['api', '/work/api'],
+      ['src', undefined],
+    ])
+  })
+
   test('the Threads surface draws the same tree', () => {
     const changes = TWO_REPOSITORIES.files.map((file) => ({ ...file }))
     const labels = flattenDiffTree(changeTree(changes, repositories), new Set(), new Set()).map((row) => row.kind === 'folder' && row.node.label)
@@ -122,7 +132,7 @@ describe('the files of a summary, by repository', () => {
   test('a file of a repository inside the working directory belongs to the inner repository', () => {
     const docs: DiffRepository = { path: '/work/web/docs', name: 'docs', isWorkingDirectory: false }
     const nested = summaryRepositories([WEB, docs])
-    expect(repositoryOfSummaryFile('docs/guide.md', nested)).toEqual({ repository: { prefix: 'docs', name: 'docs' }, path: 'guide.md' })
+    expect(repositoryOfSummaryFile('docs/guide.md', nested)).toEqual({ repository: { prefix: 'docs', name: 'docs', path: '/work/web/docs' }, path: 'guide.md' })
     expect(repositoryOfSummaryFile('docs-site/index.md', nested)?.repository.name).toBe('web')
   })
 

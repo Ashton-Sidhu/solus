@@ -98,7 +98,11 @@ export function createPhoneViewer(options: {
 
   const fit = (immediate = false) => {
     if (!viewport.width || !viewport.height) return;
-    camera.aspect = viewport.width / viewport.height;
+    const aspect = viewport.width / viewport.height;
+    if (camera.aspect !== aspect) {
+      camera.aspect = aspect;
+      camera.updateProjectionMatrix();
+    }
     phone.root.updateMatrixWorld(true);
     framing.setBounds(
       new Box3().setFromObject(phone.root),
@@ -112,7 +116,6 @@ export function createPhoneViewer(options: {
   const applyCamera = () => {
     camera.position.set(framing.center.x, framing.center.y, framing.distance());
     camera.lookAt(framing.center.x, framing.center.y, 0);
-    camera.updateProjectionMatrix();
   };
   const applyPose = () => {
     phone.root.quaternion.copy(motion.rotation);
@@ -148,8 +151,7 @@ export function createPhoneViewer(options: {
         applyPose();
         fit(reducedMotion());
       }
-      framing.advance(now, reducedMotion());
-      applyCamera();
+      if (framing.advance(now, reducedMotion())) applyCamera();
       renderer.render(scene, camera);
       if (motion.needsFrame() || framing.needsFrame() || orientationTurn) scheduler.invalidate();
     } catch {
@@ -205,7 +207,6 @@ export function createPhoneViewer(options: {
       applyPose();
       fit(!orientationTurn);
     }
-    applyPose();
   };
   const contextLost = (event: Event) => {
     event.preventDefault();
@@ -216,7 +217,7 @@ export function createPhoneViewer(options: {
   return {
     frameUpdated() {
       if (disposed) return;
-      updateLayout();
+      if (textureWidth !== options.source.width || textureHeight !== options.source.height) updateLayout();
       texture.needsUpdate = true;
       scheduler.invalidate();
     },

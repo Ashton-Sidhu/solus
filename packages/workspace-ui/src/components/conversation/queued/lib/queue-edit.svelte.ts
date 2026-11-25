@@ -2,6 +2,7 @@ import type { OutboundPrompt } from '@solus/contracts/types'
 import type { QueueAttachment, QueuedModelSelection } from '@solus/contracts/session-queue'
 import type { PickerSelection } from '../../../pickers/lib/picker-selection'
 import type { SessionQueueController } from '../../../../contexts/workspace/session-queue.store.svelte'
+import { clipboardMedia, type ComposerClipboard } from '../../../input/lib/attachment-upload'
 
 /** Editing is a separate draft. The live queue and composer stay unchanged
  * until Save; a conflicting revision leaves the draft available to the user. */
@@ -43,6 +44,14 @@ export class QueueEdit {
       this.attachmentsChanged = true
     } catch (error) { this.error = error instanceof Error ? error.message : String(error) }
     finally { this.busy = false }
+  }
+  /** Attaches the images and videos of a paste, as the composer does. Returns
+   * false when the paste has none, so its text goes into the field. */
+  paste(clipboard: ComposerClipboard): boolean {
+    const media = clipboardMedia(clipboard)
+    if (media.length === 0) return false
+    void this.add(media)
+    return true
   }
   async save(): Promise<boolean> {
     if (this.busy) return false

@@ -31,7 +31,7 @@
 
   let host = $state<HTMLDivElement | null>(null);
   let canvas = $state<HTMLCanvasElement | null>(null);
-  let viewer: PhoneViewer | null = null;
+  let viewer = $state.raw<PhoneViewer | null>(null);
   let interaction: ReturnType<typeof createPhoneInteraction> | null = null;
 
   // three.js owns the canvas: build the viewer once per canvas, outside Svelte's graph.
@@ -57,7 +57,6 @@
         if (disposed) return;
         const created = createPhoneViewer({ canvas: node, source, onUnavailable, profile });
         viewer = created;
-        created.setScreen(screen, profile);
         interaction = createPhoneInteraction({
           screenPoint: (point, captured) => created.screenPoint(point.x, point.y, captured),
           touch: (phase, point) => onTouch(phase === "begin" ? "down" : phase === "end" ? "up" : "move", point),

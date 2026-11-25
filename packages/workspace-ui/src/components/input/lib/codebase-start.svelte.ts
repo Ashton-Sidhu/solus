@@ -3,7 +3,7 @@ import type { Codebase } from '@solus/contracts/codebases'
 import type { Place, RunConfig, RunLocation } from '@solus/contracts/types'
 import { isChat } from '@solus/contracts/chat'
 import type { CodebaseHost } from '../../../contexts/codebases/codebases.store.svelte'
-import { checkoutPlace, chooseCodebase, codebaseOf, pendingClone } from '../../../contexts/workspace/run-location'
+import { checkoutPlace, chooseCodebase, codebaseOf, pendingClone, refusesCodebase } from '../../../contexts/workspace/run-location'
 import { automaticCodebase } from './codebase-choice'
 import type { CodebaseDecisions } from './project-selection'
 
@@ -31,8 +31,9 @@ interface CodebaseStartReads {
 
 /** The folder whose codebases decide the automatic choice, or null when the run has none to decide for. */
 function decidableFolder(run: RunConfig | undefined, isStarted: boolean): Place | null {
-  // A clone has no folder on its run host until Send.
-  if (!run || isStarted || pendingClone(run)) return null
+  // A clone has no folder on its run host until Send. A run that says "No
+  // codebase" uses its project: the person chose that, or the session it came from used a project.
+  if (!run || isStarted || pendingClone(run) || refusesCodebase(run)) return null
   const folder = checkoutPlace(run)
   return folder.path && folder.path !== '~' && !isChat(folder.path) ? folder : null
 }

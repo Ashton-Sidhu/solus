@@ -1,10 +1,10 @@
 import type { ProviderStartup } from "@solus/contracts/provider-startup";
+import type { ReplyHtmlLayout } from "@solus/contracts/session-history";
 import { useAtomValue } from "@effect/atom-react";
 import { parseSessionHref } from "@solus/contracts/session-link";
 import { mobileHost } from "../../state/mobile-host";
-import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types";
 import { MessageVideo } from "../../solus/MessageVideo";
-import { isUploadVideo, isUploadImage, uploadImagePreview } from "../../solus/upload-images";
+import { isUploadVideo, isUploadImage } from "../../solus/upload-images";
 import { CollapsibleUserMessageBody } from "./CollapsibleUserMessageBody";
 import { BackgroundCommandRow } from "./BackgroundCommandRow";
 import { msg, T, useGT, useLocale, useMessages } from "gt-react-native";
@@ -644,89 +644,23 @@ interface MessageAttachmentImageProps {
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }
 
-function UploadMessageImage({
-  image,
-  ...props
-}: MessageAttachmentImageProps & {
-  image: FilePreviewItem;
-}) {
+function MessageAttachmentImage(props: MessageAttachmentImageProps & { localUri?: string | undefined }) {
   const gt = useGT();
   const withGallery = useFilePreviewGallery();
-  const resolver = "resolveUrl" in image ? (image.resolveUrl ?? null) : null;
-  const [attempt, retry] = useState(0);
-  const [answer, setAnswer] = useState<{ resolver: typeof resolver; uri: string | null } | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!resolver) return;
-    let active = true;
-    void resolver(attempt > 0).then(
-      (uri) => {
-        if (active) setAnswer({ resolver, uri });
-      },
-      () => {
-        if (active) setAnswer({ resolver, uri: null });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [resolver, attempt]);
-  const uri = answer?.resolver === resolver ? answer.uri : "uri" in image ? image.uri : null;
-  if (!uri)
-    return answer && answer.resolver === resolver && answer.uri === null ? (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          setAnswer(null);
-          retry((a) => a + 1);
-        }}
-      >
-        <Text>{gt("Retry")}</Text>
-      </Pressable>
-    ) : (
-      <AppActivityIndicator />
-    );
-  const identifier = filePreviewSourceIdentifier(image);
-  return (
-    <PresentationSource identifier={identifier}>
-      <MessageImage
-        source={{ uri }}
-        className={props.className}
-        maxWidth={props.maxWidth}
-        height={props.height}
-        accessibilityLabel={gt("Open {name}", { name: props.name })}
-        onPress={() =>
-          props.onPressPreview(withGallery({ ...image, sourceIdentifier: identifier }))
-        }
-        onError={() => setAnswer({ resolver, uri: null })}
-      />
-    </PresentationSource>
-  );
-}
-
-function MessageAttachmentImage(props: MessageAttachmentImageProps & { upload?: FilePreviewItem }) {
-  if (
-    props.upload &&
-    ("uri" in props.upload || ("resolveUrl" in props.upload && props.upload.resolveUrl))
-  )
-    return <UploadMessageImage {...props} image={props.upload} />;
-  return <RemoteMessageAttachmentImage {...props} />;
-}
-
-function RemoteMessageAttachmentImage(props: MessageAttachmentImageProps) {
-  const gt = useGT();
-  const withGallery = useFilePreviewGallery();
-  const previewSource = remoteAttachmentImageSource(props.environmentId, props.attachmentId, props);
-  const { resource } = previewSource;
+  const remote = remoteAttachmentImageSource(props.environmentId, props.attachmentId, props);
+  const previewSource = props.localUri
+    ? { kind: "image" as const, uri: props.localUri, name: props.name, mimeType: props.mimeType }
+    : remote;
+  const resource = props.localUri ? null : remote.resource;
   const sourceIdentifier = filePreviewSourceIdentifier(previewSource);
-  const uri = useAssetUrl(props.environmentId, resource);
+  const signed = useAssetUrl(props.environmentId, resource);
+  const uri = props.localUri ?? signed;
   const refreshAssetUrl = useRefreshAssetUrl(props.environmentId, resource);
   const retriedImage = useRef(false);
   const { handoff } = props;
   const source =
     uri !== null
-      ? assetImageSource(props.environmentId, resource, uri)
+      ? resource ? assetImageSource(props.environmentId, resource, uri) : { uri }
       : handoff !== undefined
         ? { uri: handoff.uri }
         : null;
@@ -1057,11 +991,7 @@ function UserMessageMedia(props: {
         <MessageAttachmentImage
           environmentId={props.environmentId}
           attachmentId={attachment.id}
-          upload={
-            isUploadImage(attachment)
-              ? uploadImagePreview(attachment, props.environmentId, props.threadId)
-              : undefined
-          }
+          localUri={isUploadImage(attachment) && "uri" in attachment.preview ? attachment.preview.uri : undefined}
           name={attachment.name}
           mimeType={attachment.mimeType}
           {...imageProps(props.pendingAttachments.length + index)}
@@ -1387,6 +1317,8 @@ function ArtifactTemplateCard(props: {
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
   readonly renderHtml?: boolean;
+  readonly replyLayout?: ReplyHtmlLayout[] | undefined;
+  readonly frameWidth?: number | undefined;
   readonly environmentId: EnvironmentId;
   readonly citationSource?: Pick<AssistantCitation, "threadId" | "messageId">;
   readonly onCiteAssistantText?: (citation: AssistantCitation) => void;
@@ -1440,6 +1372,8 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     <>
       <AssistantMarkdownBlocks
         markdown={liveMarkdown}
+        replyLayout={liveMarkdown === props.markdown ? props.replyLayout : undefined}
+        frameWidth={props.frameWidth}
         renderHtml={props.renderHtml}
         onCiteText={
           props.onCiteAssistantText && props.citationSource
@@ -1506,6 +1440,8 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
 function AssistantMarkdownBlocks(props: {
   readonly markdown: string;
   readonly renderHtml?: boolean | undefined;
+  readonly replyLayout?: ReplyHtmlLayout[] | undefined;
+  readonly frameWidth?: number | undefined;
   readonly citationPath?: string;
   readonly onCiteText?: (text: string, path: string) => void;
   /** The reply's reference definitions, passed down by the enclosing fold. */
@@ -1543,6 +1479,7 @@ function AssistantMarkdownBlocks(props: {
           <AssistantMarkdownBlocks
             {...props}
             markdown={block.body}
+            replyLayout={undefined}
             definitions={definitions}
             citationPath={`${props.citationPath ?? ""}${blockIndex}/`}
           />
@@ -1565,6 +1502,8 @@ function AssistantMarkdownBlocks(props: {
         <AssistantReplyMarkdown
           key={`markdown:${offset}`}
           markdown={segment.markdown}
+          replyLayout={segment.markdown === props.markdown ? props.replyLayout : undefined}
+          frameWidth={props.frameWidth}
           definitions={definitions}
           renderHtml={props.renderHtml}
           skills={props.skills}
@@ -2599,15 +2538,7 @@ function renderFeedEntry(
                             key={attachment.id}
                             environmentId={props.environmentId}
                             attachmentId={attachment.id}
-                            upload={
-                              isUploadImage(attachment)
-                                ? uploadImagePreview(
-                                    attachment,
-                                    props.environmentId,
-                                    props.threadId,
-                                  )
-                                : undefined
-                            }
+                            localUri={isUploadImage(attachment) && "uri" in attachment.preview ? attachment.preview.uri : undefined}
                             name={attachment.name}
                             mimeType={attachment.mimeType}
                             className={
@@ -2760,6 +2691,8 @@ function renderFeedEntry(
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
               markdown={renderedText}
+              replyLayout={renderedText === message.text ? message.replyHtmlLayout : undefined}
+              frameWidth={props.markdownContentWidth}
               renderHtml={message.role === "assistant"}
               environmentId={props.environmentId}
               citationSource={{ threadId: props.threadId, messageId: message.id }}

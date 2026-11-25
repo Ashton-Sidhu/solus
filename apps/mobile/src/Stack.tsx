@@ -732,7 +732,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     ThreadRunningServers: createNativeStackScreen({
       screen: ThreadRunningServersSheet,
-      options: sheetRoute({ detent: 0.85, android: "fullScreen" }),
+      options: sheetRoute({ detent: 0.55 }),
     }),
     ThreadReview: createNativeStackScreen({
       screen: ReviewSheet,

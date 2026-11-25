@@ -1,8 +1,9 @@
 <script lang="ts">
   /** How this host is reached, and who reaches it: its Solus Cloud link, the
    *  organizations it stands in, its network, one card for every way a device
-   *  or machine comes to it (pair code, approval requests, SSH forwards), and
-   *  the devices with access. Machine links are on the host map (FleetView). `connectionsStore` is read for this host by the Hosts page. Only a
+   *  or machine comes to it (pair code, approval requests, SSH forwards), the
+   *  machines it reaches, and the devices with access. `connectionsStore` is read
+   *  for this host by the Hosts page. Only a
    *  local owner (the desktop on the machine or a paired device) may change how
    *  the host is reached; anyone else sees the state and where to change it. */
   import {
@@ -26,6 +27,7 @@
   import OrganizationsSection from "./OrganizationsSection.svelte";
   import ForwardedHostRows from "./ForwardedHostRows.svelte";
   import PairApprovalRows from "./PairApprovalRows.svelte";
+  import ReachedMachinesSection from "./ReachedMachinesSection.svelte";
   import { forwardedHostsStore } from "./forwarded-hosts.store.svelte";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
@@ -219,8 +221,8 @@
 <!-- Every way a device or machine comes to this host, in one card. After the
      network setting on purpose: a forward needs no open port (D4, D7). -->
 <SettingsSection
-  label="Pair and link"
-  description="Pair a device with a code, approve a machine that asks, or reach one over SSH. Link the machines you own from the host map."
+  label="Pairing"
+  description="Pair a device with a code, approve a machine that asks, or reach one over SSH. Your other machines then reach it too."
   visible={showsPairCode || showsApprovals || !!forwarded}
 >
   <!-- Keyed so another host's lists are read afresh. -->
@@ -247,6 +249,10 @@
     <ForwardedHostRows {serverId} />
   {/key}
 </SettingsSection>
+
+{#if hasPairing && canChangeNetwork}
+  {#key serverId}<ReachedMachinesSection {serverId} />{/key}
+{/if}
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}

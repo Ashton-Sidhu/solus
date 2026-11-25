@@ -402,12 +402,6 @@ export class RemoteHosts {
     }
   }
 
-  disconnectPairing(installationId: string): void {
-    const key = `paired:${installationId}`
-    this.connections.get(key)?.link.destroy()
-    this.connections.delete(key)
-  }
-
   close(): void {
     for (const { link } of this.connections.values()) link.destroy()
     this.connections.clear()

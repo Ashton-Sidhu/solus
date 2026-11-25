@@ -234,11 +234,8 @@ function ComposerAttachmentContent(props: ComposerAttachmentThumbnailProps) {
       />
     );
   }
-  const onPressVideo = props.onPressVideo;
-  if (onPressVideo && videoMimeType(attachment) !== null) {
-    return (
-      <ComposerVideoAttachment {...props} attachment={attachment} onPressVideo={onPressVideo} />
-    );
+  if (videoMimeType(attachment) !== null) {
+    return <ComposerVideoAttachment {...props} attachment={attachment} />;
   }
   return <ComposerFileAttachment {...props} attachment={attachment} />;
 }
@@ -295,7 +292,7 @@ function ComposerVideoAttachment(props: {
   readonly size: number;
   readonly borderRadius: number;
   readonly compact?: boolean;
-  readonly onPressVideo: (
+  readonly onPressVideo?: (
     attachment: DraftComposerFileAttachment,
     sourceIdentifier: string,
   ) => void;
@@ -316,7 +313,8 @@ function ComposerVideoAttachment(props: {
       sourceIdentifier={sourceIdentifier}
       thumbnailSource={attachment}
       compact={props.compact}
-      onPress={() => props.onPressVideo(attachment, sourceIdentifier)}
+      disabled={props.onPressVideo === undefined}
+      onPress={() => props.onPressVideo?.(attachment, sourceIdentifier)}
       actionsSource={actionsSource}
       style={style}
     />

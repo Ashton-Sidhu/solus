@@ -72,8 +72,8 @@
     /** Tab whose session name is being edited in place. */
     renamingTabId: string | null;
     onSelect: (event?: MouseEvent) => void;
-    /** A click just opened a session and reordered the list under the resting
-     *  pointer: the tooltip stays shut until the pointer moves. */
+    /** The tooltip stays shut: a click just opened a session and reordered the
+     *  list under the resting pointer, or Settings covers the sidebar. */
     isTooltipQuiet?: boolean;
     /** The pointer went down on the row: its reads can start before the click lands. */
     onPressStart?: () => void;
@@ -160,8 +160,8 @@
   // just stops claiming the space of live work.
   // A shared row keeps its card in every state: Shared with you has no shelf.
   const isShelved = $derived(task.lifecycle !== "active" && !task.share);
-  // A folder row is one line too: the folder above it names the project.
-  const isSlim = $derived(inFolder || isShelved);
+  // Pins and folder rows are one line too.
+  const isSlim = $derived(inFolder || isShelved || isPinned);
   const hasStartedSessions = $derived(nestedSessions.length > 0 && !isShelved);
   // A folded row still lists the session on screen: folding must never hide
   // the session being read.
@@ -201,7 +201,7 @@
   // them — so the question moves to the task page, where each can answer it.
   // A shelved row leaves it to the tooltip: on a long tail of snoozed and
   // completed work, the same machine on every line is noise.
-  const showsHost = $derived(!isGuest && !task.share && !isShelved && sessions.length <= 1 && !!(task.sessionId || tooltipSession));
+  const showsHost = $derived(!isGuest && !task.share && !isShelved && !isPinned && sessions.length <= 1 && !!(task.sessionId || tooltipSession));
   // A session that ran on several hosts names the one with its newest turn
   // (docs/plans/portable-sessions.md §10): that is where it continues from.
   const lastRunServerId = $derived(task.sessionId ? sessionListStore.newestHostFor(task.sessionId, task.serverId) : null);
@@ -626,7 +626,7 @@
       }
     }}
   >
-    {#if isPinned && isSlim && onTogglePin}
+    {#if isPinned && onTogglePin}
       <SessionPinButton isPinned onToggle={onTogglePin} />
     {/if}
     {#if isSlim}
@@ -645,6 +645,7 @@
         >
           <ProjectFavicon
             projectKey={task.groupKey}
+            codebaseId={task.codebaseId}
             class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]"
           />
         </span>
@@ -672,7 +673,7 @@
              also what pays for the hover actions: the slot on its right is the
              only thing that yields width when they arrive. -->
         <span
-          class="flex h-[1.1875rem] min-w-0 items-center gap-[0.375rem] text-chrome-dense @max-[15rem]:gap-1"
+          class="flex h-[1.1875rem] min-w-0 items-center gap-[0.375rem] text-chrome-dense"
         >
           <!-- The context cluster carries its own step down in ink, so it stays
                a supporting detail on a row at full strength and recedes twice
@@ -680,16 +681,14 @@
                outside it: a mark that dimmed with the row could not be the one
                thing the row still says at full strength. -->
           <span
-            class="flex min-w-0 flex-1 items-center gap-[0.375rem] opacity-70 @max-[15rem]:gap-1"
+            class="flex min-w-0 flex-1 items-center gap-[0.375rem] opacity-70"
           >
-            {#if isPinned && onTogglePin}
-              <SessionPinButton isPinned onToggle={onTogglePin} />
-            {/if}
             <!-- The project's own mark identifies it faster than its name does.
                  The band above already names the project while the list is
                  scoped. -->
             <ProjectFavicon
               projectKey={task.groupKey}
+              codebaseId={task.codebaseId}
               class="size-4 shrink-0 pointer-fine:[&_.lucide-icon]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -739,7 +738,7 @@
              overlapped, and a click aimed at close or complete opened the pull
              request instead. -->
         <span
-          class="mt-2 flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5"
+          class="mt-2 flex h-[1.1875rem] items-center gap-[0.5625rem]"
         >
           {@render rowTitle()}
           {#if prChip}
@@ -764,6 +763,7 @@
       title={task.title}
       projectKey={task.projectKey}
       groupKey={task.groupKey}
+      codebaseId={task.codebaseId}
       projectLabel={task.projectLabel}
       taskTitle={task.linkedTask?.title}
       {branchName}
@@ -802,6 +802,7 @@
           groupKey={task.groupKey}
           projectLabel={task.projectLabel}
           {isGuest}
+          {isTooltipQuiet}
           renaming={!!listed.tabId && renamingTabId === listed.tabId}
           onRename={(next) => onRename(listed, next)}
           {onRenameCancel}

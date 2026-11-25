@@ -1,4 +1,4 @@
-import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type PartialTurnUsage, type PermissionMode, type UsageData } from '@solus/contracts/types'
+import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type BackgroundTaskKind, type ContextUsage, type NormalizedEvent, type PartialTurnUsage, type PermissionMode, type UsageData } from '@solus/contracts/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { DigestWorkflow } from '@solus/contracts/session-digest'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
@@ -89,6 +89,15 @@ function workflowProgress(message: ClaudeTaskSystemEvent): DigestWorkflow | unde
  *  uses) and an MCP or WebSocket monitor. They hold the session only while the
  *  agent marks them as awaited. */
 const AWAITABLE_TASK_TYPES = new Set(['local_bash', 'monitor_mcp', 'monitor_ws'])
+
+/** What the clients call an SDK task. A type Solus does not know stays unnamed. */
+function backgroundTaskKind(taskType: string | undefined): BackgroundTaskKind | undefined {
+  if (taskType === 'local_bash') return 'command'
+  if (taskType?.startsWith('monitor_')) return 'monitor'
+  if (taskType === 'local_agent' || taskType === 'remote_agent') return 'subagent'
+  if (taskType === 'local_workflow') return 'workflow'
+  return undefined
+}
 
 /**
  * Maps raw Claude stream-json events to canonical SOLUS events.
@@ -435,6 +444,9 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
   if (sys.subtype === 'task_started' && sys.task_id) {
     const started: Extract<NormalizedEvent, { type: 'background_task_started' }> = { type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }
     if (sys.task_type && AWAITABLE_TASK_TYPES.has(sys.task_type)) started.awaitable = true
+    const kind = backgroundTaskKind(sys.task_type)
+    if (kind) started.kind = kind
+    if (sys.description?.trim()) started.description = sys.description.trim().slice(0, 240)
     if (sys.task_type === 'local_workflow' || sys.task_type === 'local_agent') {
       const kind = sys.task_type === 'local_workflow' ? 'workflow' : 'subagent'
       started.lineageTask = { kind, title: (sys.workflow_name || sys.description || (kind === 'workflow' ? 'Workflow' : 'Sub-agent')).slice(0, 240) }

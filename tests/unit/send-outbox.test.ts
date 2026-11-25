@@ -53,6 +53,17 @@ function entry(clientPromptId: string): Omit<OutboxRecord, 'attempts' | 'lastErr
 }
 
 describe('durable send outbox', () => {
+  test('reopening the same host and session with another account leaves its prompt for its owner', async () => {
+    const outbox = new SendOutbox()
+    outbox.enqueue('host/session', { ...entry('mine'), accountScope: 'account-a/org' })
+    outbox.enqueue('host/session', { ...entry('theirs'), accountScope: 'account-b/org' })
+    const delivered: string[] = []
+    await outbox.drain('host/session', async (record) => { delivered.push(record.clientPromptId) }, 'account-b/org')
+    expect(delivered).toEqual(['theirs'])
+    expect(outbox.entriesFor('host/session', 'account-b/org')).toEqual([])
+    expect(outbox.entriesFor('host/session', 'account-a/org').map((record) => record.clientPromptId)).toEqual(['mine'])
+  })
+
   test('queue file metadata survives a disconnected client without changing the prompt', () => {
     const outbox = new SendOutbox()
     outbox.enqueue('host', { ...entry('file'), payload: {

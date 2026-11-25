@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Code as CodeIcon, Eye as EyeIcon, Pencil as PencilIcon } from "@lucide/svelte";
-  import { renderMermaid, type MermaidResult } from "../conversation/lib/mermaid-block";
+  import { loadDiagramRenderer, mermaidDiagram, type Pele } from "../conversation/lib/mermaid-block";
 
   /**
    * A ```mermaid fence inside a document or a plan, drawn in place.
@@ -13,38 +13,43 @@
    */
   interface Props {
     source: string;
-    /** See `MermaidBlockExtensionOptions`: a node view is mounted outside the
-     *  component tree, so the theme arrives as a getter. */
-    isDark: () => boolean;
     onCommit: (source: string) => void;
     onShowAsCode: () => void;
   }
 
-  let { source, isDark, onCommit, onShowAsCode }: Props = $props();
+  let { source, onCommit, onShowAsCode }: Props = $props();
 
   // The text the diagram draws. Owned here so an outside edit (undo, a
   // collaborator, the source editor) can replace it through `setSource`.
   let current = $state(untrack(() => source));
   let editing = $state(false);
   let draft = $state("");
-  let result = $state<MermaidResult | null>(null);
+  // Pele with this diagram's type loaded, and the text it loaded for; null
+  // until then, or when it did not load. The text travels with Pele, so a
+  // diagram of a new type draws only once that type's chunk is in.
+  let renderer = $state.raw<{ pele: Pele; source: string } | null>(null);
+  let loadFailed = $state(false);
+  // Set by the mounted diagram: the parser's message, or null once it draws.
+  let renderError = $state<string | null>(null);
 
   export function setSource(next: string): void {
     current = next;
     if (!editing) draft = next;
   }
 
-  // Async and theme-bound: the SVG bakes its palette in, so a theme flip is a
-  // new render, served from cache when the reader has been there before.
+  // Async, so an effect. A new diagram type loads its own chunk.
   $effect(() => {
-    const dark = isDark();
     const text = current;
     let active = true;
-    void renderMermaid(text, dark).then((next) => {
-      if (active) result = next;
+    void loadDiagramRenderer(text).then((pele) => {
+      if (!active) return;
+      renderer = pele ? { pele, source: text } : null;
+      loadFailed = !pele;
     });
     return () => { active = false; };
   });
+
+  const errorMessage = $derived(renderError ?? (loadFailed ? "The diagram renderer did not load." : null));
 
   function startEditing() {
     draft = current;
@@ -106,16 +111,29 @@
       spellcheck="false"
       aria-label="Mermaid source"
     ></textarea>
-  {:else if result?.svg}
-    <!-- The diagram re-renders on commit, never per keystroke. Mermaid fixes each
-         SVG to its layout width; letting it shrink keeps it inside a narrow pane. -->
-    <div class="flex max-h-[70cqh] justify-center overflow-auto bg-(--solus-container-bg) px-6 py-7 [&_svg]:h-auto [&_svg]:max-w-full" contenteditable="false">{@html result.svg}</div>
   {:else}
-    <!-- Source while the render loads, and source with the parser's complaint
-         when the text does not draw. A blank card is never an outcome. -->
-    <pre class="m-0 overflow-auto p-3 font-mono text-xs leading-relaxed text-(--solus-text-primary)" contenteditable="false">{current}</pre>
-    {#if result?.error}
-      <p class="m-0 border-t border-(--solus-tool-border) px-3 py-2 text-xs leading-snug text-destructive" role="alert">{result.error}</p>
+    {#if renderer}
+      <!-- The diagram re-renders on commit, never per keystroke. It stays
+           mounted, hidden, while its text does not parse. -->
+      <div
+        class="flex max-h-[70cqh] justify-center overflow-auto bg-(--solus-container-bg) px-6 py-7"
+        hidden={renderError !== null}
+        contenteditable="false"
+        use:mermaidDiagram={{
+          pele: renderer.pele,
+          source: renderer.source,
+          onRender: () => (renderError = null),
+          onError: (message) => (renderError = message),
+        }}
+      ></div>
+    {/if}
+    {#if !renderer || renderError !== null}
+      <!-- Source while the renderer loads, and source with the parser's
+           complaint when the text does not draw. A blank card is never an outcome. -->
+      <pre class="m-0 overflow-auto p-3 font-mono text-xs leading-relaxed text-(--solus-text-primary)" contenteditable="false">{current}</pre>
+      {#if errorMessage}
+        <p class="m-0 border-t border-(--solus-tool-border) px-3 py-2 text-xs leading-snug text-destructive" role="alert">{errorMessage}</p>
+      {/if}
     {/if}
   {/if}
 </div>

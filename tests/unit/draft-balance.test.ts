@@ -69,6 +69,7 @@ function drafts(opts: { enabled?: boolean; preferences?: Record<string, HostBala
     defaultRunConfig: run(),
     focusedSourceId: null,
     runFor: () => undefined,
+    inheritedRunFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async () => {},

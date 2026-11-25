@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { HostPairingFollower } from './host-pairing-follower'
-import { connectThroughMachine, pairedHostRoute } from './host-linking'
+import { connectThroughMachine, pairedHostRoute } from './paired-hosts'
 import { defaultDeviceLabel } from './device-label'
 import { forgetHostConnections, type HostConnectionOwner } from './forget-host'
 import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'

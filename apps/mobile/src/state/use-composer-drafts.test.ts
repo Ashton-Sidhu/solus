@@ -1,3 +1,4 @@
+import { submitThreadComposerMessage } from "./submit-thread-composer-message";
 import { PrimaryConnectionTarget } from "@t3tools/client-runtime/connection";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -732,6 +733,35 @@ describe("mobile composer drafts", () => {
       "skill-0",
       "skill-2",
     ]);
+  });
+
+  it.each([true, false])("recovers a failed local send only in its original scope (same scope %s)", async (keepScope) => {
+    const key = "send-recovery";
+    const saved = Promise.withResolvers<void>();
+    let current = true;
+    setComposerDraftText(key, "first prompt");
+    const message = {
+      ...getComposerDraftSnapshot(key), environmentId: EnvironmentId.make("host"),
+      threadId: ThreadId.make("thread"), messageId: MessageId.make("first"),
+      commandId: CommandId.make("command"), createdAt: "2026-11-24T00:00:00Z",
+    };
+    const report = vi.fn();
+    expect(submitThreadComposerMessage(key, message, () => saved.promise, {
+      isCurrent: () => current, onSaveError: report,
+    })).toBe(message.messageId);
+    expect(getComposerDraftSnapshot(key).text).toBe("");
+    current = keepScope;
+    setComposerDraftText(key, "next prompt");
+    saved.reject(new Error("local save failed"));
+    if (keepScope) {
+      await vi.waitFor(() => expect(getComposerDraftSnapshot(key).text).toContain("first prompt"));
+      expect(getComposerDraftSnapshot(key).text).toContain("next prompt");
+      expect(report).toHaveBeenCalledOnce();
+    } else {
+      await Promise.resolve();
+      expect(getComposerDraftSnapshot(key).text).toBe("next prompt");
+      expect(report).not.toHaveBeenCalled();
+    }
   });
 
   it("restores and persists both full cloud and live context drafts", async () => {
@@ -2146,6 +2176,26 @@ describe("mobile composer drafts", () => {
     });
     retargetNewTaskDraft(key, to);
     expect(getComposerDraftSnapshot(key).workspaceSelection).toBeUndefined();
+  });
+
+  it("restores the selected codebase of a saved draft without dropping its message", async () => {
+    const project = {
+      environmentId: EnvironmentId.make("environment-1"),
+      projectId: ProjectId.make("/shop"),
+    };
+    const key = createNewTaskDraft(project);
+    setComposerDraftText(key, "Review the API");
+    retargetNewTaskDraft(key, { ...project, codebaseId: "shop" });
+    await flushComposerDrafts();
+    appAtomRegistry.set(composerDraftsAtom, {});
+    resetComposerDraftsLoadState();
+
+    await waitForComposerDraftsLoaded();
+
+    expect(getComposerDraftSnapshot(key)).toMatchObject({
+      text: "Review the API",
+      project: { ...project, codebaseId: "shop" },
+    });
   });
 
   it("retargets a saved new-task draft only after drafts load", async () => {

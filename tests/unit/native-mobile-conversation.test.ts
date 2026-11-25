@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
 import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
-import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HostRpcError, TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
@@ -117,23 +116,6 @@ describe('native conversation: history and live events', () => {
     controller.close()
   })
 
-  test('a completed navigation prefetch paints immediately while the session description is still pending', async () => {
-    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
-    const description = Promise.withResolvers<null>()
-    const api = baseApi().on('describeSession', () => description.promise)
-    const { controller, connection } = await open({ api, sessionCache: cache })
-    await prefetchSessionHistoryPage(connection.api, { ...controller.historySource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }, 3_000, cache.historyScope(connection.state.sessionGeneration))
-    const loading = controller.load()
-    expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
-    const painted = controller.model
-    description.resolve(null)
-    await loading
-    expect(controller.model).toBe(painted)
-    expect(api.callsOf('loadSessionPage')).toHaveLength(1)
-    expect((await cache.history('thread-1'))?.messages).toHaveLength(2)
-    controller.close()
-  })
-
   test('a cold open shows the first authorized page while the host still describes the session', async () => {
     const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
     const description = Promise.withResolvers<null>()
@@ -146,8 +128,33 @@ describe('native conversation: history and live events', () => {
     description.resolve(null)
     await loading
     expect(controller.model).toBe(firstModel)
+    expect(api.callsOf('loadSessionPage')).toHaveLength(1)
     expect((await cache.history('thread-1'))?.messages).toHaveLength(2)
     controller.close()
+  })
+
+  test.each([true, false])('a slow phone cache cannot hold or replace a host page (has messages: %s)', async (hasMessages) => {
+    const saved = Promise.withResolvers<SessionHistoryPage | null>()
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const description = Promise.withResolvers<null>()
+    const api = baseApi().on('describeSession', () => description.promise)
+    if (!hasMessages) api.on('loadSessionPage', () => page([]))
+    const expected = hasMessages ? ['user:hello', 'assistant:hi there'] : []
+    const { controller } = await open({ api, sessionCache: { ...cache, history: () => saved.promise } })
+    const opening = controller.load()
+    try {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+      expect(texts(controller)).toEqual(expected)
+      saved.resolve(page([userRow('stale', 'old')]))
+      await flushPromises()
+      expect(texts(controller)).toEqual(expected)
+    } finally {
+      saved.resolve(null)
+      description.resolve(null)
+      await opening
+      controller.close()
+    }
   })
 
   test('shows the saved conversation before the host answers model settings', async () => {
@@ -264,6 +271,22 @@ describe('native conversation: history and live events', () => {
     expect(controller.model.olderCursor).toBeNull()
   })
 
+  test('a jump tells the host which message to include and prepends its continuous page once', async () => {
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      if (!request.before) return page([userRow('current', 'm3')], 'older')
+      const nearer = userRow('intervening', 'm2')
+      return request.throughEntryId === 'm1'
+        ? page([userRow('destination', 'm1'), nearer], null)
+        : page([nearer], 'oldest')
+    })
+    const { controller } = await open({ api })
+    await controller.load()
+    await controller.loadOlder('m1')
+    expect(texts(controller)).toEqual(['user:destination', 'user:intervening', 'user:current'])
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    expect(controller.model.olderCursor).toBeNull()
+  })
+
   test('a failed older page keeps its rows and cursor until a retry succeeds', async () => {
     const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
       if (request.before) throw new Error('Host offline')
@@ -327,6 +350,65 @@ describe('native conversation: history and live events', () => {
 })
 
 describe('native conversation: sending', () => {
+  test('a text send can use the pending feed without rebuilding loaded history before the host replies', async () => {
+    const reply = Promise.withResolvers<{ disposition: 'started' }>()
+    const history = Array.from({ length: 500 }, (_, index) => userRow('earlier prompt', 'm' + index))
+    const api = baseApi().on('loadSessionPage', () => page(history)).on('prompt', () => reply.promise)
+    const { controller, transport } = await open({ api })
+    await controller.load()
+    const order = controller.model.order
+    const sending = controller.send('next step', { pendingMessage: { messageId: 'phone-message', commandId: 'command', createdAt: '2026-11-24T12:00:00Z' } })
+    await flushPromises()
+    expect(controller.model.order).toBe(order)
+    expect(controller.pendingText).toMatchObject({ messageId: 'phone-message', text: 'next step' })
+    expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ clientPromptId: 'phone-message' })
+    transport.emitSession('thread-1', { type: 'status_change', status: 'running' })
+    await flushPromises()
+    expect(controller.model.status).toBe('running')
+    expect(controller.pendingText?.messageId).toBe('phone-message')
+    expect(controller.model.order).toBe(order)
+    transport.emitSession('thread-1', { type: 'user_message', clientPromptId: 'phone-message', text: 'next step' })
+    reply.resolve({ disposition: 'started' })
+    await sending
+    expect(controller.pendingText).toBeNull()
+    expect(controller.model.order).toEqual([...order, 'phone-message'])
+    expect(controller.model.items.get('phone-message')).toMatchObject({ text: 'next step', delivery: 'sent' })
+  })
+
+  test('a first text prompt can leave its draft after local save, before host acceptance', async () => {
+    const reply = Promise.withResolvers<{ disposition: 'started' }>()
+    const api = baseApi().on('prompt', () => reply.promise)
+    const { controller, outbox } = await open({ api, target: { hostId: 'inst-a', newSession: {
+      sessionId: 'draft', provider: 'codex', workingDirectory: '/work/app',
+    } } })
+    await controller.load()
+    const queued: string[] = []
+    const sending = controller.send('first', { pendingMessage: { messageId: 'message', commandId: 'command', createdAt: '2026-11-24T12:00:00Z' }, onQueued: (id) => {
+      queued.push(...outbox.entriesFor('inst-a/draft').map(entry => entry.clientPromptId))
+      expect(id).toBe('message')
+    } })
+    await flushPromises()
+    expect(queued).toEqual(['message'])
+    expect(controller.pendingText?.text).toBe('first')
+    reply.resolve({ disposition: 'started' })
+    await sending
+    expect(controller.pendingText).toBeNull()
+    expect(texts(controller)).toEqual(['user:first'])
+  })
+
+  test('local save failure clears the pending feed and leaves the host untouched', async () => {
+    const api = baseApi()
+    const { controller, outbox } = await open({ api })
+    await controller.load()
+    const before = controller.model.order
+    outbox.enqueue = () => false
+    await expect(controller.send('try again', { pendingMessage: { messageId: 'failed', commandId: 'command', createdAt: '2026-11-24T12:00:00Z' } })).rejects.toThrow('local outbox')
+    expect(controller.pendingText).toBeNull()
+    expect(controller.model.order).toBe(before)
+    expect(controller.model.status).toBe('idle')
+    expect(api.callsOf('prompt')).toHaveLength(0)
+  })
+
   test('Codex /compact calls the host command without a prompt bubble or an outbox entry', async () => {
     // WHY: Native and desktop must invoke the same command instead of sending text to Codex.
     const api = baseApi().on('compactSession', () => undefined)

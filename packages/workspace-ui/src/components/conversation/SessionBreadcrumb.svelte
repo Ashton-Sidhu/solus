@@ -21,7 +21,7 @@
     PanelLeft as SidebarSimpleIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, getSessionSidebarStore, groupKeyFor, hosts } from "../../contexts";
+  import { codebasesStore, getWorkspaceContext, getSessionSidebarStore, groupKeyFor, hosts } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -63,7 +63,7 @@
     type BreadcrumbDraftMode,
     type CompletedSectionOverride,
   } from "./lib/session-breadcrumb";
-  import { checkoutGit, checkoutPlace, openFolder, projectHome, runHost } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace, codebaseOf, openFolder, projectHome, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The session on screen — the last crumb. Empty for a draft, which has no
@@ -135,12 +135,16 @@
   const projectGroupKey = $derived(
     draft ? groupKeyFor(runHost(draft.run), projectKey) : (task?.groupKey ?? "~"),
   );
+  // A session in a codebase shows the codebase's badge, not the mark of one of its projects.
+  const codebaseId = $derived(draft ? codebaseOf(draft.run) : (task?.codebaseId ?? null));
   const projectOption = $derived(
     sidebarStore.projectSummaries.find((summary) => summary.project.key === projectGroupKey)?.project ?? null,
   );
   const projectLabel = $derived(
     projectOption?.label ?? (draft ? projectDirLabel(projectKey) : (task?.projectLabel ?? "~")),
   );
+  // The crumb names the codebase of a session in one this client knows, as its sidebar row does.
+  const crumbLabel = $derived((codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : undefined) ?? projectLabel);
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectGroupKey));
   const filteredTasksInProject = $derived(
     tasksInProject.filter((item) =>
@@ -478,9 +482,9 @@
                 aria-expanded={menu === "project"}
                 onclick={() => toggleMenu("project")}
               >
-                <ProjectFavicon projectKey={projectGroupKey} class="size-4" />
+                <ProjectFavicon projectKey={projectGroupKey} {codebaseId} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
-                  >{projectLabel}</span
+                  >{crumbLabel}</span
                 >
               </button>
             {/snippet}

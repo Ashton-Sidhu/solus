@@ -1,20 +1,14 @@
 import { isProviderUpdateActive, type ProviderUpdateStatus } from '@solus/contracts/host-update-types'
 
-/** The same host-owned facts on native mobile, desktop, and web. */
+/**
+ * The lines a provider row adds below its version: only what the person must
+ * know or do now. How the agent was installed stays out of a working row.
+ */
 export function providerUpdateDetail(status: ProviderUpdateStatus): string {
-  const parts: string[] = []
-  const installation = status.installation
-  if (installation) {
-    parts.push(installation.method === 'native' && installation.managed ? 'Native · managed by Solus' : installation.method === 'absent' ? 'Not installed' : `${installation.method} · managed outside Solus`)
-    if (installation.path) parts.push(installation.path)
-    if (installation.method !== 'absent') parts.push(installation.automatic ? 'Automatic updates on' : 'Automatic updates off')
-    parts.push(installation.source === 'mirror' ? 'Approved mirror' : installation.source === 'npm' ? 'Configured npm registry' : 'Vendor download')
-    if (installation.remediation && status.check.kind === 'available') parts.push(installation.remediation)
-  }
   const operation = providerOperationText(status)
-  if (operation) parts.push(operation)
-  if (status.check.kind === 'available' || status.check.kind === 'error') parts.push(`Last check: ${new Date(status.check.checkedAt).toLocaleString()}`)
-  return parts.join('\n')
+  if (operation) return operation
+  const remediation = status.installation?.remediation
+  return status.check.kind === 'available' && remediation ? remediation : ''
 }
 
 function providerOperationText(status: ProviderUpdateStatus): string | null {

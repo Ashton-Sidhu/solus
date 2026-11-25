@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     await buildHeadless(staging)
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
-    await installFileFinder(target, staging, workDir)
+    await installServerDependencies(target, staging, workDir)
     writeLaunchers(staging, target.platform)
     if (target.platform === 'linux') copyManagedBoot(staging)
     installResourceMonitor(target, staging)
@@ -256,7 +256,7 @@ function copyPreviewBrowserDriver(staging: string): void {
 }
 
 /**
- * Ship the file finder, which the bundle keeps external, for the release target.
+ * Ship the file finder and the image worker's decoder and encoder.
  *
  * Its native library comes in a package per platform, and the repo holds only
  * the one for the machine that packages the release. So npm fetches the
@@ -265,11 +265,11 @@ function copyPreviewBrowserDriver(staging: string): void {
  * repo's patch to `@ff-labs/fff-node` only resolves paths inside an Electron
  * `app.asar`, so the standalone server does not need it.
  */
-async function installFileFinder(target: Target, staging: string, workDir: string): Promise<void> {
-  const installDir = join(workDir, 'file-finder')
+async function installServerDependencies(target: Target, staging: string, workDir: string): Promise<void> {
+  const installDir = join(workDir, 'server-dependencies')
   mkdirSync(installDir, { recursive: true })
   writeFileSync(join(installDir, 'package.json'), '{ "private": true }\n')
-  const packages = ['@ff-labs/fff-node', 'ffi-rs'].map((name) =>
+  const packages = ['@ff-labs/fff-node', 'ffi-rs', 'libheif-js', 'jpeg-js'].map((name) =>
     `${name}@${JSON.parse(readFileSync(join(repoRoot, 'node_modules', name, 'package.json'), 'utf8')).version}`)
   const npm = target.platform === 'win32'
     ? { command: join(staging, 'bin', 'node.exe'), args: [join(workDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')] }

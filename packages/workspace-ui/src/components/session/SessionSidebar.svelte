@@ -499,6 +499,10 @@
     window.addEventListener("pointermove", move, { passive: true });
     return () => window.removeEventListener("pointermove", move);
   });
+  // Settings covers the sidebar, but a row tooltip paints above dialogs. A
+  // tooltip that was open when Settings opened (by its shortcut) stays on top
+  // of Settings. Row tooltips stay shut while Settings is open.
+  const isRowTooltipQuiet = $derived(tooltipQuietAt !== null || session.router.at("settings"));
 
   function activateTask(task: SidebarTask, event?: MouseEvent) {
     sidebarStore.acknowledgeRow(task);
@@ -896,9 +900,12 @@
 {#snippet pinnedRow(pin: PinnedSession)}
   {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
   {@const automationId = openTabId ? sidebarStore.taskForTab(openTabId)?.automationId : sessionListStore.listed(pin.sessionId)?.automationId}
+  {@const codebaseId = openTabId ? sidebarStore.taskForTab(openTabId)?.codebaseId : sessionListStore.listed(pin.sessionId)?.codebaseId}
   <PinnedSessionRow
     {isGuest}
+    isTooltipQuiet={isRowTooltipQuiet}
     {pin}
+    {codebaseId}
     isAutomation={!!automationId}
     automationName={sidebarStore.automationName(automationId, pin.serverId)}
     isCurrentSession={!!openTabId && openTabId === session.onScreenTabId}
@@ -940,7 +947,7 @@
     onScreenTabId={session.onScreenTabId}
     {renamingTabId}
     onSelect={(event) => selectOrActivateTask(task, event)}
-    isTooltipQuiet={tooltipQuietAt !== null}
+    isTooltipQuiet={isRowTooltipQuiet}
     onPressStart={() => sidebarStore.prepareOpen(task)}
     onRest={(isResting) => sidebarStore.restOn(task, isResting)}
     onStartRename={(child) => startRename(child ? child.tabId : task.tabIds[0])}
@@ -1078,7 +1085,7 @@
 
   {#if selectedTaskIds.size > 0}
     <div
-      class="mx-3.5 mb-2 flex min-h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 shadow-sm @max-[15rem]:mx-2.5"
+      class="mx-3.5 mb-2 flex min-h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 shadow-sm"
     >
       <span class="mr-auto text-xs font-medium"
         >{selectedTaskIds.size} selected</span
@@ -1128,7 +1135,7 @@
        costs the same 8px whether or not the bar is there, and nothing moves. -->
   <div
     bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
+    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable]"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
     <!-- One list, in the view the person chose: by status (drafts, the

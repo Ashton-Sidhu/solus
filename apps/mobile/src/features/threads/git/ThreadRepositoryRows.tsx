@@ -12,6 +12,7 @@ import { useListened } from "@solus-mobile/app/app-context";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { memo, useCallback, useState } from "react";
 
+import { ProjectFavicon } from "../../../components/ProjectFavicon";
 import { AppText as Text } from "../../../components/ui/AppText";
 import * as Dialog from "../../../components/ui/Dialog";
 import { ListRow } from "../../../components/ui/ListRow";
@@ -81,7 +82,15 @@ const RepositoryRow = memo(function RepositoryRow(props: {
   const mark = props.section.folder ? sessionFolderMark(props.section.folder) : null;
   return (
     <ListRow
-      icon="folder"
+      leading={
+        // A worktree wears the mark of the repository it checks out.
+        <ProjectFavicon
+          environmentId={props.environmentId}
+          projectTitle={props.section.name}
+          size={22}
+          workspaceRoot={props.section.folder?.repositoryPath ?? props.section.cwd}
+        />
+      }
       label={props.section.name}
       description={repositoryRowDescription(summary, status.error ?? null, resolve)}
       detail={

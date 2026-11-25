@@ -1,6 +1,6 @@
 <script lang="ts">
   /** One codebase on Settings → Codebases (docs/plans/codebases.md §9): its
-   *  name, Delete, and its folders by host. Each host reads the repositories
+   *  name, its badge, Delete, and its folders by host. Each host reads the repositories
    *  inside its folders from its disk, so each host's part has its own
    *  loading, stale, and error text. */
   import { onMount, tick, untrack } from "svelte";
@@ -20,6 +20,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { serverConnections } from "@solus/client-core/server-connections";
   import CodebaseRootRow from "./CodebaseRootRow.svelte";
+  import CodebaseBadgeEditor from "./CodebaseBadgeEditor.svelte";
   import { countLabel, hostMembersNote, UNKNOWN_HOST_LABEL } from "./lib/codebase-view";
   import { RootPickerState } from "./lib/root-picker.svelte";
 
@@ -172,6 +173,7 @@
           />
         {/snippet}
       </SettingsRow>
+      <CodebaseBadgeEditor {codebase} />
       <SettingsRow label="Delete this codebase" description="The codebase is deleted on each host. No file is deleted.">
         {#snippet control()}
           <Button

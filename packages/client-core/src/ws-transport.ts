@@ -172,6 +172,12 @@ const WAKE_PROBE_TIMEOUT_MS = 5_000
 const REFRESH_TIMEOUT_MS = 10_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
 
+/** The bytes a transport received (`in`) and sent (`out`) since it began. */
+export interface TrafficBytes {
+  in: number
+  out: number
+}
+
 export class WsTransport {
   readonly events = new HostEventSubscriber()
   /** Streamed browser frames for this host, routed by page id. Separate from
@@ -208,6 +214,8 @@ export class WsTransport {
   private wakeProbeInFlight = false
   /** When this socket last received anything: a packet or the host's heartbeat. */
   private lastInboundAt = 0
+  /** Every byte this transport received and sent, over all its sockets: a reader takes a rate from two reads. */
+  private readonly trafficBytes: TrafficBytes = { in: 0, out: 0 }
   private connectedGeneration = 0
   private isAcceptedConnection = false
   private pendingHostEvents: HostEvent[] = []
@@ -323,6 +331,11 @@ export class WsTransport {
     })
   }
 
+  /** The bytes received and sent since this transport began. */
+  get traffic(): TrafficBytes {
+    return { ...this.trafficBytes }
+  }
+
   /** A socket whose reports count only while it is the current one. */
   private openSocket(): HostSocket {
     const socket: HostSocket = new HostSocket(this.opts.serverUrl, {
@@ -343,6 +356,7 @@ export class WsTransport {
       frame: (header, data) => { if (this.socket === socket && this.isAcceptedConnection) this.frames.receive(header, data) },
       request: (event) => this.socket === socket ? this.serverRequests.get(event) : undefined,
       inbound: () => { this.lastInboundAt = Date.now() },
+      traffic: (direction, bytes) => { this.trafficBytes[direction] += bytes },
     }, { openTimeoutMs: SOCKET_CONNECT_TIMEOUT_MS })
     return socket
   }

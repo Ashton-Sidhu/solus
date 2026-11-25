@@ -298,7 +298,8 @@ describe('ClaudeTurnNormalizer', () => {
 
     expect(events).toEqual([
       { type: 'tool_call', toolName: 'Task', toolId: 'agent-async-1', index: 2, isSubagent: true, subagentType: 'claude' },
-      { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1', lineageTask: { kind: 'subagent', title: 'Design plan' } },
+      // The kind and description name the task in the clients' background row.
+      { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1', kind: 'subagent', description: 'Design plan', lineageTask: { kind: 'subagent', title: 'Design plan' } },
       {
         type: 'background_task_progress',
         taskId: 'task-async-1',
@@ -333,7 +334,7 @@ describe('ClaudeTurnNormalizer', () => {
 
     expect(events.filter((event) => event.type.startsWith('background_task_'))).toEqual([
       // A shell holds the session only while the agent awaits it (docs/background-work.md).
-      { type: 'background_task_started', taskId: 'task-bg-1', toolUseId: 'bash-bg-1', awaitable: true },
+      { type: 'background_task_started', taskId: 'task-bg-1', toolUseId: 'bash-bg-1', awaitable: true, kind: 'command', description: 'bun test tests/unit' },
       { type: 'background_task_settled', taskId: 'task-bg-1', status: 'stopped' },
     ])
   })

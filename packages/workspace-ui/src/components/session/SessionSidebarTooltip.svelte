@@ -10,6 +10,7 @@
   import type { AttentionState, LiveMarkFacts } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { codebasesStore } from "../../contexts";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { MiddleTruncate } from "../ui/middle-truncate";
@@ -23,6 +24,8 @@
     projectKey?: string;
     /** The project, as `projectsStore` keys it, for the favicon. */
     groupKey?: string;
+    /** The codebase of the session: its mark is the codebase's badge. */
+    codebaseId?: string;
     projectLabel?: string;
     /** The task this session belongs to, when the row names one. */
     taskTitle?: string;
@@ -44,6 +47,7 @@
     title,
     projectKey,
     groupKey,
+    codebaseId,
     projectLabel,
     taskTitle,
     branchName,
@@ -62,8 +66,10 @@
   // A host Solus no longer has a saved entry for names no operating system;
   // the icon falls back to a globe in that case.
   const remoteOs = $derived(host && "os" in host ? host.os : undefined);
+  // A session in a codebase this client knows names the codebase, as its row and its mark do.
+  const codebaseName = $derived(codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : undefined);
   const resolvedProjectLabel = $derived(
-    projectLabel ?? (projectKey ? hostPathBaseName(projectKey) : undefined),
+    codebaseName ?? projectLabel ?? (projectKey ? hostPathBaseName(projectKey) : undefined),
   );
   const resolvedBranchLabel = $derived(branchName ? worktreeDisplayName(branchName) : "");
   const providerMark = $derived(
@@ -86,7 +92,7 @@
       {#if resolvedProjectLabel}
         <div class="flex min-w-0 items-center gap-2">
           {#if groupKey && projectKey && isAbsoluteHostPath(projectKey)}
-            <ProjectFavicon projectKey={groupKey} class="size-3.5 shrink-0" />
+            <ProjectFavicon projectKey={groupKey} {codebaseId} class="size-3.5 shrink-0" />
           {:else}
             <LaptopIcon class="size-3.5 shrink-0" />
           {/if}

@@ -11,8 +11,12 @@
    *  shelved row: the project mark, the title, and Unpin on hover. */
   interface Props {
     pin: PinnedSession;
+    /** The codebase of the pinned session: its mark is the codebase's badge. */
+    codebaseId?: string;
     isAutomation: boolean;
     isGuest?: boolean;
+    /** Settings covers the sidebar: the tooltip stays shut. */
+    isTooltipQuiet?: boolean;
     automationName?: string;
     /** Its conversation is the one on screen. */
     isCurrentSession: boolean;
@@ -20,12 +24,12 @@
     onUnpin: () => void;
     onMore: (event: MouseEvent) => void;
   }
-  let { pin, isAutomation, isGuest = false, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
+  let { pin, codebaseId, isAutomation, isGuest = false, isTooltipQuiet = false, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
 
   const groupKey = $derived(groupKeyFor(pin.serverId ?? "", pin.cwd));
 </script>
 
-<TooltipUI.Root>
+<TooltipUI.Root disabled={isTooltipQuiet}>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
       <div
@@ -49,7 +53,7 @@
       >
         <SessionPinButton isPinned onToggle={onUnpin} />
         <span class="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-          <ProjectFavicon projectKey={groupKey} class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]" />
+          <ProjectFavicon projectKey={groupKey} {codebaseId} class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]" />
         </span>
         {#if isAutomation}
           <AutomationIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -66,6 +70,7 @@
     {isGuest}
     projectKey={pin.cwd}
     {groupKey}
+    {codebaseId}
     serverId={pin.serverId}
     provider={pin.provider}
     modelId={pin.model}

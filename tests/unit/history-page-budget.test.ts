@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import { HISTORY_PAGE_BYTES, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { readHistoryThroughEntry } from '@solus/server/data/sessions/history-through-entry'
 import { INITIAL_HISTORY_TURNS } from '@solus/client-core/session-history-page'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { deferSessionToolInputs } from '@solus/server/data/sessions/session-tool-inputs'
@@ -40,4 +41,30 @@ test(`a busy session's first page (${INITIAL_HISTORY_TURNS} turns of 40 tools) s
   // Every Edit still names its file for the folded row and the changed-files list.
   const edits = wire.filter((message) => message.toolName === 'Edit')
   expect(edits.every((message) => JSON.parse(message.toolInput!).file_path)).toBe(true)
+})
+
+test('a jump keeps its continuation before a large older page and includes the whole turn on the next request', async () => {
+  const row = (id: string, content: string) => ({ messageId: id, role: 'user', content, timestamp: 1 })
+  const read = async (before?: string) => before === 'older'
+    ? { messages: [row('destination', 'a'.repeat(HISTORY_PAGE_BYTES))], before: null }
+    : { messages: [row('near', 'visible')], before: 'older' }
+  const first = await readHistoryThroughEntry(read, undefined, 'destination')
+  expect(first.messages.map(row => row.messageId)).toEqual(['near'])
+  expect(first.before).toBe('older')
+  const next = await readHistoryThroughEntry(read, first.before!, 'destination')
+  expect(next.messages.map(row => row.messageId)).toEqual(['destination'])
+  expect(next.before).toBeNull()
+})
+
+test('a missing jump target makes bounded progress even through empty pages', async () => {
+  const cursors: string[] = []
+  const read = async (before = '9') => {
+    cursors.push(before)
+    return { messages: [], before: String(Number(before) - 1) }
+  }
+  const page = await readHistoryThroughEntry(read, '9', 'missing')
+  expect(cursors).toEqual(['9', '8', '7', '6'])
+  expect(page.before).toBe('5')
+  await expect(readHistoryThroughEntry(async () => ({ messages: [], before: 'stuck' }), 'stuck', 'missing'))
+    .rejects.toThrow('did not advance')
 })

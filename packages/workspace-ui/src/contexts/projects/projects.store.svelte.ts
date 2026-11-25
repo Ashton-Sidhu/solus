@@ -19,7 +19,7 @@ import {
 } from './project-catalog'
 import { projectDirLabel } from '../../lib/paths'
 import { isInsideHostPath } from '@solus/contracts/host-path'
-import { isContainerRootOnClient } from '../codebases/container-rule'
+import { isContainerRootOnClient } from '../codebases/codebase-rules'
 
 /** The last project list read from each host (docs/plans/project-model.md §2).
  *  A cache for hosts that are away, never a record of its own. */

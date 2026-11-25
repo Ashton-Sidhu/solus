@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    codebasesStore,
     getSettingsContext,
     getWorkspaceContext,
     runtime,
@@ -22,7 +23,7 @@
   import { useSkyScene } from "../../lib/sky-scene.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace, codebaseOf } from "../../contexts/workspace/run-location";
 
   let {
     params,
@@ -120,7 +121,10 @@
   const projectRoot = $derived(
     gitHome.projectRoot ?? checkoutPlace(draft?.run)?.path ?? "~",
   );
-  const projectName = $derived(projectDirLabel(projectRoot));
+  // A draft in a codebase this client knows names the codebase, as its sidebar row and the picker do.
+  const codebaseId = $derived(codebaseOf(draft?.run));
+  const codebaseName = $derived(codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : undefined);
+  const projectName = $derived(codebaseName ?? projectDirLabel(projectRoot));
   // A chat has no project to build in; "build in ~?" names nothing either. Both
   // drop the object, and only the chip below is left to do the choosing.
   const inChat = $derived(isChat(projectRoot));
@@ -200,6 +204,7 @@
         class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
         ><ProjectFavicon
           projectKey={groupKeyFor(checkoutPlace(draft?.run)?.serverId ?? "", projectRoot)}
+          {codebaseId}
           class="mr-[0.28em] ml-[0.05em] size-[1cap] translate-y-[0.08em] self-center"
         /><span
           class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.16em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"

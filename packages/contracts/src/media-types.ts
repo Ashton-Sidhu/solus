@@ -1,4 +1,4 @@
-import { hostPathBaseName } from './host-path'
+import { hostPathBaseName, isAbsoluteHostPath, UPLOAD_NAME_PREFIX } from './host-path'
 
 /** Largest video one upload or recording may be. Images keep the 10 MB attachment limit. */
 export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -163,4 +163,15 @@ export function landedAttachmentKind(kind: AttachmentKind, name: string, hostPat
   if (!isHeicFile({ name, mimeType: kind.mimeType })) return kind
   if (mediaTypeFor(hostPath)?.mime !== 'image/jpeg') return kind
   return { type: 'image', mimeType: 'image/jpeg', isVideo: false }
+}
+
+/** Raster previews for older prompts that recorded an uploaded image as a file. */
+export function storedAttachmentImageMime(hostPath: string, file?: { name: string; mimeType?: string | null }): string | null {
+  if (!isAbsoluteHostPath(hostPath)) return null
+  const stored = mediaTypeFor(hostPath)
+  if (stored?.kind !== 'image' || stored.mime === 'image/svg+xml') return null
+  const declared = (file?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase()
+  if (declared === stored.mime) return stored.mime
+  if (GENERIC_MIME_TYPES.has(declared)) return UPLOAD_NAME_PREFIX.test(hostPathBaseName(hostPath)) ? stored.mime : null
+  return stored.mime === 'image/jpeg' && file && isHeicFile(file) ? stored.mime : null
 }

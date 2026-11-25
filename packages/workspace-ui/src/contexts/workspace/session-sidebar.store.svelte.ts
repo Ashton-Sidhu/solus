@@ -74,7 +74,8 @@ import { sessionListStore, type ListedSession, type SessionListTarget } from './
 import { SessionUnavailableError } from './session-errors'
 import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
-import { projectHome, runHost, workingPlace } from './run-location'
+import { codebaseOf, projectHome, runHost, workingPlace } from './run-location'
+import { codebaseOnClient } from '../codebases/codebase-rules'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { hostPathBaseName } from '@solus/contracts/host-path'
@@ -121,6 +122,8 @@ export type SidebarSessionChild = {
   tabId?: string
   sessionId?: string
   projectKey?: string
+  /** The codebase of the session: its mark and name are the codebase's (docs/plans/codebases.md §11d). */
+  codebaseId?: string
   /** Branch or worktree this session works on. Null off a branch. */
   branchName: string | null
   worktreePath?: string | null
@@ -144,6 +147,29 @@ export type SidebarSessionChild = {
   /** The row is the cloud record of a session whose runner is not connected
    *  (docs/plans/cloud-service-model.md R8): it opens read-only. */
   runnerOffline?: boolean
+}
+
+/**
+ * What a row names as the place of its session: the codebase's name for a
+ * session in a codebase that this client knows, else the project's name. The
+ * row's mark follows the same rule (`ProjectFavicon` with `codebaseId`), so the
+ * sidebar, the breadcrumb, and the project picker name one codebase one way.
+ * A session whose codebase was deleted has none (docs/plans/codebases.md
+ * decision 5), so it names its project.
+ */
+function placeLabel(projectKey: string, codebaseId: string | null | undefined): string {
+  const codebase = codebaseId ? codebaseOnClient(codebaseId) : undefined
+  return codebase?.name ?? projectLabel(projectKey)
+}
+
+/** The codebase of a mounted session, for its mark and its name. */
+function codebaseIdOf(session: Session | undefined): string | undefined {
+  return session ? (codebaseOf(session.run) ?? undefined) : undefined
+}
+
+/** The codebase that the host's list names for a session that is not mounted. */
+function listedCodebaseId(sessionId: string): string | undefined {
+  return sessionListStore.listed(sessionId)?.codebaseId
 }
 
 /** A row's project name. A chat has no project, so it reads "Chat". */
@@ -278,8 +304,9 @@ export class SessionSidebarStore {
       automationId,
       automationName: this.automationName(automationId, serverId),
       projectKey,
-      projectLabel: projectLabel(projectKey),
+      projectLabel: placeLabel(projectKey, codebaseOf(session.run)),
       groupKey: runGroupKey(session.run, projectKey),
+      codebaseId: codebaseOf(session.run) ?? undefined,
       branchName: environment.branch,
       worktreePath: environment.worktreePath,
       serverId,
@@ -324,8 +351,9 @@ export class SessionSidebarStore {
       automationId: listed.automationId,
       automationName: this.automationName(listed.automationId, listed.serverId),
       projectKey,
-      projectLabel: projectLabel(projectKey),
+      projectLabel: placeLabel(projectKey, listed.codebaseId),
       groupKey: groupKeyFor(listed.serverId, projectKey),
+      codebaseId: listed.codebaseId,
       branchName: listed.branch,
       serverId: listed.serverId,
       status: taskStatusFor(attention, !!state?.settledAt),
@@ -720,8 +748,9 @@ export class SessionSidebarStore {
         draftId: draft.id,
         title: draftTitle(draft.prompt),
         projectKey,
-        projectLabel: projectLabel(projectKey),
+        projectLabel: placeLabel(projectKey, codebaseOf(draft.run)),
         groupKey,
+        codebaseId: codebaseOf(draft.run) ?? undefined,
         serverId: runHost(draft.run),
         hasAttachments: draft.prompt.attachments.length > 0,
       })
@@ -738,8 +767,9 @@ export class SessionSidebarStore {
         tabId,
         title: sessionDraftTitle(session),
         projectKey,
-        projectLabel: projectLabel(projectKey),
+        projectLabel: placeLabel(projectKey, codebaseOf(session.run)),
         groupKey,
+        codebaseId: codebaseOf(session.run) ?? undefined,
         serverId: runHost(session.run),
         hasAttachments: session.prompt.attachments.length > 0,
       })
@@ -1143,6 +1173,7 @@ export class SessionSidebarStore {
       serverId: runHost(sess?.run) ?? null,
       provider: sess?.run.provider ?? null,
       modelId: sess ? (sess.sessionModel ?? sess.run.modelConfig.modelId) : null,
+      codebaseId: codebaseIdOf(sess),
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
       branchName: environment.branch,
@@ -1418,6 +1449,7 @@ export class SessionSidebarStore {
     return {
       sessionId: link.sessionId,
       projectKey,
+      codebaseId: listedCodebaseId(link.sessionId),
       branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
       worktreePath: checkout?.checkout?.worktreePath,
       label: sessionDisplayName({ link, taskTitle: record.title }),

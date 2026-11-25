@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Box, Camera, Hand, House, Keyboard, LayoutGrid, Play, Power, Rotate3d, RotateCwSquare, SlidersHorizontal, Smartphone, Undo2 } from "@lucide/svelte";
+  import { Video, Square, Box, Camera, Hand, House, Keyboard, LayoutGrid, Play, Power, Rotate3d, RotateCwSquare, SlidersHorizontal, Smartphone, Undo2 } from "@lucide/svelte";
   import type { DeviceButton, DeviceControlState, DevicePlatform } from "@solus/contracts/device-types";
   import { deviceSupportsButton } from "@solus/contracts/device-types";
   import type { Snippet } from "svelte";
@@ -32,6 +32,10 @@
     onResumeAgent: () => void;
     onButton: (button: DeviceButton) => void;
     onRotate: () => void;
+    capturing: boolean;
+    recording: boolean;
+    canRecord: boolean;
+    onRecord: () => void;
     onScreenshot: () => void;
     onKeyboard: () => void;
     onToggleTools: () => void;
@@ -137,7 +141,8 @@
   {@render divider()}
 
   {@render tool("Type on the device", props.onKeyboard, Keyboard)}
-  {#if props.sourceKind !== "simlock"}{@render tool("Download screenshot", props.onScreenshot, Camera)}{/if}
+  {#if props.sourceKind !== "simlock"}{@render tool("Download screenshot", props.onScreenshot, Camera, { disabled: !live || props.capturing })}{/if}
+  {@render tool(props.recording ? "Stop and save recording" : "Record device screen", props.onRecord, props.recording ? Square : Video, { pressed: props.recording, disabled: !props.recording && !props.canRecord })}
   {#if !cloud}{@render tool("Device tools", props.onToggleTools, SlidersHorizontal, { pressed: props.toolsOpen })}{/if}
 
   {@render divider()}

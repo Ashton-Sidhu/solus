@@ -335,27 +335,18 @@ test('an explicit pairing is available to owner agents, ahead of an old introduc
   expect(h.service.snapshot().hosts.map((host) => host.listing.installationId)).toEqual(['remote'])
 })
 
-test('a Settings link verifies the selected identity before spending its code and unlink leaves other routes', async () => {
+// One model (docs/plans/host-reach.md): a machine a host pairs is the person's machine
+// on every device. No pairing is kept from the device list until a second step.
+test('a pairing joins the host list that owner devices read, and forget removes it', async () => {
   const h = harness()
-  const wrong = { installationId: 'remote', identityKey: loadHostIdentity(mkdtempSync(join(folder, 'wrong-'))).publicKey() }
-  await expect(h.service.pair({ url: URL, code: CODE, link: wrong })).rejects.toThrow('did not prove its identity')
-  expect(h.pairTokens).toEqual([])
-  const listing = await h.service.pair({ url: URL, code: CODE, link: { installationId: 'remote', identityKey: identity.publicKey() } })
-  expect(h.service.snapshot().hosts[0]).toMatchObject({ url: URL, clientConnect: 'on-request' })
-  await expect(h.service.forClient('remote')).rejects.toThrow('Select Connect')
+  const listing = await h.service.pair({ url: URL, code: CODE })
+  expect(h.service.snapshot().hosts[0]).toMatchObject({ url: URL })
   expect(readHostList()).toEqual([listing])
-  expect(readHostList({ forDevice: true })).toEqual([])
-  putHostListing(listing)
-  expect(readHostList({ forDevice: true })).toEqual([listing])
-  saveHostConnection(listing, { kind: 'introduction', token: 'introduced', settings: { url: URL, introducedAt: 1, refreshedAt: 1, grantedDeviceId: 'other' } })
-  expect(h.service.unlink('remote')).toBe(true)
-  expect(h.service.snapshot()).toEqual({ hosts: [], forgotten: [] })
-  expect(hostCredential('remote', 'pairing')).toBeNull()
-  expect(hostCredential('remote', 'introduction')).toBe('introduced')
-  expect(await h.service.renewOnUse('remote')).toBe(false)
+  expect(h.service.forget('remote')).toBe(true)
+  expect(readHostList()).toEqual([])
 })
 
-test('an open link renews on use once it is due, coalesces requests and refuses revoked credentials', async () => {
+test('an open pairing renews on use once it is due, coalesces requests and refuses revoked credentials', async () => {
   const h = harness()
   await h.service.pair({ url: URL, code: CODE })
   expect(await h.service.renewOnUse('remote')).toBe(true)
@@ -416,71 +407,78 @@ test('only a local owner can relay paged session text through an explicit link',
 })
 
 describe('link health', () => {
-  // A link that breaks shows how before an agent tries to use it.
-  test('a machine that answers is reachable, with the time of its pairing as its last reach and its expiry 30 days later', async () => {
+  // A link that breaks shows how, in the list every owner client already follows, before an agent tries to use it.
+  const healthOf = (h: ReturnType<typeof harness>) => h.service.listed().hosts[0]?.health
+
+  test('a new link was reached when it was made and ends 30 days later, and nothing is dialed to say so', async () => {
     const h = harness()
     await h.service.pair({ url: URL, code: CODE })
-    const [health] = await h.service.health()
-    expect(health).toEqual({ installationId: 'remote', status: 'reachable', lastReachedAt: 1, lastError: null, expiresAt: 1 + 30 * DAY })
-    expect(h.sent.filter((call) => call.authorization).length).toBe(0)
+    const before = h.sent.length
+    expect(healthOf(h)).toEqual({ lastReachedAt: 1, lastError: null, expiresAt: 1 + 30 * DAY })
+    expect(h.sent.length).toBe(before)
+    // The list that agents and clients read inside the host carries no health.
+    expect(h.service.snapshot().hosts[0]?.health).toBeUndefined()
   })
 
-  test('a machine that does not answer is unreachable, and the failed use says why', async () => {
+  test('a failed use says why, a use that works clears it, and each change is announced to clients', async () => {
+    const { onHostRecordsChanged } = await import('@solus/server/host/host-list')
     let isSilent = false
     const h = harness({ isSilent: () => isSilent })
     await h.service.pair({ url: URL, code: CODE })
-    isSilent = true
-    expect(await h.service.credential('remote')).toBeNull()
-    const [health] = await h.service.health()
-    expect(health?.status).toBe('unreachable')
-    expect(health?.lastError).toContain(URL)
-    isSilent = false
-    expect(await h.service.credential('remote')).toBe(TOKEN)
-    h.service.noteUse('remote', null)
-    expect((await h.service.health())[0]).toMatchObject({ status: 'reachable', lastError: null })
+    let announced = 0
+    const stop = onHostRecordsChanged(() => announced++)
+    try {
+      isSilent = true
+      expect(await h.service.credential('remote')).toBeNull()
+      expect(healthOf(h)?.lastError).toContain(URL)
+      expect(announced).toBe(1)
+      // The same failure again is not news.
+      expect(await h.service.credential('remote')).toBeNull()
+      expect(announced).toBe(1)
+      h.service.noteUse('remote', null)
+      expect(healthOf(h)?.lastError).toBeNull()
+      expect(announced).toBe(2)
+      // Another good use is not news either.
+      h.service.noteUse('remote', null)
+      expect(announced).toBe(2)
+    } finally { stop() }
   })
 
-  test('a refused credential makes the link expired, with the refusal as its last error', async () => {
+  test('a refused credential ends the link, with the refusal as its last error', async () => {
     const h = harness({ refuseRefresh: true })
     await h.service.pair({ url: URL, code: CODE })
     h.advance()
     expect(await h.service.credential('remote')).toBeNull()
-    expect((await h.service.health())[0]).toMatchObject({ status: 'expired', expiresAt: null, lastError: expect.stringContaining('refused') })
+    expect(healthOf(h)).toMatchObject({ expiresAt: null, lastError: expect.stringContaining('refused') })
   })
 
-  test('a credential nobody used for 30 days is expired without a request', async () => {
+  test('a credential nobody used for 30 days has ended', async () => {
     const h = harness()
     await h.service.pair({ url: URL, code: CODE })
     h.advance(30)
-    const before = h.sent.length
-    expect((await h.service.health())[0]?.status).toBe('expired')
-    expect(h.sent.length).toBe(before)
+    expect(healthOf(h)?.expiresAt).toBeNull()
   })
 
-  test('a renewal moves the last reach and the expiry forward, and pairing again clears an old error', async () => {
+  test('a renewal moves the last reach and the end forward, and pairing again clears an old error', async () => {
     const h = harness()
     await h.service.pair({ url: URL, code: CODE })
     h.service.noteUse('remote', 'It did not accept a connection.')
     h.advance()
     expect(await h.service.credential('remote')).toBe('refreshed-token')
-    const [renewed] = await h.service.health()
-    expect(renewed?.lastReachedAt).toBe(2 + DAY)
-    expect(renewed?.expiresAt).toBe(2 + DAY + 30 * DAY)
-    expect(renewed?.lastError).toBeNull()
+    expect(healthOf(h)).toEqual({ lastReachedAt: 2 + DAY, lastError: null, expiresAt: 2 + DAY + 30 * DAY })
     h.service.noteUse('remote', 'It did not accept a connection.')
     await h.service.pair({ url: URL, code: CODE })
-    expect((await h.service.health())[0]?.lastError).toBeNull()
+    expect(healthOf(h)?.lastError).toBeNull()
   })
 
-  test('only the local owner can read link health over RPC', async () => {
+  test('the owner list over RPC carries each link with its health', async () => {
     const { SolusServer } = await import('@solus/server/transport/server')
     const { registerHostPairingHandlers } = await import('@solus/server/transport/handlers/host-pairing-handlers')
     const server = new SolusServer()
     const h = harness()
     registerHostPairingHandlers(server, h.service)
     await h.service.pair({ url: URL, code: CODE })
-    const caller = { clientId: 'test-client', principal: OWNER }
-    expect((await server.handle('hostsLinkHealth', [], caller)).map((health) => health.status)).toEqual(['reachable'])
-    await expect(server.handle('hostsLinkHealth', [], { ...caller, principal: { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'a', deviceLabel: 'Remote', expiresAt: 1 } })).rejects.toThrow()
+    const listed = await server.handle('hostsListPaired', [], { clientId: 'test-client', principal: OWNER })
+    expect(listed.hosts[0]?.health?.expiresAt).toBe(1 + 30 * DAY)
   })
 })

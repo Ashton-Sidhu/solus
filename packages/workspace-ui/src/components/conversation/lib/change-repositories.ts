@@ -51,6 +51,8 @@ export interface SummaryRepository {
   /** The folder's path from the working directory. Empty for the working directory. */
   prefix: string
   name: string
+  /** The repository's folder on the host: what its project mark is read from. */
+  path: string
 }
 
 /**
@@ -64,6 +66,7 @@ export function summaryRepositories(repositories: readonly DiffRepository[]): Su
   return repositories.map((repository) => ({
     prefix: repository.isWorkingDirectory ? '' : hostPathFrom(workingDirectory.path, repository.path),
     name: repository.name,
+    path: repository.path,
   }))
 }
 

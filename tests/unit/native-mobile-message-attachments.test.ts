@@ -50,6 +50,33 @@ describe('native sent-prompt attachments', () => {
     expect(item?.kind === 'user' && item.attachments).toEqual([{ kind: 'host-image', key: 'ref:0:/h/up/shot.png', name: 'shot.png', hostPath: '/h/up/shot.png', mimeType: 'image/png' }])
   })
 
+  test('a photo saved as a file shows the JPEG the host stored, in live and saved messages', () => {
+    const hostPath = '/h/attachments/session/c6bc17110d37cdfa0afa6ded-photo.jpg'
+    const content = `[Attached file: ${hostPath}]\n\nLook`
+    const model = new TranscriptModel('s')
+    model.apply({ type: 'user_message', text: content })
+    const live = model.items.get(model.order[0]!)
+    const saved = TranscriptModel.fromHistory('s', {
+      messages: [{ role: 'user', content, messageId: 'u1', timestamp: 1 }],
+      before: null,
+    }).items.get('u1')
+    for (const message of [live, saved]) {
+      expect(message).toMatchObject({
+        kind: 'user', text: 'Look',
+        attachments: [{ kind: 'host-image', name: 'photo.jpg', hostPath, mimeType: 'image/jpeg' }],
+      })
+    }
+    expect(desktopSplit(content, 'host').attachments).toMatchObject([
+      { type: 'image', name: 'photo.jpg', hostPath, mimeType: 'image/jpeg', hostServerId: 'host' },
+    ])
+    expect(uploadedMessageAttachments([
+      { id: 'a', kind: 'file', name: 'photo.heic', hostPath, mimeType: 'image/heic', size: 100, dataUrl: null },
+    ])).toMatchObject([{ kind: 'host-image', name: 'photo.jpg', hostPath, mimeType: 'image/jpeg' }])
+    expect(uploadedMessageAttachments([
+      { id: 'b', kind: 'file', name: 'paper.jpg', hostPath, mimeType: 'application/pdf', size: 100, dataUrl: null },
+    ])).toMatchObject([{ kind: 'file', name: 'paper.jpg' }])
+  })
+
   // A host stores history pictures as assets; a row a runner mirrored earlier
   // still carries a data URL. Both show, and a tool's pictures land on its row.
   test('history shows stored prompt pictures, legacy inline ones, and tool images', () => {

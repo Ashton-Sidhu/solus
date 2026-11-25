@@ -22,6 +22,7 @@
     pickerSessionTitle,
     pickerSessionProject,
     pickerSessionFolder,
+    pickerSessionCodebaseId,
     pickerSessionActivity,
     pickerSessionServerId,
     pickerSessionTaskTitle,
@@ -100,6 +101,10 @@
     row.kind === "session" || row.kind === "conversation"
       ? groupKeyFor(pickerSessionServerId(row) ?? "", pickerSessionFolder(row))
       : null,
+  );
+  // A session in a codebase wears the codebase's badge, as its sidebar row does.
+  const sessionCodebaseId = $derived(
+    row.kind === "session" || row.kind === "conversation" ? pickerSessionCodebaseId(row) : undefined,
   );
 </script>
 
@@ -285,7 +290,7 @@
       <!-- The project's logo leads, so a list of every project tells its rows
            apart; a chat wears a chat bubble. -->
       <span class="flex size-[1.625rem] shrink-0 items-center justify-center" title={pickerSessionProject(row)}>
-        {#if sessionProjectKey}<ProjectFavicon projectKey={sessionProjectKey} class="size-3.5" />{/if}
+        {#if sessionProjectKey}<ProjectFavicon projectKey={sessionProjectKey} codebaseId={sessionCodebaseId} class="size-3.5" />{/if}
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {attention === 'running' || attention === 'starting' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"

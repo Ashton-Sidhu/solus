@@ -9,6 +9,7 @@
   import { Input } from "../ui/input";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { hostRoutesStore } from "./host-routes.store.svelte";
+  import RouteStateIcon from "./RouteStateIcon.svelte";
 
   interface Props {
     serverId: string;
@@ -52,17 +53,8 @@
       <div class="flex items-center gap-2">
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-primary)">
+            {#if row.state && row.stateText && row.state !== "blocked"}<RouteStateIcon state={row.state} label={row.stateText} />{/if}
             {routeKindLabel(row.kind)}
-            {#if row.stateText && row.state !== "blocked"}
-              <span
-                class="rounded bg-(--solus-surface-hover) px-1.5 text-chrome-dense {row.state === 'in-use'
-                  ? 'text-(--success)'
-                  : row.state === 'refused' || row.state === 'different-server'
-                    ? 'text-(--solus-status-error)'
-                    : row.state === 'connecting' || row.state === 'not-answering'
-                      ? 'text-(--warning)'
-                      : 'text-(--solus-text-secondary)'}">{row.stateText}</span>
-            {/if}
           </p>
           <p class="mt-0.5 truncate font-mono text-chrome-dense text-(--solus-text-tertiary)">
             {row.url}{row.isLearned ? " · found automatically" : ""}

@@ -1,5 +1,5 @@
 import { hostPathBaseName, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
-import { videoMimeType } from '@solus/contracts/media-types'
+import { storedAttachmentImageMime, videoMimeType } from '@solus/contracts/media-types'
 import type { PromptImageRef } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
 import type { UploadedAttachment } from './attachments'
@@ -20,7 +20,10 @@ export type MessageAttachment =
 const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
 
 function fileAttachment(hostPath: string, index: number, name?: string, mimeType?: string): MessageAttachment {
-  const fileName = name || (hostPathBaseName(hostPath) || hostPath).replace(UPLOAD_NAME_PREFIX, '')
+  const storedName = (hostPathBaseName(hostPath) || hostPath).replace(UPLOAD_NAME_PREFIX, '')
+  const fileName = name || storedName
+  const imageMime = storedAttachmentImageMime(hostPath, { name: fileName, mimeType })
+  if (imageMime) return { kind: 'host-image', key: `ref:${index}:${hostPath}`, name: storedName, hostPath, mimeType: imageMime }
   return { kind: 'file', key: `file:${index}:${hostPath}`, name: fileName, hostPath, ...(mimeType ? { mimeType } : {}), video: videoMimeType({ name: fileName, mimeType }) !== null }
 }
 
@@ -70,7 +73,7 @@ export function uploadedMessageAttachments(uploads: readonly UploadedAttachment[
       ? upload.localUri ? { kind: 'local-image', key: `upload:${upload.id}`, name: upload.name, uri: upload.localUri, mimeType: upload.mimeType } : upload.dataUrl
         ? { kind: 'image', key: `upload:${upload.id}`, name: upload.name, dataUrl: upload.dataUrl, mimeType: upload.mimeType }
         : { kind: 'host-image', key: `upload:${upload.id}`, name: upload.name, hostPath: upload.hostPath, mimeType: upload.mimeType }
-      : fileAttachment(upload.hostPath, index, upload.name, videoMimeType(upload) ?? undefined))
+      : fileAttachment(upload.hostPath, index, upload.name, upload.mimeType))
 }
 
 /** A prompt waiting in the outbox across a restart: the images it sends, and
@@ -82,7 +85,7 @@ export function queuedMessageAttachments(payload: {
 } | undefined): MessageAttachment[] {
   if (!payload) return []
   const files = (payload.queueAttachments ?? []).flatMap((attachment, index) =>
-    attachment.type === 'file' && attachment.hostPath ? [fileAttachment(attachment.hostPath, index, attachment.name, videoMimeType(attachment) ?? undefined)] : [])
+    attachment.type === 'file' && attachment.hostPath ? [fileAttachment(attachment.hostPath, index, attachment.name, attachment.mimeType ?? undefined)] : [])
   return [...promptImageAttachments(payload.imageAttachments, payload.imageAttachmentRefs), ...files]
 }
 

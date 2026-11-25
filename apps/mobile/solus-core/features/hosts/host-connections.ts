@@ -1,5 +1,5 @@
 import { HostPairingFollower } from '@solus/client-core/host-pairing-follower'
-import { canManageMachineLinks, connectThroughMachine, machineLinksHidden, type LinkMachine, type MachineLinksHidden } from '@solus/client-core/host-linking'
+import { canReadPairings, connectThroughMachine, type PairingHolder } from '@solus/client-core/paired-hosts'
 import { forgetHostConnections, type HostConnectionOwner } from '@solus/client-core/forget-host'
 import type { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
@@ -23,7 +23,6 @@ import type { HostRoute } from '@solus/contracts/host-routes'
 import { solusApiId } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { HostRegistry } from './host-registry'
-import { LinkHealthReader } from './link-health'
 
 /** How long a `/health` read for a host's identity may take. */
 const HEALTH_TIMEOUT_MS = 5_000
@@ -146,12 +145,10 @@ export class HostConnections {
   /** The last diagnostics read per host, so a screen that reads them on each change sees the same object. */
   private readonly lastDiagnostics = new Map<string, HostDiagnostics>()
   readonly changes = new Listeners()
-  private linkRevision = 0
-  private linkMachines: LinkMachine[] | null = null
-  readonly machineLinksChanged = new Listeners()
-  machineLinksRevision = (): number => this.linkRevision
-  /** The health of the links a screen shows; read only while one watches. */
-  readonly linkHealth = new LinkHealthReader({ machines: () => this.machineLinks() })
+  private pairingsRevisionValue = 0
+  private holders: PairingHolder[] | null = null
+  readonly pairingsChanged = new Listeners()
+  pairingsRevision = (): number => this.pairingsRevisionValue
   private hiddenAt: number | null = null
   /** Introduces the hosts this phone owns to each other (docs/plans/host-reach.md §4). */
   private readonly introducer = new HostIntroducer(() => this.ownedHosts())
@@ -212,7 +209,7 @@ export class HostConnections {
         if (!connection) return
         connection.syncState()
         if (connection.state.readiness !== 'ready') connection.pairings?.clear()
-        this.notifyMachineLinks()
+        this.notifyPairings()
         this.changes.notify()
       },
       onOutcome: (outcome) => {
@@ -252,14 +249,14 @@ export class HostConnections {
     created.facts.subscribe((key) => {
       if (key === 'serverInfo') {
         this.changes.notify()
-        this.notifyMachineLinks()
+        this.notifyPairings()
       }
       if (key === 'capabilities') {
         created.hostVersion = created.facts.value('capabilities')?.version ?? created.hostVersion
         this.changes.notify()
       }
     })
-    created.pairings.subscribe(() => this.notifyMachineLinks())
+    created.pairings.subscribe(() => this.notifyPairings())
     this.connections.set(host.id, created)
     link.start()
     return created
@@ -352,15 +349,15 @@ export class HostConnections {
     return [...this.connections.values()].filter((connection) => connection.state.readiness === 'ready')
   }
 
-  machineLinks(): readonly LinkMachine[] {
-    return this.linkMachines ??= this.readyConnections().flatMap((connection) => {
+  /** The hosts this phone owns, with the machines each one paired (docs/host-pairing.md). */
+  pairingHolders(): readonly PairingHolder[] {
+    return this.holders ??= this.readyConnections().flatMap((connection) => {
       const info = connection.facts.value('serverInfo')
-      if (!info || !canManageMachineLinks(info) || !connection.pairings) return []
+      if (!info || !canReadPairings(info) || !connection.pairings) return []
       const generation = connection.state.sessionGeneration
       return [{
         label: this.deps.registry.host(connection.hostId)?.label ?? connection.hostId,
         info,
-        api: connection.api,
         snapshot: connection.pairings.snapshot(),
         isCurrent: () => this.connections.get(connection.hostId) === connection
           && connection.state.readiness === 'ready'
@@ -370,23 +367,6 @@ export class HostConnections {
     })
   }
 
-  /** Why the links that the host holds are not shown; null when `machineLinks()` has them. */
-  machineLinksHidden(hostId: string): MachineLinksHidden | null {
-    const connection = this.connections.get(hostId)
-    const isConnected = connection?.state.readiness === 'ready'
-    return machineLinksHidden({
-      isConnected,
-      info: isConnected ? connection.facts.value('serverInfo') ?? null : null,
-      hasSnapshot: !!connection?.pairings?.snapshot(),
-      hasReadFailed: connection?.pairings?.hasReadFailed() ?? false,
-    })
-  }
-
-  /** Reads the host's links again, after a read that failed. */
-  refreshMachineLinks(hostId: string): void {
-    void this.connections.get(hostId)?.pairings?.refresh()
-  }
-
   async pairThroughKnownMachine(installationId: string): Promise<boolean> {
     const sources = this.readyConnections().flatMap((connection) => connection.pairings ?? [])
     const paired = await connectThroughMachine(installationId, sources)
@@ -394,10 +374,10 @@ export class HostConnections {
     return paired
   }
 
-  private notifyMachineLinks(): void {
-    this.linkMachines = null
-    this.linkRevision++
-    this.machineLinksChanged.notify()
+  private notifyPairings(): void {
+    this.holders = null
+    this.pairingsRevisionValue++
+    this.pairingsChanged.notify()
   }
 
   /** Stop host-owned connections before removing this client's pairing. */

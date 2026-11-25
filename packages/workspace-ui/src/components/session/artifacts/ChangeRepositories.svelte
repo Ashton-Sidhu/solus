@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { FolderGit2 as RepositoryIcon } from "@lucide/svelte";
+  import { groupKeyFor } from "../../../contexts";
+  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import type { RepositoryChange } from "../../conversation/lib/change-repositories";
   import LineCounts from "./LineCounts.svelte";
 
@@ -10,10 +11,12 @@
    */
   interface Props {
     repositories: readonly RepositoryChange[];
+    /** The host of the session: each repository's project mark is read there. */
+    serverId: string;
     /** Opens the diff of one repository. Absent when the session has no conversation open to show it in. */
     onOpen?: (repositoryPath: string) => void;
   }
-  let { repositories, onOpen }: Props = $props();
+  let { repositories, serverId, onOpen }: Props = $props();
 </script>
 
 <div class="flex flex-col gap-px pb-1" role="group" aria-label="Changes by repository" data-testid="artifacts-change-repositories">
@@ -28,7 +31,7 @@
     >
       <!-- Stands in for the disclosure column, so the icon is in the tree's icon column. -->
       <span class="w-3 shrink-0"></span>
-      <RepositoryIcon size={16} strokeWidth={1.5} class="shrink-0 text-muted-foreground" />
+      <ProjectFavicon projectKey={groupKeyFor(serverId, repository.repositoryPath)} class="size-4" />
       <span class="min-w-0 shrink truncate">{repository.name}</span>
       <span class="shrink-0 text-xs tabular-nums text-muted-foreground opacity-70">
         {repository.filesChanged} file{repository.filesChanged === 1 ? "" : "s"}

@@ -1,0 +1,1 @@
+ALTER TABLE `codebases` ADD `badge` text;

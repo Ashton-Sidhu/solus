@@ -5,7 +5,7 @@ import { DraftContextControls, DraftEnvironmentControl } from "./DraftEnvironmen
 import { DraftThreadHeader } from "./DraftThreadHeader";
 import { useComposerAttachmentActions } from "../../state/use-composer-attachment-actions";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
-import { finishDraftSubmission } from "./finish-draft-submission";
+import { submitNewTaskDraft } from "./finish-draft-submission";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
 import type { ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import { draftThreadShell } from "./draft-thread-shell";
@@ -21,7 +21,6 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
-import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   CommonActions,
   StackActions,
@@ -687,24 +686,19 @@ export function NewTaskDraftScreen(props: {
     // Persist locally before clearing or leaving the draft; server setup runs on the thread.
     onWillEnqueue?.();
     flow.setSubmitting(true);
-    const queued = await settlePromise(() => enqueueThreadOutboxMessage(message));
-    flow.setSubmitting(false);
-    if (AsyncResult.isFailure(queued)) {
-      const error = squashAtomCommandFailure(queued);
+    try {
+      return await submitNewTaskDraft(
+        navigation, draftKey, draft.text, message, enqueueThreadOutboxMessage,
+      );
+    } catch (error) {
       Dialog.alert(
         gt("Could not queue task"),
         errorDisplayMessage(error, m) ?? gt("The task could not be saved to the outbox."),
       );
       return null;
+    } finally {
+      flow.setSubmitting(false);
     }
-    finishDraftSubmission(
-      navigation,
-      draftKey,
-      draft.text,
-      message.environmentId,
-      message.threadId,
-    );
-    return message.messageId;
   };
 
   // Keep the current surface until the local draft selection is ready. Publishing

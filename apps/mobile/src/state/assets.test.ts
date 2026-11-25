@@ -202,6 +202,28 @@ it.each([
   );
 });
 
+it("signs a transcript photo for its original session before the upstream row loads it", async () => {
+  const resource = { _tag: "attachment", attachmentId: "upload:original%2Fthread//uploads/photo.jpg",
+    fileName: "photo.jpg", mimeType: "image/jpeg" } as const;
+  state.sign.mockResolvedValue({ relativeUrl: "/api/assets/photo", expiresAt: 123 });
+  expect(useAssetUrlState(environmentId, resource)).toEqual({ _tag: "Loading" });
+  const atom = state.hostMediaState;
+  if (!atom) throw new Error("Expected a scoped attachment read");
+  const result = Promise.withResolvers<AssetUrlState>();
+  const release = appAtomRegistry.subscribe(atom, value => {
+    if (value._tag !== "Loading") result.resolve(value);
+  }, { immediate: true });
+  try {
+    expect(await result.promise).toMatchObject({ _tag: "Success", url: "https://asset-environment.test/api/assets/photo" });
+    expect(state.sign).toHaveBeenCalledWith(
+      expect.objectContaining({ session: expect.objectContaining({ sessionId: "original/thread", organizationId: "org" }) }),
+      { path: "/uploads/photo.jpg" },
+    );
+  } finally {
+    release();
+  }
+});
+
 it.each(["/repo/videos/demo.mp4", "/repo/preview.png"])("loads an inline URL for %s from the Solus host", async (path) => {
   state.preparedConnectionAtom = Atom.make({ _tag: "None" });
   const resource = { _tag: "media-file", threadId, path } as const;

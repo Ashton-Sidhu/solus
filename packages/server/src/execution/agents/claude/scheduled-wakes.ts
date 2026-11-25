@@ -22,10 +22,12 @@ export class ScheduledWakes {
   report(crons: readonly SessionCronSummary[] | undefined): void {
     if (!crons) return
     const reported = new Set(crons.map((cron) => `${SCHEDULE_TASK_PREFIX}${cron.id}`))
-    for (const taskId of reported) {
+    for (const cron of crons) {
+      const taskId = `${SCHEDULE_TASK_PREFIX}${cron.id}`
       if (this.pending.has(taskId)) continue
       this.pending.add(taskId)
-      this.changes.push({ type: 'background_task_started', taskId, awaitable: true })
+      const description = cron.prompt.trim().split('\n')[0]?.slice(0, 240)
+      this.changes.push({ type: 'background_task_started', taskId, awaitable: true, kind: 'schedule', ...(description && { description }) })
     }
     for (const taskId of this.pending) {
       if (reported.has(taskId)) continue

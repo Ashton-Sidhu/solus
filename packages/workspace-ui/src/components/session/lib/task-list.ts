@@ -303,6 +303,9 @@ export interface SidebarTask {
    *  heading. `projectKey` stays the path the row's host reads links and pull
    *  requests under. */
   groupKey: string
+  /** The codebase of the session (docs/plans/codebases.md). Its mark is
+   *  then the codebase icon, not the mark of one of its projects. */
+  codebaseId?: string
   /** Real git branch, matched against a PR's head ref. Null off a branch. */
   branchName: string | null
   worktreePath?: string | null

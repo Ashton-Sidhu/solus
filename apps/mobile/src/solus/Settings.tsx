@@ -5,8 +5,6 @@ import { SettingsSection } from "../features/settings/components/SettingsSection
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
 import { ScreenScrollView } from "../components/ui/ScreenScrollView";
-import { LinkSeveralEnvironmentsAction } from "../features/connection/LinkSeveralEnvironments";
-import { LinkedEnvironmentsSection } from "../features/connection/LinkedEnvironmentsSection";
 import {
   PERMISSION_MODE_TEXT,
   PERMISSION_MODES,
@@ -53,11 +51,6 @@ export function SolusHosts() {
             onPress={() => navigation.navigate("SettingsEnvironmentNew")}
           />
         </SettingsSection>
-        {environments.filter((env) => env.connectionState === "connected").map((env) => (
-          <LinkedEnvironmentsSection key={env.environmentId} {...env}>
-            <LinkSeveralEnvironmentsAction {...env} />
-          </LinkedEnvironmentsSection>
-        ))}
       </ScreenScrollView>
     </SettingsScreen>
   );

@@ -28,9 +28,16 @@ export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryP
   return left === right || (left.messages.length === right.messages.length && sameHistoryManifest(left, right))
 }
 
-async function loadHistory(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory): Promise<SessionHistoryPage> {
+export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory): Promise<SessionHistoryPage> {
   if (!readCache) return api.loadSessionPage(request)
-  const cached = await readCache().catch(() => null)
+  // Use blocks that are ready this turn. A disk read can still paint its saved
+  // page, but a busy device must be able to send the host request without it.
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  const cached = await Promise.race([
+    readCache().catch(() => null),
+    new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), 0) }),
+  ])
+  clearTimeout(deadline)
   const offsets = new Map<string, { start: number; count: number }>()
   let savedRows = 0
   for (const block of cached?.historyBlocks ?? []) {
@@ -41,19 +48,28 @@ async function loadHistory(api: HistoryApi, request: SessionHistoryPageRequest, 
   const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
   if (cached && savedRows === cached.messages.length && !page.messages.length &&
       page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) return cached
+  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(request)
+}
+
+/** A missing or invalid block means the host must send the complete page. */
+function restoreHistoryBlocks(
+  page: SessionHistoryPage,
+  cached: SessionHistoryPage | null,
+  offsets: ReadonlyMap<string, { start: number; count: number }>,
+): SessionHistoryPage | null {
   if (!page.historyBlocks?.some(block => block.reused)) return page
   const messages: SessionHistoryPage['messages'] = []
   let offset = 0
   for (const block of page.historyBlocks) {
     const saved = block.reused ? offsets.get(block.hash) : undefined
-    if (block.reused && (!cached || !saved || saved.count !== block.count)) return api.loadSessionPage(request)
+    if (block.reused && (!cached || !saved || saved.count !== block.count)) return null
     const source = saved && cached ? cached.messages : page.messages
     const start = saved?.start ?? offset
-    if (start + block.count > source.length) return api.loadSessionPage(request)
+    if (start + block.count > source.length) return null
     for (let index = start; index < start + block.count; index++) messages.push(source[index]!)
     if (!block.reused) offset += block.count
   }
-  if (offset !== page.messages.length) return api.loadSessionPage(request)
+  if (offset !== page.messages.length) return null
   return { ...page, messages, historyBlocks: page.historyBlocks.map(({ hash, count }) => ({ hash, count })) }
 }
 
@@ -71,7 +87,7 @@ const prefetchedHistory = new WeakMap<HistoryApi, PrefetchedHistory>()
 
 function historyKey(request: SessionHistoryPageRequest, scope: string | undefined): string {
   return JSON.stringify([scope, request.sessionId, request.projectPath, request.provider,
-    request.turnLimit, request.before, !!request.deferArtifactHtml])
+    request.turnLimit, request.before, request.throughEntryId, !!request.deferArtifactHtml, !!request.replyLayout])
 }
 
 /** `maxAgeMs`: how long the page may serve an open. A read the reader may
@@ -80,7 +96,7 @@ export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHist
   const key = historyKey(request, scope)
   const existing = prefetchedHistory.get(api)
   if (existing?.key === key && existing.expiresAt > Date.now()) return existing.result
-  const result = loadHistory(api, request, readCache)
+  const result = loadSessionHistoryPage(api, request, readCache)
   const entry: PrefetchedHistory = { key, expiresAt: Date.now() + maxAgeMs, result }
   prefetchedHistory.set(api, entry)
   void result.then((page) => { entry.page = page }).catch(() => {
@@ -102,5 +118,5 @@ export async function requestSessionHistoryPage(api: HistoryApi, request: Sessio
   prefetchedHistory.delete(api)
   return prefetched?.key === historyKey(request, scope) && prefetched.expiresAt > Date.now()
     ? prefetched.result
-    : loadHistory(api, request, readCache)
+    : loadSessionHistoryPage(api, request, readCache)
 }

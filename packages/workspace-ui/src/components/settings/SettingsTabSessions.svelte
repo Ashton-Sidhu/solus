@@ -6,7 +6,6 @@
   import { PROVIDERS } from "@solus/contracts/provider-model-settings";
   import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
-  import { Switch } from "../ui/switch";
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
@@ -51,20 +50,6 @@
 
 <DelegationSettingsSection {isVisible} />
 
-<SettingsSection {...settingsDefinitions["sessions.section-sessions"]} visible={["auto-rename", "ratelimit"].some(isVisible)}>
-  <SettingsRow
-    {...settingsDefinitions["sessions.auto-rename"]}
-    visible={isVisible("auto-rename")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.autoRenameSessions}
-        onCheckedChange={(next) => theme.setPersonal("autoRenameSessions", next)}
-        size="default"
-        aria-label="Toggle automatic session naming"
-      />
-    {/snippet}
-  </SettingsRow>
-
+<SettingsSection {...settingsDefinitions["sessions.section-sessions"]} visible={isVisible("ratelimit")}>
   <RateLimitSetting visible={isVisible("ratelimit")} />
 </SettingsSection>

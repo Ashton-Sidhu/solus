@@ -40,6 +40,8 @@ export interface ConnectionsDeps {
   introducedHosts: Pick<IntroducedHosts, 'list' | 'issue' | 'accept' | 'forget' | 'allow'>
   /** Closes an open connection to a host whose introduction was replaced or forgotten. */
   disconnectRemoteHost(hostId: string): void
+  /** A new introduction: this host introduces the machines it holds to each other (host-reach.md §4.4). */
+  onIntroduced?(): void
   /** This host's tunnel origin while its connector is online; null otherwise. */
   tunnelUrl(): string | null
   /** The account origin when the resource is mirrored there (a published session of an organization on a linked host); null otherwise. */
@@ -212,6 +214,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     const parsed = introductionSchema.parse(introduction)
     await deps.introducedHosts.accept(parsed, z.string().min(1).parse(grantedDeviceId))
     deps.disconnectRemoteHost(parsed.installationId)
+    deps.onIntroduced?.()
     return { ok: true as const }
   })
 

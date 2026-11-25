@@ -457,8 +457,12 @@ export interface ComposerDraft {
 export interface ComposerDraftProject {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
+  /** Undefined follows the folder. Null explicitly starts without a codebase. */
+  readonly codebaseId?: string | null;
   readonly createdAt: string;
 }
+
+type DraftProjectTarget = Omit<ComposerDraftProject, "createdAt">;
 
 export interface ComposerDraftContent {
   readonly text: string;
@@ -509,6 +513,7 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
 const ComposerDraftProjectSchema = Schema.Struct({
   environmentId: EnvironmentIdSchema,
   projectId: ProjectIdSchema,
+  codebaseId: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: Schema.String,
 });
 
@@ -2022,14 +2027,10 @@ export function removeComposerDraftsForEnvironment(
   );
 }
 
-export function createNewTaskDraft(project: {
-  readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
-}): string {
+export function createNewTaskDraft(project: DraftProjectTarget): string {
   const draftKey = newTaskDraftKey(newDraftId());
   const stamp: ComposerDraftProject = {
-    environmentId: project.environmentId,
-    projectId: project.projectId,
+    ...project,
     createdAt: new Date().toISOString(),
   };
   updateComposerDrafts((current) => ({
@@ -2041,18 +2042,22 @@ export function createNewTaskDraft(project: {
 
 export function retargetNewTaskDraft(
   draftKey: string,
-  project: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId },
+  project: DraftProjectTarget,
   options?: { readonly keepPullRequestWorkspace?: boolean },
 ): void {
   updateComposerDrafts((current) => {
     const existing = current[draftKey];
     const stamp = existing?.project;
     if (
-      stamp !== undefined &&
+      existing && stamp &&
       stamp.environmentId === project.environmentId &&
       stamp.projectId === project.projectId
     ) {
-      return current;
+      if (stamp.codebaseId === project.codebaseId) return current;
+      return {
+        ...current,
+        [draftKey]: { ...existing, project: { ...project, createdAt: stamp.createdAt } },
+      };
     }
     const { workspaceSelection, ...retained } = normalizeDraft(existing);
     // The PR checkout is recreated on the target machine, so only the old local path is dropped.
@@ -2074,8 +2079,7 @@ export function retargetNewTaskDraft(
         ...(keptWorkspaceSelection ? { workspaceSelection: keptWorkspaceSelection } : {}),
         attachments,
         project: {
-          environmentId: project.environmentId,
-          projectId: project.projectId,
+          ...project,
           createdAt: stamp?.createdAt ?? new Date().toISOString(),
         },
       },
@@ -2086,7 +2090,7 @@ export function retargetNewTaskDraft(
 /** Retargets a saved draft after loading. Returns false if absent or cancelled before the write. */
 export async function retargetSavedNewTaskDraft(
   draftKey: string,
-  project: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId },
+  project: DraftProjectTarget,
   signal?: AbortSignal,
 ): Promise<boolean> {
   await waitForComposerDraftsLoaded();
@@ -2236,6 +2240,20 @@ export function useComposerDraft(draftKey: string | null): ComposerDraft {
     ensureComposerDraftsLoaded();
   }, []);
   return draft;
+}
+
+const EMPTY_DRAFT_PROJECT_ATOM = Atom.make<ComposerDraftProject | undefined>(undefined);
+const composerDraftProjectAtom = Atom.family((draftKey: string) =>
+  Atom.make((get) => get(composerDraftAtom(draftKey)).project),
+);
+
+export function useComposerDraftProject(draftKey: string | undefined) {
+  const project = useAtomValue(draftKey ? composerDraftProjectAtom(draftKey) : EMPTY_DRAFT_PROJECT_ATOM);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the saved codebase choice before the first prompt
+  useEffect(() => {
+    if (draftKey) ensureComposerDraftsLoaded();
+  }, [draftKey]);
+  return project;
 }
 
 export function useStickyComposerModelSelection(): ModelSelection | null {

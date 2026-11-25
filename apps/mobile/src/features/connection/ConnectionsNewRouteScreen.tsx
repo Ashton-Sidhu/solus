@@ -246,6 +246,7 @@ function PairingForm({
         <View collapsable={false} className="gap-6.5">
           <NearbyHosts
             disabled={connecting}
+            syncSettings={routeFor ? null : syncSettings}
             onSelect={(url, hostId) => {
               handleHostChange(url);
               setCodeInput("");

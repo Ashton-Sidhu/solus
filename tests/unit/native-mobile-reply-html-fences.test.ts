@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { replySegments } from '../../apps/mobile/solus-core/features/threads/reply-html-fences'
+import { replyHtmlLayout, replySegments } from '@solus/document-model/reply-html-layout'
 
 const PAGE = '<style>p{color:red}</style><p>Chart</p>'
 const kinds = (markdown: string) => replySegments(markdown).map((segment) => segment.kind)
@@ -40,4 +40,18 @@ describe('native reply: live HTML fences', () => {
   test('a reply with no page is one Markdown part with the same text', () => {
     expect(replySegments('Plain **reply**.')).toEqual([{ kind: 'markdown', key: 'md:0', text: 'Plain **reply**.' }])
   })
+})
+
+test('the host sends frame offsets without repeating the HTML or moving surrounding Markdown', () => {
+  const markdown = ['💬 Before', '', '```html', PAGE, '```', '', 'After', '', '```html source', PAGE, '```'].join('\n')
+  const frames = replyHtmlLayout(markdown, () => 'diagram')
+  expect(frames).toHaveLength(1)
+  const frame = frames![0]!
+  expect(markdown.slice(frame.bodyStart, frame.bodyEnd)).toBe(PAGE)
+  expect(frame).toMatchObject({ attachmentId: 'diagram', height: 320 })
+  expect(JSON.stringify(frames)).not.toContain(PAGE)
+  const display = (parts: ReturnType<typeof replySegments>) => parts.map(part =>
+    part.kind === 'html' ? part.html : part.kind === 'markdown' ? part.text : part.guide)
+  expect(display(replySegments(markdown, frames))).toEqual(display(replySegments(markdown)))
+  expect(replyHtmlLayout('```html\n' + PAGE, () => 'incomplete')).toBeUndefined()
 })

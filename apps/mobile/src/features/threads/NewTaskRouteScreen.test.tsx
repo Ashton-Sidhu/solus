@@ -4,6 +4,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { Codebase } from "@solus/contracts/codebases";
 import { expect, it, vi } from "vite-plus/test";
 import { retargetSavedNewTaskDraft } from "../../state/use-composer-drafts";
 
@@ -30,6 +31,7 @@ const otherHost = EnvironmentId.make("env-2");
 const otherCopy = { ...regular, environmentId: otherHost, id: ProjectId.make("/other/app") };
 
 const harness = vi.hoisted(() => ({
+  codebases: new Array<Codebase>(),
   setProject: vi.fn(),
   openScratch: vi.fn(),
   selectDetail: vi.fn(),
@@ -48,6 +50,18 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("../../solus/runtime", () => ({
+  solus: {
+    codebases: {
+      changes: { subscribe: () => () => {} },
+      codebases: () => harness.codebases,
+      codebaseOf: (id: string) => harness.codebases.find((codebase) => codebase.id === id),
+      codebasesOfFolder: () => [],
+      hosts: () => [
+        { hostId: environmentId, installationId: "installation-1", label: "Local", isReady: true },
+        { hostId: otherHost, installationId: "installation-2", label: "Remote", isReady: true },
+      ],
+    },
+  },
   useSolusWorkspace: () => ({
     projects: [regular, scratch, otherCopy],
     environments: [
@@ -77,7 +91,8 @@ vi.mock("react-native-safe-area-context", () => ({
 vi.mock("gt-react-native", () => ({
   msg: (text: string) => text,
   T: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  useGT: () => (text: string) => text,
+  useGT: () => (text: string, values?: { folder: string; host: string }) =>
+    values && text === "{folder} on {host}" ? `${values.folder} on ${values.host}` : text,
   useMessages: () => (text: string) => text,
 }));
 vi.mock("@react-navigation/native", () => ({
@@ -107,7 +122,22 @@ vi.mock("../../components/ui/ScreenScrollView", () => ({
 vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
 }));
-vi.mock("../../components/ProjectFavicon", () => ({ ProjectFavicon: () => null }));
+vi.mock("../../components/ProjectFavicon", () => ({ ProjectFavicon: () => null, CodebaseBadge: () => null }));
+vi.mock("../../components/ui/Menu", () => ({
+  Menu: (props: {
+    children: ReactNode;
+    actions: { id: string; title: string; attributes: { disabled: boolean } }[];
+    onPressAction: (event: { nativeEvent: { event: string } }) => void;
+  }) => (
+    <div>
+      {props.children}
+      {props.actions.map((action) => (
+        <button key={action.id} aria-label={action.title} disabled={action.attributes.disabled}
+          onClick={() => props.onPressAction({ nativeEvent: { event: action.id } })} />
+      ))}
+    </div>
+  ),
+}));
 vi.mock("../connection/environmentStatusText", () => ({ runtimeConnectionErrorText: () => null }));
 vi.mock("../../state/entities", () => ({
   useProjects: () => [regular, scratch],
@@ -116,6 +146,7 @@ vi.mock("../../state/entities", () => ({
 vi.mock("../../state/projects", () => ({ projectEnvironment: { openScratch: {} } }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => harness.openScratch }));
 vi.mock("../../state/use-composer-drafts", () => ({
+  createNewTaskDraft: () => "created-draft",
   retargetSavedNewTaskDraft: vi.fn(),
   waitForComposerDraftsLoaded: harness.openScratch,
 }));
@@ -263,4 +294,57 @@ it("uses the checkout on the chosen host when two hosts have a copy of the same 
       },
     },
   });
+});
+
+it("starts a draft from a container codebase without a project row for its root", async () => {
+  using screen = renderWithSavedDraft();
+  harness.codebases = [{
+    id: "shop-codebase",
+    name: "Shop codebase",
+    roots: [{ installationId: "installation-1", path: "/shop", name: "shop", container: true }],
+    updatedAt: 1,
+    deletedAt: null,
+  }];
+  try {
+    act(() => screen.root.render(<NewTaskRouteScreen route={screen.route} />));
+    const row = screen.row("Shop codebase");
+    expect(row).not.toBeNull();
+    await act(async () => row.click());
+    expect(retargetSavedNewTaskDraft).toHaveBeenCalledWith(
+      "existing-draft",
+      { environmentId, projectId: "/shop", codebaseId: "shop-codebase" },
+      expect.any(AbortSignal),
+    );
+    expect(harness.selectDetail).toHaveBeenCalledWith({
+      name: "Thread",
+      params: { draft: { environmentId, projectId: "/shop", draftId: "existing-draft", incomingShareId: undefined } },
+    });
+  } finally {
+    harness.codebases = [];
+  }
+});
+
+it("opens the folder chosen on another host instead of its first folder", async () => {
+  using screen = renderWithSavedDraft();
+  harness.codebases = [{
+    id: "remote-codebase",
+    name: "Remote codebase",
+    roots: [
+      { installationId: "installation-2", path: "/remote/api", name: "API" },
+      { installationId: "installation-2", path: "/remote/web", name: "Web" },
+    ],
+    updatedAt: 1,
+    deletedAt: null,
+  }];
+  try {
+    act(() => screen.root.render(<NewTaskRouteScreen route={screen.route} />));
+    await act(async () => screen.row("Web on Remote").click());
+    expect(retargetSavedNewTaskDraft).toHaveBeenCalledWith(
+      "existing-draft",
+      { environmentId: otherHost, projectId: "/remote/web", codebaseId: "remote-codebase" },
+      expect.any(AbortSignal),
+    );
+  } finally {
+    harness.codebases = [];
+  }
 });

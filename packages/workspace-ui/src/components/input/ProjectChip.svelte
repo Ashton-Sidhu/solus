@@ -37,7 +37,6 @@
     chipHint,
     codebaseChipOptions,
     codebaseChoiceStep,
-    codebaseFavicons,
     codebaseTooltip,
     marksProjectRow,
     type CodebaseChipOption,
@@ -45,7 +44,7 @@
   } from "./lib/codebase-choice";
   import { membersOnHost } from "../../contexts/codebases/host-members";
   import { sameHostPath } from "@solus/contracts/host-path";
-  import CodebaseFavicons from "./CodebaseFavicons.svelte";
+  import CodebaseBadge from "../codebases/CodebaseBadge.svelte";
   import CodebaseTooltip from "./CodebaseTooltip.svelte";
   import { codebaseOf, isDispatch, projectHome, projectRoot, refusesCodebase, runHost } from "../../contexts/workspace/run-location";
 
@@ -144,7 +143,7 @@
       : [],
   );
   const currentCodebase = $derived(onSelectCodebase && codebaseId ? codebasesStore.codebaseOf(codebaseId) : undefined);
-  // The row of the codebase of the run: the chip shows its favicons, and its tooltip has its folders.
+  // The row of the codebase of the run: the chip shows its badge, and its tooltip has its folders.
   const currentOption = $derived(currentCodebase ? codebases.find((codebase) => codebase.id === currentCodebase.id) : undefined);
   // The one choice: a run that has a codebase shows the codebase, and each
   // other run shows the project. The list marks the same one row.
@@ -314,14 +313,16 @@
  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >
-              <!-- One name: the codebase of the run with the favicons of its folders, else the project. -->
+              <!-- One name: the codebase of the run with its badge, else the project. -->
               {#if chip.kind === "codebase"}
                 <span
                   class="flex shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
                 >
-                  <CodebaseFavicons places={codebaseFavicons(currentOption?.folders ?? [])} size={16} />
+                  {#if currentOption}
+                    <span class="inline-flex size-4"><CodebaseBadge mark={currentOption.mark} /></span>
+                  {/if}
                 </span>
               {:else}
                 <ProjectFavicon
@@ -476,7 +477,7 @@
                     data-menu-current={codebase.isCurrent ? "" : undefined}
                     class="menu-item-stagger"
                   >
-                    <CodebaseFavicons places={codebaseFavicons(codebase.folders)} />
+                    <span class="inline-flex size-[13px] shrink-0"><CodebaseBadge mark={codebase.mark} /></span>
                     <span class="min-w-0 flex-1 truncate">{codebase.name}</span>
                     {#if codebase.note}
                       <span class="max-w-36 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{codebase.note}</span>

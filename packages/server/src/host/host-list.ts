@@ -22,16 +22,11 @@ const forwardSchema = z.object({
 const introductionSchema = z.object({
   url: z.string().min(1), introducedAt: z.number(), refreshedAt: z.number(), grantedDeviceId: z.string().min(1),
 })
-const pairingSchema = z.object({
-  url: z.string().min(1), pairedAt: z.number(), refreshedAt: z.number(),
-  clientConnect: z.literal('on-request').optional(),
-})
+const pairingSchema = z.object({ url: z.string().min(1), pairedAt: z.number(), refreshedAt: z.number() })
 const recordSchema = z.object({
   listing: hostListingSchema,
   forward: forwardSchema.optional(), introduction: introductionSchema.optional(), pairing: pairingSchema.optional(),
   forgotten: z.boolean().default(false),
-  /** A Settings link belongs to this host. It enters the device catalog only after a separate add. */
-  linkOnly: z.literal(true).optional(),
 })
 export type HostRecord = z.infer<typeof recordSchema>
 export type HostForward = z.infer<typeof forwardSchema>
@@ -39,6 +34,11 @@ export type HostIntroductionConnection = z.infer<typeof introductionSchema>
 const credentialsSchema = z.object({ forward: z.string().min(1).optional(), introduction: z.string().min(1).optional(), pairing: z.string().min(1).optional() })
 type HostCredentials = z.infer<typeof credentialsSchema>
 const changedListeners = new Set<() => void>()
+/** Tells listeners that what a host list read gives has changed, as a pairing's health does. */
+export function announceHostRecordsChanged(): void {
+  for (const listener of changedListeners) listener()
+}
+
 export function onHostRecordsChanged(listener: () => void): () => void {
   changedListeners.add(listener)
   return () => { changedListeners.delete(listener) }
@@ -71,10 +71,8 @@ export function findHostRecord(id: string): HostRecord | undefined {
 }
 
 /** The client-safe catalog. Runtime settings and credentials never cross this interface. */
-export function readHostList(options: { forDevice?: boolean } = {}): HostListing[] {
-  return readHostRecords()
-    .filter((record) => !record.forgotten && (!options.forDevice || !record.linkOnly))
-    .map((record) => record.listing)
+export function readHostList(): HostListing[] {
+  return readHostRecords().filter((record) => !record.forgotten).map((record) => record.listing)
 }
 
 function credentialLocation(installationId: string) {
@@ -114,8 +112,7 @@ export function saveHostConnection(
   const credentials = secretStore().loadJson(key, path, credentialsSchema) ?? {}
   credentials[connection.kind] = connection.token
   secretStore().saveJson(key, path, credentials)
-  const record: HostRecord = old ?? { listing, forgotten: false, linkOnly: true }
-  if (record.forgotten) record.linkOnly = true
+  const record: HostRecord = old ?? { listing, forgotten: false }
   const userLabel = old?.listing.hasUserLabel ? old.listing.label : null
   record.listing = { ...old?.listing, ...listing,
     routes: mergeRoutes(old?.listing.routes ?? [], listing.routes, connection.kind === 'forward' ? 'ssh' : 'host', Date.now()) }
@@ -125,16 +122,9 @@ export function saveHostConnection(
     record.listing.hasUserLabel = true
   }
   record.forgotten = false
-  if (connection.kind === 'forward') {
-    record.forward = connection.settings
-    delete record.linkOnly
-  } else if (connection.kind === 'introduction') {
-    record.introduction = connection.settings
-    delete record.linkOnly
-  } else {
-    record.pairing = connection.settings
-    if (!connection.settings.clientConnect) delete record.linkOnly
-  }
+  if (connection.kind === 'forward') record.forward = connection.settings
+  else if (connection.kind === 'introduction') record.introduction = connection.settings
+  else record.pairing = connection.settings
   saveHostRecord(record)
 }
 
@@ -164,7 +154,7 @@ export class HostListFullError extends Error {
 /** A client refresh changes only the listing; connection settings stay with the record. */
 export function putHostListing(listing: HostListing): void {
   const record = findHostRecord(listing.installationId)
-  saveHostRecord({ ...record, listing, forgotten: false, linkOnly: undefined })
+  saveHostRecord({ ...record, listing, forgotten: false })
 }
 
 /** Forget is one operation for every channel. Listeners release only captured resources. */

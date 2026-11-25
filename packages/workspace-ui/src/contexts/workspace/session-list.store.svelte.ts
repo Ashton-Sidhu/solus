@@ -39,6 +39,8 @@ export interface ListedSession {
   title: string | null
   /** The project the session belongs to, as its host names it. */
   projectPath: string | null
+  /** The codebase of the session (docs/plans/codebases.md); absent for a session with none. */
+  codebaseId?: string
   createdAt: number
   lastActivityAt: number
   /** Whether the agent works, rests, or was cut off, as the home last reported. */
@@ -330,6 +332,7 @@ export class SessionListStore {
     const awayRunner = listed.runnerOffline && record.runnerHostId ? this.hosts.knownRunnerFor?.(record.runnerHostId) : null
     if (awayRunner) listed.awayRunnerServerId = awayRunner
     if (record.role) listed.role = record.role
+    if (record.codebaseId) listed.codebaseId = record.codebaseId
     this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
     this.writeState(record.sessionId, record.state)
     this.writeView(record.sessionId, record.view)

@@ -18,6 +18,8 @@ export const codebases = defineTable('codebases', {
   updated_at: bigint({ notNull: true }),
   /** Set on a deleted codebase. */
   deleted_at: bigint(),
+  /** `CodebaseBadge` as JSON: the colour and icon a person chose. Null: both come from the name. */
+  badge: json(),
 })
 
 export const CODEBASE_TABLES = [codebases]

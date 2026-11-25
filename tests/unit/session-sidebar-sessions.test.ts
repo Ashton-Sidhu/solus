@@ -6,6 +6,7 @@ import { runGroupKey, SessionSidebarStore } from '@solus/workspace-ui/contexts/w
 import { projectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/lib/session-home'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { provideCodebaseRules } from '@solus/workspace-ui/contexts/codebases/codebase-rules'
 
 type SidebarStoreHarness = Pick<SessionSidebarStore, 'childForTab' | 'sessionsForPickableTask'> & {
   session: unknown
@@ -65,6 +66,38 @@ describe('session sidebar session rows', () => {
     expect(row.linkedTask).toEqual({ taskId: 'root', title: 'Ship the release' })
     expect('taskId' in row).toBe(false)
     expect(store.buildListedSessionRow(listed('loose')).linkedTask).toBeUndefined()
+  })
+
+  test('a session in a codebase carries its codebase, so its mark is the codebase icon', () => {
+    // WHY: a session in a codebase works in more than one project. Its mark in
+    // the sidebar and the breadcrumb must not be the mark of one of them.
+    const store = sidebarStore()
+    store.lifecycleNow = 10
+    store.session = { tasksStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
+    const listed = (sessionId: string, codebaseId?: string) => ({
+      sessionId, serverId: 'workshop', title: sessionId, projectPath: '/repo', createdAt: 1, codebaseId,
+    }) as ListedSession
+
+    expect(store.buildListedSessionRow(listed('in-codebase', 'cb-1')).codebaseId).toBe('cb-1')
+    expect(store.buildListedSessionRow(listed('in-project')).codebaseId).toBeUndefined()
+  })
+
+  test('a session in a codebase this client knows names the codebase; a deleted or unknown one names its project', () => {
+    // WHY: the row, its badge, the breadcrumb, and the project picker name one codebase one way.
+    const store = sidebarStore()
+    store.lifecycleNow = 10
+    store.session = { tasksStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
+    provideCodebaseRules({
+      isContainerRoot: () => false,
+      codebaseOf: (id) => (id === 'cb-1' ? { id, name: 'Solus', roots: [], updatedAt: 1, deletedAt: null } : undefined),
+    })
+    const listed = (sessionId: string, codebaseId?: string) => ({
+      sessionId, serverId: 'workshop', title: sessionId, projectPath: '/code/solus', createdAt: 1, codebaseId,
+    }) as ListedSession
+
+    expect(store.buildListedSessionRow(listed('known', 'cb-1')).projectLabel).toBe('Solus')
+    expect(store.buildListedSessionRow(listed('deleted', 'cb-gone')).projectLabel).toBe('solus')
+    expect(store.buildListedSessionRow(listed('none')).projectLabel).toBe('solus')
   })
 
   test('the picker lists every session linked to a task, owned or referenced', () => {

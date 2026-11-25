@@ -8,7 +8,7 @@ import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activit
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
 import type { SessionFolder } from '@solus/contracts/codebases'
 import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
-import type { ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
+import type { BackgroundTask, BackgroundTaskKind, ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
 import { settleSetupCard } from '@solus/contracts/setup-card'
@@ -35,7 +35,7 @@ export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
   | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
-  | { kind: 'assistant'; id: string; text: string; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
+  | { kind: 'assistant'; id: string; text: string; replyHtmlLayout?: import('@solus/contracts/session-history').ReplyHtmlLayout[]; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
   | ToolItem
@@ -104,7 +104,8 @@ export class TranscriptModel {
   }
   /** Background work of the session runs on its host, held or not (`background_work`). */
   backgroundWorkRunning = false
-  backgroundTasks: readonly { taskId: string; description?: string }[] = []
+  /** The running tasks. `kind` is set when the host named the task; an older host does not. */
+  backgroundTasks: readonly { taskId: string; kind?: BackgroundTaskKind; description?: string }[] = []
   /** The folders the session works in besides its working directory, as its host last reported them (`session_folders`). */
   sessionFolders: readonly SessionFolder[] = []
   agentRows: readonly (AgentItem | ToolItem)[] = []
@@ -293,7 +294,7 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
-      this.items.set(id, { kind: 'assistant', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, forkPointId: row.forkPointId })
+      this.items.set(id, { kind: 'assistant', id, text: row.content, ...(row.replyHtmlLayout && { replyHtmlLayout: row.replyHtmlLayout }), timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, forkPointId: row.forkPointId })
       return id
     }
     if (row.role === 'tool' && row.toolId) {
@@ -504,9 +505,10 @@ export class TranscriptModel {
       case 'background_task_started':
       case 'background_task_progress': {
         const previous = this.backgroundTasks.find(task => task.taskId === event.taskId)
-        const description = event.type === 'background_task_progress' ? event.description : previous?.description
-        if (!previous || (description && previous.description !== description)) {
-          this.backgroundTasks = [...this.backgroundTasks.filter(task => task !== previous), {taskId: event.taskId, ...(description && {description})}]
+        const description = event.description ?? previous?.description
+        const kind = (event.type === 'background_task_started' ? event.kind : undefined) ?? previous?.kind
+        if (!previous || (description && previous.description !== description) || kind !== previous.kind) {
+          this.backgroundTasks = [...this.backgroundTasks.filter(task => task !== previous), {taskId: event.taskId, ...(kind && {kind}), ...(description && {description})}]
           this.metaChanged = true
         }
         return true
@@ -749,9 +751,9 @@ export class TranscriptModel {
   // ─── Local state the client owns ───
 
   /** A prompt the user just sent, shown before the host echoes it. */
-  addOptimisticUser(clientPromptId: string, text: string, delivery: Delivery = 'sending', attachments: readonly MessageAttachment[] = [], waitsForTurn = false): void {
+  addOptimisticUser(clientPromptId: string, text: string, delivery: Delivery = 'sending', attachments: readonly MessageAttachment[] = [], waitsForTurn = false, timestamp?: number): void {
     if (this.items.has(clientPromptId)) return
-    this.append({ kind: 'user', id: clientPromptId, text, delivery, error: null, attachments, ...(waitsForTurn && { waitsForTurn }) })
+    this.append({ kind: 'user', id: clientPromptId, text, timestamp, delivery, error: null, attachments, ...(waitsForTurn && { waitsForTurn }) })
     if (!waitsForTurn) {
       this.agentCards.closeTurn()
       this.finishStream()
@@ -784,9 +786,11 @@ export class TranscriptModel {
     this.replace({ ...item, delivery, error })
   }
 
-  setBackgroundWorkRunning(running: boolean, taskIds?: readonly string[]): void {
+  setBackgroundWorkRunning(running: boolean, taskIds?: readonly string[], namedTasks?: readonly BackgroundTask[]): void {
     if (taskIds || !running) {
-      this.backgroundTasks = running ? (taskIds ?? []).map(taskId => this.backgroundTasks.find(task => task.taskId === taskId) ?? {taskId}) : []
+      this.backgroundTasks = running
+        ? (taskIds ?? []).map(taskId => namedTasks?.find(task => task.taskId === taskId) ?? this.backgroundTasks.find(task => task.taskId === taskId) ?? {taskId})
+        : []
       this.metaChanged = true
     }
     if (this.backgroundWorkRunning === running) return

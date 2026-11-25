@@ -237,6 +237,23 @@ describe('codebase commands', () => {
     expect(store.codebases).toEqual([])
   })
 
+  // WHY: a person chooses the badge on one client, and each host keeps it with the record.
+  test('setBadge saves the choice to each host, keeps the other field, and clears with null', async () => {
+    const mac = new FakeHost('local', 'inst-mac', [codebase('shop', 20)])
+    const { store } = setup([mac])
+    await store.load('local')
+
+    await store.setBadge('shop', { color: 'teal' })
+    await store.setBadge('shop', { icon: { kind: 'letters', text: 'SH' } })
+    expect(mac.kept.get('shop')?.badge).toEqual({ color: 'teal', icon: { kind: 'letters', text: 'SH' } })
+
+    await store.setBadge('shop', { color: null, icon: null })
+    expect(mac.kept.get('shop')).not.toHaveProperty('badge')
+    const saves = mac.saves.length
+    await store.setBadge('shop', { color: null })
+    expect(mac.saves.length).toBe(saves)
+  })
+
   test('create scans each root and sends the codebase to each ready host', async () => {
     const mac = new FakeHost('local', 'inst-mac')
     const server = new FakeHost('build', 'inst-build')

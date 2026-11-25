@@ -1,19 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { execFileSync } from 'child_process'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
-import sharp from 'sharp'
 import type { IpcContext } from '@solus/contracts/types'
 import { attachmentKind, landedAttachmentKind } from '@solus/contracts/media-types'
+import { createAssetUrl, serveAssetToken } from '@solus/server/data/assets/assets'
 import { writeAttachmentUpload } from '@solus/server/transport/handlers/attachment-handlers'
 import { filePathsToAttachments } from '@solus/server/transport/attachment-utils'
 
-// WHY: an iPhone photo is HEIC, and no browser Solus runs in can draw one. Sent
-// as an image, the transcript showed a broken picture. A host that can decode it
-// stores a JPEG; any other host keeps it as a file chip, never a broken image.
-
-const isMac = process.platform === 'darwin'
 const context = { session: { sessionId: 'heic-session' } } as IpcContext
 const JPEG_START = [0xff, 0xd8, 0xff]
 
@@ -22,11 +16,7 @@ let heic = Buffer.alloc(0)
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'solus-heic-test-'))
-  if (!isMac) return
-  const png = join(root, 'photo.png')
-  await sharp({ create: { width: 8, height: 8, channels: 3, background: '#c0603a' } }).png().toFile(png)
-  execFileSync('/usr/bin/sips', ['-s', 'format', 'heic', png, '--out', join(root, 'photo.heic')])
-  heic = await readFile(join(root, 'photo.heic'))
+  heic = await readFile(new URL('../fixtures/photo.heic', import.meta.url))
 })
 
 afterAll(async () => {
@@ -57,12 +47,24 @@ describe('HEIC attachment kind', () => {
 })
 
 describe('HEIC upload on the host', () => {
-  test.skipIf(!isMac)('stores an uploaded HEIC photo as a JPEG and keeps no HEIC copy', async () => {
-    const path = await writeAttachmentUpload(context, heicUpload(heic), { attachmentsDir: join(root, 'uploads') })
+  test.each(['darwin', 'linux', 'win32'] as const)('stores JPEG bytes from a HEIC upload on %s', async (platform) => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { ...originalPlatform, value: platform })
+    try {
+      const path = await writeAttachmentUpload(context, heicUpload(heic), { attachmentsDir: join(root, platform) })
+      expect(path.endsWith('-IMG_3464.jpg')).toBe(true)
+      expect([...(await readFile(path)).subarray(0, 3)]).toEqual(JPEG_START)
+      expect(await readdir(dirname(path))).toHaveLength(1)
 
-    expect(path.endsWith('-IMG_3464.jpg')).toBe(true)
-    expect([...(await readFile(path)).subarray(0, 3)]).toEqual(JPEG_START)
-    expect(await readdir(dirname(path))).toHaveLength(1)
+      const secret = Buffer.alloc(32, 1)
+      const { relativeUrl } = await createAssetUrl(context, { path }, { secret })
+      const preview = await serveAssetToken(relativeUrl.split('/').pop()!, { method: 'GET', range: 'bytes=0-2' }, { secret })
+      expect(preview.status).toBe(206)
+      expect(preview.headers.get('content-type')).toBe('image/jpeg')
+      expect([...new Uint8Array(await preview.arrayBuffer())]).toEqual(JPEG_START)
+    } finally {
+      Object.defineProperty(process, 'platform', originalPlatform)
+    }
   })
 
   test('keeps the original when the bytes cannot be converted', async () => {
@@ -76,7 +78,7 @@ describe('HEIC upload on the host', () => {
 })
 
 describe('HEIC file on the host disk', () => {
-  test.skipIf(!isMac)('attaches a JPEG copy as an image and leaves the original alone', async () => {
+  test('attaches a JPEG copy as an image and leaves the original alone', async () => {
     const original = join(root, 'IMG_3465.HEIC')
     await writeFile(original, heic)
 

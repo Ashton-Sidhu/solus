@@ -2,6 +2,16 @@ export function uploadAttachmentId(sessionId: string, path: string): string {
   return "upload:" + encodeURIComponent(sessionId) + "/" + path;
 }
 
+export function readUploadAttachmentId(id: string) {
+  const separator = id.indexOf("/");
+  if (!id.startsWith("upload:") || separator <= 7) return null;
+  try {
+    return { sessionId: decodeURIComponent(id.slice(7, separator)), path: id.slice(separator + 1) };
+  } catch {
+    return null;
+  }
+}
+
 export function attachmentRoute(
   hostId: string,
   sessionId: string,

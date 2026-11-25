@@ -10,7 +10,7 @@ import { conversationFeed } from "./conversation-feed";
 import { solus } from "./runtime";
 import { sessionDetailAtom } from "./session-detail";
 import { linkedSessionRecord } from "./session-record";
-import { useMachineLinks } from "./use-machine-links";
+import { usePairingHolders } from "./use-pairing-holders";
 
 const noStore = Atom.make(null);
 const emptyOrder: readonly string[] = [];
@@ -23,7 +23,7 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
   const scope = useAtomValue(hostQueryScopeAtom(environmentId));
   const sourceScope = useAtomValue(hostQueryScopeAtom(target.viaEnvironmentId));
   const via = useAtomValue(mobileHost(target.viaEnvironmentId));
-  const isLinked = useMachineLinks().some(({ info, snapshot }) => info.installationId === target.viaEnvironmentId &&
+  const isLinked = usePairingHolders().some(({ info, snapshot }) => info.installationId === target.viaEnvironmentId &&
     snapshot?.hosts.some(({ listing }) => listing.installationId === environmentId));
   const host = useAtomValue(mobileHost(environmentId));
   const record = useEnvironmentQuery(
@@ -161,16 +161,16 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     ready: !!mirror?.model || meta?.phase.kind === "ready" || feed.length > 0,
     title: record.data?.customTitle ?? record.data?.title ?? mirror?.title,
     working: meta?.status === "running",
-    hasOlder: meta?.hasOlder ?? !!mirror?.model?.olderCursor,
-    paging: meta?.loadingOlder ?? mirror?.paging,
+    hasOlder: meta?.history.hasMoreHistory ?? !!mirror?.model?.olderCursor,
+    paging: meta?.history.loading ?? mirror?.paging,
     error:
       record.error ??
-      (meta?.phase.kind === "error" ? meta.phase.message : meta?.historyError) ??
+      (meta?.phase.kind === "error" ? meta.phase.message : meta?.history.error) ??
       mirror?.error ??
       (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked)) ? "Connect to the host to read this session." : null),
     retry: () => {
       if (store) {
-        if (meta?.historyError) void loadEarlier();
+        if (meta?.history.error) void loadEarlier();
         else void store.controller.load();
       } else if (host) record.refresh();
       else if (mirror?.model) void loadEarlier();

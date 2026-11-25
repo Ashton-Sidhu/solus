@@ -155,6 +155,7 @@ import { solus } from "../../solus/runtime";
 import { useListened } from "@solus-mobile/app/app-context";
 import { threadDevicePreviews } from "../../solus/devices/threadDevicePreviews";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
+import { useBackgroundWorkIsServers } from "../running-servers/use-background-work-is-servers";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
@@ -768,6 +769,11 @@ function ThreadDetailBody(
     }
     setGoalCommandPending(false);
   };
+  const backgroundWorkIsServers = useBackgroundWorkIsServers(
+    props.environmentId,
+    props.selectedThread.id,
+    props.selectedThread.pendingBackgroundTasks,
+  );
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
     messages,
@@ -781,6 +787,7 @@ function ThreadDetailBody(
     : null;
   const backgroundLine = ((): ThreadStatusLineModel | null => {
     if (pendingBackgroundWork === null || contentPresentationKind !== "ready") return null;
+    if (backgroundWorkIsServers) return null;
     return {
       key: "background",
       icon: pendingBackgroundWork.waiting ? "person.2" : "terminal",

@@ -38,6 +38,7 @@ export interface OutboxRecord {
   /** Client-generated idempotent id — the renderer's `clientPromptId`. */
   clientPromptId: string
   sessionId: string
+  accountScope?: string
   text: string
   enqueuedAt: number
   attempts: number
@@ -59,6 +60,7 @@ export interface OutboxStorage {
 const outboxRecordSchema = z.looseObject({
   clientPromptId: z.string().min(1),
   sessionId: z.string().min(1),
+  accountScope: z.string().optional(),
   text: z.string().catch(''),
   enqueuedAt: z.number().catch(0),
   attempts: z.number().catch(0),
@@ -110,7 +112,7 @@ export class SendOutbox {
     return this.#write(serverId, records)
   }
 
-  entriesFor(serverId: string): OutboxRecord[] {
+  entriesFor(serverId: string, accountScope?: string): OutboxRecord[] {
     let raw: string | null = null
     try {
       raw = this.storage().getItem(KEY_PREFIX + serverId)
@@ -123,7 +125,8 @@ export class SendOutbox {
       if (decoded.success) {
         // SAFETY: Every surviving element passed outboxRecordSchema, whose
         // required fields mirror OutboxRecord; loose keys widen, never narrow.
-        return decoded.data as OutboxRecord[]
+        const records = decoded.data as OutboxRecord[]
+        return accountScope === undefined ? records : records.filter((entry) => entry.accountScope === undefined || entry.accountScope === accountScope)
       }
     } catch {}
     // Delete-and-miss: a corrupt queue must not re-fail every drain.
@@ -154,17 +157,28 @@ export class SendOutbox {
   async drain(
     serverId: string,
     send: (record: OutboxRecord) => Promise<void>,
+    accountScope?: string,
   ): Promise<void> {
-    if (this.draining.has(serverId)) return
-    this.draining.add(serverId)
+    const key = JSON.stringify([serverId, accountScope])
+    if (this.draining.has(key)) return
+    this.draining.add(key)
     try {
-      for (const record of this.entriesFor(serverId)) {
+      for (const record of this.entriesFor(serverId, accountScope)) {
         // A prior send may await for seconds. Cancellation/removal during that
         // wait must win over this drain's original snapshot.
-        const current = this.entriesFor(serverId).find((entry) => entry.clientPromptId === record.clientPromptId)
+        const records = this.entriesFor(serverId)
+        const current = records.find((entry) => entry.clientPromptId === record.clientPromptId)
         if (!current || current.lastError !== null) continue
+        if (accountScope !== undefined) {
+          if (current.accountScope !== undefined && current.accountScope !== accountScope) continue
+          // Older mobile records had only a host and session. Bind one before its first scoped replay.
+          if (current.accountScope === undefined) {
+            current.accountScope = accountScope
+            if (!this.#write(serverId, records)) return
+          }
+        }
         try {
-          await send(record)
+          await send(current)
           this.remove(serverId, record.clientPromptId)
         } catch (error) {
           if (classifySendFailure(error) === 'transient') {
@@ -184,7 +198,7 @@ export class SendOutbox {
         }
       }
     } finally {
-      this.draining.delete(serverId)
+      this.draining.delete(key)
     }
   }
 

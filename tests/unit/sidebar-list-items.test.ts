@@ -197,7 +197,7 @@ describe('the sidebar as one list', () => {
     })
     expect(items.map((item) => item.key)).toEqual([
       'pinned:local:p1',
-      'busy:card',
+      'busy:slim',
       'a1:card',
       'header:shared',
       'sh1:card',
@@ -207,14 +207,11 @@ describe('the sidebar as one list', () => {
     expect(items.some((item) => item.kind === 'header' && item.section === 'pinned')).toBe(false)
   })
 
-  test('a pinned session with a row draws that row, in the shape its state gives it', () => {
-    // WHY: Pinned is the only place the session shows, so the row must still
-    // say whether its agent works, waits, or is done.
-    const items = list({ pinned: [pin('p1', 'p1', row('open')), pin('p2', 'p2', row('done', 'completed'))] })
-    expect(items).toMatchObject([
-      { kind: 'task', key: 'open:card', section: 'pinned' },
-      { kind: 'task', key: 'done:slim', section: 'pinned' },
-    ])
+  test('a pinned session keeps the same row when it completes', () => {
+    const active = list({ pinned: [pin('p1', 'p1', row('session'))] })
+    const completed = list({ pinned: [pin('p1', 'p1', row('session', 'completed'))] })
+    expect(active[0]).toMatchObject({ kind: 'task', key: 'session:slim', section: 'pinned' })
+    expect(completed[0]?.key).toBe(active[0]?.key)
   })
 
   test('pins have no header or collapse state and remain first', () => {

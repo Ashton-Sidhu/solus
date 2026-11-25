@@ -18,6 +18,8 @@ export function assetImageCacheKey(
 ): string | undefined {
   switch (resource._tag) {
     case "attachment":
+      // A Solus upload can refer to a replaceable file on the host.
+      if (resource.attachmentId.startsWith("upload:")) return undefined;
       return `t3-attachment:${JSON.stringify([environmentId, resource.attachmentId])}`;
     case SOURCE_CONTROL_MEDIA_ASSET: {
       const media = sourceControlClients.mediaUrl(resource.url);

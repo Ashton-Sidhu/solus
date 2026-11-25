@@ -4,7 +4,10 @@
   import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
-  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext, hosts } from "../../contexts";
+  import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
+  import { backgroundWorkIsServers } from "@solus/client-core/background-work";
+  import { backgroundServersOf, NO_BACKGROUND_SERVERS } from "./lib/background-servers";
   import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
   import { turnReplyCards } from "./lib/turn-reply-cards";
   import { NO_BURST, type UserBurst } from "./lib/user-burst";
@@ -85,6 +88,22 @@
   // A live MCP task holds the session in `background`. The row of the agent's own
   // background work then says nothing the MCP task rows do not, unless the turn waits on more.
   const backgroundWorkIsMcpTasks = $derived(mcpTasks.some(MCP_TASKS.isLive) && describeBackgroundWait(turn.body) === null);
+  // The servers the session's agent left running, from the host's Running
+  // servers list. The row names them, and the person can leave the row out
+  // when they are the only work (`hideServerBackgroundWork`).
+  const ownSession = $derived(session.sessionFor(tabId));
+  const backgroundServerStore = $derived(
+    hasBackgroundWork && index === total - 1 && ownServerId ? runningServers.forHost(ownServerId) : null,
+  );
+  $effect(() => {
+    if (backgroundServerStore && ownServerId && hosts.get(ownServerId).me.may("host.use")) return backgroundServerStore.retainCheckouts([]);
+  });
+  const backgroundServers = $derived(
+    backgroundServerStore && ownSessionId ? backgroundServersOf(backgroundServerStore.servers, ownSessionId) : NO_BACKGROUND_SERVERS,
+  );
+  const hidesBackgroundRow = $derived(
+    settings.hideServerBackgroundWork && !!ownSession && backgroundWorkIsServers(ownSession.status === "background", ownSession.backgroundTasks, backgroundServers.count),
+  );
   // The folded turn's outputs strip. It reads the turn's own calls, and only while folded.
   const disclosure = getTranscriptDisclosure();
   const outputs = $derived(turn.live || expanded ? EMPTY_TOOL_STRIP : toolStrip(turnStripTools(turn)));
@@ -233,8 +252,13 @@
 <!-- Background work is the session's state, not this turn's: the last
    turn states it, where the live row would be, even when an earlier turn
    launched the task. -->
-{#if hasBackgroundWork && isLastTurn && !live && !backgroundWorkIsMcpTasks}
-  <BackgroundWorkRow wait={settledBackgroundWait(turn.body)} onStop={onStopBackgroundWork} />
+{#if hasBackgroundWork && isLastTurn && !live && !backgroundWorkIsMcpTasks && !hidesBackgroundRow}
+  <BackgroundWorkRow
+    wait={settledBackgroundWait(turn.body, ownSession?.backgroundTasks)}
+    serverAddresses={backgroundServers.addresses}
+    onShowServers={() => session.revealRunningServers(tabId)}
+    onStop={onStopBackgroundWork}
+  />
 {/if}
 {#if mcpTasks.length}
   <McpTaskRows {tabId} tasks={mcpTasks} />

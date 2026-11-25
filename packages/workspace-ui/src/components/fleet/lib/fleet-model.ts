@@ -1,6 +1,5 @@
 import type { AnswerState } from '@solus/client-core/host-catalog'
 import type { HostReadiness, HostReadinessAction, HostReadinessCopy } from '@solus/client-core/host-readiness'
-import type { LinkedOnlyMachine } from '@solus/client-core/host-linking'
 import type { RouteKind } from '@solus/contracts/host-routes'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
@@ -43,8 +42,12 @@ export interface FleetMachine {
   memory: number | null
   /** The round trip of the last load read, in milliseconds. */
   latencyMs: number | null
+  /** The traffic on this device's connection to the host; null while it does not answer or before two reads (D13). */
+  traffic: Traffic | null
   /** The kind of the route this device dials the host on. */
   routeKind: RouteKind | null
+  /** The route this device is on, or tries, now, and how that goes; null when it dials none. Its line names it (D13). */
+  routeInUse: RouteInUse | null
   /** Where the host answers; null for this device. */
   address: string | null
   hasUpdate: boolean
@@ -56,6 +59,17 @@ export interface FleetMachine {
    * and while its cloud lifecycle says it (stopped, starting).
    */
   problem: HostReadinessCopy | null
+}
+
+/** KB/s each way on one connection: `down` from the host to this device, `up` to it. */
+export interface Traffic {
+  down: number
+  up: number
+}
+
+export interface RouteInUse {
+  kind: RouteKind
+  phase: 'in-use' | 'connecting' | 'refused'
 }
 
 export interface FleetMachineInput {
@@ -72,10 +86,12 @@ export interface FleetMachineInput {
   readiness: HostReadiness
   managedState?: ManagedHostLifecycle
   routeKind: RouteKind | null
+  /** The kind of the route the link dials now; left out when it dials none. */
+  dialedRouteKind?: RouteKind
   /** Where the host answers; left out for this device. */
   address?: string
   sessions: number
-  load: { cpu: number | null; memory: number | null; latencyMs: number | null } | null
+  load: { cpu: number | null; memory: number | null; latencyMs: number | null; traffic?: Traffic | null } | null
   hasUpdate: boolean
   needsSetup: boolean
   /** The readiness words of the host (`hostReadinessCopy`). */
@@ -97,15 +113,40 @@ export function fleetMachine(input: FleetMachineInput): FleetMachine {
     group: groupOf(zone, input),
     state,
     sessions: isAnswering ? input.sessions : 0,
-    cpu: isAnswering ? input.load?.cpu ?? null : null,
-    memory: isAnswering ? input.load?.memory ?? null : null,
-    latencyMs: isAnswering && !input.isThisDevice ? input.load?.latencyMs ?? null : null,
+    ...loadOf(input, isAnswering),
     routeKind: input.routeKind,
+    routeInUse: input.isThisDevice || !input.dialedRouteKind ? null : routeInUseOf(input.dialedRouteKind, input.readiness),
     address: input.address ?? null,
     hasUpdate: input.hasUpdate,
     needsSetup: input.needsSetup,
-    problem: input.readiness !== 'ready' && (state === 'unreachable' || state === 'reconnecting' || state === 'checking') ? input.readinessCopy ?? null : null,
+    problem: problemOf(input, state),
   }
+}
+
+/** The readings of a host that answers; none for one that does not, so no number lies. Latency and traffic are of a connection, and this device has none to itself. */
+function loadOf(input: FleetMachineInput, isAnswering: boolean): Pick<FleetMachine, 'cpu' | 'memory' | 'latencyMs' | 'traffic'> {
+  if (!isAnswering) return { cpu: null, memory: null, latencyMs: null, traffic: null }
+  const isRemote = !input.isThisDevice
+  return {
+    cpu: input.load?.cpu ?? null,
+    memory: input.load?.memory ?? null,
+    latencyMs: isRemote ? input.load?.latencyMs ?? null : null,
+    traffic: isRemote ? input.load?.traffic ?? null : null,
+  }
+}
+
+/** The readiness words of a host that does not answer; none while its cloud lifecycle says it (stopped, starting). */
+function problemOf(input: FleetMachineInput, state: FleetState): HostReadinessCopy | null {
+  const isDown = state === 'unreachable' || state === 'reconnecting' || state === 'checking'
+  return input.readiness !== 'ready' && isDown ? input.readinessCopy ?? null : null
+}
+
+/** A host that answers is on its route; one that is checking, reconnecting, or refused shows the route it tries. An unreachable host is on none. */
+function routeInUseOf(kind: RouteKind, readiness: HostReadiness): RouteInUse | null {
+  if (readiness === 'ready') return { kind, phase: 'in-use' }
+  if (readiness === 'checking' || readiness === 'reconnecting') return { kind, phase: 'connecting' }
+  if (readiness === 'refused') return { kind, phase: 'refused' }
+  return null
 }
 
 /** A cloud machine and a host someone else shares have their own zone. Each other host is yours, whatever its route: an SSH or WSL host too. */
@@ -238,101 +279,6 @@ export function rollup(machines: readonly FleetMachine[]): FleetRollup {
   }
 }
 
-/** One cell above the map: a number, and a line that says which hosts it is about. */
-export interface SummaryFact {
-  value: string
-  detail: string
-  tone: FleetTone
-}
-
-export interface FleetSummaryFacts {
-  online: SummaryFact
-  sessions: SummaryFact
-  cpu: SummaryFact
-  attention: SummaryFact
-}
-
-const STATE_WORD = {
-  running: 'online',
-  idle: 'online',
-  checking: 'checking',
-  starting: 'starting',
-  reconnecting: 'reconnecting',
-  unreachable: 'unreachable',
-  stopped: 'stopped',
-} satisfies Record<FleetState, string>
-
-/**
- * The four cells above the map. Each one names the hosts behind its number, so
- * the person knows where to look: which host is down, where sessions run, which
- * host is busiest, and what each host wants. CPU shows the busiest host, not an
- * average: one host at 99% is the fact, and an average hides it.
- */
-export function fleetSummary(machines: readonly FleetMachine[]): FleetSummaryFacts {
-  const total = machines.length
-  const answering = machines.filter((machine) => toneOf(machine.state) === 'ok')
-  const down = machines.filter((machine) => toneOf(machine.state) !== 'ok')
-  const busy = machines.filter((machine) => machine.sessions > 0).sort((a, b) => b.sessions - a.sessions)
-  const sessions = busy.reduce((sum, machine) => sum + machine.sessions, 0)
-  const loaded = answering.filter((machine) => machine.cpu !== null).sort((a, b) => b.cpu! - a.cpu!)
-  const busiest = loaded[0]
-  const wanting = machines.filter(needsAttention)
-
-  return {
-    online: {
-      value: `${answering.length} of ${total}`,
-      detail: total === 0 ? 'No machines yet'
-        : down.length === 0 ? (total === 1 ? `${machines[0]!.label} is connected` : 'All connected')
-          : down.length === 1 ? `${down[0]!.label} is ${STATE_WORD[down[0]!.state]}`
-            : countsOf(down.map((machine) => STATE_WORD[machine.state])),
-      tone: down.some((machine) => machine.state === 'unreachable') ? 'bad' : down.some((machine) => toneOf(machine.state) === 'warn') ? 'warn' : 'ok',
-    },
-    sessions: {
-      value: `${sessions}`,
-      detail: busy.length === 0 ? 'No agent is working'
-        : busy.length === 1 ? `All on ${busy[0]!.label}`
-          : busy.slice(0, 2).map((machine) => `${machine.label} ${machine.sessions}`).join(' · ') + (busy.length > 2 ? ` · ${busy.length - 2} more` : ''),
-      tone: 'ok',
-    },
-    cpu: busiest
-      ? {
-          value: `${busiest.cpu}%`,
-          detail: loaded.length === 1 ? busiest.label : `${busiest.label}; the others ${Math.round(loaded.slice(1).reduce((sum, machine) => sum + machine.cpu!, 0) / (loaded.length - 1))}% on average`,
-          tone: busiest.cpu! >= 80 ? 'warn' : 'ok',
-        }
-      : { value: '—', detail: answering.length ? 'No reading yet' : 'No machine online', tone: 'off' },
-    attention: {
-      value: `${wanting.length}`,
-      detail: wanting.length === 0 ? 'Nothing to do'
-        : wanting.length === 1 ? `${wanting[0]!.label}: ${problemsOf(wanting[0]!).join(', ')}`
-          : countsOf(wanting.flatMap(problemsOf).sort((a, b) => PROBLEMS.indexOf(a) - PROBLEMS.indexOf(b))),
-      tone: wanting.some((machine) => machine.state === 'unreachable') ? 'bad' : wanting.length ? 'warn' : 'ok',
-    },
-  }
-}
-
-/** The problems a host can have, in words, most urgent first. */
-const PROBLEMS = ['unreachable', 'reconnecting', 'agent sign-in', 'update ready'] as const
-
-function problemsOf(machine: FleetMachine): Array<(typeof PROBLEMS)[number]> {
-  return PROBLEMS.filter((problem) =>
-    problem === 'agent sign-in' ? machine.needsSetup
-      : problem === 'update ready' ? machine.hasUpdate
-        : machine.state === problem)
-}
-
-/** "2 unreachable · 1 update ready", in the order the words first appear. */
-function countsOf(words: readonly string[]): string {
-  const counts = new Map<string, number>()
-  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1)
-  return [...counts].map(([word, count]) => `${count} ${word}`).join(' · ')
-}
-
-/** A zone's one link turns amber when more than a tenth of its hosts are down. */
-export function isZoneTroubled(summary: FleetRollup): boolean {
-  return summary.total > 0 && (summary.unreachable + summary.reconnecting) / summary.total > 0.1
-}
-
 /* ---------- the map ---------- */
 
 /**
@@ -359,10 +305,9 @@ const UNMEASURED_MAP_WIDTH = 48
 /** A zone's place on the map, in percent of the map box. */
 export interface ZoneBox { x: number; y: number; w: number; h: number }
 
-/** What one row of a zone with room shows: a host, a machine known only through a link, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
+/** What one row of a zone with room shows: a host, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
 export type ZoneSlot =
   | { kind: 'host'; machine: FleetMachine }
-  | { kind: 'linked'; machine: LinkedOnlyMachine }
   | { kind: 'found'; machine: FoundMachine }
   | { kind: 'add'; way: Extract<AddWay, 'cloud' | 'pair'> }
   | { kind: 'empty' }
@@ -409,12 +354,8 @@ export interface MapLayout {
  * empty zone says what it is for. A zone whose hosts are not read yet says so in
  * place of room to grow: what it would offer depends on the answer.
  */
-function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], linked: readonly LinkedOnlyMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
+function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
   const slots: ZoneSlot[] = hosts.map((machine) => ({ kind: 'host', machine }))
-  // A machine that your machines link to is yours: it shows beside them until it is added here.
-  if (zone.id === 'own') {
-    for (const machine of linked.slice(0, Math.max(0, zone.cardCapacity - slots.length))) slots.push({ kind: 'linked', machine })
-  }
   if (answer !== 'ready') return [...slots, { kind: 'unread', state: answer }]
   for (const machine of found.filter((machine) => machine.zone === zone.id).slice(0, Math.max(0, zone.cardCapacity - slots.length))) {
     slots.push({ kind: 'found', machine })
@@ -432,7 +373,7 @@ function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], linked: read
  * shows tiles. The zones of a side stack, and each stack is centered on this
  * device, so the links spread evenly above and below it.
  */
-export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED, linked: readonly LinkedOnlyMachine[] = []): MapLayout {
+export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED): MapLayout {
   const across = (rem: number) => (rem / (mapWidth > 0 ? mapWidth : UNMEASURED_MAP_WIDTH)) * 100
   const down = (rem: number) => (rem / MAP_HEIGHT) * 100
   const zoneWidth = Math.min(ZONE_WIDTH.share, across(ZONE_WIDTH.most))
@@ -447,7 +388,7 @@ export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[]
   const stacked = ZONES.map((zone) => {
     const hosts = byZone[zone.id]
     const isFull = isZoneFull(zone, hosts.length)
-    const slots = isFull ? [] : zoneSlots(zone, hosts, linked, found, answers[zone.id])
+    const slots = isFull ? [] : zoneSlots(zone, hosts, found, answers[zone.id])
     const rowCount = isFull ? zone.cardCapacity : slots.length
     const moreFound = found.filter((machine) => machine.zone === zone.id).length - slots.filter((slot) => slot.kind === 'found').length
     return { zone, hosts, isFull, slots, moreFound, height: ZONE_HEADER + rowCount * CARD_HEIGHT + (rowCount - 1) * CARD_GAP + ZONE_FOOT }
@@ -537,10 +478,17 @@ const ROUTE_NAMES = {
   forwarded: 'SSH forward',
 } satisfies Record<RouteKind, string>
 
+/** The words of a host's route mark (D13): "Tailscale: in use", "Local network: connecting". */
+export function routeInUseLabel(route: RouteInUse): string {
+  const phase = route.phase === 'in-use' ? 'in use' : route.phase === 'connecting' ? 'connecting' : 'sign-in refused'
+  return `${ROUTE_NAMES[route.kind]}: ${phase}`
+}
+
 /** How this device reaches a host, hop by hop: the line the map footer and the host page draw. */
 export function routeHops(machine: FleetMachine): string[] {
   if (machine.isThisDevice) return ['This device']
-  const route = machine.routeKind ? ROUTE_NAMES[machine.routeKind] : 'Not reached yet'
+  // Only the route the link is on, or tries: a saved route it does not dial is not how it reaches the host.
+  const route = machine.routeInUse ? ROUTE_NAMES[machine.routeInUse.kind] : 'Not connected'
   return ['This device', route, ...(machine.group ? [machine.group] : []), machine.label]
 }
 
@@ -621,4 +569,125 @@ export function hostKindLabel(machine: FleetMachine): string {
 export function sparklinePath(values: readonly number[]): string | null {
   if (values.length < 2) return null
   return values.map((value, index) => `${index ? 'L' : 'M'} ${(index / (values.length - 1)) * 100} ${(22 - (value / 100) * 20).toFixed(2)}`).join(' ')
+}
+
+/* ---------- traffic on the lines (D13) ---------- */
+
+/** The total KB/s of these hosts' connections, both ways. */
+export function trafficOf(machines: readonly FleetMachine[]): number {
+  return machines.reduce((sum, machine) => sum + (machine.traffic ? machine.traffic.down + machine.traffic.up : 0), 0)
+}
+
+/** A line is as wide as its traffic: 1.25 px when quiet, up to 5.5 px when busy. Log scale, so one busy host does not hide the rest. */
+export function trafficWidth(kilobytesPerSecond: number): number {
+  return 1.25 + Math.min(4.25, Math.log2(1 + kilobytesPerSecond / 4) * 0.85)
+}
+
+/** "↓ 42 KB/s ↑ 3 KB/s", or that the connection is quiet; null before two reads. */
+export function trafficText(traffic: Traffic | null): string | null {
+  if (!traffic) return null
+  if (traffic.down + traffic.up < 0.1) return 'no traffic'
+  return `↓ ${traffic.down} KB/s ↑ ${traffic.up} KB/s`
+}
+
+/* ---------- the busiest hosts and the status line ---------- */
+
+export type LoadMeasure = 'cpu' | 'memory'
+export type LoadLevel = 'low' | 'medium' | 'high'
+
+/** The standard levels: low under 60%, medium under 80%, high from 80%. */
+export function loadLevel(value: number): LoadLevel {
+  return value >= 80 ? 'high' : value >= 60 ? 'medium' : 'low'
+}
+
+/** The higher of a host's CPU and memory: how busy it is. */
+function busiestReading(machine: FleetMachine): number {
+  return Math.max(machine.cpu ?? 0, machine.memory ?? 0)
+}
+
+/** Every host that answers with a reading, the busiest first: by the higher of its CPU and memory. */
+export function busiestHosts(machines: readonly FleetMachine[]): FleetMachine[] {
+  return machines
+    .filter((machine) => toneOf(machine.state) === 'ok' && (machine.cpu !== null || machine.memory !== null))
+    .sort((a, b) => busiestReading(b) - busiestReading(a))
+}
+
+/** The middle reading of `measure` among these hosts; null when none has one. */
+export function typicalLoad(machines: readonly FleetMachine[], measure: LoadMeasure): number | null {
+  const readings = machines.flatMap((machine) => (machine[measure] === null ? [] : [machine[measure]])).sort((a, b) => a - b)
+  return readings.length ? readings[Math.floor(readings.length / 2)]! : null
+}
+
+/** A host's dot in the load plot: its readings, its size, and whether it is named on the plot. */
+export interface LoadPoint {
+  machine: FleetMachine
+  cpu: number
+  memory: number
+  /** In px: bigger for more sessions, small when idle. */
+  radius: number
+  isNamed: boolean
+  /** "cloud-26 · CPU 94% · memory 3% · idle": the dot's tooltip and accessible name. */
+  label: string
+}
+
+/** How many of the busiest hosts are named on the plot. */
+const NAMED_POINTS = 4
+
+/** The dots of the load plot (D13): every host that answers with both readings. The busiest are named. */
+export function loadPoints(machines: readonly FleetMachine[]): LoadPoint[] {
+  const ranked = busiestHosts(machines).filter((machine) => machine.cpu !== null && machine.memory !== null)
+  return ranked.map((machine, index) => ({
+    machine,
+    cpu: machine.cpu!,
+    memory: machine.memory!,
+    radius: machine.sessions ? 4 + Math.min(machine.sessions, 4) : 3.5,
+    isNamed: index < NAMED_POINTS,
+    label: `${machine.label} · CPU ${machine.cpu}% · memory ${machine.memory}% · ${machine.sessions ? `${machine.sessions} ${machine.sessions === 1 ? 'session' : 'sessions'}` : 'idle'}`,
+  }))
+}
+
+/** How many hosts are high on either reading. */
+export function highCount(points: readonly LoadPoint[]): number {
+  return points.filter((point) => loadLevel(Math.max(point.cpu, point.memory)) === 'high').length
+}
+
+/** One icon of the status line: a state with its count, and its words for the tooltip. */
+export interface StatusItem {
+  key: string
+  state: 'reconnecting' | 'stopped' | 'unreachable' | 'signin' | 'update'
+  label: string
+  count: number
+}
+
+export interface StatusLine {
+  online: number
+  total: number
+  items: StatusItem[]
+}
+
+/**
+ * The status of the fleet on one line (D13): how many hosts answer, then each
+ * other state as an icon with its count, worst first. A host that does not
+ * answer is counted by its readiness words ("Needs pairing", "Offline").
+ */
+export function statusLine(machines: readonly FleetMachine[]): StatusLine {
+  const items = new Map<string, StatusItem>()
+  const add = (key: string, state: StatusItem['state'], label: string) => {
+    const item = items.get(key) ?? { key, state, label, count: 0 }
+    item.count++
+    items.set(key, item)
+  }
+  let online = 0
+  for (const machine of machines) {
+    const tone = toneOf(machine.state)
+    if (tone === 'ok') online++
+    else if (tone === 'off') add('stopped', 'stopped', 'Stopped')
+    else if (tone === 'warn') add('reconnecting', 'reconnecting', 'Reconnecting')
+    else if (machine.problem?.action === 'pair-again') add(`bad:${machine.problem.label}`, 'signin', machine.problem.label)
+    else add(`bad:${machine.problem?.label ?? 'Unreachable'}`, 'unreachable', machine.problem?.label ?? 'Unreachable')
+    if (machine.needsSetup) add('signin', 'signin', 'Needs an agent sign-in')
+    if (machine.hasUpdate) add('update', 'update', 'Update available')
+  }
+  const order = { unreachable: 0, signin: 1, reconnecting: 2, stopped: 3, update: 4 } satisfies Record<StatusItem['state'], number>
+  return { online, total: machines.length, items: [...items.values()].sort((a, b) => order[a.state] - order[b.state] || b.count - a.count) }
 }

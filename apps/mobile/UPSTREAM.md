@@ -35,6 +35,8 @@ Uploaded documents open in the T3 attachment reader from both drafts and sent me
 
 Session loading was compared with T3 Code revision `0591d32888dbd2f2f25915c245e6f1fe93dc4755`. T3 screens consume session rows and per-thread updates from the Solus stores. Mobile can show an authorized first page before session details arrive, reuse confirmed history blocks, and resume a retained live turn from its last event. See [Session open performance](../../docs/plans/session-open-performance.md#native-session-loading-and-reconnect) for the measurements and their scope.
 
+For saved transcripts, the host supplies HTML fence positions and dimensions. The phone uses T3's frame sizing and reserves the frame before the WebView loads. A reply without a measurement gets a scrollable 320-point preview. Solus still supplies the inline document and its full-screen reader. Uploaded transcript photos use T3's attachment image row and gallery. The selected host signs their URLs for the source session. A slow disk cache can supply an early preview while the first host page is in flight.
+
 The Files routes for drafts and sessions open the same T3 tree and preview screens. The tablet file navigator uses the same file queries. The Solus adapter in `src/solus/checkout-files.ts` supplies directory entries, indexed search results, file contents, and signed preview URLs for the selected host and account.
 Solus reads large checkout text files as read-only source pages through the same
 file permission and account scope. The user can copy one page at a time. The
@@ -50,9 +52,15 @@ The async question card follows T3 Code revision `6d4375aaf88c2dedbee7d056e9afe5
 
 The composer follows T3's Stop and follow-up dispatch rules. A draft has no Stop control. After submission, the Solus adapter enables Stop when the host reports an active turn or cancellable setup. T3 chooses between queue and steer at send time. The Solus outbox saves the prompt and the host admits it to the session. The local outbox can show a busy state while the host has yet to take the prompt.
 
+The active thread route uses T3's pending-message feed for a plain-text first prompt or an idle follow-up. The composer and the host use the same message ID. T3 shows the pending row while the loaded transcript keeps its row order. Host events or the result of delivery move the row into the transcript. The route and the upstream composer share draft clearing and recovery after a failed local save. Mobile keeps one Solus outbox record for host delivery, including task context, retries and host refusals. New records carry the account and organization scope. A record from an earlier app version acquires that scope on its first replay.
+
+The active phone and tablet chat routes share T3's composer input state and submit actions. Both composers select the current draft when an edit arrives, lock queued edits during save, check the draft again after an approval, and restore a follow-up when its local save fails. A first prompt opens the thread after local save. The Solus outbox adapter translates the T3 message ID, context, and dispatch mode for the conversation controller. The controller owns host uploads, durable delivery, and reconnect retries. A reply from an earlier account cannot clear or restore the current draft.
+
 Session navigation now uses the T3 opening hold and queued-creation check. The selected Solus host supplies one account-scoped read and watch to that hold and the screen. Home uses T3's visibility subscription. Home, the tablet sidebar, and arrangement controls share the result of T3's multi-environment shell release rules. The only change to the upstream release algorithm is its TypeScript snapshot type parameter.
 
 The conversation adapter translates messages and ordinary tools into T3 turn items. Solus cards enter at their row position. T3's `buildThreadFeed` handles history and streamed row updates with the same restart cache. Media URLs, tool details, host permissions, and the host replay cursor remain Solus operations. Earlier pages use T3's history metadata and retry state.
+
+A jump from search or a citation sends T3's `throughEntryId` with the current history cursor. The session host or cloud mirror returns contiguous turns toward that message. If the target is farther back than the bounded response, T3 continues from its cursor. Ordinary scrolling still requests one page. Older hosts can serve the same interaction one page at a time.
 
 Chat uses the provider startup behavior from T3 Code PR #41928. Solus supplies
 the active provider and startup step through the session event stream. Claude
@@ -66,6 +74,8 @@ changed-files summaries on desktop and web.
 
 Solus background command notices mark the start of a turn in the T3 feed. Live notices use the host's origin tag. Saved history uses the same text parser as desktop and web. The compact row opens to show the command and the available output in the thread and in read-only history.
 
+T3's background work line names each task from the kind and description that the Solus host sends. With the Chat setting "Hide background row for servers" on, the line stays out when the only work still running is servers that the thread's agent started. The Running servers sheet shows and stops them (`docs/background-work.md`).
+
 Successful workspace image reads use T3's viewed-image row. The Solus adapter supplies the file path, and the Solus host signs the preview URL.
 
 The archive, project picker, source control screens, settings queries, and preview selection were compared with revision `0591d32888dbd2f2f25915c245e6f1fe93dc4755`. The archive uses T3's multi-host snapshot aggregation. Folder browsing, pull requests, issues, and host settings reuse T3's query state, stale-on-mount refresh, and unchanged-result sharing. PR and issue edits use its per-environment command scheduler. Solus supplies the host operations and scopes each read by account, organization, and host connection.
@@ -74,15 +84,21 @@ The device and browser viewers share their selection and presentation helpers wi
 
 Loopback browser pages stream from the selected Solus host. Its Host settings screen shows **Preview tunnel** when the host supports that setting. This control governs desktop port forwarding and shows the selected host’s policy lock.
 
-The session header opens the Solus Running servers sheet. It uses the shared
-server controller for the run host and opens endpoints in the existing Browser
-preview. Server URLs use the selected session folder's project config.
+The session header opens the Solus Running servers sheet. Its 55% sheet height,
+native header action, and scroll insets follow the T3 linked pull requests sheet in the saved fork
+revision `c64d1f0ab74698d6d03006cf255e995cb0159176`. The sheet uses the shared
+Solus server controller for the run host and opens endpoints in Browser preview.
+The empty state opens Server URLs for the selected session folder.
 
 New-session and scheduled-task branch pickers use T3's branch paging hook. Their shared read uses Solus Git status and branch refs. Searching and paging reuse the checkout's answer. The host identifies a remote-only branch by its branch name and does not supply a remote tracking ref.
 
 The active thread and draft routes share T3's project and host controls for short viewports. Solus supplies the project and host choices and adds its workspace controls. The draft, Git header, and branch sheets read the T3 branch and status types through one adapter in `src/solus/checkout-git-queries.ts`. The adapter reads the selected host's checkout and subscribes to its checkout changes. It scopes reads by account, host connection, and folder. The branch can appear before the worktree scan and pull request lookup finish. Git mutations still use Solus's session or session-folder context and checkout confirmation.
 
-The active composer and the T3 draft attachment flow share the system media picker and native binary transfer. The picker can download original media on iOS. The Solus composer uses T3's upload registry with three transfers per host, progress, and cancellation of a removed in-flight transfer. The controller keeps the order of a selection and lets a submitted prompt wait for its files. The Solus host returns a signed URL and a conversation file path. Hosts that accept image references receive uploaded photos by reference. Older hosts still receive inline images. The active composer keeps Solus media limits and prompt admission. Failed uploads stay in the composer and use T3's Retry control. With a host that supports pending streams, the composer verifies a lost upload response, keeps the file before it sends a prompt, and discards staged bytes when the person removes the attachment. The host expires abandoned stages and only a kept file enters the conversation. The inline path for older hosts and files without a streaming path retains the existing host storage behavior.
+The active composer and the T3 draft attachment flow share the system media picker and native binary transfer. The Solus picker uses T3's MIME detection when the picker supplies generic metadata and uses T3's JPEG renderer for HEIC photos and camera library photos with no type or extension. Local image and video tiles use T3's thumbnail components during upload. The picker can download original media on iOS. The Solus composer uses T3's upload registry with three transfers per host, progress, and cancellation of a removed in-flight transfer. The controller keeps the order of a selection and lets a submitted prompt wait for its files. The Solus host returns a signed URL and a conversation file path. Hosts that accept image references receive uploaded photos by reference. Older hosts still receive inline images. The active composer keeps Solus media limits and prompt admission. Failed uploads stay in the composer and use T3's Retry control. With a host that supports pending streams, the composer verifies a lost upload response, keeps the file before it sends a prompt, and discards staged bytes when the person removes the attachment. The host expires abandoned stages and only a kept file enters the conversation. The inline path for older hosts and files without a streaming path retains the existing host storage behavior.
+
+The mobile file picker and native image paste use T3's JPEG renderer for HEIC
+photos. If the transcript recorded a converted upload as a file, mobile,
+desktop, and web can show the stored JPEG from the signed host URL.
 
 The mobile PR review uses T3's Viewed controls and optimistic state. Solus supplies the viewer's file marks and checks that the selected repository and displayed PR head are current before a write. The PR list sends T3's filters to the Solus GitHub search and applies host lifecycle and edit replies to the loaded pages with T3's list patcher. The detail and actions keep Solus's repository and head checks. Mobile Issues uses T3's multi-host merge, list pager, and comment pager. The Solus adapter creates stable per-scope continuation cursors from one authorized `tasksSearch` or `tasksSidebarSnapshot` result. A continuation reuses that snapshot while it is current.
 
@@ -108,11 +124,11 @@ Solus uses GitHub Octicons for issue and pull request navigation and status icon
 
 Mobile hides the Usage tab on phones and tablets. The Usage command still opens provider usage limits and uses a pulse icon to match desktop and web Insights. Scheduled tasks and messages from automations use a connected-step icon.
 
-Session rows follow T3 Code revision `dd19bce823d833b5612fd74851d50047e65347fa` for the Input and Done indicators and linked pull request badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet. Solus also shows the session’s recorded Git branch on active and compact rows, even when the session has no linked PR.
+The home list and tablet sidebar use the row metadata layout checked at T3 Code revision `ddaba13471790c4bc0f8c0f9bb6aafb3e77b27be`. An active row shows the host or runtime error next to the PR and provider badges. The Solus host supplies outstanding questions and completions on connect. A session record supplies its Git links. A later host event updates the badge. A single badge opens the PR and a group opens the linked PR sheet.
 
 Saved sessions use Archive and Unarchive in both the phone list and the tablet sidebar. Archiving changes only the current person’s list. The host keeps the session, its history, and other people’s access. The upstream Delete action is omitted for saved sessions.
 
-Solus keeps pinned sessions at the top of the phone list and tablet sidebar after completion. A completed pin uses the compact row and keeps its pin mark. Archive clears the pin.
+Solus keeps pinned sessions at the top of the phone list and tablet sidebar after completion. Each pin uses one line with the title and pin mark. Active pins can also show status and linked PR badges on that line. Archive clears the pin.
 
 Hosts advertise support for personal session order and the shared auto-settle setting. The list uses T3’s move planner and writes each rank to its owning host. Guest sharing uses a Solus viewer link with a 24-hour lifetime for newly created links. A linked session reads from its paired host or from the signed-in organization’s transcript mirror. The terminal has no Solus host operation.
 
@@ -137,7 +153,7 @@ The repositories section of the project overview (`ProjectRepositoriesSection`) 
 - The section has a slot for rows after the folders. Solus puts "Add folder" there. It opens T3's Local folder screen (`AddProjectLocal`) with a `codebaseId` parameter: the chosen folder then becomes a root of the codebase, and no project is added. When more than one host is connected, the row opens a menu of the hosts first.
 - **Make a codebase.** A checkout that is in no codebase gets the section "Codebase" with the row "Make a codebase". It opens T3's Local folder screen with a `codebaseWith` parameter (the folder of the project). The screen has the title "Second folder" and the button "Make codebase". It then asks for the name in a prompt ("Codebase name"), with the plain name of the two folders as the first value (`plainCodebaseName`: `solus` for `solus` and `solus-cloud`), and makes the codebase (`makeCodebase` in `src/solus/project-host.ts`).
 - **A container.** The host makes the codebase of a container when a person adds the folder with T3's Add project flow (`addLocalProject`). The draft then opens in the container folder, and its heading shows the name of the codebase. `ThreadDirectory.projects()` leaves out each container root of a codebase (`isContainerRoot` of `@solus/client-core/codebases`), so T3's project pickers, the project filter, and the Projects page do not show it. T3 Code has no list of codebases, so the phone has none: a person starts a session of a container from a project inside it, or with Add project and the container folder.
-- **Icon of a container session.** A session row in the container root of a codebase shows the codebase icon (the `folder-git-2` lucide override, the SF Symbol `folder`), not the letters of the folder name. The session list projection (`src/solus/session-list.ts`) sets it on `fallbackProject`, and `ThreadListV2Row` passes the icon of `fallbackProject` when the row has no project. The desktop and web sidebar shows the same codebase icon (`ProjectFavicon`).
+- **Badge of a codebase session.** A session row of a session in a codebase (`codebaseId` on its record) shows the badge of that codebase, not the mark of one of its projects: the colour and the letters or emoji of the codebase record (`codebaseMark`), drawn with T3's monogram and emoji glyphs (`ProjectIconGlyphView`) and stacked on a second card of the same colour. A session whose codebase was deleted, or that the phone has not read, shows its project. The session list projection (`src/solus/session-list.ts`) sets `codebase` on the row and projects every row again when the codebases change; `ThreadListV2Row` passes it to `ProjectFavicon`. The menu of a codebase on the project page adds **Icon** (a prompt: one or two letters, or one emoji) and **Colour** (Automatic and T3's 18 project icon colours). T3 Code has no codebase, so it has no such menu items (`docs/plans/codebases.md` §11d).
 - "Remove" on a folder that the codebase cannot be without is refused by the model, with the text of the shared rule ("A codebase has at least 2 folders, or one folder that holds repositories. To remove this folder, delete the codebase."). The section shows it in its failure alert. A folder that is inside a folder of the codebase, or that holds one, is refused the same way.
 - The text of the section says "codebase" where T3 Code says "project".
 - The route `SettingsProjectOverview` opens the Solus project page (`ProjectSettings` in `src/solus/HostSettingsControls.tsx`). That page and the unmounted `SettingsProjectOverviewRouteScreen` both show the sections through `ProjectCodebases`.
@@ -146,7 +162,7 @@ The repositories section of the project overview (`ProjectRepositoriesSection`) 
 The repository screens of a thread also match T3 Code pull request 35925. In T3 Code, a thread reaches the tracked folders of its project. In Solus, a session has one working directory and a list of session folders (`docs/plans/codebases.md` §6): the members of its codebase on its host, the folders that a person or the agent attached, and, in a task folder, the session's own worktree of each repository. The host owns that list. `src/solus/session-repositories.ts` has the rules that translate it, and `ConversationController` has the commands. These are the intended differences:
 
 - **Draft.** The mounted Solus draft is the `Thread` route with a `draft` parameter, not `NewTaskDraftScreen`. `src/solus/DraftWorkspaceControls.tsx` shows T3's workspace controls there (current checkout or new worktree, repositories, branch), and each control writes the start of the run in `ConversationController`. `NewTaskWorkspaceIcon` is exported for it. Before this, a Solus draft had no control for a new worktree.
-- **Codebase of a draft.** A folder in exactly one codebase gives the draft that codebase. A folder in more than one adds a Codebase control, which T3 Code does not have: an alert with the title "Codebase", each codebase, and "No codebase". "No codebase" also goes to the host with each prompt (`noCodebase`), so the host makes no codebase and takes none for that session (`docs/plans/codebases.md` decision 13). T3's heading of a draft names the project and opens T3's project picker, which lists projects only. The Codebase control shows only when a choice is necessary.
+- **Codebase of a draft.** The draft heading opens T3's project picker. Solus adds a searchable Codebases section from its scoped codebases store. A row uses the current host when it has a folder, or opens a menu of folders on other hosts. A container row opens the root folder. A saved draft keeps an explicit choice in its project stamp. A folder in one codebase gives the draft that codebase by default. A folder in more than one also shows a Codebase control. "No codebase" goes to the host with each prompt (`noCodebase`, `docs/plans/codebases.md` decision 13).
 - **A codebase that forms by itself.** The host gives a session with no codebase the one codebase that holds its project folder, or makes one when a second project is attached to the session. `ConversationController` gives the run the codebase of the `session_codebase` event, so the next prompt names it. The thread feed of the phone shows no divider for a `codebase_formed` activity: T3's feed has no line for a move into a worktree, so there is no pattern to follow, and `TranscriptModel` does not keep the activity. "Delete" in the menu of the codebase on the project page is the way back.
 - **Repositories of a new worktree.** `useWorktreeRepositoryChoices` reads the members of the draft's codebase (`codebaseFolders.members`), not `project.trackedFolders` and `filesystemEnvironment.listFolders`. A draft with no codebase is in one project: it has one checkout and no repositories control. `resolveWorktreeRepositories` replaces `resolveWorktreeRepositorySelection`: the default limit counts the working repository, as the host's `planTaskFolder` does. The checklist shows a submodule and a repository with no commit as rows that cannot be chosen, with "Submodule" or "No commit" below the name. The `NewTaskRepositories` route takes `environmentId` and `threadId` for a Solus draft, as `NewTaskBranch` does, and both flows share one list component.
 - **Base branch of a plain folder.** T3 Code has no base branch field for a project folder that is not a repository. The run sends the base `HEAD`: no repository has a branch with that name, so each one starts from its default branch. The control shows "Default branches".
@@ -187,10 +203,26 @@ loads the queued message's saved options and submits explicit picks with the
 message's revision. A text-only edit keeps the host's saved choice. Runtime mode
 stays with the session.
 
-The Linked environments section and batch sheet use Solus owner pairings and
-the host directory. They show the route and owner access for each link. A
-single confirmation authorizes one pairing per selected target. The linked
-session sheet uses the Solus Cloud copy when available and the source host's
-read-only transcript pages for linked machines or remote child sessions.
+T3's Linked environments section and batch link sheet are not used. A person's
+machines reach each other with no step (`docs/plans/host-reach.md`): the phone
+introduces the hosts it owns, and it follows each machine a host pairs. The
+linked session sheet uses the Solus Cloud copy when available and the source
+host's read-only transcript pages for paired machines or remote child sessions.
 Connect uses a separate device pairing through a known machine where possible
 and the existing add-environment form when a code is needed.
+
+The environment page of a host that this phone owns (`canReadPairings`) adds the
+read-only section "Machines it reaches" below the pairing code. It lists each
+machine once: the host's pairings with their health, then its introductions
+(`reachedMachines` of `@solus/client-core/reached-machines`). `HostReach`
+(`solus-core/features/hosts/host-reach.ts`) reads the introductions again on
+`host.listChanged` and on each accepted connection, and does not show a read from
+an earlier server session. T3 Code has no such section.
+
+T3's Nearby hosts list on Add environment keeps its tap to connect one host. A
+"Select" control in its header changes the rows to checkboxes, in the style of the
+removed T3 batch link sheet, with "Select all" and "Add N hosts". Add sends one
+approval request to each selected host, all with one check code that the list
+shows with a "Stop" button (`AddSeveral` in `src/solus/add-several.ts`,
+`SolusApp.pairByApproval`). An added host leaves the selection; a host that
+fails stays selected with its error. Leaving the screen stops the requests.

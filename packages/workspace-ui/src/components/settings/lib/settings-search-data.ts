@@ -35,6 +35,11 @@ export const chatSettings = [
     keywords: ["diff", "history"],
   },
   {
+    id: "hide-server-background-work",
+    ...settingsDefinitions["chat.hide-server-background-work"],
+    keywords: ["running in the background", "dev server", "port", "stop"],
+  },
+  {
     id: "show-tool-calls",
     ...settingsDefinitions["chat.show-tool-calls"],
     keywords: ["steps", "activity", "transcript", "simple", "hide"],
@@ -61,11 +66,6 @@ export const sessionSettings = [
     id: "ratelimit",
     ...settingsDefinitions["sessions.rate-limit-behavior"],
     keywords: ["queue", "throttle"],
-  },
-  {
-    id: "auto-rename",
-    ...settingsDefinitions["sessions.auto-rename"],
-    keywords: ["rename", "title", "tab"],
   },
   {
     id: "model-routing",
@@ -100,6 +100,13 @@ export const generalSettings = [
     ...settingsDefinitions["general.projects-base"],
     keywords: ["directory", "base", "start", "open", "picker", "path"],
   },
+  {
+    id: "auto-rename",
+    ...settingsDefinitions["general.auto-rename"],
+    keywords: ["rename", "title", "tab"],
+  },
+  { id: "code-editor", ...settingsDefinitions["general.code-editor"], keywords: ["vscode", "ide", "applications"] },
+  { id: "terminal", ...settingsDefinitions["general.fallback-terminal"], keywords: ["shell", "command", "console", "tmux", "applications"] },
   {
     id: "about",
     ...settingsDefinitions["general.section-about-solus"],
@@ -243,8 +250,6 @@ export const reviewSettings: SettingItem[] = [
 /** Search words, read by the settings page to find this page from any other. */
 
 export const toolSettings: SettingItem[] = [
-  { id: "code-editor", ...settingsDefinitions["tools.code-editor"], keywords: ["vscode", "ide"] },
-  { id: "terminal", ...settingsDefinitions["tools.fallback-terminal"], keywords: ["shell", "command", "console", "tmux"] },
   { id: "code-intel", ...settingsDefinitions["tools.section-code-intelligence"], keywords: ["scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
   { id: "typesafe", ...settingsDefinitions["tools.section-typesafe"], keywords: ["auto", "model", "api", "key", "credential"] },
 ];

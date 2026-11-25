@@ -85,6 +85,13 @@
       "when": 1795535869218,
       "tag": "0011_personal_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795542654826,
+      "tag": "0012_codebase_badge",
+      "breakpoints": true
     }
   ]
 }

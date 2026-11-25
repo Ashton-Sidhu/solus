@@ -38,7 +38,7 @@ import type { SessionEnvironmentWorkspace } from '../git/session-environment.sto
 import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
 import type { OpenTarget } from './routing/location'
 import type { SessionDraft } from './session-draft.svelte'
-import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, chooseStart, codebaseOf, dispatchTo, folderLocation, projectHome, runHost, startsWorktree, workInStandIn, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, chooseStart, codebaseOf, dispatchTo, folderLocation, projectHome, refusesCodebase, runHost, startsWorktree, workInStandIn, workingPlace } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionOpeningWorkspace = Pick<WorkspaceContext,
@@ -850,7 +850,8 @@ export class SessionOpening {
       this.runOnHosts,
     )
     if (!choice?.path) return
-    run.location = folderLocation({ serverId: choice.serverId, path: choice.path })
+    // A codebase is on every host, so the run keeps it on the host it moves to.
+    run.location = folderLocation({ serverId: choice.serverId, path: choice.path }, { codebaseId: codebaseOf(run), noCodebase: refusesCodebase(run) || undefined })
   }
 
   /**

@@ -7,6 +7,7 @@ import type {
   CodebaseRoot,
 } from '@solus/contracts/codebases'
 import { hasEnoughRoots } from '@solus/contracts/codebases'
+import { withCodebaseBadge, type CodebaseColor, type CodebaseIcon } from '@solus/contracts/codebase-badge'
 import { hostPathKey } from '@solus/contracts/host-path'
 import type { Place } from '@solus/contracts/types'
 import {
@@ -26,7 +27,7 @@ import {
   rootRemovalRefusal,
 } from '@solus/client-core/codebases'
 import { liveCodebaseHostAccess, type CodebaseHostAccess, type CodebaseMachine } from './codebase-host-access'
-import { provideContainerRule } from './container-rule'
+import { provideCodebaseRules } from './codebase-rules'
 
 /**
  * The codebases of this client (docs/plans/codebases.md decision 6 and §9).
@@ -288,6 +289,20 @@ export class CodebasesStore {
   }
 
   /**
+   * Choose the colour or the icon of the badge, or clear the choice (`null`),
+   * so it comes from the name again. An absent field keeps its choice.
+   */
+  async setBadge(codebaseId: string, change: { color?: CodebaseColor | null; icon?: CodebaseIcon | null }): Promise<Codebase> {
+    const current = this.requiredCodebase(codebaseId)
+    const badge = withCodebaseBadge(current.badge, change)
+    if (JSON.stringify(badge) === JSON.stringify(current.badge)) return current
+    const { badge: _previous, ...rest } = current
+    const next: Codebase = { ...rest, updatedAt: nextUpdatedAt(current, this.now()) }
+    if (badge) next.badge = badge
+    return this.commit(next)
+  }
+
+  /**
    * Add a folder on a host of this client. The host scans it, and the resolved
    * path is stored. Throws `CodebaseRootRefused` for a folder that is already a
    * root, for a folder that is inside a root or holds one, for a folder that
@@ -531,4 +546,7 @@ export class CodebasesStore {
 export const codebasesStore = new CodebasesStore()
 
 // Each project list of the client asks this store which folders are containers.
-provideContainerRule((folder) => codebasesStore.isContainerRoot(folder))
+provideCodebaseRules({
+  isContainerRoot: (folder) => codebasesStore.isContainerRoot(folder),
+  codebaseOf: (codebaseId) => codebasesStore.codebaseOf(codebaseId),
+})

@@ -4,7 +4,7 @@ import { formatReviewComment } from '@solus/contracts/review-comment'
 import { attributionLabel } from '@solus/contracts/user'
 import { draftWithUnsentRemarks } from '@solus/contracts/question-answer'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import { videoMimeType } from '@solus/contracts/media-types'
+import { storedAttachmentImageMime, videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 import { pendingHandoffProvider } from '../../components/conversation/lib/pending-handoff'
 import { hostPathBaseName, isAbsoluteHostPath, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
@@ -418,6 +418,10 @@ const ANNOTATION_MARK_LINE = /^\d+\. /
 
 function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
   const name = (hostPathBaseName(path) || path).replace(UPLOAD_NAME_PREFIX, '')
+  const imageMime = storedAttachmentImageMime(path)
+  if (imageMime) {
+    return { id: `history-file-${index}-${path}`, type: 'image', name, path, hostPath: path, mimeType: imageMime, hostServerId: serverId }
+  }
   const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
   if (isAbsoluteHostPath(path)) {
     attachment.hostPath = path

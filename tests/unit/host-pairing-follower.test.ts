@@ -223,17 +223,3 @@ describe('client pairing after a chat or CLI add', () => {
     expect(h.errors).toHaveLength(1)
   } finally { h.follower.dispose() }
 })
-
-test('a Settings link is visible without connecting until the user requests it', async () => {
-  const h = harness()
-  h.change({ hosts: [{ listing, pairedAt: PAIRED_AT, clientConnect: 'on-request' }], forgotten: [] })
-  try {
-    await h.follower.refresh()
-    expect(h.follower.snapshot()?.hosts[0]?.listing).toEqual(listing)
-    expect(h.claims()).toBe(0)
-    expect(h.hosts).toHaveLength(0)
-    expect(await h.follower.pairAgain('windows')).toBe(true)
-    expect(h.claims()).toBe(1)
-    expect(h.hosts[0]?.sessionToken).toBe('phone-token-1')
-  } finally { h.follower.dispose() }
-})

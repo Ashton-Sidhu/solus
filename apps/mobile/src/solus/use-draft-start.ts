@@ -27,6 +27,12 @@ export function useDraftStart(store: ConversationStore) {
   const codebases = useListened(solus.codebases.changes, () =>
     readFolderCodebases(hostId, projectDirectory),
   );
+  const pickedId = meta.run.isCodebasePicked ? meta.run.codebaseId : null;
+  const isPickRemoved = useListened(solus.codebases.changes, () =>
+    pickedId !== null && (solus.codebases.isDeleted(pickedId) ||
+      (solus.codebases.codebaseOf(pickedId) !== undefined &&
+        !readFolderCodebases(hostId, projectDirectory).some((codebase) => codebase.id === pickedId))),
+  );
   const codebase = draftCodebase({
     codebases,
     isPicked: meta.run.isCodebasePicked,
@@ -35,8 +41,8 @@ export function useDraftStart(store: ConversationStore) {
   const { automatic } = codebase;
   // The folder of the project gives the codebase until the person chooses one: the run must name it before the first prompt.
   useEffect(() => {
-    if (canChoose) controller.followFolderCodebase(automatic);
-  }, [automatic, canChoose, controller]);
+    if (canChoose) controller.followFolderCodebase(automatic, isPickRemoved);
+  }, [automatic, canChoose, controller, isPickRemoved]);
   const choices = useWorktreeRepositoryChoices(
     canChoose && codebase.codebaseId !== null
       ? {

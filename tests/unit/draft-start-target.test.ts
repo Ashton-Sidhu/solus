@@ -51,6 +51,7 @@ function draftsThatRecordReads() {
     defaultRunConfig: runIn('/Users/me/workspace'),
     focusedSourceId: null,
     runFor: () => undefined,
+    inheritedRunFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async (_draftId: string, path: string, worktree: boolean) => {

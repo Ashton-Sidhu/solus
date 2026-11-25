@@ -206,7 +206,7 @@ describe('ClaudeAgent turn input lifetime', () => {
     const { events } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
     const stream = events[Symbol.asyncIterator]()
 
-    expect((await stream.next()).value).toEqual({ type: 'background_task_started', taskId: 'schedule:cron-1', awaitable: true })
+    expect((await stream.next()).value).toEqual({ type: 'background_task_started', taskId: 'schedule:cron-1', awaitable: true, kind: 'schedule', description: 'check the log' })
     expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
     expect(input.closed).toBe(false)
 

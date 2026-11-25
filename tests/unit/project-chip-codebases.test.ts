@@ -1,3 +1,4 @@
+import { codebaseMark } from '@solus/contracts/codebase-badge'
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { Codebase } from '@solus/contracts/codebases'
 import type { RunConfig, RunLocation } from '@solus/contracts/types'
@@ -9,7 +10,6 @@ import {
   chipHint,
   codebaseChipOptions,
   codebaseChoiceStep,
-  codebaseFavicons,
   codebaseTooltip,
   marksProjectRow,
   type CodebaseChipHost,
@@ -98,23 +98,18 @@ describe('the Codebases group of the project chip', () => {
     expect(options.map((option) => option.note)).toEqual([null, null, null, NO_FOLDER_ON_HOST_NOTE, NO_FOLDER_ON_CLIENT_NOTE])
   })
 
-  test('a row shows the favicons of its folders, at most three, on the hosts of this client', () => {
-    const [ofShop, ofPlatform, ofLost] = codebaseChipOptions([shop, platform, lost], run, hostOf)
-    expect(codebaseFavicons(ofShop!.folders)).toEqual([{ serverId: 'laptop', path: '/code/shop' }, { serverId: 'laptop', path: '/code/ui' }])
-    // A folder on a different host of this client has a favicon too: the row shows the codebase, not the run host.
-    expect(codebaseFavicons(ofPlatform!.folders)).toEqual([{ serverId: 'laptop', path: '/code/shop/api' }, { serverId: 'laptop', path: '/code/libs' }, { serverId: 'build', path: '/srv/infra' }])
-    // No folder on a host of this client: the row shows the codebase icon.
-    expect(codebaseFavicons(ofLost!.folders)).toEqual([])
-
-    const many = codebase('many', [1, 2, 3, 4, 5].map((n): [string, string] => ['install-laptop', `/code/p${n}`]))
-    expect(codebaseFavicons(codebaseChipOptions([many], run, hostOf)[0]!.folders).map((place) => place.path)).toEqual(['/code/p1', '/code/p2', '/code/p3'])
+  // WHY: the picker and the session sidebar show one mark for one codebase, so a person matches them at a glance.
+  test('a row shows the badge of the codebase, the same mark as its sessions in the sidebar', () => {
+    const [ofShop] = codebaseChipOptions([{ ...shop, badge: { color: 'teal', icon: { kind: 'emoji', emoji: '🛒' } } }], run, hostOf)
+    expect(ofShop!.mark).toEqual(codebaseMark({ name: shop.name, badge: { color: 'teal', icon: { kind: 'emoji', emoji: '🛒' } } }))
+    expect(codebaseChipOptions([platform], run, hostOf)[0]!.mark).toEqual(codebaseMark(platform))
   })
 
-  test('a container codebase shows the favicons of its repositories, and its own folder until its host read them', () => {
+  test('a container codebase lists its repositories, and its own folder until its host read them', () => {
     const read = codebaseChipOptions([store], run, hostOf, (id, root) => (id === 'store' && root.path === '/code/store' ? ['/code/store/api', '/code/store/web'] : null))[0]!
-    expect(codebaseFavicons(read.folders)).toEqual([{ serverId: 'laptop', path: '/code/store/api' }, { serverId: 'laptop', path: '/code/store/web' }])
+    expect(read.folders.map((folder) => folder.name)).toEqual(['api', 'web'])
     const notRead = codebaseChipOptions([store], run, hostOf)[0]!
-    expect(codebaseFavicons(notRead.folders)).toEqual([{ serverId: 'laptop', path: '/code/store' }])
+    expect(notRead.folders.map((folder) => folder.name)).toEqual(['store'])
     // The host is asked only about a container root: a root that is a project has nothing inside it to show.
     const asked: string[] = []
     codebaseChipOptions([shop, store], run, hostOf, (_id, root) => { asked.push(root.path); return null })

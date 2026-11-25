@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+import { codebaseBadgeSchema } from './codebase-badge'
 
 export const CODEBASE_ROOTS_MAX = 128
 /** A codebase that is not deleted has at least this many roots, or one container root. One project is not a codebase. */
@@ -47,6 +48,8 @@ export const codebaseSchema = z.object({
   updatedAt: z.number().int().nonnegative(),
   /** Set on a deleted codebase. The row stays so that the delete moves. */
   deletedAt: z.number().int().nonnegative().nullable(),
+  /** The colour and icon that a person chose (`codebase-badge.ts`). Absent: both come from the name. */
+  badge: codebaseBadgeSchema.optional(),
 }).strict()
 export type Codebase = z.infer<typeof codebaseSchema>
 

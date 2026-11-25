@@ -51,6 +51,8 @@ export interface SessionEventReducerDeps {
   setGitStatus(serverId: string, cwd: string, status: GitState | null): void
   /** The worktree setup of a session ended: a run with no checkout finds the folder it works in. */
   onWorktreeSetupDone?(sessionId: string): void
+  /** The host gave the session a codebase. */
+  onSessionCodebase?(sessionId: string): void
   playNotificationIfHidden(sessionId: string, trigger: NotificationSoundTrigger): void
   closePlanModal(): void
   onTurnSettled(sessionId: string, cwd: string | null): void
@@ -618,11 +620,16 @@ export class SessionEventReducer {
           // keeps the settle lookup from depending on how the task was spawned.
           if (msg) msg.backgroundTaskId = event.taskId
         }
+        // The host names the task for the background row; an older host does not.
+        if (event.kind && !session.backgroundTasks?.some((task) => task.taskId === event.taskId)) {
+          ;(session.backgroundTasks ??= []).push({ taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
+        }
         break
       }
 
       case 'background_work':
         session.backgroundWorkRunning = event.running
+        if (!event.running && session.backgroundTasks?.length) session.backgroundTasks.length = 0
         break
 
       case 'background_task_progress': {
@@ -643,6 +650,8 @@ export class SessionEventReducer {
         break
 
       case 'background_task_settled': {
+        const taskIndex = session.backgroundTasks?.findIndex((task) => task.taskId === event.taskId) ?? -1
+        if (taskIndex >= 0) session.backgroundTasks?.splice(taskIndex, 1)
         const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
         if (!msg) break
         // Every tagged message records the settle, including a backgrounded Bash
@@ -851,6 +860,7 @@ export class SessionEventReducer {
       case 'session_codebase':
         // The host gave the session a codebase. The run names it from now on, so the next prompt names it too.
         session.run.location = chooseCodebase(session.run.location, event.codebaseId)
+        this.deps.onSessionCodebase?.(sessionId)
         break
 
       case 'git_context': {

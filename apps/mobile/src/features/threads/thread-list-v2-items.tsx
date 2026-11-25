@@ -803,8 +803,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : statusLabel?.label,
       timeLabel,
       snoozeWakeLabel: snoozedRow ? snoozeWakeLabelText : undefined,
-      branch: thread.branch,
-      providerNameLabel,
+      providerNameLabel: pinnedRow ? null : providerNameLabel,
       hasQueuedMessages: props.hasQueuedMessages === true,
       regeneratingTitle: isRegeneratingTitle,
     },
@@ -1259,23 +1258,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       type="monochrome"
     />
   ) : null;
-  const branchLabel = thread.branch ? (
-    <View className="min-w-0 flex-row items-center gap-1">
-      <SymbolView
-        name="arrow.triangle.branch"
-        size={12}
-        tintColorClassName={selected ? selectedThreadRowColors.mutedIconTintClassName : rowAppearance.tertiaryIconTintClassName}
-      />
-      <Text
-        className={cn("shrink text-xs", selected ? selectedThreadRowColors.mutedForegroundClassName : rowAppearance.tertiaryForegroundClassName)}
-        style={{ fontFamily: MONO_FONT }}
-        numberOfLines={1}
-        ellipsizeMode="middle"
-      >
-        {thread.branch}
-      </Text>
-    </View>
-  ) : null;
   const hostLabel = props.environmentLabel ? (
     <View className="min-w-0 flex-1 flex-row items-center gap-1">
       {props.environmentMachine ? (
@@ -1302,6 +1284,144 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </Text>
     </View>
   ) : null;
+  const rowActivity = showsWoke ? (
+    <Pressable
+      className="-m-2.5 flex-row items-center gap-1 p-2.5"
+      accessibilityRole="button"
+      accessibilityLabel={gt("Dismiss Woke notification")}
+      onPress={handleAcknowledgeWoke}
+      onLongPress={() => undefined}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+    >
+      <SymbolView
+        name="bell.badge"
+        size={13}
+        tintColorClassName={
+          selected ? selectedThreadRowColors.iconTintClassName : "accent-warning-foreground"
+        }
+        type="monochrome"
+        weight="semibold"
+      />
+      <Text
+        className={cn(
+          "text-xs font-t3-bold",
+          selected
+            ? selectedThreadRowColors.foregroundClassName
+            : "text-warning-foreground",
+        )}
+      >
+        {gt("Woke", { $context: "thread came back from snooze" })}
+      </Text>
+    </Pressable>
+  ) : dotMark ? (
+    <View className="flex-row items-center gap-2">
+      {goalLabel !== null || dotMarkShowsElapsedTime(dotMark) ? (
+        <Text
+          className={cn(
+            "text-xs font-t3-bold",
+            selected
+              ? selectedThreadRowColors.foregroundClassName
+              : "text-adaptive-slate-600-400",
+          )}
+        >
+          {goalLabel}
+          {dotMarkShowsElapsedTime(dotMark) ? (
+            <StateMarkDuration
+              environmentId={thread.environmentId}
+              startedAt={resolveThreadWorkingStartedAt(thread)}
+              leadingSpace={goalLabel !== null}
+            />
+          ) : null}
+        </Text>
+      ) : null}
+      {/* The time, then the mark at the edge, so marks line up in one column. */}
+      <DotMatrix
+        mark={dotMark}
+        dotClassName={
+          selected
+            ? "bg-thread-selected-foreground"
+            : dotMark === "offline"
+              ? "bg-foreground-muted"
+              : "bg-adaptive-slate-600-400"
+        }
+      />
+    </View>
+  ) : statusLabel ? (
+    <View className="flex-row items-center gap-1">
+      <SymbolView
+        name={statusLabel.icon}
+        size={13}
+        tintColorClassName={
+          selected
+            ? selectedThreadRowColors.iconTintClassName
+            : statusLabel.iconTintClassName
+        }
+        type="monochrome"
+        weight="bold"
+      />
+      {statusLabel.glyphOnly ? null : (
+        <Text
+          className={cn(
+            "text-xs font-t3-bold",
+            selected ? selectedThreadRowColors.foregroundClassName : statusLabel.className,
+          )}
+        >
+          {statusLabel.label}
+        </Text>
+      )}
+    </View>
+  ) : (
+    <Text
+      className={cn(
+        "text-xs tabular-nums",
+        selected
+          ? selectedThreadRowColors.foregroundClassName
+          : rowAppearance.tertiaryForegroundClassName,
+      )}
+    >
+      {timeLabel}
+    </Text>
+  );
+  const prBadge = pr ? (
+    <Pressable
+      // Padding cancelled by negative margin grows the touch target into
+      // the row padding without moving the badge.
+      className="-m-2.5 flex-row items-center gap-1 p-2.5"
+      accessibilityRole="button"
+      accessibilityLabel={prBadgeLabel ?? undefined}
+      onPress={handleOpenPullRequests}
+      // Handle long-press so opening the iOS row menu cannot also open the PR on release.
+      onLongPress={() => undefined}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+    >
+      <SymbolView
+        name={
+          pr.kind === "stack"
+            ? PullRequestGlyph.stack
+            : pr.state === null
+              ? PullRequestGlyph.pullRequest
+              : pullRequestStatus({ state: pr.state, isDraft: pr.isDraft }).icon
+        }
+        size={12}
+        tintColorClassName={
+          pr.state === null || pr.isDraft
+            ? rowAppearance.mutedIconTintClassName
+            : pr.state === "open"
+              ? "accent-adaptive-emerald-600-400"
+              : pr.state === "closed"
+                ? "accent-adaptive-rose-600-400"
+                : "accent-adaptive-violet-600-400"
+        }
+      />
+      <Text
+        accessibilityLabel={pr.accessibilityLabel}
+        className={cn("text-xs", pr.textClassName)}
+        style={{ fontFamily: MONO_FONT }}
+      >
+        {pr.label}
+      </Text>
+    </Pressable>
+  ) : null;
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
@@ -1310,7 +1430,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             <ProjectFavicon
               environmentId={thread.environmentId}
               faviconPath={props.project?.faviconPath}
-              projectIcon={props.project ? props.project.projectIcon : thread.fallbackProject?.projectIcon}
+              projectIcon={props.project?.projectIcon}
+              codebase={thread.codebase}
               size={projectIconSize}
               projectTitle={rowProject.title}
               workspaceRoot={rowProject.workspaceRoot}
@@ -1343,105 +1464,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         <View className="flex-row items-center gap-1.5" style={{ minHeight: titleLineHeight }}>
           {automationMark}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-          {pinMark}
-          {showsWoke ? (
-            <Pressable
-              className="-m-2.5 flex-row items-center gap-1 p-2.5"
-              accessibilityRole="button"
-              accessibilityLabel={gt("Dismiss Woke notification")}
-              onPress={handleAcknowledgeWoke}
-              onLongPress={() => undefined}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            >
-              <SymbolView
-                name="bell.badge"
-                size={13}
-                tintColorClassName={
-                  selected ? selectedThreadRowColors.iconTintClassName : "accent-warning-foreground"
-                }
-                type="monochrome"
-                weight="semibold"
-              />
-              <Text
-                className={cn(
-                  "text-xs font-t3-bold",
-                  selected
-                    ? selectedThreadRowColors.foregroundClassName
-                    : "text-warning-foreground",
-                )}
-              >
-                {gt("Woke", { $context: "thread came back from snooze" })}
-              </Text>
-            </Pressable>
-          ) : dotMark ? (
-            <View className="flex-row items-center gap-2">
-              {goalLabel !== null || dotMarkShowsElapsedTime(dotMark) ? (
-                <Text
-                  className={cn(
-                    "text-xs font-t3-bold",
-                    selected
-                      ? selectedThreadRowColors.foregroundClassName
-                      : "text-adaptive-slate-600-400",
-                  )}
-                >
-                  {goalLabel}
-                  {dotMarkShowsElapsedTime(dotMark) ? (
-                    <StateMarkDuration
-                      environmentId={thread.environmentId}
-                      startedAt={resolveThreadWorkingStartedAt(thread)}
-                      leadingSpace={goalLabel !== null}
-                    />
-                  ) : null}
-                </Text>
-              ) : null}
-              {/* The time, then the mark at the edge, so marks line up in one column. */}
-              <DotMatrix
-                mark={dotMark}
-                dotClassName={
-                  selected
-                    ? "bg-thread-selected-foreground"
-                    : dotMark === "offline"
-                      ? "bg-foreground-muted"
-                      : "bg-adaptive-slate-600-400"
-                }
-              />
-            </View>
-          ) : statusLabel ? (
-            <View className="flex-row items-center gap-1">
-              <SymbolView
-                name={statusLabel.icon}
-                size={13}
-                tintColorClassName={
-                  selected
-                    ? selectedThreadRowColors.iconTintClassName
-                    : statusLabel.iconTintClassName
-                }
-                type="monochrome"
-                weight="bold"
-              />
-              {statusLabel.glyphOnly ? null : (
-                <Text
-                  className={cn(
-                    "text-xs font-t3-bold",
-                    selected ? selectedThreadRowColors.foregroundClassName : statusLabel.className,
-                  )}
-                >
-                  {statusLabel.label}
-                </Text>
-              )}
-            </View>
-          ) : (
-            <Text
-              className={cn(
-                "text-xs tabular-nums",
-                selected
-                  ? selectedThreadRowColors.foregroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
-              )}
-            >
-              {timeLabel}
-            </Text>
-          )}
+          {rowActivity}
         </View>
       </View>
       {props.searchMatch ? (
@@ -1455,7 +1478,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
-        {branchLabel ? <View className="min-w-0 flex-1">{branchLabel}</View> : null}
         {(rawStatus === "failed" || rawStatus === "limited") && thread.runtime?.lastError ? (
           <Text
             className={cn(
@@ -1470,49 +1492,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.runtime.lastError}
           </Text>
-        ) : null}
-        {hostLabel}
-        {!branchLabel && !hostLabel ? <View className="flex-1" /> : null}
-        {pr ? (
-          <Pressable
-            // Padding cancelled by negative margin grows the touch target into
-            // the row padding without moving the badge.
-            className="-m-2.5 flex-row items-center gap-1 p-2.5"
-            accessibilityRole="button"
-            accessibilityLabel={prBadgeLabel ?? undefined}
-            onPress={handleOpenPullRequests}
-            // Handle long-press so opening the iOS row menu cannot also open the PR on release.
-            onLongPress={() => undefined}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-          >
-            <SymbolView
-              name={
-                pr.kind === "stack"
-                  ? PullRequestGlyph.stack
-                  : pr.state === null
-                    ? PullRequestGlyph.pullRequest
-                    : pullRequestStatus({ state: pr.state, isDraft: pr.isDraft }).icon
-              }
-              size={12}
-              tintColorClassName={
-                pr.state === null || pr.isDraft
-                  ? rowAppearance.mutedIconTintClassName
-                  : pr.state === "open"
-                    ? "accent-adaptive-emerald-600-400"
-                    : pr.state === "closed"
-                      ? "accent-adaptive-rose-600-400"
-                      : "accent-adaptive-violet-600-400"
-              }
-            />
-            <Text
-              accessibilityLabel={pr.accessibilityLabel}
-              className={cn("text-xs", pr.textClassName)}
-              style={{ fontFamily: MONO_FONT }}
-            >
-              {pr.label}
-            </Text>
-          </Pressable>
-        ) : null}
+        ) : (hostLabel ?? <View className="flex-1" />)}
+        {prBadge}
         {providerInstance ? (
           <View className="flex-row items-center">
             {providerDrivers.slice(0, -1).map(
@@ -1562,7 +1543,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
 
   const rowContent = (close: () => void) =>
-    variant === "card" ? (
+    variant === "card" && !pinnedRow ? (
       <RowPressable
         key={`${thread.environmentId}:${thread.id}`}
         interactionClassName={rowAppearance.interactionClassName}
@@ -1604,6 +1585,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         accessibilityRole="button"
         accessibilityState={{ selected }}
         className={rowAppearance.className}
+        accessibilityActions={pinnedRow && variant === "card" ? rowAccessibilityActions : undefined}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
+          if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
+        }}
         onPress={() => {
           close();
           selectThread();
@@ -1623,6 +1609,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 environmentId={thread.environmentId}
                 faviconPath={props.project?.faviconPath}
                 projectIcon={props.project?.projectIcon}
+                codebase={thread.codebase}
                 size={projectIconSize}
                 projectTitle={rowProject.title}
                 workspaceRoot={rowProject.workspaceRoot}
@@ -1642,9 +1629,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             >
               {title}
             </Text>
-            {branchLabel}
-            {hostLabel}
-            {providerNameLabel ? (
+            {!pinnedRow && providerNameLabel ? (
               <Text
                 className={cn(
                   "text-xs",
@@ -1658,7 +1643,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 {providerNameLabel}
               </Text>
             ) : null}
-            {props.searchMatch ? (
+            {!pinnedRow && props.searchMatch ? (
               <ThreadSearchMatchExcerpt
                 sidebar={sidebarPane}
                 match={props.searchMatch}
@@ -1670,7 +1655,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {automationMark}
           {pinMark}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-          {slimTimeLabel ? (
+          {pinnedRow && variant === "card" ? prBadge : null}
+          {pinnedRow && variant === "card" ? rowActivity : slimTimeLabel ? (
             <Text
               className={cn(
                 "text-sm tabular-nums",

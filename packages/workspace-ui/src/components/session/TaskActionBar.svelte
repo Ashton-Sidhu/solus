@@ -32,7 +32,7 @@
      filtering and search are optional work, not a standing heading that competes
      with the tasks it scopes. -->
 <div
-  class="flex h-8 flex-shrink-0 items-center gap-1 px-3.5 @max-[15rem]:px-2.5"
+  class="flex h-8 flex-shrink-0 items-center gap-1 px-3.5"
 >
   {#if leading}
     <span class="min-w-0 flex-1">{@render leading()}</span>

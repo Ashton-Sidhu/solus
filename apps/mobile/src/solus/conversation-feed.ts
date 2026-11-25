@@ -19,11 +19,21 @@ import {
 import {
   buildThreadFeed,
   createThreadFeedCache,
+  type ThreadFeedEntry,
   type ThreadFeedSourceRow,
   type RawThreadFeedEntry,
 } from "../lib/threadActivity";
 import { messageAttachments } from "./upload-images";
 import { createArtifactGrouping, type ArtifactGroup } from "./artifact-groups";
+
+export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, hasPendingText: boolean) {
+  // T3 already reserves the working rows below a pending prompt.
+  const runlessWorkActive = busy && !hasPendingText;
+  const activeWorkStartedAt = runlessWorkActive
+    ? feed.findLast((entry) => entry.type === "message" && entry.message.role === "user")?.createdAt || null
+    : null;
+  return { runlessWorkActive, activeWorkStartedAt };
+}
 
 // The T3 list owns text messages. Rich cards subscribe to their own item on mount.
 export function conversationFeed(
@@ -232,6 +242,7 @@ export function conversationFeed(
       hostTime: createdAt,
       hostBackgroundCommand: item.kind === "user" ? item.backgroundCommand : undefined,
       ...(item.kind === "assistant" && item.forkPointId && { hostForkPointId: item.forkPointId }),
+      ...(item.kind === "assistant" && item.replyHtmlLayout && { replyHtmlLayout: item.replyHtmlLayout }),
       sourceItemId: base.id,
       sourceThreadId: ThreadId.make(item.sourceSessionId ?? id),
       position: 0,

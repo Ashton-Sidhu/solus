@@ -257,7 +257,10 @@ export class SessionWatchers {
       rateLimitInfo,
       handoffFrom: session.handoffFrom,
       backgroundWorkRunning,
-      ...(backgroundWorkRunning && { backgroundTaskIds: Array.from(session.backgroundTaskIds ?? []) }),
+      ...(backgroundWorkRunning && {
+        backgroundTaskIds: Array.from(session.backgroundTaskIds ?? []),
+        backgroundTasks: Array.from(session.backgroundTasks?.values() ?? []),
+      }),
     }
   }
 

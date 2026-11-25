@@ -12,7 +12,7 @@ export function useOpenThreadLink(viaEnvironmentId: EnvironmentId | null) {
   const openThread = useOpenLinkedThread();
   const openLinkedRead = useOpenLinkedThreadRead();
   return (thread: ScopedThreadRef, title: string | null = null) => {
-    const sources = solus.connections.machineLinks();
+    const sources = solus.connections.pairingHolders();
     const ordered = [
       ...sources.filter(({ info }) => info.installationId === viaEnvironmentId),
       ...sources.filter(({ info }) => info.installationId !== viaEnvironmentId),

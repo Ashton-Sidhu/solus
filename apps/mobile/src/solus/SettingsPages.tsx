@@ -27,8 +27,7 @@ import { SettingsSection } from "../features/settings/components/SettingsSection
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
 import { HostAccessSection } from "./HostAccessSection";
 import { HostRoutesSection } from "./HostRoutesSection";
-import { LinkSeveralEnvironmentsAction } from "../features/connection/LinkSeveralEnvironments";
-import { LinkedEnvironmentsSection } from "../features/connection/LinkedEnvironmentsSection";
+import { ReachedMachinesSection } from "./ReachedMachinesSection";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
 import { SYNC_STATE_LABELS } from "./settings-labels";
 
@@ -363,9 +362,7 @@ export function SolusHostDetail({
         isConnected={host?.connectionState === "connected"}
         makeCode={route.params.pairCode === "new"}
       />
-      <LinkedEnvironmentsSection environmentId={id} environmentLabel={host?.environmentLabel ?? id}>
-        <LinkSeveralEnvironmentsAction environmentId={id} environmentLabel={host?.environmentLabel ?? id} />
-      </LinkedEnvironmentsSection>
+      <ReachedMachinesSection hostId={id} />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (
           <AppText className="px-4 py-3 text-foreground">

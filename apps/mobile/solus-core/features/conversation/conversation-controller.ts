@@ -6,7 +6,7 @@ import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
-import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, readPrefetchedSessionHistoryPage, requestSessionHistoryPage, sameHistoryPage } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, loadSessionHistoryPage, sameHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -15,7 +15,7 @@ import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
 import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { isTaskFolderPath, type CodebaseMember, type SessionFolder } from '@solus/contracts/codebases'
-import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { rpcErrorCode, TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
 import { resourceAllows } from '@solus/contracts/permissions'
@@ -101,6 +101,7 @@ export interface ConversationTarget {
 }
 
 export interface ConversationDeps {
+  accountScope?: string
   sessionCache?: ReturnType<MobileSessionCache["forHost"]>
   connection: HostConnection
   taskApi?(hostId: string): SolusAPI
@@ -143,6 +144,20 @@ interface HistoryPreview {
   paint(page: SessionHistoryPage | null): void
 }
 
+interface SendPromptOptions {
+  permissionMode?: PermissionMode
+  delivery?: 'queue' | 'steer'
+  clientPromptId?: string
+  pendingMessage?: { messageId: string; commandId: string; createdAt: string }
+  onSubmitted?: (clientPromptId: string) => void
+  onQueued?: (clientPromptId: string) => void
+  onUploadFailed?: () => void
+}
+
+type PromptSubmission =
+  | { messageId: null; delivered: Promise<void> }
+  | { messageId: string; saved: Promise<boolean>; delivered: Promise<void> }
+
 interface InFlightUpload {
   readonly id?: string
   readonly file?: PickedFile
@@ -176,6 +191,16 @@ export class ConversationController {
   attachments: readonly UploadedAttachment[] = []
   /** Uploads in flight that no prompt took yet. */
   private uploads: InFlightUpload[] = []
+  /** Plain text shown by the native thread's pending feed until delivery touches the transcript. */
+  pendingText: { messageId: string; commandId: string; createdAt: string; text: string } | null = null
+
+  private presentPendingText(): void {
+    const pending = this.pendingText
+    if (!pending) return
+    this.pendingText = null
+    this.model.addOptimisticUser(pending.messageId, pending.text, 'sending', [], false, Date.parse(pending.createdAt))
+  }
+
   /** The last prompt that waits for its uploads or for an earlier prompt. */
   private heldSend: Promise<void> | null = null
   queue: SessionQueueSnapshot = { held: false, entries: [] }
@@ -479,10 +504,12 @@ export class ConversationController {
     this.flush(true)
   }
 
-  /** The codebase that the folder of the project gives the new session: the
-   *  only one that holds it. A choice of the person stays. */
-  followFolderCodebase(codebaseId: string | null): void {
-    if (!this.canRoute || this.isCodebasePicked || (this.run.codebaseId ?? null) === codebaseId) return
+  /** Follow the codebase of the folder when no valid choice is set. */
+  followFolderCodebase(codebaseId: string | null, isPickRemoved = false): void {
+    if (!this.canRoute) return
+    if (this.isCodebasePicked && !isPickRemoved) return
+    if (!this.isCodebasePicked && (this.run.codebaseId ?? null) === codebaseId) return
+    this.isCodebasePicked = false
     this.startWithCodebase(codebaseId)
     this.flush(true)
   }
@@ -644,11 +671,11 @@ export class ConversationController {
       },
     }
     const cache = this.target.record && !this.target.movedFrom && !this.target.fromCloud ? this.deps.sessionCache : undefined
-    const prefetched = cache && readPrefetchedSessionHistoryPage(this.deps.connection.api,
-      { ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }, cache.historyScope(this.deps.connection.state.sessionGeneration))
-    const cached = prefetched ? undefined : cache?.history(this.run.sessionId).catch(() => null)
-    if (prefetched) preview.paint(prefetched)
-    else void cached?.then(page => { preview.saved = page; preview.paint(page) })
+    const cached = cache?.history(this.run.sessionId).catch(() => null)
+    void cached?.then(page => {
+      preview.saved = page
+      if (!preview.shown) preview.paint(page)
+    })
     this.watchReplay = null
     clearTimeout(this.replayTimeout)
     this.held = []
@@ -815,8 +842,8 @@ export class ConversationController {
     // the thread to another provider reads the page again from that provider.
     const firstSource = this.historySource
     const firstPage = this.target.movedFrom || this.target.fromCloud
-      ? null : requestSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true },
-        this.deps.sessionCache?.historyScope(this.deps.connection.state.sessionGeneration), cached ? () => cached : undefined)
+      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true },
+        cached ? () => cached : undefined)
     void firstPage?.then(preview.paint).catch(() => {}) // The authoritative read below reports errors.
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
@@ -834,7 +861,7 @@ export class ConversationController {
     const source = this.historySource
     const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
       ? firstPage
-      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }))
+      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true }))
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     if (!preview.saved || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
@@ -878,7 +905,7 @@ export class ConversationController {
     return input.toolInput
   }
 
-  async loadOlder(): Promise<void> {
+  async loadOlder(throughEntryId?: string): Promise<void> {
     const cursor = this.model.olderCursor
     // A copy from the cloud reads its older turns there, with no host.
     const isCloudRead = this.deps.cloudHistory?.isCopy(this.model) === true
@@ -889,12 +916,13 @@ export class ConversationController {
     this.flush(true)
     try {
       if (isCloudRead) {
-        await this.deps.cloudHistory?.readOlder(model)
+        await this.deps.cloudHistory?.readOlder(model, throughEntryId)
       } else {
         const page = await this.deps.connection.api.loadSessionPage({
           ...this.historySource,
-          turnLimit: OLDER_HISTORY_TURNS, deferArtifactHtml: true,
+          turnLimit: OLDER_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true,
           before: cursor,
+          ...(throughEntryId && { throughEntryId }),
         })
         if (generation === this.loadGeneration && model === this.model && isActiveHistoryRequestCursor(cursor, model.history)) model.prependHistory(page)
       }
@@ -934,7 +962,7 @@ export class ConversationController {
 
   /** Prompts not yet confirmed stay visible in a new model: a rebuild, or a copy from the cloud. */
   private keepUnsentPrompts(model: TranscriptModel): void {
-    for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
+    for (const record of this.deps.outbox.entriesFor(this.outboxKey, this.deps.accountScope)) {
       model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
       if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
     }
@@ -944,36 +972,41 @@ export class ConversationController {
    *  host confirms it, so any retry is the same message to the host. While a
    *  turn runs, `delivery` chooses queue or steer; a waiting queue always queues.
    *  A sign-in command never reaches the agent: it runs here. */
-  async send(text: string, options: {
-    permissionMode?: PermissionMode
-    delivery?: 'queue' | 'steer'
-    onSubmitted?: (clientPromptId: string) => void
-    onQueued?: (clientPromptId: string) => void
-    onUploadFailed?: () => void
-  } = {}): Promise<void> {
+  async send(text: string, options: SendPromptOptions = {}): Promise<void> {
+    await this.submit(text, options).delivered
+  }
+
+  /** Expose the local save separately so the composer can anchor before host delivery. */
+  submit(text: string, options: SendPromptOptions = {}): PromptSubmission {
     const prompt = text.trim()
-    if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return this.compact(prompt)
+    if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return { messageId: null, delivered: this.compact(prompt) }
     const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
-    if (authCommand) return this.auth.run(authCommand, this.run.workingDirectory)
+    if (authCommand) return { messageId: null, delivered: this.auth.run(authCommand, this.run.workingDirectory) }
     for (const id of this.failedUploads.keys()) void this.retryAttachment(id)
     // The prompt takes the uploads still in flight: it shows now and goes when they land.
     const waiting = this.uploads
     const attachments = this.attachments
-    if (!prompt && attachments.length === 0 && waiting.length === 0) return
-    const clientPromptId = this.deps.uuid()
+    if (!prompt && attachments.length === 0 && waiting.length === 0) return { messageId: null, delivered: Promise.resolve() }
+    const clientPromptId = options.pendingMessage?.messageId ?? options.clientPromptId ?? this.deps.uuid()
     const busy = isSessionBusyStatus(this.model.status)
     const statusBefore = this.model.status
     if (options.permissionMode) this.run.permissionMode = options.permissionMode
     this.attachments = []
     this.uploads = []
     if (!this.started && !this.run.agentSessionId && prompt && this.openingPrompt === null) this.openingPrompt = prompt
-    this.model.addOptimisticUser(clientPromptId, prompt, 'sending', [...uploadedMessageAttachments(attachments),
-      ...waiting.flatMap(({ video, preview }): MessageAttachment[] => {
-        if (video) return [{ kind: 'local-video', key: video.id, name: video.name, uri: video.fileUri, mimeType: video.mimeType }]
-        return preview ? [{ kind: 'local-image', key: preview.id, name: preview.name, uri: preview.previewUri, mimeType: preview.mimeType }] : []
-      }),
-    ], busy || this.queue.entries.length > 0 || this.queue.held)
-    if (!busy && !this.queue.entries.length && !this.queue.held) {
+    this.presentPendingText()
+    const waitsForTurn = busy || this.queue.entries.length > 0 || this.queue.held
+    if (options.pendingMessage && !waitsForTurn && !attachments.length && !waiting.length) {
+      this.pendingText = { ...options.pendingMessage, text: prompt }
+    } else {
+      this.model.addOptimisticUser(clientPromptId, prompt, 'sending', [...uploadedMessageAttachments(attachments),
+        ...waiting.flatMap(({ video, preview }): MessageAttachment[] => {
+          if (video) return [{ kind: 'local-video', key: video.id, name: video.name, uri: video.fileUri, mimeType: video.mimeType }]
+          return preview ? [{ kind: 'local-image', key: preview.id, name: preview.name, uri: preview.previewUri, mimeType: preview.mimeType }] : []
+        }),
+      ], waitsForTurn)
+    }
+    if (!waitsForTurn) {
       this.model.setStatus('connecting')
       this.model.setProviderStartup({ provider: this.run.provider, phase: 'starting' })
     }
@@ -987,48 +1020,57 @@ export class ConversationController {
       this.heldSend = held
       void held.then(() => { if (this.heldSend === held) this.heldSend = null })
     }
-    try {
-      await before
-      let ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
-      if (!ready) {
-        options.onUploadFailed?.()
-        return
-      }
+    const save = async () => {
       try {
-        const kept = [...ready]
-        ready = kept
-        for (const [index, file] of kept.entries()) {
-          if (!file.pending) continue
-          try {
-            kept[index] = await file.pending.keep()
-          } catch (error) {
-            if (file.localUri && !this.closed) {
-              const reason = error instanceof Error ? error.message : String(error)
-              this.failedUploads.set(file.id, {
-                file: { uri: file.localUri, name: file.name, mimeType: file.mimeType, size: file.size },
-                reason,
-              })
-              ready = kept.filter(attachment => attachment.id !== file.id)
-              void file.pending.discard().catch(() => {})
-            }
-            throw error
-          }
+        await before
+        let ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
+        if (!ready) {
+          options.onUploadFailed?.()
+          return false
         }
-        this.model.setOptimisticAttachments(clientPromptId, uploadedMessageAttachments(kept))
-        await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
-      } catch (error) {
-        this.model.dropOptimisticUser(clientPromptId)
-        this.attachments = [...ready, ...this.attachments]
-        if (this.openingPrompt === prompt) this.openingPrompt = null
-        if (this.model.status === 'connecting') this.model.setStatus(statusBefore)
-        this.flush(true)
-        throw error
+        try {
+          const kept = [...ready]
+          ready = kept
+          for (const [index, file] of kept.entries()) {
+            if (!file.pending) continue
+            try {
+              kept[index] = await file.pending.keep()
+            } catch (error) {
+              if (file.localUri && !this.closed) {
+                const reason = error instanceof Error ? error.message : String(error)
+                this.failedUploads.set(file.id, {
+                  file: { uri: file.localUri, name: file.name, mimeType: file.mimeType, size: file.size },
+                  reason,
+                })
+                ready = kept.filter(attachment => attachment.id !== file.id)
+                void file.pending.discard().catch(() => {})
+              }
+              throw error
+            }
+          }
+          this.model.setOptimisticAttachments(clientPromptId, uploadedMessageAttachments(kept))
+          await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
+        } catch (error) {
+          if (this.pendingText?.messageId === clientPromptId) this.pendingText = null
+          this.model.dropOptimisticUser(clientPromptId)
+          this.attachments = [...ready, ...this.attachments]
+          if (this.openingPrompt === prompt) this.openingPrompt = null
+          if (this.model.status === 'connecting') this.model.setStatus(statusBefore)
+          this.flush(true)
+          throw error
+        }
+        options.onQueued?.(clientPromptId)
+        return true
+      } finally {
+        release()
       }
-      options.onQueued?.(clientPromptId)
-    } finally {
-      release()
     }
-    await this.drainOutbox(true)
+    const saved = save()
+    return {
+      messageId: clientPromptId,
+      saved,
+      delivered: saved.then(async (queued) => { if (queued) await this.drainOutbox(true) }),
+    }
   }
 
   /** The prompt's files once the uploads it took land, or null when it will
@@ -1075,6 +1117,7 @@ export class ConversationController {
       sessionId: this.run.sessionId,
       text: prompt,
       enqueuedAt: Date.now(),
+      accountScope: this.deps.accountScope,
       payload: { ...composed, taskId: this.taskBinding?.taskId, taskHostId: this.taskBinding?.hostId, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
@@ -1607,6 +1650,8 @@ export class ConversationController {
     }
     const changedLegacyStatus = event.type === 'status_change' && !this.executionRevision && event.status !== this.hostStatus
     if (changedLegacyStatus) this.hostStatus = event.status
+    // A host status update can arrive before the prompt echo. It owns no transcript row.
+    if (event.type !== 'status_change') this.presentPendingText()
     this.model.apply(event)
     this.run.status = this.model.status
     this.flush(changedLegacyStatus || RUN_CHANGING_EVENTS.has(event.type))
@@ -1693,7 +1738,7 @@ export class ConversationController {
         this.model.setStatus(this.hostStatus)
       }
       this.model.setRateLimit(runtime.rateLimitInfo)
-      this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning, runtime.backgroundTaskIds)
+      this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning, runtime.backgroundTaskIds, runtime.backgroundTasks)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
       this.model.setQueued(runtime.queuedPrompts.map((queued) => ({ queueId: queued.queueId, text: queued.text, clientPromptId: queued.clientPromptId })))
       // A pick waiting for a send keeps its own model.
@@ -1748,6 +1793,7 @@ export class ConversationController {
           if (!prepared.task) throw new Error('The task is unavailable. Open it again before starting this session.')
           taskSnapshot = prepared.snapshot ?? undefined
         } else if (taskId && taskApi && isRemoteTask) taskSnapshot = await taskApi.tasksSnapshot(taskId)
+        if (this.closed) throw new TransportDisconnectedError()
         const result = await this.deps.connection.api.prompt(ctx, {
           // The newest head this device knows, from reads that already
           // happened: a host that is behind syncs before the turn (plan §7.1).
@@ -1775,18 +1821,19 @@ export class ConversationController {
         this.run.worktreeRepositories = null
         // The first prompt starts the thread on the provider it carried.
         this.threadProvider ??= ctx.session.provider
+        if (this.pendingText?.messageId === record.clientPromptId) this.presentPendingText()
         this.model.markDelivery(record.clientPromptId, result.disposition === 'queued' ? 'queued' : 'sent')
-      })
+      }, this.deps.accountScope)
       this.syncDeliveryFromOutbox()
       // A prompt enqueued while a drain ran was not in that drain's snapshot.
-    } while (rounds < 5 && this.deps.outbox.entriesFor(this.outboxKey).some((entry) => entry.attempts === 0 && entry.lastError === null))
+    } while (rounds < 5 && this.deps.outbox.entriesFor(this.outboxKey, this.deps.accountScope).some((entry) => entry.attempts === 0 && entry.lastError === null))
     // The host control reads whether a prompt still waits (`hasUnsentPrompts`).
     this.flush(true)
   }
 
   /** Prompts this device holds that the host has not taken yet. */
   get hasUnsentPrompts(): boolean {
-    return this.deps.outbox.entriesFor(this.outboxKey).length > 0
+    return this.deps.outbox.entriesFor(this.outboxKey, this.deps.accountScope).length > 0
   }
 
   /**
@@ -1814,7 +1861,8 @@ export class ConversationController {
   }
 
   private syncDeliveryFromOutbox(): void {
-    for (const entry of this.deps.outbox.entriesFor(this.outboxKey)) {
+    for (const entry of this.deps.outbox.entriesFor(this.outboxKey, this.deps.accountScope)) {
+      if ((entry.lastError || entry.attempts) && this.pendingText?.messageId === entry.clientPromptId) this.presentPendingText()
       if (entry.lastError) {
         this.model.markDelivery(entry.clientPromptId, 'failed', entry.lastError)
         if (this.model.status === 'connecting') this.model.setStatus('idle')

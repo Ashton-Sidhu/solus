@@ -10,6 +10,7 @@
   import PresenceStack from "../presence/PresenceStack.svelte";
   import { formatCompactElapsed } from "../project-panel/lib/rail-agents";
   import SessionStatusGlyph from "../session/SessionStatusGlyph.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { GitPullRequestIcon } from "../ui/octicons";
   import ProviderMark from "../ui/ProviderMark.svelte";
@@ -150,8 +151,13 @@
               <span class="truncate">{session.task}</span>
             </span>
           {/if}
-          {#if session.project}
-            <span class="min-w-0 truncate" title="Project">{session.project}</span>
+          {#if session.codebase || session.project}
+            <span class="flex min-w-0 items-center gap-1">
+              {#if session.groupKey}
+                <ProjectFavicon projectKey={session.groupKey} codebaseId={session.codebaseId} class="size-3 shrink-0" />
+              {/if}
+              <span class="truncate" title={session.codebase ? "Codebase" : "Project"}>{session.codebase ?? session.project}</span>
+            </span>
           {/if}
         </span>
       </span>

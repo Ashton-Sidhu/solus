@@ -19,7 +19,6 @@ export class MobileSessionCache {
     const write = <T>(parts: string[], value: T) =>
       this.scope() === scope ? this.storage.write(hostId, key(parts), value) : Promise.resolve()
     return {
-      historyScope: (generation: number) => JSON.stringify([scope, generation]),
       directory: () => read<HostThreads>(['directory']),
       clearDirectory: () => write(['directory'],null),
       saveDirectory: (directory: HostThreads) => write(['directory'], {

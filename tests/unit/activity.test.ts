@@ -154,6 +154,20 @@ describe('a session activity', () => {
     expect(loaded[2].activity).toEqual(row)
   })
 
+  test('a message jump returns the intervening turns and stops after the target page', async () => {
+    const { call } = await historyHost(history.map(row => ({ ...row, messageId: row.content })))
+    const request = { sessionId: 'thread-1', provider: 'claude-code', turnLimit: 1 }
+    const read = (throughEntryId: string) => call<{ messages: SessionLoadMessage[]; before: string | null }>(
+      'loadSessionPage', [{ ...request, throughEntryId }],
+    )
+    const near = await read('two')
+    expect(near.messages.map(row => row.messageId)).toEqual(['second', 'two'])
+    expect(near.before).not.toBeNull()
+    const far = await read('one')
+    expect(far.messages.map(row => row.messageId)).toEqual(['first', 'one', 'second', 'two'])
+    expect(far.before).toBeNull()
+  })
+
   test('history pages hold each activity once, in the page it happened in', async () => {
     const { runtime, call } = await historyHost(history)
     const bob = actors.memberActor('bob', 'Bob')

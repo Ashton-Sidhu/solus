@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { ChevronRight, Cloud, QrCode, RefreshCw, Terminal } from "@lucide/svelte";
   import { managedHostsStore } from "../../contexts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -9,6 +9,7 @@
   import AddPairMachine from "./AddPairMachine.svelte";
   import FoundMachineRow from "./FoundMachineRow.svelte";
   import { openSshAdd } from "./add-machine";
+  import { AddSeveral, canAddTogether } from "./add-several.svelte";
   import { discoverStore } from "./discover.store.svelte";
   import type { AddWay } from "./lib/fleet-model";
 
@@ -16,7 +17,10 @@
    * Add a machine (docs/plans/host-fleet.md D8): Nearby is always first, and a
    * machine in reach is one action away. Below it, the other ways as one choice;
    * the chosen way opens in place, its first field focused, and finishes here.
-   * Only SSH has its own form. Registering a host to a Solus Cloud account is
+   * Only SSH has its own form. Several machines that run Solus are added at
+   * once: select them, then Add, and approve each one on its own machine. A
+   * machine added on any device joins all of a person's machines
+   * (docs/plans/host-reach.md). Registering a host to a Solus Cloud account is
    * not a way to add it: it is a switch on the host's own page.
    */
   type OtherWay = Exclude<AddWay, "nearby">;
@@ -32,6 +36,12 @@
   );
 
   const found = $derived(discoverStore.found);
+  const several = new AddSeveral();
+  const togetherCount = $derived(found.filter(canAddTogether).length);
+  const chosenCount = $derived(found.filter((machine) => canAddTogether(machine) && several.selected.has(machine.key)).length);
+
+  // Leaving the page stops the requests that still wait.
+  onDestroy(() => several.stop());
 
   onMount(() => {
     void managedHostsStore.loadCatalog();
@@ -55,13 +65,40 @@
 
   <SettingsSection label="Nearby" description="Machines this device can already see. Connect one in a step.">
     {#snippet action()}
+      {#if togetherCount > 1}
+        <Button variant="ghost" size="sm" disabled={several.isRunning} onclick={() => several.toggleAll(found)}>
+          {chosenCount === togetherCount ? "Select none" : "Select all"}
+        </Button>
+      {/if}
+      {#if chosenCount > 0 || several.isRunning}
+        <Button size="sm" disabled={several.isRunning} onclick={() => void several.add(found)}>
+          {several.isRunning ? "Adding…" : `Add ${chosenCount} ${chosenCount === 1 ? "machine" : "machines"}`}
+        </Button>
+      {/if}
       <Button variant="ghost" size="sm" disabled={discoverStore.isScanning} onclick={() => void discoverStore.scan()}>
         <RefreshCw size={13} class={discoverStore.isScanning ? "animate-spin motion-reduce:animate-none" : ""} />
         {discoverStore.isScanning ? "Scanning…" : "Scan again"}
       </Button>
     {/snippet}
+    {#if several.checkCode}
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5" role="status">
+        <code class="font-mono text-[1.375rem] leading-none font-medium tracking-[0.08em] text-(--solus-text-primary) tabular-nums">{several.checkCode}</code>
+        <p class="min-w-0 flex-1 basis-56 text-pretty text-[0.8125rem] text-(--solus-text-secondary)">
+          Approve the request in Solus on each machine. Approve only if it shows this code.
+        </p>
+        <Button variant="ghost" size="sm" onclick={() => several.stop()}>Stop</Button>
+      </div>
+    {/if}
     {#each found as machine (machine.key)}
-      <FoundMachineRow {machine} />
+      <FoundMachineRow
+        {machine}
+        selection={canAddTogether(machine) ? {
+          isChosen: several.selected.has(machine.key),
+          outcome: several.outcomes.get(machine.key),
+          isLocked: several.isRunning,
+          onToggle: (isChosen) => several.toggle(machine.key, isChosen),
+        } : undefined}
+      />
     {:else}
       <p class="px-4 py-3.5 text-[0.8125rem] text-(--solus-text-secondary)">
         {discoverStore.isScanning ? "Looking on your network, on Tailscale, and in your SSH config…" : "No machine nearby yet. Choose another way below."}

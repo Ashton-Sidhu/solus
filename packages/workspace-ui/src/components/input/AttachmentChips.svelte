@@ -11,6 +11,8 @@
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { fileDrag } from '../../lib/file-drag'
   import { attachmentDownloadName } from '../conversation/lib/attachment-download'
+  import { hostImageSources } from '../conversation/lib/host-image-src.svelte'
+  import { serverConnections } from '@solus/client-core/server-connections'
   import { videoAttachmentPath } from '../../lib/video-attachment'
   import { requestFilePreview } from '../../lib/filePreview'
   import { attachmentLabel } from '../../lib/attachment-label'
@@ -33,7 +35,7 @@
      *  needs a way to remove a mark that is not "remove everything I marked". */
     onRemoveMark?: (attachmentId: string, markId: string) => void
     onOpen?: (id: string) => void
-    /** The composer's host. Without it a video shows as a plain file chip. */
+    /** The composer's host for media bytes that are stored there. */
     host?: Pick<HostMediaRequest, 'serverId' | 'ctx'>
   }
 
@@ -41,6 +43,28 @@
 
   let previewSrc = $state<string | null>(null)
   let previewVideo = $state<{ request: HostMediaRequest; label: string } | null>(null)
+
+  $effect(() => {
+    if (!host) return
+    for (const attachment of attachments) {
+      if (attachment.type !== 'image' || attachment.dataUrl || !attachment.hostPath) continue
+      const serverId = attachment.hostServerId ?? host.serverId
+      hostImageSources.request({
+        hostPath: attachment.hostPath,
+        serverId,
+        origin: serverConnections.httpOriginFor(serverId),
+        api: serverConnections.apiFor(serverId),
+        ctx: host.ctx,
+      })
+    }
+  })
+
+  function imageSource(attachment: Attachment): string | undefined {
+    if (attachment.dataUrl) return attachment.dataUrl
+    if (attachment.type !== 'image' || !attachment.hostPath || !host) return undefined
+    const state = hostImageSources.stateFor(attachment.hostServerId ?? host.serverId, attachment.hostPath)
+    return state.status === 'ready' ? state.url : undefined
+  }
 
   function closePreview() {
     previewSrc = null
@@ -65,6 +89,7 @@
   <div class="flex flex-wrap gap-1.5">
     {#each attachments as a (a.id)}
       {@const label = attachmentLabel(a)}
+      {@const imageSrc = imageSource(a)}
       {@const isAnnotation = a.type === 'design-selection'}
       {@const isVideo = !!host && isVideoAttachment(a)}
       {@const upload = attachmentUploads.stateFor(a.id)}
@@ -83,7 +108,7 @@
           ? "flex min-w-0 flex-wrap items-center gap-1.5"
           : isVideo
             ? "flex-shrink-0"
-          : a.dataUrl
+          : imageSrc
             ? "relative size-14 flex-shrink-0"
             : "flex h-[1.875rem] max-w-[12.5rem] flex-shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) pr-1.5 pl-2 text-workspace-chrome text-(--solus-text-secondary)"}
       >
@@ -122,8 +147,8 @@
             type="button"
             aria-label={upload?.status === 'failed'
               ? `Retry uploading ${label}: ${upload.message}`
-              : upload?.status === 'uploading' && a.dataUrl ? `Uploading ${label}`
-              : a.dataUrl ? `Preview ${label}` : `Open ${label}`}
+              : upload?.status === 'uploading' && imageSrc ? `Uploading ${label}`
+              : imageSrc ? `Preview ${label}` : `Open ${label}`}
             use:fileDrag={() => {
               const path = videoAttachmentPath(a)
               return a.type === 'file' && !upload && host && path
@@ -132,21 +157,21 @@
             }}
             aria-busy={upload?.status === 'uploading'}
             title={upload?.status === 'failed' ? upload.message : undefined}
-            class={a.dataUrl
+            class={imageSrc
               ? "size-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
               : "flex min-w-0 flex-1 items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--solus-accent)"}
-            style="cursor:{a.dataUrl ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
+            style="cursor:{imageSrc ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
             onclick={() => {
               if (upload?.status === 'failed') attachmentUploads.retry(a.id)
               else if (upload) return
-              else if (a.dataUrl) previewSrc = a.dataUrl
+              else if (imageSrc) previewSrc = imageSrc
               else if (onOpen) onOpen(a.id)
               else requestFilePreview({ path: a.hostPath ?? a.path, tabId })
             }}
           >
-            {#if a.dataUrl}
+            {#if imageSrc}
               <img
-                src={a.dataUrl}
+                src={imageSrc}
                 alt={label}
                 class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
               />
@@ -179,11 +204,11 @@
             type="button"
             onclick={() => removeAttachment(a.id)}
             aria-label="Remove {label}"
-            class={a.dataUrl
+            class={imageSrc
               ? "absolute top-0 right-0 flex size-4 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-[background-color,scale] duration-[var(--duration-quick)] hover:bg-black/80 focus-visible:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-[0.96]"
               : "flex size-4 flex-shrink-0 items-center justify-center rounded text-(--solus-text-tertiary) opacity-60 transition-[background-color,color,opacity,scale] duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) hover:opacity-100 focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none active:scale-[0.96]"}
           >
-            <XIcon size={a.dataUrl ? 10 : 11} />
+            <XIcon size={imageSrc ? 10 : 11} />
           </button>
         {/if}
       </div>

@@ -39,11 +39,13 @@ export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateS
     // Update checks do not establish authentication. Keep the host's sign-in
     // status visible when adding version information, including after an update.
     // An available release is named by its Update button, not repeated here.
-    if (status.installedVersion) row.detail += status.check.kind === 'available' ? ` · ${status.installedVersion}` : ` · ${status.installedVersion} · ${checkStatusLine(status.check)}`
+    // Without that button (Solus cannot update this installation), the row names it.
+    const canUpdate = status.installation?.canUpdate !== false
+    if (status.installedVersion) row.detail += status.check.kind === 'available' && canUpdate ? ` · ${status.installedVersion}` : ` · ${status.installedVersion} · ${checkStatusLine(status.check)}`
     else if (status.check.kind === 'error') row.detail += ` · version unknown · ${status.check.message}`
     const detail = providerUpdateDetail(status)
     if (detail) row.detail += `\n${detail}`
-    if (status.check.kind === 'available' && status.installation?.canUpdate !== false) row.update = { label: `${status.update?.phase === 'failed' ? 'Retry update to' : 'Update to'} ${status.check.latestVersion}`, disabled: !mayUpdate, run: () => { if (mayUpdate) update(status.agent) } }
+    if (status.check.kind === 'available' && canUpdate) row.update = { label: `${status.update?.phase === 'failed' ? 'Retry update to' : 'Update to'} ${status.check.latestVersion}`, disabled: !mayUpdate, run: () => { if (mayUpdate) update(status.agent) } }
   }
   return rows
 }

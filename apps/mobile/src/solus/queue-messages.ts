@@ -6,6 +6,8 @@ import { restoreAttachmentOnlyBootstrapPrompt } from "@t3tools/shared/composerCo
 import { Atom } from "effect/reactivity";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { beginQueuedRunEdit, getQueuedRunEdit, type QueuedRunEdit } from "../state/queued-run-edit";
+import type { ComposerDraft } from "../state/use-composer-drafts";
+import { sessionPromptText } from "./review-prompt";
 import { queueChatAttachment } from "./upload-images";
 
 function hostQueueAttachments(entry: QueuedPromptSnapshot): readonly QueueAttachment[] {
@@ -152,4 +154,17 @@ export function hostQueuedEditMutation(
         : [],
     ),
   };
+}
+
+export function saveHostQueuedRunEdit(
+  store: ConversationStore,
+  edit: QueuedRunEdit,
+  draft: ComposerDraft,
+  uploads: readonly QueueAttachment[],
+) {
+  const entry = store.metaSnapshotOf().queue.entries.find((item) => item.queueId === edit.runId);
+  if (!entry) throw new Error("This message already left the queue.");
+  return store.controller.changeQueue(
+    hostQueuedEditMutation(edit, entry, sessionPromptText(draft.text, draft.context), uploads),
+  );
 }

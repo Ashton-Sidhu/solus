@@ -29,6 +29,8 @@
     projectLabel: string;
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
     isGuest: boolean;
+    /** The parent row's tooltip is quiet: this one stays shut too. */
+    isTooltipQuiet: boolean;
     /** True while this row's name is being edited in place. */
     renaming: boolean;
     onSelect: () => void;
@@ -48,6 +50,7 @@
     groupKey,
     projectLabel,
     isGuest,
+    isTooltipQuiet,
     renaming,
     onSelect,
     onStartRename,
@@ -209,12 +212,12 @@
 
 <!-- A session listed one step in under the session that started it. In the
      raised card a row takes a wash, never a second plate. -->
-<TooltipUI.Root>
+<TooltipUI.Root disabled={isTooltipQuiet}>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
 <div
   {...tooltipProps}
-  class="group/session relative flex h-9 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 @max-[15rem]:gap-1.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
+  class="group/session relative flex h-9 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
     ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
     : 'text-foreground'} {isCurrent
     ? inRaisedCard

@@ -1,4 +1,5 @@
 import type { Codebase } from '@solus/contracts/codebases'
+import { codebaseMark, type CodebaseMark } from '@solus/contracts/codebase-badge'
 import type { Place } from '@solus/contracts/types'
 import { hostPathBaseName, isInsideHostPath, sameHostPath } from '@solus/contracts/host-path'
 
@@ -41,12 +42,7 @@ export interface CodebaseChipFolder {
   name: string
   /** The name of its host. Null for a host that this client does not know. */
   hostLabel: string | null
-  /** Where the folder is on a host of this client: its favicon is read there. Null for a host that this client does not know. */
-  place: Place | null
 }
-
-/** A row shows the favicons of at most this many folders. */
-export const CODEBASE_FAVICONS_MAX = 3
 /** A tooltip names at most this many folders, then the count of the others. */
 export const CODEBASE_TOOLTIP_FOLDERS_MAX = 8
 
@@ -57,6 +53,8 @@ export interface CodebaseChipHostRoots extends CodebaseChipHost {
 export interface CodebaseChipOption {
   id: string
   name: string
+  /** The badge of the codebase: the same mark that its sessions show in the sidebar. */
+  mark: CodebaseMark
   /** The run starts with this codebase. */
   isCurrent: boolean
   /** The project folder of the run is in this codebase on the run host: a choice keeps the folder. */
@@ -121,7 +119,7 @@ export function codebaseChipOptions(
       const host = hostOf(root.installationId)
       const name = root.name || hostPathBaseName(root.path) || root.path
       if (!host) {
-        folders.push({ name, hostLabel: null, place: null })
+        folders.push({ name, hostLabel: null })
         continue
       }
       const chipRoot: CodebaseChipRoot = { serverId: host.serverId, path: root.path, name, container: root.container === true }
@@ -136,6 +134,7 @@ export function codebaseChipOptions(
     return {
       id: codebase.id,
       name: codebase.name,
+      mark: codebaseMark(codebase),
       isCurrent: codebase.id === run.codebaseId,
       holdsProject: holder !== null,
       roots,
@@ -149,8 +148,8 @@ export function codebaseChipOptions(
 
 /** The folders that one root on a host of this client adds: the repositories that its host found in a container, else the root itself. */
 function foldersOfRoot(root: CodebaseChipRoot, hostLabel: string, repositories: readonly string[] | null): CodebaseChipFolder[] {
-  if (!repositories?.length) return [{ name: root.name, hostLabel, place: { serverId: root.serverId, path: root.path } }]
-  return repositories.map((path) => ({ name: hostPathBaseName(path) || path, hostLabel, place: { serverId: root.serverId, path } }))
+  if (!repositories?.length) return [{ name: root.name, hostLabel }]
+  return repositories.map((path) => ({ name: hostPathBaseName(path) || path, hostLabel }))
 }
 
 /** The root on the run host that holds the project folder of the run, or null. */
@@ -161,11 +160,6 @@ function holderOf(roots: readonly CodebaseChipRoot[], projectPath: string | null
 function noteOf(rootsOnRunHost: number, otherHosts: number): string | null {
   if (rootsOnRunHost > 0) return null
   return otherHosts > 0 ? NO_FOLDER_ON_HOST_NOTE : NO_FOLDER_ON_CLIENT_NOTE
-}
-
-/** The places whose favicons the row of a codebase shows: its first folders on hosts of this client, at most `CODEBASE_FAVICONS_MAX`. */
-export function codebaseFavicons(folders: readonly CodebaseChipFolder[]): Place[] {
-  return folders.flatMap((folder) => folder.place ? [folder.place] : []).slice(0, CODEBASE_FAVICONS_MAX)
 }
 
 /** The details of a codebase, as the tooltip of its row and of the chip shows them: one line for the name, then one for each folder. */

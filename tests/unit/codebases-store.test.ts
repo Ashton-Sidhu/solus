@@ -281,3 +281,15 @@ describe('the codebases of a folder', () => {
     expect(await idsOf('/Users/me/shop-old')).toEqual([])
   })
 })
+
+describe('the badge', () => {
+  // WHY: the badge is part of the record (decision 6), so it moves to each
+  // host with it, and a copy that clears it clears it on each host.
+  test('a saved badge is read back, and a newer copy with no badge clears it', async () => {
+    await codebases.saveCodebase('local', 'alice', shop({ badge: { color: 'teal', icon: { kind: 'emoji', emoji: '🛒' } } }))
+    expect((await codebases.getCodebase('local', 'codebase-shop'))?.badge).toEqual({ color: 'teal', icon: { kind: 'emoji', emoji: '🛒' } })
+
+    await codebases.saveCodebase('local', 'alice', shop({ updatedAt: 2_000 }))
+    expect((await codebases.getCodebase('local', 'codebase-shop'))?.badge).toBeUndefined()
+  })
+})

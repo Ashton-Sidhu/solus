@@ -6469,6 +6469,14 @@
                               "awaitingApproval": {
                                 "type": "boolean",
                                 "const": true
+                              },
+                              "delegatedRequest": {
+                                "type": "string",
+                                "enum": [
+                                  "question",
+                                  "permission",
+                                  "plan"
+                                ]
                               }
                             },
                             "required": [
@@ -6813,6 +6821,9 @@
                                     "created",
                                     "observed"
                                   ]
+                                },
+                                "byName": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -8196,6 +8207,14 @@
                                   "awaitingApproval": {
                                     "type": "boolean",
                                     "const": true
+                                  },
+                                  "delegatedRequest": {
+                                    "type": "string",
+                                    "enum": [
+                                      "question",
+                                      "permission",
+                                      "plan"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -8540,6 +8559,9 @@
                                         "created",
                                         "observed"
                                       ]
+                                    },
+                                    "byName": {
+                                      "type": "boolean"
                                     }
                                   },
                                   "required": [
@@ -9846,6 +9868,14 @@
                         "awaitingApproval": {
                           "type": "boolean",
                           "const": true
+                        },
+                        "delegatedRequest": {
+                          "type": "string",
+                          "enum": [
+                            "question",
+                            "permission",
+                            "plan"
+                          ]
                         }
                       },
                       "required": [
@@ -10190,6 +10220,9 @@
                               "created",
                               "observed"
                             ]
+                          },
+                          "byName": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -19555,12 +19588,6 @@
                     },
                     "name": {
                       "type": "string"
-                    },
-                    "folders": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
                     }
                   },
                   "required": [
@@ -19570,8 +19597,7 @@
                     "by",
                     "kind",
                     "codebaseId",
-                    "name",
-                    "folders"
+                    "name"
                   ],
                   "additionalProperties": false
                 },

@@ -246,7 +246,7 @@ export function startSolus() {
     solus.threadList.changes.subscribe(changed),
     // The project lists leave out each container root of a codebase, so the codebases are read for as long as the app runs.
     solus.codebases.watch(),
-    // A folder that becomes or stops being a container root changes the icon of its rows.
+    // A row of a session in a codebase shows the codebase's badge.
     solus.codebases.changes.subscribe(() => {
       codebaseRevision++;
       changed();
@@ -289,7 +289,7 @@ export function startSolus() {
   };
 }
 
-const projectThreads = createSessionListProjection((hostId, path) => solus.codebases.isContainerRoot(hostId, path));
+const projectThreads = createSessionListProjection((codebaseId) => solus.codebases.codebaseOf(codebaseId));
 
 function readHosts() {
   const environments = solus.registry.hosts().map((host): WorkspaceEnvironment & {supportsListControls: boolean} => {

@@ -11,6 +11,7 @@
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import InterruptCard from "./InterruptCard.svelte";
   import { Textarea } from "../ui/textarea";
+  import { Button } from "../ui/button";
   import { getWorkspaceContext, hosts } from "../../contexts";
   import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { attachmentUploads, uploadFileObjects } from "../input/lib/attachment-uploads.svelte";
@@ -80,6 +81,8 @@
   let responded = $state(false);
   let isUploading = $state(false);
   let attachmentError = $state("");
+  let answerField = $state<HTMLTextAreaElement | null>(null);
+  let fileInput = $state<HTMLInputElement | null>(null);
   // The host closed it unanswered (its run ended), or the answer was sent.
   const closed = $derived(responded || isUploading || !!request.expired);
   // Callback questions pause a turn. Async questions can remain open after it ends.
@@ -108,6 +111,7 @@
 
   const total = $derived(request.questions.length);
   const currentQuestion = $derived(request.questions[currentIndex]);
+  const files = $derived(states[questionKey(currentQuestion)]?.files ?? []);
   const isFirst = $derived(currentIndex === 0);
   const isLast = $derived(currentIndex === total - 1);
   const hasOptions = $derived((currentQuestion?.options.length ?? 0) > 0);
@@ -444,10 +448,13 @@
         {#if canDrive && !request.expired}
           <!-- The mic overlays the textarea, so its offsets are measured against
                that box. `mr-8` reserves its strip outside the field's own box, so
-               a long answer scrolls under the words and not under the mic. -->
+               a long answer scrolls under the words and not under the mic. The
+               paperclip sits after the mic, at the mic's size, and its negative
+               margin keeps a one-line row at the textarea's height. -->
           <div class="answer-row flex items-start gap-2 py-1.5 pr-2 pl-1.5 [--rc-mic-top:50%] [--rc-mic-right:-0.25rem]">
             <span class="answer-mark" aria-hidden="true"><WriteIcon size={12} /></span>
             <Textarea
+              bind:ref={answerField}
               name="question-answer"
               aria-label="Your answer"
               value={getRemark(currentQuestion)}
@@ -460,42 +467,55 @@
                 (request.remarks ??= {})[questionKey(currentQuestion)] = (e.target as HTMLTextAreaElement).value;
               }}
             />
+            {#if canAttach}
+              <input
+                bind:this={fileInput}
+                type="file"
+                multiple
+                class="hidden"
+                disabled={closed}
+                onchange={(event) => {
+                  const input = event.currentTarget;
+                  ensureState(currentQuestion).files.push(...Array.from(input.files ?? []));
+                  input.value = "";
+                  attachmentError = "";
+                  answerField?.focus();
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={closed}
+                onmousedown={(e) => e.preventDefault()}
+                onclick={() => fileInput?.click()}
+                aria-label="Attach files to answer"
+                title="Attach files"
+                class="-my-1.5 size-7 shrink-0 self-center rounded-full text-(--solus-mic-color) hover:bg-(--solus-mic-bg) hover:text-(--solus-mic-color)"
+              ><Paperclip size={14} /></Button>
+            {/if}
           </div>
-          {#if canAttach}
-            <div class="flex flex-wrap items-center gap-2">
-              <label class="interrupt-pill is-text cursor-pointer focus-within:outline focus-within:outline-(--ring)">
-                <Paperclip size={14} />
-                Attach files
-                <input
-                  type="file"
-                  multiple
-                  aria-label="Attach files to answer"
-                  class="sr-only"
-                  disabled={closed}
-                  onchange={(event) => {
-                    const input = event.currentTarget;
-                    ensureState(currentQuestion).files.push(...Array.from(input.files ?? []));
-                    input.value = "";
-                    attachmentError = "";
-                  }}
-                />
-              </label>
-              {#each states[questionKey(currentQuestion)]?.files ?? [] as file, index}
-                <button
-                  type="button"
-                  class="interrupt-pill is-text"
-                  aria-label={`Remove ${file.name}`}
-                  disabled={closed}
-                  onclick={() => ensureState(currentQuestion).files.splice(index, 1)}
-                >
-                  {file.name}
-                  <X size={14} />
-                </button>
+          <!-- The chosen files, in the label column under the words. -->
+          {#if canAttach && (files.length || isUploading || attachmentError)}
+            <div class="flex flex-wrap items-center gap-1.5 pl-7.5">
+              {#each files as file, index}
+                <span class="flex max-w-[11.25rem] items-center gap-1 rounded-[0.625rem] bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] py-0.5 pr-1 pl-2 text-xs text-(--solus-text-secondary)">
+                  <span class="min-w-0 truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    disabled={closed}
+                    aria-label={`Remove ${file.name}`}
+                    onclick={() => {
+                      ensureState(currentQuestion).files.splice(index, 1);
+                      answerField?.focus();
+                    }}
+                    class="flex shrink-0 cursor-pointer items-center rounded text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-not-allowed pointer-coarse:min-h-11"
+                  ><X size={12} /></button>
+                </span>
               {/each}
               {#if isUploading}
-                <span role="status" class="text-transcript-meta">Uploading…</span>
+                <span role="status" class="text-transcript-meta text-(--muted-foreground)">Uploading…</span>
               {:else if attachmentError}
-                <span role="alert" class="text-transcript-meta">{attachmentError}</span>
+                <span role="alert" class="text-transcript-meta text-(--destructive)">{attachmentError}</span>
               {/if}
             </div>
           {/if}

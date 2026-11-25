@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
-import { showsBackgroundWork } from '@solus/client-core/background-work'
+import { backgroundWorkIsServers, showsBackgroundWork } from '@solus/client-core/background-work'
 import { SessionEventReducer, type SessionEventReducerDeps } from '@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte'
 import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
@@ -88,5 +88,73 @@ describe('mobile', () => {
 
     model.apply({ type: 'background_work', running: false })
     expect(showsBackgroundWork(model.status, model.backgroundWorkRunning)).toBe(false)
+  })
+})
+
+// The host names each background task (`background_task_started`, and
+// `RuntimeSessionInfo.backgroundTasks` for a client that joins), so the row
+// says what runs even when an earlier turn launched it.
+describe('the named tasks', () => {
+  test('desktop and web keep them while they run, and drop them when the work ends', () => {
+    const session = { status: 'completed', messages: [], outboundPrompts: [], permissionQueue: [], questionQueue: [], rateLimitInfo: null } as unknown as Session
+    const reducer = new SessionEventReducer({
+      registry: { tabIdsBySession: new Map() },
+      sessions: { byId: { session } },
+      settings: { rateLimitBehavior: 'ask' },
+      workStreamTracker: { sweep: () => {} },
+      isSessionVisible: () => true,
+      publishSessionViewed: () => {},
+      playNotificationIfHidden: () => {},
+      log: () => {},
+    } as unknown as SessionEventReducerDeps)
+
+    reducer.apply('session', { type: 'background_task_started', taskId: 'dev', kind: 'command', description: 'Start the dev server' })
+    reducer.apply('session', { type: 'background_task_started', taskId: 'watch', kind: 'monitor' })
+    reducer.apply('session', { type: 'background_work', running: true })
+    expect(session.backgroundTasks).toEqual([
+      { taskId: 'dev', kind: 'command', description: 'Start the dev server' },
+      { taskId: 'watch', kind: 'monitor' },
+    ])
+    reducer.apply('session', { type: 'background_task_settled', taskId: 'watch', status: 'completed' })
+    expect(session.backgroundTasks?.map((task) => task.taskId)).toEqual(['dev'])
+    reducer.apply('session', { type: 'background_work', running: false })
+    expect(session.backgroundTasks).toEqual([])
+  })
+
+  test('mobile keeps the kind from the event and from a join', () => {
+    const model = TranscriptModel.fromHistory('session-1', { messages: [], before: null })
+    model.apply({ type: 'background_task_started', taskId: 'dev', kind: 'command', description: 'Start the dev server' })
+    expect(model.backgroundTasks).toEqual([{ taskId: 'dev', kind: 'command', description: 'Start the dev server' }])
+
+    const joined = TranscriptModel.fromHistory('session-2', { messages: [], before: null })
+    joined.setBackgroundWorkRunning(true, ['dev'], [{ taskId: 'dev', kind: 'command', description: 'bun run dev' }])
+    expect(joined.backgroundTasks).toEqual([{ taskId: 'dev', kind: 'command', description: 'bun run dev' }])
+  })
+})
+
+// `hideServerBackgroundWork` leaves the row out only when the Running servers
+// list already shows all that runs: it lists and stops those servers.
+describe('background work that is only servers', () => {
+  const dev = { kind: 'command' }
+
+  test('is commands the agent left running, with as many servers of its own', () => {
+    expect(backgroundWorkIsServers(false, [dev], 1)).toBe(true)
+    expect(backgroundWorkIsServers(false, [dev], 2)).toBe(true)
+  })
+
+  test('keeps the row for work the list does not show', () => {
+    // A command with no server of its own, such as a test watcher.
+    expect(backgroundWorkIsServers(false, [dev, dev], 1)).toBe(false)
+    expect(backgroundWorkIsServers(false, [dev], 0)).toBe(false)
+    // A monitor, a sub-agent, or a task the host did not name is no server.
+    expect(backgroundWorkIsServers(false, [dev, { kind: 'monitor' }], 2)).toBe(false)
+    expect(backgroundWorkIsServers(false, [{ kind: 'background_task' }], 1)).toBe(false)
+    expect(backgroundWorkIsServers(false, [], 1)).toBe(false)
+    expect(backgroundWorkIsServers(false, undefined, 1)).toBe(false)
+  })
+
+  test('keeps the row while the agent waits on the work', () => {
+    // An awaited wait holds the session in `background`: the agent acts on its result.
+    expect(backgroundWorkIsServers(true, [dev], 1)).toBe(false)
   })
 })

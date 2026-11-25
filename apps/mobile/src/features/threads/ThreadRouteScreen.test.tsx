@@ -6,6 +6,8 @@ type SessionKind = "ready" | "loading" | "unavailable";
 
 const state = vi.hoisted(() => ({
   draft: true,
+  hasServers: false,
+  serverListeners: new Set<() => void>(),
   sessionKind: "ready" as SessionKind,
   navigate: vi.fn(),
   chooseProject: vi.fn(),
@@ -13,6 +15,7 @@ const state = vi.hoisted(() => ({
   viewportHeight: 640,
 }));
 vi.mock("@react-navigation/native", () => ({
+  useIsFocused: () => true,
   useNavigation: () => ({ navigate: state.navigate }),
   StackActions: {},
 }));
@@ -20,6 +23,18 @@ vi.mock("react-native", () => ({ View: ({ children }: { children: ReactNode }) =
 vi.mock("@solus-mobile/app/app-context", () => ({
   AppProvider: ({ children }: { children: ReactNode }) => children,
 }));
+vi.mock("../running-servers/running-servers-store", () => {
+  const store = {
+    subscribe: (changed: () => void) => {
+      state.serverListeners.add(changed);
+      return () => state.serverListeners.delete(changed);
+    },
+    retainCheckouts: () => () => {},
+    status: "ready",
+    rowsForScope: () => ({ sessionRows: state.hasServers ? [{}] : [], otherRows: [{}] }),
+  };
+  return { runningServersFor: () => store };
+});
 vi.mock("../../solus/runtime", () => ({ solus: {} }));
 vi.mock("../../solus/use-thread-session", () => ({
   useThreadSession: () =>
@@ -181,15 +196,26 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
       cwd: "/repo/worktree",
       projectName: "project",
     });
+    expect(container.textContent).not.toContain("Running servers");
+    act(() => {
+      state.hasServers = true;
+      state.serverListeners.forEach((changed) => changed());
+    });
     const servers = [...container.querySelectorAll("button")].find((button) => button.textContent === "Running servers");
     act(() => servers!.click());
     expect(state.navigate).toHaveBeenLastCalledWith("ThreadRunningServers", {
       environmentId: "host",
       threadId: "session",
     });
+    act(() => {
+      state.hasServers = false;
+      state.serverListeners.forEach((changed) => changed());
+    });
+    expect(container.textContent).not.toContain("Running servers");
   } finally {
     act(() => root.unmount());
     state.draft = true;
+    state.hasServers = false;
   }
 });
 

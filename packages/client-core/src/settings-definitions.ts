@@ -18,6 +18,10 @@ export const settingsDefinitions = {
     label: "Keep changed files on earlier turns",
     description: "Off shows the summary for the latest turn only.",
   },
+  "chat.hide-server-background-work": {
+    label: "Hide background row for servers",
+    description: "When only servers the agent started still run, show them in Running servers only.",
+  },
   "chat.auto-open-artifacts": {
     label: "Open artifacts automatically",
     description: "Open Threads beside the conversation when new artifacts arrive.",
@@ -45,6 +49,20 @@ export const settingsDefinitions = {
     label: "Text-generation model",
     description: "Session names and short background writing for your work.",
   },
+  "general.auto-rename": {
+    label: "Name sessions automatically",
+    description: "Summarize the first prompt into a short session name.",
+  },
+  "general.section-applications": {
+    label: "Applications",
+  },
+  "general.code-editor": {
+    label: "Code editor",
+    description: "Where “Open in editor” sends files.",
+  },
+  "general.fallback-terminal": {
+    label: "Fallback terminal",
+  },
   "general.section-about-solus": {
     label: "About Solus",
   },
@@ -71,10 +89,6 @@ export const settingsDefinitions = {
   },
   "sessions.section-sessions": {
     label: "Sessions",
-  },
-  "sessions.auto-rename": {
-    label: "Name sessions automatically",
-    description: "Summarize the first prompt into a short session name.",
   },
   "sessions.section-delegation": {
     label: "Delegation",
@@ -231,16 +245,6 @@ export const settingsDefinitions = {
   "review.review-lenses": {
     label: "Saved lenses",
     description: "Prompts for the Lens tab. Choose one for an HTML view of the change, or tick up to four for one lens with a tab for each.",
-  },
-  "tools.section-applications": {
-    label: "Applications",
-  },
-  "tools.code-editor": {
-    label: "Code editor",
-    description: "Where “Open in editor” sends files.",
-  },
-  "tools.fallback-terminal": {
-    label: "Fallback terminal",
   },
   "tools.section-code-intelligence": {
     label: "Code intelligence",

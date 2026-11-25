@@ -25,7 +25,6 @@ export class HostPairingFollower {
   private readonly failedPairings = new Map<string, number>()
   private readonly unsubscribe: () => void
   private current: HostPairingsSnapshot | null = null
-  private readFailed = false
   private generation = 0
   private readonly listeners = new Set<() => void>()
 
@@ -50,7 +49,6 @@ export class HostPairingFollower {
 
   snapshot = (): HostPairingsSnapshot | null => this.current
   /** The last read of the links failed; the next read that works clears it. */
-  hasReadFailed = (): boolean => this.readFailed
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
@@ -69,10 +67,6 @@ export class HostPairingFollower {
     this.dirty = true
     if (this.running) return this.running
     this.running = this.read().catch(() => {
-      if (!this.readFailed && !this.disposed) {
-        this.readFailed = true
-        for (const listener of this.listeners) listener()
-      }
       this.report('Could not update paired hosts. Solus will try again when the connection changes.')
     }).finally(() => {
       this.running = null
@@ -90,7 +84,7 @@ export class HostPairingFollower {
     if (!self || self === installationId) return false
     const snapshot = await this.options.api.hostsListPaired().catch(() => null)
     const pairing = snapshot?.hosts.find(({ listing }) => listing.installationId === installationId)
-    return !!pairing && !this.disposed && generation === this.generation && this.pair(pairing, true)
+    return !!pairing && !this.disposed && generation === this.generation && this.pair(pairing)
   }
 
   dispose(): void { this.disposed = true; this.unsubscribe(); this.clear(); this.listeners.clear() }
@@ -103,7 +97,6 @@ export class HostPairingFollower {
     const snapshot = await this.options.api.hostsListPaired()
     if (this.disposed || generation !== this.generation) return
     this.current = snapshot
-    this.readFailed = false
     for (const listener of this.listeners) listener()
     for (const installationId of snapshot.forgotten) {
       const saved = this.savedHost(installationId)
@@ -116,7 +109,7 @@ export class HostPairingFollower {
     for (const pairing of snapshot.hosts) {
       if (this.disposed || generation !== this.generation) return
       if (pairing.listing.installationId === self || this.failedPairings.get(pairing.listing.installationId) === pairing.pairedAt) continue
-      if (pairing.clientConnect !== 'on-request' && this.needsPairing(pairing)) await this.pair(pairing)
+      if (this.needsPairing(pairing)) await this.pair(pairing)
     }
   }
 
@@ -136,16 +129,13 @@ export class HostPairingFollower {
     return this.options.isRefused(saved.id) && (saved.ownerPairedAt ?? 0) < pairedAt
   }
 
-  private async pair({ listing, pairedAt, clientConnect }: HostPairing, explicit?: true): Promise<boolean> {
+  private async pair({ listing, pairedAt }: HostPairing): Promise<boolean> {
     const generation = this.generation
     try {
-      const credential = explicit
-        ? await this.options.api.hostsPairClient(listing.installationId, true)
-        : await this.options.api.hostsPairClient(listing.installationId)
+      const credential = await this.options.api.hostsPairClient(listing.installationId)
       if (this.disposed || generation !== this.generation) return false
       const fetchImpl: typeof fetch = (input, init) => withPairingTimeout((signal) => (this.options.fetchImpl ?? fetch)(input, { ...init, redirect: 'error', signal }))
-      const route = { url: credential.url, source: clientConnect === 'on-request' ? 'user' as const : undefined }
-      const verified = await withPairingTimeout((signal) => answersAsSavedHost(fetchImpl, route, listing, signal, this.options.healthNonce))
+      const verified = await withPairingTimeout((signal) => answersAsSavedHost(fetchImpl, { url: credential.url }, listing, signal, this.options.healthNonce))
       if (!verified) throw new Error('The remote host did not prove its identity.')
       if (this.disposed || generation !== this.generation) return false
       const replaced = this.savedHost(listing.installationId)?.sessionToken || undefined

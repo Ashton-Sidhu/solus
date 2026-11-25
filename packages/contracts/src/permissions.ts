@@ -66,8 +66,6 @@ const PERMISSION_OF_METHOD = {
   // The owner's own list; the handler also refuses anyone but the host owner.
   hostsPair: 'host.local.reach',
   hostsListPaired: 'host.local.reach',
-  hostsLinkHealth: 'host.local.reach',
-  hostsUnlink: 'host.local.reach',
   hostsLinkedSessionPage: 'host.local.reach',
   hostsPairApprovals: 'host.local.reach',
   hostsPairApprovalDecide: 'host.local.reach',

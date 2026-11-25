@@ -20,11 +20,11 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
   | 'defaultRunConfig'
   | 'dispatch'
   | 'focusedSourceId'
+  | 'inheritedRunFor'
   | 'opening'
   | 'refreshStartTarget'
   | 'rootTaskIdFor'
   | 'router'
-  | 'runFor'
   | 'sessionFor'
   | 'sessions'
   | 'settings'
@@ -187,7 +187,7 @@ export class SessionDrafts {
    *  already placing the route, so navigating again would be a second move. */
   createSessionDraft(options: CreateTabOptions, cwd?: string): SessionDraft {
     const sourceId = options.sourceId ?? this.workspace.focusedSourceId ?? this.workspace.activeTabId
-    const run = resolveNewRunConfig(this.workspace.defaultRunConfig, this.workspace.runFor(sourceId), {
+    const run = resolveNewRunConfig(this.workspace.defaultRunConfig, this.workspace.inheritedRunFor(sourceId), {
       freshTask: options.freshTask,
       workingDirectory: cwd,
       gitContext: options.gitContext,

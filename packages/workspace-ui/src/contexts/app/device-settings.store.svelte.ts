@@ -70,9 +70,13 @@ const projectPanelCollapsedSchema = z.object({
 const projectLocationSchema = z.object({
   serverId: z.string().min(1),
   directory: z.string().min(1),
+  /** The codebase the session used. The next session uses the same one. */
+  codebaseId: z.string().min(1).optional(),
+  /** The session used the project and refused a codebase. The next session does the same. */
+  noCodebase: z.literal(true).optional(),
 })
 
-/** A project directory on one host. A path names a folder on one machine only. */
+/** A project directory on one host, and the codebase choice of the session there. A path names a folder on one machine only. */
 export type ProjectLocation = z.infer<typeof projectLocationSchema>
 
 interface LayoutField<Value> {

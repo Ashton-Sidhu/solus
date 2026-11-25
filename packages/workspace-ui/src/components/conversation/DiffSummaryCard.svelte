@@ -4,9 +4,9 @@
   import {
     ChevronRight as CaretRightIcon,
     FileText as FileTextIcon,
-    FolderGit2 as RepositoryIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, groupKeyFor } from "../../contexts";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { sessionTreeStore } from "../../contexts/sessions/session-tree.store.svelte";
   import { childRows, childRowsIn, mergedFileChanges, scopedNodes, type AgentScope } from "@solus/client-core/session-tree";
   import type { ChangedFileStat } from "@solus/contracts/git-types";
@@ -273,7 +273,7 @@
             data-testid="diff-summary-repository"
             onclick={() => onOpenDiff?.(undefined, row.repositoryPath)}
           >
-            <RepositoryIcon size={13} class="shrink-0 text-(--muted-foreground)" />
+            <ProjectFavicon projectKey={groupKeyFor(serverId, row.repositoryPath)} class="size-[13px]" />
             <span class="diff-path font-mono truncate">{row.name}</span>
             <span class="shrink-0 font-mono text-transcript-meta text-(--muted-foreground) opacity-55">
               {row.filesChanged} file{row.filesChanged === 1 ? "" : "s"}
@@ -309,7 +309,11 @@
                   ? 'rotate-90'
                   : ''}"
               />
-              <FileIcon path={`${row.node.path}/`} size={13} />
+              {#if row.node.repositoryPath}
+                <ProjectFavicon projectKey={groupKeyFor(serverId, row.node.repositoryPath)} class="size-[13px]" />
+              {:else}
+                <FileIcon path={`${row.node.path}/`} size={13} />
+              {/if}
               <span class="diff-path font-mono truncate">{row.node.label}</span>
               <span class="shrink-0 font-mono text-transcript-meta text-(--muted-foreground) opacity-55">
                 {row.node.fileCount}

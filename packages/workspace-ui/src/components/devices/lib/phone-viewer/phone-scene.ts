@@ -11,6 +11,8 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   Plane,
+  Matrix4,
+  Ray,
   Raycaster,
   // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- three.js names its 2D outline class Shape.
   Shape as Outline,
@@ -284,13 +286,15 @@ export function createDisplayProjection(
   getLayout: () => PhoneDisplayLayout,
 ) {
   const raycaster = new Raycaster();
+  const ray = new Ray();
+  const inverse = new Matrix4();
   const pointer = new Vector2();
   const local = new Vector3();
   display.geometry.computeBoundingBox();
   const z = display.position.z + (display.geometry.boundingBox?.max.z ?? 0);
   const plane = new Plane(new Vector3(0, 0, 1), -z);
   return (x: number, y: number, camera: Camera, captured = false) => {
-    orientation.updateWorldMatrix(true, true);
+    (captured ? orientation : display).updateWorldMatrix(true, false);
     camera.updateMatrixWorld(true);
     pointer.set(x * 2 - 1, 1 - y * 2);
     raycaster.setFromCamera(pointer, camera);
@@ -300,7 +304,7 @@ export function createDisplayProjection(
       local.copy(hit.point);
       orientation.worldToLocal(local);
     } else {
-      const ray = raycaster.ray.clone().applyMatrix4(orientation.matrixWorld.clone().invert());
+      ray.copy(raycaster.ray).applyMatrix4(inverse.copy(orientation.matrixWorld).invert());
       if (!ray.intersectPlane(plane, local)) return null;
     }
     const u = Math.min(1, Math.max(0, (local.x + width / 2) / width));

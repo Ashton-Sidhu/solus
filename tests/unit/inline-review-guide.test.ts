@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { parseInlineReviewGuide } from '@solus/contracts/inline-review-guide'
 import { loadInlineReviewGuide, resolveInlineReviewGuide } from '@solus/client-core/inline-review-guide'
 import { splitPatchByFile } from '../../packages/workspace-ui/src/components/pr-review/guide/lib/guide-data'
-import { replySegments } from '../../apps/mobile/solus-core/features/threads/reply-html-fences'
+import { replySegments } from '@solus/document-model/reply-html-layout'
 
 const draft = {
   title: 'Change the default',

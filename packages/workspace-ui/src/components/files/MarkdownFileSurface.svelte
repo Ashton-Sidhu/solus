@@ -50,7 +50,7 @@
   let isFindOpen = $state(false);
   let hasMountedRendered = $state(untrack(() => mode === "rendered"));
   let hasMountedSource = $state(untrack(() => mode === "source"));
-  const diagramExtensions = [createMermaidBlockExtension({ isDark: () => isDark })];
+  const diagramExtensions = [createMermaidBlockExtension()];
 
   $effect(() => {
     renderedContents = contents;

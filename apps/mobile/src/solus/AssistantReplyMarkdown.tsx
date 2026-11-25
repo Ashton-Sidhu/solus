@@ -1,7 +1,9 @@
+import { UNMEASURED_REPLY_HEIGHT, type ReplyHtmlLayout } from "@solus/contracts/session-history";
+import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { lazy, Suspense, useMemo } from "react";
 import { resolveArtifactTitle } from "@solus/contracts/work-preview";
 import { InlineHtmlRender } from "../features/threads/HtmlRenderWebView";
-import { replySegments } from "@solus-mobile/features/threads/reply-html-fences";
+import { replySegments } from "@solus/document-model/reply-html-layout";
 import { renderCodexInlineDirectivesAsMarkdown } from "@t3tools/shared/codexMarkdownDirectives";
 import { markdownReferenceDefinitions, withReferenceDefinitions } from "../lib/markdownDocument";
 import { SelectableMarkdownText } from "../native/SelectableMarkdownText";
@@ -13,14 +15,18 @@ export function AssistantReplyMarkdown({
   markdown,
   definitions,
   renderHtml,
+  replyLayout,
+  frameWidth,
   ...textProps
 }: SelectableMarkdownTextProps & {
+  readonly replyLayout?: ReplyHtmlLayout[] | undefined;
+  readonly frameWidth?: number | undefined;
   readonly definitions: ReadonlyArray<string>;
   readonly renderHtml?: boolean | undefined;
 }) {
   const segments = useMemo(
-    () => (renderHtml ? replySegments(markdown) : []),
-    [markdown, renderHtml],
+    () => (renderHtml ? replySegments(markdown, replyLayout) : []),
+    [markdown, renderHtml, replyLayout],
   );
   const references = useMemo(
     () =>
@@ -46,7 +52,8 @@ export function AssistantReplyMarkdown({
       <InlineHtmlRender
         key={segment.key}
         html={segment.html}
-        title={resolveArtifactTitle(undefined, segment.html)}
+        title={segment.layout?.title ?? resolveArtifactTitle(undefined, segment.html)}
+        height={segment.layout && frameWidth ? htmlRenderFrameHeight(segment.layout, frameWidth) : UNMEASURED_REPLY_HEIGHT}
       />
     ) : (
       renderText(segment.text, segment.key)

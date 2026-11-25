@@ -15,6 +15,7 @@
     Binoculars as BinocularsIcon,
     Cpu as ProvidersIcon,
     MessagesSquare as SessionsIcon,
+    MessageSquareText as ChatIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -116,7 +117,7 @@
     {
       id: "general",
       label: "General",
-      description: "Workspace behavior, project folders, background writing, and updates.",
+      description: "Project folders, session names, your editor and terminal, and updates.",
       icon: SlidersHorizontalIcon,
       group: "App",
     },
@@ -131,7 +132,7 @@
       id: "chat",
       label: "Chat",
       description: "Responses, tool activity, and the input bar.",
-      icon: SlidersHorizontalIcon,
+      icon: ChatIcon,
       group: "App",
     },
     {
@@ -165,7 +166,7 @@
     {
       id: "sessions",
       label: "Sessions",
-      description: "New-session defaults, model routing, and agent behavior.",
+      description: "New-session defaults, model routing, and delegation.",
       icon: SessionsIcon,
       group: "Agents",
     },
@@ -186,7 +187,7 @@
     {
       id: "tools",
       label: "Tools",
-      description: "Agent tools, apps, and code intelligence.",
+      description: "Agent tools and code intelligence.",
       icon: WrenchIcon,
       group: "Agents",
     },
@@ -753,8 +754,9 @@
       role="tabpanel"
       style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
     >
-      <!-- Reading column: the pane width, with a readable limit on wide panes. -->
-      <div class="mx-auto w-full max-w-6xl pt-20 pb-12 {openHostLabel ? '' : '@max-[48rem]/pane:pt-8'}">
+      <!-- Reading column: the dialog's width. The dialog's default size keeps it
+           readable, and the user resizes the dialog to change it. -->
+      <div class="w-full pt-20 pb-12 {openHostLabel ? '' : '@max-[48rem]/pane:pt-8'}">
         <!-- A host page heads itself with the host's name and address. -->
         {#if !openHostLabel}
           <header class="mb-10 flex flex-col gap-1.5">

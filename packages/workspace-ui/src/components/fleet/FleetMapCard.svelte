@@ -1,13 +1,12 @@
 <script lang="ts">
-  import { Link2, Power } from "@lucide/svelte";
+  import { Power } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
   import { CARD_HEIGHT, toneOf, type FleetMachine, type Point } from "./lib/fleet-model";
-  import type { MachineLinkSummary } from "./lib/machine-link-map";
 
   /** One host as a card on the map: its OS logo in a CPU ring, its name, its
-   *  state as an icon, its machine links (D13), and its latency. `at` is the card's center and `width` its
+   *  state as an icon, and its latency. `at` is the card's center and `width` its
    *  width, both in percent of the map. `data-host-id` names the host to the
    *  map's context menu (D12). */
   interface Props {
@@ -15,14 +14,12 @@
     at: Point;
     width: number;
     isDimmed: boolean;
-    /** Its machine links, either way; null when it has none. */
-    links: MachineLinkSummary | null;
     onPoint: (serverId: string | null) => void;
     onOpen: (serverId: string) => void;
     onStart: (serverId: string) => void;
   }
 
-  let { machine, at, width, isDimmed, links, onPoint, onOpen, onStart }: Props = $props();
+  let { machine, at, width, isDimmed, onPoint, onOpen, onStart }: Props = $props();
 
   const tone = $derived(toneOf(machine.state));
 </script>
@@ -70,18 +67,7 @@
         <HostStateIcon state={machine.state} label={machine.problem?.label} count={machine.state === "running" ? machine.sessions : undefined} />
       {/if}
       {#if machine.needsSetup}<HostStateIcon state="signin" />{/if}
-      {#if links}
-        <span
-          role="img"
-          aria-label="{links.count} machine {links.count === 1 ? 'link' : 'links'}: {links.text}"
-          title={links.text}
-          class="inline-flex shrink-0 items-center gap-0.5 text-chrome-dense tabular-nums {links.tone === 'bad'
-            ? 'text-(--solus-status-error)'
-            : links.tone === 'warn'
-              ? 'text-(--warning)'
-              : 'text-muted-foreground'}"
-        ><Link2 size={11} />{links.count}</span>
-      {/if}
+
       {#if machine.latencyMs !== null}
         <span class="ml-auto shrink-0 text-[0.6875rem] whitespace-nowrap text-muted-foreground tabular-nums">{machine.latencyMs} ms</span>
       {/if}

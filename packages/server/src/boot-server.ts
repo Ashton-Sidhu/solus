@@ -233,6 +233,7 @@ import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundS
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
 import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
 import { RemoteHosts } from './execution/orchestration/remote-hosts'
+import { hostMesh } from './execution/orchestration/host-mesh'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
 import type { AccountReach, ReachActor, ReachRequest } from './execution/orchestration/remote-hosts'
@@ -1316,7 +1317,31 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
-  registerHostPairingHandlers(server, hostPairings, remoteHosts)
+  // This host introduces the machines it holds to each other, so a machine that no
+  // device reaches still joins the person's other machines (host-reach.md §4.4).
+  const hostIntroductionsAllowed = () => !hostPolicies().capabilityDenial('remoteAccess', 'host introductions')
+  const mesh = hostMesh({
+    self: () => ({
+      installationId: getInstallationId(),
+      label: hostDisplayName(),
+      api: {
+        hostIntroductionsList: async () => introducedHosts.list(),
+        hostIntroductionIssue: (forHost) => introducedHosts.issue(forHost),
+        hostIntroductionAccept: async ({ introduction, grantedDeviceId }) => {
+          await introducedHosts.accept(introduction, grantedDeviceId)
+          remoteHosts.disconnect(introduction.installationId)
+          return { ok: true as const }
+        },
+      },
+    }),
+    targets: async () => {
+      const targets = await remoteHosts.list({ account: null, isOwner: true })
+      return 'error' in targets ? [] : targets
+    },
+    connect: (target) => remoteHosts.connect(target),
+  })
+  const meshHosts = () => { if (hostIntroductionsAllowed()) mesh.run() }
+  registerHostPairingHandlers(server, hostPairings, remoteHosts, meshHosts)
   registerSessionLineageHandlers(server, opts.sessionRuntime, remoteHosts, reachOf)
   domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)
@@ -2487,6 +2512,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     discoverLanServers: () => lanDiscovery.discoverServers(),
     introducedHosts,
     disconnectRemoteHost: (hostId) => remoteHosts.disconnect(hostId),
+    onIntroduced: meshHosts,
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
@@ -2529,6 +2555,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)
+  // Once the address is known: a machine held since the last start joins the others.
+  meshHosts()
 
   let shutdownPromise: Promise<void> | null = null
 

@@ -12,6 +12,19 @@ const orientations = [
 ] as const;
 
 describe("3D phone input", () => {
+  it("projects a captured drag without updating unrelated phone parts", () => {
+    const texture = new Texture();
+    const phone = createPhoneScene(texture, phoneDisplayLayout(null, 900, 1950));
+    const camera = new PerspectiveCamera(32, 1, 0.1, 30);
+    camera.position.z = 5;
+    let rearUpdates = 0;
+    const rear = phone.root.getObjectByName("rear-camera")!;
+    rear.updateWorldMatrix = () => { rearUpdates++; };
+    expect(phone.screenPoint(0.5, 0.5, camera, true)).toEqual({ x: 0.5, y: 0.5 });
+    expect(rearUpdates).toBe(0);
+    phone.dispose();
+    texture.dispose();
+  });
   it.each([IOS_TABLET_BODY, IOS_PHONE_BODY, ANDROID_PHONE_BODY])(
     "preserves input projection for the $id silhouette in every orientation",
     (profile) => {

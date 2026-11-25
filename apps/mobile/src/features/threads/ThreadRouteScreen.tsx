@@ -15,6 +15,7 @@ import { useAndroidWorkspaceBack } from "../layout/workspace/useAndroidWorkspace
 import { useThreadScreenData } from "../../solus/use-thread-screen-data";
 import { useCheckoutGitControls } from "../../solus/CheckoutGit";
 import { isChat } from "@solus/contracts/chat";
+import { useSessionHasRunningServers } from "../running-servers/use-session-has-running-servers";
 import { ThreadHeader, ThreadNavigationHeader } from "./ThreadHeader";
 import { DraftContextControls, DraftEnvironmentControl } from "./DraftEnvironmentControl";
 import { draftHeroContent, SHORT_DRAFT_VIEWPORT_HEIGHT } from "./NewTaskHero";
@@ -150,14 +151,15 @@ function ThreadContent({
   session: ReadySession;
   route: ThreadRouteScreenProps;
 }) {
-  const { binding, draft, header } = useThreadScreenData(session);
+  const { binding, draft, header, sessionFolders } = useThreadScreenData(session);
   const navigation = useNavigation();
   const { layout } = useAdaptiveWorkspaceLayout();
   const gt = useGT();
-  const onOpenRunningServers = draft ? undefined : () => navigation.navigate("ThreadRunningServers", {
+  const hasServers = useSessionHasRunningServers(session.hostId, session.id, header.cwd, sessionFolders, !draft && !route.inspectorPresentation);
+  const onOpenRunningServers = hasServers ? () => navigation.navigate("ThreadRunningServers", {
     environmentId: session.hostId,
     threadId: session.id,
-  });
+  }) : undefined;
   const environmentControl = draft ? (
     <DraftEnvironmentControl
       connectionState={draft.connectionState}
@@ -193,7 +195,7 @@ function ThreadContent({
                     />
                   ) : null}
                   {draft.scratch ? null : (
-                    <DraftWorkspaceControls store={session.store} disabled={draft.disabled} />
+                    <DraftWorkspaceControls store={session.store} disabled={draft.disabled} draftKey={session.draftKey} />
                   )}
                 </>
               ),

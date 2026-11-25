@@ -1,7 +1,7 @@
 import { MobileSessionCache } from "../features/threads/session-cache"
 import { z } from 'zod'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import { pairServer, urlHost } from '@solus/client-core/pairing'
+import { pairServer, requestPairApproval, urlHost, type PairServerResult } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import { replaceModelProfiles, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
@@ -32,6 +32,8 @@ import { AppearancePreference, type AppearanceMode } from '../features/settings/
 import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { ForwardedHosts } from '../features/hosts/forwarded-hosts'
+import { HostReach } from '../features/hosts/host-reach'
+import { canReadPairings } from '@solus/client-core/paired-hosts'
 import { Codebases } from '../features/codebases/codebases'
 import { NativeDevices } from '../features/devices/native-devices'
 import { NativeBrowser } from '../features/browser/native-browser'
@@ -163,6 +165,8 @@ export class SolusApp {
   readonly forwardedHosts: ForwardedHosts
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
+  /** The machines each host this phone owns reaches (docs/plans/host-reach.md). */
+  readonly hostReach: HostReach
   /** The open approval requests of the hosts this phone may decide them on (docs/plans/add-machine-card.md). */
   readonly pairApprovals: PairApprovals
   /** The codebases of the hosts of this phone (docs/plans/codebases.md §10). */
@@ -288,6 +292,16 @@ export class SolusApp {
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
+    this.hostReach = new HostReach({
+      connectionFor: (hostId) => this.connections.connection(hostId),
+      isOwner: (hostId) => {
+        const connection = this.connections.connection(hostId)
+        const info = connection?.state.readiness === 'ready' ? connection.facts.value('serverInfo') : undefined
+        return !!info && canReadPairings(info)
+      },
+      changes: this.connections.pairingsChanged,
+      now: () => Date.now(),
+    })
     this.pairApprovals = new PairApprovals({
       readyConnections: () => this.connections.readyConnections(),
       mayReach: (hostId) => this.connections.may(hostId, 'host.local.reach'),
@@ -447,7 +461,7 @@ export class SolusApp {
    * nearby, a dev auto-connect), which copies nothing and leaves the host's switch as it is.
    */
   async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string, syncSettings: boolean | null = null): Promise<PairOutcome> {
-    const { server, sessionToken } = await pairServer({
+    const paired = await pairServer({
       url: preview.url,
       pairToken,
       deviceLabel: this.platform.deviceLabel,
@@ -456,6 +470,38 @@ export class SolusApp {
       fetchImpl: this.platform.fetch,
       onTailnet: preview.onTailnet,
     })
+    return this.savePairing(preview, paired, syncSettings)
+  }
+
+  /**
+   * Pairs a host by an approval request with no code (docs/host-pairing.md, "The
+   * approval request"): the host's owner sees `checkCode` with the request and
+   * approves or denies it. Waits until an answer, or until `signal` aborts, which
+   * throws. Saves the host as `pair` does; `syncSettings` is as there.
+   */
+  async pairByApproval(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, checkCode: string, signal?: AbortSignal, syncSettings: boolean | null = null): Promise<PairOutcome> {
+    const answer = await requestPairApproval({
+      url: preview.url,
+      checkCode,
+      deviceLabel: this.platform.deviceLabel,
+      reportedName: preview.name,
+      fetchImpl: this.platform.fetch,
+      onTailnet: preview.onTailnet,
+      signal,
+    })
+    switch (answer.status) {
+      case 'approved':
+        return this.savePairing(preview, answer.result, syncSettings)
+      case 'denied':
+        throw new Error('The owner of that machine denied the request.')
+      case 'expired':
+        throw new Error('Nobody approved the request before it expired. Ask again.')
+      case 'unavailable':
+        throw new Error('That machine does not take approval requests. Use a pairing code.')
+    }
+  }
+
+  private async savePairing(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, { server, sessionToken }: PairServerResult, syncSettings: boolean | null): Promise<PairOutcome> {
     const outcome = await this.registry.savePaired({
       id: server.id,
       label: server.label || urlHost(preview.url),
@@ -486,6 +532,7 @@ export class SolusApp {
         return taskConnection.api
       },
       outbox: this.outbox,
+      accountScope: this.sessionCache.scope(),
       runSettings: () => this.settingsFor(hostId),
       saveModelOptions: (provider, model, options) => { this.personal.saveModelOptions(provider, model, options) },
       autoRenameSessions: () => this.personal.current().autoRenameSessions,
@@ -688,6 +735,7 @@ export class SolusApp {
     this.forwardedHosts.forgetHost(hostId)
     this.codebases.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
+    this.hostReach.forgetHost(hostId)
     this.devices.forgetHost(hostId)
     this.browser.forgetHost(hostId)
     this.accountSync.forgetHost(hostId)

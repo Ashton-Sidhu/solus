@@ -26,6 +26,8 @@
   import SettingsRow from "./SettingsRow.svelte";
   import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
+  import SettingsApplicationsSection from "./SettingsApplicationsSection.svelte";
+  import { Switch } from "../ui/switch";
   import { isModelOffered } from "./lib/text-generation-models";
   import type { TextGenerationModelSelection } from "@solus/contracts/types";
 
@@ -122,7 +124,7 @@
 
 <SettingsSection
   {...settingsDefinitions["general.section-workspace"]}
-  visible={isVisible("projects-base") || isVisible("text-generation-model")}
+  visible={["projects-base", "text-generation-model", "auto-rename"].some(isVisible)}
 >
   <SettingsRow
     {...settingsDefinitions["general.projects-base"]}
@@ -210,7 +212,22 @@
       {/if}
     {/snippet}
   </SettingsRow>
+  <SettingsRow
+    {...settingsDefinitions["general.auto-rename"]}
+    visible={isVisible("auto-rename")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.autoRenameSessions}
+        onCheckedChange={(next) => theme.setPersonal("autoRenameSessions", next)}
+        size="default"
+        aria-label="Toggle automatic session naming"
+      />
+    {/snippet}
+  </SettingsRow>
 </SettingsSection>
+
+<SettingsApplicationsSection {serverId} {isVisible} />
 
 <SettingsAboutSection visible={isVisible("about")} />
 

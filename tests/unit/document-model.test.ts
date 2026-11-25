@@ -59,7 +59,7 @@ function rendererDocumentExtensions(): AnyExtension[] {
     personReference: createPersonRefExtension(() => ({ kind: 'unknown' })),
     artifactEmbed: createArtifactEmbedExtension({ ...embed, isDark: () => false }),
     htmlBlock: createHtmlBlockExtension({ isDark: () => false }),
-    mermaidBlock: createMermaidBlockExtension({ isDark: () => false }),
+    mermaidBlock: createMermaidBlockExtension(),
   })
 }
 
@@ -106,7 +106,7 @@ describe('the document schema', () => {
   test('Markdown files render labelled and detected Mermaid through their own editor schema', () => {
     const extensions = [
       ...editorSchemaExtensions(neverResolves),
-      createMermaidBlockExtension({ isDark: () => false }),
+      createMermaidBlockExtension(),
     ]
     const codec = new MarkdownManager({ marked: createMarkdownParser(), extensions })
     for (const markdown of [CANONICAL.mermaid, NON_CANONICAL['unlabelled Mermaid']]) {

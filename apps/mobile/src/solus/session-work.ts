@@ -97,9 +97,9 @@ export function backgroundTasks(
   if (tasks.length === 0 && !model.backgroundWorkRunning) return [];
   return (
     tasks.length ? tasks : [{ taskId: "session-background", description: "Background work" }]
-  ).map((task) => ({
+  ).map(({ kind, ...task }) => ({
     ...task,
-    kind: "background_task",
+    kind: kind === "command" || kind === "monitor" || kind === "subagent" ? kind : "background_task",
     ...(model.status === "background" && { awaited: true }),
   }));
 }

@@ -5,19 +5,18 @@
     Copy as CopyIcon,
     Play as PlayIcon,
   } from "@lucide/svelte";
-  import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import { nearViewport } from "../../lib/near-viewport";
-  import { renderMermaid, type MermaidResult } from "./lib/mermaid-block";
+  import { loadDiagramRenderer, mermaidDiagram, type Pele } from "./lib/mermaid-block";
 
   /**
    * A settled ```mermaid fence in a reply, drawn as the diagram it describes.
    *
-   * The source is never far: it is what shows until the render lands, what
+   * The source is never far: it is what shows until the renderer loads, what
    * Source flips back to, and what stays on screen — with the parser's
    * complaint under it — when the text does not draw. A blank card is never
    * an outcome.
@@ -28,35 +27,42 @@
 
   let { text }: Props = $props();
 
-  const settings = getSettingsContext();
   // Set in a conversation: the same signal an HTML block uses to take the full
   // transcript column while the prose around it stays narrow.
   const origin = getHtmlBlockOrigin();
 
-  let result = $state<MermaidResult | null>(null);
+  // Pele with this diagram's type loaded, and the text it loaded for; null
+  // until then, or when it did not load. The text travels with Pele, so a
+  // diagram of a new type draws only once that type's chunk is in.
+  let renderer = $state.raw<{ pele: Pele; source: string } | null>(null);
+  let loadFailed = $state(false);
+  // Set by the mounted diagram: the parser's message, or null once it draws.
+  let renderError = $state<string | null>(null);
   // The reader's choice, not remembered: it does not outlive the message on screen.
   let showSource = $state(false);
   let copied = $state(false);
   // Every tab stays mounted, so a transcript full of diagrams in tabs the
-  // reader is not looking at would otherwise queue ahead of the one they are.
-  // Rendering starts when the block nears the viewport, and never un-starts.
+  // reader is not looking at would otherwise load ahead of the one they are.
+  // Loading starts when the block nears the viewport, and never un-starts.
   let isNearViewport = $state(false);
 
-  // Async and theme-bound, so an effect rather than a derived: the SVG bakes
-  // its palette in, and a theme flip is a new render (served from cache when
-  // the reader has been there before).
+  // Async, so an effect rather than a derived.
   $effect(() => {
     if (!isNearViewport) return;
-    const dark = settings.isDark;
     const source = text;
     let active = true;
-    void renderMermaid(source, dark).then((next) => {
-      if (active) result = next;
+    void loadDiagramRenderer(source).then((pele) => {
+      if (!active) return;
+      renderer = pele ? { pele, source } : null;
+      loadFailed = !pele;
     });
     return () => { active = false; };
   });
 
-  const diagram = $derived(result?.svg && !showSource ? result.svg : null);
+  // The diagram stays mounted while its text does not parse, hidden, so the
+  // source and the message show in its place.
+  const isDiagramShown = $derived(!!renderer && !showSource && renderError === null);
+  const errorMessage = $derived(renderError ?? (loadFailed ? "The diagram renderer did not load." : null));
 
   async function copySource() {
     try {
@@ -94,27 +100,37 @@
   </TooltipUI.Root>
 {/snippet}
 
-{#if diagram}
+{#if renderer && !showSource}
   <!-- A plain container-coloured canvas. It takes the full transcript column,
        like an HTML block; the diagram sits at its own size inside it. -->
   <div
     class="my-2 {origin ? 'w-full' : ''}"
+    hidden={!isDiagramShown}
     data-testid="mermaid-block"
     data-conversation-preview={origin ? true : undefined}
   >
     <SandboxFrame>
-      <div class="flex w-full justify-center overflow-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) px-6 py-7 [&_svg]:h-auto [&_svg]:max-w-full">{@html diagram}</div>
+      <div
+        class="flex w-full justify-center overflow-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) px-6 py-7"
+        use:mermaidDiagram={{
+          pele: renderer.pele,
+          source: renderer.source,
+          onRender: () => (renderError = null),
+          onError: (message) => (renderError = message),
+        }}
+      ></div>
       {#snippet actions()}
         {@render action("Show source", "mermaid-block-source", toggleSource, CodeIcon)}
         {@render action(copied ? "Copied" : "Copy source", "mermaid-block-copy", copySource, copied ? CheckIcon : CopyIcon)}
       {/snippet}
     </SandboxFrame>
   </div>
-{:else}
+{/if}
+{#if !isDiagramShown}
   <div class="my-2" data-testid="mermaid-block-source" use:nearViewport={() => (isNearViewport = true)}>
     <CodeBlock {text} lang="mermaid">
       {#snippet actions()}
-        {#if result?.svg}
+        {#if renderer && renderError === null}
           <button type="button" class="solus-code-action" data-testid="mermaid-block-diagram" onclick={toggleSource}>
             <PlayIcon size={11} />
             Diagram
@@ -122,9 +138,8 @@
         {/if}
       {/snippet}
     </CodeBlock>
-    {#if result?.error}
-      <p class="mt-1.5 text-xs leading-snug text-destructive" role="alert" data-testid="mermaid-block-error">{result.error}</p>
+    {#if errorMessage}
+      <p class="mt-1.5 text-xs leading-snug text-destructive" role="alert" data-testid="mermaid-block-error">{errorMessage}</p>
     {/if}
   </div>
 {/if}
-

@@ -360,9 +360,9 @@
                 <ChangeKinds kinds={changeKinds} selected={changeKind} onSelect={(kind) => (pickedChangeKind = kind)} />
               {/if}
               {#if overview.changeRepositories.length > 0 && !overview.query.trim()}
-                <ChangeRepositories repositories={overview.changeRepositories} onOpen={tabId ? openRepositoryChange : undefined} />
+                <ChangeRepositories repositories={overview.changeRepositories} {serverId} onOpen={tabId ? openRepositoryChange : undefined} />
               {/if}
-              <ChangeTree tree={changesTree} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId || overview.agentChoices.length > 0 ? openChange : undefined} />
+              <ChangeTree tree={changesTree} {serverId} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId || overview.agentChoices.length > 0 ? openChange : undefined} />
             </ArtifactCard>
           {/if}
           {#if showsAgents && desktopLineage}

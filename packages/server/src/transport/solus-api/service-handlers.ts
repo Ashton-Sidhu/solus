@@ -1,3 +1,5 @@
+import { withReplyHtmlLayouts } from '../../data/works/artifact-layout'
+import { readHistoryThroughEntry } from '../../data/sessions/history-through-entry'
 import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -106,17 +108,20 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   })
   server.register('loadSessionPage', async ([input], ctx) => {
     const request = z.object({ sessionId: z.string().min(1), turnLimit: z.number().int().min(1).max(100), before: z.string().max(16384).optional(),
-      deferArtifactHtml: z.boolean().optional(), knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
+      throughEntryId: z.string().min(1).max(16384).optional(), deferArtifactHtml: z.boolean().optional(), replyLayout: z.boolean().optional(), knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
     }).parse(input)
     const cursor = readActivityPageCursor(request.before)
     const scope = await readerMirrorScope(ctx.principal, request.sessionId)
-    const page = await readTranscriptPage(scope, request.sessionId, request.turnLimit, cursor.before)
+    const page = await readHistoryThroughEntry(
+      before => readTranscriptPage(scope, request.sessionId, request.turnLimit, before), cursor.before, request.throughEntryId,
+    )
     const [turnDiffs, activity] = await Promise.all([
       turnDiffsOfPage(scope, request.sessionId, page, cursor.before),
       sessionActivity(scope, request.sessionId, pageWindow(page, cursor.at)),
     ])
     const { messages, before } = mergePageActivity(page, activity, cursor.at)
     const full = { messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(messages) : messages), before, turnDiffs }
+    if (request.replyLayout) full.messages = await withReplyHtmlLayouts(full.messages)
     return request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
   })
   server.register('loadSessionToolInputs', async ([request], ctx) => {

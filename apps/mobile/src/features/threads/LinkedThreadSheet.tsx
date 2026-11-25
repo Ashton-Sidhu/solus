@@ -21,7 +21,7 @@ import { useLinkedSession } from "../../solus/use-linked-session";
 import { useConnectSolusMachine } from "../../solus/use-connect-solus-machine";
 import { solus } from "../../solus/runtime";
 import { rememberSession } from "../../solus/session-record";
-import { pairedHostRoute } from "@solus/client-core/host-linking";
+import { pairedHostRoute } from "@solus/client-core/paired-hosts";
 import {
   formatItemFullDetail,
   type ThreadFeedActivity,
@@ -257,7 +257,7 @@ export function LinkedThreadView(props: {
     if (view.canOpen) {
       open();
     } else {
-      const pairing = solus.connections.machineLinks()
+      const pairing = solus.connections.pairingHolders()
         .flatMap(({ snapshot }) => snapshot?.hosts ?? [])
         .find(({ listing }) => listing.installationId === target.environmentId);
       const url = pairing ? pairedHostRoute(pairing)?.url : solus.registry.host(target.environmentId)?.routes[0]?.url;

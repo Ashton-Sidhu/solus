@@ -77,9 +77,9 @@ export class CloudHistory {
   }
 
   /** The older turns of a copy go before what it shows. */
-  async readOlder(model: TranscriptModel): Promise<void> {
+  async readOlder(model: TranscriptModel, throughEntryId?: string): Promise<void> {
     const copy = this.copies.get(model)
-    if (copy && model.olderCursor) await this.readPage(model, copy)
+    if (copy && model.olderCursor) await this.readPage(model, copy, throughEntryId)
   }
 
   diffOf = (sessionId: string, turnIndex: number): CloudTurnDiffState => this.diffs.get(diffKey(sessionId, turnIndex)) ?? IDLE
@@ -122,10 +122,10 @@ export class CloudHistory {
   }
 
   /** Reads the page before what the copy shows, and joins the turn diffs it names to their prompt rows. */
-  private async readPage(model: TranscriptModel, copy: CloudRead): Promise<void> {
+  private async readPage(model: TranscriptModel, copy: CloudRead, throughEntryId?: string): Promise<void> {
     const connection = this.cloud.connection
     if (!connection) throw new Error('Sign in to Solus Cloud to read this session.')
-    const page = await readSessionCloudPage(connection.api, { sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined })
+    const page = await readSessionCloudPage(connection.api, { replyLayout: true, sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined, ...(throughEntryId && { throughEntryId }) })
     model.prependHistory(page)
     if (page.turnDiffs) copy.turnDiffs.push(...page.turnDiffs)
     if (copy.turnDiffs.length > 0) joinTurnDiffs(model, copy)

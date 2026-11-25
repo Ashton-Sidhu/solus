@@ -198,6 +198,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   /** Each settled turn keeps its changed-files card. Off shows the latest turn's
    *  card only, until the next prompt lands. */
   keepDiffSummaryOnEarlierTurns: z.boolean(),
+  hideServerBackgroundWork: z.boolean().describe('Leave out the background row under a finished turn when the only work still running is servers that the agent started. The Running servers list shows them and can stop them.'),
   /** The composer tucks its toolbar row away while the keyboard is elsewhere. */
   collapseComposerWhenIdle: z.boolean(),
   fontFamily: fontPresetSchema('fontFamily'),
@@ -310,6 +311,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   artifactChipSize: 'medium',
   showDiffSummaryAfterTurn: false,
   keepDiffSummaryOnEarlierTurns: true,
+  hideServerBackgroundWork: false,
   collapseComposerWhenIdle: true,
   fontFamily: 'system',
   fontSize: 16,

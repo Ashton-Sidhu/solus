@@ -32,6 +32,8 @@ import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { actingPreferences } from '../../execution/person-settings'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
+import { withReplyHtmlLayouts } from '../../data/works/artifact-layout'
+import { readHistoryThroughEntry } from '../../data/sessions/history-through-entry'
 import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
@@ -206,20 +208,24 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       turnLimit: z.number().int().min(1).max(100),
       before: z.string().max(16384).optional(),
       deferArtifactHtml: z.boolean().optional(),
+      replyLayout: z.boolean().optional(),
+      throughEntryId: z.string().min(1).max(16384).optional(),
       knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
     }).parse(input)
     const profileStartedAt = performance.now()
     const cursor = readActivityPageCursor(request.before)
-    const pageRequest = { ...request, before: cursor.before }
     const mirrored = isApiMode()
-    const source = mirrored
-      ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await forkHistory(handlerCtx, request.sessionId, request.turnLimit, pageRequest.before)
-        ?? await sessionRuntime.history.loadSessionPage(pageRequest)
+    const source = await readHistoryThroughEntry(async before => {
+      if (mirrored) return readTranscriptPage(recordScopeOf(handlerCtx.principal), request.sessionId, request.turnLimit, before)
+      return await forkHistory(handlerCtx, request.sessionId, request.turnLimit, before)
+        ?? sessionRuntime.history.loadSessionPage({ ...request, before })
+    }, cursor.before, request.throughEntryId)
     const historyReadyAt = performance.now()
     const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
-    const key = request.knownHistoryBlocks && manifests.sourceKey(
-      mirrored ? 'mirror' : request.provider, request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
+    // Preview measurements can change without an edit to a provider row.
+    const hasRender = request.replyLayout && source.messages.some(row => row.role === 'assistant' && /(?:`{3,}|~{3,})[ \t]*html\b/i.test(row.content))
+    const key = !hasRender && request.knownHistoryBlocks && manifests.sourceKey(
+      (mirrored ? 'mirror' : request.provider) + (request.replyLayout ? ':layout' : ''), request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
     if (key && request.knownHistoryBlocks) {
       const resumed = manifests.resume(key, request.knownHistoryBlocks)
       if (resumed) {
@@ -240,6 +246,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
     }
+    if (hasRender) full.messages = await withReplyHtmlLayouts(full.messages)
     const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
     if (key) manifests.remember(key, result, full.messages)
     const preparedAt = performance.now()

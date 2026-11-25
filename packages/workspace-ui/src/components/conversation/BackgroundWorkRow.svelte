@@ -4,6 +4,7 @@
   import BackgroundStopButton from "./BackgroundStopButton.svelte";
   import type { BackgroundWait } from "./lib/activity-summary";
   import { revealTurnItem } from "./lib/reveal-in-transcript";
+  import { requestInputFocus } from "../../lib/inputFocus";
   import TaskStatusGlyph from "../session/TaskStatusGlyph.svelte";
 
   /**
@@ -26,14 +27,23 @@
    * the shimmer, and it scrolls to the cards it waits on.
    * When one of those agents waits on you, the row takes the Input glyph its
    * card shows and scrolls to that card, where you answer it.
+   *
+   * A server the session's agent started still listens: the row prints its
+   * address and opens the Running servers list, which shows and stops it.
    */
   interface Props {
     wait: BackgroundWait;
+    /** The addresses of the servers the session's agent left running. */
+    serverAddresses?: readonly string[];
+    onShowServers?: () => void;
     /** Resolves once the host has taken the request; the row goes away when
      *  the tasks settle. */
     onStop: () => Promise<void>;
   }
-  let { wait, onStop }: Props = $props();
+  let { wait, serverAddresses = [], onShowServers, onStop }: Props = $props();
+  const serversText = $derived(
+    serverAddresses.length > 1 ? `${serverAddresses[0]} +${serverAddresses.length - 1}` : (serverAddresses[0] ?? ""),
+  );
 
   let isStopping = $state(false);
 
@@ -41,6 +51,11 @@
     if (wait.agentCardKey && event.currentTarget instanceof HTMLElement) {
       revealTurnItem(event.currentTarget, wait.agentCardKey);
     }
+  }
+
+  function showServers(): void {
+    onShowServers?.();
+    requestInputFocus();
   }
 
   async function stop(): Promise<void> {
@@ -53,7 +68,7 @@
   }
 </script>
 
-{#snippet commandText()}{wait.command}{/snippet}
+{#snippet commandText()}{wait.command || serversText}{/snippet}
 
 <!-- Stop sits on the rail, where a finished row keeps its step count, and takes
      the rail's own type: the row adds a control, not a new style. -->
@@ -68,9 +83,9 @@
 {/snippet}
 
 <ActivityRow
-  target={wait.command ? commandText : undefined}
+  target={wait.command || serversText ? commandText : undefined}
   rail={stopRail}
-  onActivate={wait.agentCardKey ? showAgents : undefined}
+  onActivate={wait.agentCardKey ? showAgents : serversText && onShowServers ? showServers : undefined}
   testid="background-work-row"
 >
   {#snippet glyph()}

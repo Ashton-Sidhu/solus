@@ -137,7 +137,7 @@ describe('a Codex native child that outlives its root turn', () => {
     await completeRoot('root-turn', status)
     // Announced before the turn's result, as a command left running is.
     expect(types(before)).toEqual(['background_task_started', status === 'failed' ? 'error' : 'task_complete'])
-    expect(events[before]!.event).toEqual({ type: 'background_task_started', taskId: CHILD, toolUseId: 'spawn-1' })
+    expect(events[before]!.event).toEqual({ type: 'background_task_started', taskId: CHILD, toolUseId: 'spawn-1', kind: 'subagent' })
     expect(exits).toEqual([status === 'failed' ? 1 : 0])
     expect(internals.activeRuns.has(ROOT)).toBe(false)
     expect(backend.hasBackgroundTasks(ROOT)).toBe(true)

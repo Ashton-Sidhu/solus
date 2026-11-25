@@ -23,6 +23,7 @@ import { ThreadListState, type ThreadListConnection } from "@solus-mobile/featur
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { memoryKeyValueStore } from "@solus-mobile/platform/ports";
 import { toThreadShell, type SessionRow } from "./session";
+import type { Codebase } from "@solus/contracts/codebases";
 
 const session: SessionRow = {
   sessionId: "same-id",
@@ -171,22 +172,25 @@ it("uses the host project and provider on a session with an encoded storage fold
   });
 });
 
-it("marks a session in the container root of a codebase with the codebase icon, and follows a change of the codebases", () => {
-  const containers = new Set(["/Users/me/work"]);
-  const project = createSessionListProjection((hostId, path) => hostId === "mac" && containers.has(path));
+it("marks a session in a codebase with the badge that the codebase record names, and follows a change", () => {
+  const record = (badge?: Codebase["badge"]): Codebase => ({ id: "cb-1", name: "Solus platform", roots: [], updatedAt: 1, deletedAt: null, ...(badge ? { badge } : {}) });
+  let stored = record();
+  const project = createSessionListProjection((codebaseId) => (codebaseId === "cb-1" ? stored : undefined));
   const rows = [
-    { key: "container", hostId: "mac", record: { ...session, projectPath: "/Users/me/work", projectRoot: "/Users/me/work" } },
-    { key: "project", hostId: "mac", record: { ...session, sessionId: "other", projectPath: "/Users/me/app", projectRoot: "/Users/me/app" } },
+    { key: "codebase", hostId: "mac", record: { ...session, projectPath: "/Users/me/app", projectRoot: "/Users/me/app", codebaseId: "cb-1" } },
+    { key: "unread", hostId: "mac", record: { ...session, sessionId: "unread", projectPath: "/Users/me/app", projectRoot: "/Users/me/app", codebaseId: "cb-2" } },
+    { key: "project", hostId: "mac", record: { ...session, sessionId: "other", projectPath: "/Users/me/app", projectRoot: "/Users/me/app", codebaseId: null } },
   ];
   const facts = { views: new Map(), states: new Map() };
-  const [inContainer, inProject] = project(rows, facts);
-  expect(inContainer!.fallbackProject?.projectIcon).toEqual({ kind: "lucide", name: "folder-git-2", color: "gray" });
-  expect(inProject!.fallbackProject?.projectIcon).toBeUndefined();
+  const [inCodebase, notRead, inProject] = project(rows, facts);
+  expect(inCodebase!.codebase?.mark).toMatchObject({ letters: "SP", emoji: null });
+  // A codebase that was deleted, or that the phone has not read, gives no badge: the row shows its project.
+  expect(notRead!.codebase).toBeUndefined();
+  expect(inProject!.codebase).toBeUndefined();
 
-  // The folder stops being a container root: the next projection drops the icon, not the held row.
-  containers.clear();
-  const [afterChange] = project(rows, facts);
-  expect(afterChange!.fallbackProject?.projectIcon).toBeUndefined();
+  // A badge chosen on another client reaches the row on the next projection.
+  stored = record({ color: "teal", icon: { kind: "emoji", emoji: "🛒" } });
+  expect(project(rows, facts)[0]!.codebase?.mark).toEqual({ color: "teal", letters: "SP", emoji: "🛒" });
 });
 
 it("updates the T3 status, timer and snooze gate when a host changes state", () => {

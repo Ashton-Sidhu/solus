@@ -7,18 +7,23 @@
   import { hostOnboardingStore } from "../servers/host-onboarding.store.svelte";
   import { messageFor } from "../servers/lib/setup-rpc";
   import { Button } from "../ui/button";
+  import { Checkbox } from "../ui/checkbox";
   import HostStateIcon from "./HostStateIcon.svelte";
+  import type { AddOutcome } from "./add-several.svelte";
   import { openSshAdd, pairWithCode } from "./add-machine";
   import type { FoundMachine } from "./lib/discover";
 
   /** One found machine and the one action that adds it (D7, D8). A host that runs
-   *  Solus pairs in this row with the code it shows; a WSL distro installs Solus;
-   *  an SSH config machine opens the SSH form, filled in. */
+   *  Solus pairs in this row with the code it shows, or joins the machines added
+   *  together (`selection`); a WSL distro installs Solus; an SSH config machine
+   *  opens the SSH form, filled in. */
   interface Props {
     machine: FoundMachine;
+    /** Present when the row can be added with others: its box, and how its add went. */
+    selection?: { isChosen: boolean; outcome: AddOutcome | undefined; isLocked: boolean; onToggle: (isChosen: boolean) => void };
   }
 
-  let { machine }: Props = $props();
+  let { machine, selection }: Props = $props();
 
   let isEnteringCode = $state(false);
   let code = $state("");
@@ -50,17 +55,31 @@
 
 <div class="flex flex-col">
   <div class="flex items-center gap-3 px-4 py-3.5">
+    {#if selection}
+      <Checkbox
+        checked={selection.isChosen}
+        disabled={selection.isLocked || selection.outcome?.state === "added" || phase === "paired"}
+        onCheckedChange={(isChosen) => selection.onToggle(isChosen)}
+        aria-label="Add {machine.name} with the others"
+        class="pointer-coarse:size-5"
+      />
+    {/if}
     <span class="flex size-4 shrink-0 items-center justify-center text-foreground">
       {#if machine.kind === "ssh"}<Terminal size={16} />{:else}<HostOperatingSystemIcon os={machine.os} size={16} />{/if}
     </span>
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
       <p class="truncate text-workspace-chrome font-medium">{machine.name}</p>
       <p class="truncate font-mono text-chrome-dense text-muted-foreground">{machine.detail}</p>
+      {#if selection?.outcome?.state === "waiting"}
+        <p class="text-chrome-dense text-(--solus-text-secondary)" role="status">Waiting for approval on {machine.name}…</p>
+      {:else if selection?.outcome?.state === "failed"}
+        <p class="text-pretty text-chrome-dense text-(--solus-status-error)" role="alert">{selection.outcome.message}</p>
+      {/if}
     </div>
-    {#if phase === "paired"}
+    {#if phase === "paired" || selection?.outcome?.state === "added"}
       <HostStateIcon state="online" size={15} />
-    {:else if !isEnteringCode}
-      <Button variant="outline" size="sm" class="shrink-0" onclick={act}>
+    {:else if !isEnteringCode && selection?.outcome?.state !== "waiting"}
+      <Button variant="outline" size="sm" class="shrink-0" disabled={selection?.isLocked} onclick={act}>
         {machine.kind === "wsl" ? "Set up" : machine.kind === "ssh" ? "Add over SSH" : "Connect"}
       </Button>
     {/if}

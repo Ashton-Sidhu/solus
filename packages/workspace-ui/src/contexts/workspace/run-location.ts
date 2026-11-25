@@ -352,6 +352,19 @@ export function refuseCodebase(location: RunLocation, refuses = true): RunLocati
 }
 
 /**
+ * What a started session used, as a new session inherits it: its codebase, or
+ * its project with no codebase. The host and the input bar give a run with no
+ * codebase the one codebase of its folder, so a session that used a project
+ * passes on "No codebase". A chat has no codebase, so it passes on nothing.
+ */
+export function usedCodebase(location: RunLocation): RunLocation {
+  const { checkout } = location
+  if (location.codebaseId || location.noCodebase) return location
+  if (checkout.kind === 'folder' && isChat(checkout.path)) return location
+  return refuseCodebase(location)
+}
+
+/**
  * Choose the members of the codebase that get a worktree: their paths on the
  * run host, or null for the default set. The choice is part of a request for a
  * new worktree in a folder, so a run that starts none, and a clone, do not

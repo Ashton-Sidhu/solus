@@ -53,6 +53,8 @@ export interface HostSocketListener {
   request?(event: string): HostRequestHandler | undefined
   /** Anything arrived: a frame or the host's ping. */
   inbound?(): void
+  /** The size of each frame, in bytes, each way: the traffic of the connection. */
+  traffic?(direction: 'in' | 'out', bytes: number): void
 }
 
 /**
@@ -86,7 +88,10 @@ export class HostSocket {
     })
     // `receive` and `finish` ignore the socket once it ended. An error is always
     // followed by a close, which reports it.
-    this.ws.addEventListener('message', (message) => this.receive(message.data))
+    this.ws.addEventListener('message', (message) => {
+      this.countInbound(message.data)
+      this.receive(message.data)
+    })
     this.ws.addEventListener('close', (close) => this.finish({ code: close.code, reason: close.reason }))
   }
 
@@ -119,7 +124,14 @@ export class HostSocket {
 
   private send(frame: ClientFrame): void {
     if (this.finished || this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify(frame))
+    const text = JSON.stringify(frame)
+    this.listener.traffic?.('out', text.length)
+    this.ws.send(text)
+  }
+
+  /** The size of a frame that arrived, for the traffic of the connection. A text frame's length counts its characters: close enough to bytes for a rate. */
+  private countInbound(data: ArrayBuffer | string): void {
+    if (!this.finished) this.listener.traffic?.('in', data instanceof ArrayBuffer ? data.byteLength : data.length)
   }
 
   /** Binary frames arrive as an ArrayBuffer (`binaryType`), text frames as a string. */

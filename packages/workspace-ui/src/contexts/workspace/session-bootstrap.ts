@@ -600,6 +600,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       session.backgroundWorkRunning = !!info.backgroundWorkRunning
+      session.backgroundTasks = info.backgroundTasks
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom
       ctx.lifecycle.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
     } else if (info === null && (isSessionBusyStatus(session.status) || session.status === 'background')) {
@@ -611,7 +612,10 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.rateLimitInfo = null
     }
     // With no run on the host, no background work is left.
-    if (info === null) session.backgroundWorkRunning = false
+    if (info === null) {
+      session.backgroundWorkRunning = false
+      session.backgroundTasks = undefined
+    }
     void ctx.refreshThreadGoal(session.id)
   }
 

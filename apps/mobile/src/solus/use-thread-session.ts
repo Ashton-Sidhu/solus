@@ -1,17 +1,20 @@
 import { useAtomValue } from "@effect/atom-react";
+import { useListened } from "@solus-mobile/app/app-context";
 import { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { threadRouteIsHydrating } from "../features/threads/thread-route-hydration";
 import type { NewTaskDraftRouteParams } from "../features/threads/thread-route-state";
 import { hostQueryScope, hostQueryScopeAtom } from "../state/host-query-scope";
 import { useEnvironmentQuery } from "../state/query";
+import { useComposerDraftProject } from "../state/use-composer-drafts";
 import { solus, useSolusShellCachesRead, useSolusWorkspace } from "./runtime";
 import { sessionDetailAtom } from "./session-detail";
 import { linkedSessionRecord } from "./session-record";
 import { waitingForSessionList } from "./workspace-state";
 
 const noSession = Atom.make(null);
+const waitingForCodebase = Symbol("waitingForCodebase");
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
 export function useThreadSession(params: {
@@ -24,6 +27,9 @@ export function useThreadSession(params: {
   const draftId = first(draft?.draftId);
   const draftProjectId = first(draft?.projectId);
   const draftEnvironmentId = first(draft?.environmentId);
+  const savedProject = useComposerDraftProject(draftId);
+  const savedCodebaseId = savedProject?.environmentId === draftEnvironmentId &&
+    savedProject?.projectId === draftProjectId ? savedProject?.codebaseId : undefined;
   const newId = useMemo(
     () => solus.newSessionId(),
     [draft?.requestId, draftId, draftProjectId, draftEnvironmentId],
@@ -36,6 +42,14 @@ export function useThreadSession(params: {
     draftProjectId ??
     directory.projects.find((p) => p.environmentId === hostId)?.workspaceRoot ??
     "~";
+  const codebaseId = useListened(solus.codebases.changes, () => {
+    if (savedCodebaseId == null || !hostId) return savedCodebaseId;
+    if (solus.codebases.codebasesOfFolder(hostId, path).some(({ id }) => id === savedCodebaseId))
+      return savedCodebaseId;
+    const host = solus.codebases.hosts().find((host) => host.hostId === hostId);
+    return host?.isReady && (host.status === null || host.status === "loading")
+      ? waitingForCodebase : undefined;
+  });
   const record = useSyncExternalStore(solus.threads.changes.subscribe, () =>
     hostId ? solus.threads.thread(hostId, id)?.record : undefined,
   );
@@ -68,6 +82,14 @@ export function useThreadSession(params: {
     setSession({ scope, store: existing });
     return existing ? solus.observeConversation(existing) : undefined;
   }, [scope, hostId, id, isDraft, path]);
+  // Apply the saved choice before the user can send, with the existing draft observation in place.
+  useLayoutEffect(() => {
+    if (!isDraft || !store || codebaseId === undefined || codebaseId === waitingForCodebase) return;
+    const { controller } = store;
+    if (controller.hostId !== hostId || controller.run.sessionId !== id) return;
+    if (!controller.isCodebasePicked || (controller.run.codebaseId ?? null) !== codebaseId)
+      controller.chooseCodebase(codebaseId);
+  }, [store, isDraft, codebaseId, hostId, id]);
   const readScope = useAtomValue(hostId ? hostQueryScopeAtom(hostId) : noSession);
   const readTurnDiff = useMemo(() => {
     if (!store || !hostId) return null;
@@ -75,6 +97,7 @@ export function useThreadSession(params: {
       ? store.controller.readTurnDiff(index)
       : Promise.resolve(null);
   }, [store, hostId, readScope]);
+  if (isDraft && !record && codebaseId === waitingForCodebase) return { kind: "loading" as const };
   if (
     !store ||
     !hostId ||

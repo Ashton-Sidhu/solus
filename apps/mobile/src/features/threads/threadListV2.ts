@@ -321,7 +321,6 @@ export function threadListV2RowAccessibilityLabel(
     readonly statusLabel: string | undefined;
     readonly timeLabel: string;
     readonly snoozeWakeLabel: string | undefined;
-    readonly branch: string | null;
     readonly providerNameLabel: string | null;
     readonly hasQueuedMessages: boolean;
     readonly regeneratingTitle: boolean;
@@ -338,7 +337,6 @@ export function threadListV2RowAccessibilityLabel(
   return [
     input.title,
     meta,
-    input.branch ? resolve(msg("Branch {branch}", { branch: input.branch })) : null,
     input.providerNameLabel,
     input.hasQueuedMessages ? resolve(msg("messages queued to send")) : null,
     input.regeneratingTitle ? resolve(msg("regenerating title")) : null,

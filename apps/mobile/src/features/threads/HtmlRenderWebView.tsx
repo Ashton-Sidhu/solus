@@ -322,10 +322,12 @@ export function InlineHtmlRender({
   html,
   title,
   onOpen,
+  height: frameHeight,
   overlay,
 }: {
   readonly html: string;
   readonly title: string;
+  readonly height?: number;
   /** The person opened the page full screen. */
   readonly onOpen?: () => void;
   /** Controls that float over the page, such as the version pill of an artifact group. */
@@ -351,13 +353,13 @@ export function InlineHtmlRender({
         html={html}
         title={title}
         nested={nested}
-        onHeight={nested ? setHeight : undefined}
+        onHeight={nested && frameHeight === undefined ? setHeight : undefined}
         onLoadError={() => setFailed(true)}
       />
     );
   return (
     <InlinePreviewFrame title={title} expandedContent={() => page(false)} onOpen={onOpen}>
-      <View style={{ height }}>
+      <View style={{ height: frameHeight ?? height }}>
         {page(true)}
         {overlay}
       </View>

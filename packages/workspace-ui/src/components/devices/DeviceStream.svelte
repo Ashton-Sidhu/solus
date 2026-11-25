@@ -6,6 +6,8 @@
   import { DeviceVideoDecoder, browserVideoCodecs, framePlacement, type DeviceVideoStatus } from "./lib/device-video";
   import { DeviceInputBatcher, clampedPoint, containedRect, keyInput, normalizedPoint, scrollDelta, type ScreenPoint } from "./lib/device-input";
   import { resolveDeviceBody } from "./lib/phone-viewer/body-profile";
+  import { recordDeviceScreen, deviceRecordingType } from "./lib/device-recording";
+  import { downloadBlob } from "../work/lib/work-export";
   import DevicePhoneView from "./DevicePhoneView.svelte";
 
   /**
@@ -30,10 +32,11 @@
     active: boolean;
     /** Input is refused while someone else controls the device. */
     canInteract: boolean;
+    onRecordingError: (error: Error) => void;
     onInputError: (message: string) => void;
   }
 
-  let { serverId, deviceHostId, deviceId, platform, deviceName, showPhone, sourceKind = "local", onPhoneUnavailable, active, canInteract, onInputError }: Props = $props();
+  let { serverId, deviceHostId, deviceId, platform, deviceName, showPhone, sourceKind = "local", onPhoneUnavailable, active, canInteract, onInputError, onRecordingError }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let textBridge = $state<HTMLInputElement | null>(null);
@@ -51,6 +54,33 @@
   let pointerDown = false;
   /** The open hub stream; input goes over its socket. */
   let stream: DeviceHubStream | null = null;
+
+  const recordingType = deviceRecordingType();
+  let stopRecording = $state<(() => void) | null>(null);
+
+  export function isRecording() {
+    return !!stopRecording;
+  }
+
+  export function canRecord() {
+    return !!recordingType && active && status.kind === "streaming" && !!canvas;
+  }
+
+  export function toggleRecording() {
+    if (stopRecording) return stopRecording();
+    if (!canvas || !recordingType || !canRecord()) return;
+    const name = deviceName.replace(/[^a-zA-Z0-9-]+/g, "-") || "device";
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    try {
+      stopRecording = recordDeviceScreen(canvas, recordingType, (result) => {
+        stopRecording = null;
+        if (result instanceof Error) return onRecordingError(result);
+        downloadBlob(`${name}-${stamp}.${result.type.startsWith("video/mp4") ? "mp4" : "webm"}`, result);
+      });
+    } catch (error) {
+      onRecordingError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
 
   const target = $derived({ deviceHostId, deviceId });
 
@@ -81,6 +111,7 @@
             format = "jpeg";
             return;
           }
+          if (next.kind === "ended") stopRecording?.();
           status = next;
         },
         screen: (next) => {
@@ -102,6 +133,7 @@
     stream = hub;
     hub.start();
     return () => {
+      stopRecording?.();
       hub.close();
       if (stream === hub) stream = null;
       decoder.close();

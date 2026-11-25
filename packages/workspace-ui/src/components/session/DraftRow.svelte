@@ -66,7 +66,7 @@
 -->
 <div
   class="group/draft relative -mx-2 flex cursor-pointer items-center rounded-lg pr-2 pl-[0.625rem] transition-[background,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {inFolder
-    ? 'h-[2.25rem] gap-[0.5625rem] @max-[15rem]:gap-1.5'
+    ? 'h-[2.25rem] gap-[0.5625rem]'
     : 'h-[3.875rem]'}"
   role="treeitem"
   tabindex="0"
@@ -87,16 +87,17 @@
     {@render titleLine()}
   {:else}
     <span class="flex min-w-0 flex-1 flex-col">
-      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5">
+      <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
         {@render titleLine()}
       </span>
 
       <span
-        class="mt-[0.375rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1"
+        class="mt-[0.375rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]"
       >
         {@render pencil()}
         <ProjectFavicon
           projectKey={row.groupKey}
+          codebaseId={row.codebaseId}
           class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]"
         />
         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
