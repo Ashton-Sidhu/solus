@@ -61,7 +61,7 @@ import {
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
-import { KeyboardAwareLegendList } from "../../../.qa-cold/observer";
+import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -4410,8 +4410,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             initialScrollAtEnd
             onReady={() => {
               setLoadedListKey(feedThreadKey);
-              if (props.threadTitle?.startsWith("Scroll Less") && props.historyControls?.hasMoreHistory)
-                requestAnimationFrame(() => requestAnimationFrame(() => props.historyControls?.onLoadEarlier()));
               reportMetrics(true);
               // Never leave the feed hidden if end following stalls short of the end.
               landingFallback.current = setTimeout(() => setLandedListKey(feedThreadKey), 1000);

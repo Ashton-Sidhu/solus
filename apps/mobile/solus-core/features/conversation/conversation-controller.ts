@@ -795,9 +795,8 @@ export class ConversationController {
     // The page travels while the session is described. A lineage that moves
     // the thread to another provider reads the page again from that provider.
     const firstSource = this.historySource
-    const qaLimit = this.target.record?.title?.startsWith('Scroll Less') ? 1 : INITIAL_HISTORY_TURNS
     const firstPage = this.target.movedFrom || this.target.fromCloud
-      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: qaLimit, ...sessionFeedHistoryOptions, knownHistoryBlocks: [] },
+      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, ...sessionFeedHistoryOptions, knownHistoryBlocks: [] },
         cached ? () => cached : undefined, HISTORY_CACHE_WAIT_MS)
     let waitingForDescription = true
     // If the source is already known, the authoritative read below paints this page.
@@ -819,7 +818,7 @@ export class ConversationController {
     const source = this.historySource
     const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
       ? firstPage
-      : api.loadSessionPage({ ...source, turnLimit: qaLimit, ...sessionFeedHistoryOptions }))
+      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, ...sessionFeedHistoryOptions }))
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     if (!preview.saved || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
