@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Prompt } from '@solus/contracts/types'
 import {
   MAX_STASHED_PROMPTS, PromptStash, STASH_FILE_LIFETIME_MS, promptStashKey,
-  restoreStashedPrompt, stashAttachmentHost, stashedFileExpired, type PromptStashEntry,
+  restoreStashedPrompt, stashAttachmentHost, stashPreview, stashedFileExpired, type PromptStashEntry,
 } from '../../packages/workspace-ui/src/components/input/lib/prompt-stash'
 
 const empty = (): Prompt => ({ text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [] })
@@ -79,6 +79,13 @@ describe('Prompt Stash', () => {
     expect(target.text).toBe('Keep this draft.\n\nRead the attached file.')
     expect(target.attachments.map((attachment) => attachment.name)).toEqual(['renamed.txt'])
     expect(target.workRefs).toEqual(entry('1').prompt.workRefs)
+  })
+
+  test('previews identify attachment-only prompts and truncate without splitting an emoji', () => {
+    const { prompt } = entry('preview')
+    expect(stashPreview({ ...prompt, text: ' ' })).toBe('(1 file)')
+    expect(stashPreview({ ...prompt, text: 'First line\n\nSecond line' })).toBe('First line Second line')
+    expect(stashPreview({ ...prompt, text: `${'a'.repeat(89)}🌿 rest` })).toBe(`${'a'.repeat(89)}…`)
   })
 
   test('uploaded files stay tied to their host and expire after 24 hours, while inline images travel', () => {

@@ -11,6 +11,11 @@ import {
 } from './prompt-stash'
 
 const entriesByKey = new SvelteMap<string, PromptStashEntry[]>()
+const OPEN_PROMPT_STASH_EVENT = 'solus:open-prompt-stash'
+
+export function openPromptStash(tabId: string): void {
+  window.dispatchEvent(new CustomEvent(OPEN_PROMPT_STASH_EVENT, { detail: tabId }))
+}
 
 export function currentPromptStashKey(organizationId: string | null): string | null {
   if (!accountStore.hasAnswered) return null
@@ -42,6 +47,7 @@ interface ComposerStashTarget {
 
 export function usePromptStash(options: {
   target: () => ComposerStashTarget | null
+  tabId: () => string | undefined
   ownsShortcuts: () => boolean
   canStash: () => boolean
   updateEditor: (text: string) => void
@@ -68,6 +74,16 @@ export function usePromptStash(options: {
 
   $effect(() => {
     if (!options.ownsShortcuts() || options.target()?.prompt !== menuPrompt) close()
+  })
+
+  $effect(() => {
+    const tabId = options.tabId()
+    if (!tabId || !key) return
+    const openForTab = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === tabId && options.ownsShortcuts()) setOpen(true)
+    }
+    window.addEventListener(OPEN_PROMPT_STASH_EVENT, openForTab)
+    return () => window.removeEventListener(OPEN_PROMPT_STASH_EVENT, openForTab)
   })
 
   function close() {

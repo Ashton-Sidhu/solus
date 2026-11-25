@@ -96,8 +96,16 @@ export function hasStashContent(prompt: Prompt): boolean {
 }
 
 export function stashPreview(prompt: Prompt): string {
-  return prompt.text.trim().slice(0, 160).replace(/\s+/g, ' ') ||
-    prompt.attachments[0]?.name || 'Attached context'
+  const text = prompt.text.trim().replace(/\s+/g, ' ')
+  if (text.length > 90) return `${text.slice(0, 90).replace(/[\uD800-\uDBFF]$/, '')}…`
+  if (text) return text
+
+  const files = prompt.attachments.filter((attachment) => attachment.type === 'file').length
+  const images = prompt.attachments.filter((attachment) => attachment.type === 'image').length
+  const count = files + images
+  if (!count) return 'Attached context'
+  const unit = files && images ? 'attachment' : files ? 'file' : 'image'
+  return `(${count} ${unit}${count === 1 ? '' : 's'})`
 }
 
 function appendUnique<Item>(current: Item[], restored: Item[], keyOf: (item: Item) => string): void {

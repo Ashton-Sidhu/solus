@@ -606,6 +606,7 @@
   });
   const ownsStashShortcuts = $derived(ownsComposerShortcuts && !hosts.get(attachmentHost.serverId).me.isGuest);
   const stash = usePromptStash({
+    tabId: () => targetTabId,
     target: () => {
       if (!active || isReadOnly || voiceState !== "idle" || hosts.get(attachmentHost.serverId).me.isGuest) return null;
       const key = currentPromptStashKey(sess?.organizationId ?? serversStore.activeOrganizationId);
@@ -755,8 +756,8 @@
       />
     </div>
   {/if}
-  {#if stash.entries.length || stash.open}
-    <ComposerStash {stash} refocus={refocusComposer} />
+  {#if stash.open && composerRootEl}
+    <ComposerStash {stash} anchor={composerRootEl} refocus={refocusComposer} />
   {/if}
 
   {#if leadingActions}

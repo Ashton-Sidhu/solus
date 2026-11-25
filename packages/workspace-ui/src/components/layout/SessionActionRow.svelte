@@ -2,6 +2,7 @@
   import {
     ArrowDown as ArrowDownIcon,
     Activity as ActivityIcon,
+    Bookmark as BookmarkIcon,
     Files as FilesIcon,
     GitFork as GitForkIcon,
     GitBranchPlus as WorktreeIcon,
@@ -14,6 +15,7 @@
     getSessionSidebarStore,
     getClientShellContext,
     getSessionEnvironmentStore,
+    hosts,
     serversStore,
     toolsStore,
   } from "../../contexts";
@@ -27,6 +29,8 @@
   import * as Tooltip from "../ui/tooltip";
   import SessionProgressButton from "./SessionProgressButton.svelte";
   import SessionActionList from "./SessionActionList.svelte";
+  import { openPromptStash } from "../input/lib/prompt-stash.store.svelte";
+  import { sessionComposerMode } from "../../contexts/sharing/resource-roles";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import type { SessionAction } from "./lib/session-actions";
   import { hostPolicy } from "@solus/client-core/host-policy";
@@ -248,6 +252,16 @@
         run: openSessionInsights,
       });
     }
+    if (sess && !sess.readOnlyReason && !hosts.get(runHost(sess.run)).me.isGuest &&
+        sessionComposerMode(runHost(sess.run), sess.id) !== "view") {
+      actions.push({
+        id: "prompt-stash",
+        label: "Open prompt stash",
+        icon: BookmarkIcon,
+        shortcut: "",
+        run: () => openPromptStash(tabId),
+      });
+    }
     return actions;
   });
 
@@ -380,7 +394,7 @@
       onclick={() => {
         if (!action.isDisabled) action.run();
       }}
-      aria-haspopup={action.id === "files" ? "dialog" : undefined}
+      aria-haspopup={action.id === "files" || action.id === "prompt-stash" ? "dialog" : undefined}
       aria-expanded={action.id === "files" ? reviewFilesOpen : undefined}
       aria-disabled={action.isDisabled}
       data-session-action={action.id}
