@@ -414,10 +414,10 @@
         >
           <action.icon size={16} />
           {#if action.count !== undefined}
-            <!-- A quiet count on the icon's corner, in the icon's own color,
-                 so the button keeps its size. -->
+            <!-- A quiet count on the icon's corner: a muted pill, opaque so the
+                 icon's stroke does not show through, and the button keeps its size. -->
             <span
-              class="pointer-events-none absolute top-0.5 right-0.5 text-[0.625rem] leading-none font-medium tabular-nums"
+              class="pointer-events-none absolute top-px right-0 h-3 min-w-3 rounded-full bg-[color-mix(in_oklch,var(--foreground)_10%,var(--background))] px-[3px] text-center text-[0.5625rem] leading-3 font-semibold tabular-nums text-(--solus-text-secondary)"
               aria-hidden="true"
             >{action.count > 9 ? "9+" : action.count}</span>
           {/if}
