@@ -21,8 +21,9 @@ const state = vi.hoisted(() => ({
   executeQuery: vi.fn(),
   preparedConnectionAtom: null as unknown,
   sign: vi.fn<HostApi["assetCreateUrl"]>(),
-  hostVideoState: null as Atom.Atom<AssetUrlState> | null,
+  hostMediaState: null as Atom.Atom<AssetUrlState> | null,
   hostGeneration: 1,
+  canReadFiles: true,
 }));
 
 vi.mock("./mobile-host", async () => {
@@ -32,7 +33,7 @@ vi.mock("./mobile-host", async () => {
     mobileHost: Atom.family((id: string) =>
       Atom.make(() => ({
         api: { assetCreateUrl: state.sign },
-        canReadFiles: true,
+        canReadFiles: state.canReadFiles,
         httpBaseUrl: `https://${id}.test`,
         generation: state.hostGeneration,
       })).pipe(Atom.keepAlive),
@@ -47,9 +48,9 @@ vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: Atom.Atom<AssetUrlState>) => {
     if (atom === state.assetAtom)
       return AsyncResult.success({ relativeUrl: "/api/assets/image.png", expiresAt: 1 });
-    if (atom.label?.[0] === "host-video-state:none") return null;
-    if (atom.label?.[0] === "host-video-state") {
-      state.hostVideoState = atom;
+    if (atom.label?.[0] === "host-media-state:none") return null;
+    if (atom.label?.[0] === "host-media-state") {
+      state.hostMediaState = atom;
       return appAtomRegistry.get(atom);
     }
     return AsyncResult.initial(false);
@@ -97,13 +98,13 @@ import { resolveMarkdownMediaPreview } from "../lib/markdownMedia";
 
 const environmentId = EnvironmentId.make("asset-environment");
 const threadId = ThreadId.make("asset-thread");
-const resource = { _tag: "media-file", threadId, path: "/repo/image.png" } as const;
+const resource = { _tag: "workspace-file", threadId, path: "/repo/image.png" } as const;
 
 beforeEach(() => {
   state.session = null;
   state.phase = "connected";
   state.sign.mockReset();
-  state.hostVideoState = null;
+  state.hostMediaState = null;
   appAtomRegistry.set(fileAccountScope, { key: "account", organizationId: "org" });
   state.assetQuery.mockReset().mockReturnValue(state.assetAtom);
   state.mint
@@ -114,11 +115,12 @@ beforeEach(() => {
 it.each(["workspace-file", "media-file"] as const)(
   "keeps %s loading until its file grant resolves",
   (_tag) => {
-    expect(useAssetUrlState(environmentId, { ...resource, _tag })).toEqual({ _tag: "Loading" });
+    const file = { ...resource, _tag, path: "/repo/sound.mp3" };
+    expect(useAssetUrlState(environmentId, file)).toEqual({ _tag: "Loading" });
     expect(state.assetQuery).not.toHaveBeenCalled();
 
     state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
-    expect(useAssetUrlState(environmentId, { ...resource, _tag })).toEqual({
+    expect(useAssetUrlState(environmentId, file)).toEqual({
       _tag: "Success",
       expiresAt: 1,
       url: "https://host.test/api/assets/image.png",
@@ -170,25 +172,28 @@ it("rejects with the server's error and resolves null only without a connection"
   await expect(refreshAssetUrl(environmentId, resource)).resolves.toBeNull();
 });
 
-it("opens a host recording without a T3 connection and re-signs it on retry", async () => {
+it.each([
+  ["/tmp/recording.mp4", "video", "/tmp/recording.mp4"],
+  ["/tmp/solus-running-servers-dark.png", "image", "/tmp/solus-running-servers-dark.png"],
+  ["./solus-running-servers-dark.png", "image", "/repo/./solus-running-servers-dark.png"],
+] as const)("opens %s from its Solus host and re-signs it on retry", async (href, kind, path) => {
   state.preparedConnectionAtom = Atom.make({ _tag: "None" });
-  const path = "/tmp/recording.mp4";
-  const preview = resolveMarkdownMediaPreview(path, {
+  const preview = resolveMarkdownMediaPreview(href, {
     environmentId,
     threadId,
     workspaceRoot: "/repo",
   });
-  if (preview?.kind !== "video" || !("resource" in preview.source))
-    throw new Error("Expected a host video preview");
-  const video = preview.source.resource;
+  if (preview?.kind !== kind || !("resource" in preview.source))
+    throw new Error("Expected a host media preview");
+  const resource = preview.source.resource;
   state.sign
     .mockResolvedValueOnce({ relativeUrl: "/api/assets/first", expiresAt: 1 })
     .mockResolvedValueOnce({ relativeUrl: "/api/assets/second", expiresAt: 2 });
 
-  await expect(refreshAssetUrl(environmentId, video)).resolves.toBe(
+  await expect(refreshAssetUrl(environmentId, resource)).resolves.toBe(
     "https://asset-environment.test/api/assets/first",
   );
-  await expect(useRefreshAssetUrl(environmentId, video)()).resolves.toBe(
+  await expect(useRefreshAssetUrl(environmentId, resource)()).resolves.toBe(
     "https://asset-environment.test/api/assets/second",
   );
   expect(state.sign).toHaveBeenLastCalledWith(
@@ -197,13 +202,13 @@ it("opens a host recording without a T3 connection and re-signs it on retry", as
   );
 });
 
-it("loads an inline video URL from the Solus host", async () => {
+it.each(["/repo/videos/demo.mp4", "/repo/preview.png"])("loads an inline URL for %s from the Solus host", async (path) => {
   state.preparedConnectionAtom = Atom.make({ _tag: "None" });
-  const video = { _tag: "media-file", threadId, path: "/repo/videos/demo.mp4" } as const;
+  const resource = { _tag: "media-file", threadId, path } as const;
   state.sign.mockResolvedValueOnce({ relativeUrl: "/api/assets/demo", expiresAt: 1 });
-  expect(useAssetUrlState(environmentId, video)).toEqual({ _tag: "Loading" });
-  const atom = state.hostVideoState;
-  if (!atom) throw new Error("Expected video asset state");
+  expect(useAssetUrlState(environmentId, resource)).toEqual({ _tag: "Loading" });
+  const atom = state.hostMediaState;
+  if (!atom) throw new Error("Expected host media state");
   const { promise, resolve } = Promise.withResolvers<AssetUrlState>();
   const unsubscribe = appAtomRegistry.subscribe(
     atom,
@@ -223,7 +228,25 @@ it("loads an inline video URL from the Solus host", async () => {
   }
 });
 
-it("discards the signed video URL if the account changes during authorization", async () => {
+it("does not request an image URL when the host denies file access", async () => {
+  const hostAtom = mobileHost(environmentId);
+  try {
+    state.canReadFiles = false;
+    appAtomRegistry.refresh(hostAtom);
+    const image = { _tag: "media-file", threadId, path: "/repo/preview.png" } as const;
+    expect(useAssetUrlState(environmentId, image)).toEqual({
+      _tag: "Failure",
+      reason: "missing-file-access",
+    });
+    await expect(refreshAssetUrl(environmentId, image)).resolves.toBeNull();
+    expect(state.sign).not.toHaveBeenCalled();
+  } finally {
+    state.canReadFiles = true;
+    appAtomRegistry.refresh(hostAtom);
+  }
+});
+
+it("discards the signed draft image URL if the account changes during authorization", async () => {
   state.preparedConnectionAtom = Atom.make({ _tag: "None" });
   state.sign.mockImplementationOnce(async () => {
     appAtomRegistry.set(fileAccountScope, { key: "other", organizationId: null });
@@ -233,20 +256,20 @@ it("discards the signed video URL if the account changes during authorization", 
     refreshAssetUrl(environmentId, {
       _tag: "draft-workspace-file",
       cwd: "/repo",
-      path: "video.mp4",
+      path: "preview.png",
     }),
   ).resolves.toBeNull();
   expect(state.sign).toHaveBeenCalledWith(
     expect.objectContaining({
       session: expect.objectContaining({ workingDirectory: "/repo", organizationId: "org" }),
     }),
-    { path: "video.mp4" },
+    { path: "preview.png" },
   );
 });
 
-it("rejects a URL signed before reconnect and uses the new connection on retry", async () => {
+it("rejects an image URL signed before reconnect and uses the new connection on retry", async () => {
   const hostAtom = mobileHost(environmentId);
-  const video = { _tag: "media-file", threadId, path: "/repo/video.mp4" } as const;
+  const image = { _tag: "media-file", threadId, path: "/repo/preview.png" } as const;
   try {
     state.sign.mockImplementationOnce(async () => {
       state.hostGeneration++;
@@ -254,8 +277,8 @@ it("rejects a URL signed before reconnect and uses the new connection on retry",
       return { relativeUrl: "/api/assets/old", expiresAt: 1 };
     });
     state.sign.mockResolvedValueOnce({ relativeUrl: "/api/assets/new", expiresAt: 2 });
-    await expect(refreshAssetUrl(environmentId, video)).resolves.toBeNull();
-    await expect(refreshAssetUrl(environmentId, video)).resolves.toBe(
+    await expect(refreshAssetUrl(environmentId, image)).resolves.toBeNull();
+    await expect(refreshAssetUrl(environmentId, image)).resolves.toBe(
       "https://asset-environment.test/api/assets/new",
     );
   } finally {

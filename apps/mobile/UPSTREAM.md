@@ -42,7 +42,7 @@ sidebar project menu opens the existing Add project screen. A new draft uses
 the sidebar project filter and prefers the viewed host if it has a usable
 checkout of that project.
 
-Video links in a session use the same Solus host and file access rules as the Files preview. T3's iOS, Android, and inline video players request a fresh signed URL for playback.
+Image and video file links in a session use the same Solus host and file access rules as the Files preview. The Solus adapter requests a fresh signed URL from that host when T3 opens the native preview.
 
 The thread route owns the screen host, header, draft layout, and inspector. Saved sessions use T3's loading rule and inspector fallback. A session from the phone cache opens through the same account-scoped watch as a session from the list. After the selected host's phone cache has been read, a direct link outside the list uses the scoped session record query. The fallback can retry that query or reconnect the host. `useThreadScreenData` supplies session state, supported actions, and Solus-specific conversation cards. The new-task and thread routes share the first-prompt transition after the local outbox saves the prompt.
 
