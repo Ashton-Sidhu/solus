@@ -12,7 +12,8 @@ const base: FleetMachineInput = {
   installationId: 'i-h1',
   label: 'studio-mini',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'ready',
   routeKind: 'lan',
@@ -231,7 +232,7 @@ describe('introducing hosts on the map', () => {
   // done, the person must read why where they dropped it.
   const machines = new Map([
     ...own(4).map((machine) => [machine.serverId, machine] as const),
-    ['cloud0', fleetMachine({ ...base, serverId: 'cloud0', label: 'cloud-0', isManaged: true })] as const,
+    ['cloud0', fleetMachine({ ...base, serverId: 'cloud0', label: 'cloud-0', isCloud: true, hasManagedCompute: true })] as const,
     ['down0', fleetMachine({ ...base, serverId: 'down0', label: 'down-0', readiness: 'unreachable' })] as const,
   ])
   const blockOf = (serverId: string) => introduceBlock(machines.get(serverId)!, true)
