@@ -347,6 +347,13 @@ describe('the launch of a new worktree session', () => {
       ])
       // The worktree of `web`, the Git data of its repository, and, as for each worktree session, the project root.
       expect(run.additionalDirectories).toEqual([join(web, '.git'), webWorktree, api])
+
+      // A commit pins the checkout, but a pull request still needs a branch as its base.
+      const pinnedCommit = git(api, 'rev-parse', 'HEAD')
+      const plan = await runtime.taskFolders.plan('pinned-commit', { codebaseId: codebase.id, projectFolder: api, repositories: null, actor: HOST_ACTOR })
+      const pinned = await runtime.taskFolders.create('pinned-commit', plan!, { actor: HOST_ACTOR, baseBranch: pinnedCommit })
+      expect(git(pinned.taskFolder.primaryPath, 'rev-parse', 'HEAD')).toBe(pinnedCommit)
+      expect(pinned.checkout?.targetBranch).toBe('main')
     } finally {
       runtime.shutdown()
     }
