@@ -232,7 +232,7 @@ function ShimmerWorkContent(props: {
   return (
     <View className="flex-row items-center gap-1.5">
       {props.showIcon ? (
-        <View className="h-6 w-6 shrink-0 items-center justify-center">
+        <WorkLogIconSlot>
           {props.iconNode !== undefined ? (
             props.iconNode
           ) : props.toolIcon && props.environmentId ? (
@@ -250,7 +250,7 @@ function ShimmerWorkContent(props: {
               highlighted={props.highlighted}
             />
           )}
-        </View>
+        </WorkLogIconSlot>
       ) : null}
       <Text
         className={cn(
@@ -1575,13 +1575,13 @@ export function ThreadThinkingRow(props: {
     <View
       accessible
       accessibilityLabel={label}
-      className="-mx-1 min-h-8 flex-row items-center px-1.5 py-0"
+      className="-mx-1 flex-row items-center px-1.5"
       style={{ minHeight: props.rowSizing.estimatedRowHeight }}
     >
       <ShimmeringWorkContent
         icon="brain"
         iconNode={
-          driver === undefined ? undefined : (
+          driver === undefined || driver === "replay" ? undefined : (
             <View style={{ opacity: 0.7 }}>
               <ProviderIcon provider={driver} size={14} />
             </View>
@@ -1589,6 +1589,7 @@ export function ThreadThinkingRow(props: {
         }
         iconSubtleColor={props.iconSubtleColor}
         label={label}
+        showIcon
       />
     </View>
   );
