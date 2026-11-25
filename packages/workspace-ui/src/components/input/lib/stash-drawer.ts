@@ -1,5 +1,6 @@
+/** The drawer floats a small gap above `edgeTop`, inside the visible viewport. */
 export function stashDrawerVerticalPosition(
-  composerTop: number,
+  edgeTop: number,
   viewportTop: number,
   viewportHeight: number,
 ) {
@@ -7,21 +8,26 @@ export function stashDrawerVerticalPosition(
   const top = viewportTop + margin
   const availableHeight = viewportHeight - margin * 2
   // Keep room for at least the header and an entry when the composer is tall.
-  const bottom = Math.min(top + availableHeight, Math.max(composerTop, top + 96))
+  const bottom = Math.min(top + availableHeight, Math.max(edgeTop - 8, top + 96))
   return { bottom, maxHeight: bottom - top }
 }
 
-/** Position the drawer at the outside edge of the card, including its padding. */
+/** Center the drawer over the composer card. In a session it floats above the
+ *  action row, so the bookmark that opened it stays in view; in a draft, which
+ *  has no action row, it floats above the card. */
 export function positionStashDrawer(drawer: HTMLElement, anchor: HTMLElement) {
   const card = anchor.closest<HTMLElement>('[data-slot="composer"]') ?? anchor
+  const column = card.closest<HTMLElement>('[data-composer-column]')
   const viewport = window.visualViewport
   let frame = 0
 
   function position() {
     frame = 0
     const bounds = card.getBoundingClientRect()
+    const trigger = column?.querySelector<HTMLElement>('[data-session-action="prompt-stash"]')
+    const triggerTop = trigger?.getBoundingClientRect().top
     const { bottom, maxHeight } = stashDrawerVerticalPosition(
-      bounds.top,
+      triggerTop && triggerTop < bounds.top ? triggerTop : bounds.top,
       viewport?.offsetTop ?? 0,
       viewport?.height ?? window.innerHeight,
     )

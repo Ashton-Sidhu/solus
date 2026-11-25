@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { stashDrawerVerticalPosition } from '../../packages/workspace-ui/src/components/input/lib/stash-drawer'
 
 describe('stash drawer position', () => {
-  test('attaches to the composer when there is space above it', () => {
-    expect(stashDrawerVerticalPosition(520, 0, 720)).toEqual({ bottom: 520, maxHeight: 508 })
+  test('floats a small gap above its edge when there is space', () => {
+    expect(stashDrawerVerticalPosition(520, 0, 720)).toEqual({ bottom: 512, maxHeight: 500 })
   })
 
   test('keeps the header and an entry visible when a tall composer reaches the top edge', () => {

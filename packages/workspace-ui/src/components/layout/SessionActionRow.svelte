@@ -410,11 +410,16 @@
           {...props}
           variant="ghost"
           size="sm"
-          class="relative h-7 rounded-full after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4! {action.count === undefined ? 'w-7 px-0' : 'w-auto gap-1 px-1.5'}"
+          class="relative h-7 rounded-full after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4! w-7 px-0"
         >
           <action.icon size={16} />
           {#if action.count !== undefined}
-            <span class="text-chrome-dense font-medium tabular-nums text-(--solus-text-secondary)" aria-hidden="true">{action.count}</span>
+            <!-- A small count on the icon's corner, cut out from the icon by a
+                 ring in the page color, so the button keeps its size. -->
+            <span
+              class="pointer-events-none absolute -top-0.5 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-(--solus-text-secondary) px-[3px] text-[0.625rem] leading-none font-semibold tabular-nums text-(--background) ring-2 ring-(--background)"
+              aria-hidden="true"
+            >{action.count > 9 ? "9+" : action.count}</span>
           {/if}
         </Button>
       {/snippet}
