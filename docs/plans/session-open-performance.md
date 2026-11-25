@@ -758,14 +758,14 @@ The mobile typecheck passes. A new recording is pending: the device-control
 service stopped responding during verification. The earlier video does not
 show these follow-up changes.
 
-On iOS, the transcript applies its bottom inset and scroll offset with each
-frame of the keyboard opening. The latest message moves with the composer.
-When the user reads earlier messages, the inset grows and their scroll
-position stays fixed.
+On iOS, the transcript viewport ends at the composer and follows the
+keyboard's visible position during opening and closing. This restores the
+list from `ce4995a4b`, which `afd793ddc` removed before the T3 parity merge.
 
 The first prompt keeps the draft visible until the list has prepared the
-message and the keyboard has closed. In an open iOS session, the list handles
-scrolling to the new prompt and closing the keyboard in one operation.
+message and the keyboard has closed. On a follow-up in an open iOS session,
+the growing viewport reveals the prompt as the keyboard closes. After
+dismissal, the list scrolls to the end if necessary.
 
 ### Native session loading and reconnect
 

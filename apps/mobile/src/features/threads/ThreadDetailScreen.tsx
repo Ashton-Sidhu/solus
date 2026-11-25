@@ -586,6 +586,7 @@ function ThreadDetailBody(
   };
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [isAtEnd, setIsAtEnd] = useState(true);
+  const [isClosingKeyboardForSubmission, setIsClosingKeyboardForSubmission] = useState(false);
   const hasSidebarTabBar = useSidebarWorkspaceTabs() === "picker";
   const composerBottomInset = useComposerBottomInset();
   const composerKeyboardOffset = composerBottomInset;
@@ -1396,16 +1397,21 @@ function ThreadDetailBody(
             );
           }
         : undefined;
-    let isSubmittingPrompt = false;
+    let followAfterKeyboardClose = false;
     const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
       if (scope.aborted) return;
-      isSubmittingPrompt = true;
+      followAfterKeyboardClose =
+        Platform.OS === "ios" && hasUserMessage && KeyboardController.isVisible();
+      if (followAfterKeyboardClose) setIsClosingKeyboardForSubmission(true);
       if (props.draftMode) {
         setSubmittingDraft({ content: props.draftMode.content, feedReady: false });
       }
     });
     if (messageId === null || scope.aborted) {
-      if (!scope.aborted && props.draftMode) setSubmittingDraft(null);
+      if (!scope.aborted) {
+        if (props.draftMode) setSubmittingDraft(null);
+        if (followAfterKeyboardClose) setIsClosingKeyboardForSubmission(false);
+      }
       return messageId;
     }
 
@@ -1427,21 +1433,33 @@ function ThreadDetailBody(
       const followSubmission =
         !props.draftMode &&
         contentPresentationKind === "ready" &&
-        (nextAnchorMessageId === messageId ||
-          (isSubmittingPrompt && Platform.OS === "ios" && hasUserMessage && keyboardVisible));
+        (nextAnchorMessageId === messageId || followAfterKeyboardClose);
       const blurEditor = () =>
         (composerEditorRef.current ?? defaultComposerEditorRef.current)?.blur();
       void finishThreadFeedSubmission({
+        scope,
         keyboardVisible,
-        animated: !reduceMotion,
         blurEditor,
         dismissKeyboard: KeyboardController.dismiss,
-        scrollMessageToEnd: followSubmission && listRef.current ? scrollMessageToEnd : null,
-      })?.catch(() => {
-        if (scope.aborted) return;
-        freeze.set(false);
-        blurEditor();
-      });
+        scrollToEnd: followSubmission
+          ? () => {
+              const list = listRef.current;
+              if (list && !list.getState().isAtEnd) {
+                return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
+              }
+            }
+          : null,
+      })
+        .catch(() => {
+          if (scope.aborted) return;
+          freeze.set(false);
+          blurEditor();
+        })
+        .finally(() => {
+          if (followAfterKeyboardClose && !scope.aborted) {
+            setIsClosingKeyboardForSubmission(false);
+          }
+        });
     });
     return messageId;
   };
@@ -1655,6 +1673,8 @@ function ThreadDetailBody(
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
+                  keyboardStickyEnabled={keyboardStickyEnabled}
+                  isClosingKeyboardForSubmission={isClosingKeyboardForSubmission}
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={
                     questionInFlow

@@ -12,23 +12,16 @@ export function resolveThreadWorkGroupInitialScroll(
   return index >= 0 && position ? { index, viewOffset: -position.offsetWithinRow } : undefined;
 }
 
-export function finishThreadFeedSubmission(input: {
+export async function finishThreadFeedSubmission(input: {
+  readonly scope: AbortSignal;
   readonly keyboardVisible: boolean;
-  readonly animated: boolean;
   readonly blurEditor: () => void;
   readonly dismissKeyboard: () => Promise<void>;
-  readonly scrollMessageToEnd:
-    | ((options: { animated: boolean; closeKeyboard: boolean }) => Promise<void>)
-    | null;
+  readonly scrollToEnd: (() => Promise<void> | undefined) | null;
 }) {
-  if (!input.keyboardVisible) input.blurEditor();
-  if (input.scrollMessageToEnd) {
-    return input.scrollMessageToEnd({
-      animated: input.animated,
-      closeKeyboard: input.keyboardVisible,
-    });
-  }
-  if (input.keyboardVisible) return input.dismissKeyboard();
+  if (input.keyboardVisible) await input.dismissKeyboard();
+  else input.blurEditor();
+  if (!input.scope.aborted) await input.scrollToEnd?.();
 }
 
 export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {

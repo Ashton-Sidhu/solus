@@ -7,41 +7,52 @@ import {
 
 describe("finishThreadFeedSubmission", () => {
   const setup = () => ({
+    scope: new AbortController().signal,
     keyboardVisible: true,
-    animated: true,
     blurEditor: vi.fn(),
     dismissKeyboard: vi.fn(async () => {}),
-    scrollMessageToEnd: vi.fn(async () => {}),
+    scrollToEnd: vi.fn(async () => {}),
   });
 
-  it("closes the keyboard and follows the new message in one list operation", async () => {
+  it("lets the closing viewport reveal the follow-up before checking whether to scroll", async () => {
     const commands = setup();
-    await finishThreadFeedSubmission(commands);
-    expect(commands.scrollMessageToEnd).toHaveBeenCalledExactlyOnceWith({
-      animated: true,
-      closeKeyboard: true,
-    });
-    expect(commands.dismissKeyboard).not.toHaveBeenCalled();
+    const keyboard = Promise.withResolvers<void>();
+    commands.dismissKeyboard.mockReturnValueOnce(keyboard.promise);
+    const finished = finishThreadFeedSubmission(commands);
+    expect(commands.dismissKeyboard).toHaveBeenCalledOnce();
+    expect(commands.scrollToEnd).not.toHaveBeenCalled();
+    keyboard.resolve();
+    await finished;
+    expect(commands.scrollToEnd).toHaveBeenCalledOnce();
     expect(commands.blurEditor).not.toHaveBeenCalled();
   });
 
   it("dismisses the keyboard once when the first prompt lands in a draft", async () => {
     const commands = setup();
-    await finishThreadFeedSubmission({ ...commands, scrollMessageToEnd: null });
+    await finishThreadFeedSubmission({ ...commands, scrollToEnd: null });
     expect(commands.dismissKeyboard).toHaveBeenCalledOnce();
-    expect(commands.scrollMessageToEnd).not.toHaveBeenCalled();
+    expect(commands.scrollToEnd).not.toHaveBeenCalled();
     expect(commands.blurEditor).not.toHaveBeenCalled();
   });
 
   it("blurs a hardware keyboard's input and follows without dismissing a soft keyboard", async () => {
     const commands = setup();
-    await finishThreadFeedSubmission({ ...commands, keyboardVisible: false, animated: false });
+    await finishThreadFeedSubmission({ ...commands, keyboardVisible: false });
     expect(commands.blurEditor).toHaveBeenCalledOnce();
-    expect(commands.scrollMessageToEnd).toHaveBeenCalledExactlyOnceWith({
-      animated: false,
-      closeKeyboard: false,
-    });
+    expect(commands.scrollToEnd).toHaveBeenCalledOnce();
     expect(commands.dismissKeyboard).not.toHaveBeenCalled();
+  });
+
+  it("does not scroll a different conversation after the keyboard closes", async () => {
+    const commands = setup();
+    const scope = new AbortController();
+    const keyboard = Promise.withResolvers<void>();
+    commands.dismissKeyboard.mockReturnValueOnce(keyboard.promise);
+    const finished = finishThreadFeedSubmission({ ...commands, scope: scope.signal });
+    scope.abort();
+    keyboard.resolve();
+    await finished;
+    expect(commands.scrollToEnd).not.toHaveBeenCalled();
   });
 });
 

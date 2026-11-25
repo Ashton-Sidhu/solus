@@ -62,6 +62,7 @@ import {
 } from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
+import { IosThreadFeedList } from "./IosThreadFeedList";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
@@ -191,7 +192,6 @@ import { inlineFilePreviewKind, isPdfFile } from "../../lib/filePreview";
 import { ThreadInlineFilePreview } from "./ThreadInlineFilePreview";
 import { flattenThemeColor, themeColorWithContrast } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/ui/NativePresentation";
-import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import Animated, { FadeIn, FadeInDown, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { FONT_FAMILIES } from "../../lib/fontFamilies";
@@ -417,6 +417,8 @@ export interface ThreadFeedProps {
   readonly onJumpedToMessage?: () => void;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
+  readonly keyboardStickyEnabled: boolean;
+  readonly isClosingKeyboardForSubmission: boolean;
   readonly fitShortFeedToViewport?: boolean;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
@@ -1277,14 +1279,7 @@ function MessageAttachmentUnknown(props: { readonly name: string }) {
 // LegendList only computes hook visibility when the list has a viewability config.
 const THREAD_MEDIA_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 0 };
 
-// Register the feed scroll view with the iOS screen controller for header minimization.
-function ThreadFeedScrollView(props: ComponentPropsWithRef<typeof Animated.ScrollView>) {
-  return (
-    <NativeScrollViewMarker style={{ flex: 1 }}>
-      <Animated.ScrollView {...props} />
-    </NativeScrollViewMarker>
-  );
-}
+const ThreadList = Platform.OS === "ios" ? IosThreadFeedList : KeyboardAwareLegendList;
 
 function ThreadMediaVisibility(props: {
   readonly rowId: string;
@@ -4524,13 +4519,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           className="flex-1"
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
         >
-          {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- The iOS spread supplies ThreadFeedScrollView. */}
-          <KeyboardAwareLegendList
+          <ThreadList
             ref={attachList}
             dataKey={feedThreadKey}
             style={hideUntilLanded ? { flex: 1, opacity: 0 } : { flex: 1 }}
-            applyWorkaroundForContentInsetHitTestBug
-            {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
             scrollIndicatorInsets={{ top: anchorTopInset, bottom: 0 }}
@@ -4538,8 +4530,18 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             contentInsetEndAdjustment={props.contentInsetEndAdjustment}
             keyboardOffset={props.keyboardOffset}
             {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
-            freeze={props.freeze}
-            maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
+            {...(Platform.OS === "ios"
+              ? { keyboardStickyEnabled: props.keyboardStickyEnabled }
+              : {
+                  freeze: props.freeze,
+                  keyboardLiftBehavior: "whenAtEnd" as const,
+                  applyWorkaroundForContentInsetHitTestBug: true,
+                })}
+            maintainScrollAtEnd={
+              jumpReady || props.isClosingKeyboardForSubmission
+                ? false
+                : THREAD_FEED_MAINTAIN_SCROLL_AT_END
+            }
             maintainScrollAtEndThreshold={THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD}
             maintainVisibleContentPosition
             data={groupedFeed}
@@ -4571,7 +4573,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Android scrolls a tapped selectable message into view when it takes focus, which reads
             // as a user scroll and drops end following before the keyboard closes.
             scrollsChildToFocus={false}
-            keyboardLiftBehavior="whenAtEnd"
             // Seed the initial viewport before native onLayout.
             {...(viewportHeight > 0 && viewportWidth > 0
               ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
