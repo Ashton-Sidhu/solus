@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { sshDeviceHostConfigSchema } from '@solus/contracts/device-types'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { runInNewContext } from 'node:vm'
+import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION, sshDeviceHostConfigSchema } from '@solus/contracts/device-types'
 import { SshDeviceHost, parseScriptReply, sshDeviceTarget } from '@solus/server/devices/ssh-device-host'
 import { SshClient, quoteRemoteArg, sshArgs } from '@solus/server/platform/ssh'
 import { REMOTE_COMMAND, sshDeviceScript } from '@solus/server/devices/ssh-device-script'
@@ -75,6 +79,53 @@ describe('SSH device host', () => {
     const probeBranch = script.slice(script.indexOf("if (mode === 'probe')"), script.indexOf('return;', script.indexOf("if (mode === 'probe')")))
     expect(probeBranch).not.toContain('install(')
     expect(probeBranch).not.toContain('spawn(')
+  })
+
+  test('agent-start replaces a healthy daemon from an older install', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'solus-ssh-device-'))
+    const root = join(home, '.solus', 'devices')
+    const state = join(root, 'hosts', 'owner')
+    const daemonFile = join(state, 'daemon.json')
+    const oldDaemon = { version: '0.21.31', httpPort: 41001, token: 'old-token' }
+    const newDaemon = { version: AGENT_DEVICE_VERSION, httpPort: 41002, token: 'new-token' }
+    const output: string[] = []
+    const childProcess = {
+      spawn: () => { throw new Error('The installed hub is already ready') },
+      spawnSync: (_command: string, args: string[]) => {
+        if (args[1] === 'devices') {
+          expect(JSON.parse(readFileSync(daemonFile, 'utf8'))).toEqual(oldDaemon)
+          writeFileSync(daemonFile, JSON.stringify(newDaemon))
+        }
+        return { status: 0, stdout: '', stderr: '' }
+      },
+    }
+    try {
+      const install = (name: string, version: string, entryPath: string) => {
+        const installDir = join(root, 'tools', name, version)
+        const entry = join(installDir, 'node_modules', name, entryPath)
+        mkdirSync(dirname(entry), { recursive: true })
+        writeFileSync(entry, '')
+        writeFileSync(join(installDir, '.install-complete'), version)
+        return entry
+      }
+      const hubEntry = install('expo-device-hub', DEVICE_HUB_VERSION, 'dist/server/cli.mjs')
+      install('agent-device', AGENT_DEVICE_VERSION, 'bin/agent-device.mjs')
+      mkdirSync(state, { recursive: true })
+      writeFileSync(join(state, 'hub.json'), JSON.stringify({ owner: 'owner', port: 41000, entryPath: hubEntry }))
+      writeFileSync(daemonFile, JSON.stringify(oldDaemon))
+      const remoteProcess = { platform: 'linux', versions: process.versions, execPath: process.execPath, env: {}, exitCode: 0 }
+      await runInNewContext(sshDeviceScript('owner', 'agent-start'), {
+        require: (name: string) => name === 'node:os' ? { homedir: () => home } : name === 'node:child_process' ? childProcess : require(name),
+        process: remoteProcess,
+        console: { log: (line: string) => output.push(line), error: (line: string) => output.push(line) },
+        fetch: async () => new Response('ok'),
+        AbortSignal,
+      })
+      expect(parseScriptReply(output.join('\n'))).toMatchObject({ daemonPort: newDaemon.httpPort, token: newDaemon.token })
+      expect(remoteProcess.exitCode).toBe(0)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 
   test('an unreachable host fails the test with the SSH reason', async () => {

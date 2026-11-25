@@ -319,6 +319,11 @@ export class LocalDeviceHost implements DeviceHost {
     }
   }
 
+  private async daemonHealthy(port: number): Promise<boolean> {
+    return this.fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
+      .then((response) => response.ok).catch(() => false)
+  }
+
   /**
    * agent-device starts its daemon on any command; there is no `daemon start`.
    * A `devices` call in HTTP mode brings it up and writes daemon.json.
@@ -328,13 +333,11 @@ export class LocalDeviceHost implements DeviceHost {
     onPhase('starting')
     await mkdir(this.agentStateDir(), { recursive: true, mode: 0o700 })
     const existing = await this.readDaemonFile()
-    if (existing && existing.version === AGENT_DEVICE_VERSION) {
-      const healthy = await this.fetch(`http://127.0.0.1:${existing.httpPort}/health`, { signal: AbortSignal.timeout(2_000) })
-        .then((response) => response.ok).catch(() => false)
-      if (healthy) return { baseUrl: `http://127.0.0.1:${existing.httpPort}`, token: existing.token }
+    if (existing?.version === AGENT_DEVICE_VERSION && await this.daemonHealthy(existing.httpPort)) {
+      return { baseUrl: `http://127.0.0.1:${existing.httpPort}`, token: existing.token }
     }
-    await rm(join(this.agentStateDir(), 'daemon.json'), { force: true }).catch(() => {})
-    await this.run(hub.nodePath, [agentTool.entryPath, 'devices', '--json'], {
+    // The CLI uses daemon.json to verify and retire an older daemon.
+    const result = await this.run(hub.nodePath, [agentTool.entryPath, 'devices', '--json'], {
       timeoutMs: DAEMON_READY_TIMEOUT_MS,
       env: {
         ...this.env,
@@ -348,7 +351,13 @@ export class LocalDeviceHost implements DeviceHost {
       },
     })
     const daemon = await this.readDaemonFile()
-    if (!daemon) throw new DeviceHostError(this.deviceHostId, 'starting agent tools', `no daemon answered within ${DAEMON_READY_TIMEOUT_MS} ms`)
+    if (daemon?.version !== AGENT_DEVICE_VERSION) {
+      throw new DeviceHostError(this.deviceHostId, 'starting agent tools',
+        boundedDetail(result.stderr) || `agent-device ${AGENT_DEVICE_VERSION} did not start.`)
+    }
+    if (!await this.daemonHealthy(daemon.httpPort)) {
+      throw new DeviceHostError(this.deviceHostId, 'starting agent tools', 'The daemon did not answer.')
+    }
     log.info('agent_device_daemon_started', { port: daemon.httpPort, pid: daemon.pid })
     return { baseUrl: `http://127.0.0.1:${daemon.httpPort}`, token: daemon.token }
   }

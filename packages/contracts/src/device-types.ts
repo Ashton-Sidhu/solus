@@ -12,8 +12,8 @@ import { z } from 'zod'
  */
 
 export const LOCAL_DEVICE_HOST_ID = 'local'
-export const DEVICE_HUB_VERSION = '0.22.1'
-export const AGENT_DEVICE_VERSION = '0.21.31'
+export const DEVICE_HUB_VERSION = '0.26.1'
+export const AGENT_DEVICE_VERSION = '0.21.43'
 
 export const DEVICE_PLATFORMS = ['ios', 'android'] as const
 export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number]
