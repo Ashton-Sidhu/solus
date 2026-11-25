@@ -105,7 +105,6 @@
   <div
     data-slot="composer"
     data-composer-surface
-    data-focused={focused ? "" : undefined}
     data-session-drop-area
     class={cn(
       // The `composer` container. The toolbar row's disclosure ladder measures

@@ -111,8 +111,7 @@
 />
 <svelte:document onpointerdowncapture={dismissOutside} />
 
-<!-- The tray wears the card's outline, focus ring included, so the two read
-     as one shape. It reads the card's focus from the card right after it. -->
+<!-- No outline: the tray is the card's own surface, coming out from behind it. -->
 <div
   bind:this={menu}
   use:tuckStashDrawer={anchor}
@@ -120,7 +119,7 @@
   aria-label="Stashed prompts"
   tabindex={-1}
   data-composer-stash-drawer
-  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)] transition-[box-shadow] duration-[180ms] outline-hidden [&:has(+[data-focused])]:shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]"
+  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) outline-hidden"
 >
   <button
     type="button"
