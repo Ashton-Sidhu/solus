@@ -44,6 +44,10 @@
     if (!entry) return
     const moveFocus = !!menu?.contains(document.activeElement)
     stash.remove(entry)
+    if (!stash.entries.length) {
+      close()
+      return
+    }
     void tick().then(() => selectRow(Math.min(index, stash.entries.length - 1), moveFocus))
   }
 
@@ -73,15 +77,24 @@
     const length = stash.entries.length
     if (!length || stash.isRestoring) return
     const index = stash.entries.findIndex((entry) => entry.id === highlighted?.id)
+    if (event.key === 'Tab' && inEditor && !event.shiftKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      selectRow(index, true)
+      return
+    }
+    if (event.key === 'Backspace' && (event.metaKey || event.ctrlKey) && index >= 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      erase(index)
+      return
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       event.stopPropagation()
       const direction = event.key === 'ArrowDown' ? 1 : -1
       selectRow((index + direction + length) % length)
-    } else if (event.key === 'Backspace' && (event.metaKey || event.ctrlKey) && index >= 0) {
-      event.preventDefault()
-      event.stopPropagation()
-      erase(index)
     } else if (event.key === 'Enter' && inEditor && highlighted) {
       event.preventDefault()
       event.stopPropagation()
@@ -110,7 +123,7 @@
     aria-label="Stashed prompts"
     tabindex={-1}
     data-composer-stash-drawer
-    class="stash-drawer @container/stash pointer-events-auto fixed z-30 flex min-h-0 flex-col rounded-t-2xl border-x border-t border-(--solus-container-border) bg-(--solus-input-pill-bg) p-1 text-workspace-chrome text-(--solus-text-primary) shadow-[0_-4px_16px_-8px_rgb(0_0_0/20%)] outline-hidden dark:shadow-none"
+    class="stash-drawer @container/stash pointer-events-auto fixed z-30 flex min-h-0 flex-col overflow-hidden rounded-t-2xl border-x border-t border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 text-workspace-chrome text-(--solus-text-primary) shadow-[0_-4px_16px_-8px_rgb(0_0_0/20%)] outline-hidden dark:shadow-none"
   >
     <button
       type="button"
@@ -118,22 +131,22 @@
       aria-expanded="true"
       onpointerdown={(event) => event.preventDefault()}
       onclick={close}
-      class="flex min-h-6 shrink-0 items-center gap-2 rounded-xl px-2 text-left text-muted-foreground hover:bg-foreground/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+      class="flex min-h-8 shrink-0 items-center gap-2 rounded-xl px-2 text-left font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-11"
     >
       <Bookmark size={16} class="shrink-0" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">Stash</span>
+      <span class="min-w-0 flex-1 truncate">Stashed prompts</span>
       <span class="min-w-6 text-center font-medium tabular-nums">{stash.entries.length}</span>
       <ChevronDown size={16} class="shrink-0" aria-hidden="true" />
     </button>
 
     {#if stash.entries.length}
-      <ul role="list" aria-label="Stashed prompts" class="grid min-h-0 max-h-[min(24rem,40dvh)] gap-px overflow-y-auto overscroll-contain">
+      <ul role="list" aria-label="Stashed prompts" class="mt-1 grid min-h-0 max-h-[min(24rem,40dvh)] gap-px overflow-y-auto overscroll-contain border-t border-(--solus-container-border) pt-1">
         {#each stash.entries as entry, index (entry.id)}
           {@const label = stashPreview(entry.prompt)}
           {@const images = entry.prompt.attachments.filter((attachment) => attachment.type === 'image' && !!attachment.dataUrl).slice(0, 3)}
           {@const fileCount = entry.prompt.attachments.filter((attachment) => attachment.type === 'file').length}
           <li
-            class="flex min-w-0 items-center gap-1 rounded-md text-foreground/80 data-highlighted:bg-(--solus-surface-active) data-highlighted:text-foreground"
+            class="flex min-w-0 items-center gap-1 rounded-lg text-(--solus-text-primary) data-highlighted:bg-(--solus-surface-active)"
             data-highlighted={highlighted?.id === entry.id ? '' : undefined}
             onpointerenter={() => (highlightedId = entry.id)}
           >
@@ -145,7 +158,7 @@
               onpointerdown={(event) => event.preventDefault()}
               onfocus={() => (highlightedId = entry.id)}
               onclick={() => void stash.restore(entry)}
-              class="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:min-h-11"
+              class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:opacity-60 pointer-coarse:min-h-11"
             >
               <FileText size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate">{label}</span>
@@ -172,7 +185,7 @@
               onpointerdown={(event) => event.preventDefault()}
               onfocus={() => (highlightedId = entry.id)}
               onclick={() => erase(index)}
-              class="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:size-11"
+              class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:size-11"
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -180,7 +193,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="px-8 pt-0.5 pb-2 text-muted-foreground">
+      <p class="px-8 py-2 text-(--solus-text-secondary)">
         Nothing stashed yet.
         {#if combo}Press {formatComboText(combo)} with a prompt in the composer to stash it.{/if}
       </p>
@@ -195,7 +208,7 @@
     --stash-inset: min(1.375rem, calc(var(--stash-card-width) / 10));
     left: calc(var(--stash-card-left) + var(--stash-inset));
     width: calc(var(--stash-card-width) - var(--stash-inset) * 2);
-    bottom: calc(100dvh - var(--stash-card-top));
-    max-height: max(5rem, calc(var(--stash-card-top) - 1.5rem));
+    bottom: var(--stash-bottom);
+    max-height: var(--stash-max-height);
   }
 </style>

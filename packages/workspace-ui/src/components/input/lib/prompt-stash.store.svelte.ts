@@ -24,9 +24,9 @@ export function currentPromptStashKey(organizationId: string | null): string | n
   return promptStashKey(accountId, organizationId)
 }
 
-export function hasStashedPrompts(organizationId: string | null): boolean {
+export function stashedPromptCount(organizationId: string | null): number {
   const key = currentPromptStashKey(organizationId)
-  return !!key && (entriesByKey.get(key)?.length ?? 0) > 0
+  return key ? (entriesByKey.get(key)?.length ?? 0) : 0
 }
 
 function read(key: string): void {

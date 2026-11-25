@@ -29,7 +29,7 @@
   import * as Tooltip from "../ui/tooltip";
   import SessionProgressButton from "./SessionProgressButton.svelte";
   import SessionActionList from "./SessionActionList.svelte";
-  import { hasStashedPrompts, openPromptStash } from "../input/lib/prompt-stash.store.svelte";
+  import { openPromptStash, stashedPromptCount } from "../input/lib/prompt-stash.store.svelte";
   import { sessionComposerMode } from "../../contexts/sharing/resource-roles";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
   import type { SessionAction } from "./lib/session-actions";
@@ -252,14 +252,16 @@
         run: openSessionInsights,
       });
     }
-    if (sess && hasStashedPrompts(sess.organizationId ?? serversStore.activeOrganizationId) &&
+    const stashCount = stashedPromptCount(sess?.organizationId ?? serversStore.activeOrganizationId);
+    if (sess && stashCount > 0 &&
         !sess.readOnlyReason && !hosts.get(runHost(sess.run)).me.isGuest &&
         sessionComposerMode(runHost(sess.run), sess.id) !== "view") {
       actions.push({
         id: "prompt-stash",
-        label: "Open prompt stash",
+        label: `Open prompt stash (${stashCount} saved)`,
         icon: BookmarkIcon,
         shortcut: "",
+        count: stashCount,
         run: () => openPromptStash(tabId),
       });
     }
@@ -408,9 +410,12 @@
           {...props}
           variant="ghost"
           size="sm"
-          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
+          class="relative h-7 rounded-full after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4! {action.count === undefined ? 'w-7 px-0' : 'w-auto gap-1 px-1.5'}"
         >
           <action.icon size={16} />
+          {#if action.count !== undefined}
+            <span class="text-chrome-dense font-medium tabular-nums text-(--solus-text-secondary)" aria-hidden="true">{action.count}</span>
+          {/if}
         </Button>
       {/snippet}
     </Tooltip.Trigger>
