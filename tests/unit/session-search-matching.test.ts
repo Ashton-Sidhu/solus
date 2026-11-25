@@ -42,6 +42,25 @@ describe('one search rule on every client and host', () => {
     expect(sessionNameScore({ title: null, branch: 'solus/fix-sidebar' }, q('solus'))).toBeNull()
     expect(sessionNameScore({ title: null, branch: 'solus/fix-sidebar' }, q('fix sidebar'))?.reason.field).toBe('branch')
   })
+  test('wrapped double quotes require one ordered phrase of whole words', () => {
+    const query = q('  “fix the sidebar”  ')
+    expect(query.required).toEqual(['fix', 'the', 'sidebar'])
+    for (const text of ['fix sidebar', 'sidebar the fix', 'fix a the sidebar', 'fix the sidebars', 'fix, the sidebar']) {
+      expect(query.matchName(text, true)).toBeNull()
+      expect(query.holdsEveryWord(text)).toBe(false)
+    }
+    expect(query.matchName('Fix the sidebar now')).not.toBeNull()
+    expect(q('"fix the sidebar').matchName('Fix sidebar')).not.toBeNull()
+    expect(q('"json"').matchName('JSONSchema')).not.toBeNull()
+    expect(q('"vscode"').matchName('VS Code')).toBeNull()
+    expect(query.passage('fix first, then Fix\n  the sidebar', '[', ']')).toBe('fix first, then [Fix the sidebar]')
+    expect(sessionNameScore({ title: null, branch: 'solus/fix-sidebar' }, q('"solus/fix-sidebar"'))?.reason.field).toBe('branch')
+    const subject = { title: null, pullRequest: '#22889 Fix sidebar' }
+    for (const reference of ['"#22889"', '“pr 22889”', '"https://github.com/o/r/pull/22889"']) {
+      expect(sessionNameScore(subject, q(reference))?.reason.field).toBe('pullRequest')
+    }
+    expect(sessionNameScore(subject, q('"review pr 22889"'))).toBeNull()
+  })
   test('recent use reorders message matches of one kind, never across kinds', () => {
     const now = 100 * 86_400_000
     expect(searchUseScore(now, now)).toBeGreaterThan(searchUseScore(now - 30 * 86_400_000, now))

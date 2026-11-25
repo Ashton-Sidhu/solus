@@ -10,3 +10,8 @@ export function sanitizeFtsQuery(query: string): string {
     .map((token) => `"${token.replaceAll('"', '""')}"`)
     .join(' ')
 }
+
+/** An indexed phrase of whole, normalized tokens. Verify its original text after retrieval. */
+export function ftsExactPhrase(words: readonly string[]): string {
+  return `"${words.join(' ').replaceAll('"', '""')}"`
+}
