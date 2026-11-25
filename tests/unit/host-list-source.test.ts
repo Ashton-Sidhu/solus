@@ -21,7 +21,7 @@ describe('a listing', () => {
     expect(listingOf(paired('a'))).toEqual(listing('a'))
     expect(JSON.stringify(listingOf(paired('a')))).not.toContain('token-a')
     expect(listingOf(paired('d', { sessionToken: '', routes: [route('https://d.tunnel', 'directory')], uplink: { hostId: 'd', directoryUrl: 'https://app' } }))).toBeNull()
-    expect(listingOf(paired('m', { uplink: { hostId: 'm', directoryUrl: 'https://app', kind: 'managed' } }))).toBeNull()
+    expect(listingOf(paired('m', { uplink: { hostId: 'm', directoryUrl: 'https://app', kind: 'cloud' } }))).toBeNull()
     expect(listingOf(paired('other', { sessionToken: '' }))).toBeNull()
     expect(listingOf(paired('local'))).toBeNull()
   })

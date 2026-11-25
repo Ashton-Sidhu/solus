@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createPublicKey, verify } from 'crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { UplinkLinkManager, registerAndLink, splitLegacyLinkRecord, type UplinkConnectorHandle } from '@solus/server/transport/uplink/link'
+import { UplinkLinkManager, registerAndLink, type UplinkConnectorHandle } from '@solus/server/transport/uplink/link'
 import { HostRegistrar } from '@solus/server/host/host-registration'
+import { registerUplinkHandlers } from '@solus/server/transport/handlers/uplink-handlers'
+import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import { CLIENT_ASSERTION_TYPE, type EnrollHostResponse, type HostLinkEnv, type HostLinkResponse, type HostPublicJwk, type UplinkStatus } from '@solus/contracts/uplink'
 import { linkDescription, registrationDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
@@ -13,15 +15,18 @@ import { linkDescription, registrationDescription } from '../../packages/workspa
 // only exposes a registered host to the internet through cloudflared: turning it on or
 // off touches the tunnel and nothing else. Desired state is written before anything acts
 // on it, so a crash between the control plane, the connector, and the secret store
-// resumes correctly at boot.
+// resumes correctly at boot. A cloud machine (plans/034-one-cloud-machine-kind.md §3) is
+// reached at its own address: its link has no tunnel, no connector, and no connector token.
 
 const DIRECTORY = 'https://app.example.test'
 const HOST_ID = 'abcdefghijklmnop'
+/** The address an operator gives with an organization code (`solus setup --address`). */
+const MACHINE_ADDRESS = 'https://vm.acme.example.test'
 
 interface Call { method: string; url: string; body: unknown; authorization: string | null }
 
-/** What the account plane registered for the host's client: the public half of its key. */
-interface Registered { key: HostPublicJwk | null; generation: number; linked: boolean }
+/** What the account plane registered for the host's client: the public half of its key, and for a cloud machine its organization and address. */
+interface Registered { key: HostPublicJwk | null; generation: number; linked: boolean; organizationId?: string; address?: string }
 
 function assertionValid(assertion: string, key: HostPublicJwk | null): boolean {
   const [header, body, signature] = assertion.split('.')
@@ -31,12 +36,14 @@ function assertionValid(assertion: string, key: HostPublicJwk | null): boolean {
   return signed && claims.iss === `host_${HOST_ID}` && claims.sub === claims.iss && claims.aud === `${DIRECTORY}/api/auth/oauth2/token`
 }
 
-function fakeControlPlane(options: { enroll?: () => Response; link?: () => Response; unlink?: () => Response; credential?: () => Response; state?: Registered } = {}) {
+function fakeControlPlane(options: { enroll?: () => Response; link?: () => Response; makeLink?: () => Response; unlink?: () => Response; credential?: () => Response; state?: Registered } = {}) {
   const calls: Call[] = []
-  const state = options.state ?? { key: null, generation: 0, linked: false }
+  const state: Registered = options.state ?? { key: null, generation: 0, linked: false }
   let issued = 0
-  const registrationOf = (generation: number) => ({ hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation })
+  const registrationOf = (generation: number) => ({ hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation, ...(state.organizationId ? { organizationId: state.organizationId } : {}) })
   const tunnel = { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 }
+  /** A cloud machine's link: its own address, with no tunnel behind it. */
+  const reach = () => ({ hostname: new URL(state.address!).host, proxiedPort: 34118 })
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
@@ -52,6 +59,8 @@ function fakeControlPlane(options: { enroll?: () => Response; link?: () => Respo
       if (options.enroll) return options.enroll()
       state.key = body.publicJwk
       state.generation += 1
+      // A ticket an organization issued comes with the machine's address, and its registration names the organization.
+      if (body.address) Object.assign(state, { organizationId: 'org_acme', address: body.address })
       const enrolled: EnrollHostResponse = { registration: registrationOf(state.generation), oauthClient: { clientId: `host_${HOST_ID}` } }
       return Response.json(enrolled)
     }
@@ -62,12 +71,13 @@ function fakeControlPlane(options: { enroll?: () => Response; link?: () => Respo
     }
     if (url.endsWith('/link') && method === 'GET') {
       if (options.link) return options.link()
-      const answer: HostLinkResponse = { hostId: HOST_ID, generation: state.generation, desired: state.linked ? 'linked' : 'unlinked', tunnel: state.linked ? tunnel : null }
+      const answer: HostLinkResponse = { hostId: HOST_ID, generation: state.generation, desired: state.linked ? 'linked' : 'unlinked', tunnel: state.linked ? state.address ? reach() : tunnel : null }
       return Response.json(answer)
     }
     if (url.endsWith('/link') && method === 'POST') {
+      if (options.makeLink) return options.makeLink()
       state.linked = true
-      return Response.json({ tunnel, connectorToken: 'connector-token-1' })
+      return Response.json(state.address ? { tunnel: reach() } : { tunnel, connectorToken: 'connector-token-1' })
     }
     if (url.endsWith('/link') && method === 'DELETE') {
       if (options.unlink) return options.unlink()
@@ -76,7 +86,7 @@ function fakeControlPlane(options: { enroll?: () => Response; link?: () => Respo
     }
     return new Response('not found', { status: 404 })
   }
-  return { calls, fetchImpl, state, registrationOf, tunnel }
+  return { calls, fetchImpl, state, registrationOf, tunnel, reach }
 }
 
 const routeCalls = (calls: Call[]) => calls.filter((call) => !call.url.endsWith('/oauth2/token'))
@@ -94,7 +104,7 @@ function fakeConnector() {
 }
 
 /** A host as the boot composes it: the registration, and the link that follows it. */
-function hostOf(plane: ReturnType<typeof fakeControlPlane>, options: { proxiedPort?: number; env?: HostLinkEnv | null } = {}) {
+function hostOf(plane: ReturnType<typeof fakeControlPlane>, options: { proxiedPort?: number; env?: HostLinkEnv | null; holdsWork?: () => Promise<boolean> } = {}) {
   const connector = fakeConnector()
   const registrations: Array<string | null> = []
   let link: UplinkLinkManager | null = null
@@ -105,6 +115,7 @@ function hostOf(plane: ReturnType<typeof fakeControlPlane>, options: { proxiedPo
     owner: () => ({ userId: 'user_ashton', email: 'ashton@example.test' }),
     fetchImpl: plane.fetchImpl,
     provisionedLink: () => options.env ?? null,
+    holdsWork: options.holdsWork,
     onRegistrationChanged: (registration) => {
       registrations.push(registration ? `${registration.hostId}:${registration.generation}` : null)
       link?.registrationChanged(registration)
@@ -181,12 +192,17 @@ describe('registration: the host’s identity (rule 8)', () => {
     expect(plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))).toHaveLength(1)
   })
 
-  test('a ticket that names organizations attaches a registered host, with its control token', async () => {
+  test('a registered host redeems no organization code: the code is refused here, and Solus cloud is not asked', async () => {
+    // WHY: a registered host was attached to an organization with such a code. Now the code
+    // makes a cloud machine, which starts with new data, so a person's host never becomes one.
     const plane = fakeControlPlane()
     const host = hostOf(plane)
     await host.registrar.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    await expect(host.registrar.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })).rejects.toThrow(/refused to attach/)
-    expect(routeCalls(plane.calls).at(-1)).toMatchObject({ url: `${DIRECTORY}/v1/hosts/${HOST_ID}/organizations/attach`, authorization: CONTROL_TOKEN })
+    const asked = routeCalls(plane.calls).length
+    await expect(host.registrar.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: MACHINE_ADDRESS })).rejects.toThrow(/registered already/)
+    expect(routeCalls(plane.calls)).toHaveLength(asked)
+    expect(host.registrar.current()).toEqual(plane.registrationOf(1))
+    expect(host.registrations).toEqual([`${HOST_ID}:1`])
   })
 
   test('a refused registration says why and leaves nothing behind', async () => {
@@ -248,20 +264,6 @@ describe('registration: the host’s identity (rule 8)', () => {
     expect(host.registrar.current()).toMatchObject({ generation: 2 })
   })
 
-  test('a host that stored one record for its registration and its link keeps both', async () => {
-    writeFileSync(join(dataDir(), 'uplink-link.json'), JSON.stringify({
-      version: 1,
-      desired: 'linked',
-      link: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118, connectionGeneration: 3 },
-      attachedAt: 1,
-    }))
-    splitLegacyLinkRecord()
-    const host = hostOf(fakeControlPlane())
-    expect(host.registrar.current()).toEqual({ hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation: 3 })
-    expect(host.registrar.attachedAt()).toBe(1)
-    expect(host.link.currentTunnel()).toEqual({ hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 })
-    expect(existsSync(join(dataDir(), 'uplink-link.json'))).toBe(false)
-  })
 })
 
 describe('the link: a tunnel, and nothing else (rule 9)', () => {
@@ -442,7 +444,144 @@ describe('linking a device to Solus cloud: a new registration links (rule 9, ame
   })
 })
 
-describe('a managed host’s registration and link from the environment', () => {
+describe('a cloud machine that registered with an organization code: reached at its own address', () => {
+  const dataDir = useDataDir('solus-cloud-machine-link-test-')
+  const code = { ticket: 'set_org', directoryUrl: DIRECTORY, address: MACHINE_ADDRESS }
+  const tokensFile = () => join(dataDir(), 'secrets', 'uplink-tokens.json')
+
+  test('the code registers the machine and links it at once: its address comes back, no connector runs, and it is online', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await registerAndLink(host.registrar, host.link, code)
+    expect(routeCalls(plane.calls).map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual(['POST /v1/hosts/enroll', `POST /v1/hosts/${HOST_ID}/link`])
+    expect(routeCalls(plane.calls)[0]!.body).toMatchObject({ ticket: 'set_org', address: MACHINE_ADDRESS })
+    expect(host.registrar.current()).toMatchObject({ organizationId: 'org_acme' })
+    expect(host.status().link).toEqual({ linked: true, tunnel: { hostname: 'vm.acme.example.test', proxiedPort: 34118 }, state: { observed: 'online' } })
+    expect(host.connector.events).toEqual([])
+    // No connector token exists for it, here or in Solus cloud.
+    expect(existsSync(tokensFile()) ? readFileSync(tokensFile(), 'utf8') : '').not.toContain('connectorToken')
+  })
+
+  test('at boot its stored link starts with no connector token: it is online, not an error', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const first = hostOf(fakeControlPlane({ state }))
+    await registerAndLink(first.registrar, first.link, code)
+    const rebooted = hostOf(fakeControlPlane({ state }))
+    await rebooted.boot()
+    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.status().link).toEqual({ linked: true, tunnel: { hostname: 'vm.acme.example.test', proxiedPort: 34118 }, state: { observed: 'online' } })
+  })
+
+  test('a first link that did not finish is asked for again at boot: Solus cloud holds the address', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    let cloudDown = true
+    const plane = fakeControlPlane({ state, makeLink: () => {
+      if (cloudDown) return Response.json({ error: 'tunnel_provisioning_failed' }, { status: 502 })
+      state.linked = true
+      return Response.json({ tunnel: { hostname: 'vm.acme.example.test', proxiedPort: 34118 } })
+    } })
+    const first = hostOf(plane)
+    await registerAndLink(first.registrar, first.link, code)
+    // The registration stays; the machine is not reachable yet, and it says why.
+    expect(first.status()).toMatchObject({ registration: { registered: true }, link: { linked: false, error: expect.any(String) } })
+    expect(existsSync(join(dataDir(), 'host-link.json'))).toBe(false)
+
+    cloudDown = false
+    const rebooted = hostOf(plane)
+    await rebooted.boot()
+    expect(routeCalls(plane.calls).at(-1)).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/link`, authorization: CONTROL_TOKEN })
+    expect(rebooted.status().link).toEqual({ linked: true, tunnel: { hostname: 'vm.acme.example.test', proxiedPort: 34118 }, state: { observed: 'online' } })
+    expect(rebooted.connector.events).toEqual([])
+  })
+
+  test('a link that still cannot be made at boot leaves the machine registered, with the reason in its status', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const plane = fakeControlPlane({ state, makeLink: () => Response.json({ error: 'tunnel_provisioning_failed' }, { status: 502 }) })
+    const first = hostOf(plane)
+    await registerAndLink(first.registrar, first.link, code)
+    const rebooted = hostOf(plane)
+    await rebooted.boot()
+    expect(rebooted.registrar.current()).toMatchObject({ organizationId: 'org_acme' })
+    expect(rebooted.status().link).toEqual({ linked: false, error: expect.stringContaining('could not start') })
+  })
+
+  test('a personal host with no stored link asks for none at boot, and one whose connector token is gone says so', async () => {
+    // WHY: only a cloud machine has a link with no token. A person's tunnel cannot run without its token, and an unlink stays an unlink.
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const plane = fakeControlPlane({ state })
+    const host = hostOf(plane)
+    await host.registrar.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const unlinked = hostOf(plane)
+    await unlinked.boot()
+    expect(plane.calls.some((call) => call.method === 'POST' && call.url.endsWith('/link'))).toBe(false)
+    expect(unlinked.status().link).toEqual({ linked: false })
+
+    await host.link.link()
+    rmSync(tokensFile())
+    const rebooted = hostOf(plane)
+    await rebooted.boot()
+    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.status().link).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('tunnel credential is missing') } })
+  })
+
+  test('the code is refused on a host that holds sessions, and nothing is linked', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane, { holdsWork: async () => true })
+    await expect(registerAndLink(host.registrar, host.link, code)).rejects.toThrow(/holds sessions already/)
+    expect(plane.calls).toEqual([])
+    expect(host.status()).toEqual({ registration: { registered: false }, link: { linked: false } })
+  })
+})
+
+describe('the registration call a client makes (`uplinkRegister`)', () => {
+  useDataDir('solus-uplink-register-call-test-')
+  type Handler = (args: unknown[]) => Promise<unknown>
+
+  function handlersOf(host: ReturnType<typeof hostOf>, onBecameCloudMachine: () => void = () => {}) {
+    const handlers = new Map<string, Handler>()
+    registerUplinkHandlers(
+      { register: (name: string, handler: Handler) => handlers.set(name, handler) } as never,
+      { registrar: host.registrar, manager: host.link, status: host.status, selfTest: async () => { throw new Error('not used') }, onBecameCloudMachine },
+    )
+    return handlers
+  }
+  const enrollBody = (plane: ReturnType<typeof fakeControlPlane>) => routeCalls(plane.calls).find((call) => call.url.endsWith('/v1/hosts/enroll'))?.body
+
+  test('carries the machine address of an organization code, and the machine is linked at its address', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await handlersOf(host).get('uplinkRegister')!([{ ticket: ' set_org ', directoryUrl: ` ${DIRECTORY} `, address: ` ${MACHINE_ADDRESS} ` }])
+    expect(enrollBody(plane)).toMatchObject({ ticket: 'set_org', address: MACHINE_ADDRESS })
+    expect(host.status()).toMatchObject({ registration: { registered: true, registration: { organizationId: 'org_acme' } }, link: { linked: true, state: { observed: 'online' } } })
+  })
+
+  test('an organization code ends the owner connections of the server, because nobody owns a cloud machine', async () => {
+    // WHY: the caller was admitted as the local owner before the registration. That standing must not outlive it.
+    let ended = 0
+    const cloud = hostOf(fakeControlPlane())
+    await handlersOf(cloud, () => { ended += 1 }).get('uplinkRegister')!([{ ticket: 'set_org', directoryUrl: DIRECTORY, address: MACHINE_ADDRESS }])
+    expect(ended).toBe(1)
+  })
+
+  test('a personal code carries no address, also when a client sends an empty one', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    let ended = 0
+    await handlersOf(host, () => { ended += 1 }).get('uplinkRegister')!([{ ticket: 'set_ticket', directoryUrl: DIRECTORY, address: '   ' }])
+    expect(enrollBody(plane)).not.toHaveProperty('address')
+    expect(host.registrar.current()).not.toHaveProperty('organizationId')
+    // The owner of a personal machine keeps their connection.
+    expect(ended).toBe(0)
+  })
+
+  test('no call takes an organization back from a host', () => {
+    const handlers = handlersOf(hostOf(fakeControlPlane()))
+    expect([...handlers.keys()].sort()).toEqual(['hostSelfTest', 'uplinkLink', 'uplinkRegister', 'uplinkStatus', 'uplinkUnlink'])
+    expect(RPC_INVOKE_METHODS).not.toContain('uplinkDetachOrganization')
+  })
+})
+
+describe('a provisioned cloud machine’s registration and link from the environment', () => {
   useDataDir('solus-managed-link-test-')
 
   const envOf = (plane: ReturnType<typeof fakeControlPlane>, generation = 1): HostLinkEnv => ({

@@ -71,7 +71,7 @@ vi.mock("./runtime", () => ({
   solus: {
     cloudSessions: {headFor: () => null},
     account: {organizationId: null},
-    threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
+    threads: { thread: () => null, cloudHostIds: () => new Set(), rememberSearchResult: host.remember },
     connections: { state: () => undefined, connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
     history: { record: host.recordOpen },

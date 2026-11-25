@@ -149,9 +149,9 @@ export class ThreadDirectory {
   }
 
   /** Change the list filter without changing a record or closing an open thread. */
-  /** The hosts provisioned for an organization, whose threads the organization filter applies to. */
-  managedHostIds(): ReadonlySet<string> {
-    return new Set(this.registry.hosts().filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
+  /** The cloud machines of the organizations, whose threads the organization filter applies to. */
+  cloudHostIds(): ReadonlySet<string> {
+    return new Set(this.registry.hosts().filter((host) => host.uplink?.kind === 'cloud').map((host) => host.id))
   }
 
   selectOrganization(organizationId: string | null): void {
@@ -526,15 +526,15 @@ export class ThreadDirectory {
   private remerge(): void {
     const threads: SolusThreadShell[] = []
     const unlisted: SolusThreadShell[] = []
-    const managed = this.managedHostIds()
+    const cloudHostIds = this.cloudHostIds()
     const listedByHost = new Set<string>()
     for (const [hostId, state] of this.hosts) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
       for (const thread of value.threads) listedByHost.add(thread.record.sessionId)
       for (const thread of value.unlisted ?? []) listedByHost.add(thread.record.sessionId)
-      // A personal host's threads show whole; a managed host's go through the organization (plans/031 rule 3).
-      const usesFilter = usesWindowFilter(hostId, managed)
+      // A personal host's threads show whole; a cloud machine's go through the organization (plans/031 rule 3).
+      const usesFilter = usesWindowFilter(hostId, cloudHostIds)
       threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
     }

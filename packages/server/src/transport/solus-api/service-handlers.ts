@@ -55,7 +55,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
   server.register('connectionsGetServerInfo', async (_args, { principal }): Promise<ConnectionsServerInfo> => {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
-      installationId: deps.serviceId, routes: [], remoteAccess: 'any', requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: wirePrincipalKind(principal), permissions: permissionsFor(principal, true) }
+      installationId: deps.serviceId, routes: [], remoteAccess: 'any', requireAuth: true, trustLocalNetwork: false, hostKind: 'api', roles: ['collaboration'], principal: wirePrincipalKind(principal), permissions: permissionsFor(principal, true) }
     if (principal.kind === 'org-member') Object.assign(info, { userId: principal.userId, organizationId: principal.organizationId, displayName: principal.displayName })
     if (principal.kind === 'guest') {
       const share: NonNullable<ConnectionsServerInfo['share']> = { resource: principal.share.resource, role: principal.share.role }

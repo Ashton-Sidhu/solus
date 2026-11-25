@@ -44,7 +44,7 @@ const ADA = 'K3x9Q2ZfHr8TvL1mNa0bCd4eGh5jKl6p'
 const OTHER_ADA = 'p7Wm4cXq2Rt9Yu8Io7Pa6Sd5Fg4Hj3Kl'
 
 const member = (userId: string, displayName: string): Principal => ({
-  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed',
+  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud',
   displayName, deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 

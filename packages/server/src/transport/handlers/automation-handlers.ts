@@ -1,5 +1,5 @@
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import type { SolusServer } from '../server'
 import { knownExecutionPreferences } from '@solus/contracts/settings'
 import { organizationForNew, recordScopeOf, type RecordScope } from '../../admission/principal'

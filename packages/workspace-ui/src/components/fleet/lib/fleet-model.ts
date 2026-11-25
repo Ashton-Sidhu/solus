@@ -27,8 +27,10 @@ export interface FleetMachine {
   installationId: string | null
   label: string
   os?: HostOperatingSystem
-  /** A Solus Cloud machine: its mark is the cloud, and it can start, stop, and resize. */
-  isManaged: boolean
+  /** A cloud machine of an organization: its mark is the cloud, and it is in the cloud zone. */
+  isCloud: boolean
+  /** Solus Cloud operates its compute: it can start, stop, and restart. */
+  hasManagedCompute: boolean
   /** This device: the center of the map, not a zone. */
   isThisDevice: boolean
   zone: FleetZoneId | 'device'
@@ -78,7 +80,8 @@ export interface FleetMachineInput {
   label: string
   os?: HostOperatingSystem
   isThisDevice: boolean
-  isManaged: boolean
+  isCloud: boolean
+  hasManagedCompute: boolean
   /** How this client is admitted there: a member or guest uses a host someone else shares. */
   principal?: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   ownerName?: string
@@ -107,7 +110,8 @@ export function fleetMachine(input: FleetMachineInput): FleetMachine {
     installationId: input.installationId ?? null,
     label: input.label,
     os: input.os,
-    isManaged: input.isManaged,
+    isCloud: input.isCloud,
+    hasManagedCompute: input.hasManagedCompute,
     isThisDevice: input.isThisDevice,
     zone,
     group: groupOf(zone, input),
@@ -152,7 +156,7 @@ function routeInUseOf(kind: RouteKind, readiness: HostReadiness): RouteInUse | n
 /** A cloud machine and a host someone else shares have their own zone. Each other host is yours, whatever its route: an SSH or WSL host too. */
 function zoneOf(input: FleetMachineInput): FleetMachine['zone'] {
   if (input.isThisDevice) return 'device'
-  if (input.isManaged) return 'cloud'
+  if (input.isCloud) return 'cloud'
   if (input.principal === 'org-member' || input.principal === 'guest') return 'shared'
   return 'own'
 }
@@ -165,9 +169,10 @@ function groupOf(zone: FleetMachine['zone'], input: FleetMachineInput): string |
 }
 
 /**
- * A Solus Cloud machine's lifecycle wins over the connection: a stopped machine is
+ * The lifecycle of managed compute wins over the connection: a stopped machine is
  * stopped, not unreachable. Otherwise the connection says it, and a host that
- * answers is running when sessions work on it.
+ * answers is running when sessions work on it. A cloud machine that its operator
+ * runs has no lifecycle, so the connection says its state.
  */
 export function fleetStateOf(readiness: HostReadiness, managedState: ManagedHostLifecycle | undefined, sessions: number): FleetState {
   if (managedState === 'stopped' || managedState === 'stopping' || managedState === 'deleting') return 'stopped'

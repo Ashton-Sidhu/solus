@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { AccountState } from '@solus/contracts/account-types'
+import type { CloudAddressState } from '@solus/contracts/cloud-address'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
@@ -56,6 +57,7 @@ const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
 const subscribeTrackpadScroll = channelFanOut<[phase: 'begin' | 'end']>('solus:trackpad-scroll')
 const subscribeGuestShortcut = channelFanOut<[shortcut: GuestShortcut]>('solus:guest-shortcut')
 const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:account-state-changed')
+const subscribeCloudAddressChange = channelFanOut<[address: CloudAddressState]>('solus:cloud-address-changed')
 const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
 
 const nativeApi: NativeSolusAPI = {
@@ -108,6 +110,9 @@ const nativeApi: NativeSolusAPI = {
   accountSignOut: () => ipcRenderer.invoke('solus:account-sign-out'),
   accountRetryVerify: () => ipcRenderer.invoke('solus:account-retry-verify'),
   onAccountStateChange: subscribeAccountStateChange,
+  cloudAddress: () => ipcRenderer.invoke('solus:cloud-address'),
+  setCloudAddress: (address: string | null) => ipcRenderer.invoke('solus:cloud-address-set', address),
+  onCloudAddressChange: subscribeCloudAddressChange,
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
   accountAccessToken: (resource: ConnectionTokenResource, options?: { refused?: string }) => ipcRenderer.invoke('solus:account-access-token', resource, options),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),

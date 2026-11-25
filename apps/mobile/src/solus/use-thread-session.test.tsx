@@ -72,7 +72,7 @@ vi.mock("./runtime", () => {
       threads: {
         changes,
         stateOf: () => ({ kind: "idle" }),
-        managedHostIds: () => new Set(),
+        cloudHostIds: () => new Set(),
         thread: (_hostId: string, sessionId: string) => {
           const record = state.records.get(sessionId);
           return record ? { record } : null;

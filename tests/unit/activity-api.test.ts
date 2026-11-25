@@ -162,7 +162,7 @@ describe('activity on the Solus API', () => {
     const hidden = await operations.createWork(alice, { title: 'Private', type: 'doc', content: `Hi ${mention('bob', 'Bob')} ${mention('carol', 'Carol')}` }, 'activity-api-private-01')
     const shared = await operations.createWork(alice, { title: 'Shared', type: 'doc', content: `Hi ${mention('bob', 'Bob')} ${mention('carol', 'Carol')}` }, 'activity-api-shared-001')
     // On the Solus API a member stands in the organization's space (`cloud`), where a share with it is given.
-    await shares.shareWithOrganization({ kind: 'work', id: shared.id }, { ...alice.principal, hostKind: 'cloud' })
+    await shares.shareWithOrganization({ kind: 'work', id: shared.id }, { ...alice.principal, hostKind: 'api' })
 
     expect((await operations.listWorkActivity(alice, hidden.id, {})).items.map((row) => row.kind)).toEqual(['mentioned', 'mentioned'])
     await expect(operations.listWorkActivity(bob, hidden.id, {})).rejects.toMatchObject({ status: 404 })

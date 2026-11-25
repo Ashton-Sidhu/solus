@@ -145,7 +145,7 @@ describe('turn diff mirror', () => {
     await records.upsertOwnSessionRecord({ sessionId: 'published', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
     await records.assignSessionOrganization('published', 'org1', { published: true })
     const organizationPolicy = (limits: { sessionCloudSync?: boolean }) => policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
-      hostId: 'host-1', category: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
       organizations: [{ organizationId: 'org1', name: 'Org', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
         policy: { schemaVersion: 1, organization: { name: 'Org' }, sessions: { limits } }, hostPolicy: null }],
     }) }))

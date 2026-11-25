@@ -160,10 +160,10 @@ class ServersStore {
     hostCatalog.onChange(() => this.followCatalog())
   }
 
-  /** The hosts provisioned for an organization; follows `knownHosts`. */
-  get managedHostIds(): ReadonlySet<string> {
+  /** The cloud machines of the organizations; follows `knownHosts`. */
+  get cloudHostIds(): ReadonlySet<string> {
     void this.knownHosts
-    return hostCatalog.managedHostIds()
+    return hostCatalog.cloudHostIds()
   }
 
   /** The workspace service connections this account holds, one per organization. */
@@ -500,7 +500,7 @@ class ServersStore {
     }
   }
 
-  /** The next timed read, sooner while a managed host settles. An inactive
+  /** The next timed read, sooner while managed compute settles. An inactive
    *  window skips its read and waits for the next tick or a focus. */
   private scheduleDirectoryRefresh(): void {
     if (!this.initialized) return
@@ -526,7 +526,7 @@ class ServersStore {
   }
 
   /**
-   * Ask a managed host to run when it is stopped or failed, and wait until this
+   * Ask managed compute to run when it is stopped or failed, and wait until this
    * client is connected to it (docs/plans/project-model.md §6). The control plane
    * pushes nothing, so the directory is read again every few seconds until it says
    * `ready` and the host's catalog supervisor has dialed it. False when the account
@@ -677,9 +677,9 @@ class ServersStore {
       if (!discoveryServerId) return { newServers: 0 }
       // Web also asks every other connected host for the tailnet hosts it sees
       // (docs/plans/tailscale-support.md D4); desktop's local host reads this
-      // machine's tailnet itself. A managed host advertises no tailnet routes.
+      // machine's tailnet itself. A cloud machine advertises no tailnet routes.
       const otherHostIds = this.local ? [] : serverConnections.serverIds()
-        .filter((serverId) => serverId !== discoveryServerId && !this.managedHostIds.has(serverId))
+        .filter((serverId) => serverId !== discoveryServerId && !this.cloudHostIds.has(serverId))
       const [own, fromHosts] = await Promise.all([
         serverConnections.apiFor(discoveryServerId).discoverServers(),
         askHostsToDiscover(otherHostIds.map((serverId) => () => serverConnections.apiFor(serverId).discoverServers())),

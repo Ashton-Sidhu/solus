@@ -6,8 +6,8 @@ import { ORGANIZATION_ID } from '../src/personas'
 
 /**
  * The renderer's prompt context for a conversation in the Lab's working directory, with
- * the Lab organization selected: on a machine attached for organization work a new root
- * needs one (plans/009-organization-vms.md §1).
+ * the Lab organization selected: a cloud machine starts the session in it on the Solus
+ * API, and a personal host assigns the session to it (plans/034-one-cloud-machine-kind.md §2).
  */
 function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
   const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, gitContext: null, worktreeBaseBranch: null, contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: ORGANIZATION_ID }
@@ -78,17 +78,23 @@ export default scenario('presence: rooms, typing, focus, and leaving', async (ct
   ctx.check('bob is a member with no focus yet', bobRow?.access === 'member' && bobRow.focus.kind === 'none')
   await expectOk(ctx, 'alice heard bob arrive', alice.waitForEvent('host.presenceChanged', (event) => hasName(event.payload.participants, 'Bob')))
 
-  ctx.step('alice starts a session; its first turn gives the organization editor access')
-  // A new organization session is private until the first turn admits it; that turn
+  ctx.step('alice starts a session; the organization gets editor access to it')
+  // On a cloud machine a new session is private until the first turn admits it; that turn
   // gives the organization editor access on the machine (plans/009-organization-vms.md §9,
-  // "Live access on the VM"). A share before then is refused: sharing with an organization
-  // moves the record into it, and the session has no record yet (share-manager.ts).
-  // A managed host has no host login: alice runs on a pasted seat there, as any member does.
+  // "Live access on the VM"). On alice's own machine the session is hers alone, also when
+  // she shared the machine: she shares the session after its first turn. A share before
+  // then is refused: sharing with an organization moves the record into it, and the
+  // session has no record yet (share-manager.ts).
+  // A cloud machine has no host login: alice runs on a pasted seat there, as any member does.
   if (ctx.hostKind !== 'personal') await expectOk(ctx, 'alice pastes a seat to run on', alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
   await alice.rpc('watchSession', { sessionId })
   const startedAt = Date.now()
   await expectOk(ctx, 'alice sends the first turn', alice.rpc('prompt', promptContext(ctx, sessionId), { prompt: 'presence first turn', clientPromptId: `${sessionId}-${startedAt}` }))
   await expectOk(ctx, 'the first turn settles', alice.waitForEvent('session.eventReceived', (event) => event.payload.sessionId === sessionId && event.payload.event.type === 'turn_settled'))
+  if (ctx.hostKind === 'personal') {
+    await expectRefused(ctx, 'on her own machine, bob cannot watch the session before alice shares it', bob.rpc('watchSession', { sessionId }))
+    await expectOk(ctx, 'alice shares the session with the organization', alice.rpc('shareSet', { resource: { kind: 'session', id: sessionId }, entries: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] }))
+  }
 
   ctx.step('two watchers make a room of two')
   await expectOk(ctx, 'bob watches the session', bob.rpc('watchSession', { sessionId }))
@@ -114,6 +120,6 @@ export default scenario('presence: rooms, typing, focus, and leaving', async (ct
   const roomAfter = await expectOk(ctx, 'alice sees bob leave the session', alice.waitForEvent('session.presenceChanged', (event) => event.occurredAt >= closedAt && event.payload.sessionId === sessionId && !hasName(event.payload.participants, 'Bob'), 2_000))
   ctx.check('the room keeps alice', !!roomAfter && hasName(roomAfter.payload.participants, 'Alice'))
   await expectOk(ctx, 'alice sees bob leave the host', alice.waitForEvent('host.presenceChanged', (event) => event.occurredAt >= closedAt && !hasName(event.payload.participants, 'Bob'), 2_000))
-  // The seats scenario expects alice without a seat on a managed host; leave it as found.
+  // The seats scenario expects alice without a seat on a cloud machine; leave it as found.
   if (ctx.hostKind !== 'personal') await expectOk(ctx, 'alice disconnects the seat again', alice.rpc('seatDisconnect', { provider: 'claude-code' }))
 })

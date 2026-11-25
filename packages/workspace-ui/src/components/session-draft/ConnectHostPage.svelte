@@ -18,7 +18,7 @@
   import { Button } from "../ui/button";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
-  import { isManagedHost } from "../servers/lib/managed-host";
+  import { isCloudHost } from "../servers/lib/managed-host";
   import { hostOnboardingStore } from "../servers/host-onboarding.store.svelte";
   import { cloudOnboardingStore as cloud } from "../onboarding/cloud-onboarding.store.svelte";
   import {
@@ -113,9 +113,9 @@
 
 {#snippet tile(Icon: typeof PairIcon | null, host: GatedHost | null)}
   <!-- No status dot: the line under the name says the state in words. Solus
-       Cloud, and a host it runs, wear the Solus mark. -->
+       Cloud, and a cloud host, wear the Solus mark. -->
   <span class="grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
-    {#if host ? isManagedHost(host.uplink) : !Icon}
+    {#if host ? isCloudHost(host.uplink) : !Icon}
       <WorkspaceMark class="size-[1.125rem]" />
     {:else if host}
       <HostOperatingSystemIcon os={host.os} size={15} />

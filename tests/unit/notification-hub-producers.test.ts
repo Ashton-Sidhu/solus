@@ -62,7 +62,7 @@ beforeEach(async () => {
 })
 
 const memberPrincipal = (userId: string): Extract<Principal, { kind: 'org-member' }> => ({
-  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud',
+  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'api',
   displayName: userId, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000,
 })
 const member = (userId: string): WorkspaceRequestContext => ({

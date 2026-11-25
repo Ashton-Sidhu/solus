@@ -208,7 +208,7 @@ export function canChangeAccess(info: Pick<ConnectionsServerInfo, 'principal'>):
   return info.principal === 'local-owner'
 }
 
-/** Pairing does not exist on a managed host or the workspace service: Solus Cloud owns how they are reached. */
+/** Pairing does not exist on a cloud machine or the workspace service: the control plane owns how they are reached. */
 export function hasPairing(info: ConnectionsServerInfo): boolean {
   return info.hostKind === 'personal'
 }

@@ -26,7 +26,7 @@
   } from "./lib/picker-filters";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../../servers/lib/managed-host";
+  import { hostIsCloud } from "../../servers/lib/managed-host";
 
   /**
    * The choices a reader makes about a query, to the right of the box it is
@@ -183,7 +183,7 @@
               {@const host = serversStore.hostFor(hostId)}
               <HostOperatingSystemIcon
                 os={host && "os" in host ? host.os : undefined}
-                managed={hostIsManaged(host)}
+                cloud={hostIsCloud(host)}
                 size={14}
                 class="shrink-0 text-muted-foreground"
               />

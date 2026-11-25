@@ -16,7 +16,7 @@ import { roleOf, visibleTo } from '../../../admission/access'
 import { actorFor, type Actor } from '../../../admission/actor'
 import { INTERNAL_PRINCIPAL } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
-import { provisionedOrganizationId, LOCAL_ORGANIZATION_ID } from '../../../host/host-category'
+import { cloudOrganizationId, LOCAL_ORGANIZATION_ID } from '../../../host/machine-kind'
 import { organizationOfSession } from '../../../data/sessions/session-records'
 import { listDeliveries, loadWebhook, readDelivery } from '../../../data/webhooks/webhook-store'
 import { readWebhookSecrets, verificationSecretOf } from '../../../data/webhooks/webhook-secrets'
@@ -240,7 +240,7 @@ function webhookTool<TFields extends Fields>(name: string, description: string, 
 
 export const createWebhookAgentTool = webhookTool('create_webhook', CREATE_DESC, createFields, true, async (input, context) => {
   const sessionId = context.sessionId() ?? null
-  const organizationId = sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID
+  const organizationId = sessionId ? await organizationOfSession(sessionId) : cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID
   const created = await bound().webhooks.create(webhookCreateInputSchema.parse({
     name: input.name,
     project: input.project ?? context.cwd,

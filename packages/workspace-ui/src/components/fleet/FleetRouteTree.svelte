@@ -82,7 +82,7 @@
                   style:opacity={machineMatches(machine, query) ? 1 : 0.35}
                 >
                   <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)}>
-                    <HostOperatingSystemIcon os={machine.os} managed={machine.isManaged} size={13} />
+                    <HostOperatingSystemIcon os={machine.os} cloud={machine.isCloud} size={13} />
                   </FleetLoadRing>
                   <span class="flex min-w-0 flex-1 flex-col">
                     <span class="truncate text-[0.8125rem] font-medium">{machine.label}</span>

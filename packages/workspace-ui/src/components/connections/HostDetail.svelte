@@ -75,7 +75,7 @@
   <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
     <div class="flex min-w-0 items-center gap-3.5">
       <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)} size={48}>
-        <HostOperatingSystemIcon os={host.os} managed={machine.isManaged} size={18} class="text-foreground" />
+        <HostOperatingSystemIcon os={host.os} cloud={machine.isCloud} size={18} class="text-foreground" />
       </FleetLoadRing>
       <div class="flex min-w-0 flex-col gap-1.5">
         <h1 class="flex min-w-0 items-center gap-2.5 text-[1.375rem] font-medium tracking-[-0.01em] text-foreground">
@@ -91,7 +91,7 @@
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
-      {#if machine.isManaged}
+      {#if machine.hasManagedCompute}
         {#if machine.state === "stopped"}
           <Button variant="outline" size="sm" disabled={!!busyAction} onclick={() => void managedHostsStore.start(host.id)}><Power size={14} />{busyAction === "start" ? "Starting…" : "Start"}</Button>
         {:else}

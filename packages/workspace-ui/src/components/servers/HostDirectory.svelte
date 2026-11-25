@@ -13,7 +13,7 @@
     serversStore,
     type ServerItem,
   } from "../../contexts";
-  import { isManagedHost, managedHostStateLabel } from "./lib/managed-host";
+  import { isCloudHost, managedHostStateLabel } from "./lib/managed-host";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -95,7 +95,7 @@
           {#if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink)} size={15} />
+            <HostOperatingSystemIcon os={server.os} cloud={isCloudHost(server.uplink)} size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">

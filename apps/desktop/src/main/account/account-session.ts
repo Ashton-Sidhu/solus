@@ -11,6 +11,7 @@ const log = createLogger('main', 'account-session')
 export const VERIFY_INTERVAL_MS = 10 * 60_000
 
 export interface AccountSessionDeps {
+  /** The Solus Cloud address at start (`cloud-address.ts`); `useCloudOrigin` changes it while signed out. */
   cloudOrigin: string
   store: AccountStore
   /** The loopback browser step (`loopback-authorizer.ts`). */
@@ -84,7 +85,15 @@ export class AccountSession {
   }
 
   get cloudOrigin(): string {
-    return this.deps.cloudOrigin
+    return this.oauth.cloudOrigin
+  }
+
+  /**
+   * Signs in to another Solus Cloud from now on (`OAuthSession.useCloudOrigin`). False
+   * while a sign-in is held or runs: the person signs out first.
+   */
+  useCloudOrigin(origin: string): boolean {
+    return this.oauth.useCloudOrigin(origin)
   }
 
   /** Whether a sign-in is held. A null `cloudRequest` then means the website did not answer. */
@@ -132,7 +141,7 @@ export class AccountSession {
       return null
     }
     try {
-      return await this.deps.fetch(`${this.deps.cloudOrigin}${path}`, {
+      return await this.deps.fetch(`${this.oauth.cloudOrigin}${path}`, {
         ...init,
         headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...init.headers },
       })

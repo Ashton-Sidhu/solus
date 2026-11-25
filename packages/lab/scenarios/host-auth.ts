@@ -3,15 +3,14 @@ import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { recordedRuns, type RecordedRun } from '../src/oracle'
-import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
+import { ORGANIZATION_ID, personaForHost } from '../src/personas'
 import { expectNotServed, expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
-/** Host auth exit: cloud refuses seats; two hosts keep independent logins and disconnects. */
+/** Host auth exit: the Solus API refuses seats; two cloud machines keep independent logins and disconnects. */
 
 const RUNNER_A = 'labrunnerauthaaaa'
 const RUNNER_B = 'labrunnerauthbbbb'
-const ALICE_USER_ID = PERSONAS.alice.userId
 
 async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs: number): Promise<T> {
   const deadline = Date.now() + timeoutMs
@@ -48,24 +47,24 @@ interface Proof {
 }
 
 function cloudClient(proof: Proof, personaId: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
+  const client = new LabClient({ persona: personaForHost(personaId, 'api'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api' })
   proof.clients.push(client)
   return client
 }
 
-/** A member on a runner, through the runner's proxied listener with a grant that names alice as the owner. */
+/** A member on a cloud machine, through its proxied listener with a member grant for it. Nobody owns the machine. */
 function memberOn(proof: Proof, runner: LabHost, personaId: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: runner.tunnelUrl, issuer: proof.ctx.issuer, hostId: runner.hostId, hostKind: 'personal', hostOwnerUserId: ALICE_USER_ID })
+  const client = new LabClient({ persona: personaForHost(personaId, 'cloud'), hostUrl: runner.tunnelUrl, issuer: proof.ctx.issuer, hostId: runner.hostId, hostKind: 'cloud' })
   proof.clients.push(client)
   return client
 }
 
 async function bootRunnersStep(proof: Proof, runners: LabHost[]): Promise<{ runnerA: LabHost; runnerB: LabHost }> {
   const { ctx, tag } = proof
-  ctx.step(`${tag} two runners of the organization come up`)
-  const runnerA = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_A, runnerOf: ORGANIZATION_ID })
+  ctx.step(`${tag} two cloud machines of the organization come up`)
+  const runnerA = await bootLabHost({ flavor: 'cloud', issuer: ctx.issuer, hostId: RUNNER_A, operatedFor: ORGANIZATION_ID })
   runners.push(runnerA)
-  const runnerB = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_B, runnerOf: ORGANIZATION_ID })
+  const runnerB = await bootLabHost({ flavor: 'cloud', issuer: ctx.issuer, hostId: RUNNER_B, operatedFor: ORGANIZATION_ID })
   runners.push(runnerB)
   return { runnerA, runnerB }
 }
@@ -86,6 +85,8 @@ async function proveHostAuth(ctx: ScenarioContext, engine: SolusApiEngine, datab
     const b = memberOn(proof, runnerB, 'bob')
     ctx.check('member connects to A', (await a.connect()).ok)
     ctx.check('member connects to B', (await b.connect()).ok)
+    const admitted = await a.rpc('connectionsGetServerInfo')
+    ctx.check('A admits him as a member of a cloud machine', admitted.hostKind === 'cloud' && admitted.principal === 'org-member', JSON.stringify({ hostKind: admitted.hostKind, principal: admitted.principal }))
     await expectRefused(ctx, 'no host login means no turn', prompt(a, ctx, 'no-seat', 'no seat'), 'SEAT_REQUIRED')
     await expectOk(ctx, 'connect Claude on A', a.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-a' }))
     ctx.check('B still has no Claude login', (await b.rpc('seatList')).find((seat) => seat.provider === 'claude-code')?.state === 'none')

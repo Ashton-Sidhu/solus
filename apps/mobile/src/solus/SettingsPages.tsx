@@ -25,6 +25,7 @@ import { SettingsScreen } from "../features/settings/components/SettingsScreen";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
+import { CloudAddressSetting } from "./CloudAddressSetting";
 import { HostAccessSection } from "./HostAccessSection";
 import { HostRoutesSection } from "./HostRoutesSection";
 import { ReachedMachinesSection } from "./ReachedMachinesSection";
@@ -251,6 +252,10 @@ export function SolusAccount() {
             }
           />
         )}
+        <CloudAddressSetting
+          isSignedIn={account.kind === "signed-in"}
+          disabled={account.kind !== "signed-out" && account.kind !== "signed-in"}
+        />
       </SettingsSection>
       <SettingsSection title="Settings sync">
         <AppText className="px-4 py-3 text-foreground">

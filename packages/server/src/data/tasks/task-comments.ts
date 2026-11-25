@@ -3,7 +3,7 @@ import { ulid } from '@solus/contracts/ulid'
 import type { TaskComment } from '@solus/contracts/task-types'
 import type { Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { hostUserKey } from '../../host/host-user'
 import {
   creatorKeyOf,

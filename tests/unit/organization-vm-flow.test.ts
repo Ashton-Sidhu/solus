@@ -56,12 +56,12 @@ const vmKey = await generateHostKey()
 
 /** The access token Bob's client presented to the VM: the account plane checks it names this VM. */
 function bobsTokenForVm(): string {
-  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'personal' })
+  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
 }
 
 /** What the account plane issues the VM for Bob in one organization: the VM acts, Bob is the subject. */
 function delegatedFor(subject: string, organizationId: string): string {
-  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'cloud', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
+  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'api', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
 }
 
 beforeAll(async () => {
@@ -227,7 +227,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     const forVm = await fetch(`${apiOrigin}/v1/capabilities`, { headers: { authorization: `Bearer ${bobsTokenForVm()}`, 'solus-organization': 'org_a' } })
     expect(forVm.status).toBe(401)
     // A person's own API token, with no host acting for them, cannot deliver as a runner.
-    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
+    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'api' })
     const deliver = (token: string, hostId: string) => fetch(`${apiOrigin}/runner/deliver`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

@@ -141,7 +141,7 @@ describe('usage handlers', () => {
       } as never,
       clientsForSeat: (seat) => (seat.kind === 'user' ? ['ws:bob'] : ['ws:owner']),
     })
-    const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
+    const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
 
     const bobSnapshots = await server.handle('usageLimits', [], bob)
     expect(bobSnapshots).toMatchObject([{ provider: 'claude-code', seat: '/seats/claude/bob' }])
@@ -208,7 +208,7 @@ describe('usage handlers', () => {
       } as never,
       clientsForSeat: () => ['ws:bob'],
     })
-    const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
+    const bob: HandlerCtx = { clientId: 'ws:bob', principal: { kind: 'org-member', userId: 'bob', organizationId: 'o', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' } }
 
     expect(await server.handle('usageLimits', [], bob)).toEqual([])
     connected = true

@@ -51,7 +51,7 @@ export function routeRows(holder: RouteHolder, viewer: RouteViewer): RouteRow[] 
     canRemove: false,
     block: routeBlock(route, viewer.clientOrigin, viewer.localHostId ?? null, dialChoicesOf(holder)),
   }))
-  if (holder.uplink?.kind === 'managed') return rows
+  if (holder.uplink?.kind === 'cloud') return rows
   // The last route that this client can dial stays: without it the host cannot be reached from here.
   return rows.map((row) => ({ ...row, canRemove: !row.isLearned && rows.some((other) => other.url !== row.url && !other.block) }))
 }
@@ -161,7 +161,7 @@ export async function checkRouteToAdd(fetchImpl: typeof fetch, input: NewRouteIn
   const { holder, identity, viewer, signal } = input
   const url = routeUrlFromInput(input.address)
   if (!url) return { ok: false, refusal: 'invalid-address' }
-  if (holder.uplink?.kind === 'managed') return { ok: false, refusal: 'managed-host' }
+  if (holder.uplink?.kind === 'cloud') return { ok: false, refusal: 'managed-host' }
   if (holder.routes.some((route) => route.url === url)) return { ok: false, refusal: 'already-saved' }
   if (viewer.clientOrigin.startsWith('https:') && url.startsWith('http:')) return { ok: false, refusal: 'mixed-content' }
   if (holder.tokenPairedOverHttps && carriesTokenInClear(routeForUrl(url))) return { ok: false, refusal: 'token-in-clear' }

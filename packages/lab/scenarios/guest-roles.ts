@@ -45,7 +45,7 @@ type Link = { secret: string; actions?: readonly string[]; expiresAt: number | n
 
 async function defaultLinkStep(ctx: ScenarioContext, alice: LabClient, resource: SessionResource): Promise<Link | null> {
   ctx.step('alice starts a session and shares it by link with the default custom role')
-  if (ctx.hostKind !== 'personal') await expectOk(ctx, 'alice connects a seat on the managed host', alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
+  if (ctx.hostKind !== 'personal') await expectOk(ctx, 'alice connects a seat on the cloud machine', alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
   await alice.rpc('watchSession', { sessionId: SESSION_ID })
   await expectOk(ctx, 'alice prompts her session', prompt(alice, ctx, 'alice opens the session'))
   await settle(300)

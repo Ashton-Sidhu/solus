@@ -14,6 +14,8 @@ policy `allowPersonalHosts` and every client's directory row; it is its own chan
 `solus-cloud`'s `@solus/contracts` link must point at a `solus` tree with
 `contracts/src/host-list.ts` before its `check` passes; vitest already resolves it.
 
+> **2026-11-25.** [Plan 034](034-one-cloud-machine-kind.md) built the one `kind` vocabulary of D7, with the value `cloud` in place of `managed`: `HostCategory` and `host.category` are gone, and `cloud` in `HostKind` is now `api` for the Solus API service. `MachineKind` stays as the two machine values.
+>
 > **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the organization task and the task assignee as a Solus user (§3 decision 5, §3a, §5.A) are history. The task snooze stays, keyed by the D1 key and the task key.
 
 ## 1. Rules (user decision, 2026-11-03)

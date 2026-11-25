@@ -13,7 +13,7 @@ import {
 } from '@solus/contracts/settings'
 import { MANAGED_SESSION_SETTING_KEYS } from '@solus/contracts/policy'
 import { hostPolicies } from '../host/policy/host-policy-store'
-import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../host/machine-kind'
 import { createLogger } from '../logger'
 import { requireActingScope } from '../vault/acting-scope'
 import type { AccountReadRefusal } from '../vault/account-reads'

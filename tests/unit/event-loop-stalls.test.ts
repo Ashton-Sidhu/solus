@@ -108,7 +108,7 @@ describe('connectionsGetServerInfo', () => {
     const { registerConnectionsHandlers } = await import('@solus/server/transport/handlers/connections-handlers')
     const server = new SolusServer()
     registerConnectionsHandlers(server, {
-      getServerInfo: () => ({ host: '127.0.0.1', port: 3000, allowLan: false, remoteAccess: false, requireAuth: false, trustLocalNetwork: false, hostKind: 'self-hosted', roles: ['execution', 'collaboration'] }),
+      getServerInfo: () => ({ host: '127.0.0.1', port: 3000, allowLan: false, remoteAccess: false, requireAuth: false, trustLocalNetwork: false, hostKind: 'personal', roles: ['execution', 'collaboration'] }),
       getActiveSessions: () => [],
       discoverLanServers: async () => [],
       setRemoteAccess: async () => { throw new Error('not here') },

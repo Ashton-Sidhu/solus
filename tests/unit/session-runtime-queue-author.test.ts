@@ -488,8 +488,8 @@ describe('whose turn asks, and what was chosen', () => {
 
 describe('host restart continuation', () => {
   async function recoveryDirectory(): Promise<string> {
-    const { resetHostCategoryForTests } = await import('@solus/server/host/host-category')
-    resetHostCategoryForTests()
+    const { resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
+    resetMachineKindForTests()
     const { setHostConfig } = await import('@solus/server/host/settings')
     setHostConfig({ continueSessionsAfterHostRestart: true })
     const root = mkdtempSync(join(tmpdir(), 'solus-restart-queue-'))
@@ -724,19 +724,19 @@ describe('host restart continuation', () => {
     expect(runtime.restarts.restartRuns!.get('exchange-run')?.options).toBeUndefined()
   })
 
-  test('managed cloud hosts discard recovery intent without launching a provider', async () => {
+  test('a cloud machine discards recovery intent without launching a provider', async () => {
     const queueDirectory = await recoveryDirectory()
     const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
-    const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+    const { adoptRegistration, resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
     const backend = holdingBackend('claude-code', 'restart-cloud')
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
-    cleanups.push(() => { runtime.shutdown(); backend.releaseAll(); resetHostCategoryForTests() })
+    cleanups.push(() => { runtime.shutdown(); backend.releaseAll(); resetMachineKindForTests() })
     await runtime.dispatch.submitPrompt(ctx('cloud-disabled'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     runtime.shutdown()
     await Promise.resolve()
-    adoptProvisionedRegistration({ organizationId: 'organization' })
+    adoptRegistration({ organizationId: 'organization' })
     const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     next.on('error', () => {})
     cleanups.push(() => next.shutdown())

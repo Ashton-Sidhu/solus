@@ -4,7 +4,7 @@ import type { DispatchHistoryRoot } from '@solus/contracts/types'
 import { repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 import { git, runAsync } from '../git/exec'
 import { listProjectWorktrees } from '../git/worktree-manager'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import type { Principal } from '../admission/principal'
 
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -32,7 +32,7 @@ export function normalizeDispatchRepoKey(repoKey: string): string {
  * paired device. Which folder the clone is in is the projects folder's choice.
  */
 export function dispatchCheckoutOwnerKey(principal: Principal, deviceId: string): string {
-  return hostCategory() === 'managed' && principal.kind === 'org-member' ? principal.userId : deviceId
+  return machineKind() === 'cloud' && principal.kind === 'org-member' ? principal.userId : deviceId
 }
 
 /** The repository the `origin` of a checkout names, or null for a folder that is not one. */

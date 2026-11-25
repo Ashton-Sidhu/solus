@@ -9,7 +9,7 @@ import {
   type AgentProfileDocumentPatch,
   type HostAgentProfileDocument,
 } from '@solus/contracts/agent-profile'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { createLogger } from '../../logger'
 import { requireActingScope } from '../../vault/acting-scope'
 import { readPersonalDocument, writePersonalDocument } from '../../data/personal-documents/personal-documents'

@@ -45,10 +45,11 @@ export interface CatalogAnswers {
 
 /** What the registry keeps of a directory row beyond its routes. */
 function uplinkOf(host: DirectoryHost, directoryUrl: string): KnownHostUplink {
-  const uplink: KnownHostUplink = { hostId: host.hostId, directoryUrl, kind: host.kind, category: host.category }
+  const uplink: KnownHostUplink = { hostId: host.hostId, directoryUrl, kind: host.kind }
   if (host.organizationIds.length > 0) uplink.organizationIds = [...host.organizationIds]
   if (host.ownerName) uplink.ownerName = host.ownerName
   if (host.ownerUserId) uplink.ownerUserId = host.ownerUserId
+  if (host.hasManagedCompute) uplink.hasManagedCompute = true
   if (host.managedState) uplink.managedState = host.managedState
   return uplink
 }
@@ -58,11 +59,11 @@ function uplinkOf(host: DirectoryHost, directoryUrl: string): KnownHostUplink {
  * not linked is listed with no route, and a client reaches it only on a network it
  * shares with the host. An `https:` page cannot dial an `http:` address (mixed
  * content), so there such a host is shown only when this client knows an `https:`
- * route to it. A managed host is always shown: it has no route while it is stopped,
- * and the page can start it.
+ * route to it. A cloud machine with managed compute is always shown: it has no route
+ * while it is stopped, and the page can start it.
  */
 function isListingReachable(host: DirectoryHost, routes: readonly HostRoute[], clientOrigin: string): boolean {
-  return host.kind === 'managed' || !clientOrigin.startsWith('https:') || dialableRoutes(routes, clientOrigin).length > 0
+  return host.hasManagedCompute === true || !clientOrigin.startsWith('https:') || dialableRoutes(routes, clientOrigin).length > 0
 }
 
 /** The routes after `learned` replaced each source it holds. */
@@ -112,9 +113,9 @@ function joinedHost(answers: HostAnswers, routes: HostRoute[], directoryUrl: str
   const { identityKey: pairedKey, ...credential } = credentialFacts(answers.credential)
   const host: KnownHost = {
     id: base.id,
-    // A managed host's name is the one members give it on the account site, so a
+    // A cloud machine's name is the one members give it on the account site, so a
     // rename there reaches every client. A name typed here still wins (`hasUserLabel`).
-    label: listed?.kind === 'managed' ? listed.label : base.label,
+    label: listed?.kind === 'cloud' ? listed.label : base.label,
     installationId: base.installationId,
     lastConnected: Math.max(base.lastConnected, learned?.lastConnected ?? 0),
     routes,
@@ -179,11 +180,11 @@ function hostOfListing(listing: HostListing): KnownHost {
 
 /**
  * The listing of a host this client connected to itself: paired, added over SSH,
- * or forwarded, so it holds a token. The local host and a managed host are not on
+ * or forwarded, so it holds a token. The local host and a cloud machine are not on
  * the list. The listing never carries the token.
  */
 export function listingOf(host: KnownHost): HostListing | null {
-  if (host.id === LOCAL_SERVER_ID || host.uplink?.kind === 'managed' || !host.sessionToken) return null
+  if (host.id === LOCAL_SERVER_ID || host.uplink?.kind === 'cloud' || !host.sessionToken) return null
   const listing: HostListing = { id: host.id, label: host.label, installationId: host.installationId, routes: listedRoutes(host.routes), lastConnected: host.lastConnected }
   if (host.hasUserLabel) listing.hasUserLabel = true
   if (host.os) listing.os = host.os

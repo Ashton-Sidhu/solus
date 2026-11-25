@@ -15,7 +15,7 @@ const INFO = { principal: 'local-owner', hostKind: 'personal', host: '127.0.0.1'
 const LOOPBACK: HostEndpoint = { kind: 'loopback', label: 'This computer', host: '127.0.0.1', port: 4810 }
 const LAN: HostEndpoint = { kind: 'lan', label: 'Wi-Fi', host: '192.168.1.20', port: 4810 }
 const ORGANIZATIONS: HostOrganizationsStatus = {
-  registered: true, hostId: 'host-a', category: 'personal', owner: null, attachedAt: null, apiUrl: null, delivery: [], deliveryError: null,
+  registered: true, hostId: 'host-a', kind: 'personal', owner: null, apiUrl: null, delivery: [], deliveryError: null,
   organizations: [{ organizationId: 'org-1', name: 'Acme', shared: true, policy: { syncAllInsights: false, allowsPersonalHosts: true, allowsCloudHosts: true } }],
   insightsOptIn: [],
 }
@@ -101,7 +101,7 @@ describe('a host’s Access screen on the phone', () => {
   test('only the owner of a personal host sees its pairings, each as connected, last seen, or revoked', () => {
     expect(showsPairedDevices(INFO)).toBe(true)
     expect(showsPairedDevices({ ...INFO, principal: 'org-member' })).toBe(false)
-    expect(showsPairedDevices({ ...INFO, hostKind: 'managed' })).toBe(false)
+    expect(showsPairedDevices({ ...INFO, hostKind: 'cloud' })).toBe(false)
     const now = Date.parse('2026-11-20T12:00:00Z')
     const device = { deviceId: 'd1', deviceLabel: 'Phone', pairedAt: now - 3 * 86_400_000, lastSeenAt: now - 2 * 3_600_000, revokedAt: null }
     expect(pairedDeviceDetail(device, true, now)).toBe('Connected now · paired 3d ago')

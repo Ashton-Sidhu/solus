@@ -237,7 +237,7 @@ describe('the owner\'s OAuth client', () => {
     // host administrator set it for a shared server.
     installTestIdentities()
     const { updateAs, secrets, integration } = setup()
-    const admin: Principal = { kind: 'org-member', userId: 'adam', organizationId: 'local', organizationRole: 'owner', teamIds: [], hostKind: 'managed', displayName: 'Adam', deviceId: 'd-adam', expiresAt: 0, deviceLabel: 'Solus cloud' }
+    const admin: Principal = { kind: 'org-member', userId: 'adam', organizationId: 'local', organizationRole: 'owner', teamIds: [], hostKind: 'cloud', displayName: 'Adam', deviceId: 'd-adam', expiresAt: 0, deviceLabel: 'Solus cloud' }
     await expect(updateAs(admin, { clientId: 'stolen' })).rejects.toThrow('That integration is no longer on this host.')
     expect(secrets.clients.has(integration.id)).toBe(false)
   })

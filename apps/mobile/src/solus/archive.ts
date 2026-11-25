@@ -19,7 +19,7 @@ const readArchive = hostQuery(
       scope: "all",
       includeWorktrees: true,
     });
-    const filter = usesWindowFilter(hostId, solus.threads.managedHostIds());
+    const filter = usesWindowFilter(hostId, solus.threads.cloudHostIds());
     const threads = records
       .filter(
         (record) =>

@@ -15,7 +15,7 @@
   } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { serversStore, workspaceProjectsStore } from "../../contexts";
-  import { hostIsManaged } from "../servers/lib/managed-host";
+  import { hostHasManagedCompute } from "../servers/lib/managed-host";
   import { repositoryPreparationTitle } from "./lib/repository-preparation";
   import { Input } from "../ui/input";
   import { cn } from "../../lib/utils";
@@ -42,7 +42,7 @@
     if (!preparation || !cloud.chosenRepositoryKey) return null;
     const host = serversStore.hostFor(preparation.serverId);
     const hostIsStarting =
-      hostIsManaged(host) && serversStore.readinessFor(preparation.serverId).readiness !== "ready";
+      hostHasManagedCompute(host) && serversStore.readinessFor(preparation.serverId).readiness !== "ready";
     return repositoryPreparationTitle(
       preparation.step,
       cloud.chosenRepositoryKey,

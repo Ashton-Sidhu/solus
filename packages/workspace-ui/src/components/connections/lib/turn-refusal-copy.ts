@@ -27,7 +27,7 @@ export function turnRefusalCopy(code: TurnRefusal, input: { signedIn: boolean; a
         ? { title: 'This turn needs an organization', hint: 'Choose the organization to work in, then send again.', action: 'choose-organization' }
         : { title: 'This turn needs an organization', hint: 'Sign in to Solus and choose the organization to work in, then send again.', action: 'sign-in' }
     case 'PERSONAL_HOSTS_NOT_ALLOWED':
-      return { title: `${organization} does not run work here`, hint: 'Send it from a self-hosted server or a cloud host of the organization.', action: 'none' }
+      return { title: `${organization} does not run work here`, hint: 'Send it from a cloud host of the organization.', action: 'none' }
     case 'ORGANIZATION_NOT_ALLOWED':
       return { title: `This machine does not run work for ${organization}`, hint: 'Choose an organization this machine works for, then send again.', action: 'choose-organization' }
     case 'ORGANIZATION_ACCESS_REFUSED':

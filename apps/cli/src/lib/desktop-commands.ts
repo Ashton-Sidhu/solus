@@ -24,7 +24,6 @@ export const DESKTOP_USAGE = `Usage (the solus command of the desktop app):
   solus host remove <installation-id>
   solus connect [--code CODE] [--cloud-url URL] [--no-open]
   solus connect status [--json]
-  solus connect remove ORGANIZATION_ID
   solus connect unlink
   solus policy check FILE
   solus policy show

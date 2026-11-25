@@ -39,9 +39,9 @@ describe('who may change a host’s Solus Cloud link', () => {
     expect(uplinkControl({ principal: 'org-member', hostKind: 'personal' })).toBe('none')
   })
 
-  test('a managed host and the workspace service never offer one: Solus Cloud owns how they are reached', () => {
-    expect(uplinkControl({ principal: 'local-owner', hostKind: 'managed' })).toBe('none')
+  test('a cloud machine and the workspace service never offer one: the control plane owns how they are reached', () => {
     expect(uplinkControl({ principal: 'local-owner', hostKind: 'cloud' })).toBe('none')
+    expect(uplinkControl({ principal: 'local-owner', hostKind: 'api' })).toBe('none')
   })
 })
 

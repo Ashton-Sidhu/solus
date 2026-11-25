@@ -11,8 +11,8 @@ import { bootLabSolusApi } from '../src/solus-api'
  * A session's home keeps its place in each person's list (docs/plans/session-archive.md):
  * each person's own settle, archive, and snooze, and its pull requests, as
  * `/v1` resources. An organization session's home is its Solus API; a personal
- * session's home is its machine. A runner tells the home about each prompt and each
- * pull request its agent links.
+ * session's home is its machine. A runner, the cloud machine that runs an organization
+ * session, tells the home about each prompt and each pull request its agent links.
  */
 
 const RUNNER_HOST_ID = 'labrunnersessionhome'
@@ -31,7 +31,7 @@ async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, t
 }
 
 /** The renderer's prompt context for a session in the Lab's working directory; an
- *  organization session names its organization (plans/009-organization-vms.md §1). */
+ *  organization session names its organization (plans/034-one-cloud-machine-kind.md §2). */
 function promptContext(ctx: ScenarioContext, sessionId: string, organizationId: string | null): IpcContext {
   const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, gitContext: null, worktreeBaseBranch: null, contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: organizationId ?? undefined }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', executionPreferences: { rateLimitBehavior: 'queue' } }
@@ -75,8 +75,8 @@ async function pullRequestResource(ctx: ScenarioContext, tag: string, writer: La
 
 /** The personal home: a machine keeps its own sessions' list state. */
 async function personalHome(ctx: ScenarioContext): Promise<void> {
-  // The Lab's shared host is attached for organization work, where every new root
-  // needs an organization: a personal session needs a machine of its own.
+  // A personal session is Local work on a person's own machine: alice has one here that
+  // she shared with nobody.
   const machine = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer })
   const owner = PERSONAS.alice
   const alice = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: machine.tunnelUrl, issuer: ctx.issuer, hostId: machine.hostId, hostKind: 'personal', hostOwnerUserId: owner.kind === 'org-member' ? owner.userId : undefined })
@@ -139,7 +139,7 @@ interface OrganizationProof {
 }
 
 function serviceClient(proof: OrganizationProof, url: string, personaId: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
+  const client = new LabClient({ persona: personaForHost(personaId, 'api'), hostUrl: url, issuer: proof.ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api' })
   proof.clients.push(client)
   return client
 }
@@ -175,13 +175,13 @@ async function peopleStep(proof: OrganizationProof, alice: LabClient, bob: LabCl
   return wake
 }
 
-/** The runner tells the home: a prompt returns the session to its person's list, and an agent's link arrives. */
-async function runnerStep(proof: OrganizationProof, owner: LabClient, alice: LabClient, bob: LabClient, sessionId: string, bobWake: number): Promise<void> {
+/** The runner tells the home: a prompt returns the session to its person's list, and an agent's link arrives. `member` is alice on the runner. */
+async function runnerStep(proof: OrganizationProof, member: LabClient, alice: LabClient, bob: LabClient, sessionId: string, bobWake: number): Promise<void> {
   const { ctx } = proof
   const tag = '[solus api]'
   ctx.step(`${tag} alice prompts on the runner; its agent links a pull request`)
   const call = JSON.stringify({ name: 'link', input: { kind: 'pr', target_id: AGENT_PR } })
-  await expectOk(ctx, `${tag} the owner prompts the archived session on the runner`, prompt(owner, ctx, sessionId, `__MOCK_TOOL__ ${call}`, ORGANIZATION_ID))
+  await expectOk(ctx, `${tag} alice prompts the archived session on the runner`, prompt(member, ctx, sessionId, `__MOCK_TOOL__ ${call}`, ORGANIZATION_ID))
   const back = await until(() => listed(alice, sessionId), (record) => !!record, 15_000)
   ctx.check(`${tag} the turn reached the home and returned the session to alice's list`, back?.listed === true && back.view?.archivedAt == null, JSON.stringify(back?.view))
   const bobView = (await listed(bob, sessionId))?.view
@@ -193,7 +193,7 @@ async function runnerStep(proof: OrganizationProof, owner: LabClient, alice: Lab
   await expectRefused(ctx, `${tag} alice cannot post a turn with her own token`, alice.api.request('admitSessionTurn', { id: sessionId, body: {} }))
 }
 
-/** The organization home: the Solus API keeps the list state while runners rotate. */
+/** The organization home: the Solus API keeps the list state, whichever cloud machine runs the session. */
 async function organizationHome(ctx: ScenarioContext): Promise<void> {
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine: 'sqlite' })
   const previousRoute = ctx.issuer.workspaceRoute
@@ -202,13 +202,15 @@ async function organizationHome(ctx: ScenarioContext): Promise<void> {
   let runner: LabHost | null = null
   try {
     const tag = '[solus api]'
-    ctx.step(`${tag} alice starts an organization session on a runner`)
-    runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_HOST_ID, runnerOf: ORGANIZATION_ID })
-    const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', organizationId: ORGANIZATION_ID })
-    proof.clients.push(owner)
-    ctx.check(`${tag} the owner reaches the runner`, (await owner.connect()).ok)
+    ctx.step(`${tag} alice starts an organization session on a runner, a cloud machine of the organization`)
+    runner = await bootLabHost({ flavor: 'cloud', issuer: ctx.issuer, hostId: RUNNER_HOST_ID, operatedFor: ORGANIZATION_ID })
+    // Nobody owns a cloud machine: alice reaches it as a member and runs on her own seat.
+    const member = new LabClient({ persona: personaForHost('alice', 'cloud'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'cloud' })
+    proof.clients.push(member)
+    ctx.check(`${tag} alice reaches the runner as a member`, (await member.connect()).ok)
+    await expectOk(ctx, `${tag} alice connects her Claude seat`, member.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
     const sessionId = randomUUID()
-    await expectOk(ctx, `${tag} the owner starts the session`, prompt(owner, ctx, sessionId, 'an organization turn', ORGANIZATION_ID))
+    await expectOk(ctx, `${tag} alice starts the session`, prompt(member, ctx, sessionId, 'an organization turn', ORGANIZATION_ID))
     const alice = serviceClient(proof, service.url, 'alice')
     const bob = serviceClient(proof, service.url, 'bob')
     ctx.check(`${tag} alice reaches the Solus API`, (await alice.connect()).ok)
@@ -222,7 +224,7 @@ async function organizationHome(ctx: ScenarioContext): Promise<void> {
 
     const bobWake = await peopleStep(proof, alice, bob, sessionId)
     await pullRequestResource(ctx, tag, bob, alice, sessionId)
-    await runnerStep(proof, owner, alice, bob, sessionId, bobWake)
+    await runnerStep(proof, member, alice, bob, sessionId, bobWake)
   } finally {
     for (const client of proof.clients) client.close()
     await runner?.stop()

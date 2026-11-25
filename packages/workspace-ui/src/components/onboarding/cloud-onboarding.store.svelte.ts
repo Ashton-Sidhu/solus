@@ -215,7 +215,7 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Makes sure agents can run on the chosen machine: a stopped cloud host is started
+   * Makes sure agents can run on the chosen machine: stopped managed compute is started
    * and waited for; any other machine is dialed now and given half a minute to answer.
    * An unreachable machine ends in `hostError`, never in a wait with no end.
    */
@@ -223,17 +223,15 @@ class CloudOnboardingStore {
     if (this.hostBusy) return
     const host = serversStore.servers.find((server) => server.id === serverId)
     if (!host) return
-    const managed = host.uplink?.kind === 'managed'
-    const lifecycle = host.uplink?.managedState
-    const needsCompute = managed && (managedHostNeedsStart(lifecycle) || awaitsManagedCompute(host.uplink))
-    this.hostBusy = managed && managedHostNeedsStart(lifecycle) ? 'starting' : 'connecting'
+    const needsCompute = awaitsManagedCompute(host.uplink)
+    this.hostBusy = needsCompute && managedHostNeedsStart(host.uplink?.managedState) ? 'starting' : 'connecting'
     this.hostError = null
     try {
       const connected = needsCompute
         ? await serversStore.startManagedHost(serverId, { timeoutMs: 300_000 })
         : await serversStore.connectNow(serverId, { timeoutMs: 30_000 })
       if (connected) return
-      this.hostError = managed
+      this.hostError = host.uplink?.kind === 'cloud'
         ? 'Solus could not reach the cloud host. Try again, or open its page on Solus Cloud to see why.'
         : `Solus could not reach ${host.label}. Check that Solus is running on it and try again, or choose another machine.`
     } finally {

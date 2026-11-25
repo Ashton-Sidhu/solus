@@ -231,7 +231,7 @@ export class SessionSidebarStore {
     // A personal host's conversation shows in every window (plans/031 rule 1).
     (tabId) => {
       const session = this.session.sessionFor(tabId)
-      return usesWindowFilter(session ? runHost(session.run) : null, hostCatalog.managedHostIds())
+      return usesWindowFilter(session ? runHost(session.run) : null, hostCatalog.cloudHostIds())
     },
   ))
 

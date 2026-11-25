@@ -3,8 +3,7 @@ import type { HostOrganizationsStatus } from '@solus/contracts/organization-scop
 import type { ShareResource } from '@solus/contracts/sharing'
 import { LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
 import { exportWorkForCloud, markWorkMoved } from '../../data/works/works'
-import { hostCategory } from '../../host/host-category'
-import { organizationAttachedAt } from '../../host/organization-attachment'
+import { machineKind } from '../../host/machine-kind'
 import type { HostOrganizations } from '../../host/organizations'
 import type { HostPolicyStore } from '../../host/policy/host-policy-store'
 import { getInsightsOptIn, setInsightsOptIn } from '../../host/settings'
@@ -37,12 +36,11 @@ export function hostOrganizationsStatus(deps: Pick<OrganizationHandlerDeps, 'hos
   return {
     registered: deps.registeredHostId() !== null,
     hostId: deps.registeredHostId(),
-    category: standing?.category ?? hostCategory(),
+    kind: standing?.kind ?? machineKind(),
     owner: standing?.owner ?? null,
     // Policy documents reach clients only as the gate's summary: they can carry launch pins and feed tokens.
     organizations: (standing?.organizations ?? []).map(({ policy: _policy, hostPolicy: _hostPolicy, ...organization }) => organization),
     insightsOptIn: getInsightsOptIn(),
-    attachedAt: organizationAttachedAt(),
     apiUrl: deps.apiUrl(),
     delivery: delivery.backlog,
     deliveryError: delivery.error,

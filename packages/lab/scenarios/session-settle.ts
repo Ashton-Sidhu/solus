@@ -11,8 +11,8 @@ import { bootLabSolusApi } from '../src/solus-api'
  * Settle works wherever a person keeps sessions (docs/plans/session-archive.md).
  * Signed out: on the local machine (the loopback owner) and on a linked VM (a
  * paired device's session token). Signed in: on a connected VM (an account
- * grant through its tunnel) and on a cloud machine (a managed host that
- * members reach with grants), whose organization sessions also settle at the
+ * grant through its tunnel) and on a cloud machine (nobody's machine: members
+ * reach it with grants), whose organization sessions also settle at the
  * organization's Solus API. Each settle is read back by a second client.
  */
 
@@ -139,30 +139,30 @@ async function connectedVm(ctx: ScenarioContext, clients: LabClient[]): Promise<
  */
 async function cloudMachine(ctx: ScenarioContext, clients: LabClient[], stops: Array<() => Promise<void>>): Promise<void> {
   const tag = '[signed in · cloud machine]'
-  ctx.step(`${tag} a member settles an organization session on a managed host; another member's list does not change`)
+  ctx.step(`${tag} a member settles an organization session on a cloud machine; another member's list does not change`)
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine: 'sqlite' })
   const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
   stops.push(async () => { ctx.issuer.setWorkspaceRoute(previousRoute); await service.stop() })
-  const machine = await bootLabHost({ flavor: 'managed', issuer: ctx.issuer })
+  const machine = await bootLabHost({ flavor: 'cloud', issuer: ctx.issuer })
   stops.push(() => machine.stop())
-  const member = (personaId: string, url: string, hostId: string, hostKind: 'managed' | 'cloud') => {
-    const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: url, issuer: ctx.issuer, hostId, hostKind })
+  const member = (personaId: string, url: string, hostId: string, hostKind: 'cloud' | 'api') => {
+    const client = new LabClient({ persona: personaForHost(personaId, hostKind), hostUrl: url, issuer: ctx.issuer, hostId, hostKind })
     clients.push(client)
     return client
   }
-  const alice = member('alice', machine.tunnelUrl, machine.hostId, 'managed')
-  const bob = member('bob', machine.tunnelUrl, machine.hostId, 'managed')
+  const alice = member('alice', machine.tunnelUrl, machine.hostId, 'cloud')
+  const bob = member('bob', machine.tunnelUrl, machine.hostId, 'cloud')
   ctx.check(`${tag} alice dials the cloud machine with a member grant`, (await alice.connect()).ok)
   ctx.check(`${tag} bob dials it too`, (await bob.connect()).ok)
-  // A managed host has no owner login: a member runs turns on their own seat (docs/plans/provider-seats.md).
+  // A cloud machine has no owner login: a member runs turns on their own seat (docs/plans/provider-seats.md).
   await expectOk(ctx, `${tag} alice connects her Claude seat`, alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
   const sessionId = await startSession(ctx, tag, alice, bob, ORGANIZATION_ID)
   await proveSettle(ctx, `${tag} on the machine:`, alice, bob, sessionId, 'other person')
 
   ctx.step(`${tag} the same session settles at the organization's Solus API`)
-  const aliceApi = member('alice', service.url, SOLUS_API_AUDIENCE, 'cloud')
-  const bobApi = member('bob', service.url, SOLUS_API_AUDIENCE, 'cloud')
+  const aliceApi = member('alice', service.url, SOLUS_API_AUDIENCE, 'api')
+  const bobApi = member('bob', service.url, SOLUS_API_AUDIENCE, 'api')
   ctx.check(`${tag} alice reaches the Solus API`, (await aliceApi.connect()).ok)
   ctx.check(`${tag} bob reaches the Solus API`, (await bobApi.connect()).ok)
   const reported = await until(() => recordOn(bobApi, sessionId), (found) => !!found, 15_000)

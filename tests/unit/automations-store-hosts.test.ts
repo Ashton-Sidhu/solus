@@ -344,7 +344,7 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
           id: ORG_MACHINE,
           label: 'Lab machine',
           readiness: 'unreachable',
-          uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'managed', managedState: 'stopped' },
+          uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'cloud', hasManagedCompute: true, managedState: 'stopped' },
         },
       ],
       (serverId) => serverId !== 'no-automations',
@@ -366,7 +366,7 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
         id: ORG_MACHINE,
         label: 'Lab machine',
         readiness: 'checking',
-        uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'managed', managedState: 'starting' },
+        uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'cloud', hasManagedCompute: true, managedState: 'starting' },
       }],
       () => true,
     )

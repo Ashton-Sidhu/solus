@@ -27,6 +27,8 @@
 #   --setup                 run `solus setup` after installing
 #   --link CODE             run `solus setup --link CODE`: start the service and
 #                           link this host to Solus Cloud with a code from onboarding
+#   --address URL           the HTTPS address of this machine, with an organization code:
+#                           the machine becomes a cloud host, which has no tunnel
 #   --cloud-url URL         the Solus Cloud origin that issued the code
 
 set -eu
@@ -122,6 +124,7 @@ verify_sha256() {
 parse_args() {
   RUN_SETUP=""
   LINK_CODE=""
+  MACHINE_ADDRESS=""
   CLOUD_URL=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -129,6 +132,9 @@ parse_args() {
       --link)
         [ $# -ge 2 ] && [ -n "$2" ] || die "--link requires a code"
         LINK_CODE="$2"; RUN_SETUP=1; shift ;;
+      --address)
+        [ $# -ge 2 ] && [ -n "$2" ] || die "--address requires a URL"
+        MACHINE_ADDRESS="$2"; shift ;;
       --cloud-url)
         [ $# -ge 2 ] && [ -n "$2" ] || die "--cloud-url requires a URL"
         CLOUD_URL="$2"; shift ;;
@@ -141,6 +147,7 @@ parse_args() {
 run_setup() {
   set -- setup
   [ -z "$LINK_CODE" ] || set -- "$@" --link "$LINK_CODE"
+  [ -z "$MACHINE_ADDRESS" ] || set -- "$@" --address "$MACHINE_ADDRESS"
   [ -z "$CLOUD_URL" ] || set -- "$@" --cloud-url "$CLOUD_URL"
   log ""
   progress setup

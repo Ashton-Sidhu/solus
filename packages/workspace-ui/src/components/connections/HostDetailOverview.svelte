@@ -15,7 +15,7 @@
   import { GitPullRequestIcon } from "../ui/octicons";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import { runningSessionRows } from "./lib/running-sessions";
-  import { isManagedHost } from "../servers/lib/managed-host";
+  import { hostHasManagedCompute, isCloudHost } from "../servers/lib/managed-host";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
@@ -48,12 +48,15 @@
     if (running.length === 0) return;
     return liveActivityClock.subscribe((value) => { now = value; });
   });
-  const isManaged = $derived(isManagedHost(host.uplink));
+  // An organization owner removes a cloud host. Solus Cloud destroys the machine only
+  // when it operates the compute; a machine that its operator runs keeps running.
+  const hasManagedCompute = $derived(hostHasManagedCompute(host));
+  const isCloud = $derived(isCloudHost(host.uplink));
   const principal = $derived(hosts.get(host.id).me.principal);
-  const isShared = $derived(!isManaged && (principal === "org-member" || principal === "guest"));
+  const isShared = $derived(!isCloud && (principal === "org-member" || principal === "guest"));
 
   async function remove() {
-    if (isManaged) await managedHostsStore.delete(host.id);
+    if (isCloud) await managedHostsStore.delete(host.id);
     else await serversStore.remove(host.id);
   }
 
@@ -283,24 +286,27 @@
 {#if !host.local}
   <SettingsSection label="Danger zone">
     <SettingsRow
-      label={isManaged ? "Delete this machine" : isShared ? "Remove from your hosts" : "Forget this host"}
+      label={hasManagedCompute ? "Delete this machine" : isCloud ? "Remove this machine" : isShared ? "Remove from your hosts" : "Forget this host"}
       description={isConfirmingRemove
-        ? isManaged ? `Delete ${host.label} and its disk? This cannot be undone.` : `Remove ${host.label}? You will need to pair with it again.`
-        : isManaged ? "Deletes the machine and its disk. Its sessions stay in your history."
-          : isShared ? "The owner keeps it. You can add it again from the organization."
-            : "Removes it here and from your Solus account. Solus keeps running on it."}
+        ? hasManagedCompute ? `Delete ${host.label} and its disk? This cannot be undone.`
+          : isCloud ? `Remove ${host.label} from the organization? Its operator must set it up again to bring it back.`
+            : `Remove ${host.label}? You will need to pair with it again.`
+        : hasManagedCompute ? "Deletes the machine and its disk. Its sessions stay in your history."
+          : isCloud ? "Removes it from the organization. Only an organization owner can. Solus keeps running on it until its operator stops it."
+            : isShared ? "The owner keeps it. You can add it again from the organization."
+              : "Removes it here and from your Solus account. Solus keeps running on it."}
     >
       {#snippet control()}
         {#if isConfirmingRemove}
           <span class="flex gap-1.5">
             <Button variant="ghost" size="sm" onclick={() => (isConfirmingRemove = false)}>Cancel</Button>
             <Button variant="destructive" size="sm" disabled={managedHostsStore.busy?.serverId === host.id} onclick={() => void remove()}>
-              {isManaged ? "Delete" : "Remove"}
+              {hasManagedCompute ? "Delete" : "Remove"}
             </Button>
           </span>
         {:else}
           <Button variant="outline" size="sm" class="text-(--solus-status-error)" onclick={() => (isConfirmingRemove = true)}>
-            {isManaged ? "Delete" : isShared ? "Remove" : "Forget"}
+            {hasManagedCompute ? "Delete" : isShared ? "Remove" : "Forget"}
           </Button>
         {/if}
       {/snippet}

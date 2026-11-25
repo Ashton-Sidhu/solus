@@ -357,7 +357,6 @@ export const RPC_INVOKE_METHODS = [
   'uplinkRegister',
   'uplinkLink',
   'uplinkUnlink',
-  'uplinkDetachOrganization',
   'uplinkStatus',
   // The host tests its own connection (docs/plans/host-readiness.md)
   'hostSelfTest',

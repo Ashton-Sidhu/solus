@@ -10,7 +10,7 @@ export function accountUser(accountId: string, displayName: string, extra: Pick<
 
 /** An organization member's principal on a managed host. */
 export function memberPrincipal(userId: string, displayName: string, extra: Partial<Extract<Principal, { kind: 'org-member' }>> = {}): Extract<Principal, { kind: 'org-member' }> {
-  return { kind: 'org-member', userId, organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName, deviceId: `device-${userId}`, expiresAt: Date.now() + 60_000, deviceLabel: 'Solus cloud', ...extra }
+  return { kind: 'org-member', userId, organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName, deviceId: `device-${userId}`, expiresAt: Date.now() + 60_000, deviceLabel: 'Solus cloud', ...extra }
 }
 
 /** The actor `SolusServer.handle()` resolves for a member. */

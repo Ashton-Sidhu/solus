@@ -114,15 +114,15 @@ export interface SessionListHosts {
   /** The known host an account host id names, connected or not. Absent: `connectedRunnerFor`. */
   knownRunnerFor?(hostId: string): string | null
   serverIds(): string[]
-  /** A machine provisioned for an organization; any other is personal (plans/031). Absent: every machine is personal. */
-  isManagedHost?(serverId: string): boolean
+  /** A cloud machine of an organization; any other is personal (plans/031). Absent: every machine is personal. */
+  isCloudHost?(serverId: string): boolean
 }
 
 const registryHosts: SessionListHosts = {
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
   knownRunnerFor: (hostId) => knownRunnerFor(hostId),
   serverIds: () => serverConnections.serverIds(),
-  isManagedHost: (serverId) => hostCatalog.managedHostIds().has(serverId),
+  isCloudHost: (serverId) => hostCatalog.cloudHostIds().has(serverId),
 }
 
 
@@ -406,7 +406,7 @@ export class SessionListStore {
   /** A Solus API record whose personal runner is connected: the machine lists it and keeps its state. */
   private runsOnConnectedPersonalHost(record: Pick<SessionRecord, 'runnerHostId'>): boolean {
     const runner = record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
-    return !!runner && !this.hosts.isManagedHost?.(runner)
+    return !!runner && !this.hosts.isCloudHost?.(runner)
   }
 
   /** Each home announces its own changes, so each is subscribed once. */
@@ -541,8 +541,8 @@ export class SessionListStore {
   /** Local sessions, the selected organization's, and every session of a personal
    *  host (plans/031 rule 1), including cached homes. */
   sessionsInOrganization(organizationId: string | null): ListedSession[] {
-    const managed = hostCatalog.managedHostIds()
-    return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId, usesWindowFilter(session.homeServerId, managed)))
+    const cloudHostIds = hostCatalog.cloudHostIds()
+    return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId, usesWindowFilter(session.homeServerId, cloudHostIds)))
   }
 
   /** This person's snoozes, for the clock that wakes their rows. */

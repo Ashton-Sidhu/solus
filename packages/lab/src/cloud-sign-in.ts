@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { OAuthSession, type BrowserAuthorizer, type StoredGrant, type TokenStore } from '@solus/client-core/oauth-session'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
-import { enrollmentTicketResponseSchema, type UplinkStatus } from '@solus/contracts/uplink'
+import { enrollmentTicketResponseSchema, type EnrollmentTicketRequest, type HostRegistrationRequest, type UplinkStatus } from '@solus/contracts/uplink'
 import { LabClient } from './client'
 import { accountCall, cookieOf, type CloudPersona, type LocalCloudStack } from './local-cloud'
 
@@ -104,14 +104,21 @@ export function localOwnerClient(host: HostAddress, persona: CloudPersona): LabC
  * enrollment ticket with its own account token, handed to the host over the trusted
  * local connection (`uplinkRegister`). The host links its new registration. Answers the
  * host's status.
+ *
+ * With `cloudMachine`, the ticket is an organization link code and the operator of a
+ * new server gives it with the machine's own HTTPS address
+ * (plans/034-one-cloud-machine-kind.md §3): the registration names the organization, so
+ * the server is a cloud machine from then on. It has no owner, and it trusts the local
+ * connection no more.
  */
-export async function registerHost(stack: LocalCloudStack, host: HostAddress, owner: SignedIn): Promise<UplinkStatus> {
+export async function registerHost(stack: LocalCloudStack, host: HostAddress, owner: SignedIn, cloudMachine?: { organizationId: string; address: string }): Promise<UplinkStatus> {
   const accountToken = await owner.oauth.accessToken({ kind: 'account' })
   if (!accountToken) throw new Error(`${owner.persona.name} got no account token`)
+  const ticketRequest: EnrollmentTicketRequest = cloudMachine ? { organizationId: cloudMachine.organizationId } : {}
   const response = await fetch(`${stack.origin}/v1/enrollment-tickets`, {
     method: 'POST',
     headers: { authorization: `Bearer ${accountToken}`, 'content-type': 'application/json', accept: 'application/json', connection: 'close' },
-    body: '{}',
+    body: JSON.stringify(ticketRequest),
   })
   if (!response.ok) throw new Error(`The enrollment ticket answered ${response.status}: ${await response.text()}`)
   const ticket = enrollmentTicketResponseSchema.parse(await response.json())
@@ -119,7 +126,9 @@ export async function registerHost(stack: LocalCloudStack, host: HostAddress, ow
   const dialed = await local.connect()
   if (!dialed.ok) throw new Error(`The local owner could not connect: ${JSON.stringify(dialed)}`)
   try {
-    return await local.rpc('uplinkRegister', { ticket: ticket.ticket, directoryUrl: stack.origin })
+    const request: HostRegistrationRequest = { ticket: ticket.ticket, directoryUrl: stack.origin }
+    if (cloudMachine) request.address = cloudMachine.address
+    return await local.rpc('uplinkRegister', request)
   } finally {
     local.close()
   }
@@ -128,8 +137,10 @@ export async function registerHost(stack: LocalCloudStack, host: HostAddress, ow
 /**
  * A client that dials the host with the person's access token for the host's audience
  * in the socket handshake, as a remote client does. The host makes the person's
- * delegation: `personal` for the owner (and the organization an owner names), else
- * the organization named.
+ * delegation: `personal` for the owner of a personal host (and the organization an
+ * owner names), else the organization named. On a cloud machine nobody is the owner:
+ * every person dials it as a member (`asOwner: false`). The cloud's token says what
+ * kind of machine it admits to; `hostKind` here is only for a grant the Lab issuer mints.
  */
 export function hostClient(host: HostAddress, signedIn: SignedIn, hostId: string, options: { asOwner: boolean; organizationId?: string; organizationRole?: 'owner' | 'member' }): LabClient {
   const persona = signedIn.persona

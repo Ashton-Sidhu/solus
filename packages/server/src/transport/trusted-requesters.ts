@@ -1,6 +1,6 @@
 import { isLoopbackAddress } from './websocket'
 import { tailnetAddresses } from './endpoints'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import { effectiveTrustLocalNetwork } from '../host/settings'
 import { isApiMode } from '../host/api-mode'
 
@@ -19,12 +19,13 @@ import { isApiMode } from '../host/api-mode'
  * Network position never speaks for a web page: a request a page on another site
  * could have made is refused first (`couldBeForgedByWebPage`).
  *
- * On a managed host (docs/plans/managed-hosts.md §1) and on the workspace service
- * (cloud-service-model.md §15) nobody is trusted by network position: loopback,
- * tailnet, and LAN are all strangers, and the setting is ignored.
+ * On a cloud machine (plans/034-one-cloud-machine-kind.md §2) and on the workspace
+ * service (cloud-service-model.md §15) nobody is trusted by network position: the
+ * machine is nobody's, and each member's agents run on it. Loopback, tailnet, and LAN
+ * are all strangers, and the setting is ignored.
  */
 export async function isTrustedRequesterAddress(address: string | undefined): Promise<boolean> {
-  if (!address || hostCategory() === 'managed' || isApiMode()) return false
+  if (!address || machineKind() === 'cloud' || isApiMode()) return false
   if (isLoopbackAddress(address)) return true
   const normalized = address.startsWith('::ffff:') ? address.slice(7) : address
   if (effectiveTrustLocalNetwork() && isPrivateLanAddress(normalized)) return true

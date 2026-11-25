@@ -10,7 +10,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
 import type { DocumentSyncEnvironment } from '@solus/client-core/document-sync'
 import type { BrowserAuthorizer, OAuthSessionDeps } from '@solus/client-core/oauth-session'
-import { DEFAULT_CLOUD_ORIGIN } from '../features/account/account-client'
+import { DEFAULT_CLOUD_ORIGIN } from '@solus/contracts/cloud-address'
 import { AccountSession } from '../features/account/account-session'
 import { conversationOutboxPrefix, type ConversationTarget } from '../features/conversation/conversation-controller'
 import type { AttachmentIo } from '../features/conversation/lib/attachments'
@@ -77,6 +77,7 @@ export interface PlatformAdapters {
   uuid(): string
   /** Reads and uploads picked files for attachments. */
   attachmentIo?: AttachmentIo
+  /** The Solus Cloud address of this build; the hosted one when absent. The person's own choice on this device comes first. */
   cloudOrigin?: string
   /** The system browser step of the account sign-in (ADR 0001 §2.2 rule 1). */
   accountAuthorizer?: BrowserAuthorizer
@@ -431,14 +432,11 @@ export class SolusApp {
   /**
    * Hosts on the local network or the tailnet that this device has not paired yet.
    * The phone cannot read the tailnet, so each connected host is asked for the
-   * tailnet hosts it sees (docs/plans/tailscale-support.md D3). A managed host
+   * tailnet hosts it sees (docs/plans/tailscale-support.md D3). A cloud machine
    * advertises no tailnet routes, so it is not asked.
    */
   async scanNearby(): Promise<DiscoveredServer[]> {
-    const hosts = this.connections.readyConnections().filter((connection) => {
-      const uplink = this.registry.host(connection.hostId)?.uplink
-      return uplink?.kind !== 'managed' && uplink?.category !== 'managed'
-    })
+    const hosts = this.connections.readyConnections().filter((connection) => this.registry.host(connection.hostId)?.uplink?.kind !== 'cloud')
     const [own, fromHosts] = await Promise.all([
       this.platform.scanLocalNetwork?.() ?? [],
       askHostsToDiscover(hosts.map((connection) => () => connection.api.discoverServers())),

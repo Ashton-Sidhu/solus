@@ -2,9 +2,10 @@ import { awaitsManagedCompute, type KnownHostUplink } from '@solus/client-core/k
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
 
 /**
- * How a host row shows a managed host (docs/plans/managed-hosts.md). Its name is
- * the name members gave it (`hostRowLabel`); until the compute is `ready`, the row also
- * says what state it is in. No row names the organization.
+ * How a host row shows a cloud machine (docs/plans/managed-hosts.md). Its name is
+ * the name members gave it (`hostRowLabel`). When Solus Cloud operates its compute,
+ * the row also says what state the compute is in until it is `ready`. No row names
+ * the organization.
  */
 
 const LIFECYCLE_LABELS = {
@@ -17,26 +18,36 @@ const LIFECYCLE_LABELS = {
   deleting: 'Deleting',
 } satisfies Record<ManagedHostLifecycle, string>
 
-export function isManagedHost(uplink: KnownHostUplink | undefined): boolean {
-  return uplink?.kind === 'managed'
+/** A cloud machine of an organization: its mark is the cloud, whatever it runs on. */
+export function isCloudHost(uplink: KnownHostUplink | undefined): boolean {
+  return uplink?.kind === 'cloud'
 }
 
 /** The same question of a resolved host row, which a forgotten host answers with no uplink at all. */
-export function hostIsManaged(host: { uplink?: KnownHostUplink } | { unknown: true } | null | undefined): boolean {
-  return !!host && 'uplink' in host && isManagedHost(host.uplink)
+export function hostIsCloud(host: { uplink?: KnownHostUplink } | { unknown: true } | null | undefined): boolean {
+  return !!host && 'uplink' in host && isCloudHost(host.uplink)
 }
 
 /**
- * A managed host's state while its compute is not ready ("Provisioning", "Stopped"),
- * so a disabled row says why. Null when ready, for a personal host, and for a state
- * this client does not know.
+ * Solus Cloud operates this cloud machine's compute, so a member can start, stop,
+ * restart, and delete it from here. A cloud machine that its operator runs has no
+ * such lifecycle: it is dialed like any other host.
+ */
+export function hostHasManagedCompute(host: { uplink?: KnownHostUplink } | { unknown: true } | null | undefined): boolean {
+  return !!host && 'uplink' in host && host.uplink?.hasManagedCompute === true
+}
+
+/**
+ * The state of managed compute that is not ready ("Provisioning", "Stopped"), so a
+ * disabled row says why. Null when ready, for a host with no managed compute, and
+ * for a state this client does not know.
  */
 export function managedHostStateLabel(uplink: KnownHostUplink | undefined): string | null {
   const state = uplink?.managedState
   return awaitsManagedCompute(uplink) && state ? LIFECYCLE_LABELS[state] : null
 }
 
-/** A managed host takes work only when its compute is ready; it stays listed the rest of the time so its state is visible. */
+/** A machine with managed compute takes work only when the compute is ready; it stays listed the rest of the time so its state is visible. */
 export function canRunOnHost(uplink: KnownHostUplink | undefined): boolean {
   return !awaitsManagedCompute(uplink)
 }

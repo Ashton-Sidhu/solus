@@ -341,6 +341,10 @@ export const settingsDefinitions = {
     label: "Not signed in",
     description: "Your settings and your agent profile are kept on your host. Sign in to Solus to keep them in your account and use them on every host and device.",
   },
+  "account.cloud-address": {
+    label: "Solus Cloud address",
+    description: "The Solus Cloud that this device signs in to. Change it only when your organization hosts its own.",
+  },
   "account.section-sync": {
     label: "Sync",
     description: "Your settings and your agent profile sync through your account. Device settings, host settings, and credentials never sync.",

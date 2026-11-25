@@ -222,7 +222,7 @@ test('records over a socket take its principal as authority and never exchange a
   const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   revokeDevice('revoked-device')
-  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: () => true }))
   const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
@@ -311,7 +311,7 @@ test('a paired session token works offline, is revocable, and cannot open the cl
     createDoors({ place: 'host', verifyAccessToken: async () => { grantLookups++; return { ok: false, reason: 'not-linked' } } }))
   expect((await local.bearer(paired.token, undefined))?.home).toEqual({ kind: 'local', hostId: 'test-host' })
   expect(grantLookups).toBe(0)
-  const cloud = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  const cloud = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } }, createDoors({ place: 'api', pairingDisabled: () => true }))
   expect(await cloud.bearer(paired.token, undefined)).toBeNull()
   auth.revokeDevice(paired.deviceId)
   expect(await local.bearer(paired.token, undefined)).toBeNull()
@@ -326,7 +326,7 @@ test('a link guest opens only its shared work with the secret alone, with the li
   const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   const resolveShareSecret = (secret: string) => shares.resolveLinkSecret(secret)
-  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, resolveShareSecret }))
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: () => true, resolveShareSecret }))
   const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   const guestOf = async (shareSecret: string) => {
     const admitted = await guestPrincipalFor(resolveShareSecret, shareSecret, 'maya-guest-0000001', 'Maya')

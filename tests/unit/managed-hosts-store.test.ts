@@ -5,9 +5,9 @@ import type { AccountResponse } from '@solus/contracts/uplink'
 
 // docs/plans/host-fleet.md D9: the fleet UI manages Solus Cloud machines through one
 // store. A new machine is only worth opening once the directory lists it, and an
-// action on a host that is not a cloud machine must never reach Solus Cloud.
+// action on a host whose compute Solus Cloud does not operate must never reach Solus Cloud.
 
-interface FakeServer { id: string; uplink?: { hostId: string; directoryUrl: string; kind?: 'personal' | 'managed' } }
+interface FakeServer { id: string; uplink?: { hostId: string; directoryUrl: string; kind?: 'personal' | 'cloud'; hasManagedCompute?: boolean } }
 
 const toastErrors: string[] = []
 const directory = {
@@ -45,7 +45,9 @@ afterAll(() => {
 })
 
 const DIRECTORY_URL = 'https://app.solus.test'
-const cloudMachine = (hostId: string, serverId: string): FakeServer => ({ id: serverId, uplink: { hostId, directoryUrl: DIRECTORY_URL, kind: 'managed' } })
+const cloudMachine = (hostId: string, serverId: string): FakeServer => ({ id: serverId, uplink: { hostId, directoryUrl: DIRECTORY_URL, kind: 'cloud', hasManagedCompute: true } })
+/** A cloud machine that its operator runs: Solus Cloud has no compute of it to start, stop, or delete. */
+const operatorMachine: FakeServer = { id: 'operator', uplink: { hostId: 'host_operator', directoryUrl: DIRECTORY_URL, kind: 'cloud' } }
 const laptop: FakeServer = { id: 'laptop', uplink: { hostId: 'host_laptop', directoryUrl: DIRECTORY_URL, kind: 'personal' } }
 
 function accountWith(organizationIds: string[]): AccountResponse {
@@ -144,10 +146,28 @@ describe('creating a cloud machine', () => {
 })
 
 describe('acting on a machine', () => {
-  test('a host that is not a cloud machine is refused without a request', async () => {
+  test('an organization owner removes a cloud machine that its operator runs', async () => {
+    // WHY: such a machine has no lifecycle on Solus Cloud, but its organization must be
+    // able to take it out. The control plane ends its registration; nothing destroys it.
     const calls = account()
-    servers.servers = [laptop]
+    servers.servers = [laptop, operatorMachine]
     const store = new ManagedHostsStore()
+
+    expect(await store.delete('operator')).toBe(true)
+    expect(calls).toEqual([`delete ${operatorMachine.uplink!.hostId}`])
+    expect(directory.removed).toEqual(['operator'])
+  })
+
+
+  test('a host with no managed compute is refused without a request', async () => {
+    const calls = account()
+    servers.servers = [laptop, operatorMachine]
+    const store = new ManagedHostsStore()
+
+    // WHY: the kind decides security, not operation. A cloud machine that its operator
+    // runs has no lifecycle on Solus Cloud, so no start or stop is sent for it.
+    expect(await store.start('operator')).toBe(false)
+    expect(await store.stop('operator')).toBe(false)
 
     expect(await store.start('laptop')).toBe(false)
     expect(await store.stop('laptop')).toBe(false)
@@ -156,7 +176,7 @@ describe('acting on a machine', () => {
     expect(await store.delete('laptop')).toBe(false)
     expect(calls).toEqual([])
     expect(directory.removed).toEqual([])
-    expect(store.error).toBe('This host is not a Solus Cloud machine.')
+    expect(store.error).toBe('Solus Cloud does not run this machine.')
   })
 
   test('stop and restart call Solus Cloud with the machine host id and read the directory again', async () => {
@@ -209,6 +229,6 @@ describe('acting on a machine', () => {
 
     expect(await store.delete('install_cloud')).toBe(false)
     expect(directory.removed).toEqual([])
-    expect(store.error).toContain('did not delete')
+    expect(store.error).toContain('did not remove')
   })
 })

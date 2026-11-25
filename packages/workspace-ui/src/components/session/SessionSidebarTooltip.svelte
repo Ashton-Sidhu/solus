@@ -6,7 +6,7 @@
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../servers/lib/managed-host";
+  import { hostIsCloud } from "../servers/lib/managed-host";
   import type { AttentionState, LiveMarkFacts } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -118,7 +118,7 @@
           {#if isRemote}
             <HostOperatingSystemIcon
               os={remoteOs}
-              managed={hostIsManaged(host)}
+              cloud={hostIsCloud(host)}
               class="size-3.5 shrink-0"
             />
           {:else}

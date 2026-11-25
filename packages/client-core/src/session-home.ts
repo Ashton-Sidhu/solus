@@ -5,7 +5,7 @@ import { solusApiId } from '@solus/contracts/uplink'
 export interface SessionHomeConnections {
   serverIds(): string[]
   /** A machine provisioned for an organization, whose sessions the Solus API keeps. Absent: every machine is personal. */
-  isManagedHost?(serverId: string): boolean
+  isCloudHost?(serverId: string): boolean
 }
 
 /**
@@ -26,7 +26,7 @@ export function sessionHomeId(
   connections: SessionHomeConnections,
 ): string {
   const { organizationId, publication } = session
-  if (!organizationId || organizationId === 'local' || publication !== 'published' || !connections.isManagedHost?.(machineServerId)) return machineServerId
+  if (!organizationId || organizationId === 'local' || publication !== 'published' || !connections.isCloudHost?.(machineServerId)) return machineServerId
   const serviceId = solusApiId(organizationId)
   return connections.serverIds().includes(serviceId) ? serviceId : machineServerId
 }

@@ -16,8 +16,8 @@ function saved(id: string, uplink?: KnownHost['uplink']): KnownHost {
 
 const workspaceId = 'workspace:org-1'
 const laptop = saved('laptop', { hostId: 'laptop', directoryUrl: 'https://app.test' })
-const orgManaged = saved('managed:h1', { hostId: 'h1', directoryUrl: 'https://app.test', kind: 'managed', organizationIds: ['org-1'], managedState: 'ready' })
-const otherManaged = saved('managed:h2', { hostId: 'h2', directoryUrl: 'https://app.test', kind: 'managed', organizationIds: ['org-2'], managedState: 'ready' })
+const orgManaged = saved('managed:h1', { hostId: 'h1', directoryUrl: 'https://app.test', kind: 'cloud', hasManagedCompute: true, organizationIds: ['org-1'], managedState: 'ready' })
+const otherManaged = saved('managed:h2', { hostId: 'h2', directoryUrl: 'https://app.test', kind: 'cloud', hasManagedCompute: true, organizationIds: ['org-2'], managedState: 'ready' })
 
 describe('the default machine', () => {
   test('is never the workspace service, even when it is the primary', () => {

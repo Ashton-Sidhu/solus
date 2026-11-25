@@ -123,7 +123,7 @@ describe('webhook forwarder on the link', () => {
 describe('organization facts for webhooks', () => {
   test('the facts read gives the paused webhook IDs and the unverified policy', async () => {
     const answer = hostOrganizationsResponseSchema.parse({
-      hostId: HOST_ID, category: 'personal', owner: null,
+      hostId: HOST_ID, kind: 'personal', owner: null,
       organizations: [
         { organizationId: 'org-1', name: 'Acme', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { webhooks: { allowUnverified: true } } } }, hostPolicy: null },
         { organizationId: 'org-2', name: 'Beta', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Beta' } }, hostPolicy: null },

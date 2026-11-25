@@ -4,9 +4,8 @@ import { z } from 'zod'
 import { getDb } from '../db'
 import { getDatabase } from '../db/database'
 import { recordNotification } from '../data/notifications/store'
-import { hostCategory, LOCAL_ORGANIZATION_ID } from '../host/host-category'
+import { LOCAL_ORGANIZATION_ID, machineKind } from '../host/machine-kind'
 import { hostUserKey } from '../host/host-user'
-import { isOrganizationAttached } from '../host/organization-attachment'
 
 export interface PrObserverDependencies {
   /**
@@ -93,7 +92,7 @@ export class PrObserver {
  */
 export function hostPrObserver(): PrObserver {
   return new PrObserver({
-    recipient: () => hostCategory() === 'personal' && !isOrganizationAttached() ? hostUserKey() : null,
+    recipient: () => machineKind() === 'personal' ? hostUserKey() : null,
     organizationId: () => LOCAL_ORGANIZATION_ID,
   })
 }

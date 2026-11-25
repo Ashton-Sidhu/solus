@@ -24,7 +24,7 @@
   const summary = $derived(rollup(machines));
   const unreachable = $derived(machines.filter((machine) => machine.state === "unreachable").map((machine) => machine.serverId));
   const withUpdate = $derived(machines.filter((machine) => machine.hasUpdate).map((machine) => machine.serverId));
-  const stopped = $derived(machines.filter((machine) => machine.state === "stopped" && machine.isManaged).map((machine) => machine.serverId));
+  const stopped = $derived(machines.filter((machine) => machine.state === "stopped" && machine.hasManagedCompute).map((machine) => machine.serverId));
 </script>
 
 <div class="flex flex-col gap-5 p-5" style:min-height="{MAP_HEIGHT}rem">

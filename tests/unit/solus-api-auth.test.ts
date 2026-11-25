@@ -48,15 +48,15 @@ afterEach(async () => {
   else process.env.SOLUS_DATA_DIR = originalDataDir
 })
 
-const member = { sub: 'bob', grant_id: 'grant_bob', access: 'org-member' as const, hostKind: 'cloud' as const, organizations: [{ id: 'org_a', role: 'member' as const, teamIds: [] }, { id: 'org_b', role: 'owner' as const, teamIds: [] }] }
-const delegated = { sub: 'bob', grant_id: 'grant_bob', act: { sub: 'host_h1', host_id: 'h1' }, access: 'org-member' as const, hostKind: 'cloud' as const, organizationId: 'org_a', organizationRole: 'member' as const, teamIds: [] }
+const member = { sub: 'bob', grant_id: 'grant_bob', access: 'org-member' as const, hostKind: 'api' as const, organizations: [{ id: 'org_a', role: 'member' as const, teamIds: [] }, { id: 'org_b', role: 'owner' as const, teamIds: [] }] }
+const delegated = { sub: 'bob', grant_id: 'grant_bob', act: { sub: 'host_h1', host_id: 'h1' }, access: 'org-member' as const, hostKind: 'api' as const, organizationId: 'org_a', organizationRole: 'member' as const, teamIds: [] }
 
 /** The Solus API's HTTP listener; `/v1/capabilities` reads no records, only the caller's admission. */
 async function api() {
   const tokens = fakeAccessTokens()
   // SAFETY: the route under test reads no operation.
   const operations = {} as WorkspaceOperations
-  const built = buildHttpServer({ isApiMode: true, pairingDisabled: true, verifyAccessToken: tokens.verify, solusApi: { operations, serviceId: 'api' } })
+  const built = buildHttpServer({ isApiMode: true, pairingDisabled: () => true, verifyAccessToken: tokens.verify, solusApi: { operations, serviceId: 'api' } })
   server = built.server
   await new Promise<void>((resolve) => built.server.listen(0, '127.0.0.1', resolve))
   const address = built.server.address()
@@ -106,7 +106,7 @@ describe('the Solus API over HTTP', () => {
 describe('the authority of an admitted request', () => {
   test("a person's request has a client's scopes; a host's agent acting for them has the agent's, and its writes are the agent's", async () => {
     const tokens = fakeAccessTokens()
-    const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations: {} as WorkspaceOperations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, verifyAccessToken: tokens.verify }))
+    const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations: {} as WorkspaceOperations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: () => true, verifyAccessToken: tokens.verify }))
     const person = await admission.bearer(tokens.mint(member), 'org_a')
     expect(person).toMatchObject({ home: { kind: 'organization', serviceId: 'api', organizationId: 'org_a' }, scopes: CLIENT_SOLUS_API_SCOPES })
     expect(person?.delegation).toBeUndefined()

@@ -1,4 +1,4 @@
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import type { SessionRuntime } from '../../execution/session-runtime'

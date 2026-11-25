@@ -55,7 +55,7 @@
   const info = $derived(connections.serverInfo);
   $effect(() => { if (info?.tailscaleServe) servePort = info.tailscaleServe.port; });
   const servePreview = $derived(tailscaleServePreview(info?.tailscaleServe?.url ?? null, servePort));
-  // Pairing does not exist on a managed host or the workspace service: Solus cloud owns how they are reached.
+  // Pairing does not exist on a cloud host or the workspace service: the control plane owns how they are reached.
   const hasPairing = $derived(info?.hostKind === "personal");
   const canChangeNetwork = $derived(info?.principal === "local-owner");
   // Only the host's owner may read and revoke its pairings (plans/033 §4.4).

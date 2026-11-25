@@ -4,15 +4,15 @@ import { z } from 'zod'
 import { decodeJwtClaims } from '@solus/client-core/oauth-session'
 import { ACCESS_TOKEN_TYPE, HOST_LINK_ENV, hostAudience, TOKEN_EXCHANGE_GRANT_TYPE, hostLinkEnvSchema, uplinkStatusSchema } from '@solus/contracts/uplink'
 import { cloudModeScenario } from '../../src/cloud-mode'
-import { accountApi, directory, hostKeyOf } from '../../src/cloud-fixtures'
+import { accountApi, directory, hostKeyOf, type DirectoryEntry } from '../../src/cloud-fixtures'
 import { hostClient, type SignedIn } from '../../src/cloud-sign-in'
 import { accountCall } from '../../src/local-cloud'
 
 /**
- * A managed host in cloud mode (docs/adr/0001-standard-authentication.md §5 stage 5
- * "Managed hosts"; docs/plans/managed-hosts.md §2): bob, a member of a new
+ * A cloud machine with managed compute, in cloud mode (docs/adr/0001-standard-authentication.md
+ * §5 stage 5 "Managed hosts"; docs/plans/managed-hosts.md §2): bob, a member of a new
  * organization of alice's, creates a machine through the cloud's own route. The cloud's
- * development provider (Sprites in memory) prints the link it gives the machine
+ * development provider (in memory) prints the link it gives the machine
  * (`SOLUS_HOST_LINK`), as the console mailer prints mail; the Lab boots a host with it,
  * as the machine's boot would. The host registers its own key with the one-time
  * ticket. Members get five-minute host tokens that list the organization and pass
@@ -35,6 +35,11 @@ function provisionedLink(cloudLog: string, hostId: string): string | null {
   const start = log.lastIndexOf(`booted on sprite solus-h-${hostId}`)
   if (start < 0) return null
   return /SOLUS_HOST_LINK: '([^']+)'/.exec(log.slice(start))?.[1] ?? null
+}
+
+/** How the directory lists a machine the cloud made for an organization: a cloud machine of it, whose compute the cloud operates. */
+function isManagedCloudMachineOf(entry: DirectoryEntry | undefined, organizationId: string): boolean {
+  return entry?.kind === 'cloud' && entry.hasManagedCompute === true && entry.organizationIds.includes(organizationId)
 }
 
 export default cloudModeScenario('cloud machine: a managed host of an organization, its members, and a stranger', async (ctx) => {
@@ -66,7 +71,8 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
   if (!linkJson) return
   const link = hostLinkEnvSchema.parse(JSON.parse(linkJson))
   ctx.check('the link names the machine, its organization, and a one-time ticket', link.registration.hostId === hostId && link.registration.organizationId === organizationId && link.credentialTicket.startsWith('hct_'), JSON.stringify({ ...link.registration, ticket: link.credentialTicket.slice(0, 4) }))
-  const machine = await ctx.bootHost({ flavor: 'managed', environment: { [HOST_LINK_ENV]: linkJson } })
+  ctx.check('the registration says the cloud operates the machine\'s compute', link.registration.hasManagedCompute === true, JSON.stringify(link.registration.hasManagedCompute))
+  const machine = await ctx.bootHost({ flavor: 'cloud', environment: { [HOST_LINK_ENV]: linkJson } })
   const adopted = await ctx.until(() => machine.log().some((entry) => entry.msg === 'provisioned_registration_adopted' && entry.hostId === hostId), (yes) => yes, 15_000)
   ctx.check('the machine registered its own key with the ticket', adopted)
   ctx.check('it keeps the key for its client', hostKeyOf(machine)?.clientId === `host_${hostId}`, hostKeyOf(machine)?.clientId)
@@ -74,7 +80,7 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
   ctx.step('the directory lists the machine for its members')
   for (const member of [alice, bob]) {
     const entry = (await directory(ctx.stack, member)).find((row) => row.hostId === hostId)
-    ctx.check(`${member.persona.name}'s directory lists it as a managed host of the organization`, entry?.kind === 'managed' && entry.organizationIds.includes(organizationId), JSON.stringify(entry))
+    ctx.check(`${member.persona.name}'s directory lists it as a cloud machine of the organization, with managed compute`, isManagedCloudMachineOf(entry, organizationId), JSON.stringify(entry))
     ctx.check(`${member.persona.name}'s directory gives it a route`, (entry?.routes.length ?? 0) > 0, JSON.stringify(entry?.routes))
   }
   ctx.check('carol\'s directory does not list it', !(await directory(ctx.stack, carol)).some((row) => row.hostId === hostId))
@@ -93,7 +99,7 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
     if (!dialed.ok) return
     const info = serverInfoSchema.parse(await client.rpc('connectionsGetServerInfo'))
     ctx.check(`the machine sees ${member.persona.name} as an organization member`, info.principal === 'org-member', info.principal)
-    // A managed host trusts no caller by position, so its status is read over a member's socket.
+    // A cloud machine trusts no caller by position, so its status is read over a member's socket.
     const status = uplinkStatusSchema.parse(await client.rpc('uplinkStatus'))
     ctx.check(`uplinkStatus to ${member.persona.name}: registered as the machine, for the organization`, status.registration.registered && status.registration.registration.hostId === hostId && status.registration.registration.organizationId === organizationId)
   }

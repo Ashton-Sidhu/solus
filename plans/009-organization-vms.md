@@ -4,6 +4,8 @@
 **Depends on:** Plan 008's workspace API and existing organization, link, mirror, outbox, and publication machinery.
 **Scope:** Customer-owned execution VMs connected to a configured shared Solus API, hosted by Solus or self-hosted. API-first setup and the authentication/registration handoff for that endpoint are included. A complete self-hosted control-plane distribution and infrastructure operations are separate.
 
+> **2026-11-25.** [Plan 034](034-one-cloud-machine-kind.md) replaced the attachment model of this plan. A standalone server is no longer attached to organizations: a machine is `personal`, or it is a `cloud` machine of one organization from its registration. In this plan, `attachedAt`, attach and detach, several organizations on one VM, personal records on an organization VM (§1 "Organization linking", §4, §9 "Attachment"), the category `self-hosted`, and `solus connect remove ORG` are history. The record rules for organization work (§3) and the admission before the provider (§9) stay.
+>
 > **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, tasks as records with an organization and a record home (§1, §3), the agent task tools that call the Solus API (§6, §9) and the `read_task` limit of an API session are history. The agent task tools now write to GitHub or Jira with the acting person's connection.
 
 ## 1. Product model

@@ -19,7 +19,7 @@ import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import type { RemoteAccessMode } from '@solus/contracts/host-api'
-import { hostCategory } from './host-category'
+import { machineKind } from './machine-kind'
 
 const log = createLogger('main', 'server-settings')
 
@@ -160,7 +160,7 @@ function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>[
 
 export function getHostConfig(): HostConfigSnapshot {
   const stored = getServerSettings().hostConfig
-  const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
+  const config = machineKind() === 'cloud' && stored.continueSessionsAfterHostRestart
     ? { ...stored, continueSessionsAfterHostRestart: false }
     : stored
   return { config: withHostLocks(config) }
@@ -253,7 +253,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
     if (key in patch) enforce(hostPolicies().settingChangeDenial(key, label))
   }
   const hostConfig = mergeHostConfig(getServerSettings().hostConfig, patch)
-  if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
+  if (machineKind() === 'cloud') hostConfig.continueSessionsAfterHostRestart = false
   const next = { ...getServerSettings(), hostConfig }
   persistSettings(next)
   _settings = next

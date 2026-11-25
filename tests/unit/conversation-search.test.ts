@@ -140,7 +140,7 @@ describe('which homes a search reads', () => {
     // too would list every one of them twice.
     const saved = [
       { id: 'personal-vm', uplink: { hostId: 'h-personal', directoryUrl: 'x', kind: 'personal' as const } },
-      { id: 'org-vm', uplink: { hostId: 'h-org', directoryUrl: 'x', kind: 'managed' as const } },
+      { id: 'org-vm', uplink: { hostId: 'h-org', directoryUrl: 'x', kind: 'cloud' as const } },
     ]
     expect(searchServerIds([SERVICE, 'org-vm', 'personal-vm', 'local'], 'local', saved)).toEqual(['local', 'personal-vm', SERVICE])
     // On web there is no machine of the client's own.

@@ -25,6 +25,6 @@ export function visibleInWindow(organizationId: string | undefined, activeOrgani
  * and a managed host's do; a personal host's do not. A record whose source is not
  * known keeps the filter.
  */
-export function usesWindowFilter(serverId: string | null | undefined, managedHostIds: ReadonlySet<string>): boolean {
-  return !serverId || isSolusApiId(serverId) || managedHostIds.has(serverId)
+export function usesWindowFilter(serverId: string | null | undefined, cloudHostIds: ReadonlySet<string>): boolean {
+  return !serverId || isSolusApiId(serverId) || cloudHostIds.has(serverId)
 }

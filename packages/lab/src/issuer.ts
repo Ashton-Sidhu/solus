@@ -40,12 +40,18 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  * The host trusts it because its link record names this issuer; nothing on the host
  * changes for the Lab.
  *
- * For a managed host it also plays the provisioner (docs/plans/managed-hosts.md §2):
- * `issueManagedLink` is what the real cloud puts in the machine's environment, the
- * link record and a one-time credential ticket, with which the host registers the key
- * it makes at first boot (`POST /v1/hosts/:id/credential`). That record is then served
- * back at `GET /v1/hosts/:id/link` under the host's control token, so a rebooted host
- * passes its generation check exactly as it would against the real directory.
+ * For a machine the control plane makes it also plays the provisioner
+ * (docs/plans/managed-hosts.md §2): `issueManagedLink` is what the real cloud puts in
+ * the machine's environment, the link record and a one-time credential ticket, with
+ * which the host registers the key it makes at first boot (`POST
+ * /v1/hosts/:id/credential`). That record is then served back at `GET
+ * /v1/hosts/:id/link` under the host's control token, so a rebooted host passes its
+ * generation check exactly as it would against the real directory.
+ *
+ * A registration that names an organization is a cloud machine's
+ * (plans/034-one-cloud-machine-kind.md §2): the standing the issuer answers for it says
+ * `kind: 'cloud'` and no owner. Every other host is alice's personal host, which she may
+ * share with the organization (`shareHostWithOrganization`).
  *
  * For the cloud workspace (plans/010-standard-oauth.md) it mints access tokens for
  * members, gives each linked host an OAuth client with its key (`private_key_jwt`,
@@ -54,7 +60,7 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  * trades a person's access token for a delegation for the organization its link names
  * (token exchange, RFC 8693). The issuer keeps the delegation; the host asks it for a
  * token with its control token (`POST /v1/hosts/:id/delegation-token`). Every ask is
- * the live check: a host detached from the organization is refused.
+ * the live check: a host that does not work for the organization is refused.
  */
 
 function base64Url(value: string | Buffer): string {
@@ -67,7 +73,7 @@ interface IssuedLink {
   publicJwk: HostPublicJwk | null
   /** A provisioned host's one-time ticket, until it is used. */
   credentialTicket: string | null
-  /** A managed host's: the organization it was provisioned for. */
+  /** A cloud machine's: the one organization its registration names. */
   organizationId?: string
 }
 
@@ -146,6 +152,7 @@ function sendJson(response: ServerResponse, status: number, body: IssuerReply): 
 export interface MintOptions {
   hostId: string
   hostKind: HostKind
+  /** Personal hosts only: the account that owns the host a member reaches. */
   hostOwnerUserId?: string
   /** Seconds; defaults to an access token's five minutes. */
   ttlSeconds?: number
@@ -159,8 +166,8 @@ export class LabIssuer {
   private port = 0
   private minted = 0
   private readonly links = new Map<string, IssuedLink>()
-  /** Host id → the organization the owner shared it with. */
-  private readonly hostOrganizations = new Map<string, string>()
+  /** A personal host's id → the organization its owner shared it with. */
+  private readonly sharedOrganizations = new Map<string, string>()
   /** The delegations the issuer keeps, by host, person, and scope. */
   private readonly delegations = new Map<string, Delegation>()
   private workspaceUrl: string | null = null
@@ -219,28 +226,32 @@ export class LabIssuer {
   }
 
   /**
-   * What the provisioner puts in a managed machine's environment (`SOLUS_HOST_LINK`):
-   * the link record and a one-time credential ticket. A later generation supersedes an
-   * earlier one, as a recreated machine's would. A link that names the organization the
-   * machine was provisioned for is a managed host's; a runner's names none.
+   * What the provisioner puts in the environment of a machine it made
+   * (`SOLUS_HOST_LINK`): the link record and a one-time credential ticket. A later
+   * generation supersedes an earlier one, as a recreated machine's would. A link that
+   * names an organization is a cloud machine's, and the control plane operates its
+   * compute (`hasManagedCompute`); one that names none is a personal host's.
    */
   issueManagedLink(hostId: string, proxiedPort: number, generation = 1, organizationId?: string): HostLinkEnv {
     const credentialTicket = `hct_lab_${randomBytes(18).toString('base64url')}`
-    const registration = this.issueRegistration(hostId, proxiedPort, generation, { publicJwk: null, credentialTicket, organizationId })
+    const registration = this.issueRegistration(hostId, proxiedPort, generation, { publicJwk: null, credentialTicket, organizationId }, organizationId !== undefined)
     return { registration, tunnel: { hostname: `h-${hostId}.lab.invalid`, proxiedPort }, credentialTicket }
   }
 
   /**
    * What registration answers a host that sent the public half of its key: the
-   * registration, and its OAuth client registered with that key. A Lab runner is written
-   * as if it had registered and linked, so the key is the one the Lab put in its secret store.
+   * registration, and its OAuth client registered with that key. The Lab writes such a
+   * host as if it had registered and linked, so the key is the one the Lab put in its
+   * secret store. With an organization, the ticket was an organization's: the
+   * registration names it, so the host is a cloud machine that its operator runs (no
+   * `hasManagedCompute`). With none, it is alice's personal host.
    */
-  issueEnrolledLink(hostId: string, proxiedPort: number, publicJwk: HostPublicJwk): EnrollHostResponse {
-    const registration = this.issueRegistration(hostId, proxiedPort, 1, { publicJwk, credentialTicket: null })
+  issueEnrolledLink(hostId: string, proxiedPort: number, publicJwk: HostPublicJwk, organizationId?: string): EnrollHostResponse {
+    const registration = this.issueRegistration(hostId, proxiedPort, 1, { publicJwk, credentialTicket: null, organizationId }, false)
     return { registration, oauthClient: { clientId: hostClientId(hostId) } }
   }
 
-  private issueRegistration(hostId: string, proxiedPort: number, generation: number, credential: Pick<IssuedLink, 'publicJwk' | 'credentialTicket' | 'organizationId'>): HostRegistration {
+  private issueRegistration(hostId: string, proxiedPort: number, generation: number, credential: Pick<IssuedLink, 'publicJwk' | 'credentialTicket' | 'organizationId'>, hasManagedCompute: boolean): HostRegistration {
     const link: HostLinkResponse = {
       hostId,
       generation,
@@ -254,7 +265,10 @@ export class LabIssuer {
       directoryUrl: this.issuer,
       generation,
     }
-    if (credential.organizationId) issued.organizationId = credential.organizationId
+    if (credential.organizationId) {
+      issued.organizationId = credential.organizationId
+      if (hasManagedCompute) issued.hasManagedCompute = true
+    }
     if (this.workspaceUrl) issued.apiUrl = this.workspaceUrl
     // A new link is a new client: whatever the old one held is gone, as on the real account plane.
     for (const [key, delegation] of this.delegations) if (delegation.hostId === hostId) this.delegations.delete(key)
@@ -262,15 +276,19 @@ export class LabIssuer {
     return issued
   }
 
-  /** The link record the issuer handed a managed host, or null before one was issued. */
+  /** The link record the issuer handed a host, or null before one was issued. */
   issuedLink(hostId: string): HostLinkResponse | null {
     return this.links.get(hostId)?.link ?? null
   }
 
-  /** The owner shared a host with an organization (`POST /v1/hosts/:id/organization` on the real cloud). */
-  attachHostToOrganization(hostId: string, organizationId: string | null): void {
-    if (organizationId === null) this.hostOrganizations.delete(hostId)
-    else this.hostOrganizations.set(hostId, organizationId)
+  /**
+   * alice shared her personal host with an organization (`POST /v1/hosts/:id/organizations`
+   * on the real cloud), or took it back (null). The host stays personal: its members
+   * reach it with member grants, and her own work stays Local unless she assigns it.
+   */
+  shareHostWithOrganization(hostId: string, organizationId: string | null): void {
+    if (organizationId === null) this.sharedOrganizations.delete(hostId)
+    else this.sharedOrganizations.set(hostId, organizationId)
   }
 
   /** Where the workspace service is; a link issued after this names it as the host's Solus API. */
@@ -283,9 +301,9 @@ export class LabIssuer {
     return this.workspaceUrl
   }
 
-  /** A workspace access token for a member: `aud: urn:solus:api`, `hostKind: cloud`. */
+  /** A Solus API access token for a member: `aud: urn:solus:api`, `hostKind: api`. */
   issueWorkspaceGrant(persona: SignedInPersona, ttlSeconds?: number): string {
-    return this.mint(persona, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', ttlSeconds })
+    return this.mint(persona, { hostId: SOLUS_API_AUDIENCE, hostKind: 'api', ttlSeconds })
   }
 
   /**
@@ -312,7 +330,7 @@ export class LabIssuer {
       exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS,
       client_id: clientId,
       act: { sub: clientId, host_id: hostId },
-      hostKind: 'cloud' as const,
+      hostKind: 'api' as const,
       displayName: persona.displayName,
     }
     if (scope === 'personal') return this.sign({ ...base, access: 'owner' })
@@ -338,14 +356,7 @@ export class LabIssuer {
         sendJson(response, 401, { error: 'invalid_host_credential' })
         return
       }
-      const organizationId = this.hostOrganizations.get(hostId)
-      sendJson(response, 200, {
-        hostId, category: 'self-hosted', owner: { userId: PERSONAS.alice.userId, name: PERSONAS.alice.displayName },
-        organizations: organizationId
-          ? [{ organizationId, name: 'Lab', shared: true, hostRules: DEFAULT_HOST_RULES, policy: organizationPolicyTemplate('Lab'), hostPolicy: null }]
-          : [],
-        hostOwnerOrganizationId: null,
-      })
+      sendJson(response, 200, this.standingOf(hostId))
       return
     }
     const delegationTokenMatch = /^\/v1\/hosts\/([^/]+)\/delegation-token$/.exec(url.pathname)
@@ -379,6 +390,26 @@ export class LabIssuer {
     }
     response.statusCode = 404
     response.end()
+  }
+
+  /**
+   * A host's standing (`GET /v1/hosts/:id/organizations`). A registration that names an
+   * organization is a cloud machine's: nobody owns it, and it works for that one
+   * organization. Every other host is alice's personal host, with the organization she
+   * shared it with, if any.
+   */
+  private standingOf(hostId: string): HostOrganizationsResponse {
+    const cloudOrganizationId = this.links.get(hostId)?.organizationId
+    const organizationId = cloudOrganizationId ?? this.sharedOrganizations.get(hostId)
+    return {
+      hostId,
+      kind: cloudOrganizationId ? 'cloud' : 'personal',
+      owner: cloudOrganizationId ? null : { userId: PERSONAS.alice.userId, name: PERSONAS.alice.displayName },
+      organizations: organizationId
+        ? [{ organizationId, name: 'Lab', shared: true, hostRules: DEFAULT_HOST_RULES, policy: organizationPolicyTemplate('Lab'), hostPolicy: null }]
+        : [],
+      hostOwnerOrganizationId: null,
+    }
   }
 
   /** A provisioned host registers its key with its one-time ticket; the same key again is accepted. */
@@ -426,7 +457,7 @@ export class LabIssuer {
     const scope = form.delegation_scope === 'personal' && !form.organization_id ? 'personal' as const
       : form.organization_id && !form.delegation_scope ? { organizationId: form.organization_id } : null
     if (!scope) return refuse(400, 'invalid_request', 'Name one scope: an organization or personal.')
-    // `personal` is the owner's alone (hostReach on the real account plane).
+    // `personal` is the owner's alone (hostReach on the real account plane); a cloud machine has no owner.
     if (scope === 'personal' && subject.access !== 'owner') return refuse(400, 'invalid_grant', 'not_the_owner')
     const delegation: Delegation = { hostId: client.hostId, userId: subject.sub, scope, grantId: subject.grant_id }
     const checked = this.liveCheck(delegation)
@@ -463,7 +494,7 @@ export class LabIssuer {
     const scope = delegation.scope
     if (scope !== 'personal') {
       if (persona.kind !== 'org-member' || persona.organizationId !== scope.organizationId) return { error: 'invalid_grant', error_description: 'The person is not a member of the organization.', solus_refusal: 'not_a_member' }
-      const hostOrganization = this.links.get(delegation.hostId)?.organizationId ?? this.hostOrganizations.get(delegation.hostId)
+      const hostOrganization = this.links.get(delegation.hostId)?.organizationId ?? this.sharedOrganizations.get(delegation.hostId)
       if (hostOrganization !== scope.organizationId) return { error: 'invalid_grant', error_description: 'The host does not work for the organization.', solus_refusal: 'host_not_in_organization' }
     }
     return { persona }

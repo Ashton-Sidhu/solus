@@ -2,11 +2,11 @@ import type { Actor } from '../../admission/actor'
 import type { RestartRun } from '../../data/sessions/run-ledger'
 import type { SessionLineageMember } from '@solus/contracts/types'
 import { sameUser, type User } from '@solus/contracts/user'
-import { hostCategory } from '../../host/host-category'
+import { machineKind } from '../../host/machine-kind'
 import { getHostConfig } from '../../host/settings'
 
 export function restartRecoveryEnabled(): boolean {
-  return hostCategory() !== 'managed' && getHostConfig().config.continueSessionsAfterHostRestart
+  return machineKind() !== 'cloud' && getHostConfig().config.continueSessionsAfterHostRestart
 }
 
 export function restartAuthority(actor?: Actor): RestartRun['authority'] | null {

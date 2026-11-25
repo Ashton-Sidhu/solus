@@ -28,11 +28,11 @@ const ORGANIZATION = { organizationId: 'org_acme', name: 'Acme' }
 
 const cloudHost: ComputeHost = {
   id: 'cloud', label: 'Cloud · Acme', readiness: 'unreachable',
-  uplink: { hostId: 'h_cloud', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_acme'], managedState: 'stopped' },
+  uplink: { hostId: 'h_cloud', directoryUrl: 'https://app', kind: 'cloud', hasManagedCompute: true, organizationIds: ['org_acme'], managedState: 'stopped' },
 }
 const otherOrganizationHost: ComputeHost = {
   id: 'cloud-2', label: 'Cloud · Other', readiness: 'ready',
-  uplink: { hostId: 'h_other', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_other'] },
+  uplink: { hostId: 'h_other', directoryUrl: 'https://app', kind: 'cloud', organizationIds: ['org_other'] },
 }
 const adaLaptop: ComputeHost = {
   id: 'laptop', label: 'Ada’s Mac', readiness: 'ready',
@@ -56,6 +56,21 @@ describe('cloud onboarding: where agents run', () => {
     expect(defaultComputeHost(computeChoices([unreachable, bobServer], ACCOUNT))?.id).toBe('bob')
     // Nothing else answers: the cloud host stays chosen, and Continue tries it again.
     expect(defaultComputeHost(computeChoices([unreachable], ACCOUNT))?.id).toBe('cloud')
+  })
+
+  test('a cloud host that its operator runs is the organization’s cloud host, and is not waited for while it is down', () => {
+    // WHY: the kind says whose machine it is; only managed compute can be started. Choosing
+    // an operator's machine that is down would make Continue wait for a start nobody can make.
+    const operatorRun: ComputeHost = { id: 'operator', label: 'Build box', readiness: 'ready', uplink: { hostId: 'h_op', directoryUrl: 'https://app', kind: 'cloud', organizationIds: ['org_acme'] } }
+    const choices = computeChoices([adaLaptop, operatorRun], ACCOUNT)
+    expect(choices.cloudHost?.id).toBe('operator')
+    expect(choices.ownMachines.map((server) => server.id)).toEqual(['laptop'])
+    expect(defaultComputeHost(choices)?.id).toBe('operator')
+    expect(reachability(operatorRun)).toBe('Ready')
+    const down = { ...operatorRun, readiness: 'unreachable' as const }
+    expect(defaultComputeHost(computeChoices([adaLaptop, down], ACCOUNT))?.id).toBe('laptop')
+    expect(reachability(down)).toBe('Can’t reach it')
+    expect(hostSetupStep(false, down)).toEqual({ index: 3, label: 'Connecting to the cloud host…' })
   })
 
   test('a row says whether this client reaches the machine, not only whether it runs', () => {

@@ -1,4 +1,4 @@
-import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../host/machine-kind'
 import type { IpcContext, AgentId } from '@solus/contracts/types'
 import { reviewGuideKeyForTarget, type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewGuideTarget } from '@solus/contracts/review'
 import { getEpisodeDiff } from '../git/session-snapshots'

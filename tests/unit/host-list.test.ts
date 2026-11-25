@@ -14,7 +14,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // credential: each client keeps its own token.
 
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
-const ADMIN = memberPrincipal('adam', 'Adam', { organizationRole: 'owner', hostKind: 'managed' })
+const ADMIN = memberPrincipal('adam', 'Adam', { organizationRole: 'owner', hostKind: 'cloud' })
 
 const listing = (id: string, lastConnected: number): HostListing => ({
   id, label: `Host ${id}`, installationId: id, lastConnected,

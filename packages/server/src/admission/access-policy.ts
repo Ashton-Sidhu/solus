@@ -15,7 +15,7 @@ import {
   type SessionActionLeaf,
 } from '@solus/contracts/permissions'
 import { shareResourceSchema } from '@solus/contracts/sharing'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import { isApiMode } from '../host/api-mode'
 import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './principal'
 import type { AccessResource } from './access'
@@ -279,7 +279,7 @@ const GUEST_CHECKOUT_PERMISSIONS: ReadonlyArray<readonly [Permission, SessionAct
  * table a client's controls and this gate both read. A managed host never gives
  * `host.local.reach`: Solus cloud owns how it is reached.
  */
-export function permissionsFor(principal: Principal, managed = hostCategory() === 'managed' || isApiMode()): Permission[] {
+export function permissionsFor(principal: Principal, managed = machineKind() === 'cloud' || isApiMode()): Permission[] {
   switch (principal.kind) {
     case 'system': return ['host']
     case 'runner': return ['host.system']
@@ -350,7 +350,7 @@ function refusedPermission(name: string, principal: Principal, permission: Permi
  * (`requireScope`).
  */
 export async function authorize(principal: Principal, action: Permission | ResourceActionPath, resource: AccessResource | null, options: AuthorizeOptions): Promise<AccessRefusal | null> {
-  const { name, resources, managed = hostCategory() === 'managed' || isApiMode() } = options
+  const { name, resources, managed = machineKind() === 'cloud' || isApiMode() } = options
   // Managed-hosts.md §1: how a managed host is reached is Solus cloud's, whoever calls, the host's own calls included.
   if (managed && action === 'host.local.reach') {
     return { code: 'MANAGED_HOST', detail: `"${name}" is not available on a managed host: Solus cloud owns how this host is reached` }
@@ -387,7 +387,7 @@ async function guestCheckoutRefusal(principal: Extract<Principal, { kind: 'guest
 }
 
 /** The RPC door: the action and the resource of one call, decided by `authorize`. */
-export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = hostCategory() === 'managed' || isApiMode()): Promise<void> {
+export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = machineKind() === 'cloud' || isApiMode()): Promise<void> {
   const refusal = isResourceMethod(method)
     ? await authorize(principal, resourceActionPathOf(method), RESOURCE_LOCATORS[method](args), { name: method, resources, managed })
     : await authorize(principal, permissionOf(method)!, null, { name: method, resources, managed })

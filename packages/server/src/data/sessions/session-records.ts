@@ -822,6 +822,11 @@ export async function markOwnRunningSessionRecordsInterrupted(): Promise<string[
   return rows.map((row) => row.session_id)
 }
 
+/** Whether this host holds any session record: one it started, or one its index found on its disk. */
+export async function hasSessionRecords(): Promise<boolean> {
+  return (await getDatabase().all(sql`SELECT 1 FROM ${session} LIMIT 1`)).length > 0
+}
+
 /** This host's own published organization sessions: what it sends its Solus API once at boot. */
 export async function ownPublishedSessionIds(): Promise<string[]> {
   const rows = z.array(z.object({ session_id: z.string() })).parse(await getDatabase().all(sql`

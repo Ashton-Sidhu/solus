@@ -21,7 +21,7 @@ let actors: typeof import('@solus/server/admission/actor')
 let db: typeof import('@solus/server/db')
 
 const member = (userId: string, organizationRole: 'owner' | 'member' = 'member'): Principal => ({
-  kind: 'org-member', userId, organizationId: 'local', organizationRole, teamIds: [], hostKind: 'managed',
+  kind: 'org-member', userId, organizationId: 'local', organizationRole, teamIds: [], hostKind: 'cloud',
   displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 

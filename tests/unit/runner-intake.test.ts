@@ -188,7 +188,7 @@ describe('runner intake', () => {
     // host keeps the row with its location, on its own database.)
     const { Work } = await import('@solus/server/data/works/work')
     await (await Work.byId('local', work.id)).delete()
-    const alice: Principal = { kind: 'org-member', hostKind: 'cloud', organizationId: 'org1', organizationRole: 'member', userId: 'alice', teamIds: [], displayName: 'Alice', deviceId: 'alice', deviceLabel: 'Cloud', expiresAt: Date.now() + 60_000 }
+    const alice: Principal = { kind: 'org-member', hostKind: 'api', organizationId: 'org1', organizationRole: 'member', userId: 'alice', teamIds: [], displayName: 'Alice', deviceId: 'alice', deviceLabel: 'Cloud', expiresAt: Date.now() + 60_000 }
     const service = new SolusServer()
     registerCloudUploadHandlers(service, { shares })
     const previous = process.env.SOLUS_API

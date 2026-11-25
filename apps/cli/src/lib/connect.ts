@@ -18,6 +18,7 @@ import {
 } from '@solus/contracts/uplink'
 import { hostOrganizationsStatusSchema, type HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { hostSelfTestSchema, type HostSelfTest } from '@solus/contracts/host-connection'
+import { readCloudMachineRecord } from './cloud-machine'
 import { installCloudflared } from './cloudflared'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
 import { runtimePaths, windowsSystemTool } from './runtime'
@@ -26,14 +27,18 @@ export const CLI_DEVICE_CLIENT_ID = SOLUS_CLIENT_IDS.cli
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
 
 /**
- * How this server connects to Solus (plans/009-organization-vms.md §5;
- * docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). The code registers the
- * server to the account, and then `connect` links it, so it is reachable from the
- * internet through a Cloudflare tunnel: a server set up from a shell is usually on
- * another network. A link code carries its ticket and the account plane that issued
- * it, so one string is enough: an organization's "Add your own VM" code attaches the
- * server to that organization; a personal code registers it to the account. Without a
+ * How this server connects to Solus (plans/034-one-cloud-machine-kind.md;
+ * docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). A link code carries its
+ * ticket and the account plane that issued it, so one string is enough. Without a
  * code, the person signs in on another device and chooses.
+ *
+ * - A personal link registers the server to the person's account and makes it
+ *   reachable from the internet through a Cloudflare tunnel: a server set up from a
+ *   shell is usually on another network.
+ * - An organization code or choice, with the machine's own HTTPS address, makes the
+ *   server a cloud machine of that one organization. It has no tunnel: members reach
+ *   it at the address. The server enrolls and records the address inside the one
+ *   `uplinkRegister` call, and after that call it refuses its local socket.
  */
 export interface ConnectOptions {
   dataDir: string
@@ -42,6 +47,8 @@ export interface ConnectOptions {
   noOpen: boolean
   /** A link code a signed-in client or the account website issued. */
   code?: string
+  /** This machine's own HTTPS address (`parseMachineAddress`): the server becomes a cloud machine of an organization. */
+  address?: string
 }
 
 /** What the person decides after signing in, when no code decided it. */
@@ -72,12 +79,11 @@ export interface ConnectSelfTest {
 }
 
 /** The server's own registration, link, and organization calls, over the trusted loopback socket. */
-interface LocalHostApi {
+export interface LocalHostApi {
   uplinkStatus(): Promise<UplinkStatus>
   uplinkRegister(request: HostRegistrationRequest): Promise<UplinkStatus>
   uplinkLink(): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>
-  uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   hostOrganizations(): Promise<HostOrganizationsStatus>
   hostSelfTest(): Promise<HostSelfTest>
 }
@@ -88,48 +94,88 @@ async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Pro
     uplinkRegister: async (request) => uplinkStatusSchema.parse(await call('uplinkRegister', [request])),
     uplinkLink: async () => uplinkStatusSchema.parse(await call('uplinkLink')),
     uplinkUnlink: async () => uplinkStatusSchema.parse(await call('uplinkUnlink')),
-    uplinkDetachOrganization: async (organizationId) => uplinkStatusSchema.parse(await call('uplinkDetachOrganization', [organizationId])),
     hostOrganizations: async () => hostOrganizationsStatusSchema.parse(await call('hostOrganizations')),
     hostSelfTest: async () => hostSelfTestSchema.parse(await call('hostSelfTest')),
   }))
 }
 
+/** What `connectHost` reaches outside this process; a test gives its own. */
+export interface ConnectDeps {
+  localHost<T>(dataDir: string, run: (api: LocalHostApi) => Promise<T>): Promise<T>
+  installCloudflared(dataDir: string): Promise<void>
+  fetch: typeof fetch
+  sleep(ms: number, signal: AbortSignal): Promise<void>
+}
+
+const systemConnectDeps: ConnectDeps = {
+  localHost: withLocalHost,
+  installCloudflared: async (dataDir) => { await installCloudflared({ dataDir }) },
+  fetch,
+  sleep,
+}
+
+/** A cloud machine admits no local connection, so the command line changes nothing on it. */
+const CLOUD_MACHINE_IS_FIXED = 'This server is a cloud host of an organization already. An organization owner removes the machine in the Solus console. To set up another machine, use a new data directory (`--data-dir PATH`).'
+
+const REGISTERED_ALREADY = 'This server is registered to a Solus account already, so it cannot become a cloud host of an organization. A cloud host starts with new data: set it up with a new data directory (`--data-dir PATH`).'
+
+/** An organization was chosen, and no address was given. Names the command that has one. */
+export const ADDRESS_NEEDED = 'A cloud host of an organization needs its own HTTPS address, and it has no tunnel. Run `solus connect --address https://machine.example.com` with the address of this machine. The address must forward to the Solus server on this machine (port 34118 by default).'
+
 /**
- * Registers this server (or attaches it to an organization when it is registered
- * already), then links it. A code needs nothing else. Without one, the person signs in
- * with the device flow — whose URL and code they open on any device, so this works
- * over SSH — and then chooses personal or one of their organizations.
+ * Connects this server to Solus. A code needs nothing else. Without one, the person
+ * signs in with the device flow — whose URL and code they open on any device, so this
+ * works over SSH — and then chooses personal or one of their organizations.
+ *
+ * An address makes a cloud machine: no cloudflared, and the address goes to the server
+ * with the ticket. A server that is registered already cannot become one, and an
+ * organization choice without an address stops before a ticket is issued.
  */
-export async function connectHost(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus> {
-  const current = await withLocalHost(options.dataDir, (api) => api.uplinkStatus())
-  reporter.stage('Checking cloudflared')
-  await installCloudflared({ dataDir: options.dataDir })
-  reporter.stage('cloudflared is ready')
+export async function connectHost(options: ConnectOptions, reporter: ConnectReporter, deps: ConnectDeps = systemConnectDeps): Promise<UplinkStatus> {
+  if (readCloudMachineRecord(options.dataDir)) throw new Error(CLOUD_MACHINE_IS_FIXED)
+  const { address } = options
+  const current = await deps.localHost(options.dataDir, (api) => api.uplinkStatus())
+  if (address && current.registration.registered) throw new Error(REGISTERED_ALREADY)
+  const prepareTunnel = async (): Promise<void> => {
+    reporter.stage('Checking cloudflared')
+    await deps.installCloudflared(options.dataDir)
+    reporter.stage('cloudflared is ready')
+  }
 
   if (options.code) {
     const request = parseLinkCode(options.code, resolveCloudOrigin(options.cloudUrl))
-    return withLocalHost(options.dataDir, (api) => registerAndLink(api, request))
+    if (address) return deps.localHost(options.dataDir, (api) => api.uplinkRegister({ ...request, address }))
+    await prepareTunnel()
+    return deps.localHost(options.dataDir, (api) => registerAndLink(api, request))
   }
   const cloudOrigin = current.registration.registered ? current.registration.registration.directoryUrl : resolveCloudOrigin(options.cloudUrl)
-  const session = await authorizeCli(cloudOrigin, options.noOpen, reporter)
+  const session = await authorizeCli(cloudOrigin, options.noOpen, reporter, deps.fetch, deps.sleep)
   try {
-    const choice = await reporter.choose(await accountOrganizations(cloudOrigin, await accountToken(session)), current)
-    if (choice.kind === 'personal' && current.registration.registered) return withLocalHost(options.dataDir, (api) => current.link.linked ? Promise.resolve(current) : api.uplinkLink())
-    const organizationIds = choice.kind === 'organization' ? [choice.organizationId] : []
-    const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), organizationIds.length ? { organizationIds } : {})
-    return await withLocalHost(options.dataDir, (api) => registerAndLink(api, { ticket, directoryUrl: cloudOrigin, organizationIds }))
+    const choice = await reporter.choose(await accountOrganizations(cloudOrigin, await accountToken(session), deps.fetch), current)
+    if (choice.kind === 'organization') {
+      if (current.registration.registered) throw new Error(REGISTERED_ALREADY)
+      if (!address) throw new Error(ADDRESS_NEEDED)
+      const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), { organizationId: choice.organizationId }, deps.fetch)
+      return await deps.localHost(options.dataDir, (api) => api.uplinkRegister({ ticket, directoryUrl: cloudOrigin, address }))
+    }
+    if (address) throw new Error('`--address` makes this server a cloud host of an organization. A personal link takes no address: run the command again without `--address`.')
+    await prepareTunnel()
+    if (current.registration.registered) return await deps.localHost(options.dataDir, (api) => current.link.linked ? Promise.resolve(current) : api.uplinkLink())
+    const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), {}, deps.fetch)
+    return await deps.localHost(options.dataDir, (api) => registerAndLink(api, { ticket, directoryUrl: cloudOrigin }))
   } finally {
     // The setup client keeps no copy: sign-out revokes its client grant (RFC 7009).
     await session.signOut()
   }
 }
 
-/** Registers (or attaches) with the ticket, then turns the tunnel on when it is not on. */
+/** A personal link: registers with the ticket, then turns the tunnel on when it is not on. */
 async function registerAndLink(api: LocalHostApi, request: HostRegistrationRequest): Promise<UplinkStatus> {
   const registered = await api.uplinkRegister(request)
   return registered.link.linked ? registered : api.uplinkLink()
 }
 
+/** The live connection of a personal server. A cloud machine has none for the command line (`readCloudMachineRecord`). */
 export async function connectStatus(dataDir: string): Promise<{ uplink: UplinkStatus; standing: HostOrganizationsStatus }> {
   return withLocalHost(dataDir, async (api) => ({ uplink: await api.uplinkStatus(), standing: await api.hostOrganizations() }))
 }
@@ -144,22 +190,15 @@ export async function connectSelfTest(dataDir: string): Promise<ConnectSelfTest>
 }
 
 /**
- * Unlinks this server: the tunnel goes, and the internet no longer reaches it. Its
- * registration and organizations stay; removing the host on the account's Devices
- * page ends them.
+ * Unlinks this personal server: the tunnel goes, and the internet no longer reaches
+ * it. Its registration stays; removing the host on the account's Devices page ends
+ * it. A cloud machine has no link to turn off here: its organization owns it.
  */
 export async function disconnectHost(dataDir: string): Promise<UplinkStatus> {
+  if (readCloudMachineRecord(dataDir)) throw new Error('A cloud host is not unlinked from the command line. An organization owner removes the machine in the Solus console.')
   return withLocalHost(dataDir, async (api) => {
     const current = await api.uplinkStatus()
     return current.link.linked ? api.uplinkUnlink() : current
-  })
-}
-
-/** Takes this server's attachment back for one organization; the registration and its other organizations stay. */
-export async function removeOrganization(dataDir: string, organizationId: string): Promise<HostOrganizationsStatus> {
-  return withLocalHost(dataDir, async (api) => {
-    await api.uplinkDetachOrganization(organizationId)
-    return api.hostOrganizations()
   })
 }
 
@@ -208,8 +247,8 @@ async function accountToken(session: OAuthSession): Promise<string> {
   return token
 }
 
-async function accountOrganizations(cloudOrigin: string, accessToken: string): Promise<AccountOrganization[]> {
-  const response = await fetch(`${cloudOrigin}/v1/account`, {
+async function accountOrganizations(cloudOrigin: string, accessToken: string, fetchImpl: typeof fetch): Promise<AccountOrganization[]> {
+  const response = await fetchImpl(`${cloudOrigin}/v1/account`, {
     headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
     redirect: 'error',
   })
@@ -217,8 +256,8 @@ async function accountOrganizations(cloudOrigin: string, accessToken: string): P
   return accountResponseSchema.parse(await response.json()).organizations
 }
 
-async function issueEnrollmentTicket(cloudOrigin: string, accessToken: string, body: EnrollmentTicketRequest): Promise<string> {
-  const response = await fetch(`${cloudOrigin}/v1/enrollment-tickets`, {
+async function issueEnrollmentTicket(cloudOrigin: string, accessToken: string, body: EnrollmentTicketRequest, fetchImpl: typeof fetch): Promise<string> {
+  const response = await fetchImpl(`${cloudOrigin}/v1/enrollment-tickets`, {
     method: 'POST',
     headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json' },
     body: JSON.stringify(body),

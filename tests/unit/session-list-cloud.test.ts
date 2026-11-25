@@ -46,7 +46,7 @@ function fakeHomes(opts: { homes: Record<string, SessionRecord[]>; cloud: ListMy
     connectedRunnerFor: (hostId) => connected[hostId] ?? null,
     knownRunnerFor: (hostId) => opts.saved?.[hostId] ?? connected[hostId] ?? null,
     serverIds: () => serverIds,
-    isManagedHost: (serverId) => !isSolusApiId(serverId) && false,
+    isCloudHost: (serverId) => !isSolusApiId(serverId) && false,
   }, 0, async () => null)
   const headChanged = (sessionId: string, next: SessionRepositoryFacts) =>
     events.get(API)!.receive({ type: 'session.headChanged', payload: { sessionId, ...next }, occurredAt: 1 })

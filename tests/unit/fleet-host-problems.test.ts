@@ -10,7 +10,8 @@ const base: FleetMachineInput = {
   installationId: 'mac',
   label: 'Mac',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'ready',
   routeKind: 'lan',
@@ -31,7 +32,7 @@ describe('a host that does not answer', () => {
 
   test('a host that answers, or a stopped cloud machine, has no problem words', () => {
     expect(fleetMachine({ ...base, readinessCopy: hostReadinessCopy({ ...refused, readiness: 'ready' }, 'Mac') }).problem).toBeNull()
-    expect(fleetMachine({ ...base, isManaged: true, managedState: 'stopped', readiness: 'unreachable', readinessCopy: hostReadinessCopy(refused, 'Mac') }).problem).toBeNull()
+    expect(fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped', readiness: 'unreachable', readinessCopy: hostReadinessCopy(refused, 'Mac') }).problem).toBeNull()
   })
 })
 

@@ -69,7 +69,7 @@ describe.serial('session cloud sync gate', () => {
     expect(policies.forWork('globex').sessionCloudSync()?.value).toBe(false)
     expect(sessionCloudSyncSwitchState(policies, true)).toEqual({ checked: true, lockedBy: null })
     policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
-      hostId: 'host-1', category: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
       organizations: [{ organizationId: 'globex', name: 'Globex', shared: false,
         hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: organizationDocument, hostPolicy: null }],
     }) }))

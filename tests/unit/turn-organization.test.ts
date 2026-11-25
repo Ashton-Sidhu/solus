@@ -18,7 +18,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let turnOrganization: typeof import('@solus/server/execution/sessions/turn-organization')
 let organizations: typeof import('@solus/server/host/organizations')
-let hostCategory: typeof import('@solus/server/host/host-category')
+let machine: typeof import('@solus/server/host/machine-kind')
 let insightMirror: typeof import('@solus/server/sync/mirror/insight-mirror')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
@@ -33,7 +33,7 @@ const LINK: HostRegistration = { hostId: 'H', issuer: 'https://cloud.invalid', j
 
 const STANDING: HostOrganizationsResponse = {
   hostId: 'H',
-  category: 'personal',
+  kind: 'personal',
   owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
   organizations: [
     { organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { insights: { syncAll: true } } } }, hostPolicy: null },
@@ -48,12 +48,11 @@ beforeAll(async () => {
   turnOrganization = await import('@solus/server/execution/sessions/turn-organization')
   ;({ actorFor } = await import('@solus/server/admission/actor'))
   organizations = await import('@solus/server/host/organizations')
-  hostCategory = await import('@solus/server/host/host-category')
+  machine = await import('@solus/server/host/machine-kind')
   insightMirror = await import('@solus/server/sync/mirror/insight-mirror')
   records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
-  ;(await import('@solus/server/host/host-category')).resetHostCategoryForTests()
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
   hostOrganizations = new organizations.HostOrganizations({
     registration: () => LINK,
     credential: () => ({ hostAccessToken: async () => 'control-token' }),
@@ -77,7 +76,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   insightMirror.useInsightsPolicy({ syncAllInsights: () => null, optedIn: () => false, attached: () => false })
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
   await resetTestDatabase()
   dbModule.closeDb()
   rmSync(dataDir, { recursive: true, force: true })

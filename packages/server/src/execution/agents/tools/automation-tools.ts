@@ -1,5 +1,5 @@
 import { enforce, hostPolicies } from '../../../host/policy/host-policy-store'
-import { LOCAL_ORGANIZATION_ID } from '../../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../../host/machine-kind'
 import { organizationOfSession } from '../../../data/sessions/session-records'
 import { z } from 'zod'
 import { sessionSettings } from '../../sessions/session-settings'

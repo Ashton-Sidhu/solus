@@ -1,6 +1,6 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { HostKind } from '@solus/contracts/uplink'
+import type { HostKind, MachineKind } from '@solus/contracts/uplink'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { LabClient, LabRpcError, type TimelineEntry } from './client'
 import type { LabHost } from './host'
@@ -13,6 +13,7 @@ import { ORGANIZATION_ID, PERSONAS, personaForHost } from './personas'
  */
 
 export interface ScenarioContext {
+  /** What the scenario's clients reach: the Lab host of one flavor, or the Solus API (`cloudScenario`). */
   hostKind: HostKind
   host: LabHost
   issuer: LabIssuer
@@ -30,11 +31,11 @@ export interface ScenarioContext {
 export interface ScenarioDefinition {
   name: string
   /** Absent means both flavors. */
-  only?: HostKind
+  only?: MachineKind
   run(ctx: ScenarioContext): Promise<void>
 }
 
-export function scenario(name: string, run: ScenarioDefinition['run'], options: { only?: HostKind } = {}): ScenarioDefinition {
+export function scenario(name: string, run: ScenarioDefinition['run'], options: { only?: MachineKind } = {}): ScenarioDefinition {
   return { name, run, only: options.only }
 }
 
@@ -80,13 +81,13 @@ export async function expectOk<T>(ctx: ScenarioContext, name: string, call: Prom
 
 export interface ScenarioRun {
   name: string
-  hostKind: HostKind
+  hostKind: MachineKind
   checks: number
   failures: string[]
   durationMs: number
 }
 
-export async function runScenario(definition: ScenarioDefinition, deps: { host: LabHost; issuer: LabIssuer; hostKind: HostKind; print?: boolean }): Promise<ScenarioRun> {
+export async function runScenario(definition: ScenarioDefinition, deps: { host: LabHost; issuer: LabIssuer; hostKind: MachineKind; print?: boolean }): Promise<ScenarioRun> {
   const startedAt = Date.now()
   const clients = new Map<string, LabClient>()
   const timelinePath = join(deps.host.dataDir, 'lab', 'lab.log')
@@ -111,7 +112,7 @@ export async function runScenario(definition: ScenarioDefinition, deps: { host: 
       shareSecret: options.shareSecret,
       // The Lab's personal host is shared with the organization: the owner's client names
       // it, as a real client names the window's organization, so the ticket door makes
-      // her delegation for it (ADR 0001 stage 4; plans/009-organization-vms.md §1).
+      // her delegation for it (ADR 0001 stage 4). The host stays personal.
       organizationId: persona.kind === 'host-owner' && route === 'tunnel' ? ORGANIZATION_ID : undefined,
       credentialFree: route === 'local',
       localOwnerToken: () => deps.host.localOwnerToken(),

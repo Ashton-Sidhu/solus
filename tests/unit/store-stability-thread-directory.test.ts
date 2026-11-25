@@ -22,7 +22,7 @@ function deferred<T>() {
 }
 
 function world(options: { managed?: boolean; cache?: MobileSessionCache } = {}) {
-  const host = options.managed ? { id: 'h', label: 'Mac', uplink: { hostId: 'h', directoryUrl: 'https://app', kind: 'managed' as const } } : { id: 'h', label: 'Mac' }
+  const host = options.managed ? { id: 'h', label: 'Mac', uplink: { hostId: 'h', directoryUrl: 'https://app', kind: 'cloud' as const } } : { id: 'h', label: 'Mac' }
   const answer = {
     reads: [] as string[],
     projects: [project('/w/app'), project('/w/site')],

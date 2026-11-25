@@ -1,9 +1,14 @@
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, existsSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { hostOrganizationsStatusSchema } from '@solus/contracts/organization-scope'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import { HostCredentialError } from '@solus/server/host/host-credential'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// The status handler's import chain reaches the database module; these tests never open it.
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/organization-scope.md §3, §3.1, §6.1: the host's standing — who
 // linked it and which organizations it may deliver to, each with its policy —
@@ -14,24 +19,24 @@ import { HostCredentialError } from '@solus/server/host/host-credential'
 // keeps enforcing what it last saw (plans/030 §5.2).
 
 let organizations: typeof import('@solus/server/host/organizations')
-let hostCategory: typeof import('@solus/server/host/host-category')
+let machine: typeof import('@solus/server/host/machine-kind')
 type HostStanding = import('@solus/server/host/organizations').HostStanding
 
 beforeAll(async () => {
   organizations = await import('@solus/server/host/organizations')
-  hostCategory = await import('@solus/server/host/host-category')
-  ;(await import('@solus/server/host/host-category')).resetHostCategoryForTests()
+  machine = await import('@solus/server/host/machine-kind')
+  machine.resetMachineKindForTests()
 })
 
 afterEach(() => {
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
 const LINK: HostRegistration = { hostId: 'H', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1 }
 
 const STANDING: HostOrganizationsResponse = {
   hostId: 'H',
-  category: 'personal',
+  kind: 'personal',
   owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
   organizations: [
     { organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' } }, hostPolicy: null },
@@ -75,6 +80,31 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
   return { instance, requests, timers, changes, refusals }
 }
 
+describe('the status a client reads', () => {
+  test('names the kind of machine: the registration\'s until the control plane answered, then the standing\'s; nothing says "attached"', async () => {
+    // WHY (plans/034 §2): a client shows a cloud machine with no owner and no pairing.
+    // A cloud machine that could not reach Solus cloud yet must not read as a personal one.
+    const { hostOrganizationsStatus } = await import('@solus/server/transport/handlers/organization-handlers')
+    const { instance } = registry([{ status: 200, body: { ...STANDING, kind: 'cloud', owner: null } }])
+    const deps = { hostOrganizations: instance, registeredHostId: () => 'H', apiUrl: () => 'https://api.invalid', delivery: () => ({ backlog: [], error: null }) }
+    expect(hostOrganizationsStatus(deps).kind).toBe('personal')
+    machine.adoptRegistration({ organizationId: 'A' })
+    expect(hostOrganizationsStatus(deps)).toMatchObject({ registered: true, hostId: 'H', kind: 'cloud', owner: null, organizations: [] })
+
+    await instance.refresh()
+    // The registration is not consulted once the control plane answered.
+    machine.resetMachineKindForTests()
+    const status = hostOrganizationsStatus(deps)
+    expect(status).toMatchObject({ kind: 'cloud', owner: null })
+    expect(status.organizations.map((entry) => entry.organizationId)).toEqual(['A', 'B'])
+    expect(status).not.toHaveProperty('attachedAt')
+    expect(status).not.toHaveProperty('category')
+    // Policy documents never reach a client in the status.
+    expect(status.organizations[0]).not.toHaveProperty('policy')
+    expect(hostOrganizationsStatusSchema.parse(status)).toEqual(status)
+  })
+})
+
 describe('the host\'s standing', () => {
   test('a refresh reads the answer with the host’s control token and answers the organizations, their policies, and the owner', async () => {
     const { instance, requests, timers } = registry([{ status: 200, body: STANDING }])
@@ -82,7 +112,7 @@ describe('the host\'s standing', () => {
     expect(instance.organizations()).toEqual([])
     await instance.refresh()
     expect(requests).toEqual([{ url: 'https://cloud.invalid/v1/hosts/H/organizations', authorization: 'Bearer control-token' }])
-    expect(instance.current()).toMatchObject({ hostId: 'H', category: 'personal', owner: { userId: 'alice' } })
+    expect(instance.current()).toMatchObject({ hostId: 'H', kind: 'personal', owner: { userId: 'alice' } })
     expect(instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
     expect(instance.organization('A')).toMatchObject({ name: 'Acme', shared: true })
     expect(instance.organization('Z')).toBeNull()

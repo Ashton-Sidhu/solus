@@ -2,7 +2,7 @@ import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { parseUserKey, userKey, type Attribution, type User } from '@solus/contracts/user'
 import type { AgentId } from '@solus/contracts/types'
 import { INTERNAL_PRINCIPAL, type Principal } from './principal'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import { cloudAccountOf, hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
 
 /**
@@ -131,7 +131,7 @@ export function unattendedActorFor(user: User, organizationId: string, label: st
       organizationId,
       organizationRole: 'member',
       teamIds: [],
-      hostKind: hostCategory() === 'managed' ? 'managed' : 'personal',
+      hostKind: machineKind(),
       displayName: user.displayName,
       deviceId: label,
       expiresAt: Number.MAX_SAFE_INTEGER,

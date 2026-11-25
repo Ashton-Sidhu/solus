@@ -86,6 +86,6 @@ export const credentialFor = (id: string, overrides: Partial<HostCredential> = {
 })
 
 export const directoryHostFor = (installationId: string, overrides: Partial<DirectoryHost> = {}): DirectoryHost => ({
-  hostId: `cloud-${installationId}`, installationId, label: `Cloud ${installationId}`, os: 'linux', kind: 'personal', category: 'personal',
+  hostId: `cloud-${installationId}`, installationId, label: `Cloud ${installationId}`, os: 'linux', kind: 'personal',
   routes: [{ kind: 'tunnel', url: `https://${installationId}.tunnel.test` }], organizationIds: [], ...overrides,
 })

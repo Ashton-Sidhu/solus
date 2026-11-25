@@ -1,4 +1,4 @@
-import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../host/machine-kind'
 import { getDiff, getSessionSnapshotRange } from '../git/session-snapshots'
 import { fingerprintReviewPatch, reviewedSessionId } from './review-target'
 import type {

@@ -31,7 +31,7 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { isManagedHost } from "../servers/lib/managed-host";
+  import { isCloudHost } from "../servers/lib/managed-host";
   import { resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
@@ -83,7 +83,7 @@
     hostRef ? (serversStore.servers.find((server) => server.id === serverConnections.resolveId(hostRef.serverId)) ?? null) : null,
   );
   const hostSystem = $derived(knownHost?.os ?? hostRef?.system);
-  const isManagedHostRef = $derived(isManagedHost(knownHost?.uplink));
+  const isCloudHostRef = $derived(isCloudHost(knownHost?.uplink));
   const hostFacts = $derived(
     hostRef ? [knownHost ? null : "Not one of your hosts", hostRef.route, hostRef.address, hostRef.state].filter(Boolean).join(" · ") : undefined,
   );
@@ -279,8 +279,8 @@
 {:else if hostRef}
   {#snippet hostChip()}
     <span class="solus-token__icon">
-      {#if hostSystem || isManagedHostRef}
-        <HostOperatingSystemIcon os={hostSystem} managed={isManagedHostRef} size={12} />
+      {#if hostSystem || isCloudHostRef}
+        <HostOperatingSystemIcon os={hostSystem} cloud={isCloudHostRef} size={12} />
       {:else}
         <ServerIcon size={12} />
       {/if}

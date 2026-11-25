@@ -20,7 +20,7 @@ const credential: HostCredential = { token: 'pairing-token', routes: [{ kind: 'l
 const listing: HostListing = { id: 'inst-1', label: 'Studio Mac', installationId: 'inst-1', lastConnected: 1, routes: [{ kind: 'lan', url: PAIRED_AT, source: 'pairing', seenAt: 1 }] }
 
 function listed(overrides: Partial<DirectoryHost> = {}): DirectoryHost {
-  return { hostId: 'abcdefghijklmnop', installationId: 'inst-1', label: 'Studio Mac', os: 'macos', kind: 'personal', category: 'personal', routes: [tunnel], organizationIds: [], ...overrides }
+  return { hostId: 'abcdefghijklmnop', installationId: 'inst-1', label: 'Studio Mac', os: 'macos', kind: 'personal', routes: [tunnel], organizationIds: [], ...overrides }
 }
 
 /** The join with the answers this test names; the rest empty. */
@@ -47,7 +47,7 @@ describe('joining the directory', () => {
     expect(named(host!)).toEqual([`directory ${tunnel.url}`, `pairing ${PAIRED_AT}`])
     // The paired address on the local network is dialed before the tunnel.
     expect(dialableRoutes(host!.routes, 'http://127.0.0.1:5173').map((route) => route.kind)).toEqual(['lan', 'tunnel'])
-    expect(host!.uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, kind: 'personal', category: 'personal' })
+    expect(host!.uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, kind: 'personal' })
   })
 
   test('a host only the directory knows has the tunnel and no pairing', () => {
@@ -71,7 +71,7 @@ describe('joining the directory', () => {
     // the client learns which organizations the host is shared with (R15: several at once).
     const shared = listed({ organizationIds: ['org-1', 'org-2'], ownerName: 'Alice' })
     const [host] = join({ listings: [listing], directory: [shared], credentials: { 'inst-1': credential } })
-    expect(host!.uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, organizationIds: ['org-1', 'org-2'], category: 'personal', kind: 'personal', ownerName: 'Alice' })
+    expect(host!.uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, organizationIds: ['org-1', 'org-2'], kind: 'personal', ownerName: 'Alice' })
     // Stop sharing on the website: the next join forgets the organizations.
     expect(join({ listings: [listing], directory: [listed()] })[0]!.uplink?.organizationIds).toBeUndefined()
 
@@ -87,8 +87,8 @@ describe('joining the directory', () => {
     // WHY: a managed host is listed with no route while it is set up and at its
     // machine's own name once it links; members rename it on Solus Cloud. Each read replaces the last.
     const machine = { kind: 'tunnel' as const, url: 'https://solus-h-1.sprites.test' }
-    const provisioning = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', category: 'managed', organizationIds: ['org-1'], managedState: 'provisioning', routes: [], label: 'Cloud host' })
-    expect(join({ directory: [provisioning] })[0]).toMatchObject({ routes: [], uplink: { kind: 'managed', managedState: 'provisioning' } })
+    const provisioning = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'cloud', hasManagedCompute: true, organizationIds: ['org-1'], managedState: 'provisioning', routes: [], label: 'Cloud host' })
+    expect(join({ directory: [provisioning] })[0]).toMatchObject({ routes: [], uplink: { kind: 'cloud', hasManagedCompute: true, managedState: 'provisioning' } })
     const [ready] = join({ directory: [{ ...provisioning, managedState: 'ready', routes: [machine], label: 'Build box' }] })
     expect(ready).toMatchObject({ label: 'Build box', uplink: { managedState: 'ready' } })
     expect(ready!.routes.map((route) => route.url)).toEqual([machine.url])
@@ -103,7 +103,7 @@ describe('joining the directory', () => {
     // Linked, it is shown; paired, it is kept; managed and stopped, it can still be started.
     expect(join({ directory: [listed()] }, 10, DIRECTORY)).toHaveLength(1)
     expect(join({ listings: [listing], directory: [notLinked], credentials: { 'inst-1': credential } }, 10, DIRECTORY)).toHaveLength(1)
-    expect(join({ directory: [listed({ routes: [], kind: 'managed', category: 'managed', managedState: 'stopped' })] }, 10, DIRECTORY)).toHaveLength(1)
+    expect(join({ directory: [listed({ routes: [], kind: 'cloud', hasManagedCompute: true, managedState: 'stopped' })] }, 10, DIRECTORY)).toHaveLength(1)
   })
 })
 

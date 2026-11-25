@@ -1,4 +1,4 @@
-import type { HostCategory } from '@solus/contracts/uplink'
+import type { MachineKind } from '@solus/contracts/uplink'
 import { serversStore } from '../../../contexts'
 import { organizationsStore } from '../../connections/organizations.store.svelte'
 import { webhooksStore } from '../../../contexts/webhooks/webhooks.store.svelte'
@@ -7,11 +7,11 @@ import { LOCAL_ORGANIZATION_ID } from '../../../lib/organization-filter'
 import type { WebhookRow } from './webhooks-view'
 
 /** What kind of machine the host is: its standing first, else what the directory recorded. */
-export function hostCategoryFor(serverId: string): HostCategory | undefined {
-  const standing = organizationsStore.statusFor(serverId)?.category
+export function machineKindFor(serverId: string): MachineKind | undefined {
+  const standing = organizationsStore.statusFor(serverId)?.kind
   if (standing) return standing
   const host = serversStore.hostFor(serverId)
-  return host && 'uplink' in host ? host.uplink?.category : undefined
+  return host && 'uplink' in host ? host.uplink?.kind : undefined
 }
 
 export function hostLabelFor(serverId: string): string {
@@ -20,7 +20,7 @@ export function hostLabelFor(serverId: string): string {
 
 /** The reachability text of one row (docs/plans/webhooks.md §4). */
 export function rowReachabilityText(row: WebhookRow): string | null {
-  return webhookReachabilityText(row.webhook.urlMode, webhooksStore.hostSettings.get(row.serverId)?.holdWhileOffline, hostCategoryFor(row.serverId))
+  return webhookReachabilityText(row.webhook.urlMode, webhooksStore.hostSettings.get(row.serverId)?.holdWhileOffline, machineKindFor(row.serverId))
 }
 
 /** An organization's name; `local` is the person's own work. */

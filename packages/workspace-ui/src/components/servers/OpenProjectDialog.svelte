@@ -26,7 +26,7 @@
   import type { CloneFailure } from "./lib/clone-outcome";
   import { homeRows } from "./lib/open-project-home";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "./lib/managed-host";
+  import { hostIsCloud } from "./lib/managed-host";
   import { formatComboText } from "../../lib/keybindings/match";
 
   const hostKey = formatComboText({ alt: true, code: "KeyH" });
@@ -384,8 +384,8 @@
                     hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
                   aria-label="Run on {store.hostLabel || 'this machine'}"
                 >
-                  {#if selectedHost?.os || hostIsManaged(selectedHost)}
-                    <HostOperatingSystemIcon os={selectedHost?.os} managed={hostIsManaged(selectedHost)} size={11} class="shrink-0" />
+                  {#if selectedHost?.os || hostIsCloud(selectedHost)}
+                    <HostOperatingSystemIcon os={selectedHost?.os} cloud={hostIsCloud(selectedHost)} size={11} class="shrink-0" />
                   {:else if store.hostIsLocal}
                     <DesktopTowerIcon size={11} class="shrink-0" />
                   {:else}

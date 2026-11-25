@@ -78,7 +78,6 @@ const PERMISSION_OF_METHOD = {
   uplinkRegister: 'host.local.reach',
   uplinkLink: 'host.local.reach',
   uplinkUnlink: 'host.local.reach',
-  uplinkDetachOrganization: 'host.local.reach',
   // Administers the machine: credentials, updates, host config.
   connectionsListDevices: 'host.admin',
   connectionsRevokeDevice: 'host.admin',

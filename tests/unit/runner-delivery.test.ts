@@ -31,7 +31,7 @@ let linkTools: typeof import('@solus/server/execution/agents/tools/session-link-
 let works: typeof import('@solus/server/data/works/works')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
-let hostCategory: typeof import('@solus/server/host/host-category')
+let machine: typeof import('@solus/server/host/machine-kind')
 let delegationsModule: typeof import('@solus/server/sync/delegations')
 type AgentToolContext = import('@solus/server/execution/agents/tools/agent-tool').AgentToolContext
 
@@ -53,9 +53,9 @@ beforeAll(async () => {
   works = await import('@solus/server/data/works/works')
   records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
-  hostCategory = await import('@solus/server/host/host-category')
+  machine = await import('@solus/server/host/machine-kind')
   delegationsModule = await import('@solus/server/sync/delegations')
-  onManagedHost('org1')
+  onCloudMachine('org1')
 })
 
 afterAll(async () => {
@@ -64,34 +64,32 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
-/** A managed host's link names the one organization it was provisioned for; a personal machine's names none. */
-function onManagedHost(organizationId: string | null): void {
-  hostCategory.resetHostCategoryForTests()
-  hostCategory.adoptProvisionedRegistration(organizationId ? { organizationId } : null)
+/** A cloud machine's registration names the one organization it works for; a personal machine's names none. */
+function onCloudMachine(organizationId: string | null): void {
+  machine.resetMachineKindForTests()
+  machine.adoptRegistration(organizationId ? { organizationId } : null)
 }
 
 /**
- * An organization session on this attached machine: its record is born published in
+ * An organization session on this cloud machine: its record is born published in
  * the organization, and its tools answer the Solus API, which these tests never reach
  * for a create or read, so the installed operations refuse every call.
  */
 async function installOrganizationSession(sessionId: string, organizationId: string, api?: Partial<import('@solus/server/data/workspace/operations').WorkspaceOperations>): Promise<() => void> {
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
-  const { useOrganizationAttachment } = await import('@solus/server/host/organization-attachment')
   const { createWorkspaceOperations } = await import('@solus/server/data/workspace/service')
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   const { getDatabase } = await import('@solus/server/db/database')
   await (await import('@solus/server/data/sessions/session-identity')).claimSessionOwner(sessionId, { ownerKey: 'user-alice', organizationId }, { published: true, admittedAt: Date.now() })
   await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
-  useOrganizationAttachment(() => 1)
   const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), {
     get: (_target, name) => (api && typeof name === 'string' && name in api ? Reflect.get(api, name) : () => Promise.reject(new Error('the test API is not called'))),
   })
   const uninstall = installWorkspaceToolOperations(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), 'test-host', () => unreachable)
-  return () => { uninstall(); useOrganizationAttachment(() => null) }
+  return uninstall
 }
 
 /** One transcript row queued for org1 as `actorUserId`'s, as a published session's turn is. */
@@ -678,7 +676,7 @@ describe('runner delivery', () => {
   })
 
   test('a linked personal machine keeps its agent\'s works local; nothing is queued for any organization', async () => {
-    onManagedHost(null)
+    onCloudMachine(null)
     const api = new FakeApi()
     await api.start()
     const delegations = new FakeDelegations()
@@ -693,7 +691,7 @@ describe('runner delivery', () => {
     } finally {
       await runner.stop()
       await api.stop()
-      onManagedHost('org1')
+      onCloudMachine('org1')
     }
   })
 })

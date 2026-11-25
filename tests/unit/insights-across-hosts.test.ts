@@ -29,7 +29,7 @@ const HOUR = 60 * 60 * 1000
 
 function member(userId: string): WorkspaceRequestContext {
   return {
-    principal: { kind: 'org-member', userId, organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: userId, deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
+    principal: { kind: 'org-member', userId, organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'api', displayName: userId, deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
     home: { kind: 'organization', organizationId: 'A', serviceId: 'api' }, scopes: ['insights:read'],
   }
 }

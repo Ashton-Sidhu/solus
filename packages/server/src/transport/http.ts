@@ -83,8 +83,12 @@ export interface HttpServerOptions {
   /** True for a request that arrived through the tunnel's proxied listener. It is
    *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
-  /** A managed machine (docs/plans/managed-hosts.md §1) and the workspace service alike: pairing does not exist, on either listener. */
-  pairingDisabled?: boolean
+  /**
+   * A cloud machine (plans/034-one-cloud-machine-kind.md §2) and the workspace service alike:
+   * pairing does not exist, on either listener. Asked on each request: a server becomes a
+   * cloud machine when it registers with an organization code.
+   */
+  pairingDisabled?: () => boolean
   /** The open approval requests (docs/plans/add-machine-card.md). Without them, `/pair/request` does not exist. */
   pairApprovals?: PairApprovals
   /** Local CLI command, admitted with the same admin signature as `/pair/open`. */
@@ -218,12 +222,11 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
 
   const viaTunnel = (c: Ctx): boolean => opts.isTunnelRequest?.(c.env.incoming) ?? false
   const viaServe = (c: Ctx): boolean => isServeRequest(c.env.incoming.socket.remoteAddress, c.env.incoming.headers)
-  // A managed host has no pairing door at all: a grant is the only credential, so
+  // A cloud machine has no pairing door at all: a grant is the only credential, so
   // the routes answer as if they were never there.
-  if (opts.pairingDisabled) {
-    app.all('/pair', (c) => c.notFound())
-    app.all('/pair/*', (c) => c.notFound())
-  }
+  const pairingDisabled = (): boolean => opts.isApiMode === true || opts.pairingDisabled?.() === true
+  app.use('/pair', async (c, next) => pairingDisabled() ? c.notFound() : next())
+  app.use('/pair/*', async (c, next) => pairingDisabled() ? c.notFound() : next())
   // The tunnel is a public URL. Only what a grant-holding client needs exists there:
   // the health probe, signed assets, signed uploads and signed
   // device streams (capabilities minted over the authenticated socket), and the OAuth
@@ -240,7 +243,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const establishDelegation = opts.establishDelegation
   const doors = createDoors({
     place: opts.isApiMode ? 'api' : 'host',
-    pairingDisabled: opts.pairingDisabled || opts.isApiMode,
+    pairingDisabled,
     verifyAccessToken: opts.verifyAccessToken,
     resolveShareSecret: opts.resolveShareSecret,
     // The connection does not wait for the exchange; a turn that needs the delegation waits for it.
@@ -428,7 +431,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   app.post('/pair/serve', async (c) => {
-    if (opts.pairingDisabled) return c.notFound()
+    if (pairingDisabled()) return c.notFound()
     if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
     if (!opts.enableTailscaleServe) return c.json({ error: 'Tailscale HTTPS is not available.' }, 400)
     const body = await readJson(c, z.object({ port: z.number().int().min(1).max(65535) }))

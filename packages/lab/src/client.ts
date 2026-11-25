@@ -39,14 +39,16 @@ export interface LabClientOptions {
   /** A device paired on the local network dials with its session token instead. */
   sessionToken?: () => Promise<string>
   hostId: string
+  /** What the grant the Lab issuer mints says it admits to: a personal host, a cloud machine, or the Solus API. A real sign-in's token says it itself. */
   hostKind: HostKind
+  /** A member's grant for a personal host names the account that owns it. A cloud machine has no owner. */
   hostOwnerUserId?: string
   /** A guest presents the link secret alone, with the id and name it states (host-sharing.md §4.1). */
   shareSecret?: string
   /**
-   * The organization a host owner's connection names: the host then makes her
-   * delegation for it too, beside the personal one (ADR 0001 stage 4). A member always
-   * names their own.
+   * The organization the connection of a personal host's owner names: the host then
+   * makes her delegation for it too, beside the personal one (ADR 0001 stage 4). A
+   * member always names their own.
    */
   organizationId?: string
   /** No grant at all: a trusted loopback caller, the local owner (personal hosts). */

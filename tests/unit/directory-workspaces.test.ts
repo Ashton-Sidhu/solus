@@ -24,7 +24,7 @@ beforeEach(async () => {
 const acme: DirectoryWorkspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: true, hostRules: DEFAULT_HOST_RULES }
 const beta: DirectoryWorkspace = { organizationId: 'org-2', label: 'Beta', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: false, hostRules: DEFAULT_HOST_RULES }
 const machine: DirectoryHost = {
-  hostId: 'h1', installationId: 'inst-1', label: 'Studio Mac', kind: 'personal', category: 'personal', ownerUserId: 'me',
+  hostId: 'h1', installationId: 'inst-1', label: 'Studio Mac', kind: 'personal', ownerUserId: 'me',
   routes: [{ kind: 'tunnel', url: 'https://h1.solus.test' }],
   organizationIds: [],
 }
@@ -67,7 +67,7 @@ describe('the directory\'s workspace services', () => {
 
   test('malformed or missing directory facts are rejected instead of guessed', () => {
     expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ label: 'no organization' }] }).success).toBe(false)
-    for (const field of ['category', 'kind', 'organizationIds']) {
+    for (const field of ['kind', 'organizationIds']) {
       const invalid = Object.fromEntries(Object.entries(machine).filter(([key]) => key !== field))
       expect(directoryResponseSchema.safeParse({ hosts: [invalid], workspaces: [acme] }).success).toBe(false)
     }

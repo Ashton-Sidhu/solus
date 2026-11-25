@@ -266,7 +266,6 @@ export const RPC_PLANES = {
   uplinkRegister: 'collaboration',
   uplinkLink: 'collaboration',
   uplinkUnlink: 'collaboration',
-  uplinkDetachOrganization: 'collaboration',
   uplinkStatus: 'collaboration',
   hostSelfTest: 'collaboration',
 

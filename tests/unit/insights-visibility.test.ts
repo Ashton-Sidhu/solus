@@ -23,7 +23,7 @@ let sqlGuard: typeof import('@solus/server/data/insights/sql-guard')
 let actors: typeof import('@solus/server/admission/actor')
 
 const member = (userId: string, organizationRole: 'owner' | 'member' = 'member'): Principal => ({
-  kind: 'org-member', userId, organizationId: 'org1', organizationRole, teamIds: [], hostKind: 'managed',
+  kind: 'org-member', userId, organizationId: 'org1', organizationRole, teamIds: [], hostKind: 'cloud',
   displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 

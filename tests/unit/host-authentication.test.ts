@@ -8,12 +8,13 @@ import { clientCredential, generateHostKey } from '@solus/server/host/host-crede
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-// plans/009-organization-vms.md §4, §5: a self-hosted server's organization
-// attachment is persisted with its registration before organization work is
-// admitted, a person's own computer is never attached, and only the end of the
-// registration resets the server to personal — the link plays no part
-// (docs/adr/0001-standard-authentication.md §2.2 rule 9). A registered server
-// redeems an organization code as an attachment, from its own account plane only.
+// plans/034-one-cloud-machine-kind.md §2, §3: a server that registers with an
+// organization code is a cloud machine of that organization. The registration names
+// the organization, and nothing else makes a cloud machine. The code is refused on a
+// server that is registered already or that holds sessions, before its one-use ticket
+// is sent: a cloud machine starts with new data. Only the end of the registration
+// makes the server personal again — the link plays no part
+// (docs/adr/0001-standard-authentication.md §2.2 rule 9).
 //
 // plans/010-standard-oauth.md: the host acts for a person with its own OAuth client
 // and its key (docs/adr/0001-standard-authentication.md §3.4) — one token exchange
@@ -27,6 +28,8 @@ const DIRECTORY = 'https://app.example.test'
 const hostKey = await generateHostKey()
 const API = 'https://api.example.test'
 const HOST_ID = 'abcdefghijklmnop'
+/** The machine's own HTTPS address, as its operator gave it with the organization code. */
+const ADDRESS = 'https://vm.example.test'
 
 interface Call { method: string; url: string; body: unknown; authorization: string | null }
 
@@ -44,111 +47,144 @@ function recordingFetch(answer: (call: Call) => Response | Promise<Response>) {
   return { calls, fetchImpl }
 }
 
-const enrolled = (organizationIds?: string[]): EnrollHostResponse => ({
-  registration: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation: 1, apiUrl: API },
+/** What the control plane answers: a personal registration, or a cloud machine's when the ticket named an organization. */
+const enrolled = (organizationId?: string): EnrollHostResponse => ({
+  registration: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation: 1, ...(organizationId ? { organizationId } : {}), apiUrl: API },
   oauthClient: { clientId: `host_${HOST_ID}` },
-  ...(organizationIds ? { organizationIds } : {}),
 })
 
-describe('the organization attachment of a registered server', () => {
+describe('the registration of a cloud machine', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
   let registrationModule: typeof import('@solus/server/host/host-registration')
   let linkModule: typeof import('@solus/server/transport/uplink/link')
-  let hostCategory: typeof import('@solus/server/host/host-category')
+  let machine: typeof import('@solus/server/host/machine-kind')
 
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'solus-host-authentication-'))
     process.env.SOLUS_DATA_DIR = dataDir
     registrationModule = await import('@solus/server/host/host-registration')
     linkModule = await import('@solus/server/transport/uplink/link')
-    hostCategory = await import('@solus/server/host/host-category')
-    hostCategory.resetHostCategoryForTests()
-    hostCategory.applyHostCategory('self-hosted')
+    machine = await import('@solus/server/host/machine-kind')
+    machine.resetMachineKindForTests()
   })
 
   afterEach(() => {
-    hostCategory.resetHostCategoryForTests()
+    machine.resetMachineKindForTests()
     rmSync(dataDir, { recursive: true, force: true })
     if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  function registrar(fetchImpl: ReturnType<typeof recordingFetch>['fetchImpl']) {
+  /** A registrar as the boot composes it: each registration change names the machine's kind again. */
+  function registrar(fetchImpl: ReturnType<typeof recordingFetch>['fetchImpl'], holdsWork?: () => Promise<boolean>) {
     return new registrationModule.HostRegistrar({
-      installationId: () => 'install-1', hostLabel: () => 'Lab VM', os: () => 'linux', owner: () => null, fetchImpl,
+      installationId: () => 'install-1', hostLabel: () => 'Lab VM', os: () => 'linux', owner: () => null, fetchImpl, holdsWork,
+      onRegistrationChanged: (registration) => machine.adoptRegistration(registration),
     })
   }
 
-  const controlPlane = (options: { enroll?: () => EnrollHostResponse; attach?: () => Response; check?: () => Response } = {}) => recordingFetch((call) => {
+  const controlPlane = (options: { enroll?: () => EnrollHostResponse | Response; check?: () => Response } = {}) => recordingFetch((call) => {
     // The host's own control token (client credentials with its key) for its host routes.
     if (call.url === tokenEndpoint(DIRECTORY)) return Response.json({ access_token: 'control-token', expires_in: 300 })
-    if (call.url.endsWith('/v1/hosts/enroll')) return Response.json(options.enroll?.() ?? enrolled())
-    if (call.url.endsWith('/organizations/attach')) return options.attach?.() ?? Response.json({ organizationIds: ['org_a'] })
-    if (call.method === 'DELETE' && call.url.includes('/organizations/')) return new Response(null, { status: 204 })
+    if (call.url.endsWith('/v1/hosts/enroll')) {
+      const answer = options.enroll?.() ?? enrolled()
+      return answer instanceof Response ? answer : Response.json(answer)
+    }
     if (call.url.endsWith('/link') && call.method === 'GET') return options.check?.() ?? Response.json({ hostId: HOST_ID, generation: 1, desired: 'linked', tunnel: { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 } })
     if (call.url.endsWith('/link') && call.method === 'POST') return Response.json({ tunnel: { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 }, connectorToken: 'connector-token-1' })
     if (call.url.endsWith('/link') && call.method === 'DELETE') return new Response(null, { status: 204 })
     return new Response('not found', { status: 404 })
   })
+  const enrollCalls = (plane: ReturnType<typeof controlPlane>) => plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))
 
-  test('a registration that attached organizations is persisted as attached; a restart keeps it; unlinking leaves it; only the end of the registration resets the server to personal', async () => {
-    const plane = controlPlane({ enroll: () => enrolled(['org_a']) })
+  test('an organization code registers a cloud machine: the ticket goes with the machine\'s address, the server is a cloud machine at once, a restart reads it, unlinking leaves it, and only the end of the registration makes it personal again', async () => {
+    const plane = controlPlane({ enroll: () => enrolled('org_a') })
     const first = registrar(plane.fetchImpl)
-    await first.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const attachedAt = first.attachedAt()
-    expect(attachedAt).toBeNumber()
-    expect(JSON.parse(readFileSync(join(dataDir, 'host-registration.json'), 'utf8'))).toMatchObject({ attachedAt, registration: { apiUrl: API } })
-    // A restarted process reads the same boundary, before it admits anything.
-    expect(registrar(plane.fetchImpl).attachedAt()).toBe(attachedAt)
+    expect(machine.machineKind()).toBe('personal')
+    await first.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })
+    expect(enrollCalls(plane)).toHaveLength(1)
+    expect(enrollCalls(plane)[0]).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`, body: { ticket: 'set_org', address: ADDRESS, installationId: 'install-1' } })
+    // The server does not say what it is: the control plane decides the kind from the ticket.
+    expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('category')
+    // WHY: the pairing door and the trusted network position must close with no restart.
+    expect(machine.machineKind()).toBe('cloud')
+    expect(machine.cloudOrganizationId()).toBe('org_a')
+    expect(JSON.parse(readFileSync(join(dataDir, 'host-registration.json'), 'utf8'))).toEqual({ version: 1, registration: enrolled('org_a').registration })
+    // A restarted process reads the same registration, before anything listens.
+    machine.resetMachineKindForTests()
+    machine.adoptRegistration(registrationModule.readStoredRegistration())
+    expect(machine.machineKind()).toBe('cloud')
     expect(registrationModule.readStoredRegistration()?.apiUrl).toBe(API)
-    // The link turns the tunnel on and off, and nothing else.
+    // The link turns the machine's reach on and off, and nothing else.
     const tunnel = new linkModule.UplinkLinkManager({ registration: () => first.current(), controlToken: () => first.controlToken(), proxiedPort: () => 34118, connector: { start() {}, async stop() {} }, fetchImpl: plane.fetchImpl })
     await tunnel.link()
     await tunnel.unlink()
-    expect(first.attachedAt()).toBe(attachedAt)
-    // The owner deleted the host: the registration ends at the next check, and the attachment with it.
+    expect(first.current()?.organizationId).toBe('org_a')
+    expect(machine.machineKind()).toBe('cloud')
+    // The machine was deleted in Solus cloud: the registration ends at the next check, and the kind with it.
     const deleted = registrar(controlPlane({ check: () => Response.json({ error: 'invalid_host_credential' }, { status: 401 }) }).fetchImpl)
     await deleted.resume()
-    expect(deleted.attachedAt()).toBeNull()
+    expect(deleted.current()).toBeNull()
     expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
+    expect(machine.machineKind()).toBe('personal')
   })
 
-  test('a person\'s own computer is never attached, whatever its registration says', async () => {
-    hostCategory.applyHostCategory('personal')
-    const instance = registrar(controlPlane({ enroll: () => enrolled(['org_a']) }).fetchImpl)
-    await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    expect(instance.attachedAt()).toBeNull()
-    expect(instance.markAttached()).toBeNull()
-  })
-
-  test('a registered server redeems an organization code as an attachment, only from its own account plane; a removed organization leaves the attachment in place', async () => {
+  test('a personal code sends no address and registers a personal machine, also for a standalone server', async () => {
+    // WHY: a standalone server is not a machine kind. Nothing but an organization in the registration makes a cloud machine.
     const plane = controlPlane()
     const instance = registrar(plane.fetchImpl)
     await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    expect(instance.attachedAt()).toBeNull()
-
-    // A code from another account plane is refused before anything is sent there.
-    await expect(instance.register({ ticket: 'set_elsewhere', directoryUrl: 'https://other.example.test', organizationIds: ['org_a'] })).rejects.toThrow(/registered to https:\/\/app.example.test/)
-    expect(plane.calls.some((call) => call.url.startsWith('https://other.example.test'))).toBe(false)
-
-    await instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })
-    const attach = plane.calls.find((call) => call.url.endsWith('/organizations/attach'))
-    expect(attach).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/organizations/attach`, body: { ticket: 'set_org' }, authorization: 'Bearer control-token' })
-    expect(instance.attachedAt()).toBeNumber()
-
-    // Taking one organization back does not make the server personal again (no automatic fallback).
-    await instance.detach('org_a')
-    expect(plane.calls.filter((call) => call.method === 'DELETE').at(-1)).toMatchObject({ method: 'DELETE', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/organizations/org_a`, authorization: 'Bearer control-token' })
-    expect(instance.attachedAt()).toBeNumber()
+    expect(enrollCalls(plane)[0]!.body).toMatchObject({ ticket: 'set_ticket' })
+    expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('address')
+    expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('category')
+    expect(instance.current()).not.toHaveProperty('organizationId')
+    expect(machine.machineKind()).toBe('personal')
   })
 
-  test('a refused attachment says why and changes nothing', async () => {
-    const plane = controlPlane({ attach: () => Response.json({ error: 'not_a_member' }, { status: 403 }) })
-    const instance = registrar(plane.fetchImpl)
+  test('an organization code is refused on a server that is registered already, before its ticket is sent', async () => {
+    // WHY: the ticket has one use, and the person's sessions on this server must not become an organization's.
+    let asked = 0
+    const plane = controlPlane({ enroll: () => enrolled() })
+    const instance = registrar(plane.fetchImpl, async () => { asked++; return false })
     await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })).rejects.toThrow(/no longer a member/)
-    expect(instance.attachedAt()).toBeNull()
+    const before = plane.calls.length
+    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/registered already.*new data directory/) })
+    expect(plane.calls).toHaveLength(before)
+    expect(enrollCalls(plane)).toHaveLength(1)
+    expect(instance.current()).toEqual(enrolled().registration)
+    expect(machine.machineKind()).toBe('personal')
+    // A personal code never asks what the server holds.
+    expect(asked).toBe(0)
+  })
+
+  test('an organization code is refused on a server that holds sessions, before any request', async () => {
+    const plane = controlPlane({ enroll: () => enrolled('org_a') })
+    const holding = registrar(plane.fetchImpl, async () => true)
+    await expect(holding.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/holds sessions already.*new data directory/) })
+    // A server that cannot answer yet (its history is still being read) is refused the same way.
+    const reading = registrar(plane.fetchImpl, async () => { throw new registrationModule.HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.') })
+    await expect(reading.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toThrow(/still reading its session history/)
+    expect(plane.calls).toEqual([])
+    expect(holding.current()).toBeNull()
+    expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
+    expect(machine.machineKind()).toBe('personal')
+    // The same server with no sessions registers.
+    const empty = registrar(plane.fetchImpl, async () => false)
+    await empty.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })
+    expect(empty.current()?.organizationId).toBe('org_a')
+  })
+
+  test.each([
+    ['not_a_member', 403, /no longer a member/],
+    ['machine_address_invalid', 400, /needs the HTTPS address of this machine/],
+    ['refused_by_host_policy', 403, /does not allow cloud machines/],
+  ] as const)('a code the control plane refuses with %s says why and registers nothing', async (error, status, message) => {
+    const plane = controlPlane({ enroll: () => Response.json({ error }, { status }) })
+    const instance = registrar(plane.fetchImpl)
+    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toThrow(message)
+    expect(instance.current()).toBeNull()
+    expect(machine.machineKind()).toBe('personal')
   })
 
   test('a registration that names an insecure Solus API is not stored', async () => {
@@ -158,6 +194,7 @@ describe('the organization attachment of a registered server', () => {
     await expect(instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/insecure address/)
     expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
   })
+
 })
 
 describe('the host acting for a person', () => {

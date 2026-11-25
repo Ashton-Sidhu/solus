@@ -46,7 +46,7 @@ describe('balanceCandidates', () => {
   test('leaves out a managed host whose compute is not ready', () => {
     const hosts = balanceCandidates({
       run: project,
-      servers: [server('a'), server('managed', { uplink: { hostId: 'm', directoryUrl: 'x', kind: 'managed', managedState: 'provisioning' } })],
+      servers: [server('a'), server('managed', { uplink: { hostId: 'm', directoryUrl: 'x', kind: 'cloud', hasManagedCompute: true, managedState: 'provisioning' } })],
       checkouts: [checkout('managed', '/r')],
       balancing,
       runsAgent: everyAgent,

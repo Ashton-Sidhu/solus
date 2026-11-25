@@ -127,14 +127,13 @@ describe('organization rows', () => {
     registered: true,
     hostId: 'host-bob',
     apiUrl: null,
-    category: 'personal',
+    kind: 'personal',
     owner: null,
     organizations: [
       { organizationId: 'acme', name: 'Acme', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true } },
       { organizationId: 'globex', name: 'Globex', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false } },
     ],
     insightsOptIn: ['globex'],
-    attachedAt: null,
     delivery: [],
     deliveryError: null,
   }

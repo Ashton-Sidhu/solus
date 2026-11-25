@@ -4,7 +4,6 @@ import { z } from 'zod'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import {
   enrollHostResponseSchema,
-  hostAttachResponseSchema,
   hostClientId,
   hostCredentialResponseSchema,
   hostLinkResponseSchema,
@@ -12,7 +11,6 @@ import {
   tokenEndpoint,
   uplinkErrorBodySchema,
   type EnrollHostRequest,
-  type HostAttachRequest,
   type HostCredentialRequest,
   type HostLinkEnv,
   type HostLinkResponse,
@@ -24,7 +22,6 @@ import {
 import type { FetchLike } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
-import { hostCategory } from './host-category'
 import {
   HostCredentialError,
   forgetHostKey,
@@ -60,13 +57,6 @@ const RESUME_RETRY_MAX_MS = 10 * 60_000
 const persistedRegistrationSchema = z.object({
   version: z.literal(1),
   registration: hostRegistrationSchema,
-  /**
-   * When the owner attached this server for organization work (organization-vms §4):
-   * from then on new root work needs an organization and new personal roots are
-   * refused. Written before the host admits any organization work, kept across
-   * restarts, and gone with the registration, so a deleted host is personal again.
-   */
-  attachedAt: z.number().int().nonnegative().optional(),
 }).strict()
 type PersistedRegistration = z.infer<typeof persistedRegistrationSchema>
 
@@ -82,6 +72,12 @@ export interface HostRegistrarDeps {
   onStatusChanged?: () => void
   /** A provisioned machine (managed-hosts.md §2): the registration the control plane put in the environment; null on a machine a person registers. */
   provisionedLink?: () => HostLinkEnv | null
+  /**
+   * Whether this host holds work already: session records of the person who ran it. A
+   * cloud machine starts with new data (plans/034-one-cloud-machine-kind.md §3), so an
+   * organization code is refused on a host that does.
+   */
+  holdsWork?: () => Promise<boolean>
   fetchImpl?: FetchLike
   /** Runs `run` after `delayMs` and answers how to cancel it; a test drives the boot retries with its own. */
   schedule?: (run: () => Promise<void>, delayMs: number) => () => void
@@ -101,7 +97,7 @@ function scheduleTimer(run: () => Promise<void>, delayMs: number): () => void {
 }
 
 export class HostRegistrationError extends Error {
-  constructor(readonly code: 'not-registered' | 'register-rejected' | 'attach-rejected' | 'control-plane-unreachable', message: string) {
+  constructor(readonly code: 'not-registered' | 'register-rejected' | 'control-plane-unreachable', message: string) {
     super(message)
     this.name = 'HostRegistrationError'
   }
@@ -167,26 +163,6 @@ export class HostRegistrar {
     }
   }
 
-  /** When the owner attached this server for organization work; null while it is personal or unregistered. */
-  attachedAt(): number | null {
-    return this.persisted?.attachedAt ?? null
-  }
-
-  /**
-   * Records the attachment the first time the host learns of it — a registration or
-   * attach that named organizations, a standing that lists a shared organization, or a
-   * member admitted for organization work — before any organization work is admitted.
-   * A person's own computer is never attached (organization-vms §1).
-   */
-  markAttached(): number | null {
-    if (!this.persisted || hostCategory() === 'personal') return null
-    if (this.persisted.attachedAt !== undefined) return this.persisted.attachedAt
-    const attachedAt = Date.now()
-    this.setPersisted({ ...this.persisted, attachedAt })
-    log.info('host_organization_attached', { hostId: this.persisted.registration.hostId })
-    return attachedAt
-  }
-
   status(): HostRegistrationStatus {
     if (!this.persisted) return { registered: false }
     return { registered: true, registration: this.persisted.registration, owner: this.deps.owner() }
@@ -194,9 +170,11 @@ export class HostRegistrar {
 
   /**
    * Registers this host with a ticket its owner's client got with its own account
-   * token (rule 8). No tunnel is made. A host registered already redeems a ticket that
-   * names organizations as an attachment (organization-vms §4), and ignores one that
-   * names none: two clients that both saw an unregistered host register it once.
+   * token (rule 8). No tunnel is made. A host registered already ignores a personal
+   * ticket: two clients that both saw an unregistered host register it once. A request
+   * with an address is an organization code, which makes this machine a cloud machine
+   * (plans/034-one-cloud-machine-kind.md §3): it is refused on a host that is registered
+   * or that holds work, before the one-use ticket is sent.
    */
   register(request: HostRegistrationRequest): Promise<HostRegistrationStatus> {
     const run = (this.registering ?? Promise.resolve(this.status()))
@@ -207,12 +185,14 @@ export class HostRegistrar {
   }
 
   private async registerNow(request: HostRegistrationRequest): Promise<HostRegistrationStatus> {
-    if (this.persisted && this.credential()) {
-      if (!request.organizationIds?.length) return this.status()
-      return this.attach(request)
+    const isRegistered = this.persisted !== null && this.credential() !== null
+    if (request.address) {
+      if (isRegistered) throw new HostRegistrationError('register-rejected', 'This server is registered already. A cloud machine starts with new data: use a new data directory.')
+      if (await this.deps.holdsWork?.()) throw new HostRegistrationError('register-rejected', 'This server holds sessions already. A cloud machine starts with new data: use a new data directory.')
+    } else if (isRegistered) {
+      return this.status()
     }
     const directoryUrl = normalizeOrigin(request.directoryUrl)
-    const category = hostCategory()
     // Each registration has a new key: registering again rotates it, and the old one proves nothing.
     const key = await generateHostKey()
     const body: EnrollHostRequest = {
@@ -220,8 +200,7 @@ export class HostRegistrar {
       installationId: this.deps.installationId(),
       label: this.deps.hostLabel(),
       os: this.deps.os(),
-      // What this process is, declared once at registration; the control plane records it (organization-scope §3.1).
-      ...(category === 'managed' ? {} : { category }),
+      ...(request.address ? { address: request.address } : {}),
       publicJwk: key.publicJwk,
     }
     const response = await this.request(`${directoryUrl}/v1/hosts/enroll`, {
@@ -237,51 +216,7 @@ export class HostRegistrar {
     this.store({
       registration: enrolled.registration,
       key: { clientId: enrolled.oauthClient.clientId, privateJwk: key.privateJwk },
-      attached: !!enrolled.organizationIds?.length,
     }, 'host_registered')
-    return this.status()
-  }
-
-  /**
-   * Redeems an organization-bound ticket for a host registered already
-   * (organization-vms §4): the control plane checks the owner's membership again and
-   * records the attachment; the host persists it before it admits organization work.
-   * The code must come from the account plane this host is registered to.
-   */
-  private async attach(request: HostRegistrationRequest): Promise<HostRegistrationStatus> {
-    const registration = this.current()
-    if (!registration) throw new HostRegistrationError('not-registered', 'This host is not registered to a Solus account.')
-    if (normalizeOrigin(request.directoryUrl) !== normalizeOrigin(registration.directoryUrl)) {
-      throw new HostRegistrationError('attach-rejected', `This host is registered to ${registration.directoryUrl}. Use a code from there.`)
-    }
-    const body: HostAttachRequest = { ticket: request.ticket }
-    const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations/attach`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!response.ok) {
-      const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
-      throw new HostRegistrationError('attach-rejected', attachRejectionMessage(response.status, detail.data?.error))
-    }
-    const attached = hostAttachResponseSchema.parse(await response.json())
-    this.markAttached()
-    log.info('host_attach_redeemed', { hostId: registration.hostId, organizations: attached.organizationIds.length })
-    this.deps.onRegistrationChanged?.(this.current())
-    return this.status()
-  }
-
-  /** Takes this host's organization attachment back for one organization; the registration, its records, and its other organizations stay. */
-  async detach(organizationId: string): Promise<HostRegistrationStatus> {
-    const registration = this.current()
-    if (!registration) throw new HostRegistrationError('not-registered', 'This host is not registered to a Solus account.')
-    const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations/${encodeURIComponent(organizationId)}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${await this.controlToken()}` },
-    })
-    if (response.status !== 204) throw new HostRegistrationError('attach-rejected', `Solus cloud refused to remove the organization (${response.status}).`)
-    log.info('host_organization_detached', { hostId: registration.hostId, organizationId })
-    this.deps.onRegistrationChanged?.(this.current())
     return this.status()
   }
 
@@ -419,12 +354,12 @@ export class HostRegistrar {
       throw new HostRegistrationError('register-rejected', `Solus cloud refused this machine's key (${response.status}).`)
     }
     const registered = hostCredentialResponseSchema.parse(await response.json())
-    this.store({ registration, key: { clientId: registered.oauthClient.clientId, privateJwk }, attached: false }, 'provisioned_registration_adopted')
+    this.store({ registration, key: { clientId: registered.oauthClient.clientId, privateJwk } }, 'provisioned_registration_adopted')
   }
 
   /** What every registration ends with: the key to the secret store, the record to disk. */
   private store(
-    input: { registration: HostRegistration; key: { clientId: string; privateJwk: PrivateJwk }; attached: boolean },
+    input: { registration: HostRegistration; key: { clientId: string; privateJwk: PrivateJwk } },
     event: 'host_registered' | 'provisioned_registration_adopted',
   ): void {
     const { registration } = input
@@ -435,10 +370,7 @@ export class HostRegistrar {
       if (!isSecureOrigin(url)) throw new HostRegistrationError('register-rejected', `Solus cloud named an insecure address (${url}); the host was not registered.`)
     }
     saveHostKey({ clientId: input.key.clientId, generation: registration.generation, privateJwk: input.key.privateJwk })
-    // A registration that attached organizations is persisted as attached in the same write (organization-vms §4).
-    const persisted: PersistedRegistration = { version: 1, registration }
-    if (input.attached && hostCategory() === 'self-hosted') persisted.attachedAt = Date.now()
-    this.setPersisted(persisted)
+    this.setPersisted({ version: 1, registration })
     log.info(event, { hostId: registration.hostId, generation: registration.generation })
   }
 
@@ -471,16 +403,9 @@ function registerRejectionMessage(status: number, code: string | undefined): str
     case 'invalid_ticket': return 'The registration ticket is invalid or has expired. Try again.'
     case 'not_a_member': return 'The account that made the code is no longer a member of that organization.'
     case 'personal_hosts_not_allowed': return 'That organization does not allow personal computers.'
+    case 'refused_by_host_policy': return 'That organization does not allow cloud machines.'
+    case 'machine_address_invalid': return 'An organization code needs the HTTPS address of this machine: run `solus setup --link CODE --address https://…`. A personal code takes no address.'
     default: return `Solus cloud refused to register this host (${status}).`
-  }
-}
-
-function attachRejectionMessage(status: number, code: string | undefined): string {
-  switch (code) {
-    case 'invalid_ticket': return 'The code is invalid, has expired, or was not made by this host\'s owner for an organization. Get a new code from Organization settings → Add your own VM.'
-    case 'not_a_member': return 'The account that made the code is no longer a member of that organization.'
-    case 'personal_hosts_not_allowed': return 'That organization does not allow personal computers.'
-    default: return `Solus cloud refused to attach this host (${status}).`
   }
 }
 
@@ -506,11 +431,6 @@ function registrationFile(): string {
 /** The registration stored on disk, read before the registrar exists: what the boot needs to know about this machine before it listens. */
 export function readStoredRegistration(): HostRegistration | null {
   return readPersistedRegistration()?.registration ?? null
-}
-
-/** Writes a registration record that a link record of an earlier version held (`transport/uplink/link.ts`). */
-export function storeRegistrationRecord(registration: HostRegistration, attachedAt: number | undefined): void {
-  writePersistedRegistration({ version: 1, registration, ...(attachedAt !== undefined ? { attachedAt } : {}) })
 }
 
 function readPersistedRegistration(): PersistedRegistration | null {

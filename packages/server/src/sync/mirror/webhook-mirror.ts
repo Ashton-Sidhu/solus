@@ -1,7 +1,7 @@
 import { basename } from 'node:path'
 import type { WebhookAction, WebhookDelivery, WebhookUrlMode } from '@solus/contracts/webhooks'
 import type { WebhookAdminDeliverySummary, WebhookAdminMirrorPayload, WebhookAdminRecord } from '@solus/contracts/webhook-admin'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { cloudAccountOf } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { appendDelivery, deliveryActorOf, kindSupported } from '../delivery-queue'

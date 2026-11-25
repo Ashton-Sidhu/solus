@@ -54,7 +54,7 @@ export async function accountIntegrationHostProof(options: ProofOptions) {
   // key and registers it at the real control plane with the ticket, so it can trade the
   // person's token for a delegation. The link names no organization: Alice's own host.
   const host = await bootLabHost({
-    flavor: 'managed', managedLink: 'env', hostId: options.hostId, entry: options.entry,
+    flavor: 'personal', managedLink: 'env', hostId: options.hostId, entry: options.entry,
     issuer: {
       issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`,
       issueManagedLink: (hostId, proxiedPort) => ({

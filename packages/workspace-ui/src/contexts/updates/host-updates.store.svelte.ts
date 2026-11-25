@@ -14,17 +14,18 @@ type ManualOutcome = 'up-to-date' | 'error'
 
 type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'readinessFor' | 'capabilitiesFor' | 'serverIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
   apiFor(serverId: string): Pick<SolusAPI, 'hostUpdateStatus' | 'hostCheckForUpdates' | 'hostInstallUpdate' | 'hostCancelUpdate'>
-  /** The dialed target's directory record; its `uplink.kind` says whether Solus cloud provisioned the host. */
-  connectionFor(serverId: string): { target: { uplink?: { kind?: string } } } | undefined
+  /** The dialed target's directory record; its `uplink.hasManagedCompute` says whether Solus cloud operates the host, and so updates it. */
+  connectionFor(serverId: string): { target: { uplink?: { hasManagedCompute?: boolean } } } | undefined
 }
 
 const CLOUD_CHECK: HostUpdateStatus['check'] = { kind: 'idle', reason: 'Kept up to date by Solus cloud.' }
 
 /**
- * What a cloud host reports once it runs a build that knows it is one. An image
- * built before `install: 'cloud'` still checks and still announces a Codex or
- * Solus release, and nothing on that host is the user's to update; the client
- * answers for it the way a current image does, so no surface shows a notice.
+ * What a cloud host that Solus cloud operates reports once it runs a build that
+ * knows it is one. An image built before `install: 'cloud'` still checks and still
+ * announces a Codex or Solus release, and nothing on that host is the user's to
+ * update; the client answers for it the way a current image does, so no surface
+ * shows a notice. A cloud host that its operator runs reports its own updates.
  */
 export function asCloudStatus(status: HostUpdateStatus): HostUpdateStatus {
   if (status.install === 'cloud') return status
@@ -73,7 +74,7 @@ export class HostUpdatesStore {
   }
 
   private saveStatus(serverId: string, status: HostUpdateStatus): void {
-    if (this.connections.connectionFor(serverId)?.target.uplink?.kind === 'managed') status = asCloudStatus(status)
+    if (this.connections.connectionFor(serverId)?.target.uplink?.hasManagedCompute) status = asCloudStatus(status)
     this.statuses.set(serverId, status)
     const operation = status.serverUpdate?.operation
     if (operation) this.operations.set(serverId, operation)

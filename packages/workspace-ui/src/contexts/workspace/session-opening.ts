@@ -8,7 +8,7 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
+import { hostHasManagedCompute, hostIsCloud } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { type Task } from '@solus/contracts/task-types'
@@ -827,12 +827,13 @@ export class SessionOpening {
     return serversStore.executionServers.map((host) => ({
       serverId: host.id,
       online: host.readiness === 'ready',
-      managed: hostIsManaged(host),
+      cloud: hostIsCloud(host),
+      hasManagedCompute: hostHasManagedCompute(host),
     }))
   }
 
   /** Point a new run at another online checkout of its project, when the
-   *  run-on rule finds one. A managed host with no checkout is left to the run
+   *  run-on rule finds one. A cloud host with no checkout is left to the run
    *  picker: moving there is a dispatch the person confirms on Send. */
   moveToRunOnHost(run: RunConfig): void {
     const place = checkoutPlace(run)
@@ -857,7 +858,7 @@ export class SessionOpening {
   /**
    * Where work in a repository runs (docs/plans/project-model.md §6): its most
    * recently used checkout on a host that is up, else the organization's
-   * managed host, which has no checkout yet (`path: null`). A
+   * cloud host, which has no checkout yet (`path: null`). A
    * `preferredServerId` — the machine cloud onboarding chose — is asked first.
    */
   repositoryRunOn(repositoryKey: string, preferredServerId?: string): RunOnChoice | null {

@@ -27,7 +27,7 @@ export interface ComputeHost {
 }
 
 export interface ComputeChoices<T extends ComputeHost> {
-  /** The active organization's managed host; every member sees it. */
+  /** The active organization's cloud host; every member sees it. */
   cloudHost: T | null
   /** Machines this account linked. Visible to others only when shared. */
   ownMachines: T[]
@@ -40,8 +40,8 @@ export function computeChoices<T extends ComputeHost>(
   account: { userId: string; activeOrganizationId: string | null },
 ): ComputeChoices<T> {
   const cloudHost = servers.find((server) =>
-    server.uplink?.kind === 'managed' && hostInOrganization(server.uplink, account.activeOrganizationId)) ?? null
-  const personal = servers.filter((server) => server.uplink?.kind !== 'managed')
+    server.uplink?.kind === 'cloud' && hostInOrganization(server.uplink, account.activeOrganizationId)) ?? null
+  const personal = servers.filter((server) => server.uplink?.kind !== 'cloud')
   // A machine with no owner on record was paired to this browser directly: it is this person's.
   const isOwn = (server: T) => !server.uplink?.ownerUserId || server.uplink.ownerUserId === account.userId
   return {
@@ -297,7 +297,7 @@ export function hostSetupStep(isCreating: boolean, host: ComputeHost | null): Ho
     case 'failed':
       return { index: 2, label: 'Starting the cloud host…' }
     default:
-      return { index: 3, label: host && host.uplink?.kind !== 'managed' ? `Connecting to ${host.label}…` : 'Connecting to the cloud host…' }
+      return { index: 3, label: host && host.uplink?.kind !== 'cloud' ? `Connecting to ${host.label}…` : 'Connecting to the cloud host…' }
   }
 }
 

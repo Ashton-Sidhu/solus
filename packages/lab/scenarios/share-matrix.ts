@@ -1,15 +1,16 @@
 import { cloudScenario } from '../src/cloud-scenario'
 import { expectNotServed, expectOk, expectRefused, type ScenarioContext } from '../src/scenario'
 import type { LabClient } from '../src/client'
-import { checkNoLocalOwnerOnManaged, checkOwnership, checkWorkListing } from '../src/oracle'
+import { checkNoOwnerOnCloudMachine, checkOwnership, checkWorkListing } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS, TEAM_A } from '../src/personas'
 
 /**
  * Phase 1 exit (plan §9): every persona against the role matrix (§3.5) on one work,
- * in both host flavors. Alice creates; bob is org-only; cara is in team A; dan has no
+ * on the Solus API. Alice creates; bob is org-only; cara is in team A; dan has no
  * row; maya arrives by link. A share is a scope (decision 2026-09-16): a member holds
- * what the rows give them, and a managed host starts a resource shared with the
- * organization while a personal host starts it private.
+ * what the rows give them, and the organization's own space (its Solus API, or a cloud
+ * machine) starts a resource shared with the organization while a personal host starts
+ * it private.
  */
 export default cloudScenario('share matrix: rows decide, owner, guest, and a link on one work', async (ctx) => {
   const alice = await ctx.as('alice')
@@ -64,7 +65,7 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
 
   const maya = await guestStep(ctx, resource, alice)
 
-  await checkNoLocalOwnerOnManaged(ctx, ['alice', 'bob', 'cara', 'dan'])
+  await checkNoOwnerOnCloudMachine(ctx, ['alice', 'bob', 'cara', 'dan'])
 
   ctx.step('owner: alice transfers to bob; bob becomes owner, alice keeps only what the rows give her')
   const bobUserId = PERSONAS.bob.kind === 'org-member' ? PERSONAS.bob.userId : ''
@@ -74,7 +75,7 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   ctx.check('bob reads himself as owner', bobNow.callerRole === 'owner', bobNow.callerRole)
   const aliceNow = await alice.rpc('shareGet', { resource })
   ctx.check(
-    ctx.hostKind === 'personal' ? 'on a personal host alice keeps every role (she owns the disk)' : 'on a managed host alice is now an editor through the organization row',
+    ctx.hostKind === 'personal' ? 'on a personal host alice keeps every role (she owns the disk)' : 'in the organization\'s space alice is now an editor through the organization row',
     ctx.hostKind === 'personal' ? aliceNow.callerRole === 'owner' : aliceNow.callerRole === 'editor',
     aliceNow.callerRole,
   )

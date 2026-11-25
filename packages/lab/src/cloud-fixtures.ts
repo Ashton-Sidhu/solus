@@ -37,6 +37,7 @@ const directorySchema = z.object({
     kind: z.string(),
     routes: z.array(z.object({ kind: z.string(), url: z.string() })),
     organizationIds: z.array(z.string()),
+    hasManagedCompute: z.boolean().optional(),
     managedState: z.string().optional(),
   })),
 })

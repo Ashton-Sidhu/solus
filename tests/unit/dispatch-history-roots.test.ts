@@ -8,7 +8,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { dispatchCheckoutOwnerKey, dispatchCheckoutOwnerKeyOf, dispatchCheckoutPath, isDispatchClone, resolveDispatchHistoryRoots } = await import('@solus/server/project-config/dispatch-checkouts')
-const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+const { adoptRegistration, resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
 
 const roots: string[] = []
 
@@ -47,13 +47,13 @@ describe('resolveDispatchHistoryRoots', () => {
 
 describe('dispatch checkout owner', () => {
   const member = (userId: string, deviceId: string) => ({
-    kind: 'org-member' as const, userId, organizationId: 'org1', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: userId, deviceId, expiresAt: 0, deviceLabel: 'Web',
+    kind: 'org-member' as const, userId, organizationId: 'org1', organizationRole: 'member' as const, teamIds: [], hostKind: 'cloud' as const, displayName: userId, deviceId, expiresAt: 0, deviceLabel: 'Web',
   })
 
   test('on a Solus-provisioned machine a member has one clone per repository, whatever device asks', async () => {
     // WHY: plan 004 item 8. A member who dispatches from a laptop and then a
     // phone must work in the same clone, and never in another member's.
-    adoptProvisionedRegistration({ organizationId: 'org1' })
+    adoptRegistration({ organizationId: 'org1' })
     try {
       expect(dispatchCheckoutOwnerKey(member('alice', 'laptop'), 'laptop')).toBe('alice')
       expect(dispatchCheckoutOwnerKey(member('alice', 'phone'), 'phone')).toBe('alice')
@@ -68,7 +68,7 @@ describe('dispatch checkout owner', () => {
       expect(resolveDispatchHistoryRoots(alice.projectsRoot, [repoKey])).toEqual([{ repoKey, path: alice.checkout }])
       expect(resolveDispatchHistoryRoots(bobRoot, [repoKey])).toEqual([])
     } finally {
-      resetHostCategoryForTests()
+      resetMachineKindForTests()
     }
   })
 

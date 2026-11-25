@@ -16,7 +16,7 @@ const previous = process.env.SOLUS_DATA_DIR
 const now = Date.parse('2026-09-28T12:00:00Z')
 // alice is the organization's owner, an administrator: she reads every member's turns (access-model.md §4 D2).
 const context: WorkspaceRequestContext = {
-  principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'owner', teamIds: [], hostKind: 'cloud', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
+  principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'owner', teamIds: [], hostKind: 'api', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
   home: { kind: 'organization', organizationId: 'A', serviceId: 'api' }, scopes: ['insights:read'],
 }
 
@@ -65,7 +65,7 @@ describe('bounded organization Insights', () => {
   test('individual reads bind organization and complete stored identity', async () => {
     const id = turns.insightIdentity('host-1', 'trace-0000')
     expect((await read.readInsight(context, id)).hostId).toBe('host-1')
-    const other: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'B', serviceId: 'api' }, principal: { ...context.principal, kind: 'org-member', userId: 'alice', organizationId: 'B', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 } }
+    const other: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'B', serviceId: 'api' }, principal: { ...context.principal, kind: 'org-member', userId: 'alice', organizationId: 'B', organizationRole: 'member', teamIds: [], hostKind: 'api', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 } }
     await expect(read.readInsight(other, id)).rejects.toThrow('Resource not found')
   })
 

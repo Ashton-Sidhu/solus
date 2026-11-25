@@ -71,7 +71,7 @@ async function requestReview(workId: string, eventId: string, recipients: string
 
 async function sharedWork(key: string) {
   const work = await operations.createWork(alice, { title: `Shared ${key}`, type: 'doc', content: 'body' }, `notif-api-${key}`.padEnd(16, '0'))
-  await shares.shareWithOrganization({ kind: 'work', id: work.id }, { ...memberPrincipal('alice'), hostKind: 'cloud' })
+  await shares.shareWithOrganization({ kind: 'work', id: work.id }, { ...memberPrincipal('alice'), hostKind: 'api' })
   return work
 }
 
@@ -125,7 +125,7 @@ describe('the record API feed', () => {
     const snapshot = await operations.listMyNotifications(bob, {})
     expect(snapshot.items).toHaveLength(1)
     // Alice takes the work back from the organization.
-    await shares.setEntries({ resource: { kind: 'work', id: shared.id }, entries: [] }, { ...memberPrincipal('alice'), hostKind: 'cloud' })
+    await shares.setEntries({ resource: { kind: 'work', id: shared.id }, entries: [] }, { ...memberPrincipal('alice'), hostKind: 'api' })
     expect((await operations.listMyNotifications(bob, {})).items).toEqual([])
     expect(await operations.countMyNotifications(bob)).toEqual({ unread: 0, isCapped: false })
     await expect(operations.setMyNotificationRead(bob, snapshot.items[0]!.id, { read: true })).rejects.toMatchObject({ status: 404 })

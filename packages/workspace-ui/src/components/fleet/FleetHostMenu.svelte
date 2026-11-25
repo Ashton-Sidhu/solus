@@ -26,7 +26,7 @@
 
   const answers = $derived(machine.state === "running" || machine.state === "idle");
   const canRetry = $derived(machine.state === "unreachable");
-  const canStart = $derived(machine.state === "stopped" && machine.isManaged);
+  const canStart = $derived(machine.state === "stopped" && machine.hasManagedCompute);
 
   function select(action: () => void): void {
     action();
@@ -74,7 +74,7 @@
         </ContextMenu.Item>
       {/if}
     {/if}
-    {#if !machine.isThisDevice && !machine.isManaged}
+    {#if !machine.isThisDevice && !machine.isCloud}
       <ContextMenu.Separator />
       <ContextMenu.Item variant="destructive" onSelect={() => select(onRemove)}>
         <Trash2 />

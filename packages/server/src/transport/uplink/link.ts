@@ -24,16 +24,17 @@ import { createLogger } from '../../logger'
 import { dataDir, solusDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
 import type { FetchLike } from '../../admission/access-tokens'
-import { HostRegistrationError, storeRegistrationRecord, type HostRegistrar } from '../../host/host-registration'
+import { HostRegistrationError, type HostRegistrar } from '../../host/host-registration'
 import type { ConnectorObservation } from './connector'
 
 const log = createLogger('main', 'uplink-link')
 
 /**
  * The host's link (docs/adr/0001-standard-authentication.md §2.2 rule 9): it exposes a
- * registered host to the internet through cloudflared, and does nothing else. Linking
- * provisions the tunnel and starts the connector; unlinking stops the connector and
- * removes the tunnel. Nothing depends on the link: the host's identity, key,
+ * registered host to the internet, and does nothing else. A personal host is reached
+ * through cloudflared: linking provisions the tunnel and starts the connector; unlinking
+ * stops the connector and removes the tunnel. A cloud machine is reached at its own
+ * address (plans/034-one-cloud-machine-kind.md §3): its link has no tunnel and no connector. Nothing depends on the link: the host's identity, key,
  * delegations, account reads, organizations, and directory entry belong to its
  * registration (`host/host-registration.ts`), and the link calls the control plane
  * with the registration's control token.
@@ -46,8 +47,6 @@ const log = createLogger('main', 'uplink-link')
  */
 
 const LINK_FILE = 'host-link.json'
-/** Before rule 9, one record held the registration and the link. */
-const LEGACY_LINK_FILE = 'uplink-link.json'
 const TOKENS_KEY = 'uplink-tokens'
 const REQUEST_TIMEOUT_MS = 10_000
 
@@ -60,7 +59,7 @@ const persistedLinkSchema = z.object({
   /** Whether the webhook forwarder holds requests while this host is offline (docs/plans/webhooks.md §2.3); Solus cloud stores it. */
   holdWebhooks: z.boolean().optional(),
 }).strict()
-/** The tunnel's connector token: infrastructure, not identity. Absent for a directly reached link (a managed host). */
+/** The tunnel's connector token: infrastructure, not identity. Absent for a directly reached link (a cloud machine). */
 const tokensSchema = z.object({
   connectorToken: z.string().min(1).optional(),
   /** The webhook forwarder secret of this link (docs/plans/webhooks.md §2.5); absent from a control plane without the forwarder. */
@@ -131,7 +130,7 @@ export class UplinkLinkManager {
     return { linked: true, tunnel, state }
   }
 
-  /** Turns the tunnel on: Solus cloud provisions it, and the connector starts. Nothing else changes. */
+  /** Turns the link on: Solus cloud provisions a personal host's tunnel, and the connector starts; a cloud machine gets its own address back. Nothing else changes. */
   async link(): Promise<HostLinkStatus> {
     const registration = this.deps.registration()
     if (!registration) throw new UplinkLinkError('not-registered', 'Sign in to your Solus account on this host first, so it is registered.')
@@ -254,7 +253,11 @@ export class UplinkLinkManager {
       }
       return
     }
-    if (!this.persisted) return
+    if (!this.persisted) {
+      // A cloud machine whose first link did not finish asks again: the control plane holds its address.
+      if (registration?.organizationId) await this.link()
+      return
+    }
     if (this.persisted.desired === 'unlinked') {
       await this.completeUnlink()
       return
@@ -272,12 +275,18 @@ export class UplinkLinkManager {
       return
     }
     if (remote) this.adoptWebhookFacts(remote)
+    this.startStoredLink(this.persisted.tunnel, registration.organizationId !== undefined)
+  }
+
+  /** Starts the reach of a link that Solus cloud still has, or says why this host cannot serve it. */
+  private startStoredLink(tunnel: HostTunnel, isCloudMachine: boolean): void {
     const connectorToken = this.loadTokens()?.connectorToken
-    if (!connectorToken) {
+    // A cloud machine is reached at its own address: it has no connector, so no token.
+    if (!connectorToken && !isCloudMachine) {
       this.setObservation({ observed: 'error', error: 'The tunnel credential is missing; turn the link off and on again.' })
       return
     }
-    const { proxiedPort } = this.persisted.tunnel
+    const { proxiedPort } = tunnel
     if (this.deps.proxiedPort() !== proxiedPort) {
       // The tunnel's ingress points at a port this host could not bind. Running the
       // connector would only make every request 502; say so instead.
@@ -407,7 +416,7 @@ export class UplinkLinkManager {
 /**
  * Registers the host and links it when this is its first registration (ADR 0001 §2.2
  * rule 9): a person who links a device to Solus cloud reaches it from every device they
- * sign in on, with no second step. A host registered already keeps the link its owner
+ * sign in on, with no second step, and a cloud machine is reached at its address at once. A host registered already keeps the link its owner
  * chose, so an unlink stays an unlink. A link that fails leaves the registration, and
  * the link's status says why.
  */
@@ -439,57 +448,6 @@ export function readStoredTunnel(): HostTunnel | null {
   const persisted = readPersistedLink()
   return persisted?.desired === 'linked' ? persisted.tunnel : null
 }
-
-/**
- * A host that stored one record for its registration and its link (before rule 9)
- * keeps both: the registration moves to its own record, and a link that was on stays
- * on. Runs once at boot, before the registration and the link are read; the old file
- * is removed. Its key and connector token stay where they are.
- */
-export function splitLegacyLinkRecord(): void {
-  const file = join(solusDir(), LEGACY_LINK_FILE)
-  if (!existsSync(file)) return
-  try {
-    const legacy = legacyLinkSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
-    if (legacy.success && legacy.data.desired === 'linked') {
-      const { link, attachedAt } = legacy.data
-      storeRegistrationRecord({
-        hostId: link.hostId,
-        issuer: link.issuer,
-        jwksUrl: link.jwksUrl,
-        directoryUrl: link.directoryUrl,
-        generation: link.connectionGeneration,
-        ...(link.organizationId ? { organizationId: link.organizationId } : {}),
-        ...(link.apiUrl ? { apiUrl: link.apiUrl } : {}),
-      }, attachedAt)
-      // A provisioned machine's link is its environment's again at boot; a person's tunnel stays on.
-      if (!link.organizationId) {
-        writePersistedLink({ version: 2, hostId: link.hostId, desired: 'linked', tunnel: { hostname: link.hostname, proxiedPort: link.proxiedPort } })
-      }
-      log.info('uplink_legacy_record_split', { hostId: link.hostId })
-    }
-    unlinkSync(file)
-  } catch (err) {
-    log.warn('uplink_legacy_record_unreadable', { error: err instanceof Error ? err.message : String(err) })
-  }
-}
-
-const legacyLinkSchema = z.object({
-  version: z.literal(1),
-  desired: uplinkDesiredStateSchema,
-  link: z.object({
-    hostId: z.string().min(1),
-    issuer: z.string().min(1),
-    jwksUrl: z.string().min(1),
-    directoryUrl: z.string().min(1),
-    hostname: z.string().min(1),
-    proxiedPort: z.number().int().positive(),
-    connectionGeneration: z.number().int().nonnegative(),
-    organizationId: z.string().min(1).optional(),
-    apiUrl: z.string().min(1).optional(),
-  }),
-  attachedAt: z.number().int().nonnegative().optional(),
-})
 
 function linkFile(): string {
   return join(solusDir(), LINK_FILE)

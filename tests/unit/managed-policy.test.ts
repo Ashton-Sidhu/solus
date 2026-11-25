@@ -22,7 +22,7 @@ function mdm(document: PolicyDocument): MdmPolicy {
 function standing(organizations: Array<{ id: string; name: string; policy: unknown; hostPolicy?: unknown }>, hostOwnerOrganizationId: string | null = null): HostStanding {
   return {
     hostId: 'H',
-    category: 'personal',
+    kind: 'personal',
     owner: null,
     refreshedAt: 0,
     hostOwnerOrganizationId,

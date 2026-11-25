@@ -36,7 +36,7 @@ function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<strin
   const store = new SessionListStore({
     connectedRunnerFor: (runnerHostId) => runners[runnerHostId] ?? null,
     serverIds: () => [...fakes.keys()],
-    isManagedHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
+    isCloudHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
   })
   const announce = (serverId: string, type: 'session.stateChanged' | 'session.viewChanged', sessionId: string, value: SessionState | SessionView) =>
     fakes.get(serverId)!.events.receive(type === 'session.stateChanged'

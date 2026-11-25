@@ -226,3 +226,12 @@ approval request to each selected host, all with one check code that the list
 shows with a "Stop" button (`AddSeveral` in `src/solus/add-several.ts`,
 `SolusApp.pairByApproval`). An added host leaves the selection; a host that
 fails stays selected with its error. Leaving the screen stops the requests.
+
+The Solus account page (Settings → "Solus account & sync") adds a "Solus Cloud
+address" control below the sign-in row (`src/solus/CloudAddressSetting.tsx`). While
+signed out, the row "Use a different Solus Cloud address" opens a field for the
+address of a control plane that an organization hosts itself, with "Save" and "Use
+app.solus.sh". While signed in, the page shows the address and says to sign out to
+change it. The address is kept in device storage, and a sign-in kept for one address
+is not used at another (`plans/034-one-cloud-machine-kind.md` §7,
+`docs/solus-cloud-address.md`). T3 Code has no account and no such control.

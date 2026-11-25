@@ -2,11 +2,11 @@ import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { z } from 'zod'
 import {
   hostOrganizationsResponseSchema,
-  type HostCategory,
   type HostOrganization,
   type HostOrganizationsResponse,
   type HostOwnerIdentity,
   type HostRegistration,
+  type MachineKind,
 } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 import type { FetchLike } from '../admission/access-tokens'
@@ -31,7 +31,7 @@ const log = createLogger('main', 'host-organizations')
 
 export interface HostStanding {
   hostId: string
-  category: HostCategory
+  kind: MachineKind
   owner: HostOwnerIdentity | null
   organizations: HostOrganization[]
   /** The webhooks of this host an organization admin paused (docs/plans/webhooks.md §2.7). */
@@ -268,7 +268,7 @@ export class HostOrganizations {
     const after = JSON.stringify(next && { ...next, refreshedAt: 0 })
     this.standing = next
     if (before === after) return
-    log.info('host_organizations_changed', { organizations: next?.organizations.map((entry) => entry.organizationId) ?? [], category: next?.category ?? null })
+    log.info('host_organizations_changed', { organizations: next?.organizations.map((entry) => entry.organizationId) ?? [], kind: next?.kind ?? null })
     for (const listener of this.listeners) {
       try { listener(next) } catch (error) {
         log.warn('host_organizations_listener_failed', { error: error instanceof Error ? error.message : String(error) })

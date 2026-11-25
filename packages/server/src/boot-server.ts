@@ -46,8 +46,8 @@ import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { createHostSelfTest } from './transport/uplink/self-test'
-import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
-import { HostRegistrar, readStoredRegistration } from './host/host-registration'
+import { readStoredTunnel, registerAndLink, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
+import { HostRegistrar, HostRegistrationError, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
 import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
@@ -61,7 +61,6 @@ import { RunnerDelivery } from './sync/runner-delivery'
 import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
-import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
@@ -71,11 +70,10 @@ import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
 import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
-import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisionedOrganizationId } from './host/host-category'
+import { adoptRegistration, cloudOrganizationId, hasManagedCompute, machineKind } from './host/machine-kind'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
-import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions, listUnmirroredCloudSessions } from './sync/mirror/transcript-mirror'
 import { mirrorTurnDiff } from './sync/mirror/turn-diff-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
@@ -212,7 +210,7 @@ import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
 import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
-import { getSessionRecord } from './data/sessions/session-records'
+import { getSessionRecord, hasSessionRecords, sessionRecordsIndexing } from './data/sessions/session-records'
 import { readSessionStorage } from './data/sessions/session-storage'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
@@ -349,12 +347,6 @@ export interface BootOptions {
   sessionRuntime: SessionRuntime
   /** Part C supplies the read-token client here when its host access module is merged. */
   sessionReadAccess?: SessionReadAccess
-  /**
-   * What kind of machine this process is (organization-scope §3.1): the desktop
-   * app's own execution host is `personal`; the standalone server declares
-   * `self-hosted`. A managed host is `managed` whatever is passed.
-   */
-  hostCategory?: EnrollHostCategory
   /** Optional dependencies provided by the Electron host. Headless mode passes none of these. */
   windowDeps?: WindowDeps
   /** Optional host-owned RPC groups, registered only by clients with native capabilities. */
@@ -410,15 +402,13 @@ const systemErrorSchema = z.object({ code: z.string().optional() })
 
 /** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
 function adoptStartupRegistration(): void {
-  splitLegacyLinkRecord()
   const provisioned = readHostLinkEnv()
-  adoptProvisionedRegistration(provisioned ? provisioned.registration : readStoredRegistration())
+  adoptRegistration(provisioned ? provisioned.registration : readStoredRegistration())
 }
 
-/** What this process is to its clients: a person's machine, one the cloud provisioned, or the cloud's own workspace service. */
+/** What this process is to its clients: a person's machine, a cloud machine of an organization, or the Solus API service. */
 function resolveHostKind(apiMode: boolean): HostKind {
-  if (apiMode) return 'cloud'
-  return hostCategory() === 'managed' ? 'managed' : 'personal'
+  return apiMode ? 'api' : machineKind()
 }
 
 /** The workspace service serves the collaboration plane and nothing else, whatever SOLUS_ROLES says. */
@@ -528,19 +518,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   // Before the database, the listeners, or any child process: a provisioned
   // machine's link leaves the environment first (managed-hosts.md §1, §2), and the
-  // link — that one, or the one stored since — says whether Solus provisioned this
+  // registration — that one, or the one stored since — says whether this is a cloud
   // machine, which decides that no credential-free door opens on it.
   adoptStartupRegistration()
-  // The environment may name the category for a test run of the standalone server; the boot's own declaration otherwise.
-  const declaredCategory = enrollHostCategorySchema.safeParse(process.env.SOLUS_HOST_CATEGORY)
-  applyHostCategory(declaredCategory.success ? declaredCategory.data : opts.hostCategory ?? 'personal')
   // And the workspace service refuses to start half-configured (cloud-service-model.md §15).
   applyApiMode()
   const apiMode = isApiMode()
   const apiSettings = solusApiSettings(apiMode, getInstallationId())
-  const hostKind = resolveHostKind(apiMode)
-  // A managed host and the workspace service demand a credential on every listener, whatever the bind policy says.
-  const credentialAlwaysRequired = hostKind !== 'personal'
+  // Asked each time: a server becomes a cloud machine when it registers with an organization code.
+  const hostKind = () => resolveHostKind(apiMode)
+  // A cloud machine and the workspace service demand a credential on every listener, whatever the bind policy says.
+  const credentialAlwaysRequired = () => hostKind() !== 'personal'
   // The machine's MDM policy is read before anything listens; one this host cannot enforce stops the boot (plans/030 §5.1).
   let standingSource: () => HostStanding | null = () => null
   const policyStore = new HostPolicyStore({ mdm: await loadMachinePolicy(), standing: () => standingSource() })
@@ -555,7 +543,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const allowRemoteAddress = remoteAddressAdmission(effectiveRemoteAccess)
   let host = initial.host
   let boundRemoteAccess = effectiveRemoteAccess()
-  let requireAuth = initial.requireAuth || credentialAlwaysRequired
+  let requireAuth = initial.requireAuth
+  const isCredentialRequired = () => requireAuth || credentialAlwaysRequired()
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
   let tunnelPort = 0
@@ -1186,7 +1175,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     integrations: profileIntegrations({ store: integrations, gateway: integrationGateway, connections: integrationConnections, events }),
     integrationOwnerFor: (target) => target.kind === 'member'
       ? { organizationId: target.organizationId, ownerKey: target.userId }
-      : { organizationId: provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() },
+      : { organizationId: cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() },
     account: {
       reads: accountReadsOfServer,
       userFor: (target) => target.kind === 'member' ? target.userId : hostOrganizations.owner()?.userId ?? null,
@@ -1201,7 +1190,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
    */
   const memberProfileTarget = (userId: string): AgentProfileTarget | null => {
     const held = delegations?.holders().find((holder) => holder.userId === userId && holder.scope !== 'personal')?.scope
-    const organizationId = (held && held !== 'personal' ? held.organizationId : null) ?? provisionedOrganizationId()
+    const organizationId = (held && held !== 'personal' ? held.organizationId : null) ?? cloudOrganizationId()
     return organizationId ? { kind: 'member', userId, organizationId } : null
   }
   const integrationCatalog = new IntegrationCatalog()
@@ -1555,7 +1544,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const updatesAllowed = () => hostPolicies().hostSetting('updates')?.value.mode !== 'off'
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
-    install: hostCategory() === 'managed' ? 'cloud' : detectInstallKind(),
+    install: hasManagedCompute() ? 'cloud' : detectInstallKind(),
     latest: () => fetchLatestRelease(packageJson.version),
     automaticUpdates: () => getServerSettings().hostConfig.agentAutoUpdates,
     canCheck: updatesAllowed,
@@ -1810,8 +1799,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const followRegistration = (registration: HostRegistration | null): void => {
     if (apiMode) return
     tokenVerifier = tokenVerifierFor(registration)
-    // A provisioned machine's registration names the organization it was made for (organization-scope §3, R9).
-    adoptProvisionedRegistration(registration)
+    // A cloud machine's registration names the organization it works for (organization-scope §3, R9).
+    adoptRegistration(registration)
     // Another registration is another OAuth client: nothing the old one held acts for anyone now.
     if (registrationKey(registration) !== registeredKey) delegations?.clear()
     registeredKey = registrationKey(registration)
@@ -1838,6 +1827,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onRegistrationChanged: followRegistration,
     onStatusChanged: broadcastUplinkStatus,
     provisionedLink: readHostLinkEnv,
+    holdsWork: async () => {
+      // The index may still find sessions on this disk; an answer now could be wrong.
+      if (sessionRecordsIndexing()) throw new HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.')
+      return hasSessionRecords()
+    },
   })
   const uplinkConnector = new CloudflaredConnector({
     resolveBinary: resolveCloudflaredBinary,
@@ -1855,8 +1849,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
-  // The attachment is stored with the registration (organization-vms §4): a deleted host is personal again.
-  useOrganizationAttachment(() => registrar.attachedAt())
   // A registered host shared with an organization delivers its cloud-owned writes and
   // its session records to the organization's workspace service (§16).
   hostOrganizationsDeps.registration = () => registrar.current()
@@ -1978,24 +1970,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       transcriptMirror,
       interruptSweep,
     })
-    // A standing change (a share made, a policy edited) is the moment to ask for grants
-    // again; a standing that shows the machine attached is recorded before the next
-    // organization work is admitted (organization-vms §4).
+    // A standing change (a share made, a policy edited) is the moment to ask for grants again.
     domainEventUnsubscribes.push(hostOrganizations.onChanged((standing) => {
       // Registered: the host's user becomes the owner's account, and its rows follow (U5).
       if (standing?.owner) {
         void followHostAccount(getDatabase(), standing.owner)
       }
-      if (standing?.organizations.some((entry) => entry.shared)) registrar.markAttached()
       // The registration status names the account it belongs to.
       broadcastUplinkStatus()
       // The owner's client in this process presents its token again when a delegation is missing.
       localClient.standingChanged(standing?.owner?.userId ?? null)
     }))
-    // Organization runs on an attached machine (organization-vms §3, §4): the host acts
+    // Organization runs on a cloud machine (organization-vms §3, §4): the host acts
     // for the person behind each turn, and its tools use the Solus API as them.
     turnAdmission.delegations = hostDelegations
-    turnAdmission.markAttached = () => { registrar.markAttached() }
     remoteToolOperations = (sessionId) => {
       const actor = hostDelegations.actorOf(sessionId)
       if (!actor) return null
@@ -2126,12 +2114,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     name: hostDisplayName,
     getHost: () => host,
     getPort: () => actualPort,
-    requireAuth: () => requireAuth,
+    requireAuth: isCredentialRequired,
     isTrustedRequester: isTrustedRequesterAddress,
     allowRemoteAddress,
     isTunnelRequest,
     deviceHub: devices.hubProxy,
-    // No pairing door on a managed host or the workspace service: a grant is the only credential there.
+    // No pairing door on a cloud machine or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
     pairApprovals,
     enableTailscaleServe: async (port) => ({ url: (await enableServe(port)).url }),
@@ -2255,7 +2243,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     browserFrames,
     verifyAccessToken: verifyHostAccessToken,
     doors,
-    requireAuth: () => requireAuth,
+    requireAuth: isCredentialRequired,
     isTrustedRequester: isTrustedRequesterAddress,
     allowRemoteAddress,
     isTunnelRequest,
@@ -2416,7 +2404,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       await tailscaleServe.removeMappingsToPort(actualPort)
     }
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess, ...remoteBindOptions() })
-    const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
+    const nextRequireAuth = next.requireAuth
     if (next.host === host && nextRequireAuth === requireAuth && remoteAccess === boundRemoteAccess) return
     host = next.host
     requireAuth = nextRequireAuth
@@ -2443,7 +2431,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       browserFrames,
       verifyAccessToken: verifyHostAccessToken,
       doors,
-      requireAuth: () => requireAuth,
+      requireAuth: isCredentialRequired,
       isTrustedRequester: isTrustedRequesterAddress,
       allowRemoteAddress,
       isTunnelRequest,
@@ -2469,7 +2457,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
-    log.info('server_rebound', { host, port: actualPort, requireAuth })
+    log.info('server_rebound', { host, port: actualPort, requireAuth: isCredentialRequired() })
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
   policyStore.onChanged(() => {
@@ -2492,9 +2480,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       port: actualPort,
       allowLan: !isLoopbackHost(host),
       remoteAccess: effectiveRemoteAccess(),
-      requireAuth,
+      requireAuth: isCredentialRequired(),
       trustLocalNetwork: effectiveTrustLocalNetwork(),
-      hostKind,
+      hostKind: hostKind(),
       roles: [...roles],
     }),
     tunnelUrl: tunnelOrigin,
@@ -2516,7 +2504,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
-      return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth }
+      return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth: isCredentialRequired() }
     },
     getTailscaleServe: () => {
       const setting = getServerSettings().tailscaleServe
@@ -2542,6 +2530,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     registrar,
     manager: uplinkManager,
     status: uplinkStatus,
+    // One second for the answer of the registration to reach its caller, whose connection ends too.
+    onBecameCloudMachine: () => { setTimeout(() => ws.disconnectWhere((principal) => principal.kind === 'owner', 'became-cloud-machine'), 1_000).unref() },
     selfTest: createHostSelfTest({
       installationId: getInstallationId,
       status: uplinkStatus,

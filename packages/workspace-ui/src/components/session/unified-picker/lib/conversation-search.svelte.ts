@@ -69,7 +69,7 @@ export type ScopeOnHost = (serverId: string, projectKey: string) => HostScope | 
 
 /** The organizations' machines: their sessions are read from the workspace service. */
 function organizationMachineIds(known: readonly Pick<KnownHost, 'id' | 'uplink'>[]): Set<string> {
-  return new Set(known.filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
+  return new Set(known.filter((server) => server.uplink?.kind === 'cloud').map((server) => server.id))
 }
 
 /**

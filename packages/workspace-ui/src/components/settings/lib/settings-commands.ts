@@ -17,7 +17,7 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
     label: 'Account & sync',
     group: 'General',
     icon: RefreshCw,
-    keywords: ['sync', 'account', 'personal', 'devices', 'cloud', 'preferences', 'profile', 'hosts'],
+    keywords: ['sync', 'account', 'personal', 'devices', 'cloud', 'preferences', 'profile', 'hosts', 'sign in', 'address', 'self-hosted'],
     run: () => shell.showSettings('account', 'palette'),
   }, {
     id: 'open-organization-settings',

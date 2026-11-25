@@ -96,8 +96,8 @@ export interface TaskSessionHost {
   label: string
   /** Drawn as the host's logo. Unknown for a host that never reported it. */
   os?: HostOperatingSystem
-  /** A host Solus cloud runs: drawn as a cloud, whatever its OS. */
-  managed: boolean
+  /** A cloud machine: drawn as a cloud, whatever its OS. */
+  cloud: boolean
 }
 
 export interface TaskSessionRow {

@@ -20,7 +20,7 @@ import { hostUser } from '../host/host-user'
  * one room; one organization's room on the Solus API, which serves them all.
  */
 export function presenceRoomOf(principal: Principal): string {
-  if (principal.kind === 'org-member' && principal.hostKind === 'cloud') return principal.organizationId
+  if (principal.kind === 'org-member' && principal.hostKind === 'api') return principal.organizationId
   if (principal.kind === 'guest') return principal.organizationId ?? LOCAL_ORGANIZATION_ID
   if (principal.kind === 'runner') return principal.organizationId
   return LOCAL_ORGANIZATION_ID

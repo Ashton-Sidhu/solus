@@ -23,11 +23,11 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const policy = { allowsPersonalHosts: true, syncAllInsights: false } as HostOrganization['policy']
 const member = (userId: string, organizationRole: 'owner' | 'member' = 'member', organizationId = 'org1'): Principal => ({
-  kind: 'org-member', userId, organizationId, organizationRole, teamIds: [], hostKind: 'managed', displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
+  kind: 'org-member', userId, organizationId, organizationRole, teamIds: [], hostKind: 'cloud', displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 const standing = (organizations: Array<Partial<HostOrganization> & { organizationId: string }>): HostStanding => ({
   hostId: 'h1',
-  category: 'managed',
+  kind: 'cloud',
   owner: null,
   organizations: organizations.map((entry) => ({ name: entry.organizationId, shared: true, policy, ...entry })),
   refreshedAt: 0,

@@ -3,8 +3,8 @@
   import { accountSearchWords as searchWords } from "./lib/settings-search-data";
   /**
    * Settings → Account & sync (plans/018 decision 9): the one place for the
-   * account. Who is signed in, with sign out; this computer's link to Solus
-   * Cloud; one sync status for the two synced documents, the settings and the
+   * account. Who is signed in, with sign out, and the Solus Cloud address this
+   * device signs in to; this computer's link to Solus Cloud; one sync status for the two synced documents, the settings and the
    * agent profile, with the settings' conflicts resolved here and the
    * profile's on its own tab; each host with what it holds of the profile;
    * and, last, the two clear actions. Signed in is synced: there is no
@@ -12,6 +12,7 @@
    * (ADR 0007). The page needs no host.
    */
   import AccountConnectionsLink from "./AccountConnectionsLink.svelte";
+  import CloudAddressSetting from "./CloudAddressSetting.svelte";
   import { untrack } from "svelte";
   import { RefreshCw as SyncIcon } from "@lucide/svelte";
   import { accountStore, accountSyncStore, getWorkspaceContext, serversStore } from "../../contexts";
@@ -115,6 +116,7 @@
       {/snippet}
     </SettingsRow>
   {/if}
+  <CloudAddressSetting />
 </SettingsSection>
 
 {#if localServerId && isVisible}

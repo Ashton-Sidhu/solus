@@ -60,7 +60,7 @@ export default scenario('work Git storage: local restart, publication, shared ed
     return row!
   }
   const cloudClient = (id: string, shareSecret?: string) => {
-    const client = new LabClient({ persona: personaForHost(id, 'managed'), issuer: ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret })
+    const client = new LabClient({ persona: personaForHost(id, 'api'), issuer: ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api', hostUrl: service.url, shareSecret })
     clients.push(client); return client
   }
   const localClient = () => {

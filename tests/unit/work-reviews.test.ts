@@ -20,7 +20,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const ORGANIZATION = 'A'
 const member = (userId: string, displayName: string): Principal => ({
-  kind: 'org-member', userId, organizationId: ORGANIZATION, organizationRole: 'member', teamIds: [], hostKind: 'managed',
+  kind: 'org-member', userId, organizationId: ORGANIZATION, organizationRole: 'member', teamIds: [], hostKind: 'cloud',
   displayName, deviceId: `${userId}-device`, expiresAt: Date.now() + 300_000, deviceLabel: 'Browser',
 })
 const ALICE = member('alice', 'Alice')

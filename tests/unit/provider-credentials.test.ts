@@ -31,12 +31,12 @@ const { actorFor, ownerKeyOf } = await import('@solus/server/admission/actor')
 type Principal = import('@solus/server/admission/principal').Principal
 /** The person `SolusServer.handle()` puts in a caller's scope (docs/plans/access-model.md §2.1). */
 const credentialKeyFor = (principal: Principal): string | null => ownerKeyOf(actorFor(principal))
-const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+const { adoptRegistration, resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
 const { githubCredentials } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
 const localOwner = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'This Mac' } as const
 const remoteOwner = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'device', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 } as const
-afterEach(() => { useAccountReads(null); values.clear(); touches.length = 0; resetHostCategoryForTests() })
+afterEach(() => { useAccountReads(null); values.clear(); touches.length = 0; resetMachineKindForTests() })
 afterAll(() => { if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previousDataDir; rmSync(temp, { recursive: true, force: true }) })
 
 interface AccountCall { path: string; authorization: string | null; body: string | null }
@@ -118,7 +118,7 @@ describe('account integration identity', () => {
   })
   test('a cloud-managed host keeps account connections for its remote owner and members', () => {
     expect(credentialLocationOf(credentialKeyFor({ kind: 'org-member', userId: 'bob', organizationId: 'org', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 }))).toEqual({ kind: 'account', accountId: 'bob' })
-    adoptProvisionedRegistration({ organizationId: 'org' })
+    adoptRegistration({ organizationId: 'org' })
     useHostUser({ localId: 'vm', account: { accountId: 'alice' } })
     try {
       // WHY: a managed host is nobody's machine, so even its owner's logins are their account's.

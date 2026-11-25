@@ -6,7 +6,7 @@ import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { serversStore } from '../connections/servers.store.svelte'
 import { hosts } from '../hosts/hosts.svelte'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
+import { hostHasManagedCompute } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { ownedTaskId } from './session-draft.svelte'
@@ -746,9 +746,10 @@ export class PromptDispatch {
         activeStep = 'repository'
         throw new Error('This repository does not have a cloneable remote.')
       }
-      // A stopped Cloud host is started first (docs/plans/project-model.md §6):
-      // the client dials only a host the directory says is ready.
-      if (hostIsManaged(serversStore.hostFor(serverId)) && serversStore.readinessFor(serverId).readiness !== 'ready') {
+      // A stopped Cloud host with managed compute is started first
+      // (docs/plans/project-model.md §6): the client dials only one the directory
+      // says is ready. A cloud host that its operator runs is dialed as it is.
+      if (hostHasManagedCompute(serversStore.hostFor(serverId)) && serversStore.readinessFor(serverId).readiness !== 'ready') {
         session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel: serversStore.hostFor(serverId)?.label ?? hostLabel, phase: 'connecting' })
         const started = await serversStore.startManagedHost(serverId)
         if (bailIfStale()) return

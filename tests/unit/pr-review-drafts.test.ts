@@ -57,7 +57,7 @@ test('host review drafts follow the latest write and stay with their requester a
   const { readPrReviewState, writePrReviewState } = await import('@solus/server/review/review-state')
   const member = (userId: string, organizationId: string) => actorFor({
     kind: 'org-member', userId, organizationId, organizationRole: 'member', teamIds: [],
-    hostKind: 'managed', displayName: userId, deviceId: 'device', deviceLabel: 'Device', expiresAt: Infinity,
+    hostKind: 'cloud', displayName: userId, deviceId: 'device', deviceLabel: 'Device', expiresAt: Infinity,
   })
   const actor = member('viewer-a', 'team-a')
   const scope = { host: 'github.com', owner: 'acme', repo: 'app', number: 7, baseSha: 'base', headSha: 'head' }

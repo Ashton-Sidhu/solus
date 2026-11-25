@@ -18,7 +18,7 @@ let transcriptMirror: typeof import('@solus/server/sync/mirror/transcript-mirror
 let insightMirror: typeof import('@solus/server/sync/mirror/insight-mirror')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let registries: typeof import('@solus/server/data/insights/registries')
-let hostCategory: typeof import('@solus/server/host/host-category')
+let machine: typeof import('@solus/server/host/machine-kind')
 let dbModule: typeof import('@solus/server/db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -32,9 +32,9 @@ beforeAll(async () => {
   insightMirror = await import('@solus/server/sync/mirror/insight-mirror')
   records = await import('@solus/server/data/sessions/session-records')
   registries = await import('@solus/server/data/insights/registries')
-  hostCategory = await import('@solus/server/host/host-category')
+  machine = await import('@solus/server/host/machine-kind')
   dbModule = await import('@solus/server/db')
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
 afterAll(async () => {
@@ -44,7 +44,7 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
 const report = (sessionId: string) => ({ sessionId, provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: 1 })
@@ -130,14 +130,14 @@ describe('what leaves this machine', () => {
 
     // A personal computer shared with B still follows B's policy (organization-vms §1).
     expect(insightMirror.insightsEligible('B')).toBe(false)
-    // A managed machine runs its organization's work: B's Insights always leave it, D's do not.
-    hostCategory.adoptProvisionedRegistration({ organizationId: 'B' })
+    // A cloud machine runs its organization's work: B's Insights always leave it, D's do not.
+    machine.adoptRegistration({ organizationId: 'B' })
     try {
       expect(insightMirror.insightsEligible('B')).toBe(true)
       expect(insightMirror.insightsEligible('D')).toBe(false)
       expect(insightMirror.insightsEligible('local')).toBe(false)
     } finally {
-      hostCategory.resetHostCategoryForTests()
+      machine.resetMachineKindForTests()
     }
   })
 

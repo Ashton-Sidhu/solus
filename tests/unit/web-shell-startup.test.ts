@@ -12,7 +12,7 @@ import { PERSONAL_SETTINGS_SCHEMA_VERSION } from '@solus/contracts/settings'
 
 const ORIGIN = 'https://app.example'
 const SHELL_DIRECTORY: DirectoryResponse = {
-  hosts: [{ hostId: 'host-1', installationId: 'install-1', label: 'Laptop', routes: [], kind: 'personal', category: 'personal', organizationIds: [] }],
+  hosts: [{ hostId: 'host-1', installationId: 'install-1', label: 'Laptop', routes: [], kind: 'personal', organizationIds: [] }],
   workspaces: [],
 }
 const SHELL_ACCOUNT: AccountResponse = { userId: 'user-1', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [], github: null }

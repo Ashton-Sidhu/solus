@@ -81,12 +81,12 @@ describe('a host card on the connect page', () => {
   })
 
   test('a stopped cloud host offers to start it, not to retry it', () => {
-    const row = connectHostRow(host('unreachable', { uplink: { kind: 'managed', hostId: 'h1', directoryUrl: 'https://app.solus.sh', managedState: 'stopped' } }), NOW)
+    const row = connectHostRow(host('unreachable', { uplink: { kind: 'cloud', hasManagedCompute: true, hostId: 'h1', directoryUrl: 'https://app.solus.sh', managedState: 'stopped' } }), NOW)
     expect(row).toMatchObject({ detail: 'Cloud host · stopped', action: 'start' })
   })
 
   test('a cloud host on its way up has no action', () => {
-    const row = connectHostRow(host('checking', { uplink: { kind: 'managed', hostId: 'h1', directoryUrl: 'https://app.solus.sh', managedState: 'starting' } }), NOW)
+    const row = connectHostRow(host('checking', { uplink: { kind: 'cloud', hasManagedCompute: true, hostId: 'h1', directoryUrl: 'https://app.solus.sh', managedState: 'starting' } }), NOW)
     expect(row).toMatchObject({ detail: 'Cloud host · starting', action: null })
   })
 

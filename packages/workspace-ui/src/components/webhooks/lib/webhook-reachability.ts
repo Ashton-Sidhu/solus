@@ -1,4 +1,4 @@
-import type { HostCategory } from '@solus/contracts/uplink'
+import type { MachineKind } from '@solus/contracts/uplink'
 import type { WebhookUrlMode } from '@solus/contracts/webhooks'
 
 /** The reachability texts of docs/plans/webhooks.md §4. The editor and the table show them as written. */
@@ -14,18 +14,18 @@ export const REACHABILITY_TEXT = {
  * What happens to a request while the host is away, in words (plan §4).
  * `holdWhileOffline` is the host's setting; `undefined` means it is not read
  * yet, and then a cloud URL has no text, because a guess would be wrong half the
- * time. A personal computer that does not hold requests gets the sleep text.
+ * time. A personal machine that does not hold requests gets the sleep text.
  */
 export function webhookReachabilityText(
   urlMode: WebhookUrlMode,
   holdWhileOffline: boolean | null | undefined,
-  category: HostCategory | undefined,
+  kind: MachineKind | undefined,
 ): string | null {
   if (urlMode === 'none') return REACHABILITY_TEXT.noUrl
   if (urlMode === 'direct') return REACHABILITY_TEXT.direct
   if (holdWhileOffline === undefined) return null
   if (holdWhileOffline === true) return REACHABILITY_TEXT.heldWhileOffline
-  return category === 'personal' ? REACHABILITY_TEXT.failWhileAsleep : REACHABILITY_TEXT.failWhileOffline
+  return kind === 'personal' ? REACHABILITY_TEXT.failWhileAsleep : REACHABILITY_TEXT.failWhileOffline
 }
 
 export function urlModeLabel(urlMode: WebhookUrlMode): string {

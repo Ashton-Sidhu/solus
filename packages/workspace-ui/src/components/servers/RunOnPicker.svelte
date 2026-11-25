@@ -36,8 +36,8 @@
   } from "./lib/run-on-hosts";
   import {
     canRunOnHost,
-    hostIsManaged,
-    isManagedHost,
+    hostIsCloud,
+    isCloudHost,
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
   import { checkoutGit, checkoutPlace, dispatchTo, openFolder, pendingClone, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
@@ -114,7 +114,7 @@
       ? selectedServer.os
       : undefined,
   );
-  const selectedHostManaged = $derived(hostIsManaged(selectedServer));
+  const selectedHostIsCloud = $derived(hostIsCloud(selectedServer));
   const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
   // On desktop you are sitting at the machine, so "Local" says it best. A
   // browser has no machine of its own — "Local" would claim the phone in your
@@ -341,10 +341,10 @@
     {#if affinity}
       {@const HostIcon = affinity.icon}
       <HostIcon size={14} class="shrink-0 {affinity.className}" />
-    {:else if !server.local && (server.os || isManagedHost(server.uplink))}
+    {:else if !server.local && (server.os || isCloudHost(server.uplink))}
       <HostOperatingSystemIcon
         os={server.os}
-        managed={isManagedHost(server.uplink)}
+        cloud={isCloudHost(server.uplink)}
         size={14}
         class="shrink-0 text-(--solus-text-tertiary)"
       />
@@ -388,10 +388,10 @@
                 size={14}
                 class="shrink-0 {selectedAffinity.className}"
               />
-            {:else if selectedHostOs || selectedHostManaged}
+            {:else if selectedHostOs || selectedHostIsCloud}
               <HostOperatingSystemIcon
                 os={selectedHostOs}
-                managed={selectedHostManaged}
+                cloud={selectedHostIsCloud}
                 size={14}
                 class="shrink-0"
               />
@@ -417,8 +417,8 @@
               {#if selectedAffinity}
                 {@const HostIcon = selectedAffinity.icon}
                 <HostIcon size={16} class="shrink-0 {selectedAffinity.className}" />
-              {:else if selectedHostOs || selectedHostManaged}
-                <HostOperatingSystemIcon os={selectedHostOs} managed={selectedHostManaged} size={16} class="shrink-0" />
+              {:else if selectedHostOs || selectedHostIsCloud}
+                <HostOperatingSystemIcon os={selectedHostOs} cloud={selectedHostIsCloud} size={16} class="shrink-0" />
               {:else}
                 <DesktopTowerIcon size={16} class="shrink-0" />
               {/if}
@@ -451,10 +451,10 @@
                           ? 'opacity-100'
                           : 'opacity-70'} {selectedAffinity.className}"
                       />
-                    {:else if selectedHostOs || selectedHostManaged}
+                    {:else if selectedHostOs || selectedHostIsCloud}
                       <HostOperatingSystemIcon
                         os={selectedHostOs}
-                        managed={selectedHostManaged}
+                        cloud={selectedHostIsCloud}
                         size={14}
                         class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
                           ? 'opacity-100'
@@ -495,10 +495,10 @@
                         size={14}
                         class="shrink-0 {selectedAffinity.className}"
                       />
-                    {:else if selectedHostOs || selectedHostManaged}
+                    {:else if selectedHostOs || selectedHostIsCloud}
                       <HostOperatingSystemIcon
                         os={selectedHostOs}
-                        managed={selectedHostManaged}
+                        cloud={selectedHostIsCloud}
                         size={14}
                         class="shrink-0"
                       />

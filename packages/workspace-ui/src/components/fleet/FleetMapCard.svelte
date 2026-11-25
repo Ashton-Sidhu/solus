@@ -42,7 +42,7 @@
     <span class="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-(--solus-status-running)" title="Update available"></span>
   {/if}
   <FleetLoadRing cpu={machine.cpu} {tone}>
-    <HostOperatingSystemIcon os={machine.os} managed={machine.isManaged} size={13} />
+    <HostOperatingSystemIcon os={machine.os} cloud={machine.isCloud} size={13} />
   </FleetLoadRing>
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     <button
@@ -55,7 +55,7 @@
       {machine.label}
     </button>
     <div class="flex min-w-0 items-center gap-1.5">
-      {#if machine.state === "stopped" && machine.isManaged}
+      {#if machine.state === "stopped" && machine.hasManagedCompute}
         <button
           type="button"
           onclick={() => onStart(machine.serverId)}

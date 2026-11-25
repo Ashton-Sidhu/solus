@@ -1,6 +1,6 @@
 import type { TaskProviderId } from '@solus/contracts/task-types'
 import { getDatabase } from '../../db/database'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { githubCredentials } from '../../providers/github/credentials'
 import { recordNotification } from '../notifications/store'
 

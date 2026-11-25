@@ -82,15 +82,15 @@ afterAll(async () => {
 const now = () => Math.floor(Date.now() / 1000)
 const claims = (over: Partial<PersonAccessTokenClaims>): PersonAccessTokenClaims => ({
   iss: ISSUER, aud: SOLUS_API_AUDIENCE, sub: 'alice', grant_id: 'grant_1', jti: crypto.randomUUID(),
-  iat: now(), exp: now() + 300, hostKind: 'cloud', ...over,
+  iat: now(), exp: now() + 300, hostKind: 'api', ...over,
 })
 const delegatedClaims = (over: Partial<DelegatedAccessTokenClaims> & Pick<DelegatedAccessTokenClaims, 'act' | 'organizationId'>): DelegatedAccessTokenClaims => ({
   iss: ISSUER, aud: SOLUS_API_AUDIENCE, sub: 'alice', jti: crypto.randomUUID(),
-  iat: now(), exp: now() + 300, hostKind: 'cloud', ...over,
+  iat: now(), exp: now() + 300, hostKind: 'api', ...over,
 })
 
 function member(userId: string, organizationId: string, organizationRole: 'owner' | 'member' = 'member'): Principal {
-  return { kind: 'org-member', userId, organizationId, organizationRole, teamIds: [], hostKind: 'cloud', displayName: userId, deviceId: `d-${userId}`, expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
+  return { kind: 'org-member', userId, organizationId, organizationRole, teamIds: [], hostKind: 'api', displayName: userId, deviceId: `d-${userId}`, expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
 }
 
 /** A runner delivering for `ownerUserId`: the records it reports are that person's. */
@@ -131,7 +131,7 @@ describe('admission to the workspace service', () => {
     const admitted = doors.principalForClaims(claims({ sub: 'alice', access: 'org-member', organizations: [{ id: 'org1', role: 'owner', teamIds: [] }], displayName: 'Alice' }), 'org1', 'api')
     if (!admitted.ok) throw new Error(admitted.reason)
     const principal = admitted.principal
-    expect(principal).toMatchObject({ kind: 'org-member', userId: 'alice', organizationId: 'org1', hostKind: 'cloud' })
+    expect(principal).toMatchObject({ kind: 'org-member', userId: 'alice', organizationId: 'org1', hostKind: 'api' })
     expect(principalModule.recordScopeOf(principal)).toBe('org1')
     expect(principalModule.organizationForNew(principal)).toBe('org1')
     // An organization owner administers its workspace; a plain member does not.
@@ -143,7 +143,7 @@ describe('admission to the workspace service', () => {
     // WHY: plans/010-standard-oauth.md — there is no machine identity that writes organization records.
     const delegated = delegatedClaims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } })
     const verifyAccessToken = async () => ({ ok: true as const, claims: delegated })
-    const api = doors.createDoors({ place: 'api', pairingDisabled: true, verifyAccessToken })
+    const api = doors.createDoors({ place: 'api', pairingDisabled: () => true, verifyAccessToken })
     expect(await api.admitCredential({ kind: 'access-token', token: 'delegated' })).toEqual({ ok: false, reason: 'not-accepted' })
     expect(await api.admitBearer('delegated', undefined)).toMatchObject({ ok: true, actingHostId: 'runner-1', principal: { kind: 'org-member', userId: delegated.sub, organizationId: 'org1', deviceId: 'runner-1' } })
     const runner = principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', ownerUserId: 'bob', expiresAt: Date.now() + 60_000 })
@@ -186,7 +186,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
       exchangeProgress: () => undefined,
     })
     connectionsHandlers.registerConnectionsHandlers(server, {
-      getServerInfo: () => ({ host: '0.0.0.0', port: 3000, allowLan: true, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'] }),
+      getServerInfo: () => ({ host: '0.0.0.0', port: 3000, allowLan: true, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'api', roles: ['collaboration'] }),
       getActiveSessions: () => [],
       discoverLanServers: async () => [],
       getTailscaleServe: async () => ({ enabled: false, port: 3000, state: 'off', url: null, error: null }),
@@ -407,10 +407,10 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     expect(record.runnerHostId).toBe('runner-1')
   })
 
-  test('the service answers hostKind cloud, the organization, and its roles, so a client keeps it out of execution targets', async () => {
+  test('the service answers hostKind api, the organization, and its roles, so a client keeps it out of execution targets', async () => {
     const server = await bootServer()
     const info = await server.handle('connectionsGetServerInfo', [], ctx(alice))
-    expect(info).toMatchObject({ hostKind: 'cloud', organizationId: 'org1', roles: ['collaboration'], principal: 'org-member', userId: 'alice' })
+    expect(info).toMatchObject({ hostKind: 'api', organizationId: 'org1', roles: ['collaboration'], principal: 'org-member', userId: 'alice' })
     await expect(server.handle('prompt', [{ session: { sessionId: 's' } }, { prompt: 'x' }], ctx(alice))).rejects.toMatchObject({ code: 'PLANE_DISABLED' })
   })
 

@@ -10,13 +10,13 @@ import type { ScenarioContext } from './scenario'
  * is what those personas can observe.
  */
 
-/** Access: on a managed host no person is ever admitted as the local owner (§3.3, §13). */
-export async function checkNoLocalOwnerOnManaged(ctx: ScenarioContext, personaIds: string[]): Promise<void> {
-  if (ctx.hostKind !== 'managed') return
+/** Access: a cloud machine is nobody's machine, so no person is ever admitted to it as an owner (§3.3, §13). */
+export async function checkNoOwnerOnCloudMachine(ctx: ScenarioContext, personaIds: string[]): Promise<void> {
+  if (ctx.hostKind !== 'cloud') return
   for (const personaId of personaIds) {
     const client = await ctx.as(personaId)
     const info = await client.rpc('connectionsGetServerInfo')
-    ctx.check(`oracle/access: ${personaId} is not a local owner on the managed host`, info.principal !== 'local-owner' && info.principal !== 'remote-owner', `principal=${info.principal}`)
+    ctx.check(`oracle/access: ${personaId} is not an owner on the cloud machine`, info.principal !== 'local-owner' && info.principal !== 'remote-owner', `principal=${info.principal}`)
   }
 }
 

@@ -164,7 +164,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
   const people = new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
   const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
-    host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
+    host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: () => true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),

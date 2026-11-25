@@ -6,7 +6,7 @@ import { getDb, withTx } from '../../db'
 import { sqliteQuery } from '../../db/sql'
 import { createLogger } from '../../logger'
 import { nextRunFrom, scheduleHasEnded, validateTrigger } from './automation-schedule'
-import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID, cloudOrganizationId } from '../../host/machine-kind'
 import { getSessionRecord, organizationOfSession } from '../sessions/session-records'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { roleOf, visibleTo, type ResourceRow } from '../../admission/access'
@@ -244,7 +244,7 @@ function writeAutomation(db: DatabaseSync, automation: Automation, ownerKey = ''
       updated_at = excluded.updated_at
   `).run(
     id,
-    organizationId ?? provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID,
+    organizationId ?? cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID,
     ownerKey,
     name,
     enabled ? 1 : 0,
@@ -342,7 +342,7 @@ export async function createAutomation(
   const sessionId = createdBy.kind === 'agent' ? createdBy.sessionId : ''
   const automation: Automation = {
     id: randomUUID(),
-    organizationId: organizationId ?? (sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID),
+    organizationId: organizationId ?? (sessionId ? await organizationOfSession(sessionId) : cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID),
     name,
     enabled,
     action,

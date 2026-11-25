@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
+import { readCloudMachineRecord } from './cloud-machine'
 import { readReleaseManifest } from './server-release'
 import { withLocalRpc } from './local-rpc'
 import { isProcessAlive, localConnectHost, readLockFile, type RuntimePaths } from './runtime'
@@ -21,6 +22,13 @@ export async function reportStatus(paths: RuntimePaths, log: (line: string) => v
   reportService(paths, log)
 
   if (!running) return
+  const cloudMachine = readCloudMachineRecord(paths.dataDir)
+  if (cloudMachine) {
+    // A cloud host refuses the local socket, so nothing below can be asked.
+    log(`Solus Cloud: cloud host of organization ${cloudMachine.registration.organizationId}`)
+    log('  Live status is not available from the command line on a cloud host. Run `solus connect status` for its records.')
+    return
+  }
   try {
     const serverUrl = `http://${hostForUrl(localConnectHost(lock!.host))}:${lock!.port}`
     const status = await withLocalRpc<HostUpdateStatus>(serverUrl, (call) => call('hostUpdateStatus'))

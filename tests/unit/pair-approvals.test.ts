@@ -172,8 +172,8 @@ describe('the approval routes', () => {
     }
   })
 
-  test('a managed host and the tunnel have no approval route', async () => {
-    for (const exposure of [{ pairingDisabled: true }, { viaTunnel: true }]) {
+  test('a cloud machine and the tunnel have no approval route', async () => {
+    for (const exposure of [{ pairingDisabled: () => true }, { viaTunnel: true }]) {
       const approvals = new PairApprovals()
       const { server, baseUrl } = await listen({ pairApprovals: approvals, ...exposure })
       try {
@@ -264,7 +264,7 @@ describe('host.pairApprovalsChanged', () => {
   })
 })
 
-async function listen(opts: { pairApprovals: InstanceType<typeof PairApprovals>; pairingDisabled?: boolean; viaTunnel?: boolean }): Promise<{ server: Server; baseUrl: string }> {
+async function listen(opts: { pairApprovals: InstanceType<typeof PairApprovals>; pairingDisabled?: () => boolean; viaTunnel?: boolean }): Promise<{ server: Server; baseUrl: string }> {
   let port = 0
   const { server } = buildHttpServer({
     host: '127.0.0.1',

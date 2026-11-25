@@ -74,6 +74,7 @@ import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateReq
 import type { PolicySet } from './policy'
 
 import type { AccountState, CreateManagedHostOutcome, SignInEnd } from './account-types'
+import type { CloudAddressChange, CloudAddressState } from './cloud-address'
 import type { ConnectionTokenResource } from './auth/clients'
 import type { SolusApiRequest, SolusApiResponse } from './solus-api/request'
 import type { DesktopUpdateStatus } from './desktop-update-types'
@@ -551,16 +552,14 @@ export interface SolusAPI {
   hostIntroductionAllow(args: { installationId: string }): Promise<{ allowed: boolean }>
   /**
    * Register this host to the owner's Solus account with a ticket the owner's client got
-   * (docs/adr/0001-standard-authentication.md §2.2 rule 8). A registered host redeems a
-   * ticket that names organizations as an attachment. Local owner only.
+   * (docs/adr/0001-standard-authentication.md §2.2 rule 8). A ticket that names an
+   * organization registers this machine as a cloud machine of it. Local owner only.
    */
   uplinkRegister(args: HostRegistrationRequest): Promise<UplinkStatus>
-  /** Turn the tunnel on: the internet reaches this registered host through cloudflared (rule 9). Nothing else changes. */
+  /** Turn the link on: the internet reaches a personal host through cloudflared, and a cloud machine at its own address (rule 9). Nothing else changes. */
   uplinkLink(): Promise<UplinkStatus>
   /** Turn the tunnel off. The registration, its delegations, and its organizations stay. */
   uplinkUnlink(): Promise<UplinkStatus>
-  /** Take this host's organization attachment back for one organization; the host stays registered and keeps its records. */
-  uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>
   /** The host tests its own connection: Solus Cloud, its tunnel, port 7844, and its server (docs/plans/host-readiness.md). */
   hostSelfTest(): Promise<HostSelfTest>
@@ -1691,6 +1690,13 @@ export interface NativeSolusAPI {
   /** Re-checks a stored session with the website now. */
   accountRetryVerify(): Promise<void>
   onAccountStateChange(callback: (state: AccountState) => void): () => void
+  /** The Solus Cloud address this device signs in to (`cloud-address.ts`). The main
+   *  process keeps it for this device; no host receives it. */
+  cloudAddress(): Promise<CloudAddressState>
+  /** Changes it; `null` goes back to the hosted address. Refused while a sign-in is
+   *  held or runs, and while the environment chooses the address. */
+  setCloudAddress(address: string | null): Promise<CloudAddressChange>
+  onCloudAddressChange(callback: (address: CloudAddressState) => void): () => void
   /** Personal Uplink, on behalf of the signed-in account. Null when signed out or
    *  the website did not answer; the account token itself never crosses. */
   uplinkListDirectory(): Promise<UplinkDirectory | null>

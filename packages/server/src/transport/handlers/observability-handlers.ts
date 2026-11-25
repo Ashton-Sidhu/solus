@@ -1,4 +1,4 @@
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { TextGenerator } from '../../execution/agents/text-generator'
 import { actingPreferences } from '../../execution/person-settings'
 import type { SessionRuntime } from '../../execution/session-runtime'

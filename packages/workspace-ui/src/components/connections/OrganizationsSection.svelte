@@ -13,7 +13,7 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { organizationsStore } from "./organizations.store.svelte";
   import { hosts } from "../../contexts";
-  import { attachmentSummary, deliverySummary, hostCategoryLabel, insightsDetail, organizationDetail, organizationRows } from "@solus/client-core/organization-rows";
+  import { deliverySummary, machineKindLabel, insightsDetail, organizationDetail, organizationRows } from "@solus/client-core/organization-rows";
 
   interface Props {
     serverId: string;
@@ -32,13 +32,12 @@
   const error = $derived(organizationsStore.errorByServer.get(serverId) ?? null);
   const loading = $derived(organizationsStore.isLoading(serverId));
   const rows = $derived(status ? organizationRows(status, hosts.get(serverId).policies ?? null) : []);
-  const attachment = $derived(status ? attachmentSummary(status) : null);
   const delivery = $derived(status ? deliverySummary(status) : null);
   const description = $derived(
     status
       ? status.registered
-        ? `${hostCategoryLabel(status.category)}${status.owner ? ` · registered to ${status.owner.name ?? status.owner.email ?? "its owner"}` : ""}`
-        : `${hostCategoryLabel(status.category)} · not registered to a Solus account, so it stands in no organization.`
+        ? `${machineKindLabel(status.kind)}${status.owner ? ` · registered to ${status.owner.name ?? status.owner.email ?? "its owner"}` : ""}`
+        : `${machineKindLabel(status.kind)} · not registered to a Solus account, so it stands in no organization.`
       : error
         ? "This host cannot say which organizations it stands in."
         : "Reading this host's organizations…",
@@ -58,9 +57,6 @@
       <RefreshIcon size={13} class={loading ? "animate-spin" : undefined} />
     </Button>
   {/snippet}
-  {#if attachment}
-    <SettingsRow label={attachment.label} description={attachment.description} testId="organization-attachment" />
-  {/if}
   {#if delivery}
     <SettingsRow label="Delivery" description={delivery} testId="organization-delivery" />
   {/if}

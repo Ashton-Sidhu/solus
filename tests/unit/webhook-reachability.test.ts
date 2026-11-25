@@ -7,11 +7,11 @@ import { REACHABILITY_TEXT, unlinkWebhookWarning, webhookReachabilityText } from
 describe('webhook reachability text', () => {
   test('a linked host that holds requests says they wait in Solus Cloud', () => {
     expect(webhookReachabilityText('cloud', true, 'personal')).toBe('Requests wait in Solus Cloud for up to 24 hours while this host is offline.')
-    expect(webhookReachabilityText('cloud', true, 'managed')).toBe(REACHABILITY_TEXT.heldWhileOffline)
+    expect(webhookReachabilityText('cloud', true, 'cloud')).toBe(REACHABILITY_TEXT.heldWhileOffline)
   })
 
-  test('a linked host without holding says requests fail; a personal computer names sleep', () => {
-    expect(webhookReachabilityText('cloud', false, 'self-hosted')).toBe('Requests fail while this host is offline.')
+  test('a linked host without holding says requests fail; a personal machine names sleep', () => {
+    expect(webhookReachabilityText('cloud', false, 'cloud')).toBe('Requests fail while this host is offline.')
     expect(webhookReachabilityText('cloud', false, undefined)).toBe(REACHABILITY_TEXT.failWhileOffline)
     expect(webhookReachabilityText('cloud', false, 'personal')).toBe('Requests fail while this computer sleeps. Turn on holding, or use a cloud machine.')
   })

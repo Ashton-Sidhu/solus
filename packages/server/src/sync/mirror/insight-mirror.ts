@@ -1,6 +1,6 @@
 import { splitSpanTexts, type LogEventRow, type SpanRow } from '../../data/insights/span-table'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
-import { isOrganizationAttached } from '../../host/organization-attachment'
+import { machineKind } from '../../host/machine-kind'
 import { appendDelivery } from '../delivery-queue'
 import type { InsightsMirrorPayload } from '../runner-protocol'
 
@@ -42,8 +42,8 @@ export function useInsightsPolicy(next: InsightsPolicy): void {
 /** Whether a session of `organizationId` sends its Insights from this machine (§6.1's table). */
 export function insightsEligible(organizationId: string): boolean {
   if (organizationId === LOCAL_ORGANIZATION_ID) return false
-  // An organization VM runs organization work: its Insights always sync, like a managed machine's (organization-vms §2).
-  if (isOrganizationAttached() && policy.attached(organizationId)) return true
+  // A cloud machine runs its organization's work: its Insights always sync (organization-vms §2).
+  if (machineKind() === 'cloud' && policy.attached(organizationId)) return true
   if (policy.syncAllInsights(organizationId) === true) return true
   return policy.optedIn(organizationId)
 }

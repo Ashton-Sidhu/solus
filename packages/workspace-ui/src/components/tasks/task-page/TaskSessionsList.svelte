@@ -20,7 +20,7 @@
   import SessionStatusGlyph from "../../session/SessionStatusGlyph.svelte";
   import SessionContextMenu from "../../session/SessionContextMenu.svelte";
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../../servers/lib/managed-host";
+  import { hostIsCloud } from "../../servers/lib/managed-host";
   import ProviderMark from "../../ui/ProviderMark.svelte";
   import {
     attemptServerId,
@@ -133,7 +133,7 @@
             ({
               label: isReachable ? host.label : "Another machine",
               os: "os" in host ? host.os : undefined,
-              managed: hostIsManaged(host),
+              cloud: hostIsCloud(host),
             } satisfies TaskSessionHost),
           taskServerId ? presenceStore.currentUserId(taskServerId) : null,
         ),
@@ -233,7 +233,7 @@
                   >
                     <HostOperatingSystemIcon
                       os={row.host.os}
-                      managed={row.host.managed}
+                      cloud={row.host.cloud}
                       size={11}
                       class="shrink-0"
                     />
@@ -390,7 +390,7 @@
             {#if row.host}
               <HostOperatingSystemIcon
                 os={row.host.os}
-                managed={row.host.managed}
+                cloud={row.host.cloud}
                 size={12}
                 class="shrink-0"
               />

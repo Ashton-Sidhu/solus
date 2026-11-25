@@ -47,8 +47,8 @@ Read-only. It checks that the Lab build exists and is newer than every server, c
 Run mapped scenarios:
 
 ```bash
-bun lab run all                              # every Lab-issuer scenario, personal and managed hosts
-bun lab run share-matrix --host managed      # one scenario, one host flavor
+bun lab run all                              # every Lab-issuer scenario, personal and cloud hosts
+bun lab run share-matrix --host cloud        # one scenario, one host flavor
 bun lab run all --cloud                      # every cloud scenario; one PASS/FAIL table
 bun lab run account-reads --cloud            # one cloud scenario
 bun lab run guest-revoke --keep              # keep the data dir and logs for diagnosis
@@ -87,7 +87,7 @@ Lab-issuer runs stop their own hosts when they exit and delete their temp data d
 ## Helpers
 
 - `scripts/doctor.sh [--cloud]` — the read-only health check above.
-- `bun lab build | up --cloud | run <scenario|all> [--cloud] [--host personal|managed] [--keep] | down` — `scripts/lab.ts`; details in `packages/lab/README.md`.
+- `bun lab build | up --cloud | run <scenario|all> [--cloud] [--host personal|cloud] [--keep] | down` — `scripts/lab.ts`; details in `packages/lab/README.md`.
 
 ## Not covered here
 

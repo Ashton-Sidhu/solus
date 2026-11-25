@@ -271,7 +271,7 @@ export const telemetrySettings = [
 export const webhookHostSearchWords = ["webhook", "public url", "hold", "offline", "reverse proxy", "ngrok"];
 
 /** Search words, read by the settings page to find this page from any other. */
-export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "link", "computer", "hosts", "profile", "copy"];
+export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "link", "computer", "hosts", "profile", "copy", "address", "self-hosted"];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const agentProfileSearchWords = ["agent profile", "profile", "instructions", "extra", "system prompt", "custom", "subagents", "commands", "prompts", "skills", "mcp", "servers", "conflict"];

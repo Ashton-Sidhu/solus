@@ -1,3 +1,5 @@
+import type { HostKind } from '@solus/contracts/uplink'
+
 /**
  * The people of the Lab (plan §8.1). Each persona is one LabClient; the issuer mints
  * grants from these facts, so the host sees exactly what the cloud would tell it.
@@ -32,8 +34,11 @@ export type PersonaId = keyof typeof PERSONAS
 
 const PERSONA_TABLE = new Map<string, Persona>(Object.values(PERSONAS).map((persona) => [persona.id, persona]))
 
-/** On a personal host alice is its owner: the cloud would mint her an owner grant, not a member grant. */
-export function personaForHost(id: string, hostKind: 'personal' | 'managed'): Persona {
+/**
+ * On a personal host alice is its owner: the cloud would mint her an owner grant, not a
+ * member grant. A cloud machine and the Solus API have no owner person: she is a member there.
+ */
+export function personaForHost(id: string, hostKind: HostKind): Persona {
   const persona = PERSONA_TABLE.get(id)
   if (!persona) throw new Error(`Unknown persona "${id}"`)
   if (hostKind === 'personal' && id === 'alice' && persona.kind === 'org-member') {

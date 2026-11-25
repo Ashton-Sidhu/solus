@@ -16,7 +16,6 @@ const directoryHost = (overrides: Partial<DirectoryHost> = {}): DirectoryHost =>
   label: 'Build box',
   routes: [{ kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
   kind: 'personal',
-  category: 'personal',
   organizationIds: [],
   ...overrides,
 })
@@ -391,7 +390,7 @@ describe('native host connections', () => {
     const { registry, answerDirectory, connections, transports } = createHostWorld({ fetch: healthFetch({ [url]: 'a37b55ff' }) })
     await registry.load()
     await answerDirectory([directoryHost({
-      installationId: 'managed:bills', kind: 'managed', category: 'managed', managedState: 'ready',
+      installationId: 'managed:bills', kind: 'cloud', hasManagedCompute: true, managedState: 'ready',
       routes: [{ kind: 'tunnel', url }],
     })])
     const connection = connections.connection('managed:bills')
@@ -413,7 +412,7 @@ describe('native host connections', () => {
     })
     await registry.load()
     await answerDirectory([directoryHost({
-      installationId: 'managed:test', kind: 'managed', category: 'managed', managedState: 'ready',
+      installationId: 'managed:test', kind: 'cloud', hasManagedCompute: true, managedState: 'ready',
       routes: [internal, { kind: 'tunnel', url }],
     })])
     const connection = connections.connection('managed:test')
@@ -531,7 +530,7 @@ describe('native host connections', () => {
     // WHY: a stopped host is not "offline": the way out is Start, not Retry.
     const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    await answerDirectory([directoryHost({ kind: 'managed', category: 'managed', managedState: 'stopped' })])
+    await answerDirectory([directoryHost({ kind: 'cloud', hasManagedCompute: true, managedState: 'stopped' })])
     expect(connections.connection('inst-cloud')).toBeNull()
     expect(connections.readiness('inst-cloud')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'not-running' })
     expect(transports).toHaveLength(0)
@@ -540,7 +539,7 @@ describe('native host connections', () => {
   test('a managed host Solus Cloud is starting is checking, so screens wait for it', async () => {
     const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    await answerDirectory([directoryHost({ kind: 'managed', category: 'managed', managedState: 'starting' })])
+    await answerDirectory([directoryHost({ kind: 'cloud', hasManagedCompute: true, managedState: 'starting' })])
     expect(connections.connection('inst-cloud')).toBeNull()
     expect(connections.readiness('inst-cloud').readiness).toBe('checking')
     expect(transports).toHaveLength(0)

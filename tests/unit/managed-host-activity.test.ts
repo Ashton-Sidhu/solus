@@ -1,17 +1,17 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionStatus } from '@solus/contracts/types'
 import type { HostRegistration } from '@solus/contracts/uplink'
-import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import { adoptRegistration, resetMachineKindForTests } from '@solus/server/host/machine-kind'
 import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, ManagedHostActivity } from '@solus/server/host/managed-host-activity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // Plan 004 item 3: a Sprite pauses when no request arrives, and a turn makes only
-// outbound calls. The managed host holds itself awake while it has work, and tells
+// outbound calls. A cloud machine with managed compute holds itself awake while it has work, and tells
 // the control plane whether it is busy and when the next automation is due, so a
 // paused machine is woken in time. The report must be right, or the machine sleeps
 // through a waiting approval or a scheduled run.
@@ -34,9 +34,10 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
   rmSync(directory, { recursive: true, force: true })
 })
-afterEach(() => resetHostCategoryForTests())
+afterEach(() => resetMachineKindForTests())
 
-const link = { hostId: 'h1', directoryUrl: 'https://cloud.test', organizationId: 'org1' } as HostRegistration
+/** A cloud machine whose compute the control plane operates: only this one has a hold and a report. */
+const link = { hostId: 'h1', directoryUrl: 'https://cloud.test', organizationId: 'org1', hasManagedCompute: true } as HostRegistration
 
 describe('what the host reports', () => {
   test('busy while a turn runs or a person owes an answer; not while idle or rate limited', () => {
@@ -97,9 +98,9 @@ function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroun
   return { activity, tasks, reports, advance: (ms: number) => { now += ms }, now: () => now }
 }
 
-describe('the hold and the report on a managed host', () => {
+describe('the hold and the report on a cloud machine with managed compute', () => {
   test('Cloudflare receives an atomic heartbeat without using the Sprite socket', async () => {
-    adoptProvisionedRegistration({ organizationId: 'org1' })
+    adoptRegistration(link)
     const activityFile = join(directory, 'activity.json')
     const facts = { busy: true, nextDueAt: null as number | null }
     const { activity, tasks, reports, now, advance } = harness(facts, activityFile)
@@ -115,7 +116,7 @@ describe('the hold and the report on a managed host', () => {
     expect(reports).toEqual([{ busy: true, nextWakeAt: null }, { busy: false, nextWakeAt: facts.nextDueAt }])
   })
   test('holds while busy, renews the hold, releases when done, and reports each change once', async () => {
-    adoptProvisionedRegistration({ organizationId: 'org1' })
+    adoptRegistration(link)
     const facts = { busy: true, nextDueAt: null as number | null }
     const { activity, tasks, reports, advance } = harness(facts)
 
@@ -146,7 +147,7 @@ describe('the hold and the report on a managed host', () => {
   })
 
   test('holds ahead of a due automation, so the run the control plane woke it for starts', async () => {
-    adoptProvisionedRegistration({ organizationId: 'org1' })
+    adoptRegistration(link)
     const facts = { busy: false, nextDueAt: null as number | null }
     const { activity, tasks, reports, now } = harness(facts)
     facts.nextDueAt = now() + DUE_HOLD_LEAD_MS + 60_000
@@ -163,7 +164,7 @@ describe('the hold and the report on a managed host', () => {
   test('holds while someone looks at the app, and lets the machine pause once they have looked away for the grace', async () => {
     // A person with the app in front of them must never find it paused; a tab
     // left in the background must not keep the machine billing all night.
-    adoptProvisionedRegistration({ organizationId: 'org1' })
+    adoptRegistration(link)
     const facts = { busy: false, nextDueAt: null as number | null, lastForegroundAt: null as number | null }
     const { activity, tasks, reports, advance, now } = harness(facts)
 
@@ -186,10 +187,34 @@ describe('the hold and the report on a managed host', () => {
     expect(reports.every((report) => (report as { busy: boolean }).busy === false)).toBe(true)
   })
 
-  test('a machine that is not managed neither holds nor reports', async () => {
+  test('a personal machine neither holds nor reports', async () => {
     const { activity, tasks, reports } = harness({ busy: true, nextDueAt: 5 })
     await activity.check()
     expect(tasks).toEqual([])
     expect(reports).toEqual([])
+  })
+
+  test('a cloud machine that its operator runs neither holds nor reports, and writes no heartbeat', async () => {
+    // WHY (plans/034 §2): the control plane cannot start or stop this machine, so it
+    // has nothing to hold awake and nobody to wake it. The machine kind does not decide this.
+    adoptRegistration({ organizationId: 'org1' })
+    const activityFile = join(directory, 'operator-activity.json')
+    const { activity, tasks, reports } = harness({ busy: true, nextDueAt: 5, lastForegroundAt: 1_000_000_000 }, activityFile)
+    await activity.check()
+    await activity.stop()
+    expect(tasks).toEqual([])
+    expect(reports).toEqual([])
+    expect(existsSync(activityFile)).toBe(false)
+  })
+
+  test('a machine that loses its managed compute releases its hold and stops reporting', async () => {
+    adoptRegistration(link)
+    const { activity, tasks, reports } = harness({ busy: true, nextDueAt: null })
+    await activity.check()
+    expect(tasks).toEqual(['PUT /v1/tasks/solus-work {"expire":600}'])
+    adoptRegistration(null)
+    await activity.check()
+    expect(tasks.at(-1)).toBe('DELETE /v1/tasks/solus-work')
+    expect(reports).toHaveLength(1)
   })
 })

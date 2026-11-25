@@ -13,7 +13,7 @@ export async function rememberSession(hostId: string, sessionId: string, confirm
     visibleInWindow(
       known.record.organizationId,
       solus.account.organizationId,
-      usesWindowFilter(hostId, solus.threads.managedHostIds()),
+      usesWindowFilter(hostId, solus.threads.cloudHostIds()),
     )
   )
     return known.record;
@@ -27,7 +27,7 @@ export async function rememberSession(hostId: string, sessionId: string, confirm
     !visibleInWindow(
       record.organizationId,
       solus.account.organizationId,
-      usesWindowFilter(hostId, solus.threads.managedHostIds()),
+      usesWindowFilter(hostId, solus.threads.cloudHostIds()),
     )
   )
     throw new Error("This session is unavailable on this host.");

@@ -1,4 +1,4 @@
-import type { HostCategory } from '@solus/contracts/uplink'
+import type { MachineKind } from '@solus/contracts/uplink'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import type { HostPolicies } from '@solus/contracts/host-policies'
 
@@ -8,11 +8,10 @@ import type { HostPolicies } from '@solus/contracts/host-policies'
  * Pure, so the rule is tested without a host.
  */
 
-export function hostCategoryLabel(category: HostCategory): string {
-  switch (category) {
+export function machineKindLabel(kind: MachineKind): string {
+  switch (kind) {
     case 'personal': return 'Personal computer'
-    case 'self-hosted': return 'Self-hosted server'
-    case 'managed': return 'Cloud host'
+    case 'cloud': return 'Cloud host'
   }
 }
 
@@ -35,27 +34,11 @@ export function organizationRows(status: HostOrganizationsStatus, policies: Host
     organizationId: organization.organizationId,
     name: organization.name,
     shared: organization.shared,
-    // A machine attached for an organization's work always sends that organization's Insights (organization-vms §2).
-    insightsManaged: policies?.forWork(organization.organizationId).syncsAllInsights() === true || (status.attachedAt !== null && organization.shared),
+    // A cloud machine always sends its organization's Insights (organization-vms §2).
+    insightsManaged: policies?.forWork(organization.organizationId).syncsAllInsights() === true || (status.kind === 'cloud' && organization.shared),
     insightsOptedIn: status.insightsOptIn.includes(organization.organizationId),
-    personalHostsNotAllowed: !organization.hostRules.allowsPersonalHosts && status.category === 'personal',
+    personalHostsNotAllowed: !organization.hostRules.allowsPersonalHosts && status.kind === 'personal',
   }))
-}
-
-/**
- * What an attached server does with new work, and what waits for delivery
- * (organization-vms §1, §5): shown above the organizations. Null on a machine that
- * is not attached, whose new work stays on it.
- */
-export function attachmentSummary(status: HostOrganizationsStatus): { label: string; description: string } | null {
-  if (status.attachedAt === null) return null
-  const attached = status.organizations.filter((organization) => organization.shared).map((organization) => organization.name)
-  return {
-    label: 'Organization work',
-    description: attached.length
-      ? `New work on this server belongs to ${attached.join(', ')} and is saved in its Solus API. Personal work already here stays on this server.`
-      : 'This server is attached for organization work but no organization is attached now, so new work cannot start. Add it to an organization again, or unlink it to use it personally.',
-  }
 }
 
 /** What waits to reach each organization's Solus API, in words; null when nothing waits and nothing failed. */
