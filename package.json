@@ -139,7 +139,8 @@
       "entitlementsInherit": "resources/entitlements.mac.plist",
       "notarize": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Solus uses your microphone to transcribe voice input locally on your device.",
+        "NSMicrophoneUsageDescription": "Solus uses your microphone for local voice input and for browser sites you allow.",
+        "NSCameraUsageDescription": "Solus uses your camera for browser sites you allow.",
         "NSAppleEventsUsageDescription": "Solus needs to send Apple Events to your terminal app to open editor sessions."
       },
       "files": [

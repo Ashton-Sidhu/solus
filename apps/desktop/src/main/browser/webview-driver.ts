@@ -8,6 +8,7 @@ import {
 } from '@solus/server/browser/surface-driver'
 import { withTimeout } from './cdp-timeout'
 import { ChromiumBrowserDriver } from './chromium-driver'
+import { revokeBrowserMediaPermissions } from './browser-permissions'
 
 const log = createLogger('browser', 'webview-driver.ts')
 
@@ -54,7 +55,9 @@ export function registerBrowserWebviewHost(): void {
   setBrowserProfileHost({
     clearProfile: async (partition) => {
       log.info('browser_profile_cleared', { partition })
-      await electronSession.fromPartition(requireBrowserPartition(partition)).clearStorageData()
+      const profileSession = electronSession.fromPartition(requireBrowserPartition(partition))
+      revokeBrowserMediaPermissions(profileSession)
+      await profileSession.clearStorageData()
     },
     importCookies: async (partition, cookies) => {
       const jar = electronSession.fromPartition(requireBrowserPartition(partition)).cookies

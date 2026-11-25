@@ -143,7 +143,8 @@ module.exports = {
     icon: 'resources/icon',
     appBundleId: 'com.solus.app',
     extendInfo: {
-      NSMicrophoneUsageDescription: 'Solus uses your microphone to transcribe voice input locally with Whisper.',
+      NSMicrophoneUsageDescription: 'Solus uses your microphone for local voice input and for browser sites you allow.',
+      NSCameraUsageDescription: 'Solus uses your camera for browser sites you allow.',
     },
     // Code signing — requires "Developer ID Application" cert in Keychain
     osxSign: {
