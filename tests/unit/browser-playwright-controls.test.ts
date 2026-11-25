@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { browserUploadBucket, initBrowserRegistry, type BrowserRegistry } from '@solus/server/browser/browser-registry'
 import { attachmentsRoot, uploadFolderName } from '@solus/server/data/assets/attachment-store'
 import { registerPlaywrightBrowserHost } from '@solus/server/browser/playwright-host'
+import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 import { setBrowserHeadlessHost, setBrowserProfileHost } from '@solus/server/browser/surface-driver'
 
 /**
@@ -33,6 +34,7 @@ async function hasChromium(): Promise<boolean> {
 const PAGE = `<!doctype html><body>
 <button id="tip" onmouseenter="document.body.dataset.hovered = 'yes'">tip</button>
 <select id="size"><option value="s">Small</option><option value="l">Large</option></select>
+<select id="stream"><option>One</option><optgroup label="Sizes" disabled><option>Disabled</option></optgroup><option hidden>Hidden</option><option>Two</option></select>
 <div id="card" draggable="true" ondragstart="event.dataTransfer.setData('text/plain', 'card-1')" style="width:60px;height:30px">card</div>
 <div id="column" ondragover="event.preventDefault()" ondrop="document.body.dataset.dropped = event.dataTransfer.getData('text/plain')" style="width:60px;height:30px">column</div>
 <div id="knob" style="width:30px;height:30px;touch-action:none">knob</div>
@@ -65,7 +67,7 @@ describe.skipIf(!chromium)('browser controls (Playwright Chromium)', () => {
 
   beforeAll(async () => {
     stopHost = await registerPlaywrightBrowserHost(async () => undefined)
-    registry = initBrowserRegistry({ pageChanged() {}, pageClosed() {}, surfaceRequested() {} })
+    registry = initBrowserRegistry({ pageChanged() {}, pageClosed() {}, surfaceRequested() {} }, new BrowserFrameChannel())
     const url = `data:text/html,${encodeURIComponent(PAGE)}`
     browserPageId = registry.open({ target: { kind: 'url', url } }, 'local:owner').browserPageId
   })
@@ -93,6 +95,111 @@ describe.skipIf(!chromium)('browser controls (Playwright Chromium)', () => {
     expect(result).toEqual({ ok: true, value: '["Large"]' })
     const value = await registry.interact(browserPageId, { kind: 'evaluate', expression: 'document.getElementById("size").value' })
     expect(value.value).toBe('"l"')
+  })
+
+  test('a streamed click relays native options and applies only a live choice from that client', async () => {
+    const run = (expression: string) => registry.interact(browserPageId, { kind: 'evaluate', expression })
+    const point = await run(`(() => {
+      const select = document.querySelector('#stream')
+      select.addEventListener('click', () => document.body.dataset.clicked = 'yes')
+      select.addEventListener('input', () => document.body.dataset.input = select.value)
+      select.addEventListener('change', () => document.body.dataset.changed = select.value)
+      const rect = select.getBoundingClientRect()
+      return { x: rect.x + 3, y: rect.y + 3 }
+    })()`)
+    const { x, y }: { x: number; y: number } = JSON.parse(point.value!)
+    const offer = () => registry.interact(browserPageId, { kind: 'clickAt', x, y, selectMenu: true }, 'viewer')
+    const answer = (id: string, index: number, clientId = 'viewer') =>
+      registry.interact(browserPageId, { kind: 'answerSelectMenu', id, index }, clientId)
+    await registry.subscribeFrames(browserPageId, 'viewer')
+    await registry.subscribeFrames(browserPageId, 'other')
+    try {
+      const first = (await offer()).selectMenu!
+      expect(first.options).toEqual([
+        { label: 'One', disabled: false },
+        { label: 'Disabled', disabled: true },
+        { label: 'Two', disabled: false },
+      ])
+      expect(await read('clicked')).toBe('yes')
+      expect((await run('document.querySelector("#stream").matches(":open")')).value).toBe('false')
+      expect((await answer(first.id, 2, 'other')).ok).toBe(false)
+      expect((await answer(first.id, 1)).ok).toBe(false)
+
+      const second = (await offer()).selectMenu!
+      await run('document.querySelector("#stream").prepend(document.querySelector("#stream").lastElementChild)')
+      expect((await answer(first.id, 2)).ok).toBe(false)
+      expect((await answer(second.id, 2)).ok).toBe(true)
+      expect(await read('input')).toBe('Two')
+      expect(await read('changed')).toBe('Two')
+
+      const third = (await offer()).selectMenu!
+      await run('document.querySelector("#stream").options[0].replaceWith(new Option("Two"))')
+      expect((await answer(third.id, 0)).ok).toBe(false)
+
+      const fourth = (await offer()).selectMenu!
+      await registry.unsubscribeFrames(browserPageId, 'viewer')
+      expect(registry.get(browserPageId)?.selectMenuId).toBeUndefined()
+      expect((await answer(fourth.id, 0)).ok).toBe(false)
+      await registry.subscribeFrames(browserPageId, 'viewer')
+      const fifth = (await offer()).selectMenu!
+      await registry.navigate(browserPageId, { kind: 'reload' })
+      expect(registry.get(browserPageId)?.selectMenuId).toBeUndefined()
+      expect((await answer(fifth.id, 0)).ok).toBe(false)
+
+      await run('document.querySelector("#stream").addEventListener("mousedown", event => event.preventDefault(), { once: true })')
+      expect(await offer()).toEqual({ ok: true })
+      expect(registry.get(browserPageId)?.selectMenuId).toBeUndefined()
+
+      const sixth = (await offer()).selectMenu!
+      await run('document.querySelector("#stream").options[3].disabled = true')
+      expect((await answer(sixth.id, 2)).ok).toBe(false)
+
+      await run(`(() => {
+        const select = document.querySelector('#stream')
+        for (let index = 0; index < 501; index++) select.add(new Option(String(index)))
+        select.addEventListener('mousedown', (event) => {
+          document.body.dataset.trusted = String(event.isTrusted)
+          event.preventDefault()
+        }, { once: true })
+      })()`)
+      expect(await offer()).toEqual({ ok: true })
+      expect(await read('trusted')).toBe('true')
+    } finally {
+      await registry.unsubscribeFrames(browserPageId, 'viewer')
+      await registry.unsubscribeFrames(browserPageId, 'other')
+    }
+  })
+
+  test('a select inside a padded same-origin frame closes when the frame is removed', async () => {
+    const run = (expression: string) => registry.interact(browserPageId, { kind: 'evaluate', expression })
+    await registry.subscribeFrames(browserPageId, 'viewer')
+    try {
+      await run(`(() => {
+        const frame = document.createElement('iframe')
+        frame.id = 'select-frame'
+        frame.style = 'position: fixed; left: 50px; top: 50px; padding: 12px; border: 4px solid'
+        frame.srcdoc = '<select><option>Frame option</option></select>'
+        document.body.append(frame)
+      })()`)
+      await registry.interact(browserPageId, {
+        kind: 'waitFor',
+        expression: 'Boolean(document.querySelector("#select-frame").contentDocument.querySelector("select"))',
+      })
+      const { selectMenu } = await registry.interact(browserPageId, {
+        kind: 'clickAt', x: 77, y: 77, selectMenu: true,
+      }, 'viewer')
+      expect(selectMenu).toMatchObject({ x: 74, y: 74, options: [{ label: 'Frame option', disabled: false }] })
+      await run('document.querySelector("#select-frame").remove()')
+      for (let attempt = 0; attempt < 50 && registry.get(browserPageId)?.selectMenuId; attempt++) {
+        await Bun.sleep(20)
+      }
+      expect(registry.get(browserPageId)?.selectMenuId).toBeUndefined()
+      expect(await registry.interact(browserPageId, {
+        kind: 'answerSelectMenu', id: selectMenu!.id, index: 0,
+      }, 'viewer')).toEqual({ ok: false })
+    } finally {
+      await registry.unsubscribeFrames(browserPageId, 'viewer')
+    }
   })
 
   test('an HTML drag carries its data to the drop target', async () => {

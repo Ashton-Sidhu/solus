@@ -86,6 +86,8 @@ The device and browser viewers share their selection and presentation helpers wi
 
 Loopback browser pages stream from the selected Solus host. Its Host settings screen shows **Preview tunnel** when the host supports that setting. This control governs desktop port forwarding and shows the selected host’s policy lock.
 
+Streamed browser select menus use the choice sheet from [T3 Code #31561](https://github.com/pingdotgg/t3code/pull/31561). The Solus adapter receives the choices through the existing browser interaction RPC. The host withdraws the offer through the browser page feed. The browser screen and loopback preview use the same sheet. The floating preview is view-only.
+
 The session header opens the Solus Running servers sheet. Its 55% sheet height,
 native header action, and scroll insets follow the T3 linked pull requests sheet in the saved fork
 revision `c64d1f0ab74698d6d03006cf255e995cb0159176`. The sheet uses the shared
