@@ -111,7 +111,8 @@
 />
 <svelte:document onpointerdowncapture={dismissOutside} />
 
-<!-- No outline: the tray is the card's own surface, coming out from behind it. -->
+<!-- The tray has the card's resting hairline. While it is open, the card keeps
+     that hairline in place of its focus ring, so the two read as one shape. -->
 <div
   bind:this={menu}
   use:tuckStashDrawer={anchor}
@@ -119,7 +120,7 @@
   aria-label="Stashed prompts"
   tabindex={-1}
   data-composer-stash-drawer
-  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) outline-hidden"
+  class="@container/stash absolute flex min-h-0 flex-col overflow-hidden rounded-t-2xl bg-(--solus-input-pill-bg) p-1 text-(--solus-text-primary) shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)] outline-hidden"
 >
   <button
     type="button"

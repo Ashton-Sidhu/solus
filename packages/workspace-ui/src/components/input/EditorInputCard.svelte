@@ -116,6 +116,9 @@
       focused
         ? "shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]"
         : "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
+      // An open stash tray sits just before the card: the card keeps its
+      // resting hairline then, the same line the tray has.
+      "[[data-composer-stash-drawer]+&]:shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
     )}
     onfocusin={() => (focused = true)}
     onfocusout={() => (focused = false)}
