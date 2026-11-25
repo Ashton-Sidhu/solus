@@ -277,6 +277,7 @@ import {
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
+import { OpeningHistoryPreview } from "../../solus/OpeningHistoryPreview";
 import { htmlRenderRowHeight, ThreadHtmlPreviewsReady, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
 import { useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
@@ -391,6 +392,7 @@ export interface ThreadFeedProps {
   readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly previewOpeningHistory?: boolean;
   readonly pendingHandoff?: HandoffEndpoints | null;
   /** Thread states that close the feed: background work, then snooze or settle. */
   readonly statusLines?: ReadonlyArray<ThreadStatusLineModel>;
@@ -4347,9 +4349,18 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
             column resize would re-wrap them first, and the list would place the taller or shorter
             rows at their old offsets until their measurements came back. */}
-        <View
-          className="flex-1"
+        <OpeningHistoryPreview
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
+          enabled={Platform.OS === "ios" && props.previewOpeningHistory === true &&
+            props.contentPresentation.kind === "ready" && !props.anchorMessageId &&
+            !props.pendingHandoff && !props.statusLines?.length && !props.queuedMessages.length &&
+            props.activeWorkStartedAt === null && !props.runlessWorkActive}
+          settling={settling}
+          rows={groupedFeed}
+          renderRow={renderItem}
+          bottom={bottomContentInset}
+          left={contentHorizontalPadding + contentLeftInset}
+          right={contentHorizontalPadding + contentRightInset}
         >
           {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
           <KeyboardAwareLegendList
@@ -4461,7 +4472,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               paddingRight: contentHorizontalPadding + contentRightInset,
             }}
           />
-        </View>
+        </OpeningHistoryPreview>
         {presentedFeed.length === 0 &&
         !props.worktreeSetup &&
         props.activeWorkStartedAt === null &&

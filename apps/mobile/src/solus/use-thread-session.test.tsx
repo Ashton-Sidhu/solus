@@ -84,7 +84,7 @@ vi.mock("./runtime", () => {
           notify();
         },
       },
-      sessionCache: { scope: () => state.scope },
+      sessionCache: { scope: () => state.scope, forHost: () => ({ hasHistoryKey: () => false }) },
       newSessionId: () => "draft",
       openConversation: () => null,
       conversation: (hostId: string, target: { record?: TestRecord; newSession?: { sessionId: string } }) => ({

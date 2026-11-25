@@ -258,6 +258,7 @@ export interface ThreadDetailScreenProps {
   readonly selectedThread: EnvironmentThreadShell;
   /** Use this for detail reads; it stays null until queued creation reaches the server. */
   readonly selectedThreadDetailRef: ScopedThreadRef | null;
+  readonly previewOpeningHistory?: boolean;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
@@ -1615,6 +1616,7 @@ function ThreadDetailBody(
                       : handleEditPendingMessage
                   }
                   contentPresentation={props.contentPresentation}
+                  previewOpeningHistory={props.previewOpeningHistory === true && jumpMessageId === null}
                   threadTitle={props.selectedThread.title}
                   latestRun={props.activityRun}
                   activeWorkStartedAt={props.activeWorkStartedAt}

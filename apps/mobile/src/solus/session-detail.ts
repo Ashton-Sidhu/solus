@@ -1,5 +1,17 @@
 import { Atom } from "effect/reactivity";
+import { useLayoutEffect, useMemo } from "react";
+import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { solus } from "./runtime";
+
+const openingWithoutSavedHistory = new WeakSet<ConversationStore>();
+
+export function useOpeningHistoryPreview(store: ConversationStore) {
+  const preview = useMemo(() => openingWithoutSavedHistory.has(store), [store]);
+  useLayoutEffect(() => {
+    openingWithoutSavedHistory.delete(store);
+  }, [store]);
+  return preview;
+}
 
 /** Navigation and the mounted thread share the same account-scoped Solus read and watch. */
 const sessionDetails = Atom.family((scope: string) =>
@@ -8,9 +20,11 @@ const sessionDetails = Atom.family((scope: string) =>
       Atom.make((get) => {
         if (solus.sessionCache.scope() !== scope) return null;
         const thread = solus.threads.thread(hostId, sessionId);
-        const store =
-          solus.openConversation(hostId, sessionId) ??
-          (thread ? solus.conversation(hostId, { record: thread.record }) : null);
+        const retained = solus.openConversation(hostId, sessionId);
+        const store = retained ?? (thread ? solus.conversation(hostId, { record: thread.record }) : null);
+        if (store && !retained && solus.sessionCache.forHost(hostId).hasHistoryKey(sessionId) === false) {
+          openingWithoutSavedHistory.add(store);
+        }
         if (store) get.addFinalizer(solus.observeConversation(store));
         else {
           get.addFinalizer(solus.threads.changes.subscribe(() => get.refreshSelf()));
