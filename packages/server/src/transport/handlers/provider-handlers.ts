@@ -1051,16 +1051,13 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prMergeStack', ([request], { principal }) => mergeStack(request, principal))
   server.register('prEnableStackAutoMerge', ([request], { principal }) => mergeStack(request, principal, true))
 
-  // Read fresh: the approval is checked against this head, so a remembered
-  // head would list the runs of a commit that is gone.
   server.register('prPendingWorkflowRuns', async (args) => {
     const [ref] = args
     const { repo, provider, number } = reviewTargetForPr(ref)
     // Remembered, not fresh: the answer names the head it describes, and the
     // approval reads the pull request fresh and refuses a head that moved.
     const detail = await prIndex.pullRequest(repo, provider, number).read()
-    // Only a fork's runs wait for a maintainer.
-    if (!detail.capabilities.actions.includes('approve-workflows') || detail.state !== 'open' || !detail.headRepo.isFork) {
+    if (!detail.capabilities.actions.includes('approve-workflows') || detail.state !== 'open') {
       return { headSha: detail.headSha, runs: [] }
     }
     return { headSha: detail.headSha, runs: await provider.review.listPendingWorkflowRuns(repo, detail) }
@@ -1079,7 +1076,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         throw new Error('You do not have permission to approve workflow runs in this repository.')
       }
       if (current.state !== 'open') throw new Error('Only an open pull request has workflow runs to approve.')
-      if (!current.headRepo.isFork) return { approved: 0 }
       const approved = await provider.review.approvePendingWorkflowRuns(repo, current)
       log.info('pr_workflow_runs_approved', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: number, approved })
       return { approved }

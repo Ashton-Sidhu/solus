@@ -218,7 +218,15 @@ const writePrAction = async ({ api, ref, pr }: Awaited<ReturnType<typeof prSourc
   }
 };
 
-export const runPrAction = prCommand("pullRequests.runAction", writePrAction, (reply) => reply);
+export const runPrAction = prCommand(
+  "pullRequests.runAction",
+  async (source, input: PullRequestActionInput) => {
+    if (input.action !== "approve-workflows") return writePrAction(source, input);
+    if (!input.expectedHeadSha) throw new Error("Refresh the pull request before approving its workflows.");
+    await source.api.prApproveWorkflowRuns(source.ref, input.expectedHeadSha);
+  },
+  (reply) => reply,
+);
 
 export const editPr = prCommand<PullRequestUpdateInput, PullRequest>(
   "pullRequests.update",

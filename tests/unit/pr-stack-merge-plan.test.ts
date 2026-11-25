@@ -89,10 +89,10 @@ describe('stack merge plan', () => {
   })
 })
 
-describe('fork workflow approval', () => {
-  test('runs are read only for an open fork pull request on a host that offers approval', () => {
+describe('workflow approval', () => {
+  test('runs are read only for an open pull request on a host that offers approval', () => {
     expect(readsPendingWorkflowRuns(detailOf({ isFork: true }))).toBe(true)
-    expect(readsPendingWorkflowRuns(detailOf({ isFork: false }))).toBe(false)
+    expect(readsPendingWorkflowRuns(detailOf({ isFork: false }))).toBe(true)
     expect(readsPendingWorkflowRuns(detailOf({ isFork: true, state: 'merged' }))).toBe(false)
     expect(readsPendingWorkflowRuns(detailOf({ isFork: true, hostActions: ['merge'] }))).toBe(false)
   })

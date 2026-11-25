@@ -6,6 +6,7 @@ import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { issueIdentity, issueTarget } from "../features/issues/issueParams";
+import { canPerformPullRequestAction } from "../features/pull-requests/pullRequestActions";
 import {
   prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList, solusPrStack,
 } from "./source-control";
@@ -25,6 +26,8 @@ const host = vi.hoisted(() => ({
   prEnableStackAutoMerge: vi.fn(),
   prDisableStackAutoMerge: vi.fn(),
   prChecks: vi.fn(),
+  prPendingWorkflowRuns: vi.fn(),
+  prApproveWorkflowRuns: vi.fn(),
   prViewedFiles: vi.fn(),
   prSetFilesViewed: vi.fn(),
   prSetLabels: vi.fn(),
@@ -355,6 +358,58 @@ it("loads the PR summary with reviewers and leaves commits to Activity", async (
     expect(host.prChecks).toHaveBeenCalledWith(hostPr.repo, [7]);
   } finally {
     registry.dispose();
+  }
+});
+
+it.each([
+  ["reviewed", 1],
+  ["older", undefined],
+])("shows the workflow approval count only for the PR head (%s)", async (headSha, count) => {
+  const registry = AtomRegistry.make();
+  host.prGetOverview.mockResolvedValueOnce({
+    pullRequest: {
+      ...pr, number: 7, title: "Waiting for CI", url: "https://github.com/team/app/pull/7",
+      state: "open", headRepo: { owner: "team", repo: "app", isFork: false },
+      capabilities: { actions: ["approve-workflows"], mergeMethods: [] },
+      viewerPermissions: { actions: ["approve-workflows"] },
+    },
+    reviewers: [],
+  });
+  host.prChecks.mockResolvedValueOnce({ checks: [] });
+  host.prPendingWorkflowRuns.mockResolvedValueOnce({ headSha, runs: [{ id: 1, name: "CI", url: null }] });
+  try {
+    const result = await executeAtomQuery(registry, solusPrDetail({ environmentId, input: pullRequest }));
+    expect(result).toMatchObject({
+      _tag: "Success",
+      value: {
+        capabilities: { actions: ["approve-workflows"] },
+        viewerPermissions: { actions: ["approve-workflows"] },
+      },
+    });
+    if (result._tag !== "Success") throw new Error("PR detail failed");
+    expect(result.value.workflowApprovalsRequired).toBe(count);
+    expect(canPerformPullRequestAction(result.value, "approve-workflows")).toBe(count === 1);
+    expect(host.prPendingWorkflowRuns).toHaveBeenLastCalledWith(hostPr);
+  } finally {
+    registry.dispose();
+    host.prPendingWorkflowRuns.mockReset();
+  }
+});
+
+it("passes the head shown in the workflow approval prompt to the host", async () => {
+  const registry = AtomRegistry.make();
+  const target = { environmentId, input: { ...pullRequest, action: "approve-workflows" as const } };
+  host.prApproveWorkflowRuns.mockClear().mockResolvedValueOnce({ approved: 1 });
+  host.prGetDetail.mockResolvedValueOnce(pr).mockResolvedValueOnce(pr);
+  try {
+    expect(await runAtomCommand(registry, runPrAction, target, quiet)).toMatchObject({ _tag: "Failure" });
+    expect(host.prApproveWorkflowRuns).not.toHaveBeenCalled();
+    const shown = { ...target, input: { ...target.input, expectedHeadSha: "shown-head" } };
+    expect(await runAtomCommand(registry, runPrAction, shown, quiet)).toMatchObject({ _tag: "Success" });
+    expect(host.prApproveWorkflowRuns).toHaveBeenCalledExactlyOnceWith(hostPr, "shown-head");
+  } finally {
+    registry.dispose();
+    host.prApproveWorkflowRuns.mockReset();
   }
 });
 

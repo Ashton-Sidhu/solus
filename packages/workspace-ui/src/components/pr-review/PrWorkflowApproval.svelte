@@ -16,9 +16,6 @@
     readsPendingWorkflowRuns,
   } from "./lib/workflow-approval";
 
-  // The Actions runs of a fork pull request that GitHub holds until a
-  // maintainer lets them start. It sits over the checks, as GitHub shows it in
-  // its merge box. Absent when no run waits.
   let { pullRequest, class: className = "" }: {
     pullRequest: PullRequest | null;
     class?: string;
@@ -79,7 +76,7 @@
       <div class="flex min-w-0 flex-1 flex-col">
         <h3 class="font-medium text-foreground">{pendingWorkflowsHeadline(pending.runs.length)}</h3>
         <span class="text-xs text-muted-foreground">
-          This branch is from a fork. Its workflows run only after a maintainer approves them.
+          A maintainer must approve these workflows before they can run.
         </span>
       </div>
     </div>
