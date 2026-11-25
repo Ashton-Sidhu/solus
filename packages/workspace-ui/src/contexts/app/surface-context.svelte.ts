@@ -61,6 +61,8 @@ export interface SurfaceContext {
   projectRootOfTask(taskId: string): string | null
   /** Scope the project pages to the input bar's project; false when it names none. */
   scopePageToCurrentProject(): boolean
+  /** The input bar's project as a page scope key; null when it names none. */
+  readonly currentProjectKey: string | null
   /** Scope the project pages to one project, by its key. */
   scopePageToProject(projectKey: string): void
   /** Every project the pages list, one per repository (docs/plans/project-model.md). */

@@ -29,6 +29,10 @@
     projectsFailure: PrInboxFailure;
     /** Any row loaded at all — before the page's own filters. */
     hasItems: boolean;
+    /** The host was asked a narrower question than the open list (a search,
+     *  an author or label, merged or closed work). An empty answer then means
+     *  nothing matches, not that the project has no pull requests. */
+    narrowed: boolean;
     loading: boolean;
     onRetry: () => void;
     onShowAll: () => void;
@@ -42,6 +46,7 @@
     serverId,
     projectsFailure,
     hasItems,
+    narrowed,
     loading,
     onRetry,
     onShowAll,
@@ -101,7 +106,7 @@
   <PageEmpty icon={WarningCircleIcon} tone="muted" title="Couldn’t load pull requests." actions={retry}>
     {projectsFailure.detail}
   </PageEmpty>
-{:else if !hasItems}
+{:else if !hasItems && !narrowed}
   <PageEmpty icon={GitPullRequestIcon} title="No pull requests yet.">
     {allProjects
       ? "Open pull requests from any of your projects' remotes will show up here."

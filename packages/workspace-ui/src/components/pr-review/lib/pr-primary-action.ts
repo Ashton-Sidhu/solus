@@ -18,7 +18,7 @@ import {
 export type PrPrimaryTone = 'primary' | 'negative' | 'positive' | 'review' | 'neutral'
 
 /** The mark the band's pill carries, so the move reads once its label drops. */
-export type PrPrimaryGlyph = 'merge' | 'auto-merge' | 'ready' | 'update' | 'conflict' | 'checks' | 'closed' | 'blocked' | 'waiting'
+export type PrPrimaryGlyph = 'merge' | 'auto-merge' | 'ready' | 'update' | 'conflict' | 'checks' | 'workflows' | 'closed' | 'blocked' | 'waiting'
 
 export interface PrPrimaryAction {
   /** What one click runs. Null when the button only reports a state. */
@@ -67,6 +67,7 @@ const MOVE_TITLES = {
   'update-branch': 'Bring the base branch into this branch on the host',
   'resolve-conflicts': 'Open an agent session to resolve the merge conflicts',
   'fix-checks': 'Open a session composer with the fix for the failing checks drafted',
+  'approve-workflows': 'Let the workflow runs that wait for approval start',
 } satisfies { [Kind in MergeAction['kind']]: string }
 
 const MOVE_SHORT = {
@@ -76,6 +77,7 @@ const MOVE_SHORT = {
   'update-branch': 'Update branch',
   'resolve-conflicts': 'Resolve conflicts',
   'fix-checks': 'Fix checks',
+  'approve-workflows': 'Approve workflows',
 } satisfies { [Kind in MergeAction['kind']]: string }
 
 const MOVE_GLYPH = {
@@ -85,6 +87,7 @@ const MOVE_GLYPH = {
   'update-branch': 'update',
   'resolve-conflicts': 'conflict',
   'fix-checks': 'checks',
+  'approve-workflows': 'workflows',
 } satisfies { [Kind in MergeAction['kind']]: PrPrimaryGlyph }
 
 export function prPrimaryAction(

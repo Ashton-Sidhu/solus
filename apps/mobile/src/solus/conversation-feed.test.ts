@@ -1,3 +1,6 @@
+import { getProjectionArrayReplacementIndex } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { v2ThreadShell } from "../../packages/client-runtime/src/state/orchestrationV2TestFixtures";
+import { UNMEASURED_REPLY_HEIGHT } from "@solus/contracts/session-history";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { messageImageGallery } from "../features/threads/messageImageGallery";
 import { deriveThreadFeedPresentation } from "../lib/threadActivity";
@@ -23,7 +26,25 @@ function conversationFeed(
   )(order);
 }
 
-it("keeps host cards in transcript order and collapses only older versions of the same work", () => {
+it("opens host turn items with the same text, call details and fork target as legacy history", () => {
+  const model = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "user", content: "", timestamp: 1, messageId: "u", turnItem: {
+      type: "user_message", text: "check it", createdBy: "user", creationSource: "provider", inputIntent: "turn_start",
+    } },
+    { role: "tool", content: "", timestamp: 2, messageId: "r", toolId: "call", toolName: "Read",
+      turnItem: { type: "dynamic_tool", toolName: "Read", input: { path: "file" } } },
+    { role: "assistant", content: "", timestamp: 3, messageId: "a", forkPointId: "fork-target",
+      turnItem: { type: "assistant_message", text: "finished", streaming: false } },
+  ] });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  const projection = feed.projection({ ...v2ThreadShell, id: ThreadId.make("session") });
+  expect(projection.messages.map(message => message.text)).toEqual(["check it", "finished"]);
+  expect(projection.turnItems[1]).toMatchObject({ type: "dynamic_tool", input: { path: "file" } });
+  expect(feed.get().at(-1)).toMatchObject({ message: { hostForkPointId: "fork-target" } });
+});
+
+it("keeps host cards in transcript order and shows each saved artifact version as T3's render row", () => {
   const items: TranscriptItem[] = [
     {
       kind: "user",
@@ -33,7 +54,7 @@ it("keeps host cards in transcript order and collapses only older versions of th
       delivery: "sent",
       error: null,
     },
-    { kind: "artifact", id: "old", workId: "work", title: "Graph", html: "<p>one</p>" },
+    { kind: "artifact", id: "old", workId: "work", title: "Graph", contentVersion: 1 },
     {
       kind: "tool",
       id: "t",
@@ -46,7 +67,7 @@ it("keeps host cards in transcript order and collapses only older versions of th
       subagent: null,
       report: null,
     },
-    { kind: "artifact", id: "new", workId: "work", title: "Graph", html: "", contentVersion: 2 },
+    { kind: "artifact", id: "new", workId: "work", title: "Graph", contentVersion: 2, layout: { height: 480, heights: [[375, 480]] } },
     { kind: "assistant", id: "reply", sourceSessionId: "previous-provider-session", text: "done" },
     { kind: "image", id: "image", path: "/host/photo" },
   ];
@@ -58,53 +79,20 @@ it("keeps host cards in transcript order and collapses only older versions of th
     "session",
     render,
   );
-  expect(feed.get().map((row) => row.id)).toEqual(["p", "old", "t", "new", "reply", "image"]);
-  const answer = feed.get().find((row) => row.id === "reply");
-  expect(answer).toMatchObject({
+  const rows = feed.get();
+  expect(rows.map((row) => row.type === "html-render" ? "render" : row.id)).toEqual(["p", "render", "t", "render", "reply", "image"]);
+  expect(rows.find((row) => row.id === "reply")).toMatchObject({
     type: "message",
     message: { role: "assistant", sourceThreadId: "previous-provider-session" },
   });
-  for (const row of feed.get()) if (row.type === "conversation-card") row.render();
-  expect(render.mock.calls).toEqual([
-    ["old", true],
-    ["new", false],
-    ["image", false],
+  // WHY: T3's feed builder reads a finished `html_render` call, as it does
+  // upstream. Each version is its own row, sized by the host's measurement.
+  expect(rows.filter((row) => row.type === "html-render").map((row) => row.type === "html-render" && row.render)).toEqual([
+    { attachmentId: "artifact:work:1", title: "Graph", height: UNMEASURED_REPLY_HEIGHT },
+    { attachmentId: "artifact:work:2", title: "Graph", height: 480, heights: [[375, 480]] },
   ]);
-});
-it("shows the different works of one turn as one group card at the first and keeps the rows between in place", () => {
-  const items: TranscriptItem[] = [
-    { kind: "user", id: "p", text: "draw", attachments: [], delivery: "sent", error: null },
-    { kind: "artifact", id: "plan-1", workId: "plan", title: "Plan", html: "<p>1</p>" },
-    { kind: "assistant", id: "between", text: "Now the mock." },
-    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "<p>m</p>" },
-    { kind: "artifact", id: "plan-2", workId: "plan", title: "Plan", html: "<p>2</p>" },
-  ];
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const render = vi.fn(() => null);
-  const feed = conversationFeed(
-    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
-    items.map((i) => i.id),
-    "session",
-    render,
-  );
-  expect(feed.get().map((row) => row.id)).toEqual(["p", "plan-1", "between"]);
-  for (const row of feed.get()) if (row.type === "conversation-card") row.render();
-  // No "earlier version" row: the group shows each work once, at the newest revision of the turn.
-  expect(render.mock.calls).toEqual([
-    [
-      "plan-1",
-      false,
-      false,
-      expect.objectContaining({
-        id: "plan-1",
-        defaultTab: 0,
-        tabs: [
-          expect.objectContaining({ workId: "plan", revisions: ["plan-1", "plan-2"], turnRevision: 1 }),
-          expect.objectContaining({ workId: "mock", revisions: ["mock"], turnRevision: 0 }),
-        ],
-      }),
-    ],
-  ]);
+  for (const row of rows) if (row.type === "conversation-card") row.render();
+  expect(render.mock.calls).toEqual([["image"]]);
 });
 it("updates streaming text without subscribing the entire feed to tool progress", () => {
   const item: TranscriptItem = { kind: "assistant", id: "a", text: "start" };
@@ -129,14 +117,26 @@ it("updates streaming text without subscribing the entire feed to tool progress"
   );
   const notify = vi.fn();
   const initial = feed.get();
+  const shell = { ...v2ThreadShell, id: ThreadId.make("session") };
+  const initialMessages = feed.projection(shell).messages;
   const off = feed.subscribe(notify);
   expect(feed.get()).toBe(initial);
-  items.set("a", { ...item, text: "finished" });
+  items.set("a", { ...item, text: "finished", streaming: true });
   items.set("b", { ...item, id: "b", text: "another reply" });
   for (const listener of listeners) listener(["a", "b"]);
   expect(notify).toHaveBeenCalledTimes(1);
   expect(feed.get()[0]).toMatchObject({ type: "message", message: { text: "finished" } });
   expect(feed.get()[1]).toMatchObject({ type: "message", message: { text: "another reply" } });
+  expect(feed.projection(shell).messages.map(message => message.text)).toEqual(["finished", "another reply"]);
+  expect(feed.projection(shell).messages.map(message => message.streaming)).toEqual([true, false]);
+  expect(initialMessages.map(message => message.text)).toEqual(["start", "start"]);
+  expect(feed.projection(shell).visibleTurnItems.map(row => row.item)).toEqual(feed.projection(shell).turnItems);
+  const beforeDelta = feed.projection(shell);
+  items.set("b", { ...item, id: "b", text: "another reply continues", streaming: true });
+  for (const listener of listeners) listener(["b"]);
+  const afterDelta = feed.projection(shell);
+  expect(afterDelta.messages[1]?.text).toBe("another reply continues");
+  expect(getProjectionArrayReplacementIndex(beforeDelta.turnItems, afterDelta.turnItems)).toBe(1);
   off();
   expect(listeners.size).toBe(0);
 });

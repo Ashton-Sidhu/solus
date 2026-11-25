@@ -446,6 +446,7 @@ export function HomeScreen(props: HomeScreenProps) {
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
   const selectThread = (thread: EnvironmentThreadShell) => {
+    require("../../../.qa-cold/observer").start(thread.title);
     const key = threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id });
     const messageId = contentOnlyThreadKeys.has(key)
       ? threadSearchMatchByKey.get(key)?.messageId

@@ -442,7 +442,7 @@ export function installDesktopKeybindings(
       }),
     );
   });
-  // The same commands the palette runs (docs/plans/host-fleet.md D11).
+  // The same commands the palette runs.
   const [addMachine, findHosts] = fleetPaletteCommands(() => session.showSettings("api-access", "keybinding"));
   useKeybinding("global.add-server", () => addMachine?.run?.());
   useKeybinding(

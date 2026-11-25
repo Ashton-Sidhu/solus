@@ -1,14 +1,13 @@
 import { createEnvironmentProjectAtoms } from "@t3tools/client-runtime/state/projects";
 import { createProjectEnvironmentAtoms } from "@t3tools/client-runtime/state/projects";
 
-import { environmentCatalog } from "../connection/catalog";
+import { hostShellSnapshot, shellCatalog } from "../solus/shell-snapshot";
 import { connectionAtomRuntime } from "../connection/runtime";
-import { environmentSnapshotAtom } from "./shell";
 import { serverEnvironment } from "./server";
 
 export const environmentProjects = createEnvironmentProjectAtoms({
-  catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: environmentSnapshotAtom,
+  catalogValueAtom: shellCatalog,
+  snapshotAtom: hostShellSnapshot,
   serverConfigValueAtom: serverEnvironment.configValueAtom,
 });
 export const projectEnvironment = createProjectEnvironmentAtoms(connectionAtomRuntime, {

@@ -2,6 +2,8 @@
   import { untrack, type Snippet } from "svelte";
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { highlightAfterPaint, loadCodeHighlighter, plainCodeLines, type CodeHighlighter } from "../../lib/code-highlight";
+  import FileIcon from "./file-icon/FileIcon.svelte";
+  import { codeLanguageFileName } from "./lib/code-language-file";
 
   interface Props {
     text: string;
@@ -98,7 +100,7 @@
 >
   {#if showHeader}
   <div class="solus-code-head">
-    <span class="solus-code-lang">{lang || "text"}</span>
+    <span class="solus-code-lang inline-flex items-center gap-1.5"><FileIcon path={codeLanguageFileName(lang)} size={12} specificOnly />{lang || "text"}</span>
     {@render actions?.()}
     <button
       onclick={handleCopy}

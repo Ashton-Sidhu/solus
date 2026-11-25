@@ -11,7 +11,7 @@
   } from "@lucide/svelte";
   import type { FleetState } from "./lib/fleet-model";
 
-  /** A host's state as one icon (docs/plans/host-fleet.md D3): the word is in the
+  /** A host's state as one icon: the word is in the
    *  tooltip and the accessible name, never on the page, and there is no dot. */
   interface Props {
     state: FleetState | "online" | "update" | "signin";

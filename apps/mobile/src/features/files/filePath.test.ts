@@ -1,6 +1,8 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  fileRouteLinking,
   fileRoutePathSegments,
   isAudioPreviewFile,
   isMarkdownPreviewFile,
@@ -77,4 +79,16 @@ describe("workspace preview classifiers", () => {
       expect(isMarkdownPreviewFile(path)).toBe(true);
     }
   });
+});
+
+it("opens a nested file citation and preserves the path and line on a round trip", () => {
+  // Use the installed navigation parser without loading a native view in this unit test.
+  const navigation = createRequire(createRequire(import.meta.url).resolve("@react-navigation/native/package.json"));
+  const { getStateFromPath, getPathFromState } = navigation("@react-navigation/core") as
+    Pick<typeof import("@react-navigation/native"), "getStateFromPath" | "getPathFromState">;
+  const config = { screens: { File: fileRouteLinking("files") } };
+  const state = getStateFromPath("/files/docs/some%20file.txt?line=1001", config);
+  expect(state?.routes[0]?.params).toEqual({ path: ["docs", "some file.txt"], line: "1001" });
+  expect(getStateFromPath(getPathFromState(state!, config), config)?.routes[0]?.params)
+    .toEqual(state?.routes[0]?.params);
 });

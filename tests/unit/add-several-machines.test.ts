@@ -1,6 +1,6 @@
 import { afterAll, expect, mock, test } from 'bun:test'
 
-// WHY: docs/plans/host-fleet.md D8. Several found machines are added at once: each
+// WHY: Several found machines are added at once: each
 // gets its own approval request, all with one check code the person compares on each
 // machine. An added machine leaves the selection; a failed one stays, so Add tries
 // it again; a machine that cannot be added in one step is never sent a request.

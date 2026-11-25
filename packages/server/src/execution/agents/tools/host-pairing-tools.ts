@@ -73,12 +73,14 @@ async function askOnCard(context: AgentToolContext, ask: AddMachineAsk): Promise
 const addHostFields = {
   hint: z.string().max(200).optional().describe('The person\'s words, e.g. "my windows machine".'),
   url: z.string().max(2048).optional().describe('Its Solus address, e.g. http://10.10.1.10:3000.'),
+  ssh_target: z.string().max(512).optional().describe('An SSH target the person gave, e.g. ubuntu@3.91.20.4 or a ~/.ssh/config alias. The card fills it in.'),
+  identity_file: z.string().max(1024).optional().describe('A private key path on this host the person gave, e.g. ~/.ssh/aws.pem. Only the path; never read or send the key.'),
   reason: z.string().min(1).max(300).describe('Why, in one sentence; the card shows it.'),
 }
 
 export const addHostAgentTool: AgentTool<typeof addHostFields> = {
   name: 'add_host',
-  description: 'Add another Solus host (a machine) for agent work. Shows the person an Add machine card: SSH from this host, an approval request, or a pairing code. Never ask for a code, password, or link in chat or with request_secret. Pass the person\'s words as hint and the address as url when known. No label: the host\'s own name is used. Returns the added host, or one already reached. Local owner only. remove_host forgets.',
+  description: 'Add another Solus host (a machine) for agent work. Shows the person an Add machine card: SSH from this host, an approval request, or a pairing code. Never ask for a code, password, or link in chat or with request_secret. Pass the person\'s words as hint, the address as url, and an SSH target and key path as ssh_target and identity_file when known. No label: the host\'s own name is used. Returns the added host, or one already reached. Local owner only. remove_host forgets.',
   inputFields: addHostFields,
   // The card is the person's consent: nothing is added until they choose a machine on it, and Decline closes it.
   requiresApproval: false,
@@ -90,6 +92,8 @@ export const addHostAgentTool: AgentTool<typeof addHostFields> = {
       const ask: AddMachineAsk = { reason: input.reason.trim() }
       if (input.hint?.trim()) ask.hint = input.hint.trim()
       if (input.url?.trim()) ask.url = askedOrigin(input.url)
+      if (input.ssh_target?.trim()) ask.sshTarget = input.ssh_target.trim()
+      if (input.identity_file?.trim()) ask.identityFile = input.identity_file.trim()
       const reached = reachedMatch(await listedRemoteHosts(sessionId) ?? [], ask)
       if (reached) return { ok: true, text: JSON.stringify({ added: false, alreadyReached: true, host: hostFacts(reached), note: 'This host already reaches that machine, so no card was shown. Use it with start_sessions.' }) }
       const answers = await askOnCard(context, ask)

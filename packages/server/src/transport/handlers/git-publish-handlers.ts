@@ -1,4 +1,7 @@
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
+import { checkoutStatus } from '@solus/contracts/git-types'
+import { computeGitState } from '../../git/git-helpers'
+import { cachedExistingPR } from '../../git/worktree-manager'
 import { z } from 'zod'
 import { projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '@solus/contracts/types'
 import type { SolusServer } from '../server'
@@ -23,9 +26,17 @@ const githubPublishRequestSchema = z.object({
 /** Initialize Git and Publish to GitHub — GitHub only, run on the selected host. */
 export function registerGitPublishHandlers(server: SolusServer, deps: { sessionFolders: Pick<SessionFolders, 'folderChanged'> }): void {
   server.register('gitRepositoryStatus', async (args, handlerCtx): Promise<GitRepositoryStatus> => {
-    const [cwd] = args
+    const [cwd, options] = args
     assertPathInScope('gitRepositoryStatus', handlerCtx.principal, cwd)
-    return computeGitRepositoryStatus(cwd)
+    if (!options?.checkout) return computeGitRepositoryStatus(cwd)
+    const includeDetails = options.checkout === 'full'
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const [repo, state] = await Promise.all([computeGitRepositoryStatus(cwd), computeGitState(cwd, { includeDetails })])
+      if (state && repo.branch !== state.branch) continue
+      const prUrl = !includeDetails && state?.branch ? cachedExistingPR(state.branch, cwd) : undefined
+      return { ...repo, checkout: checkoutStatus(repo, state && prUrl ? { ...state, prUrl } : state) }
+    }
+    throw new Error('The checkout changed while reading Git status. Try again.')
   })
 
   server.register('gitInitRepository', async (args, handlerCtx): Promise<GitInitRepositoryResult> => {

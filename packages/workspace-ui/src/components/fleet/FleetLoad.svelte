@@ -2,7 +2,7 @@
   import * as Tooltip from "../ui/tooltip";
   import { highCount, loadPoints, typicalLoad, type FleetMachine } from "./lib/fleet-model";
 
-  /** The load of the fleet (docs/plans/host-fleet.md D13): every host that answers
+  /** The load of the fleet: every host that answers
    *  as one dot, CPU across and memory up. The bands are the levels (medium from
    *  60%, high from 80%, on either reading); a terracotta dot runs sessions, and
    *  a bigger one runs more. The busiest are named. Each dot opens its host.

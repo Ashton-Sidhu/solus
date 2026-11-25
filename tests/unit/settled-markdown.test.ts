@@ -57,3 +57,19 @@ test('the reply cache drops its least recently used reply when it is full', () =
   expect(settledMarkdownBlocks(kept, extensions)).toBe(keptBlocks)
   expect(settledMarkdownBlocks(dropped, extensions)).not.toBe(droppedBlocks)
 })
+
+test('inline code that draws a bare <code> stays in the HTML run; a file, a hash, or bold code keeps CodeSpan', () => {
+  // WHY: most replies have inline code in most paragraphs, and each such
+  // paragraph went to one component per token. On a real 10-turn page that was
+  // 525 of 719 tokens mounted as components; plain code spans leave 185.
+  const prose = blocksOf('Call `a && "b"` before `render()`.\n\n- one `x`\n- two')!
+  expect(prose).toHaveLength(1)
+  const first = prose[0]
+  if (!('html' in first)) throw new Error('expected html')
+  // The same markup CodeSpan draws: a bare <code> with the text escaped.
+  expect(first.html).toContain('<code>a &amp;&amp; &quot;b&quot;</code>')
+  expect(first.html).toContain('<li>one <code>x</code></li>')
+  for (const special of ['See `src/app.ts:12`.', 'Commit `a1b2c3d4`.', 'The `**bold**` span.']) {
+    expect(blocksOf(special)!.every((block) => 'tokens' in block)).toBe(true)
+  }
+})

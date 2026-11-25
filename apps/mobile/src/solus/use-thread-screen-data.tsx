@@ -1,3 +1,7 @@
+import { parseSideChatCommand } from "@t3tools/shared/composerTrigger";
+import { isPickerProvider } from "./use-model-picker-host";
+import { projectThreadContentPresentation, threadSyncStatusLabel } from "../features/threads/threadContentPresentation";
+import { useDelayedStatus } from "../lib/useDelayedStatus";
 import { beginHostQueuedRunEdit, hostQueueMessage, saveHostQueuedRunEdit } from "./queue-messages";
 import {
   hostApprovalCard,
@@ -14,6 +18,7 @@ import { backgroundTasks } from "./session-work";
 import { submitNewTaskDraft } from "../features/threads/finish-draft-submission";
 import type { ThreadDetailScreenProps } from "../features/threads/ThreadDetailScreen";
 import { useAtomValue } from "@effect/atom-react";
+import { useMessages } from "gt-react-native";
 import { AsyncResult } from "effect/reactivity";
 import { mobilePreferencesAtom } from "../state/preferences";
 import type { ComposerEditorHandle } from "../components/ComposerEditor";
@@ -45,12 +50,10 @@ import { modelInstanceId, runOptionSelections } from "./model-picker-catalog";
 import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { RequestCards, RequestPanels } from "./RequestCards";
 import {
-  ConversationMedia,
-  conversationImageSource,
   resolveConversationImage,
 } from "./ConversationMedia";
-import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
-import { ConversationCard } from "./ConversationCard";
+import { sessionFeed } from "./session-feed";
+
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert } from "react-native";
@@ -58,7 +61,7 @@ import { useNavigation } from "@react-navigation/native";
 import { CommandId, EnvironmentId, MessageId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { isSessionBusyStatus, isSteerableStatus, requestExpiryText } from "@solus/contracts/types";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
-import { conversationFeed, hostFeedWork } from "./conversation-feed";
+import { hostFeedWork } from "./conversation-feed";
 import {
   clearComposerDraft,
   createNewTaskDraft,
@@ -77,35 +80,10 @@ import {
   questionAttachmentPreparationAtom,
 } from "../state/question-attachments";
 import { useListened } from "@solus-mobile/app/app-context";
+import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { solus, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
 const wip = () => Alert.alert("WIP");
-function useFeed(store: ConversationStore, id: string) {
-  const order = useSyncExternalStore(store.order.subscribe, store.orderSnapshot);
-  const projectFeed = useMemo(() => {
-    return conversationFeed(
-      store,
-      id,
-      (key, superseded, liveAppOnly, artifactGroup) =>
-        liveAppOnly ? (
-          <ThreadMcpApp store={store} id={key} />
-        ) : (
-          <ConversationCard
-            key={key}
-            store={store}
-            id={key}
-            superseded={superseded}
-            artifactGroup={artifactGroup}
-          />
-        ),
-      (path, refresh) => resolveConversationImage(store, path, refresh).then((image) => image.uri),
-      (key) => store.controller.readToolInput(key),
-    );
-  }, [store, id]);
-  const reader = useMemo(() => projectFeed(order), [projectFeed, order]);
-  return useSyncExternalStore(reader.subscribe, reader.get);
-}
-
 export function useThreadScreenData({
   draftKey,
   isDraft,
@@ -155,8 +133,15 @@ export function useThreadScreenData({
     solus.threads.changes.subscribe,
     () => solus.threads.thread(hostId, id)?.record,
   );
+  const listKey = threadKey(hostId, id);
+  const view = useListened(solus.threadList.changes, () =>
+    solus.threadList.facts().views.get(listKey) ?? listed?.view,
+  );
+  const state = useListened(solus.threadList.changes, () =>
+    solus.threadList.facts().states.get(listKey) ?? listed?.state,
+  );
   const busy = isSessionBusyStatus(meta.status);
-  const feed = useFeed(store, id);
+  const { feed } = useAtomValue(sessionFeed(store));
   const shell = toThreadShell(
     hostId,
     {
@@ -179,6 +164,8 @@ export function useThreadScreenData({
       status: busy ? "running" : listed?.status === "interrupted" ? "interrupted" : "idle",
     },
     meta.run.permissionMode,
+    view,
+    state,
   );
   const env = directory.environments.find((entry) => entry.environmentId === hostId);
   const firstPromptEditor = useRef<ComposerEditorHandle>(null);
@@ -190,6 +177,7 @@ export function useThreadScreenData({
     isDraft &&
     (startingDraft !== null ||
       (!meta.pendingText && !feed.some((row) => row.type === "message" && row.message.role === "user")));
+  const detailRef = useMemo(() => ({ environmentId, threadId }), [environmentId, threadId]);
   const key = scopedThreadKey(environmentId, threadId);
   const chooseDraftContext = (environment: boolean) => {
     const source =
@@ -287,13 +275,13 @@ export function useThreadScreenData({
   const connectionScope = useHostQueryScope(hostId);
   const accountScope = solus.sessionCache.scope();
   const facts = solus.connections.connection(hostId)?.facts;
-  useEffect(() => {
-    if (isAsyncQuestion) facts?.ensure("capabilities");
-  }, [facts, isAsyncQuestion]);
-  const canUploadQuestionAttachments = useSyncExternalStore(
+  useEffect(() => { facts?.ensure("capabilities"); }, [facts]);
+  const hostCapabilities = useSyncExternalStore(
     useCallback((notify) => facts?.subscribe(notify) ?? (() => {}), [facts]),
-    () => facts?.value("capabilities")?.attachUpload === true,
-  ) && controller.mayDrive;
+    () => facts?.value("capabilities"),
+  );
+  const canUploadQuestionAttachments = controller.mayDrive && hostCapabilities?.attachUpload === true;
+  const offersSideChat = !showingDraft && controller.mayDrive && hostCapabilities?.sessionComposer?.sideChatCommands === true;
   const attachmentDrafts = useAtomValue(
     questionAttachmentDraftsAtom(isAsyncQuestion
       ? questionAttachmentDraftPrefix(environmentId, threadId, accountScope)
@@ -381,6 +369,29 @@ export function useThreadScreenData({
       onLoadThrough: (throughEntryId: string) => void controller.loadOlder(throughEntryId),
     };
   }, [meta.history, controller]);
+  const connectionState = env?.connectionState ?? "offline";
+  const loadError = meta.phase.kind === "error" ? meta.phase : null;
+  const hasDetail = !loadError?.noAccess && (feed.length > 0 || meta.phase.kind === "ready");
+  const detailError = loadError?.message ?? null;
+  const resolve = useMessages();
+  const contentPresentation = useMemo(
+    () => projectThreadContentPresentation({
+      hasDetail, detailError, detailDeleted: false, connectionState, resolve,
+    }),
+    [hasDetail, detailError, connectionState, resolve],
+  );
+  const editHostQueuedMessage = useCallback((message: QueuedThreadMessage) => {
+    const entry = store.metaSnapshotOf().queue.entries.find(
+      (item) => (item.clientPromptId ?? item.queueId) === message.messageId,
+    );
+    if (!entry) return false;
+    return beginHostQueuedRunEdit(store, message, entry.queueId, (path, refresh) =>
+      resolveConversationImage(store, path, refresh).then((image) => image.uri),
+    );
+  }, [store]);
+  const syncStatus = useDelayedStatus(key, showingDraft || meta.phase.kind === "ready"
+    ? null
+    : threadSyncStatusLabel(feed.length ? "cached" : "synchronizing", contentPresentation.kind, loadError !== null));
   const binding = {
     selectedThread: { ...shell, pendingBackgroundTasks: backgroundTasks(controller.model) },
     onStopBackgroundWork: () => void controller.stopBackgroundWork(),
@@ -399,23 +410,11 @@ export function useThreadScreenData({
     environmentId,
     projectWorkspaceRoot: meta.run.workingDirectory,
     threadCwd: meta.run.workingDirectory,
-    selectedThreadDetailRef: null,
+    selectedThreadDetailRef: showingDraft ? null : detailRef,
     selectedThreadFeed: feed,
-    hostImageRenderer: (image) => (
-      <ConversationMedia
-        key={image.href}
-        store={store}
-        label={image.alt ?? image.title ?? "Image"}
-        source={conversationImageSource(image.href)}
-      />
-    ),
-    hostImageSource: (image) => resolveConversationImage(store, image.href),
     screenTone: connectionTone(env?.connectionState ?? "offline"),
     connectionError: meta.phase.kind === "error" ? meta.phase.message : null,
-    contentPresentation:
-      meta.phase.kind === "error" && (meta.phase.noAccess || !feed.length)
-        ? { kind: "unavailable", title: "Session unavailable", detail: meta.phase.message }
-        : { kind: feed.length || meta.phase.kind === "error" ? "ready" : meta.phase.kind },
+    contentPresentation,
     historyControls,
     environmentLabel: env?.environmentLabel ?? null,
     connectionStateLabel: env?.connectionState ?? "offline",
@@ -462,6 +461,10 @@ export function useThreadScreenData({
       const isCurrent = () => accountScope === solus.sessionCache.scope();
       if (!isCurrent() || composerKey !== currentDraftKey() || appAtomRegistry.get(composerContextImportsAtom)[composerKey]) return null;
       const draft = getComposerDraftSnapshot(composerKey);
+      if (!edit && !before && parseSideChatCommand(draft.text) && !offersSideChat) {
+        Alert.alert("Side chat not started", "This host does not support side chats.");
+        return null;
+      }
       const sameDraft = () =>
         isCurrent() &&
         sameComposerDraftState(draft, getComposerDraftSnapshot(composerKey));
@@ -553,17 +556,7 @@ export function useThreadScreenData({
       ? () => controller.changeQueue({ kind: "resume" })
       : null,
     queuedMessages,
-    editHostQueuedMessage: !controller.mayDrive
-      ? null
-      : (message) => {
-          const entry = store.metaSnapshotOf().queue.entries.find(
-            (item) => (item.clientPromptId ?? item.queueId) === message.messageId,
-          );
-          if (!entry) return false;
-          return beginHostQueuedRunEdit(store, message, entry.queueId, (path, refresh) =>
-            resolveConversationImage(store, path, refresh).then((image) => image.uri),
-          );
-        },
+    editHostQueuedMessage: controller.mayDrive ? editHostQueuedMessage : null,
     dispatchingMessageId: meta.pendingText ? MessageId.make(meta.pendingText.messageId) : null,
     serverConfig: null,
     activePendingUserInput: pending,
@@ -635,14 +628,15 @@ export function useThreadScreenData({
     activityRun: null,
     providerStartup: busy ? meta.providerStartup : null,
     ...hostFeedWork(feed, busy, Boolean(meta.pendingText)),
-    isCompacting: false,
+    isCompacting: meta.isCompacting,
     creationState: null,
     queuedRunEdit: edit,
     isSavingQueuedEdit,
     onCancelQueuedRunEdit: cancelQueuedRunEdit,
     onRemoveQueuedEditAttachment,
-    canSwitchThreadProvider: false,
-    offersSideChat: false,
+    canSwitchThreadProvider: controller.mayDrive && hostCapabilities?.sessionComposer?.providerSwitch !== false && !!meta.runOptions.agents?.some(agent =>
+      agent.available !== false && agent.id !== meta.run.provider && isPickerProvider(agent.id) && !controller.policy.providerDenial(agent.id)),
+    offersSideChat,
   } satisfies Omit<ThreadDetailScreenProps, "header">;
   return {
     binding,
@@ -667,7 +661,7 @@ export function useThreadScreenData({
       title: shell.title,
       subtitle: showingDraft
         ? ""
-        : [placeName, env?.environmentLabel].filter(Boolean).join(" · "),
+        : syncStatus ?? [placeName, env?.environmentLabel].filter(Boolean).join(" · "),
       draft: showingDraft,
     },
   };

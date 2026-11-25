@@ -221,7 +221,7 @@ export interface ComposedPrompt {
  */
 export function composePrompt(text: string, attachments: readonly UploadedAttachment[], hostReadsImageRefs: boolean): ComposedPrompt {
   const files = attachments.filter((attachment) => attachment.kind === 'file')
-  // A host chip in the text gets the same note for the agent as on desktop (host-fleet.md D12).
+  // A host chip in the text gets the same note for the agent as on desktop.
   const hostContext = hostReferenceContext(text)
   const typed = hostContext ? `${text}\n\n${hostContext}` : text
   const prompt = files.length

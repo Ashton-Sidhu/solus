@@ -16,7 +16,7 @@
   --color-secondary-foreground: var(--secondary-foreground, #d97757);
   --color-destructive: var(--destructive, #ef4444);
   --color-success: var(--success, #26894c);
-  --color-warning: var(--warning, #b86e00);
+  --color-warning: var(--warning, #d97706);
   --color-border: var(--border, #d2cfc5);
   --color-input: var(--input, #dddad2);
   --color-ring: var(--ring, rgb(217 119 87 / 0.45));

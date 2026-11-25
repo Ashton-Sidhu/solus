@@ -126,6 +126,14 @@ export function PullRequestChecksRow(props: RowProps) {
   const m = useMessages();
   const checks = pullRequestChecksSummary(props.pr, m);
   const action = usePullRequestAction(props.params, props.pr);
+  // Open the row when workflows start to wait for this viewer's approval, so
+  // the approval is in view. The reader can fold it again.
+  const canApprove = action.available("approve-workflows");
+  const [seenApproval, setSeenApproval] = useState(false);
+  if (canApprove !== seenApproval) {
+    setSeenApproval(canApprove);
+    if (canApprove) setExpanded(true);
+  }
   const definition = sourceControlClients.get(props.pr.provider);
   return (
     <Animated.View layout={PR_ROW_LAYOUT}>
@@ -149,7 +157,7 @@ export function PullRequestChecksRow(props: RowProps) {
           {props.pr.state === "open" && props.pr.checks.some(isFailingCheck) ? (
             <PullRequestAgentRow {...props} task="feedback" title={gt("Fix failing checks")} />
           ) : null}
-          {action.available("approve-workflows") ? (
+          {canApprove ? (
             <PullRequestCardRow
               title={gt("Approve workflows")}
               icon="checkmark"

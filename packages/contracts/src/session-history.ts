@@ -2,6 +2,8 @@ import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, Prom
 import type { SessionReport } from './session-exchange'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
+import type { ArtifactLayout } from './artifact-page'
+import type { SavedMessageBody, SavedToolBody } from './session-feed-item'
 
 /** Opaque host cursor. A page is the `turnLimit` newest user turns before the
  * cursor, and it starts at a user turn. Once it holds `HISTORY_PAGE_ROWS` rows
@@ -28,6 +30,10 @@ export interface SessionHistoryPageRequest {
   knownHistoryBlocks?: string[]
   /** Include layout for HTML pages inside assistant replies. */
   replyLayout?: boolean
+  /** Return composer file paths separately from the text of the prompt. */
+  promptFiles?: boolean
+  /** Send T3 turn-item bodies alongside Solus history metadata. */
+  turnItems?: boolean
 }
 
 /** The rows after which a history page ends at its next turn start. */
@@ -182,6 +188,11 @@ export interface ReplyHtmlLayout {
 
 /** History row shape allowed across the host-to-client boundary. */
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  /** On projected user rows, content holds only the typed text. */
+  attachedFilePaths?: string[]
+  /** When requested, a message's text travels in this body and content is empty.
+   * A dynamic tool's canonical JSON input can travel here in place of toolInput. */
+  turnItem?: SavedMessageBody | SavedToolBody
   replyHtmlLayout?: ReplyHtmlLayout[]
   /** Existing question-tool output, retained for answer details on reload. */
   questionResult?: string
@@ -189,6 +200,8 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   secretOutcomes?: SecretOutcomeRecord[]
   /** Content key for a tool input left on the host until its summary is opened. */
   toolInputKey?: string
+  /** Image read by this saved call, before its full input was deferred. */
+  viewedImagePath?: string
   /** A subagent's answer, separated from ordinary tool output. */
   report?: string
   status?: 'ok' | 'error'
@@ -198,8 +211,9 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
    *  one for each exchange the row opened. A `start_sessions` call opens one for each session. */
   agentConversationResults?: AgentConversationResultProjection[]
   /** Stable work identity from a successful artifact tool result, and the
-   *  content version the call wrote, when the receipt names one. */
-  artifactWorkRef?: { workId: string; title: string; contentVersion?: number }
+   *  content version the call wrote, when the receipt names one. `layout` is
+   *  the frame the host measured for that version, on pages that ask for reply layout. */
+  artifactWorkRef?: { workId: string; title: string; contentVersion?: number; layout?: ArtifactLayout }
   /** A legacy update receipt can identify success without naming the work type. */
   workUpdateSucceeded?: boolean
   /** Saved content version from a successful update receipt. */

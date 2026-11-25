@@ -760,40 +760,8 @@
   {#if isPanelItemShown(hiddenItems, "git.branch")}
     <BranchRow {sourceId} {folder} />
   {/if}
-  {#each actionDefs.filter((def) => isGitActionRowShown(hiddenItems, def.key)) as def (def.key)}
-    <div class="row-wrap">
-      {#if def.caretAction}
-        {@const caret = def.caretAction}
-        {@const CaretIcon = caret.icon ?? CaretDownIcon}
-        {@const menuOpen =
-          !!caret.menu && rowMenuOpen && openMenuKey === caret.menu}
-        <div class="split-row">
-          <MenuRow item={def} split onActivate={() => def.run()} />
-          <button
-            type="button"
-            class="split-caret"
-            class:is-open={menuOpen}
-            class:is-danger={caret.danger}
-            aria-label={caret.ariaLabel}
-            title={caret.ariaLabel}
-            aria-haspopup={caret.menu ? "menu" : undefined}
-            aria-expanded={caret.menu ? menuOpen : undefined}
-            disabled={caret.disabled}
-            onclick={(event) => {
-              if (caret.menu) toggleRowMenu(caret.menu, event.currentTarget);
-              else caret.run?.();
-            }}
-          >
-            <CaretIcon size={11} />
-          </button>
-        </div>
-      {:else}
-        <MenuRow item={def} onActivate={() => def.run()} />
-      {/if}
-    </div>
-  {/each}
-  <!-- Once the session has a pull request, the column continues past the Git
-       rows with it: one row of two lines. -->
+  <!-- Once the session has a pull request, it follows the branch it belongs
+       to, before the Git rows: one row of two lines. -->
   {#if shownPr && isPanelItemShown(hiddenItems, "git.pullRequest")}
     <LinkedPullRequestRows
       pr={shownPr.pr}
@@ -837,6 +805,38 @@
       >
     </div>
   {/if}
+  {#each actionDefs.filter((def) => isGitActionRowShown(hiddenItems, def.key)) as def (def.key)}
+    <div class="row-wrap">
+      {#if def.caretAction}
+        {@const caret = def.caretAction}
+        {@const CaretIcon = caret.icon ?? CaretDownIcon}
+        {@const menuOpen =
+          !!caret.menu && rowMenuOpen && openMenuKey === caret.menu}
+        <div class="split-row">
+          <MenuRow item={def} split onActivate={() => def.run()} />
+          <button
+            type="button"
+            class="split-caret"
+            class:is-open={menuOpen}
+            class:is-danger={caret.danger}
+            aria-label={caret.ariaLabel}
+            title={caret.ariaLabel}
+            aria-haspopup={caret.menu ? "menu" : undefined}
+            aria-expanded={caret.menu ? menuOpen : undefined}
+            disabled={caret.disabled}
+            onclick={(event) => {
+              if (caret.menu) toggleRowMenu(caret.menu, event.currentTarget);
+              else caret.run?.();
+            }}
+          >
+            <CaretIcon size={11} />
+          </button>
+        </div>
+      {:else}
+        <MenuRow item={def} onActivate={() => def.run()} />
+      {/if}
+    </div>
+  {/each}
 </div>
 <DropdownMenu.Root bind:open={rowMenuOpen}>
   <DropdownMenu.Content

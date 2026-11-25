@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  /** Hosts is three pages: the fleet, one host, and Add a machine
-   *  (docs/plans/host-fleet.md). Everything about how one host is reached — its
+  /** Hosts is three pages: the fleet, one host, and Add a machine.
+   *  Everything about how one host is reached — its
    *  network, pairing, devices, and Solus Cloud link — is on that host's page. */
   import { connectionsStore, serversStore } from "../../contexts";
   import AddMachinePage from "../fleet/AddMachinePage.svelte";

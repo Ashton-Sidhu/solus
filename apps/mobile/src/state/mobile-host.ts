@@ -16,6 +16,7 @@ export const mobileHost = Atom.family((environmentId: EnvironmentId) =>
         events: connection.events,
         httpBaseUrl: connection.transport.serverUrl,
         generation: connection.state.sessionGeneration,
+        canProjectCheckout: connection.facts.value("capabilities")?.checkoutStatus === true,
         canReadFiles: hosts.may(environmentId, "host.files.read"),
       };
     };
@@ -28,6 +29,7 @@ export const mobileHost = Atom.family((environmentId: EnvironmentId) =>
           next?.events === current?.events &&
           next?.httpBaseUrl === current?.httpBaseUrl &&
           next?.generation === current?.generation &&
+          next?.canProjectCheckout === current?.canProjectCheckout &&
           next?.canReadFiles === current?.canReadFiles
         )
           return;

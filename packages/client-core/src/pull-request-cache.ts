@@ -81,6 +81,14 @@ export function prunedCacheKeys(entries: readonly PullRequestCacheEntry[], now: 
 const FORMAT = 'v1'
 
 export class PullRequestCache {
+  // Pruning already reads these keys. A caller can start its host request at
+  // once on a likely miss, while an independent disk read still verifies it.
+  private readonly responseKeys = new Map<string, Set<string>>()
+
+  hasResponseKey(hostId: string, key: string): boolean | undefined {
+    return this.responseKeys.get(hostId)?.has(`${FORMAT}:${key}`)
+  }
+
   constructor(
     private readonly database: PullRequestCacheDatabase,
     private readonly now: () => number = Date.now,
@@ -99,7 +107,11 @@ export class PullRequestCache {
       const bytes = utf8Length(payload)
       if (bytes > PULL_REQUEST_CACHE_LIMITS.maxRecordBytes) return
       await this.database.put('response', hostId, { key: `${FORMAT}:${key}`, payload, bytes, updatedAt: this.now() })
-      const removed = prunedCacheKeys(await this.database.entries('response', hostId), this.now())
+      const entries = await this.database.entries('response', hostId)
+      const removed = prunedCacheKeys(entries, this.now())
+      const keys = new Set(entries.map(entry => entry.key))
+      for (const key of removed) keys.delete(key)
+      this.responseKeys.set(hostId, keys)
       if (removed.length > 0) await this.database.delete('response', hostId, removed)
     } catch {
       // A copy that is not kept is only a copy that is not kept.
@@ -123,6 +135,7 @@ export class PullRequestCache {
 
   /** Everything this device kept for a host leaves with it. */
   async forgetHost(hostId: string): Promise<void> {
+    this.responseKeys.delete(hostId)
     await this.database.deleteHost(hostId).catch(() => undefined)
   }
 

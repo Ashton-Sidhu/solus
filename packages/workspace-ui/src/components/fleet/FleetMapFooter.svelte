@@ -7,11 +7,14 @@
   import HostStateIcon from "./HostStateIcon.svelte";
   import type { FoundMachine } from "./lib/discover";
   import { routeHops, type FleetMachine, type TileColorMode } from "./lib/fleet-model";
+  import { REACH_STYLES } from "./lib/fleet-reach";
+  import { ROUTE_WIRE_STYLES } from "./lib/fleet-routes";
 
   /** Below the map, at one height, so pointing at a host never moves the page:
    *  the host under the pointer and its route, the found machine under it and
-   *  how to add it (D7), or the legend. The height fits the host and its route,
-   *  and a legend that wraps to two lines; the legend sits in its middle, so the
+   *  how to add it, or the legend. Each line in the legend is drawn as the map
+   *  draws it, dash and all. The height fits the host and its route,
+   *  and a legend that wraps to three lines; the legend sits in its middle, so the
    *  spare room is even above and below it. For a host it also gives why it does
    *  not answer and the one fix, and every other route with what it does now. */
   interface Props {
@@ -29,6 +32,16 @@
   const otherRoutes = $derived(routes.filter((route) => route.state !== "in-use" && route.stateText));
 
   const hops = $derived(machine ? routeHops(machine) : []);
+  /** The lines of the legend: each route state the map can show, and the lines between your hosts. */
+  const legendLines = [
+    { label: "In use", ...ROUTE_WIRE_STYLES["in-use"], width: 2 },
+    { label: "Standby", ...ROUTE_WIRE_STYLES.standby },
+    { label: "Connecting", ...ROUTE_WIRE_STYLES.connecting },
+    { label: "Not answering", ...ROUTE_WIRE_STYLES["not-answering"] },
+    { label: "Refused", ...ROUTE_WIRE_STYLES.refused },
+    { label: "Your hosts reach each other", ...REACH_STYLES.working },
+    { label: "Reach failing", ...REACH_STYLES.failing },
+  ];
   const howToAdd = {
     server: "It runs Solus. Click it, then enter the code it shows.",
     wsl: "A WSL distro. Click it, and Solus installs itself there.",
@@ -36,7 +49,7 @@
   } satisfies Record<FoundMachine["kind"], string>;
 </script>
 
-<div class="flex h-24 flex-col gap-2.5 border-t border-border/40 px-4 py-3.5 {machine || found ? 'justify-between' : 'justify-center'}" aria-live="polite">
+<div class="flex h-30 flex-col overflow-hidden gap-2.5 border-t border-border/40 px-4 py-3.5 {machine || found ? 'justify-between' : 'justify-center'}" aria-live="polite">
   {#if machine}
     <div class="flex items-start justify-between gap-4">
       <div class="flex min-w-0 flex-col gap-0.5">
@@ -77,21 +90,25 @@
     </div>
     <p class="truncate text-chrome-dense text-muted-foreground">{howToAdd[found.kind]}</p>
   {:else}
-    <p class="text-[0.8125rem] text-(--solus-text-secondary)">Point at a host to see how this device reaches it. Click it to open it.</p>
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-chrome-dense text-muted-foreground">
-      <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--success)/80"></span>Connected</span>
-      <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--solus-status-running)"></span>Sessions moving</span>
-      <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--warning)"></span>Reconnecting</span>
-      <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--solus-status-error)"></span>Unreachable</span>
-      <span class="flex items-center gap-1.5"><Link2 size={12} class="text-(--success)" />Solus tunnel</span>
-      <span class="flex items-center gap-1.5"><span class="h-px w-2.5 bg-(--success)"></span><span class="h-1 w-2.5 rounded-full bg-(--success)"></span>Thicker: more traffic</span>
+    <p class="text-[0.8125rem] text-(--solus-text-secondary)">Point at a host to see how this device reaches it. Click it to select it, and again to open it.</p>
+    <ul aria-label="How to read the lines" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-chrome-dense text-muted-foreground">
+      {#each legendLines as line (line.label)}
+        <li class="flex items-center gap-1.5">
+          <svg aria-hidden="true" viewBox="0 0 18 4" class="h-1 w-4.5"><path d="M0 2H18" stroke-width={(line.width ?? 1.5) + 0.25} stroke-dasharray={line.dash ?? undefined} style:stroke={line.color} /></svg>
+          {line.label}
+        </li>
+      {/each}
+      <li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--solus-status-running)"></span>Sessions moving</li>
+      <li class="flex items-center gap-1.5"><Link2 size={12} class="text-(--success)" />Solus tunnel</li>
+      <li class="flex items-center gap-1.5"><span class="h-px w-2.5 bg-(--success)"></span><span class="h-1 w-2.5 rounded-full bg-(--success)"></span>Thicker: more traffic</li>
       {#if colorMode === "status"}
-        <span class="flex items-center gap-1.5"><span class="size-2 rounded-[2px] bg-(--success)/80"></span>Idle<span class="ml-1.5 size-2 rounded-[2px] bg-(--solus-status-running)/60"></span>Running</span>
+        <li class="flex items-center gap-1.5"><span class="size-2 rounded-[2px] bg-(--success)/80"></span>Idle<span class="ml-1.5 size-2 rounded-[2px] bg-(--solus-status-running)/60"></span>Running</li>
       {:else if colorMode === "cpu"}
-        <span class="flex items-center gap-1.5">CPU<span class="h-2 w-14 rounded-[2px] bg-linear-to-r from-(--success)/40 via-(--warning) to-(--solus-status-error)"></span></span>
+        <li class="flex items-center gap-1.5">CPU<span class="h-2 w-14 rounded-[2px] bg-linear-to-r from-(--success)/40 via-(--warning) to-(--solus-status-error)"></span></li>
       {:else}
-        <span class="flex items-center gap-1.5">Sessions<span class="h-2 w-14 rounded-[2px] bg-linear-to-r from-(--wash-3) to-(--solus-status-running)"></span></span>
+        <li class="flex items-center gap-1.5">Sessions<span class="h-2 w-14 rounded-[2px] bg-linear-to-r from-(--wash-3) to-(--solus-status-running)"></span></li>
       {/if}
-    </div>
+      <li class="flex items-center gap-1.5"><span class="size-2 rotate-45 rounded-[1px] bg-(--solus-status-error)"></span>Not answering<span class="ml-1.5 size-2 rounded-full bg-(--warning)"></span>Reconnecting</li>
+    </ul>
   {/if}
 </div>

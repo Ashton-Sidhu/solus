@@ -9,7 +9,7 @@ import {
   type CloudRequester,
 } from '@solus/desktop-main/account/uplink-client'
 
-// docs/plans/host-fleet.md D9: every client manages a Solus Cloud machine through the
+// Every client manages a Solus Cloud machine through the
 // account's `/v1` routes. Delete is the machine route, never `DELETE /v1/hosts/<id>`,
 // which only ends a registration and leaves the machine running.
 

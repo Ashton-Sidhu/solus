@@ -13,6 +13,9 @@ import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readWorkFile } from './work-file'
+import { previewArtifactHtml, saveCheckPreview } from '../../../data/works/artifact-preview'
+import { keepArtifactVersionLayout } from '../../../data/works/artifact-layout'
+import type { ArtifactLayout } from '@solus/contracts/artifact-page'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -44,6 +47,8 @@ export interface WorkUpdatedPayload extends WorkOwner {
   docType: WorkType
   content: string
   updatedAt: string
+  /** The frame the save check measured for an artifact's new version. */
+  layout?: ArtifactLayout
 }
 
 export type OnWorkUpdated = (work: WorkUpdatedPayload) => void
@@ -69,6 +74,13 @@ export interface WorkToolDeps {
   onWorkUpdated?: OnWorkUpdated
   onWorkCreated?: OnWorkCreated
   ctx?: WorkCreateCtx
+  /** Renders a page in the headless browser. Replaced in tests. */
+  preview?: typeof previewArtifactHtml
+}
+
+/** The frame of an artifact's saved version, measured as `render_artifact` measures a new one. */
+async function savedArtifactLayout(workId: string, contentVersion: number, html: string, deps: WorkToolDeps): Promise<ArtifactLayout | undefined> {
+  return keepArtifactVersionLayout(workId, contentVersion, await saveCheckPreview(html, deps.preview))
 }
 
 // ─── Schemas (raw zod shapes, reused by every shape we export) ───
@@ -372,6 +384,7 @@ export async function executeWorkTool(
           if (title !== undefined) payload.title = title
           const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId })
           applyWorkOpToForeignTask(deps.ctx?.sessionId, op)
+          const foreignLayout = foreign.workType === 'artifact' ? await savedArtifactLayout(workId, foreign.contentVersion, content, deps) : undefined
           deps.onWorkUpdated?.({
             workId,
             title: title ?? foreign.title,
@@ -380,6 +393,7 @@ export async function executeWorkTool(
             updatedAt: new Date().toISOString(),
             contentVersion: foreign.contentVersion,
             organizationId: null,
+            ...(foreignLayout && { layout: foreignLayout }),
           })
           return { ok: true, text: `Updated "${title ?? foreign.title}"${foreign.workType === 'artifact' ? ` (artifact, id: ${workId})` : ''}. New content_version: ${foreign.contentVersion}. The change syncs to the task's host.` }
         }
@@ -400,6 +414,7 @@ export async function executeWorkTool(
         throw error
       }
 
+      const layout = saved.type === 'artifact' ? await savedArtifactLayout(saved.id, saved.contentVersion, saved.content, deps) : undefined
       deps.onWorkUpdated?.({
         workId: saved.id,
         title: saved.title,
@@ -408,6 +423,7 @@ export async function executeWorkTool(
         updatedAt: saved.updatedAt,
         contentVersion: saved.contentVersion,
         organizationId: organizationOf(context.home),
+        ...(layout && { layout }),
       })
       // The result text starts as it always has: transcripts project the artifact id from it.
       return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
@@ -461,6 +477,7 @@ function workAgentTool(
         updatedAt: work.updatedAt,
         contentVersion: work.contentVersion,
         organizationId: work.organizationId,
+        ...(work.layout && { layout: work.layout }),
       }),
     }),
   }

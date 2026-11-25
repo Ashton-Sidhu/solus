@@ -127,6 +127,19 @@ describe('the menu of a session with two folders', () => {
     expect(labelsOf(web)).toEqual([['Open in Solus'], ['Open in Solus']])
   })
 
+  // WHY: the "Open in" row opens every folder it can. To open one folder of a codebase, the person opens its section.
+  test('each section opens its own folder in the editor of the "Open in" row', () => {
+    expect(labelsOf(menuOf([folder('/code/solus-cloud')], { editorName: 'Zed' }))).toEqual([
+      ['Open in Solus', 'Open in Finder', 'Open in Zed', 'Open terminal'],
+      ['Open in Solus', 'Open in Finder', 'Open in Zed', 'Open terminal'],
+    ])
+  })
+
+  // A session with one folder has the "Open in" row of the card for it.
+  test('a session with one folder has no editor item in the menu', () => {
+    expect(labelsOf(menuOf([], { editorName: 'Zed' }))).toEqual([['Open in Solus', 'Open in Finder']])
+  })
+
   test('each item has its own key, so one command of one folder runs one time', () => {
     const keys = menu.sections.flatMap((section) => section.items.map((item) => item.key))
     expect(new Set(keys).size).toBe(keys.length)

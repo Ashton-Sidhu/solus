@@ -6,6 +6,17 @@
  */
 
 import { hostPathBaseName, hostPathSegments, hostPathSeparator } from "@solus/contracts/host-path";
+import { boldTextInCodeSpan } from "@solus/document-model/markdown";
+
+/** A bare abbreviated-or-full hex hash — an address rather than a literal you
+ *  would retype. A surface may style it through `.markdown-sha`. */
+export const COMMIT_HASH_RE = /^[0-9a-f]{7,40}$/i;
+
+/** Whether `CodeSpan` draws this code span as a bare `<code>`, the markup
+ *  marked writes for it: it names no file, bolds nothing, and is no hash. */
+export function isBareCodeSpan(codeText: string): boolean {
+  return !COMMIT_HASH_RE.test(codeText) && boldTextInCodeSpan(codeText) === null && codeSpanFileTarget(codeText) === null;
+}
 
 /** The one directory the chip shows, with its slash. Empty for a bare name. */
 export function parentDir(path: string): string {

@@ -66,7 +66,7 @@ export interface PersonReferenceToken extends PersonMention {
 }
 
 /** A host, by server id, with what the client knew of it when the chip was
- *  made (docs/plans/host-fleet.md D12). */
+ *  made. */
 export interface HostReferenceToken extends HostReference {
   kind: "host";
 }

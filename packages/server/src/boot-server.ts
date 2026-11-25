@@ -2485,7 +2485,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
   registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
-  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, wslProvisioner, listWslDistros: () => listWslDistros(runDeviceCommand), forwardedHosts, ssh, broadcast: (topic, payload) => events.broadcast(topic, payload) })
+  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, wslProvisioner, listWslDistros: () => listWslDistros(runDeviceCommand), forwardedHosts, ssh, hostName: hostDisplayName, broadcast: (topic, payload) => events.broadcast(topic, payload) })
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,

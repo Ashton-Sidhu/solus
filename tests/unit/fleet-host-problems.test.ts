@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { hostReadinessCopy, type HostReadinessState } from '@solus/client-core/host-readiness'
 import { attentionRows, fleetMachine, routeHops, routeInUseLabel, type FleetMachineInput } from '@solus/workspace-ui/components/fleet/lib/fleet-model'
 
-// WHY: docs/plans/host-fleet.md. A host that does not answer says why in the words
+// WHY: A host that does not answer says why in the words
 // every client uses, with its one fix, and its line names the route in use.
 
 const base: FleetMachineInput = {

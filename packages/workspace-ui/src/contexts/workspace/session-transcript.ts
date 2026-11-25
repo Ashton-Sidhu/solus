@@ -148,21 +148,37 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   measureOpenStep('historyWait', requestStartedAt, detail)
   const dependenciesStartedAt = performance.now()
   const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
-  // Both reads decide which cards the rows hold, so the rows wait for them.
-  // They do not wait for each other. An automation and an artifact are saved
-  // on the host the session ran on, so the rows wait for that host only: a
-  // slow host elsewhere does not hold the open.
-  const sessionServerId = args.serverId ?? serverConnections.serverIdForApi(api)
-  const automationsLoaded = (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.hasLoadedHost(sessionServerId)
-    ? ctx.automationsStore.loadAll(sessionServerId)
-    : Promise.resolve()
-  ).then(() => measureOpenStep('automationHydration', dependenciesStartedAt, detail))
-  const artifactFileBodies = loadArtifactFileBodies(worksArtifactHtmlSources(ctx.worksStore), history, sessionServerId).then((bodies) => {
-    measureOpenStep('artifactHydration', dependenciesStartedAt, detail)
-    return bodies
-  })
-  const [, bodies] = await Promise.all([automationsLoaded, artifactFileBodies])
+  const dependencies = readTranscriptDependencies(ctx, history, args.serverId ?? serverConnections.serverIdForApi(api))
+  const [, bodies] = await Promise.all([
+    dependencies.automations.then(() => measureOpenStep('automationHydration', dependenciesStartedAt, detail)),
+    dependencies.artifactFileBodies.then((read) => {
+      measureOpenStep('artifactHydration', dependenciesStartedAt, detail)
+      return read
+    }),
+  ])
   return materializeSessionTranscript(ctx, args, loaded, bodies)
+}
+
+/**
+ * The reads a page's rows wait for: the automations its saves name, and the
+ * HTML its `html_path` artifact calls wrote. Both decide which cards the rows
+ * hold. They do not wait for each other. An automation and an artifact are
+ * saved on the host the session ran on, so the rows wait for that host only.
+ * Both stores keep what they read and share a read in flight, so a read
+ * started before the click (a rest on the row) serves the open.
+ */
+export function readTranscriptDependencies(
+  ctx: Pick<SurfaceContext, 'automationsStore' | 'worksStore'>,
+  history: WireSessionLoadMessage[],
+  sessionServerId: string,
+) {
+  const namesAutomation = history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName))
+  return {
+    automations: namesAutomation && !ctx.automationsStore.hasLoadedHost(sessionServerId)
+      ? ctx.automationsStore.loadAll(sessionServerId)
+      : Promise.resolve(),
+    artifactFileBodies: loadArtifactFileBodies(worksArtifactHtmlSources(ctx.worksStore), history, sessionServerId),
+  }
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted

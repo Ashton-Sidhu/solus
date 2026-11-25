@@ -2,12 +2,17 @@ import { assertRpcAccess, authorize, type ResourceAccess } from '../../admission
 import { assertPathInScope, pathScopeOf } from '../../data/sessions/guest-path-scope'
 import { projectRootForRequest } from '../../files/file-preview'
 import { createAssetUrl, createFileDownloadUrl, findAssetUrl, writeAssetUpload } from '../../data/assets/assets'
+import { createArtifactPageUrl } from '../../data/works/artifact-page'
+import { recordScopeOf } from '../../admission/principal'
 import type { SolusServer } from '../server'
 
 export function registerAssetHandlers(server: SolusServer, resources?: ResourceAccess): void {
   server.register('assetUpload', async (args) => writeAssetUpload(args[0]))
   server.register('assetCreateUrl', async (args, { principal }) => {
     const [ctx, request] = args
+    // An artifact version is read in the caller's record scope, as `loadWorkRevision` reads it.
+    const page = request.assetId ? await createArtifactPageUrl(recordScopeOf(principal), request.assetId) : null
+    if (page) return page
     if (!request.download) return createAssetUrl(ctx, request)
     if (!server.servesExecution()) throw new Error('This host does not serve checkout files.')
     await assertRpcAccess('readProjectFile', principal, [], resources)

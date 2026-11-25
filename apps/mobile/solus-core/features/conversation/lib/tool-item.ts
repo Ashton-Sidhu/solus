@@ -7,6 +7,7 @@ export interface ToolItem {
   kind: 'tool'
   id: string
   toolInputKey?: string
+  viewedImagePath?: string
   timestamp?: number
   toolId: string
   toolName: string

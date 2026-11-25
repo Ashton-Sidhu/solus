@@ -1,6 +1,6 @@
 <script lang="ts">
   import HostUpdateRow from "./HostUpdateRow.svelte";
-  /** Where a host stands (docs/plans/host-fleet.md D2): what runs on it, the
+  /** Where a host stands: what runs on it, the
    *  machine, its readiness, and the one way to remove it that fits its kind.
    *  Each readiness row is a way into the tab that can change it. */
   import { Check as CheckIcon, Copy as CopyIcon, FolderGit2 as WorktreeIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";

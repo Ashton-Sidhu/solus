@@ -13,7 +13,7 @@ import {
 } from "@t3tools/shared/htmlRender";
 import { injectMcpAppCsp } from "@t3tools/shared/mcpApp";
 import { T, useGT } from "gt-react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, View, type ColorValue } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -87,6 +87,9 @@ function readOverflowMessage(data: string): Overflow | null {
 
 const withoutFragment = (url: string) => url.split("#", 1)[0];
 
+// The row already reserves the preview frame while the transcript finds its scroll position.
+export const ThreadHtmlPreviewsReady = createContext(true);
+
 export function HtmlRenderWebView(
   props: (
     | { readonly uri: string; readonly html?: never }
@@ -98,6 +101,7 @@ export function HtmlRenderWebView(
     readonly onLoadError?: () => void;
   },
 ) {
+  const previewsReady = useContext(ThreadHtmlPreviewsReady);
   const theme = useHtmlRenderTheme();
   const openLink = useOpenPullRequest();
   const [initialTheme] = useState(theme);
@@ -137,6 +141,7 @@ export function HtmlRenderWebView(
     setGeneration((value) => value + 1);
   };
   const scrollable = !props.nested || overflow.x || overflow.y;
+  if (props.nested && !previewsReady) return null;
   return (
     <View
       style={
@@ -317,21 +322,15 @@ export function ThreadHtmlRender(props: {
   );
 }
 
-/** Solus supplies page content directly and has no T3 attachment URL to open. */
+/** A reply's HTML fence: Solus supplies page content directly and has no T3 attachment URL to open. */
 export function InlineHtmlRender({
   html,
   title,
-  onOpen,
   height: frameHeight,
-  overlay,
 }: {
   readonly html: string;
   readonly title: string;
   readonly height?: number;
-  /** The person opened the page full screen. */
-  readonly onOpen?: () => void;
-  /** Controls that float over the page, such as the version pill of an artifact group. */
-  readonly overlay?: ReactNode;
 }) {
   const gt = useGT();
   const [height, setHeight] = useState(120);
@@ -358,21 +357,17 @@ export function InlineHtmlRender({
       />
     );
   return (
-    <InlinePreviewFrame title={title} expandedContent={() => page(false)} onOpen={onOpen}>
-      <View style={{ height: frameHeight ?? height }}>
-        {page(true)}
-        {overlay}
-      </View>
+    <InlinePreviewFrame title={title} expandedContent={() => page(false)}>
+      <View style={{ height: frameHeight ?? height }}>{page(true)}</View>
     </InlinePreviewFrame>
   );
 }
 
-export function InlinePreviewFrame({ title, heading, children, expandedContent, onOpen }: {
+export function InlinePreviewFrame({ title, heading, children, expandedContent }: {
   readonly title: string;
   readonly children: ReactNode;
   readonly heading?: ReactNode;
   readonly expandedContent: () => ReactNode;
-  readonly onOpen?: () => void;
 }) {
   const gt = useGT();
   const [expanded, setExpanded] = useState(false);
@@ -385,10 +380,7 @@ export function InlinePreviewFrame({ title, heading, children, expandedContent, 
           accessibilityLabel={gt("Open {title}", { title })}
           hitSlop={8}
           className="h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/80"
-          onPress={() => {
-            setExpanded(true);
-            onOpen?.();
-          }}
+          onPress={() => setExpanded(true)}
         >
           <SymbolView
             name="arrow.up.left.and.arrow.down.right"

@@ -49,6 +49,18 @@ it("reads preview bytes from the selected worktree and organization in one call"
   expect(listDirectory).not.toHaveBeenCalled();
 });
 
+it("opens a directory identified by the host without listing its contents", async () => {
+  const readProjectFile = vi.fn<HostApi["readProjectFile"]>().mockResolvedValue({
+    ok: false, path: "/worktree/docs", error: "Only files can be previewed.", isDirectory: true,
+  });
+  const listDirectory = vi.fn<HostApi["listDirectory"]>();
+  const target = { cwd: "/worktree", relativePath: "docs" };
+  await expect(readCheckoutEntry({ readProjectFile, listDirectory }, target, null)).resolves.toEqual({ kind: "directory" });
+  readProjectFile.mockResolvedValue({ ok: false, path: "docs", error: "Permission denied", isDirectory: false });
+  await expect(readCheckoutEntry({ readProjectFile, listDirectory }, target, null)).rejects.toThrow("Permission denied");
+  expect(listDirectory).not.toHaveBeenCalled();
+});
+
 it("opens a directory link and preserves the host error for a missing file", async () => {
   const readProjectFile = vi
     .fn<HostApi["readProjectFile"]>()

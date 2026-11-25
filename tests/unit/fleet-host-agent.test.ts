@@ -5,7 +5,7 @@ import { parseReferenceTokens, serializeReferenceToken } from '@solus/workspace-
 import { hostReferenceContext, hostReferenceMarkdown, parseHostHref } from '@solus/contracts/host-link'
 import { stripInjectedContext } from '@solus/contracts/injected-context'
 
-// WHY: docs/plans/host-fleet.md D12. "Ask an agent" starts a session about a
+// WHY: "Ask an agent" starts a session about a
 // host. A session on a host that does not answer never starts, so the choice of
 // where it runs decides whether the feature works at all for a host that is
 // down. The prompt is what the agent knows: a wrong request or a missing

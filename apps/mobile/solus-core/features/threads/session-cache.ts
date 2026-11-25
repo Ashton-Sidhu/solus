@@ -24,11 +24,15 @@ export class MobileSessionCache {
       saveDirectory: (directory: HostThreads) => write(['directory'], {
         ...directory, revision: directory.threads.length > 200 ? undefined : directory.revision, threads: directory.threads.slice(0, 200), unlisted: [],
       }),
+      hasHistoryKey: (sessionId: string) =>
+        this.storage.hasResponseKey(hostId, key(['history-items', sessionId])) || this.storage.hasResponseKey(hostId, key(['history', sessionId])),
       history: (sessionId: string) => {
         const id = JSON.stringify([scope, hostId, sessionId])
         const pending = this.historyReads.get(id)
         if (pending) return pending
-        const result = read<SessionHistoryPage>(['history', sessionId]).finally(() => {
+        const result = read<SessionHistoryPage>(['history-items', sessionId]).then(page =>
+          page ?? read<SessionHistoryPage>(['history', sessionId])
+        ).finally(() => {
           if (this.historyReads.get(id) === result) this.historyReads.delete(id)
         })
         this.historyReads.set(id, result)
@@ -36,7 +40,8 @@ export class MobileSessionCache {
       },
       saveHistory: (sessionId: string, page: SessionHistoryPage | null) => {
         this.historyReads.delete(JSON.stringify([scope, hostId, sessionId]))
-        return write(['history', sessionId], page)
+        if (page === null) return Promise.all([write(['history-items', sessionId], null), write(['history', sessionId], null)]).then(() => {})
+        return write(['history-items', sessionId], page)
       },
     }
   }

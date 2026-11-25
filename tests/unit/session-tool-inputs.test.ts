@@ -48,3 +48,15 @@ test('visible resource cards, subagents and active or failed tools keep their in
   )
   expect(deferSessionToolInputs(projectSessionHistory(messages)).every((message) => message.toolInput === '{}')).toBe(true)
 })
+
+
+test('a viewed image keeps its path when the history page defers a long tool input', () => {
+  const path = '/checkout/' + 'subfolder/'.repeat(36) + 'screen.png'
+  const input: SessionLoadMessage = {
+    role: 'tool', content: '', toolName: 'view_image', toolId: 'view', toolStatus: 'completed',
+    toolInput: JSON.stringify({ path }),
+  }
+  const [row] = deferSessionToolInputs([input])
+  expect(row?.viewedImagePath).toBe(path)
+  expect(row?.toolInput).not.toContain(path)
+})

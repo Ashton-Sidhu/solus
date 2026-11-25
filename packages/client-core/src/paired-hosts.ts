@@ -5,9 +5,10 @@ import { permissionsAllow } from '@solus/contracts/permissions'
 import { lastSeenText } from './host-readiness'
 
 /**
- * The machines a host paired (docs/host-pairing.md): a host added from chat or the
- * CLI. A person's machines reach each other with no step (docs/plans/host-reach.md),
- * so a pairing is read here, never made or removed by hand.
+ * The machines a host paired: a host added from chat or the CLI. A person's machines
+ * reach each other with no step, through introductions (`host-introducer.ts`); the
+ * person can also introduce two of them on the host map. A pairing is read here,
+ * never made or removed on the map.
  */
 
 /** A host this device is connected to as its owner, with the pairings it holds. */

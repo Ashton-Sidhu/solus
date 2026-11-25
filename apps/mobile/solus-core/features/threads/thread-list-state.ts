@@ -201,12 +201,14 @@ export class ThreadListState {
     };
     try {
       const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
+      if (this.connectionFor(hostId) !== connection) return;
       // Only an editor's unsettle ends the shared settle; the answer says when it did.
       if (state) this.write(this.states, hostId, connection, sessionId, state);
       else if (!settled) restoreState();
       if (view) this.write(this.views, hostId, connection, sessionId, view);
       this.publish();
     } catch (error) {
+      if (this.connectionFor(hostId) !== connection) throw error;
       restoreState();
       if (previousView) this.views.set(key, previousView);
       else this.views.delete(key);

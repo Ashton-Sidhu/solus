@@ -1,7 +1,10 @@
 import type { ResponseStreamingMode } from '@solus/contracts/settings'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
-const DELIVERY_INTERVAL_MS = 400
+// Groups a burst of finished paragraphs into one delivery. A longer interval
+// holds back a short paragraph that is already finished, and the reader sees
+// the reply stall.
+const DELIVERY_INTERVAL_MS = 100
 const MAX_BUFFERED_CHARS = 24_000
 // An ATX heading, or a line of only bold text, which models often use as a heading.
 const SECTION_TITLE = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|\*\*(?:[^*]|\*(?!\*))+\*\*:?$)/

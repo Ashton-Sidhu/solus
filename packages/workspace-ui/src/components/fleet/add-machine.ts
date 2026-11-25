@@ -5,7 +5,7 @@ import { serversStore } from '../../contexts'
 import { addOverSshStore } from '../servers/add-over-ssh.store.svelte'
 
 /**
- * The commands of the Add page and Discover (docs/plans/host-fleet.md D8). Pairing
+ * The commands of the Add page and Discover. Pairing
  * finishes where it starts; only SSH keeps its own form, which opens prefilled.
  */
 

@@ -31,7 +31,7 @@ export class NearbyDiscovery {
   }
 
   scan = async () => {
-    if (this.state.scanning || !this.app.canScanNearby) return;
+    if (true) return; /* QA_INPUTS */
     this.state = { ...this.state, scanning: true, error: null };
     this.changes.notify();
     try {

@@ -21,6 +21,7 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
  */
 
 export interface ConversationMeta {
+  isCompacting: boolean
   phase: ConversationPhase
   status: SessionStatus
   pendingText: ConversationController['pendingText']
@@ -232,6 +233,7 @@ export class ConversationStore {
       latestSettledTurnId: model.latestSettledTurnId,
       canStopTurn: this.controller.canStopTurn,
       backgroundWorkRunning: model.backgroundWorkRunning,
+      isCompacting: model.isCompacting,
       permissions: model.permissions,
       questions: model.questions,
       rateLimit: model.rateLimit,

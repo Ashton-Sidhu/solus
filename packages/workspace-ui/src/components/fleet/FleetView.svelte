@@ -1,10 +1,15 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { CircleArrowUp, Pause, Plus, Radar, Radio, Search } from "@lucide/svelte";
+  import { reachedMachines } from "@solus/client-core/reached-machines";
   import { isSessionBusyStatus } from "@solus/contracts/types";
   import { hostRoutesStore } from "../connections/host-routes.store.svelte";
+  import { reachedMachinesStore, type ReachHost } from "../connections/reached-machines.store.svelte";
   import { getWorkspaceContext, serversStore } from "../../contexts";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { runHost } from "../../contexts/workspace/run-location";
+  import { toasts } from "../../lib/toasts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
@@ -12,6 +17,7 @@
   import FleetAttention from "./FleetAttention.svelte";
   import FleetHostMenu from "./FleetHostMenu.svelte";
   import FleetMap from "./FleetMap.svelte";
+  import FleetMapDetails from "./FleetMapDetails.svelte";
   import FleetMapFooter from "./FleetMapFooter.svelte";
   import FleetRouteTree from "./FleetRouteTree.svelte";
   import FleetLoad from "./FleetLoad.svelte";
@@ -20,12 +26,15 @@
   import { discoverStore } from "./discover.store.svelte";
   import { fleetStore } from "./fleet.store.svelte";
   import { machineMatches, machinesByZone, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode } from "./lib/fleet-model";
+  import { foundStop } from "./lib/fleet-keys";
+  import { introduceBlock, isTwoWay, reachEdgeId, reachEdges, type ReachEdge } from "./lib/fleet-reach";
   import { hostAskOf } from "./lib/host-agent";
 
   /**
-   * Settings › Hosts (docs/plans/host-fleet.md): the summary, the map of how this
-   * device reaches every host and of the machines it found (D7), and what needs
-   * attention. List shows the same hosts as rows.
+   * Settings › Hosts: the summary, the map of how this device reaches every host,
+   * which of your hosts reach each other, and the machines it found, and what needs
+   * attention. List shows the same hosts as rows. On the map the person selects a
+   * host or a line to see its details, picks several, and introduces hosts.
    */
   const workspace = getWorkspaceContext();
 
@@ -35,6 +44,13 @@
   let pointedId = $state<string | null>(null);
   let pointedFoundKey = $state<string | null>(null);
   let openZoneId = $state<FleetZoneId | null>(null);
+  let selectedId = $state<string | null>(null);
+  let selectedEdgeId = $state<string | null>(null);
+  const pickedIds = new SvelteSet<string>();
+  /** Which match of Find Enter goes to next. */
+  let findIndex = $state(-1);
+  let isIntroducing = $state(false);
+  let fleetMap = $state<ReturnType<typeof FleetMap> | null>(null);
   let isPaused = $state(false);
   let isInView = $state(true);
   let isWindowVisible = $state(document.visibilityState === "visible");
@@ -51,16 +67,45 @@
     return busy;
   });
   const machines = $derived(fleetStore.machines(busyByHost));
+  const byId = $derived(new Map(machines.map((machine) => [machine.serverId, machine])));
   const focusId = $derived(pointedId);
-  const focused = $derived(machines.find((machine) => machine.serverId === focusId) ?? null);
-  /** The context menu of one host on the map (D12), and where it opened. */
+  const focused = $derived(byId.get(focusId ?? "") ?? null);
+  // A host or a line that left the map leaves the selection with it.
+  const selected = $derived(byId.get(selectedId ?? "") ?? null);
+  const picked = $derived(machines.filter((machine) => pickedIds.has(machine.serverId)));
+
+  /** This device is the local owner of the host, so it reads the hosts that one reaches and may introduce it. */
+  const isOwner = (serverId: string) => hosts.get(serverId).me.principal === "local-owner" && hosts.get(serverId).me.may("host.local.reach");
+  const owned = $derived(machines.filter((machine) => (machine.zone === "own" || machine.zone === "device") && machine.state !== "unreachable" && isOwner(machine.serverId)));
+  const ownedIds = $derived(owned.map((machine) => machine.serverId).join("\n"));
+  const serverIdByInstallation = $derived(new Map(machines.flatMap((machine) => (machine.installationId ? [[machine.installationId, machine.serverId] as const] : []))));
+  const edges = $derived(reachEdges(
+    owned.map((machine) => ({
+      serverId: machine.serverId,
+      reached: reachedMachines(reachedMachinesStore.pairingsByServer.get(machine.serverId) ?? null, reachedMachinesStore.introductionsByServer.get(machine.serverId) ?? null, Date.now()),
+    })),
+    (installationId) => serverIdByInstallation.get(installationId),
+  ));
+  const selectedEdge = $derived(edges.find((edge) => edge.id === selectedEdgeId) ?? null);
+  const blockOf = (serverId: string) => {
+    const machine = byId.get(serverId);
+    return machine ? introduceBlock(machine, isOwner(serverId)) : "This host is not on the map.";
+  };
+  const labelOf = (serverId: string) => byId.get(serverId)?.label ?? serverId;
+  /** The hosts `serverId` can be introduced to now: those this device can introduce, which do not reach it both ways yet. */
+  const candidatesFor = (serverId: string) => {
+    const twoWay = new Set(edges.filter(isTwoWay).map((edge) => edge.id));
+    return machines.filter((machine) => machine.serverId !== serverId && !blockOf(machine.serverId) && !twoWay.has(reachEdgeId(serverId, machine.serverId)));
+  };
+  const findMatches = $derived(query.trim() ? machines.filter((machine) => machineMatches(machine, query)) : []);
+  /** The context menu of one host on the map, and where it opened. */
   let hostMenu = $state<{ serverId: string; x: number; y: number } | null>(null);
   const menuMachine = $derived(machines.find((machine) => machine.serverId === hostMenu?.serverId) ?? null);
   const pointedFound = $derived(discoverStore.found.find((machine) => machine.key === pointedFoundKey) ?? null);
   const openZone = $derived(ZONES.find((zone) => zone.id === openZoneId) ?? null);
   const withUpdate = $derived(machines.filter((machine) => machine.hasUpdate).map((machine) => machine.serverId));
   const matchCount = $derived(machines.filter((machine) => machineMatches(machine, query)).length);
-  /** Motion and load reads run only while the map is seen (D5, D6). */
+  /** Motion and load reads run only while the map is seen. */
   const isLive = $derived(view === "map" && isInView && isWindowVisible && !isPaused);
   const serverIds = $derived(machines.map((machine) => machine.serverId).join("\n"));
 
@@ -80,6 +125,16 @@
     };
   });
 
+  // Which of your hosts reach each other is read for each host this device owns, while the map is seen.
+  $effect(() => {
+    if (view !== "map" || !ownedIds) return;
+    const ids = ownedIds.split("\n");
+    return untrack(() => {
+      const stops = ids.map((serverId) => reachedMachinesStore.watch(serverId));
+      return () => stops.forEach((stop) => stop());
+    });
+  });
+
   // The load of every host is read while the map is live, and not otherwise.
   $effect(() => {
     if (!isLive || !serverIds) return;
@@ -93,6 +148,89 @@
     if (action === "retry") fleetStore.retryHosts([machine.serverId]);
     else if (action === "start") fleetStore.startHosts([machine.serverId]);
     else if (action === "pair-again") void serversStore.pairAgain(machine.serverId, machine.address ?? "");
+  }
+
+  /** A click or Enter on a host: Shift picks it for an introduction; a host already selected opens. */
+  function activate(serverId: string, isAdding: boolean) {
+    if (isAdding) {
+      if (pickedIds.has(serverId)) pickedIds.delete(serverId);
+      else pickedIds.add(serverId);
+      return;
+    }
+    if (selectedId === serverId) {
+      connectionsNav.open(serverId);
+      return;
+    }
+    selectedEdgeId = null;
+    selectedId = serverId;
+  }
+
+  function select(serverId: string | null) {
+    selectedEdgeId = null;
+    selectedId = serverId;
+  }
+
+  function selectEdge(edgeId: string) {
+    selectedId = null;
+    selectedEdgeId = edgeId;
+  }
+
+  function clearSelection() {
+    selectedId = null;
+    selectedEdgeId = null;
+    pickedIds.clear();
+  }
+
+  function reachHost(serverId: string): ReachHost | null {
+    const machine = byId.get(serverId);
+    return machine?.installationId ? { serverId, installationId: machine.installationId, label: machine.label } : null;
+  }
+
+  /** Introduces `sourceId` to each target in turn; names what failed, and the hosts a drop had to skip. */
+  async function introduce(sourceId: string, targetIds: string[], skipped: string[] = []) {
+    const source = reachHost(sourceId);
+    if (!source || isIntroducing) return;
+    isIntroducing = true;
+    const done: string[] = [];
+    const failed: string[] = [];
+    for (const targetId of targetIds) {
+      const target = reachHost(targetId);
+      if (!target) continue;
+      try {
+        await reachedMachinesStore.introduce(source, target);
+        done.push(target.label);
+      } catch (error) {
+        failed.push(`${target.label}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    isIntroducing = false;
+    pickedIds.clear();
+    if (done.length) toasts.success(`Introduced ${source.label} to ${done.join(", ")}`, { description: "Agents on each can now start sessions on the other." });
+    if (failed.length) toasts.error(`Could not introduce ${source.label}`, { description: failed.join("\n") });
+    if (skipped.length) toasts.info("Some hosts were left out", { description: skipped.join("\n") });
+  }
+
+  async function forget(edge: ReachEdge) {
+    const [a, b] = [reachHost(edge.a), reachHost(edge.b)];
+    if (!a || !b || isIntroducing) return;
+    isIntroducing = true;
+    try {
+      await reachedMachinesStore.forget(a, b, isOwner);
+      selectedEdgeId = null;
+      toasts.success(`${a.label} and ${b.label} no longer reach each other`, { description: "Introduce them again to undo this." });
+    } catch (error) {
+      toasts.error("Could not forget the introduction", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      isIntroducing = false;
+    }
+  }
+
+  /** Enter in Find goes to the next match, Shift+Enter to the one before, centered on the map and selected. */
+  function findNext(step: 1 | -1) {
+    // From the start, Shift+Enter goes to the last match.
+    findIndex = findIndex === -1 && step === -1 ? -1 : findIndex + step;
+    const target = foundStop(findMatches, findIndex);
+    if (target) fleetMap?.goTo(target.serverId);
   }
 
   /** A host on the map names itself with `data-host-id`. The menu key gives no pointer place, so the menu opens on the host. */
@@ -157,7 +295,7 @@
             onclick={() => (isPaused = !isPaused)}
             class="grid size-[1.625rem] place-items-center rounded-full hover:bg-(--wash-1) {isLive ? 'text-(--success)' : 'text-muted-foreground hover:text-foreground'}"
           >{#if isLive}<Radio size={14} />{:else}<Pause size={14} />{/if}</button>
-          <!-- Discover (D7): the scan, and how many machines it found that are not added. -->
+          <!-- Discover: the scan, and how many machines it found that are not added. -->
           <button
             type="button"
             disabled={discoverStore.isScanning}
@@ -178,11 +316,17 @@
         <input
           name="find-host"
           bind:value={query}
+          oninput={() => (findIndex = -1)}
+          onkeydown={(event) => {
+            if (event.key !== "Enter" || view !== "map") return;
+            event.preventDefault();
+            findNext(event.shiftKey ? -1 : 1);
+          }}
           placeholder="Find a host, organization, or system"
-          aria-label="Find a host"
+          aria-label="Find a host. Enter goes to the next match."
           class="min-w-0 flex-1 bg-transparent text-workspace-chrome text-foreground outline-none placeholder:text-muted-foreground max-sm:text-base"
         />
-        {#if query.trim()}<span class="text-chrome-dense tabular-nums">{matchCount} found</span>{/if}
+        {#if query.trim()}<span class="text-chrome-dense tabular-nums">{#if findIndex >= 0 && matchCount}{(((findIndex % matchCount) + matchCount) % matchCount) + 1} of {/if}{matchCount} found</span>{/if}
       </label>
 
       <!-- The map below 37.5rem of its own width is a tree of the same routes: one rule, in CSS. -->
@@ -202,20 +346,33 @@
         {:else}
           <div class="@max-[37.5rem]/fleet:hidden">
             <FleetMap
+              bind:this={fleetMap}
               {machines}
               found={discoverStore.found}
               answers={fleetStore.answers}
               {colorMode}
               {query}
-              {focusId}
               {isLive}
+              {edges}
+              {pointedId}
+              selectedId={selected?.serverId ?? null}
+              {pickedIds}
+              selectedEdgeId={selectedEdge?.id ?? null}
+              routesOf={(serverId) => hostRoutesStore.statesFor(serverId)}
+              {isOwner}
               onPoint={(serverId) => (pointedId = serverId)}
-              onOpen={(serverId) => connectionsNav.open(serverId)}
+              onActivate={activate}
+              onSelect={select}
+              onPick={(serverIds) => serverIds.forEach((serverId) => pickedIds.add(serverId))}
+              onClearSelection={clearSelection}
+              onSelectEdge={selectEdge}
               onOpenZone={(zone) => (openZoneId = zone)}
               onAdd={(way) => connectionsNav.openAdd(way)}
               onStart={(serverId) => fleetStore.startHosts([serverId])}
               onPointFound={(key) => (pointedFoundKey = key)}
               onRetry={(zone) => fleetStore.retryZone(zone)}
+              onIntroduce={(sourceId, targetIds, skipped) => void introduce(sourceId, targetIds, skipped)}
+              onOpenMenu={(serverId, x, y) => (hostMenu = { serverId, x, y })}
             />
           </div>
           <div class="@min-[37.5rem]/fleet:hidden">
@@ -233,13 +390,35 @@
             />
           </div>
         {/if}
-        <FleetMapFooter
-          machine={focused}
-          found={pointedFound}
-          {colorMode}
-          routes={focused ? hostRoutesStore.statesFor(focused.serverId) : []}
-          onFix={fix}
-        />
+        {#if selected || selectedEdge || picked.length}
+          <FleetMapDetails
+            {selected}
+            edge={selectedEdge}
+            {picked}
+            routes={selected ? hostRoutesStore.statesFor(selected.serverId) : []}
+            reaches={selected ? edges.filter((edge) => edge.a === selected.serverId || edge.b === selected.serverId) : []}
+            candidates={selected ? candidatesFor(selected.serverId) : []}
+            canIntroduce={(serverId) => !blockOf(serverId)}
+            {isOwner}
+            {labelOf}
+            isBusy={isIntroducing}
+            onOpen={(serverId) => connectionsNav.open(serverId)}
+            onFix={fix}
+            onSelect={select}
+            onSelectEdge={selectEdge}
+            onIntroduce={(sourceId, targetIds) => void introduce(sourceId, targetIds)}
+            onForget={(edge) => void forget(edge)}
+            onClear={clearSelection}
+          />
+        {:else}
+          <FleetMapFooter
+            machine={focused}
+            found={pointedFound}
+            {colorMode}
+            routes={focused ? hostRoutesStore.statesFor(focused.serverId) : []}
+            onFix={fix}
+          />
+        {/if}
       </div>
     </section>
 
@@ -248,6 +427,8 @@
         x={hostMenu.x}
         y={hostMenu.y}
         machine={menuMachine}
+        candidates={blockOf(menuMachine.serverId) ? [] : candidatesFor(menuMachine.serverId)}
+        onIntroduce={(targetId) => void introduce(menuMachine.serverId, [targetId])}
         onAsk={() => askAgentAboutHosts(workspace, [menuMachine], hostAskOf(menuMachine))}
         onOpen={() => connectionsNav.open(menuMachine.serverId)}
         onNewSession={() => workspace.drafts.openSessionDraft({ freshTask: true, serverId: menuMachine.serverId, via: "click" })}

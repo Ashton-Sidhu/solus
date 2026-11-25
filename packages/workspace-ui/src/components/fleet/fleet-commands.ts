@@ -6,7 +6,7 @@ import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { discoverStore } from './discover.store.svelte'
 
 /**
- * The palette's way into the fleet (docs/plans/host-fleet.md D11), for desktop and
+ * The palette's way into the fleet, for desktop and
  * web alike: "Add machine" opens the Add page, and "Find hosts nearby" opens the
  * fleet and scans. "Show pairing code" opens this device's host on its Access
  * tab with a code made (docs/plans/add-machine-card.md). `showHosts` opens

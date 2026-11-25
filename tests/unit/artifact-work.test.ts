@@ -486,3 +486,64 @@ describe('render_artifact checks a page before and after it is shown', () => {
     }
   })
 })
+
+describe('a phone sizes each saved artifact version before it loads the page', () => {
+  type Preview = Awaited<ReturnType<typeof import('@solus/server/data/works/artifact-preview')['previewArtifactHtml']>>
+  const ctx = () => ({ sessionId: SESSION_ID, agentProvider: 'claude-code' as const, cwd: dataDir })
+  const measured = (sizes: Array<[number, number]>) => async (): Promise<Preview> =>
+    ({ screenshot: '', width: 736, appearance: 'light', contentHeight: 0, console: [], missingImages: [], sizes })
+  const receipt = (workId: string, contentVersion: number) =>
+    ({ role: 'tool', content: '', timestamp: 0, artifactWorkRef: { workId, title: 'Chart', contentVersion } }) as unknown as import('@solus/contracts/session-history').WireSessionLoadMessage
+
+  test('each version keeps the frame its save measured, on the live event and in history', async () => {
+    // WHY: the phone gives the feed row its height from this frame. A frame
+    // that belonged to another version would cut a page or leave a gap.
+    const { withArtifactLayouts } = await import('@solus/server/data/works/artifact-layout')
+    const created: Array<{ workId: string; layout?: unknown }> = []
+    await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart' }, {
+      ctx: ctx(), onArtifact: (artifact) => created.push(artifact), preview: measured([[375, 300], [728, 200]]),
+    })
+    const workId = created[0].workId
+    expect(created[0].layout).toEqual({ height: 300, heights: [[375, 300], [728, 200]] })
+
+    const updated: Array<{ contentVersion: number; layout?: unknown }> = []
+    await workTools.executeWorkTool('update_work', { work_id: workId, content: HTML.replace('Chart', 'Revised'), expected_content_version: 1 }, {
+      ctx: ctx(), onWorkUpdated: (work) => updated.push(work), preview: measured([[375, 900], [728, 600]]),
+    })
+    expect(updated[0]).toMatchObject({ contentVersion: 2, layout: { height: 900, heights: [[375, 900], [728, 600]] } })
+
+    const [first, second, unknown] = await withArtifactLayouts([receipt(workId, 1), receipt(workId, 2), receipt('other', 1)])
+    expect(first.artifactWorkRef?.layout?.height).toBe(300)
+    expect(second.artifactWorkRef?.layout?.height).toBe(900)
+    expect(unknown.artifactWorkRef?.layout).toBeUndefined()
+  })
+
+  test('a page URL serves the version it names, sandboxed, and only to the work\'s organization', async () => {
+    // WHY: the page runs the agent's script. Served without the sandbox, it
+    // would run on the host's origin; served to another organization, it
+    // would leak the work.
+    const { createArtifactPageUrl } = await import('@solus/server/data/works/artifact-page')
+    const { serveAssetToken } = await import('@solus/server/data/assets/assets')
+    const { artifactPageAttachmentId } = await import('@solus/contracts/artifact-page')
+    const created: Array<{ workId: string }> = []
+    await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart' }, { ctx: ctx(), onArtifact: (artifact) => created.push(artifact), preview: measured([]) })
+    const workId = created[0].workId
+    await workTools.executeWorkTool('update_work', { work_id: workId, content: '<p>Second version</p>', expected_content_version: 1 }, { ctx: ctx(), preview: measured([]) })
+
+    const signed = await createArtifactPageUrl('local', artifactPageAttachmentId(workId, 1))
+    const response = await serveAssetToken(signed!.relativeUrl.replace('/api/assets/', ''), { method: 'GET' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('text/html')
+    expect(response.headers.get('Content-Security-Policy')).toStartWith('sandbox allow-scripts')
+    expect(response.headers.get('Content-Disposition')).toBeNull()
+    const page = await response.text()
+    expect(page).toContain('<h1>Chart</h1>')
+    expect(page).not.toContain('Second version')
+    // The phone sends its theme in the fragment; the page applies it before it paints.
+    expect(page).toContain('t3-theme=')
+
+    expect(await createArtifactPageUrl('local', 'upload:session//uploads/photo.jpg')).toBeNull()
+    await expect(createArtifactPageUrl('org-other', artifactPageAttachmentId(workId, 1))).rejects.toThrow(/not on this host/)
+    await expect(createArtifactPageUrl('local', artifactPageAttachmentId(workId, 7))).rejects.toThrow(/not on this host/)
+  })
+})

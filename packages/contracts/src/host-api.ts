@@ -491,7 +491,7 @@ export interface SolusAPI {
   hostsListWslDistros(): Promise<WslDistroList>
   /**
    * The machines this host's `~/.ssh/config` names, as targets to add over SSH: the
-   * Discover source of docs/plans/host-fleet.md D7. Only the host owner may read them.
+   * one source of Discover on the Hosts page. Only the host owner may read them.
    */
   hostsListSshConfigHosts(): Promise<SshTargetCandidate[]>
   /** Adds one of this host's WSL distros as a machine it forwards to. */
@@ -1392,7 +1392,7 @@ export interface SolusAPI {
   gitRegisterEnvironment(ctx: IpcContext, cwd: string, gitContext: GitCheckout | null): Promise<void>
   /** Whether `cwd` is a Git repository at all — distinct from `GitState`, which
    *  is also null for a repository with no commits yet. */
-  gitRepositoryStatus(cwd: string): Promise<GitRepositoryStatus>
+  gitRepositoryStatus(cwd: string, options?: { checkout: 'summary' | 'full' }): Promise<GitRepositoryStatus>
   /** Runs `git init` on a non-repository folder. Never creates a commit. */
   gitInitRepository(cwd: string): Promise<GitInitRepositoryResult>
   /** Creates or reuses a GitHub repository, adds a credential-free remote, and

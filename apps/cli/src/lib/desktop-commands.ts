@@ -20,6 +20,7 @@ export function desktopRefusal(command: string): string | null {
 export const DESKTOP_USAGE = `Usage (the solus command of the desktop app):
   solus pair
   solus host pair <url> (--code CODE | --code-file PATH) [--label NAME]
+  solus host add-ssh <user@host> [--identity-file PATH] [--fix-key-permissions] [--json]
   solus host list [--json]
   solus host remove <installation-id>
   solus connect [--code CODE] [--cloud-url URL] [--no-open]

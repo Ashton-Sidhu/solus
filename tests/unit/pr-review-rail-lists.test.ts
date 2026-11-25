@@ -108,6 +108,15 @@ describe('the folded Checks summary', () => {
     })
   })
 
+  test('workflows that wait for approval keep it from saying passed', () => {
+    // WHY: a run held for approval has no check yet, so the checks that did
+    // report can all be green while the pull request is not tested.
+    expect(checksSummary([check('success')], 2)).toEqual({ text: '2 waiting for approval', icon: 'waiting' })
+    expect(checksSummary([], 1)).toEqual({ text: '1 waiting for approval', icon: 'waiting' })
+    // A failure still leads: it needs a fix whatever the approval says.
+    expect(checksSummary([check('failure')], 2).icon).toBe('failed')
+  })
+
   test('skipped and neutral checks do not block the all-clear', () => {
     expect(checksSummary([check('success'), check('skipped'), check('neutral')])).toEqual({
       text: 'All checks passed',

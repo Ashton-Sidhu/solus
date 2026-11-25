@@ -13,17 +13,24 @@ import {
 import type { SshAddProgress, SshTargetCandidate } from "@solus/contracts/remote-machines";
 import { requestExpiryText, type StatusCardState } from "@solus/contracts/types";
 import {
+  ANOTHER_ADDRESS,
+  ANOTHER_SSH,
   approveInstructions,
   attemptAddMachine,
+  chosenIdentityFile,
   codeSteps,
+  fixKeyThenAdd,
+  initialChoice,
   makeCheckCode,
   reachableMachines,
   stepFor,
   typedCodeError,
   typedCodeValue,
+  typedSshStep,
   watchSshProgress,
   wayLabel,
   type AddMachineAttempt,
+  type AddMachineDeps,
   type AddMachineInput,
   type AddMachineStep,
 } from "@solus-mobile/features/conversation/lib/add-machine-card";
@@ -43,6 +50,7 @@ import { Button } from "../../components/ui/Button";
 import { StepRail } from "../../components/ui/StepRail";
 import { Sheet } from "../../components/ui/Sheet";
 import { AddMachineSteps } from "./AddMachineSteps";
+import { SshKeySection, useSshFields } from "./LinkRequestSshFields";
 import { SyncSettingsChoice } from "../../solus/SyncSettingsRows";
 import { nearbyUrl } from "../../solus/discovery";
 import { nearby, solus, useSolusWorkspace } from "../../solus/runtime";
@@ -52,7 +60,6 @@ import { nearby, solus, useSolusWorkspace } from "../../solus/runtime";
 // docs/plans/add-machine-card.md). A code or a password lives only in this
 // card's state and the one host call that uses it.
 
-const ANOTHER_ADDRESS = "another-address";
 const NO_ASK: AddMachineAsk = { reason: "" };
 const MACHINE_SYMBOL: AppSymbolName = "desktopcomputer";
 
@@ -64,16 +71,18 @@ const readyApi = (serverId: string) =>
     ? (solus.connections.connection(serverId)?.api ?? null)
     : null;
 
-/** One attempt on the session's host, which runs SSH and pairs. */
+/** One attempt on the session's host, which runs SSH and pairs. `fixKey` first lets only its owner read the key. */
 function attemptOnSessionHost(
   sessionHostId: string,
   step: AddMachineStep,
   input: AddMachineInput,
+  fixKey: boolean,
 ): Promise<AddMachineAttempt> {
   const session = solus.connections.connection(sessionHostId);
   if (!session) return Promise.resolve(failedAttempt("The session's host cannot be reached now."));
   const deviceLabel = solus.registry.host(sessionHostId)?.label ?? "Solus";
-  return attemptAddMachine({ session: session.api, target: readyApi, deviceLabel }, step, input);
+  const deps: AddMachineDeps = { session: session.api, target: readyApi, deviceLabel };
+  return fixKey ? fixKeyThenAdd(deps, step, input) : attemptAddMachine(deps, step, input);
 }
 
 /** The add that runs, or the last one sent: what its setup steps show. */
@@ -226,6 +235,15 @@ function useCandidates(ask: AddMachineAsk, sessionHostId: string, isOpen: boolea
   }, [ask, sessionHostId, ssh, found.hosts, environments]);
 }
 
+/** The step of the selected row: a typed SSH target, or a ranked machine or a typed address. */
+function selectedStep(
+  selectedKey: string,
+  candidate: AddMachineCandidate | null,
+  options: { sshTarget: string; address: string; useCode: boolean; mintRefused: ReadonlySet<string> },
+): AddMachineStep | null {
+  return selectedKey === ANOTHER_SSH ? typedSshStep(options.sshTarget) : stepFor(candidate, options);
+}
+
 /** The state of one card: the selected row, the typed values, and the attempt in progress. */
 function useAddMachine(
   ask: AddMachineAsk,
@@ -249,6 +267,7 @@ function useAddMachine(
   const [waiting, setWaiting] = useState<WaitingApproval | null>(null);
   // Signed out: the new machine takes this person's server settings (docs/plans/settings-sync-hosts.md).
   const [syncSettings, setSyncSettings] = useState(true);
+  const ssh = useSshFields(ask);
   // Two taps can both run before a re-render; this guard is synchronous.
   const inFlight = useRef(false);
   const mounted = useRef(true);
@@ -260,9 +279,9 @@ function useAddMachine(
     [],
   );
 
-  const selectedKey = choice ?? candidates[0]?.key ?? ANOTHER_ADDRESS;
+  const selectedKey = choice ?? initialChoice(ask, candidates);
   const candidate = candidates.find((row) => row.key === selectedKey) ?? null;
-  const step = stepFor(candidate, { address, useCode, mintRefused });
+  const step = selectedStep(selectedKey, candidate, { sshTarget: ssh.sshTarget, address, useCode, mintRefused });
   const codeError = step?.kind === "code" ? typedCodeError(code) : null;
   // The sent attempt as setup steps, the rows a worktree setup draws: they run, then show where the add stopped.
   const statusCard: StatusCardState | null = useMemo(() => {
@@ -291,6 +310,8 @@ function useAddMachine(
     setPassword("");
     setError(null);
     setSent(null);
+    ssh.setKeyFix(null);
+    ssh.setIdentityError(null);
   };
 
   const finish = (attempt: AddMachineAttempt) => {
@@ -298,17 +319,21 @@ function useAddMachine(
     setWaiting(null);
     if (attempt.kind === "added") return onAdded();
     if (attempt.kind === "needs-auth") return setNeedsAuth(attempt.message);
+    if (attempt.kind === "key-permissions") return ssh.setKeyFix(attempt.message);
+    if (attempt.field === "identityFile") return ssh.setIdentityError(attempt.message);
     setError(attempt.message);
     const refused = attempt.mintRefused;
     if (refused) setMintRefused((current) => new Set(current).add(refused));
   };
 
-  const add = async () => {
+  const add = async (fixKey = false) => {
     if (inFlight.current || !step || !ready) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     setNeedsAuth(null);
+    ssh.setKeyFix(null);
+    ssh.setIdentityError(null);
     setSshSteps([]);
     const requestId = solus.platform.uuid();
     setSent({ id: requestId, way: wayOfStep(step), name: step.name, sshTarget: step.kind === "ssh" ? step.sshTarget : undefined });
@@ -324,11 +349,12 @@ function useAddMachine(
     if (checkCode) setWaiting({ checkCode, expiresAt: Date.now() + PAIR_APPROVAL_TTL_MS, name: step.name });
     const input: AddMachineInput = { requestId, checkCode };
     if (step.kind === "code") input.code = typedCodeValue(code) ?? undefined;
+    if (step.kind === "ssh") input.identityFile = chosenIdentityFile(selectedKey, ssh);
     if (needsAuth !== null && password) input.authSecret = password;
     // No value is kept after it is sent.
     setCode("");
     setPassword("");
-    const attempt = await attemptOnSessionHost(sessionHostId, step, input);
+    const attempt = await attemptOnSessionHost(sessionHostId, step, input, fixKey);
     stopProgress();
     if (attempt.kind === "added") {
       solus.settingsSync.hostAdded(attempt.outcome.installationId, syncSettings);
@@ -339,6 +365,8 @@ function useAddMachine(
   };
 
   return {
+    sessionHostId,
+    ssh,
     candidates,
     selectedKey,
     candidate,
@@ -363,14 +391,15 @@ function useAddMachine(
     waiting,
     ready,
     select,
-    add,
+    add: () => void add(),
+    fixKeyAndAdd: () => void add(true),
     setIsOpen,
     syncSettings,
     setSyncSettings,
   };
 }
 
-type AddMachineFlow = ReturnType<typeof useAddMachine>;
+export type AddMachineFlow = ReturnType<typeof useAddMachine>;
 
 function AddMachineSheet(props: {
   readonly flow: AddMachineFlow;
@@ -414,6 +443,7 @@ function AddMachineSheet(props: {
         {step?.kind === "code" ? (
           <CodeSteps flow={flow} step={step} disabled={props.disabled} onClose={props.onClose} />
         ) : null}
+        <SshKeySection flow={flow} disabled={props.disabled} />
         <AttemptMessages statusCard={flow.statusCard} error={flow.error} />
         {step?.kind === "ssh" && flow.needsAuth !== null ? (
           <View className="gap-2">
@@ -440,7 +470,7 @@ function AddMachineSheet(props: {
         <Button
           label={props.disabled ? "Adding…" : flow.error !== null ? "Try again" : "Add"}
           disabled={props.disabled || !flow.ready}
-          onPress={() => void flow.add()}
+          onPress={flow.add}
           tone="primary"
           fullWidth
         />
@@ -483,10 +513,18 @@ function MachineList(props: { readonly flow: AddMachineFlow; readonly disabled: 
           />
         ))}
         <SettingsChoiceRow
+          label="Another machine over SSH…"
+          description="Add a machine by its SSH target, such as user@host."
+          selected={flow.selectedKey === ANOTHER_SSH}
+          separated={flow.candidates.length > 0}
+          disabled={props.disabled}
+          onPress={() => flow.select(ANOTHER_SSH)}
+        />
+        <SettingsChoiceRow
           label="Another address…"
           description="Add a machine by its address on your network or tailnet."
           selected={typesAddress}
-          separated={flow.candidates.length > 0}
+          separated
           disabled={props.disabled}
           onPress={() => flow.select(ANOTHER_ADDRESS)}
         />

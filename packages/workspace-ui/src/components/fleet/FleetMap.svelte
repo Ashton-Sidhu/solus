@@ -1,480 +1,396 @@
 <script lang="ts">
-  import { ChevronRight, KeyRound, Laptop, Link2, Plus, RotateCw, Terminal } from "@lucide/svelte";
-  import * as Tooltip from "../ui/tooltip";
-  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import FleetLoadRing from "./FleetLoadRing.svelte";
-  import FleetMapCard from "./FleetMapCard.svelte";
-  import FleetTile from "./FleetTile.svelte";
-  import HostStateIcon from "./HostStateIcon.svelte";
-  import FleetStatusLine from "./FleetStatusLine.svelte";
-  import RouteKindIcon from "./RouteKindIcon.svelte";
+  import { SvelteSet } from "svelte/reactivity";
+  import { CircleHelp, Maximize, Minus, Plus, X } from "@lucide/svelte";
+  import { Button } from "../ui/button";
+  import * as Popover from "../ui/popover";
+  import FleetMapScene from "./FleetMapScene.svelte";
   import type { FoundMachine } from "./lib/discover";
-  import {
-    CARD_HEIGHT,
-    groupsOf,
-    linkPath,
-    MAP_HEIGHT,
-    machineMatches,
-    machinesByZone,
-    mapLayout,
-    rollup,
-    routeInUseLabel,
-    toneOf,
-    trafficOf,
-    trafficText,
-    trafficWidth,
-    travelSeconds,
-    ZONE_HEADER,
-    type AddWay,
-    type FleetMachine,
-    type FleetTone,
-    type FleetZoneId,
-    type Point,
-    type TileColorMode,
-    type ZoneAnswers,
-    type ZoneSlot,
-  } from "./lib/fleet-model";
+  import { machinesByZone, OPEN_ZONE_CARDS, type AddWay, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
+  import { arrowDirection, nextFleetStop, type FleetStop } from "./lib/fleet-keys";
+  import { introduceAction, introduceBlock, reachNeighbors, type IntroduceAction, type ReachEdge } from "./lib/fleet-reach";
+  import type { WireRoute } from "./lib/fleet-routes";
+  import { cardCenter, fleetScene, scenePercent, zoneTop } from "./lib/fleet-scene";
+  import { anchorView, centerOn, fitView, frameHeight, panView, revealRect, toScene, zoomView, type FleetView, type ScenePoint } from "./lib/fleet-view";
 
   /**
-   * The map (docs/plans/host-fleet.md D4): this device at the center, a zone for
-   * your machines, for Solus Cloud, and for the hosts shared with you, and a link
-   * to each host, or one link for a zone too full for cards.
-   * Its only continuous motion is the approved light on busy links (D5), paused
-   * by `isLive`. Each host's line shows the mark of the route this device is
-   * on, or tries, at its card, and is as wide as its traffic (D13). The status
-   * of the fleet is one line above this device.
+   * The frame of the host map: it lays the map out at its own width, fits it, and
+   * lets the person pan (drag the background), zoom (pinch, Ctrl or ⌘ with the
+   * wheel, the buttons, or + − 0), select several hosts (Shift with a click or a
+   * drag), and drag a host's handle onto another to introduce them. Arrow keys
+   * move between hosts; the map is one Tab stop.
    */
   interface Props {
     machines: FleetMachine[];
     found: FoundMachine[];
-    /** Whether each zone's hosts are read yet: a zone not read says so, with Retry when its read failed. */
     answers: ZoneAnswers;
     colorMode: TileColorMode;
     query: string;
-    focusId: string | null;
     isLive: boolean;
+    edges: ReachEdge[];
+    pointedId: string | null;
+    selectedId: string | null;
+    pickedIds: ReadonlySet<string>;
+    selectedEdgeId: string | null;
+    routesOf: (serverId: string) => readonly WireRoute[];
+    /** Whether this device is the local owner of a host, so it may introduce it. */
+    isOwner: (serverId: string) => boolean;
     onPoint: (serverId: string | null) => void;
-    onOpen: (serverId: string) => void;
+    /** A click or Enter on a host: Shift adds it to the picked hosts. */
+    onActivate: (serverId: string, isAdding: boolean) => void;
+    onSelect: (serverId: string | null) => void;
+    onPick: (serverIds: string[]) => void;
+    onClearSelection: () => void;
+    onSelectEdge: (edgeId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
     onAdd: (way: AddWay) => void;
     onStart: (serverId: string) => void;
-    /** The found machine under the pointer, by its key; null when the pointer leaves it. */
     onPointFound: (key: string | null) => void;
-    /** Reads a zone's hosts again after its read failed. */
     onRetry: (zone: FleetZoneId) => void;
+    onIntroduce: (sourceId: string, targetIds: string[], skipped: string[]) => void;
+    /** A click on a handle without a drag: the host's menu, which can introduce it from the keyboard too. */
+    onOpenMenu: (serverId: string, x: number, y: number) => void;
   }
 
-  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry }: Props = $props();
+  let {
+    machines, found, answers, colorMode, query, isLive, edges, pointedId, selectedId, pickedIds, selectedEdgeId, routesOf, isOwner,
+    onPoint, onActivate, onSelect, onPick, onClearSelection, onSelectEdge, onOpenZone, onAdd, onStart, onPointFound, onRetry, onIntroduce, onOpenMenu,
+  }: Props = $props();
 
-  /** The map's own box, in px. Its height is `MAP_HEIGHT` rem, so the two give its width in rem. */
-  let mapWidth = $state(0);
-  let mapHeight = $state(0);
+  let frame = $state<HTMLDivElement | null>(null);
+  let frameWidth = $state(0);
+  let remPx = $state(16);
+  const openZones = new SvelteSet<FleetZoneId>();
+  /** A view the person set by hand; null fits the map. Fit (0) returns to null. */
+  let manual = $state<FleetView | null>(null);
+  let lastFocusedId = $state<string | null>(null);
+  let notice = $state<string | null>(null);
+  /** The view eases to a place the person asked for (a button, a key, Find, a zone); it follows a drag or a wheel at once. */
+  let isGliding = $state(false);
+  let gesture = $state<
+    | { kind: "pan"; startX: number; startY: number; startView: FleetView; moved: boolean }
+    | { kind: "box"; startX: number; startY: number; x: number; y: number }
+    | { kind: "link"; sourceId: string; startX: number; startY: number; from: ScenePoint; to: ScenePoint; overId: string | null; moved: boolean }
+    | null
+  >(null);
 
-  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers));
+  const byZone = $derived(machinesByZone(machines));
+  const byId = $derived(new Map(machines.map((machine) => [machine.serverId, machine])));
+  const scene = $derived(fleetScene({ byZone, found, widthRem: frameWidth / remPx, answers, open: openZones, edges, routesOf }));
+  const sceneSize = $derived({ w: frameWidth, h: scene.map.height * remPx });
+  const frameSize = $derived({ w: frameWidth, h: frameHeight(sceneSize.h) });
+  const view = $derived(manual ?? fitView(sceneSize, frameSize));
+  const focusId = $derived(pointedId ?? selectedId);
+  const lit = $derived(focusId ? new Set([focusId, ...reachNeighbors(edges, focusId)]) : null);
+  const isLit = (serverId: string) => !lit || lit.has(serverId);
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
-  const tunneled = $derived(map.zones.flatMap(({ zone, hosts }) => (zone.isViaTunnel ? hosts : [])));
-  const hubPort = $derived({ x: map.hub.x + map.hub.w / 2, y: map.hub.y });
-  const tunnelSummary = $derived(rollup(tunneled));
-  /** The tunnel carries the traffic of every host past it. */
-  const tunnelWidth = $derived(trafficWidth(trafficOf(tunneled)));
-  /** The words of a route mark: the route, how it goes, and its traffic (D13). */
-  const routeMarkLabel = (machine: FleetMachine, route: NonNullable<FleetMachine["routeInUse"]>) => {
-    const traffic = trafficText(machine.traffic);
-    return traffic ? `${routeInUseLabel(route)} · ${traffic}` : routeInUseLabel(route);
+  const currentId = $derived(selectedId ?? lastFocusedId ?? device?.serverId ?? machines[0]?.serverId ?? null);
+  const blockOf = (serverId: string) => {
+    const machine = byId.get(serverId);
+    return machine ? introduceBlock(machine, isOwner(serverId)) : "This host is not on the map.";
   };
+  const labelOf = (serverId: string) => byId.get(serverId)?.label ?? serverId;
+  const dropAction = $derived.by((): IntroduceAction | null => {
+    if (gesture?.kind !== "link" || !gesture.overId) return null;
+    return introduceAction({ sourceId: gesture.sourceId, dropId: gesture.overId, selected: pickedIds, edges, blockOf, labelOf });
+  });
+  const dropStateOf = (serverId: string) => (gesture?.kind === "link" && gesture.overId === serverId && dropAction ? (dropAction.kind === "introduce" ? "ok" : "no") : null);
+  const dragLine = $derived(gesture?.kind === "link" && gesture.moved ? { from: scenePercent(gesture.from, sceneSize), to: scenePercent(gesture.to, sceneSize) } : null);
 
-  const isZoneLit = (hosts: FleetMachine[]) => !focusId || hosts.some((machine) => machine.serverId === focusId);
-  const isLit = (serverId: string) => !focusId || focusId === serverId;
-  const slotKey = (slot: ZoneSlot) => `${slot.kind}:${slot.kind === "host" ? slot.machine.serverId : slot.kind === "found" ? slot.machine.key : ""}`;
-  const addCards = {
-    cloud: { title: "New machine", subtitle: "Ready in a minute" },
-    pair: { title: "Pair a machine", subtitle: "With the code it shows" },
-  } satisfies Record<Extract<ZoneSlot, { kind: "add" }>["way"], { title: string; subtitle: string }>;
-  const portColor = {
-    ok: "var(--success)",
-    warn: "var(--warning)",
-    bad: "var(--solus-status-error)",
-    off: "var(--solus-status-idle)",
-  } satisfies Record<FleetTone, string>;
-  const lineColor = (machine: FleetMachine) => {
-    const tone = toneOf(machine.state);
-    return tone === "ok" ? "color-mix(in oklch, var(--success) 80%, transparent)" : tone === "off" ? "var(--hairline-strong)" : portColor[tone];
-  };
+  // The root size can change with the person's zoom; it is read with the frame's width.
+  $effect(() => {
+    if (!frame) return;
+    const observer = new ResizeObserver(([entry]) => {
+      frameWidth = entry?.contentRect.width ?? 0;
+      remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    });
+    observer.observe(frame);
+    // React's and Svelte's wheel listeners are passive, so the zoom gesture listens here to keep the page from zooming.
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      zoomAt(Math.exp(-event.deltaY * 0.01), event);
+    };
+    frame.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      observer.disconnect();
+      frame?.removeEventListener("wheel", onWheel);
+    };
+  });
+
+  function framePoint(event: { clientX: number; clientY: number }): ScenePoint {
+    const box = frame?.getBoundingClientRect();
+    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
+  }
+
+  function zoomAt(factor: number, at?: { clientX: number; clientY: number }) {
+    const anchor = at ? framePoint(at) : { x: frameSize.w / 2, y: frameSize.h / 2 };
+    isGliding = !at;
+    manual = zoomView(view, factor, anchor);
+  }
+
+  function fit() {
+    isGliding = true;
+    manual = null;
+  }
+
+  /** Opens or folds a full zone in place; its top stays where it is on screen. */
+  function toggleZone(zoneId: FleetZoneId) {
+    const before = zoneTop(scene.map, zoneId, sceneSize);
+    const next = new Set(openZones);
+    if (next.has(zoneId)) next.delete(zoneId);
+    else next.add(zoneId);
+    const after = fleetScene({ byZone, found, widthRem: frameWidth / remPx, answers, open: next, edges, routesOf });
+    isGliding = false;
+    manual = anchorView(view, before, zoneTop(after.map, zoneId, { w: frameWidth, h: after.map.height * remPx }));
+    if (openZones.has(zoneId)) openZones.delete(zoneId);
+    else openZones.add(zoneId);
+  }
+
+  /**
+   * Goes to a host that Find named: a host folded into tiles opens its zone in
+   * place, the map centers it at a scale it can be read at, and it is selected.
+   * A host past the cards an open zone shows opens the zone's page.
+   */
+  export function goTo(serverId: string): void {
+    const machine = byId.get(serverId);
+    if (!machine) return;
+    if (machine.zone !== "device") {
+      const index = byZone[machine.zone].findIndex((entry) => entry.serverId === serverId);
+      if (index >= OPEN_ZONE_CARDS) {
+        onOpenZone(machine.zone);
+        return;
+      }
+      if (!scene.map.zones.find((zone) => zone.zone.id === machine.zone)?.rows.length) openZones.add(machine.zone);
+    }
+    const next = fleetScene({ byZone, found, widthRem: frameWidth / remPx, answers, open: openZones, edges, routesOf });
+    const size = { w: frameWidth, h: next.map.height * remPx };
+    const point = machine.zone === "device" ? { x: (next.map.hub.x / 100) * size.w, y: (next.map.hub.y / 100) * size.h } : cardCenter(next.map, serverId, size);
+    isGliding = true;
+    if (point) manual = centerOn(view, point, { w: frameWidth, h: frameHeight(size.h) });
+    onSelect(serverId);
+  }
+
+  /** Each host as it is drawn, in frame px, for the arrow keys and the selection box. */
+  function stops(): Array<FleetStop & { element: HTMLElement }> {
+    const box = frame?.getBoundingClientRect();
+    if (!frame || !box) return [];
+    return [...frame.querySelectorAll<HTMLElement>("[data-host-id]")].flatMap((element) => {
+      const id = element.dataset.hostId;
+      const target = element.matches("[data-fleet-stop]") ? element : element.querySelector<HTMLElement>("[data-fleet-stop]");
+      if (!id || !target) return [];
+      const rect = element.getBoundingClientRect();
+      return [{ id, x: rect.left - box.left, y: rect.top - box.top, w: rect.width, h: rect.height, element: target }];
+    });
+  }
+
+  function hostIdOf(element: Element | null): string | null {
+    return element?.closest<HTMLElement>("[data-host-id]")?.dataset.hostId ?? null;
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    const direction = arrowDirection(event.key);
+    if (direction) {
+      event.preventDefault();
+      const all = stops();
+      const nextId = nextFleetStop(all, hostIdOf(document.activeElement) ?? currentId, direction);
+      const next = all.find((stop) => stop.id === nextId);
+      if (!next) return;
+      next.element.focus({ preventScroll: true });
+      // A host panned out of view comes into it; one in view moves nothing.
+      const topLeft = toScene(view, { x: next.x, y: next.y });
+      isGliding = true;
+      manual = revealRect(view, { ...topLeft, w: next.w / view.scale, h: next.h / view.scale }, frameSize);
+      return;
+    }
+    if (event.key === " ") {
+      const id = hostIdOf(document.activeElement);
+      if (!id) return;
+      // Space picks the host for an introduction to several; Enter still selects it.
+      event.preventDefault();
+      onActivate(id, true);
+      return;
+    }
+    if (event.target instanceof HTMLInputElement) return;
+    if (event.key === "+" || event.key === "=") zoomAt(1.25);
+    else if (event.key === "-") zoomAt(0.8);
+    else if (event.key === "0") fit();
+    else if (event.key === "Escape") {
+      notice = null;
+      onClearSelection();
+    } else return;
+    event.preventDefault();
+  }
+
+  function onPointerDown(event: PointerEvent) {
+    // One pointer owns a gesture, and a control's own click is never a pan.
+    if (event.button !== 0 || gesture || (event.target instanceof Element && event.target.closest("button, a, [role=button], input"))) return;
+    frame?.setPointerCapture(event.pointerId);
+    const at = framePoint(event);
+    isGliding = false;
+    gesture = event.shiftKey
+      ? { kind: "box", startX: at.x, startY: at.y, x: at.x, y: at.y }
+      : { kind: "pan", startX: at.x, startY: at.y, startView: view, moved: false };
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    if (!gesture) return;
+    const at = framePoint(event);
+    if (gesture.kind === "pan") {
+      const moved = gesture.moved || Math.hypot(at.x - gesture.startX, at.y - gesture.startY) > 3;
+      gesture = { ...gesture, moved };
+      if (moved) manual = panView(gesture.startView, at.x - gesture.startX, at.y - gesture.startY);
+    } else if (gesture.kind === "box") {
+      gesture = { ...gesture, x: at.x, y: at.y };
+    } else {
+      const moved = gesture.moved || Math.hypot(at.x - gesture.startX, at.y - gesture.startY) > 4;
+      const overId = hostIdOf(document.elementFromPoint(event.clientX, event.clientY));
+      gesture = { ...gesture, moved, to: toScene(view, at), overId: overId === gesture.sourceId ? null : overId };
+    }
+  }
+
+  function onPointerUp(event: PointerEvent) {
+    const done = gesture;
+    gesture = null;
+    if (!done) return;
+    if (done.kind === "pan") {
+      // A click on the background clears the selection.
+      if (!done.moved) onClearSelection();
+    } else if (done.kind === "box") {
+      const left = Math.min(done.startX, done.x);
+      const top = Math.min(done.startY, done.y);
+      const right = Math.max(done.startX, done.x);
+      const bottom = Math.max(done.startY, done.y);
+      const inside = stops().filter((stop) => stop.x < right && stop.x + stop.w > left && stop.y < bottom && stop.y + stop.h > top).map((stop) => stop.id);
+      if (inside.length) onPick(inside);
+    } else if (!done.moved) {
+      onOpenMenu(done.sourceId, event.clientX, event.clientY);
+    } else if (done.overId) {
+      const action = introduceAction({ sourceId: done.sourceId, dropId: done.overId, selected: pickedIds, edges, blockOf, labelOf });
+      if (action?.kind === "introduce") {
+        notice = null;
+        onIntroduce(action.sourceId, action.targetIds, action.skipped);
+      } else if (action) notice = action.message;
+    }
+  }
+
+  function onHandleDown(event: PointerEvent, serverId: string) {
+    if (event.button !== 0 || gesture) return;
+    event.preventDefault();
+    event.stopPropagation();
+    frame?.setPointerCapture(event.pointerId);
+    if (!(event.currentTarget instanceof HTMLElement)) return;
+    const handle = event.currentTarget.getBoundingClientRect();
+    const from = toScene(view, framePoint({ clientX: handle.left + handle.width / 2, clientY: handle.top + handle.height / 2 }));
+    const at = framePoint(event);
+    gesture = { kind: "link", sourceId: serverId, startX: at.x, startY: at.y, from, to: from, overId: null, moved: false };
+  }
 </script>
 
+<!-- The frame takes the map's own keys and gestures: an application role, which Svelte does not count as interactive. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="relative isolate overflow-hidden bg-background bg-[radial-gradient(circle,var(--hairline)_1px,transparent_1px)] [background-size:18px_18px]"
+  bind:this={frame}
+  role="application"
+  aria-label="Map of your hosts"
+  aria-describedby="fleet-map-keys"
+  tabindex="-1"
+  onkeydown={onKeyDown}
+  onkeyup={(event) => {
+    // A button clicks when Space is released: the keydown already picked the host.
+    if (event.key === " " && hostIdOf(document.activeElement)) event.preventDefault();
+  }}
+  onpointerdown={onPointerDown}
+  onpointermove={onPointerMove}
+  onpointerup={onPointerUp}
+  onpointercancel={() => (gesture = null)}
+  onfocusin={(event) => {
+    const id = hostIdOf(event.target as Element);
+    if (id) lastFocusedId = id;
+  }}
+  class="relative isolate touch-none overflow-hidden bg-background bg-[radial-gradient(circle,var(--hairline)_1px,transparent_1px)] [background-size:18px_18px] outline-none select-none
+    {gesture?.kind === 'pan' && gesture.moved ? 'cursor-grabbing' : gesture?.kind === 'link' ? 'cursor-crosshair' : 'cursor-grab'}"
   class:paused={!isLive}
-  style:height="{MAP_HEIGHT}rem"
-  bind:clientWidth={mapWidth}
-  bind:clientHeight={mapHeight}
+  style:height="{frameSize.h}px"
 >
-  <!-- Zones, each as tall as its rows. A full zone holds one tile for each host, by organization or owner. -->
-  {#each map.zones as { zone, hosts, isFull, moreFound, box } (zone.id)}
-    {@const summary = rollup(hosts)}
+  <div
+    class="absolute top-0 left-0 origin-top-left {isGliding && !gesture ? 'transition-transform duration-200 ease-out motion-reduce:transition-none' : ''}"
+    style:width="{sceneSize.w}px"
+    style:height="{sceneSize.h}px"
+    style:transform="translate({view.x}px, {view.y}px) scale({view.scale})"
+  >
+    <FleetMapScene
+      map={scene.map}
+      {machines}
+      {colorMode}
+      {query}
+      {focusId}
+      {isLit}
+      {selectedId}
+      {pickedIds}
+      {selectedEdgeId}
+      {currentId}
+      wires={scene.wires}
+      reachPaths={scene.reachPaths}
+      {dragLine}
+      {dropStateOf}
+      canIntroduce={(serverId) => blockOf(serverId) === null}
+      {labelOf}
+      {onPoint}
+      onSelect={onActivate}
+      {onOpenZone}
+      onToggleZone={toggleZone}
+      {onAdd}
+      {onStart}
+      {onPointFound}
+      {onRetry}
+      {onHandleDown}
+      {onSelectEdge}
+    />
+  </div>
+
+  <p id="fleet-map-keys" class="sr-only">
+    Arrow keys move between hosts. Enter selects a host, and Enter again opens it. Space picks hosts to introduce several at once.
+    The menu key opens a host's actions, with Introduce to. Plus and minus zoom, zero fits the map, and Escape clears the selection.
+  </p>
+
+  {#if gesture?.kind === "box"}
     <div
-      class="absolute flex flex-col overflow-hidden rounded-xl border border-border/50 bg-background transition-opacity duration-300 motion-reduce:transition-none"
-      style:left="{box.x}%"
-      style:top="{box.y}%"
-      style:width="{box.w}%"
-      style:height="{box.h}%"
-      style:padding-inline="{map.zoneInset}%"
-      style:opacity={isZoneLit(hosts) ? 1 : 0.6}
-    >
-      <div class="flex shrink-0 items-center gap-1.5 px-1" style:height="{ZONE_HEADER}rem">
-        <p class="min-w-0 flex-1 truncate text-chrome-dense font-medium text-(--solus-text-secondary)">{zone.label}</p>
-        <!-- The found machines the zone has no row for (D7): the Add page lists them all. -->
-        {#if moreFound}
-          <button
-            type="button"
-            onclick={() => onAdd("nearby")}
-            title="Found and not on the map. Select to add one."
-            class="inline-flex h-[1.1875rem] shrink-0 items-center rounded-md bg-(--wash-3) px-[7px] text-chrome-dense text-(--solus-text-secondary) hover:text-foreground"
-          >
-            {isFull ? "" : "+"}{moreFound} found
-          </button>
-        {/if}
-        {#if isFull}
-          <button
-            type="button"
-            onclick={() => onOpenZone(zone.id)}
-            aria-label="Open {zone.label}"
-            class="-mr-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-(--wash-3) hover:text-foreground"
-          >
-            <ChevronRight size={13} />
-          </button>
-        {/if}
-      </div>
-      {#if isFull}
-        {@const groups = groupsOf(hosts)}
-        <p class="flex shrink-0 items-center gap-2.5 px-1 pb-2.5">
-          <HostStateIcon state="online" count={summary.answering} size={12} />
-          {#if summary.reconnecting}<HostStateIcon state="reconnecting" count={summary.reconnecting} size={12} />{/if}
-          {#if summary.unreachable}<HostStateIcon state="unreachable" count={summary.unreachable} size={12} />{/if}
-          {#if summary.stopped}<HostStateIcon state="stopped" count={summary.stopped} size={12} />{/if}
-          {#if summary.medianLatencyMs !== null}
-            <span class="ml-auto shrink-0 text-[0.6875rem] whitespace-nowrap text-muted-foreground tabular-nums">{summary.medianLatencyMs} ms</span>
-          {/if}
-        </p>
-        <div class="flex min-h-0 flex-col gap-2.5 overflow-hidden px-1">
-          {#each groups as { group, machines: grouped } (group)}
-            <div class="flex flex-col gap-1">
-              {#if groups.length > 1}
-                <p class="flex justify-between gap-2 text-[0.6875rem] text-muted-foreground tabular-nums">
-                  <span class="truncate">{group ?? "Other"}</span><span class="shrink-0">{rollup(grouped).answering} of {grouped.length}</span>
-                </p>
-              {/if}
-              <div class="flex flex-wrap gap-[3px]">
-                {#each grouped as machine (machine.serverId)}
-                  <FleetTile {machine} {colorMode} size={hosts.length > 60 ? 8 : 11} {query} isFocused={focusId === machine.serverId} {onPoint} {onOpen} />
-                {/each}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
+      aria-hidden="true"
+      class="pointer-events-none absolute z-30 rounded-sm border border-dashed border-foreground/50 bg-foreground/5"
+      style:left="{Math.min(gesture.startX, gesture.x)}px"
+      style:top="{Math.min(gesture.startY, gesture.y)}px"
+      style:width="{Math.abs(gesture.x - gesture.startX)}px"
+      style:height="{Math.abs(gesture.y - gesture.startY)}px"
+    ></div>
+  {/if}
+
+  <!-- Why a drop did nothing, where it happened. -->
+  {#if notice}
+    <div role="status" class="absolute top-3 left-1/2 z-40 flex max-w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-card py-1.5 pr-1.5 pl-3 text-chrome-dense shadow-[shadow:var(--solus-menu-shadow)]">
+      <span class="min-w-0 text-pretty">{notice}</span>
+      <Button variant="ghost" size="icon-sm" aria-label="Dismiss" onclick={() => (notice = null)}><X size={14} /></Button>
     </div>
-  {/each}
-
-  <!-- Links: green when connected, the problem's color when not, as wide as their traffic; a terracotta light moves along a link that carries sessions. -->
-  <svg class="pointer-events-none absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-    {#if tunneled.length}
-      <g opacity={isZoneLit(tunneled) ? 1 : 0.35}>
-        <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width={tunnelWidth} vector-effect="non-scaling-stroke"
-          style:stroke={tunnelSummary.answering ? "color-mix(in oklch, var(--success) 80%, transparent)" : "var(--hairline-strong)"} />
-        {#if tunnelSummary.sessions}
-          <path d={linkPath(hubPort, map.tunnel)} fill="none" stroke-width={tunnelWidth} stroke-linecap="round" vector-effect="non-scaling-stroke"
-            class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(tunnelSummary.sessions)}s" />
-        {/if}
-      </g>
-    {/if}
-    {#each map.zones as { zone, hosts, isFull, rows, linkStart, port } (zone.id)}
-      {#if isFull}
-        {@const summary = rollup(hosts)}
-        {@const path = linkPath(linkStart, port)}
-        {@const width = trafficWidth(trafficOf(hosts))}
-        <g opacity={isZoneLit(hosts) ? 1 : 0.35}>
-          <path d={path} fill="none" stroke-width={width} vector-effect="non-scaling-stroke"
-            style:stroke={summary.answering ? "color-mix(in oklch, var(--success) 80%, transparent)" : "var(--hairline-strong)"} />
-          {#if summary.sessions}
-            <path d={path} fill="none" stroke-width={width} stroke-linecap="round" vector-effect="non-scaling-stroke"
-              class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(summary.sessions)}s" />
-          {/if}
-        </g>
-      {:else}
-        {#each hosts as machine, index (machine.serverId)}
-          {@const tone = toneOf(machine.state)}
-          {@const path = linkPath(linkStart, rows[index]!.port)}
-          {@const width = trafficWidth(trafficOf([machine]))}
-          <g opacity={isLit(machine.serverId) ? 1 : 0.3}>
-            <path d={path} fill="none" vector-effect="non-scaling-stroke"
-              stroke-width={width + (focusId === machine.serverId ? 0.75 : 0)}
-              stroke-dasharray={machine.routeKind === "forwarded" ? "5 4" : tone === "ok" ? undefined : tone === "off" ? "3 4" : "2 4"}
-              class:crawl={tone === "warn"}
-              style:stroke={lineColor(machine)} />
-            {#if tone === "ok" && machine.sessions}
-              <path d={path} fill="none" stroke-width={width} stroke-linecap="round" vector-effect="non-scaling-stroke"
-                class="travel" style:stroke="var(--solus-status-running)" style:--travel="{travelSeconds(machine.sessions)}s" />
-            {/if}
-          </g>
-        {/each}
-      {/if}
-    {/each}
-  </svg>
-
-  <!-- Ports: where a link meets its card, or the edge of a full zone. -->
-  {#each map.zones as { zone, hosts, isFull, rows, port } (zone.id)}
-    {#if isFull}
-      <span
-        aria-hidden="true"
-        class="absolute z-15 size-[5px] -translate-1/2 rounded-full ring-[1.5px] ring-background"
-        style:left="{port.x}%"
-        style:top="{port.y}%"
-        style:background={rollup(hosts).answering ? portColor.ok : portColor.off}
-        style:opacity={isZoneLit(hosts) ? 1 : 0.35}
-      ></span>
-    {:else}
-      {#each hosts as machine, index (machine.serverId)}
-        {@const cardPort = rows[index]!.port}
-        <span
-          aria-hidden="true"
-          class="absolute z-15 size-[5px] -translate-1/2 rounded-full ring-[1.5px] ring-background"
-          style:left="{cardPort.x}%"
-          style:top="{cardPort.y}%"
-          style:background={portColor[toneOf(machine.state)]}
-          style:opacity={isLit(machine.serverId) ? 1 : 0.3}
-        ></span>
-      {/each}
-    {/if}
-  {/each}
-
-  <!-- The route of each host, on its line at its card (D13). The tunnel is drawn as its own mark, so a tunneled line needs no name. -->
-  {#each map.zones as { zone, hosts, isFull, rows } (zone.id)}
-    {#if !isFull}
-      {#each hosts as machine, index (machine.serverId)}
-        {@const route = machine.routeInUse}
-        {@const cardPort = rows[index]!.port}
-        {#if route && route.kind !== "tunnel"}
-          <Tooltip.Root delayDuration={150}>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <span
-                  {...props}
-                  role="img"
-                  aria-label={routeMarkLabel(machine, route)}
-                  class="absolute z-15 grid size-[18px] -translate-y-1/2 place-items-center rounded-full border bg-card transition-opacity duration-300 motion-reduce:transition-none
-                    {zone.isViaTunnel ? '-translate-x-[calc(100%+0.375rem)]' : 'translate-x-1.5'}
-                    {route.phase === 'refused'
-                      ? 'border-(--solus-status-error)/40 text-(--solus-status-error)'
-                      : route.phase === 'connecting'
-                        ? 'border-(--warning)/40 text-(--warning)'
-                        : 'border-border/70 text-muted-foreground'}"
-                  style:left="{cardPort.x}%"
-                  style:top="{cardPort.y}%"
-                  style:opacity={isLit(machine.serverId) ? 1 : 0.3}
-                ><RouteKindIcon kind={route.kind} size={10} /></span>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content value={routeMarkLabel(machine, route)} />
-          </Tooltip.Root>
-        {/if}
-      {/each}
-    {/if}
-  {/each}
-
-  {#if tunneled.length}
-    <span
-      role="img"
-      aria-label="Solus tunnel"
-      title="Solus tunnel"
-      class="absolute z-10 grid size-[22px] -translate-1/2 place-items-center rounded-full border bg-card
-        {tunnelSummary.answering ? 'border-(--success)/40 text-(--success)' : 'border-border text-muted-foreground'}"
-      style:left="{map.tunnel.x}%"
-      style:top="{map.tunnel.y}%"
-    >
-      <Link2 size={11} />
-    </span>
   {/if}
 
-  <!-- The status of the fleet on one line, above this device, where no line passes (D13). -->
-  <div class="absolute z-20 w-max -translate-x-1/2 -translate-y-full" style:left="{map.hub.x}%" style:top="calc({map.hub.y}% - 2.5rem)">
-    <FleetStatusLine {machines} />
+  <div class="absolute right-2 bottom-2 z-40 flex items-center gap-0.5 rounded-lg border border-border/60 bg-card/95 p-0.5 shadow-sm">
+    <Button variant="ghost" size="icon-sm" aria-label="Zoom out" title="Zoom out (−)" onclick={() => zoomAt(0.8)}><Minus size={14} /></Button>
+    <Button variant="ghost" size="icon-sm" aria-label="Zoom in" title="Zoom in (+)" onclick={() => zoomAt(1.25)}><Plus size={14} /></Button>
+    <Button variant="ghost" size="icon-sm" aria-label="Fit the map to view" title="Fit (0)" onclick={fit}><Maximize size={14} /></Button>
+    <Popover.Root>
+      <Popover.Trigger>
+        {#snippet child({ props })}
+          <Button {...props} variant="ghost" size="icon-sm" aria-label="How to use the map"><CircleHelp size={14} /></Button>
+        {/snippet}
+      </Popover.Trigger>
+      <Popover.Content side="top" align="end" class="w-72 p-3">
+        <ul class="list-disc space-y-1 pl-4 text-chrome-dense text-muted-foreground">
+          <li>Click a host to select it, and click it again to open it.</li>
+          <li>Drag the + beside one of your hosts onto another to introduce them, so their agents reach each other.</li>
+          <li>Shift-click or Shift-drag to pick several hosts, then drop a + on one of them to introduce it to all.</li>
+          <li>Drag the background to move the map. Pinch, or hold Ctrl or ⌘ and scroll, to zoom.</li>
+          <li>Arrow keys move between hosts. Space picks, Enter selects, and the menu key opens a host's actions.</li>
+        </ul>
+      </Popover.Content>
+    </Popover.Root>
   </div>
-
-  <!-- This device: the center. A web client has no host of its own, so its center is the browser. -->
-  <div class="absolute z-20 -translate-1/2" style:left="{map.hub.x}%" style:top="{map.hub.y}%" style:width="{map.hub.w}%">
-    {#if device}
-      <button
-        type="button"
-        data-host-id={device.serverId}
-        onclick={() => onOpen(device.serverId)}
-        onmouseenter={() => onPoint(device.serverId)}
-        onmouseleave={() => onPoint(null)}
-        onfocus={() => onPoint(device.serverId)}
-        onblur={() => onPoint(null)}
-        class="flex h-[3.75rem] w-full items-center gap-2.5 overflow-hidden rounded-xl border border-border/70 bg-card pr-3 pl-2.5 text-left shadow-[shadow:var(--solus-card-shadow-collapsed)] hover:border-foreground/25 dark:shadow-none"
-      >
-        <FleetLoadRing cpu={device.cpu} tone={toneOf(device.state)} size={34}><Laptop size={14} /></FleetLoadRing>
-        <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span class="truncate text-[0.8125rem] font-medium">{device.label}</span>
-          <span class="flex items-center justify-between gap-1.5 text-chrome-dense text-muted-foreground">
-            <span class="truncate">This device</span>
-            {#if device.sessions}<HostStateIcon state="running" count={device.sessions} size={11} />{/if}
-          </span>
-        </span>
-      </button>
-    {:else}
-      <div class="flex h-[3.75rem] items-center gap-2.5 overflow-hidden rounded-xl border border-border/70 bg-card pr-3 pl-2.5 shadow-[shadow:var(--solus-card-shadow-collapsed)] dark:shadow-none">
-        <span class="grid size-[34px] shrink-0 place-items-center text-muted-foreground"><Laptop size={14} /></span>
-        <span class="flex min-w-0 flex-col gap-0.5">
-          <span class="truncate text-[0.8125rem] font-medium">This browser</span>
-          <span class="truncate text-chrome-dense text-muted-foreground">This device</span>
-        </span>
-      </div>
-    {/if}
-  </div>
-
-  <!-- The rows of a zone with room: a card for each host, then room to grow. -->
-  {#each map.zones as { zone, rows } (zone.id)}
-    {#each rows as { slot, at } (slotKey(slot))}
-      {#if slot.kind === "host"}
-        <FleetMapCard
-          machine={slot.machine}
-          {at}
-          width={map.cardWidth}
-          isDimmed={!machineMatches(slot.machine, query)}
-          {onPoint}
-          {onOpen}
-          {onStart}
-        />
-      {:else if slot.kind === "found"}
-        {@render foundCard(slot.machine, at)}
-      {:else if slot.kind === "add"}
-        {@render addCard(slot.way, at)}
-      {:else if slot.kind === "unread"}
-        {@render unreadCard(zone.id, zone.label, slot.state, at)}
-      {:else}
-        <p
-          class="absolute flex -translate-1/2 items-center justify-center overflow-hidden text-chrome-dense whitespace-nowrap text-muted-foreground"
-          style:left="{at.x}%"
-          style:top="{at.y}%"
-          style:width="{map.cardWidth}%"
-          style:height="{CARD_HEIGHT}rem"
-        >
-          No shared hosts
-        </p>
-      {/if}
-    {/each}
-  {/each}
 </div>
-
-<!-- Room to grow is a dashed outline, not a card: it is not a host yet. -->
-{#snippet foundCard(machine: FoundMachine, at: Point)}
-  <button
-    type="button"
-    onclick={() => onAdd("nearby")}
-    onmouseenter={() => onPointFound(machine.key)}
-    onmouseleave={() => onPointFound(null)}
-    onfocus={() => onPointFound(machine.key)}
-    onblur={() => onPointFound(null)}
-    class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none"
-    style:left="{at.x}%"
-    style:top="{at.y}%"
-    style:width="{map.cardWidth}%"
-    style:height="{CARD_HEIGHT}rem"
-  >
-    <span class="grid size-[30px] shrink-0 place-items-center">
-      {#if machine.kind === "ssh"}<Terminal size={13} />{:else}<HostOperatingSystemIcon os={machine.os} size={13} />{/if}
-    </span>
-    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.name}</span>
-      <span class="truncate text-chrome-dense">Found nearby</span>
-    </span>
-    <Plus size={13} class="shrink-0 group-hover:text-foreground" />
-  </button>
-{/snippet}
-
-<!-- A zone whose hosts are not read yet: nothing is kept from an earlier start (plans/033 §3 Q2). -->
-{#snippet unreadCard(zoneId: FleetZoneId, label: string, state: "loading" | "failed", at: Point)}
-  {#if state === "loading"}
-    <p
-      class="absolute flex -translate-1/2 items-center justify-center overflow-hidden text-chrome-dense whitespace-nowrap text-muted-foreground"
-      style:left="{at.x}%"
-      style:top="{at.y}%"
-      style:width="{map.cardWidth}%"
-      style:height="{CARD_HEIGHT}rem"
-      role="status"
-    >
-      {zoneId === "own" ? "Reading your host list…" : `Reading ${label}…`}
-    </p>
-  {:else}
-    <button
-      type="button"
-      onclick={() => onRetry(zoneId)}
-      class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--solus-status-error)/40 pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none"
-      style:left="{at.x}%"
-      style:top="{at.y}%"
-      style:width="{map.cardWidth}%"
-      style:height="{CARD_HEIGHT}rem"
-    >
-      <span class="grid size-[30px] shrink-0 place-items-center"><RotateCw size={13} /></span>
-      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="truncate text-[0.8125rem] font-medium text-foreground">{zoneId === "own" ? "Host list not read" : `${label} not read`}</span>
-        <span class="truncate text-chrome-dense">Select to retry</span>
-      </span>
-    </button>
-  {/if}
-{/snippet}
-
-{#snippet addCard(way: Extract<ZoneSlot, { kind: "add" }>["way"], at: Point)}
-  <button
-    type="button"
-    onclick={() => onAdd(way)}
-    class="absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card hover:text-foreground motion-reduce:transition-none"
-    style:left="{at.x}%"
-    style:top="{at.y}%"
-    style:width="{map.cardWidth}%"
-    style:height="{CARD_HEIGHT}rem"
-  >
-    <span class="grid size-[30px] shrink-0 place-items-center">
-      {#if way === "pair"}<KeyRound size={13} />{:else}<Plus size={13} />{/if}
-    </span>
-    <span class="flex min-w-0 flex-col gap-0.5">
-      <span class="truncate text-[0.8125rem] font-medium">{addCards[way].title}</span>
-      <span class="truncate text-chrome-dense">{addCards[way].subtitle}</span>
-    </span>
-  </button>
-{/snippet}
-
-<style>
-  /* The one continuous motion of the map, approved for it alone (docs/plans/host-fleet.md D5). */
-  @keyframes travel {
-    to {
-      stroke-dashoffset: -160;
-    }
-  }
-  @keyframes crawl {
-    to {
-      stroke-dashoffset: 18;
-    }
-  }
-  .travel {
-    stroke-dasharray: 18 142;
-    animation: travel var(--travel, 6s) linear infinite;
-  }
-  .crawl {
-    animation: crawl 4s linear infinite;
-  }
-  .paused .travel,
-  .paused .crawl {
-    animation-play-state: paused;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .travel {
-      display: none;
-    }
-    .crawl {
-      animation: none;
-    }
-  }
-</style>

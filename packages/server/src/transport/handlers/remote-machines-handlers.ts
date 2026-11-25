@@ -8,6 +8,7 @@ import type { SshProvisioner } from '../../remote-machines/ssh-provisioner'
 import { formatSshTarget, resolveSshTarget, sshConfigHostCandidates } from '../../remote-machines/ssh-targets'
 import { isHostOwner } from '../../admission/principal'
 import { wslTarget } from '../../remote-machines/wsl'
+import { checkIdentityFile, fixIdentityFilePermissions } from '../../remote-machines/identity-file'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'remote-machines-handlers')
@@ -20,6 +21,8 @@ export interface RemoteMachinesDeps {
   /** Installs into a WSL distro the release of this host's own version (docs/plans/windows.md §13.6). */
   wslProvisioner: SshProvisioner
   listWslDistros(): Promise<WslDistroList>
+  /** This host's name, as an identity file problem names it. */
+  hostName(): string
   broadcast<K extends 'host.sshProgress'>(topic: K, payload: HostEventMap[K]): void
 }
 
@@ -40,6 +43,7 @@ const wslAddSchema = z.object({
 const addSchema = z.object({
   sshTarget: z.string().max(512).optional(),
   identityFile: z.string().trim().max(1024).optional(),
+  fixIdentityFilePermissions: z.boolean().optional(),
   discovered: discoveredSchema.optional(),
   authSecret: z.string().max(1024).optional(),
   link: linkSchema.optional(),
@@ -57,12 +61,26 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
   }
 
   server.register('hostsAddOverSsh', async ([input], ctx): Promise<SshAddResult> => {
-    if (!ctx.deviceId) throw new Error('Adding a machine over SSH requires an authenticated device.')
+    // A device, or the local owner with none: the CLI, as `solus host pair` is.
+    const isLocalOwner = isHostOwner(ctx.principal) && ctx.principal.via === 'local'
+    if (!ctx.deviceId && !isLocalOwner) throw new Error('Adding a machine over SSH requires an authenticated device.')
     const request = addSchema.parse(input)
     const resolved = resolveSshTarget(request.discovered, request.sshTarget)
     if (resolved.status === 'needs-target') return resolved
     const { target } = resolved
-    if (request.identityFile) target.identityFile = request.identityFile
+    if (request.identityFile) {
+      // The person asked for it: only the owner of this host, and only their own file.
+      if (request.fixIdentityFilePermissions) {
+        if (!isHostOwner(ctx.principal)) throw new Error('Only the owner of this host can change its key files.')
+        fixIdentityFilePermissions(request.identityFile)
+        log.info('identity_file_permissions_fixed', { requestId: request.requestId })
+      }
+      // Checked here, before ssh runs: ssh reports a missing or readable key least clearly.
+      const key = checkIdentityFile(request.identityFile, deps.hostName())
+      if (key.status === 'missing') throw new Error(key.message)
+      if (key.status === 'too-open') return { status: 'key-permissions', identityFile: request.identityFile, message: key.message }
+      target.identityFile = request.identityFile
+    }
     if (!request.link && await deps.ssh.resolvesToThisMachine(target)) throw new Error('That SSH target is this computer.')
     const outcome = await deps.provisioner.add(
       { target, authSecret: request.authSecret, link: request.link, deviceLabel: request.deviceLabel ?? 'Solus' },

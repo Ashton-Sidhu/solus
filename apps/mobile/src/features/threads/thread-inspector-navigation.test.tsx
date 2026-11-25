@@ -199,6 +199,7 @@ it.each([
     expect(screen.state.routes.at(-1)?.params).toEqual({
       ...thread,
       ...linked,
+      parentSessionId: screen.source.threadId,
       title: "Fix the build",
     });
   },

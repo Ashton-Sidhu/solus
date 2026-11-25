@@ -16,6 +16,10 @@ export interface AddMachineAsk {
   hint?: string
   /** The address the person gave, as an http(s) origin. */
   url?: string
+  /** An SSH target the person gave, such as `ubuntu@3.91.20.4` or a config alias. The card fills it in. */
+  sshTarget?: string
+  /** A private key on the host that runs SSH, as with `ssh -i`. A path only, never the key. */
+  identityFile?: string
   /** Why the agent asks, in one sentence. */
   reason: string
 }

@@ -35,6 +35,7 @@ export function registerCapabilityHandlers(
       // derive at pairing time; this is the host correcting that record.
       name: hostDisplayName(),
       sessionListControls: true,
+      sessionComposer: { providerSwitch: server.hasHandler('switchSessionAgent'), sideChatCommands: false },
       attachUpload: server.hasHandler('attachUpload'),
       attachStreamUpload: server.hasHandler('attachUploadToken'),
       // Not a handler: this build reads image refs off a prompt. An older host
@@ -45,6 +46,7 @@ export function registerCapabilityHandlers(
       skillsInstall: server.hasHandler('skillsInstall'),
       skillsSearch: server.hasHandler('skillsSearch'),
       skillsManage: server.hasHandler('skillsList') && server.hasHandler('skillsRemove'),
+      checkoutStatus: server.hasHandler('gitRepositoryStatus'),
       voiceModel: server.hasHandler('voiceModelStatus'),
       voiceStreaming: server.hasHandler('voiceStreamStart'),
       automations: server.hasHandler('automationList'),

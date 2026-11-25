@@ -137,3 +137,12 @@ export function fileHeaderSubtitle(projectName: string, relativePath: string): s
     ? parentDir
     : [projectName, parentDir].filter(Boolean).join(" · ");
 }
+
+/** A file route captures all remaining path segments, including a nested citation. */
+export function fileRouteLinking(prefix: string) {
+  return {
+    path: prefix + "/:path(.*)",
+    parse: { path: (value: string) => value.split("/") },
+    stringify: { path: (value: string | readonly string[]) => typeof value === "string" ? value : value.join("/") },
+  };
+}

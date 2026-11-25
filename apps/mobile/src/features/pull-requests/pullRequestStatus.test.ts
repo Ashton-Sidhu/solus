@@ -102,4 +102,15 @@ describe("mobile overview check status", () => {
       pullRequestChecksSummary({ checks: [check("success"), check("cancelled")] }),
     ).toMatchObject({ title: "1 check failing", tint: "accent-danger-foreground" });
   });
+
+  it("names workflows that wait for approval before green checks", () => {
+    // WHY: runs held for approval have no checks yet, so green checks alone
+    // would call an untested pull request passed.
+    expect(
+      pullRequestChecksSummary({ checks: [check("success")], workflowApprovalsRequired: 2 }),
+    ).toMatchObject({ title: "Workflows need approval", count: "2 waiting" });
+    expect(
+      pullRequestChecksSummary({ checks: [check("failure")], workflowApprovalsRequired: 2 }),
+    ).toMatchObject({ title: "1 check failing" });
+  });
 });

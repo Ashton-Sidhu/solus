@@ -67,10 +67,11 @@ export function sshAddFormIssue(form: SshAddForm): string | null {
 }
 
 /** The request one add sends. */
-export function sshAddRequest(form: SshAddForm, requestId: string, deviceLabel: string, link: SshAddLink | null): SshAddRequest {
+export function sshAddRequest(form: SshAddForm, requestId: string, deviceLabel: string, link: SshAddLink | null, fixIdentityFilePermissions = false): SshAddRequest {
   const request: SshAddRequest = { sshTarget: form.sshTarget.trim(), requestId, deviceLabel }
   const identityFile = form.identityFile.trim()
   if (identityFile) request.identityFile = identityFile
+  if (identityFile && fixIdentityFilePermissions) request.fixIdentityFilePermissions = true
   if (link) request.link = link
   if (form.authSecret) request.authSecret = form.authSecret
   return request
@@ -89,6 +90,8 @@ export async function runSshAdd(
     readonly deviceLabel: string
     readonly issueTicket: () => Promise<SshAddLink | null>
     readonly onProgress: (progress: SshAddProgress) => void
+    /** The person chose Fix permissions: the host fixes the key first, in the same request. */
+    readonly fixIdentityFilePermissions?: boolean
   },
 ): Promise<SshAddResult> {
   let link: SshAddLink | null = null
@@ -101,16 +104,35 @@ export async function runSshAdd(
     if (progress.requestId === options.requestId) options.onProgress(progress)
   })
   try {
-    return await connection.api.hostsAddOverSsh(sshAddRequest(form, options.requestId, options.deviceLabel, link))
+    return await connection.api.hostsAddOverSsh(sshAddRequest(form, options.requestId, options.deviceLabel, link, options.fixIdentityFilePermissions))
   } finally {
     stop()
   }
+}
+
+/**
+ * After `key-permissions`: the add again with the same form, in one request that
+ * asks the runner host to let only its owner read the identity file first (chmod 600).
+ */
+export function fixKeyAndRunSshAdd(
+  connection: SshAddConnection,
+  form: SshAddForm,
+  options: Parameters<typeof runSshAdd>[2],
+): Promise<SshAddResult> {
+  return runSshAdd(connection, form, { ...options, fixIdentityFilePermissions: true })
+}
+
+/** The runner host found no file at the identity file path: the message goes under that field. */
+export function isMissingIdentityFile(message: string): boolean {
+  return message.includes('No file at ')
 }
 
 /** What the screen shows after the runner host answered. */
 export type SshAddOutcome =
   /** SSH refused the key or the secret: a password can be given. */
   | { kind: 'ask-auth'; sshTarget: string; message: string }
+  /** Other users can read the key, so SSH refuses it. Nothing was sent; Fix permissions can follow. */
+  | { kind: 'fix-key'; identityFile: string; message: string }
   | { kind: 'ask-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
   | { kind: 'linked'; installationId: string; label: string; note: string }
   /** Only the runner host reaches it. The phone offers a link. */
@@ -122,6 +144,8 @@ export function sshAddOutcome(result: SshAddResult, runnerLabel: string): SshAdd
   switch (result.status) {
     case 'needs-auth':
       return { kind: 'ask-auth', sshTarget: result.sshTarget, message: `${result.message} Enter the password or key passphrase for ${result.sshTarget}.` }
+    case 'key-permissions':
+      return { kind: 'fix-key', identityFile: result.identityFile, message: result.message }
     case 'needs-target':
       return { kind: 'ask-target', candidates: result.candidates, defaultTarget: result.defaultTarget, message: result.message }
     case 'linked':

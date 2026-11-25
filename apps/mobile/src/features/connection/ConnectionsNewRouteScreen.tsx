@@ -37,6 +37,7 @@ import { workspaceHasColumns } from "../layout/workspace/workspace-selection-sto
 import { NearbyHosts } from "../../solus/NearbyHosts";
 import { m } from "../../i18n/messages";
 import { SyncSettingsChoice } from "../../solus/SyncSettingsRows";
+import { AddOverSshRow } from "../../solus/AddOverSsh";
 
 type ConnectionsNewRouteParams = {
   readonly mode?: string;
@@ -316,11 +317,14 @@ function PairingForm({
           </View>
 
           {routeFor ? null : (
-            <SyncSettingsChoice
-              value={syncSettings}
-              onValueChange={setSyncSettings}
-              disabled={connecting}
-            />
+            <>
+              <AddOverSshRow disabled={connecting} syncSettings={syncSettings} />
+              <SyncSettingsChoice
+                value={syncSettings}
+                onValueChange={setSyncSettings}
+                disabled={connecting}
+              />
+            </>
           )}
 
           {hasCloudPublicConfig() ? <T3ConnectSection /> : null}

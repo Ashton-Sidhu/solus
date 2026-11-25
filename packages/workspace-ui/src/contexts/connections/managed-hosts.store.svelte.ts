@@ -18,7 +18,7 @@ export interface ManagedHostsTiming {
 const DEFAULT_TIMING: ManagedHostsTiming = { listingTimeoutMs: 30_000, listingPollMs: 2_000 }
 
 /**
- * The lifecycle of Solus Cloud machines from this client (docs/plans/host-fleet.md D9):
+ * The lifecycle of Solus Cloud machines from this client:
  * create, start, stop, restart, change the spec of, and delete an organization's
  * managed host, and the size catalog a new one may take. Every call goes through the
  * account source, so desktop (native bridge) and web (account origin) act the same.

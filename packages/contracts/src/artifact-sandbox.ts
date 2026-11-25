@@ -14,7 +14,7 @@ const THEME_TOKENS = [
   ['--background', '--solus-container-bg'],
   ['--foreground', '--solus-text-primary'],
   ['--muted', '--solus-render-raised'],
-  ['--muted-foreground', '--solus-text-secondary'],
+  ['--muted-foreground', '--solus-render-text-muted'],
   ['--card', '--solus-container-bg'],
   ['--card-foreground', '--solus-text-primary'],
   ['--popover', '--solus-popover-bg'],
@@ -23,15 +23,15 @@ const THEME_TOKENS = [
   ['--secondary-foreground', '--solus-text-primary'],
   ['--border', '--solus-render-border'],
   ['--input', '--solus-render-border-strong'],
-  // The render accent: terracotta in both modes (workspace.css). A selected
-  // fill sits inside an accent border, so it is a tint of the same accent: a
-  // grey fill there reads as a muddy box.
+  // The render accent: terracotta in both modes (workspace.css). The selected
+  // fill is a tint of the day blue of --chart-1, not of the accent: a
+  // terracotta tint and the error tint are both pale pink.
   ['--ring', '--solus-render-accent'],
   ['--primary', '--solus-render-accent'],
   ['--primary-foreground', '--solus-render-on-accent'],
   ['--accent', '--solus-render-accent'],
   ['--accent-foreground', '--solus-render-on-accent'],
-  ['--accent-surface', '--solus-render-accent-light'],
+  ['--accent-surface', '--solus-render-selection'],
   ['--accent-surface-foreground', '--solus-text-primary'],
   // The app's own accent, terracotta in both modes. A mock-up of Solus's own
   // UI uses it, so its buttons match the real app and not the render accent.
@@ -43,7 +43,7 @@ const THEME_TOKENS = [
   ['--success-foreground', '--solus-art-positive'],
   ['--code-background', '--solus-render-raised'],
   ['--code-foreground', '--solus-text-primary'],
-  // Charts: the render palette, one family around the render accent.
+  // Charts: six hues in one order in both modes, the brand terracotta last.
   ['--chart-1', '--solus-render-1'],
   ['--chart-2', '--solus-render-2'],
   ['--chart-3', '--solus-render-3'],
@@ -53,11 +53,12 @@ const THEME_TOKENS = [
   ['--font-sans', '--solus-font-family'],
 ] as const satisfies ReadonlyArray<readonly [token: string, solusVariable: `--solus-${string}`]>;
 
-// Roles the Solus theme has no token for. Each surface is a tint of its
-// colour, so it sits on the page in either mode.
+// Roles the Solus theme has no token for. Each surface is a tint, so it sits
+// on the page in either mode. The warning is an amber nearer orange: a yellow
+// near 85° reads as green-yellow as a tint and as brown as text.
 const FIXED_COLORS = {
-  light: { warning: '#b86e00', warningForeground: '#965f10', info: '#2a71d6', infoForeground: '#1d4ed8' },
-  dark: { warning: '#ffb020', warningForeground: '#ffc561', info: '#4aa3ff', infoForeground: '#7cbcff' },
+  light: { warning: '#d97706', warningForeground: '#b45309', warningSurface: 'color-mix(in oklab,#f59e0b 12%,transparent)', info: '#2a71d6', infoForeground: '#1d4ed8' },
+  dark: { warning: '#fbbf24', warningForeground: '#fcd34d', warningSurface: 'color-mix(in oklab,#fbbf24 9%,transparent)', info: '#4aa3ff', infoForeground: '#7cbcff' },
 } as const;
 
 function fixedTokens(isDark: boolean): string[] {
@@ -66,7 +67,7 @@ function fixedTokens(isDark: boolean): string[] {
     '--destructive-surface:color-mix(in srgb,var(--destructive) 14%,transparent)',
     `--warning:${fixed.warning}`,
     `--warning-foreground:${fixed.warningForeground}`,
-    `--warning-surface:color-mix(in srgb,${fixed.warning} 14%,transparent)`,
+    `--warning-surface:${fixed.warningSurface}`,
     `--info:${fixed.info}`,
     `--info-foreground:${fixed.infoForeground}`,
     '--radius:0.625rem',
@@ -139,15 +140,16 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-render-raised': 'color-mix(in oklch, var(--solus-text-primary) 5%, transparent)',
     '--solus-render-border': 'color-mix(in oklch, var(--solus-text-primary) 10%, transparent)',
     '--solus-render-border-strong': 'color-mix(in oklch, var(--solus-text-primary) 18%, transparent)',
+    '--solus-render-text-muted': 'color-mix(in oklch, var(--solus-text-primary) 70%, transparent)',
     '--solus-render-accent': '#d97757',
     '--solus-render-on-accent': '#ffffff',
-    '--solus-render-accent-light': 'rgba(217, 119, 87, 0.09)',
-    '--solus-render-1': '#d97757',
+    '--solus-render-selection': 'color-mix(in oklab, #467cc0 10%, transparent)',
+    '--solus-render-1': '#467cc0',
     '--solus-render-2': '#00908a',
-    '--solus-render-3': '#5f75c1',
-    '--solus-render-4': '#a15e9c',
-    '--solus-render-5': '#628835',
-    '--solus-render-6': '#cb7f00',
+    '--solus-render-3': '#ebb517',
+    '--solus-render-4': '#746fbe',
+    '--solus-render-5': '#b65964',
+    '--solus-render-6': '#d97757',
     '--solus-text-primary': '#2a2618',
     '--solus-art-raised': '#f7f4ec',
     '--solus-text-secondary': '#484538',
@@ -187,15 +189,16 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-render-raised': 'color-mix(in oklch, var(--solus-text-primary) 7%, transparent)',
     '--solus-render-border': 'color-mix(in oklch, var(--solus-text-primary) 12%, transparent)',
     '--solus-render-border-strong': 'color-mix(in oklch, var(--solus-text-primary) 20%, transparent)',
+    '--solus-render-text-muted': 'color-mix(in oklch, var(--solus-text-primary) 70%, transparent)',
     '--solus-render-accent': '#e68e6b',
     '--solus-render-on-accent': '#2c1a12',
-    '--solus-render-accent-light': '#e68e6b24',
-    '--solus-render-1': '#e68e6b',
+    '--solus-render-selection': 'color-mix(in oklab, #87bafd 14%, transparent)',
+    '--solus-render-1': '#87bafd',
     '--solus-render-2': '#4eccd3',
     '--solus-render-3': '#dcaf61',
-    '--solus-render-4': '#e39cd3',
-    '--solus-render-5': '#91c985',
-    '--solus-render-6': '#9cb4fe',
+    '--solus-render-4': '#b0adfb',
+    '--solus-render-5': '#f59aa2',
+    '--solus-render-6': '#e68e6b',
     '--solus-text-primary': '#f0ede5',
     '--solus-art-raised': '#36332d',
     '--solus-text-secondary': '#bdbab3',
@@ -505,6 +508,12 @@ export function sandboxThemeCss(isDark: boolean, read: (variable: SolusThemeVari
     `overflow:hidden;scrollbar-width:none;` +
     `text-rendering:optimizeLegibility}` +
     `body{margin:0;background:transparent;color:inherit;font:inherit;}` +
+    // A render runs in quirks mode, where a table does not inherit the page's
+    // font or text colour: it takes a 16px font and the system text colour,
+    // so its text is larger than the page's and unreadable on a panel the
+    // render paints in the other mode. `:where` keeps the specificity at zero,
+    // so an author's own table rule still wins.
+    `:where(table){color:inherit;font:inherit}` +
     `code,kbd,pre,samp{font-family:var(--font-mono)}` +
     // A render that caps its own width — a card with a max-width — sat against
     // the left edge of a frame that is as wide as the transcript. Centre every

@@ -11,6 +11,13 @@
  * open starts from a fresh page load. The server and the OS file cache are warm,
  * as they are for a user who opens an older session in a running app.
  *
+ * --real a.jsonl,b.jsonl measures copies of real Claude transcripts or Codex
+ * rollouts instead of the fixtures (`copyRealSessions`). Their artifacts are the
+ * fences in the transcript; a saved work a session names is not copied.
+ *
+ * --hover-ms 300 rests the pointer on the row before the click, so the open
+ * takes the first page the sidebar read while the pointer rested.
+ *
  * --cpu-throttle 4 slows the renderer CPU the way a loaded laptop does.
  * --trace records one Chrome trace for each fixture and splits renderer
  * main-thread time by kind (script, style, layout, paint, HTML parse, GC) and
@@ -22,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { deflateRawSync } from 'node:zlib'
 import { join } from 'node:path'
 import { chromium, type CDPSession, type Page } from 'playwright'
-import { writeFixtures, type Fixture } from './session-open-fixtures'
+import { copyRealSessions, writeFixtures, type Fixture } from './session-open-fixtures'
 
 const argv = process.argv.slice(2)
 const flag = (name: string): string | undefined => { const i = argv.indexOf(name); return i === -1 ? undefined : argv[i + 1] }
@@ -32,6 +39,8 @@ const TRACE = argv.includes('--trace')
 const KEEP = argv.includes('--keep')
 /** Measure one fixture only, by key. */
 const ONLY = flag('--only')
+/** Rest the pointer on the row this long before the click, as a person does (0: click at once, the worst case). */
+const HOVER_MS = Number(flag('--hover-ms') ?? 0)
 /** Chrome CPU slowdown factor: 4 stands in for a laptop that is busy with agents, builds, and other tabs. */
 const CPU_THROTTLE = Number(flag('--cpu-throttle') ?? 1)
 /** The transcript is settled when nothing in the workspace changed for this long. */
@@ -86,7 +95,50 @@ const root = mkdtempSync(join(tmpdir(), 'solus-open-bench-'))
 const home = join(root, 'home')
 const data = join(root, 'data')
 const devLog = join(root, 'dev.log')
-const fixtures = writeFixtures(home, join(root, 'project')).filter((fixture) => !ONLY || fixture.key === ONLY)
+/** Real provider transcripts to measure instead of the fixtures, comma separated. */
+const REAL = flag('--real')?.split(',').filter(Boolean)
+const fixtures = (REAL ? copyRealSessions(home, join(root, 'project'), REAL) : writeFixtures(home, join(root, 'project')))
+  .filter((fixture) => !ONLY || fixture.key === ONLY)
+
+/**
+ * Codex answers no turns for a thread it never loaded in this Codex home, and the
+ * person's own home has loaded every thread it ran. Load each copied thread once
+ * in a short-lived app-server so the host reads it as the person's host does.
+ */
+async function primeCodexThreads(threadIds: readonly string[]): Promise<void> {
+  if (!threadIds.length) return
+  const child = spawn('codex', ['app-server'], { env: { ...process.env, CODEX_HOME: join(home, '.codex') }, stdio: ['pipe', 'pipe', 'ignore'] })
+  const replies = new Map<number, (reply: { error?: unknown }) => void>()
+  let pending = ''
+  child.stdout!.on('data', (chunk: Buffer) => {
+    pending += chunk.toString()
+    for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
+      const line = pending.slice(0, end)
+      pending = pending.slice(end + 1)
+      try {
+        const reply = JSON.parse(line) as { id?: number; error?: unknown }
+        if (reply.id !== undefined) replies.get(reply.id)?.(reply)
+      } catch {}
+    }
+  })
+  let nextId = 0
+  const request = (method: string, params: object) => new Promise<{ error?: unknown }>((resolve) => {
+    const id = ++nextId
+    replies.set(id, resolve)
+    child.stdin!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
+  })
+  try {
+    await request('initialize', { clientInfo: { name: 'session-open-bench', version: '0' } })
+    child.stdin!.write(JSON.stringify({ jsonrpc: '2.0', method: 'initialized' }) + '\n')
+    for (const threadId of threadIds) {
+      const reply = await request('thread/resume', { threadId })
+      if (reply.error) throw new Error(`codex could not load ${threadId}: ${JSON.stringify(reply.error)}`)
+    }
+  } finally {
+    child.kill('SIGTERM')
+    await new Promise((resolve) => child.once('exit', resolve))
+  }
+}
 
 function startServer(): { server: ChildProcess; output: () => string } {
   const env: NodeJS.ProcessEnv = {
@@ -126,17 +178,25 @@ function installRpcProbe(): void {
   class ProbedSocket extends Native {
     constructor(url: string | URL, protocols?: string | string[]) {
       super(url, protocols)
+      // A large frame arrives in parts, each marked with U+001E (`TEXT_FRAME_PART_MARK`); the last part has no mark.
+      let heldParts = ''
       this.addEventListener('message', (event) => {
         const now = performance.now()
         if (typeof event.data !== 'string') return
-        const match = /^\{"t":"result","id":"([^"]+)"/.exec(event.data)
+        if (event.data.startsWith('\u001e')) {
+          heldParts += event.data.slice(1)
+          return
+        }
+        const text = heldParts + event.data
+        heldParts = ''
+        const match = /^\{"t":"result","id":"([^"]+)"/.exec(text)
         if (!match) return
         const rpc = probe.rpcs.get(match[1])
         if (!rpc) return
         rpc.end = now
-        rpc.bytesIn += size(event.data)
+        rpc.bytesIn += size(text)
         // The history reply is deflated on the wire; its text lets the run measure that.
-        if (rpc.method === 'loadSessionPage') rpc.text = event.data
+        if (rpc.method === 'loadSessionPage') rpc.text = text
       })
     }
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
@@ -358,6 +418,11 @@ async function openOnce(page: Page, base: string, fixture: Fixture, cdp: CDPSess
     }
     return performance.now() - probe.last > quietMs
   }, 1500, { timeout: 30_000, polling: 100 })
+  // A person rests on the row before the click; the sidebar reads the first page then.
+  if (HOVER_MS > 0) {
+    await row.hover()
+    await page.waitForTimeout(HOVER_MS)
+  }
   await page.evaluate(armOpenProbe, fixture.title)
   const serverBefore = serverPageTimes().get(fixture.sessionId)?.length ?? 0
   if (cdp) await startTrace(cdp)
@@ -458,8 +523,33 @@ async function openOnce(page: Page, base: string, fixture: Fixture, cdp: CDPSess
 
 /** Save each `render_artifact` work on the host, as the tool did, with the id
  *  its receipt names. The paired client's session token is the workspace API's bearer. */
-async function createFixtureWorks(base: string, servers: string): Promise<void> {
-  const [{ sessionToken }]: Array<{ sessionToken: string }> = JSON.parse(servers)
+async function createFixtureWorks(base: string, credentials: string): Promise<void> {
+  const [{ token: sessionToken }]: Array<{ token: string }> = JSON.parse(credentials)
+  // Codex lists a copied rollout once it has backfilled its own thread index; a list read asks the host to index again.
+  const until = Date.now() + 60_000
+  for (;;) {
+    const listed = await (await fetch(`${base}/v1/sessions?scope=all&limit=200`, { headers: { Authorization: `Bearer ${sessionToken}` } })).json() as { items: Array<{ id: string }> }
+    const ids = new Set(listed.items.map((item) => item.id))
+    if (fixtures.every((fixture) => ids.has(fixture.sessionId))) break
+    if (Date.now() > until) throw new Error(`the host never indexed ${fixtures.filter((fixture) => !ids.has(fixture.sessionId)).map((fixture) => fixture.key).join(', ')}`)
+    await Bun.sleep(1000)
+  }
+  // A transcript the indexer finds starts settled (plans/031 D6) and is in no person's list until they return it.
+  for (const fixture of fixtures) {
+    for (const settled of [true, false]) {
+      const activated = await fetch(`${base}/v1/sessions/${fixture.sessionId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settled }),
+      })
+      if (!activated.ok) throw new Error(`session activate failed: ${activated.status} ${await activated.text()}`)
+    }
+    // A real session's tab shows the title its host names; the probe matches its start.
+    if (!fixture.title) {
+      const record = await (await fetch(`${base}/v1/sessions/${fixture.sessionId}`, { headers: { Authorization: `Bearer ${sessionToken}` } })).json() as { title?: string | null }
+      fixture.title = (record.title ?? '').trim().slice(0, 24)
+    }
+  }
   for (const work of fixtures.flatMap((fixture) => fixture.works)) {
     const created = await fetch(`${base}/v1/works`, {
       method: 'POST',
@@ -477,6 +567,7 @@ async function createFixtureWorks(base: string, servers: string): Promise<void> 
 const median = (values: number[]): number => { const s = [...values].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : NaN }
 const p90 = (values: number[]): number => { const s = [...values].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.ceil(s.length * 0.9) - 1)] : NaN }
 
+await primeCodexThreads(fixtures.filter((fixture) => fixture.key.startsWith('codex-')).map((fixture) => fixture.sessionId))
 const { server, output } = startServer()
 const browser = await chromium.launch()
 try {
@@ -490,8 +581,8 @@ try {
   await context.addInitScript(() => localStorage.setItem('solus.mount-timing', '1'))
   const page = await context.newPage()
   await page.goto(base + pairPath)
-  await page.waitForFunction(() => (localStorage.getItem('solus.servers') ?? '').includes('sessionToken'), null, { timeout: 30_000 })
-  await createFixtureWorks(base, await page.evaluate(() => localStorage.getItem('solus.servers') ?? '[]'))
+  await page.waitForFunction(() => /"token":"[^"]/.test(localStorage.getItem('solus.hostCredentials') ?? ''), null, { timeout: 30_000 })
+  await createFixtureWorks(base, await page.evaluate(() => localStorage.getItem('solus.hostCredentials') ?? '[]'))
 
   const samples: OpenSample[] = []
   const traces: Record<string, OpenTrace> = {}

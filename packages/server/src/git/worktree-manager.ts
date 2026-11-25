@@ -750,7 +750,22 @@ export async function syncWithOrigin(
 }
 
 const EXISTING_PR_TTL_MS = 60_000
-const existingPrCache = new Map<string, { at: number; url: Promise<string | null> }>()
+interface ExistingPrLookup {
+  at: number
+  url: Promise<string | null>
+  resolved?: string
+}
+const existingPrCache = new Map<string, ExistingPrLookup>()
+
+function existingPrKey(branch: string, cwd: string) {
+  return `${currentIdentity('a pull request lookup').cacheKey}\0${cwd}\0${branch}`
+}
+
+/** A header can show a known PR without starting or waiting for a network call. */
+export function cachedExistingPR(branch: string, cwd: string): string | undefined {
+  const cached = existingPrCache.get(existingPrKey(branch, cwd))
+  return cached && Date.now() - cached.at < EXISTING_PR_TTL_MS ? cached.resolved : undefined
+}
 
 /**
  * Which pull request this branch has, if any.
@@ -778,12 +793,14 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
  *  the in-flight promise so multiple visible clients of one person collapse to a
  *  single read. Another person asks with their own connection (plans/019). */
 export function getExistingPR(branch: string, cwd: string, bypassCache = false): Promise<string | null> {
-  const key = `${currentIdentity('a pull request lookup').cacheKey}\0${cwd}\0${branch}`
+  const key = existingPrKey(branch, cwd)
   if (bypassCache) existingPrCache.delete(key)
   const cached = existingPrCache.get(key)
   if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url
   const url = queryExistingPR(branch, cwd)
-  existingPrCache.set(key, { at: Date.now(), url })
+  const entry: ExistingPrLookup = { at: Date.now(), url }
+  existingPrCache.set(key, entry)
+  void url.then(value => { if (value) entry.resolved = value })
   return url
 }
 

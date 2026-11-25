@@ -13,6 +13,7 @@ import { sessionDetailAtom } from "./session-detail";
 import { linkedSessionRecord } from "./session-record";
 import { waitingForSessionList } from "./workspace-state";
 
+const subscribeNothing = () => () => {};
 const noSession = Atom.make(null);
 const waitingForCodebase = Symbol("waitingForCodebase");
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
@@ -21,6 +22,7 @@ export function useThreadSession(params: {
   environmentId?: string;
   threadId?: string;
   draft?: NewTaskDraftRouteParams;
+  inspector?: ReactNavigation.RootParamList["Thread"]["inspector"];
 }) {
   const directory = useSolusWorkspace();
   const draft = params.draft;
@@ -97,6 +99,13 @@ export function useThreadSession(params: {
       ? store.controller.readTurnDiff(index)
       : Promise.resolve(null);
   }, [store, hostId, readScope]);
+  // Mount the feed, composer and their host reads together when the first rows arrive.
+  const openingHistory = useSyncExternalStore(
+    saved?.meta.subscribe ?? subscribeNothing,
+    () => !!saved && saved.controller.phase.kind === "loading" &&
+      !saved.controller.showsHostConversation && saved.orderSnapshot().length === 0,
+  );
+  if (openingHistory && !params.inspector && host?.connectionState === "connected") return { kind: "loading" as const };
   if (isDraft && !record && codebaseId === waitingForCodebase) return { kind: "loading" as const };
   if (
     !store ||

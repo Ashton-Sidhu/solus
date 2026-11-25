@@ -23,7 +23,7 @@ export type PairByApproval = (
 ) => Promise<void>;
 
 /**
- * Adds several nearby hosts at once (docs/plans/host-fleet.md D8), as desktop's
+ * Adds several nearby hosts at once, as desktop's
  * `AddSeveral` does: one approval request to each, all with the same check code,
  * so the person approves each one on its own machine. Each request ends on its
  * own. An added host leaves the selection; a host that fails stays selected with

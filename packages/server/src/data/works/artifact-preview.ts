@@ -127,6 +127,8 @@ export interface HtmlPreview {
   console: BrowserConsoleEntry[]
   /** Local image paths that could not be written into the page. */
   missingImages: string[]
+  /** The page height at each frame width the preview measured, narrowest first. */
+  sizes?: ArtifactMeasurements
 }
 
 /** Uncaught errors and failed resource loads do not reach the console on
@@ -150,6 +152,19 @@ const ERROR_REPORTER = `<script>(function(){
  * §7). The page runs under the app policy with these network hosts, and each
  * `solusApp.call` it makes is answered by `call` before the picture is taken.
  */
+/** How long a save waits for its render check before it saves without one. */
+export const SAVE_CHECK_TIMEOUT_MS = 8_000
+
+/** The render check of a page being saved: null when the host has no headless
+ *  browser, the render fails, or it takes longer than `SAVE_CHECK_TIMEOUT_MS`. */
+export async function saveCheckPreview(html: string, preview: typeof previewArtifactHtml = previewArtifactHtml): Promise<HtmlPreview | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SAVE_CHECK_TIMEOUT_MS) })
+  const checked = await Promise.race([preview({ html }).catch(() => null), timeout])
+  clearTimeout(timer)
+  return checked
+}
+
 export interface AppPreviewHost {
   network: readonly string[]
   call(name: string, args: AppPreviewArguments): Promise<AppPreviewValue>
@@ -294,7 +309,8 @@ export async function previewArtifactHtml(input: {
         const height = Number(JSON.parse(await driver.evaluate(MEASURE_SCRIPT)))
         if (Number.isFinite(height) && height > 0) sizes.push([frameWidth, height])
       }
-      await saveArtifactMeasurements(input.html, sizes.sort((a, b) => a[0] - b[0]))
+      sizes.sort((a, b) => a[0] - b[0])
+      await saveArtifactMeasurements(input.html, sizes)
     } catch (error) {
       log.debug('artifact_layout_unavailable', { error: String(error) })
     }
@@ -305,6 +321,7 @@ export async function previewArtifactHtml(input: {
       contentHeight,
       console: consoleEntries,
       missingImages: inlined.missing,
+      sizes,
     }
   } catch (error) {
     log.warn('html_preview_failed', { error: error instanceof Error ? error.message : String(error) })

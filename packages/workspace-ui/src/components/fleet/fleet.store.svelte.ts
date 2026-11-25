@@ -21,18 +21,18 @@ export interface HostLoad {
   /** 0 to 100. */
   cpu: number | null
   memory: number | null
-  /** The round trip of the last `hostResources()` call: the latency the map shows (D6). */
+  /** The round trip of the last `hostResources()` call: the latency the map shows. */
   latencyMs: number | null
   cpuCount: number | null
   totalMemoryBytes: number | null
   cpuHistory: number[]
-  /** KB/s each way on this device's connection to the host, between the last two reads; null until there are two (D13). */
+  /** KB/s each way on this device's connection to the host, between the last two reads; null until there are two. */
   traffic: Traffic | null
 }
 
 /**
- * Every host as a `FleetMachine`, and the load of the hosts a surface holds
- * (docs/plans/host-fleet.md D6). A host is asked for its load only while the map or
+ * Every host as a `FleetMachine`, and the load of the hosts a surface holds.
+ * A host is asked for its load only while the map or
  * its page holds it: a fleet nobody looks at costs nothing. The load comes from
  * `hostResources()` alone, not the process telemetry, so a large fleet stays cheap.
  */

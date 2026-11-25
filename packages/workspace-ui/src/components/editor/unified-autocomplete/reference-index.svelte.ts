@@ -252,7 +252,7 @@ export class ReferenceIndex {
       })),
   )
 
-  /** Every host of this client (docs/plans/host-fleet.md D12). */
+  /** Every host of this client. */
   hostItems = $derived.by((): MenuItem[] => (this.deps.hosts?.() ?? []).map(hostMenuItem))
 
   /** The task this conversation is working on. A link records the durable Solus

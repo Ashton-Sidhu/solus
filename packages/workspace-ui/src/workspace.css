@@ -499,22 +499,29 @@
      its --card is the page. Fills and lines are washes of the text colour,
      the same recipe as the app's hover wash and hairlines, so a render reads
      as part of the conversation and never as grey or sand boxes. The accent
-     is the brand terracotta, the same as the app's chrome. The series is one
-     family: the accent first, then five
-     hues at the same OKLCH lightness and chroma (L 0.58, C 0.12). The
-     --solus-art-* ramp above keeps its hue roles for the app's own charts. */
+     is the brand terracotta, the same as the app's chrome. The series is six
+     hues at the same OKLCH lightness and chroma (L 0.58, C 0.12), in the
+     same hue order as the dark twin. Four hues come from the sidebar's sky
+     (sidebar-places-and-sky.md): day blue, dawn gold, night violet, and dusk
+     rose; teal keeps the blue apart from the warm hues. The terracotta is last: an agent takes
+     the first series for a category or a diagram zone, and a tint of the
+     terracotta reads as salmon, near the warning and error colours. Muted
+     text is a wash of the text colour, lighter than body text and still
+     WCAG AA on the page. The --solus-art-* ramp above keeps its hue roles
+     for the app's own charts. */
   --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 5%, transparent);
   --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 10%, transparent);
   --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 18%, transparent);
+  --solus-render-text-muted: color-mix(in oklch, var(--solus-text-primary) 70%, transparent);
   --solus-render-accent: #d97757;
   --solus-render-on-accent: #ffffff;
-  --solus-render-accent-light: rgba(217, 119, 87, 0.09);
-  --solus-render-1: #d97757; /* the brand terracotta, the render accent */
+  --solus-render-selection: color-mix(in oklab, #467cc0 10%, transparent); /* a tint of the day blue of --solus-render-1 */
+  --solus-render-1: #467cc0; /* day blue */
   --solus-render-2: #00908a; /* teal */
-  --solus-render-3: #5f75c1; /* slate blue */
-  --solus-render-4: #a15e9c; /* plum */
-  --solus-render-5: #628835; /* moss */
-  --solus-render-6: #cb7f00; /* amber: lighter and stronger than the rest, a yellow at the series lightness reads as olive */
+  --solus-render-3: #ebb517; /* dawn gold: lighter and stronger than the rest (L 0.80, C 0.16), a yellow at the series lightness reads as olive */
+  --solus-render-4: #746fbe; /* night violet */
+  --solus-render-5: #b65964; /* dusk rose */
+  --solus-render-6: #d97757; /* the brand terracotta, the render accent */
 }
 
 /* "Conversation width" (Appearance). Comfortable keeps the rule above. */
@@ -745,24 +752,23 @@
   --solus-art-negative: #f75d59;
   /* ─── HTML render palette (dark twin) ───
      Dark keeps the brand terracotta as the render accent: on charcoal it
-     reads as warm light, not as chrome. Series 2 to 5 are the same hues as
+     reads as warm light, not as chrome. Each series is the same hue as in
      light, in the same order, so a legend keeps its colour meaning across
-     modes. Series 3 and 6 carry the warm hues: in light they are the brand
-     terracotta and amber; in dark, terracotta is the accent, so they are
-     ochre and the slate blue the light accent uses. Six hues at L 0.78,
-     C 0.11. */
+     modes: day blue, teal, dawn gold, night violet, dusk rose, and the
+     terracotta last. Six hues at L 0.78, C 0.11. */
   --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 7%, transparent);
   --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 12%, transparent);
   --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 20%, transparent);
+  --solus-render-text-muted: color-mix(in oklch, var(--solus-text-primary) 70%, transparent);
   --solus-render-accent: #e68e6b;
   --solus-render-on-accent: #2c1a12;
-  --solus-render-accent-light: #e68e6b24;
-  --solus-render-1: #e68e6b; /* terracotta, the render accent */
+  --solus-render-selection: color-mix(in oklab, #87bafd 14%, transparent); /* a tint of the day blue of --solus-render-1 */
+  --solus-render-1: #87bafd; /* day blue */
   --solus-render-2: #4eccd3; /* teal */
-  --solus-render-3: #dcaf61; /* ochre */
-  --solus-render-4: #e39cd3; /* plum */
-  --solus-render-5: #91c985; /* moss */
-  --solus-render-6: #9cb4fe; /* indigo */
+  --solus-render-3: #dcaf61; /* dawn gold */
+  --solus-render-4: #b0adfb; /* night violet */
+  --solus-render-5: #f59aa2; /* dusk rose */
+  --solus-render-6: #e68e6b; /* terracotta, the render accent */
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components

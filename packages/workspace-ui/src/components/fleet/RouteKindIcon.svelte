@@ -2,7 +2,7 @@
   import { Globe, Link2, Monitor, ShieldCheck, Terminal } from "@lucide/svelte";
   import type { RouteKind } from "@solus/contracts/host-routes";
 
-  /** The mark of a route kind (docs/plans/host-fleet.md D13). Tailscale has its own dot mark; the others are plain glyphs. */
+  /** The mark of a route kind. Tailscale has its own dot mark; the others are plain glyphs. */
   interface Props {
     kind: RouteKind;
     size?: number;

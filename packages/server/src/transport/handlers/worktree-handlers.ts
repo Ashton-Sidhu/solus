@@ -4,7 +4,7 @@ import { resolve } from 'path'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
 import { DIFF_STATS_BATCH_LIMIT } from '@solus/contracts/git-types'
-import { discardChanges, syncWithOrigin, listBranches, listBranchRefs, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { cachedExistingPR, discardChanges, syncWithOrigin, listBranches, listBranchRefs, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { checkoutBranch } from '../../git/checkout-branch'
 import { runAsync } from '../../git/exec'
@@ -411,7 +411,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('gitRefreshState', async (args, handlerCtx) => {
     const [cwd, options] = args
     assertPathInScope('gitRefreshState', handlerCtx.principal, cwd)
-    if (!options?.includeRefs) return computeGitState(cwd, options)
+    if (!options?.includeRefs) {
+      const state = await computeGitState(cwd, options)
+      const prUrl = !options?.includeDetails && state?.branch ? cachedExistingPR(state.branch, cwd) : undefined
+      return state && prUrl ? { ...state, prUrl } : state
+    }
     // Refs ride along with the status scan so a full environment refresh is
     // one round trip. They are the refs on disk: a fetch from a large remote
     // can take a minute, and status must not wait for it. The branch picker

@@ -32,6 +32,15 @@ describe('file preview paths', () => {
     if (sandbox) await rm(sandbox, { recursive: true, force: true })
   })
 
+  test('identifies a directory only inside the shared checkout', async () => {
+    const path = join(projectRoot, 'docs')
+    await mkdir(path)
+    expect(await readFilePreview(ctx, { path }, projectRoot)).toMatchObject({ ok: false, isDirectory: true })
+    const outside = await readFilePreview(ctx, { path: externalRoot }, projectRoot)
+    expect(outside.ok).toBe(false)
+    expect(outside).not.toHaveProperty('isDirectory', true)
+  })
+
   test.each([
     ['PNG', 'image', 'image/png'], ['jpg', 'image', 'image/jpeg'], ['gif', 'image', 'image/gif'],
     ['webp', 'image', 'image/webp'], ['avif', 'image', 'image/avif'], ['bmp', 'image', 'image/bmp'],
@@ -52,6 +61,14 @@ describe('file preview paths', () => {
       size: bytes.length,
       media: { kind, mime },
     })
+  })
+
+  test('opens a citation on the correct local line of a bounded page', async () => {
+    const path = join(projectRoot, 'long.txt')
+    const line = 'a'.repeat(1023) + '\n'
+    await writeFile(path, line.repeat(1100))
+    const result = await readFilePreview(ctx, { path, textPage: { index: 0, line: 1001 } })
+    expect(result).toMatchObject({ ok: true, page: { index: 31, targetLine: 9 } })
   })
 
   test('names a large media file without a size limit', async () => {

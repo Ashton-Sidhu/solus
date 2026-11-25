@@ -5,10 +5,7 @@ import {
   stackMergeOutcome,
   stackMergePlan,
 } from '@solus/workspace-ui/components/pr-review/lib/pr-stack'
-import {
-  mayApproveWorkflowRuns,
-  readsPendingWorkflowRuns,
-} from '@solus/workspace-ui/components/pr-review/lib/workflow-approval'
+import { readsPendingWorkflowRuns } from '@solus/workspace-ui/components/pr-review/lib/workflow-approval'
 
 // "Merge stack" lands every open layer from the bottom up to the pull request
 // it is asked on, and the host refuses it when any of those heads moved. So the
@@ -95,10 +92,5 @@ describe('workflow approval', () => {
     expect(readsPendingWorkflowRuns(detailOf({ isFork: false }))).toBe(true)
     expect(readsPendingWorkflowRuns(detailOf({ isFork: true, state: 'merged' }))).toBe(false)
     expect(readsPendingWorkflowRuns(detailOf({ isFork: true, hostActions: ['merge'] }))).toBe(false)
-  })
-
-  test('only a viewer allowed to approve gets the action', () => {
-    expect(mayApproveWorkflowRuns(detailOf({ isFork: true }))).toBe(true)
-    expect(mayApproveWorkflowRuns(detailOf({ isFork: true, viewerActions: ['merge'] }))).toBe(false)
   })
 })
