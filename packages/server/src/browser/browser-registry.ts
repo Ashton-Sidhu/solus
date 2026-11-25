@@ -77,6 +77,7 @@ import {
   browserUrlForLog,
 } from './surface-driver'
 import type { BrowserFrameChannel } from './browser-frame-channel'
+import { answerSelectMenuExpression, probeSelectMenuExpression, selectMenuProbeSchema } from './select-menu'
 
 const log = createLogger('browser', 'browser-registry.ts')
 
@@ -120,6 +121,7 @@ export const BROWSER_PAGES_PER_HOST = 32
 interface PageRecord {
   page: BrowserPage
   driver: BrowserSurfaceDriver | null
+  selectMenu?: { id: string; clientId: string }
   /** Driver work is ordered per page. A headless open, a native handover, and
    *  a command must not replace or dispose the surface another one is using. */
   driverQueue: Promise<void>
@@ -425,6 +427,7 @@ export class BrowserRegistry {
     await this.queueDriver(record, async () => {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
+      this.invalidateSelectMenu(record)
       forgetGuestRequests(record.page)
       try {
         record.driver = await host.attach(webContentsId)
@@ -474,6 +477,7 @@ export class BrowserRegistry {
     await this.queueDriver(record, async () => {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
+      this.invalidateSelectMenu(record)
       forgetGuestRequests(record.page)
       record.page.hostKind = 'none'
       record.page.loadState = 'idle'
@@ -510,6 +514,7 @@ export class BrowserRegistry {
     // client that reports it anyway would put `about:blank` in the toolbar of a
     // page that is about to be somewhere else.
     if (report.url === BROWSER_BLANK_URL) return
+    if (report.url && report.url !== page.url) this.invalidateSelectMenu(record)
     // A navigation takes the recording overlay with the old document.
     if (page.recording && report.loadState === 'ready' && page.loadState !== 'ready') {
       this.showRecordingOverlay(record, true)
@@ -556,6 +561,7 @@ export class BrowserRegistry {
   async navigate(browserPageId: string, op: BrowserNavigateOp): Promise<void> {
     const record = this.require(browserPageId)
     await this.withDriver(record, async (driver) => {
+      this.invalidateSelectMenu(record)
       if (op.kind === 'goto') record.page.url = op.url
       record.page.loadState = 'loading'
       this.publish(record)
@@ -729,6 +735,7 @@ export class BrowserRegistry {
   async openDevTools(browserPageId: string): Promise<void> {
     const record = this.require(browserPageId)
     await this.withDriver(record, async (driver) => {
+      this.invalidateSelectMenu(record)
       await driver.openDevTools(() => {
         record.page.devToolsOpen = false
         this.publish(record)
@@ -763,6 +770,7 @@ export class BrowserRegistry {
     const record = this.require(browserPageId)
     return this.withDriver(record, async (driver) => {
       const state = await this.readAnnotations(driver, browserPageId, annotationSyncExpression(tool))
+      if (tool) this.invalidateSelectMenu(record)
       record.page.annotationTool = tool
       this.publish(record)
       return state
@@ -795,16 +803,78 @@ export class BrowserRegistry {
     return { browserPageId, annotations: parsed?.annotations ?? [] }
   }
 
-  async interact(browserPageId: string, op: BrowserInteractOp): Promise<BrowserInteractResult> {
+  async interact(browserPageId: string, op: BrowserInteractOp, clientId?: string): Promise<BrowserInteractResult> {
     const record = this.require(browserPageId)
     return this.withDriver(record, async (driver) => {
       const dialogBefore = driver.dialogs().last?.sequence
       try {
-        return withDialogNote(await this.interactWith(driver, record, op), driver.dialogs(), dialogBefore)
+        if (op.kind !== 'answerSelectMenu' && op.kind !== 'evaluate' && op.kind !== 'waitFor') {
+          this.invalidateSelectMenu(record)
+        }
+        const result = op.kind === 'answerSelectMenu'
+          ? await this.answerStreamedSelect(record, driver, op, clientId)
+          : await this.interactWith(driver, record, op, clientId)
+        return withDialogNote(result, driver.dialogs(), dialogBefore)
       } catch (error) {
         throw withOpenDialog(error, driver.dialogs())
       }
     })
+  }
+
+  private invalidateSelectMenu(record: PageRecord): void {
+    delete record.selectMenu
+    if (!record.page.selectMenuId) return
+    delete record.page.selectMenuId
+    this.publish(record)
+  }
+
+  private async answerStreamedSelect(
+    record: PageRecord,
+    driver: BrowserSurfaceDriver,
+    { id, index }: Extract<BrowserInteractOp, { kind: 'answerSelectMenu' }>,
+    clientId: string | undefined,
+  ): Promise<BrowserInteractResult> {
+    const menu = record.selectMenu
+    if (!menu || record.closing || menu.clientId !== clientId || record.page.selectMenuId !== id || menu.id !== id ||
+        (index !== null && (!Number.isSafeInteger(index) || index < 0))) return { ok: false }
+    this.invalidateSelectMenu(record)
+    return { ok: await driver.evaluate(answerSelectMenuExpression(id, index)) === 'true' }
+  }
+
+  private async clickStreamed(
+    record: PageRecord,
+    driver: BrowserSurfaceDriver,
+    op: Extract<BrowserInteractOp, { kind: 'clickAt' }>,
+    clientId: string | undefined,
+  ): Promise<BrowserInteractResult> {
+    const { x, y } = op
+    if (op.selectMenu !== true || !clientId || record.page.annotationTool || driver.dialogs().open) {
+      await driver.clickAt(x, y)
+      return { ok: true }
+    }
+    if (record.closing || !this.frameWatchers.get(record.page.browserPageId)?.has(clientId)) return { ok: false }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false }
+    const menu = { id: randomUUID(), clientId }
+    record.selectMenu = menu
+    let offered = false
+    try {
+      const raw = await driver.evaluate(probeSelectMenuExpression(menu.id, x, y))
+      // Navigation, detach and unsubscribe can invalidate the press while the
+      // guest runs its event handlers. Never publish that old offer.
+      if (record.selectMenu !== menu || record.closing) return { ok: false }
+      if (raw === 'null') {
+        await driver.clickAt(x, y)
+        return { ok: true }
+      }
+      const probe = parseJson(selectMenuProbeSchema, raw)
+      if (!probe) return { ok: raw === 'false' }
+      offered = true
+      record.page.selectMenuId = menu.id
+      this.publish(record)
+      return { ok: true, selectMenu: { ...probe, id: menu.id } }
+    } finally {
+      if (!offered && record.selectMenu === menu) this.invalidateSelectMenu(record)
+    }
   }
 
   /** Give host files to the file input that an element names. */
@@ -848,12 +918,17 @@ export class BrowserRegistry {
       dialog: (open) => {
         if (!current()) return
         record.page.dialog = open
+        if (open) this.invalidateSelectMenu(record)
         this.publish(record)
       },
       fileChooser: (open) => {
         if (!current()) return
         record.page.fileChooser = open
+        if (open) this.invalidateSelectMenu(record)
         this.publish(record)
+      },
+      selectMenuInvalidated: () => {
+        if (current()) this.invalidateSelectMenu(record)
       },
       downloaded: async (file) => {
         if (!current()) return
@@ -876,17 +951,15 @@ export class BrowserRegistry {
   private async interactWith(
     driver: BrowserSurfaceDriver,
     record: PageRecord,
-    op: BrowserInteractOp,
+    op: Exclude<BrowserInteractOp, { kind: 'answerSelectMenu' }>,
+    clientId: string | undefined,
   ): Promise<BrowserInteractResult> {
     if (op.kind === 'evaluate') return runGuarded(driver, op.expression)
 
     // Coordinate-addressed input from a streamed surface: the client already
     // mapped a pointer to a CSS-viewport coordinate, so these go straight to the
     // guest without resolving a selector first.
-    if (op.kind === 'clickAt') {
-      await driver.clickAt(op.x, op.y)
-      return { ok: true }
-    }
+    if (op.kind === 'clickAt') return this.clickStreamed(record, driver, op, clientId)
     if (op.kind === 'scrollAt') {
       await driver.scrollAt(op.x, op.y, op.deltaY)
       return { ok: true }
@@ -1165,6 +1238,7 @@ export class BrowserRegistry {
     const record = this.records.get(browserPageId)
     const before = record && watchers.size > 1 ? this.viewerOptions(record) : null
     watchers.delete(clientId)
+    if (record?.selectMenu?.clientId === clientId) this.invalidateSelectMenu(record)
     this.frameCaps.get(browserPageId)?.delete(clientId)
     if (watchers.size > 0) {
       // The largest pane leaving lets the stream shrink to the ones still open.

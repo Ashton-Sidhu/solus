@@ -1,7 +1,8 @@
 /**
  * The word rule every search in Solus applies (docs/plans/unified-search.md):
- * punctuation and coding boundaries split words, and every query word must
- * start a word of the text. Case and accents are ignored; numbers match whole
+ * punctuation and coding boundaries split words. An unquoted query can
+ * match word starts. Double quotes require adjacent whole words in order.
+ * Case and accents are ignored; numbers match whole
  * tokens and nothing is stemmed. Session names, task titles, bodies and
  * comments, the hosts' indexes and the marks in a row all read a query through
  * one `SearchQuery`, so one query means one thing everywhere.
@@ -64,6 +65,7 @@ export function searchTokenMatches(token: string, word: string): boolean {
 }
 
 const FILLER_WORDS = new Set(['a', 'an', 'and', 'for', 'in', 'of', 'on', 'the', 'to', 'with'])
+const PULL_REQUEST_REFERENCE = /^(?:(?:pr|pulls?|pull\s+request)[\s/#]*\d+|https?:\/\/\S+\/pulls?\/\d+\/?)$/i
 
 function oneEdit(left: string, right: string): boolean {
   if (left.length < 4 || /\d/.test(left) || left[0] !== right[0] || Math.abs(left.length - right.length) > 1) return false
@@ -124,10 +126,12 @@ const PASSAGE_LENGTH = 320
 
 /** A query, read once, asked of each text it is matched against. */
 export class SearchQuery {
+  readonly exactPhrase: boolean
+  private readonly phraseGaps: readonly string[]
   /** The query's words, folded. A word with no letter or digit is dropped. */
   readonly words: readonly string[]
-  /** The words a text must hold: a filler word ("the" in "fix the sidebar")
-   *  is optional unless the query is only filler. It still counts where it matches. */
+  /** The words a text must hold. In an unquoted query, filler words are
+   *  optional unless the query is only filler. */
   readonly required: readonly string[]
   /** The pull request a query names as "pr 22889", "pull request 22889" or a
    *  pasted ".../pull/22889" link, as a query of its number. "#22889" already
@@ -135,17 +139,37 @@ export class SearchQuery {
   readonly pullRequest: SearchQuery | null
 
   constructor(readonly text: string) {
-    this.words = prepare(text).tokens.map(token => token.text)
+    const trimmed = text.trim()
+    this.exactPhrase = trimmed.length > 2 && /^["“”]/.test(trimmed) && /["“”]$/.test(trimmed)
+    const tokens = searchTokens(text)
+    this.words = tokens.map(token => token.text)
+    this.phraseGaps = this.exactPhrase
+      ? tokens.slice(1).map((token, index) => text.slice(tokens[index]!.end, token.start).replace(/\s+/g, ' '))
+      : []
     // The same array when nothing is optional: a name match then reads the words without a copy.
-    const optional = this.words.some(word => FILLER_WORDS.has(word)) && this.words.some(word => !FILLER_WORDS.has(word))
+    const optional = !this.exactPhrase && this.words.some(word => FILLER_WORDS.has(word)) && this.words.some(word => !FILLER_WORDS.has(word))
     this.required = optional ? this.words.filter(word => !FILLER_WORDS.has(word)) : this.words
     const number = this.words.at(-1)
     const before = this.words.at(-2)
     const namesPullRequest = !!number && /^\d+$/.test(number) && (before === 'pr' || before === 'pull' || before === 'pulls' || (before === 'request' && this.words.at(-3) === 'pull'))
-    this.pullRequest = namesPullRequest ? new SearchQuery(number) : null
+    this.pullRequest = namesPullRequest && (!this.exactPhrase || PULL_REQUEST_REFERENCE.test(trimmed.slice(1, -1).trim()))
+      ? new SearchQuery(number)
+      : null
   }
 
   get isEmpty(): boolean { return this.words.length === 0 }
+
+  private phraseStart(text: string, tokens: readonly SearchToken[], from = 0): number {
+    if (this.isEmpty) return -1
+    for (let start = from; start <= tokens.length - this.words.length; start++) {
+      if (this.words.every((word, offset) => {
+        const token = tokens[start + offset]!
+        return token.text === word && (offset === 0 ||
+          text.slice(tokens[start + offset - 1]!.end, token.start).replace(/\s+/g, ' ') === this.phraseGaps[offset - 1])
+      })) return start
+    }
+    return -1
+  }
 
   /** How well `text` names what the query asks for: exact name, phrase, whole
    *  words, prefixes, words typed together, then, with `typos`, one edit.
@@ -154,6 +178,12 @@ export class SearchQuery {
     if (this.isEmpty) return null
     const field = prepare(text)
     if (!field.tokens.length) return null
+    if (this.exactPhrase) {
+      const start = this.phraseStart(text, field.tokens)
+      if (start < 0) return null
+      const quality = this.words.length === field.tokens.length ? 90 : start === 0 ? 70 : 60
+      return { score: quality + 8 + this.words.length / field.tokens.length * 2, typo: false }
+    }
     // A filler word the name holds still counts toward its quality.
     const words = this.required === this.words ? this.words : this.words.filter(word => field.words.has(word) || this.required.includes(word))
     let whole = 0, typo = false
@@ -173,6 +203,15 @@ export class SearchQuery {
    *  for a word typed as several written together ("defaultmergemethod"). */
   hits(text: string): SearchToken[] {
     const spans: SearchToken[] = []
+    if (this.exactPhrase) {
+      const tokens = searchTokens(text)
+      for (let at = this.phraseStart(text, tokens); at >= 0; at = this.phraseStart(text, tokens, at + this.words.length)) {
+        const start = tokens[at]!.start
+        const end = tokens[at + this.words.length - 1]!.end
+        spans.push({ text: text.slice(start, end), start, end })
+      }
+      return spans
+    }
     const unmatched = new Set(this.words)
     for (const token of searchTokens(text)) {
       let matched = false
@@ -191,6 +230,7 @@ export class SearchQuery {
 
   /** How many required words `text` holds, by the rule names follow. */
   heldWords(text: string): number {
+    if (this.exactPhrase) return this.holdsEveryWord(text) ? this.words.length : 0
     const field = prepare(text)
     return this.required.filter(word => holds(field, word)).length
   }
@@ -199,6 +239,7 @@ export class SearchQuery {
   holdsEveryWord(text: string): boolean {
     if (this.isEmpty) return false
     const field = prepare(text)
+    if (this.exactPhrase) return this.phraseStart(text, field.tokens) >= 0
     return this.required.every(word => holds(field, word))
   }
 
@@ -208,6 +249,7 @@ export class SearchQuery {
    *  word starts a word of the text. */
   firstHit(text: string): number {
     const field = prepare(text)
+    if (this.exactPhrase) return field.tokens[this.phraseStart(text, field.tokens)]?.start ?? -1
     let earliest = -1
     for (const word of this.words) {
       const number = /^\d+$/.test(word)

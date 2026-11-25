@@ -25,18 +25,29 @@ export interface SessionNameScore { score: number; reason: SessionSearchReason; 
  *  every one of them. Only before more text, so typing "solus/" is not empty. */
 const WORKTREE_BRANCH_PREFIX = /^solus\/(?=\S)/
 
+function searchableBranch(branch: SessionSearchSubject['branch'], query: SearchQuery): string | undefined {
+  if (!branch) return undefined
+  if (query.exactPhrase && query.text.trim().slice(1, -1).trim().toLowerCase() === branch.toLowerCase()) return branch
+  return branch.replace(WORKTREE_BRANCH_PREFIX, '')
+}
+
 /** How well a session's id, title, branch or pull requests name the query. */
 export function sessionNameScore(subject: SessionSearchSubject, query: SearchQuery, typos = false): SessionNameScore | null {
   // An exact ID was already checked before a names-only correction pass.
   if (!typos && subject.id && subject.id.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') === query.words.join('')) return { score: 700, reason: { field: 'id', text: subject.id }, typo: false }
-  if (!subject.title && !subject.branch && !subject.pullRequest) return null
   let best: SessionNameScore | null = null
-  for (const [field, text] of [['title', subject.title], ['branch', subject.branch?.startsWith('solus/') ? subject.branch.replace(WORKTREE_BRANCH_PREFIX, '') : subject.branch], ['pullRequest', subject.pullRequest]] as const) {
+  const branch = searchableBranch(subject.branch, query)
+  for (const [field, text] of [['title', subject.title], ['branch', branch], ['pullRequest', subject.pullRequest]] as const) {
     if (!text) continue
-    const match = (field === 'pullRequest' && query.pullRequest ? query.pullRequest : query).matchName(text, typos)
-    if (!match) continue
-    const score = match.typo ? 50 + match.score : (field === 'title' ? 400 : 300) + match.score
-    if (!best || score > best.score) best = { score, reason: { field, text }, typo: match.typo }
+    const fieldQuery = field === 'pullRequest' ? query.pullRequest ?? query : query
+    // Each linked pull request has its own number and title.
+    const names = query.exactPhrase && field === 'pullRequest' ? text.split('\n') : [text]
+    for (const name of names) {
+      const match = fieldQuery.matchName(name, typos)
+      if (!match) continue
+      const score = match.typo ? 50 + match.score : (field === 'title' ? 400 : 300) + match.score
+      if (!best || score > best.score) best = { score, reason: { field, text: name }, typo: match.typo }
+    }
   }
   return best
 }
@@ -88,8 +99,8 @@ export interface RankedSession<C> { candidate: C; score: number; name: SessionNa
  * The sessions that match, best first (docs/plans/unified-search.md). Every
  * store reads its own messages; this is the one rule that orders them.
  *
- * A session matches when every required word is in its name or in any of its
- * messages, not necessarily one message. Names rank before messages; phrase
+ * An exact phrase must be in one name or message. Other queries can find
+ * words across a session's names and messages. Names rank before messages; phrase
  * evidence before words in one message, then words spread across messages.
  * Recent use reorders message matches within their tier. A typo is tried on
  * names only when nothing matched. Without `evidence` (names only) no message
@@ -111,17 +122,20 @@ export function rankSessions<C extends SessionCandidate>(
   for (const candidate of candidates) {
     const name = sessionNameScore(subject(candidate), query)
     if (name) { keep({ candidate, score: name.score, name }); continue }
+    if (query.exactPhrase && !evidence?.phrase(candidate)) continue
     const counts = evidence?.counts(candidate) ?? query.required.map(() => 0)
-    const nameTokens = candidate.title || candidate.branch || candidate.pullRequest
-      ? searchTokens([candidate.title, candidate.branch, candidate.pullRequest].filter(Boolean).join('\n'))
-      : []
-    if (query.required.some((word, index) => !counts[index] && !nameTokens.some(token => searchTokenMatches(token.text, word)))) continue
+    if (!query.exactPhrase) {
+      const nameTokens = candidate.title || candidate.branch || candidate.pullRequest
+        ? searchTokens([candidate.title, candidate.branch, candidate.pullRequest].filter(Boolean).join('\n'))
+        : []
+      if (query.required.some((word, index) => !counts[index] && !nameTokens.some(token => searchTokenMatches(token.text, word)))) continue
+    }
     const score = sessionEvidenceScore(counts, !!evidence?.together(candidate), !!evidence?.phrase(candidate))
       + searchUseScore(candidate.lastActivity, now, candidate.viewedAt)
     keep({ candidate, score, name: null })
   }
   // A typo never displaces a real word match. Names-only correction reads no messages.
-  if (bySession.size === 0) for (const candidate of candidates) {
+  if (!query.exactPhrase && bySession.size === 0) for (const candidate of candidates) {
     const name = sessionNameScore(subject(candidate), query, true)
     if (name) keep({ candidate, score: name.score, name })
   }

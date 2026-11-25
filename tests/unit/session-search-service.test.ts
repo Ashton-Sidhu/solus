@@ -82,3 +82,16 @@ test('a service preview resolves the same provider message after positions chang
   expect((await readTranscriptMessageWindow('org1', { ...request, target: { ...target, sourceSessionId: 'wrong-thread' } })).messages).toEqual([])
   expect((await readTranscriptMessageWindow('org1', { ...request, target: { ...target, messageId: null } })).hitMessageId).toBe(101)
 })
+
+test('mirrored phrase search only counts and pages verified passages', async () => {
+  // Postgres caps word positions in its index. A phrase late in a long message still counts.
+  await seed('phrase', '', [`${'before '.repeat(16_400)}the Café\n lantern`, ...Array(4).fill('the cafe, lantern')])
+  await seed('spread', 'Cafe', ['lantern'])
+  await seed('near', '', ['lantern cafe', 'cafe new lantern', 'cafe lanterns'])
+  await seed('phrase-hidden', '', ['cafe lantern'], 'org2')
+  const result = await find('"cafe lantern"', 0, 1)
+  expect(result.total).toBe(1)
+  expect(result.sessions.map(row => row.sessionId)).toEqual(['phrase'])
+  expect(result.sessions[0]?.passages.map(passage => passage.target.messageId)).toEqual(['phrase-0'])
+  expect((await find('"cafe lantern"', 1)).sessions).toEqual([])
+})

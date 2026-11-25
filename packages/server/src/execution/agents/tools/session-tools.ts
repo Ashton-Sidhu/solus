@@ -194,7 +194,7 @@ const readSessionFields = {
 }
 
 const searchSessionsFields = {
-  query: z.string().min(1).describe('Full-text query to search for in session messages.'),
+  query: z.string().min(1).describe('Full-text query to search for in session messages. Use double quotes around the query to find an exact phrase.'),
   project: z.string().optional().describe("Only sessions that ran in this project (name or path), not ones that mention it. Omit to search everything, the reliable way."),
   role: z.enum(['user', 'assistant', 'any']).default('any').describe("Default 'any'."),
   after: z

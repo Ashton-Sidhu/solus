@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
+import { EventEmitter } from 'node:events'
 import type { WebContents } from 'electron'
 import { browserPartition, browserProfilePartition } from '@solus/contracts/browser-types'
 import {
@@ -6,13 +7,23 @@ import {
   guardBrowserSession,
   isBrowserPartition,
   type AskBrowserPermission,
+  type BrowserPermissionHandlers,
 } from '../../apps/desktop/src/main/browser/browser-permissions'
 
 // Any site the user opens runs in a browser partition. Electron grants every
 // permission to a session without handlers, so these tests hold the line that
 // a page gets nothing powerful unless the user said yes.
 
-const guest = {} as WebContents
+function browserGuest(kind = 'webview') {
+  // SAFETY: The fixture implements the WebContents members the handlers read.
+  return Object.assign(new EventEmitter(), {
+    getType: () => kind,
+    isDestroyed: () => false,
+    hostWebContents: {},
+  }) as unknown as WebContents
+}
+
+const guest = browserGuest()
 
 function setup(answers: Array<boolean | undefined> = []) {
   const ask = mock<AskBrowserPermission>(async () => answers.shift())
@@ -20,12 +31,73 @@ function setup(answers: Array<boolean | undefined> = []) {
 }
 
 function request(
-  handlers: ReturnType<typeof setup>,
-  permission: Parameters<ReturnType<typeof setup>['request']>[1],
-  details: { requestingUrl: string; externalURL?: string } = { requestingUrl: 'https://site.test/' },
+  handlers: BrowserPermissionHandlers,
+  permission: Parameters<BrowserPermissionHandlers['request']>[1],
+  details: { requestingUrl: string; securityOrigin?: string; mediaTypes?: Array<'audio' | 'video'>; externalURL?: string } = { requestingUrl: 'https://site.test/' },
+  requester = guest,
 ): Promise<boolean> {
-  return new Promise((resolve) => handlers.request(guest, permission, resolve, { isMainFrame: true, ...details }))
+  return new Promise((resolve) => handlers.request(requester, permission, resolve, { isMainFrame: true, ...details }))
 }
+
+const cameraRequest = { requestingUrl: 'https://site.test/page', mediaTypes: ['video' as const] }
+const cameraCheck = { isMainFrame: true, mediaType: 'video' as const }
+
+describe('camera and microphone consent', () => {
+  test('decisions are specific to a site, device and partition', async () => {
+    const handlers = setup([true, false, true])
+    const otherPartition = setup([false])
+    expect(handlers.check(guest, 'media', 'https://site.test', cameraCheck)).toBe(false)
+    expect(await request(handlers, 'media', cameraRequest)).toBe(true)
+    expect(handlers.ask.mock.calls[0]?.[1]).toEqual({
+      message: 'https://site.test wants to use your camera',
+      buttons: ['Allow', 'Block'],
+    })
+    expect(await request(handlers, 'media', { ...cameraRequest, requestingUrl: 'https://site.test/other' })).toBe(true)
+    expect(handlers.check(guest, 'media', 'https://site.test', cameraCheck)).toBe(true)
+    expect(handlers.check(guest, 'media', 'https://site.test', { ...cameraCheck, mediaType: 'audio' })).toBe(false)
+    expect(await request(handlers, 'media', { ...cameraRequest, mediaTypes: ['audio'] })).toBe(false)
+    expect(await request(handlers, 'media', { ...cameraRequest, mediaTypes: ['video', 'audio'] })).toBe(false)
+    expect(await request(handlers, 'media', { ...cameraRequest, requestingUrl: 'https://site.test:444/' })).toBe(true)
+    expect(await request(otherPartition, 'media', cameraRequest)).toBe(false)
+    expect(handlers.ask).toHaveBeenCalledTimes(3)
+    expect(otherPartition.ask).toHaveBeenCalledTimes(1)
+  })
+
+  test('both devices are named and a headless page cannot reuse the consent', async () => {
+    const handlers = setup([true])
+    const details = { requestingUrl: 'https://site.test/page', mediaTypes: ['audio', 'video'] as Array<'audio' | 'video'> }
+    expect(await request(handlers, 'media', details)).toBe(true)
+    expect(handlers.ask.mock.calls[0]?.[1].message).toBe('https://site.test wants to use your camera and microphone')
+    const headless = browserGuest('window')
+    expect(await request(handlers, 'media', details, headless)).toBe(false)
+    expect(handlers.check(headless, 'media', 'https://site.test', cameraCheck)).toBe(false)
+    expect(handlers.ask).toHaveBeenCalledTimes(1)
+  })
+
+  test('opaque origins and requests without a known capture device are denied', async () => {
+    const handlers = setup([true])
+    expect(await request(handlers, 'media', { ...cameraRequest, securityOrigin: 'null' })).toBe(false)
+    expect(await request(handlers, 'media', { ...cameraRequest, mediaTypes: [] })).toBe(false)
+    expect(await request(handlers, 'display-capture', cameraRequest)).toBe(false)
+    expect(handlers.ask).not.toHaveBeenCalled()
+  })
+
+  test('a new document discards a pending answer, even on the same origin', async () => {
+    let answer!: (granted: boolean) => void
+    const ask = mock<AskBrowserPermission>(() => new Promise((resolve) => { answer = resolve }))
+    const handlers = browserPermissionHandlers(ask)
+    const requester = browserGuest()
+    const first = request(handlers, 'media', cameraRequest, requester)
+    expect(await request(handlers, 'media', cameraRequest, requester)).toBe(false)
+    requester.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    expect(ask.mock.calls[0]?.[2]?.aborted).toBe(true)
+    answer(true)
+    expect(await first).toBe(false)
+    expect(handlers.check(requester, 'media', 'https://site.test', cameraCheck)).toBe(false)
+    ask.mockResolvedValueOnce(true)
+    expect(await request(handlers, 'media', cameraRequest, requester)).toBe(true)
+  })
+})
 
 describe('browser pane permissions', () => {
   test('a page cannot read the clipboard until the user allows its origin', async () => {

@@ -96,6 +96,8 @@ export type { BrowserDialogAnswer }
 export interface BrowserGuestEvents {
   dialog(open: BrowserDialog | null): void
   fileChooser(open: BrowserFileChooser | null): void
+  /** Navigation or a lost frame/debugger invalidates the offered select. */
+  selectMenuInvalidated(): void
   /** A finished download at a temporary path. The listener copies it before it
    *  returns; the driver deletes the file afterwards. */
   downloaded(file: { fileName: string; path: string }): Promise<void>

@@ -27,6 +27,8 @@ The mobile New session project selection and draft headings follow T3 Code revis
 
 The home session rows and tablet sidebar use the T3 Code row styles and swipe controls checked at `dd19bce823d833b5612fd74851d50047e65347fa`. The row reads its project icon, provider, and read state from the Solus host. The Solus adapter reads execution status from the runner’s saved session record and applies newer revisions from host events.
 
+The shared mobile search scorer and its tests include T3 Code pull request [#37700](https://github.com/pingdotgg/t3code/pull/37700). The home list, tablet sidebar, and command palette use this scorer for exact phrase matching and highlighting.
+
 The Solus thread screen uses the T3 Code composer reset from `a09738fb435120d08707db0142ca55b3b7b5c7ec`. The Android transcript uses T3 Code's keyboard-aware list from revision `620cf4770d992d642f822a13dc2539c2605a3500`. The iOS transcript uses Solus's list from `ce4995a4b`, which resizes with the visible keyboard frame. On a follow-up, the list checks whether it needs to scroll after the keyboard closes. The transcript appears as soon as the list can paint the first prompt. The draft heading uses the collapsed composer height for its position. Its scroll area ends at the measured top of the composer as the keyboard or attachments change its position.
 
 Project drafts and sessions use the T3 thread header and Git menu. Files reads the active checkout through the selected Solus host. The Git menu uses host repository status, Git actions, and session diffs. Terminal has no mobile integration.
@@ -83,6 +85,8 @@ The archive, project picker, source control screens, settings queries, and previ
 The device and browser viewers share their selection and presentation helpers with the T3 features. Browser selection first considers pages used by the active Solus session. Solus owns device control leases, stream URLs, and host sign-in. Archive tag hiding and PR actions require corresponding host capabilities.
 
 Loopback browser pages stream from the selected Solus host. Its Host settings screen shows **Preview tunnel** when the host supports that setting. This control governs desktop port forwarding and shows the selected host’s policy lock.
+
+Streamed browser select menus use the choice sheet from [T3 Code #31561](https://github.com/pingdotgg/t3code/pull/31561). The Solus adapter receives the choices through the existing browser interaction RPC. The host withdraws the offer through the browser page feed. The browser screen and loopback preview use the same sheet. The floating preview is view-only.
 
 The session header opens the Solus Running servers sheet. Its 55% sheet height,
 native header action, and scroll insets follow the T3 linked pull requests sheet in the saved fork

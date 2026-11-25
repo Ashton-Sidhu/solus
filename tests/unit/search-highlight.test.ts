@@ -37,4 +37,11 @@ describe('highlightWordRuns', () => {
   test('a blank query is one unmarked run', () => {
     expect(highlightWordRuns('plain', '  ')).toEqual([{ text: 'plain', hit: false }])
   })
+
+  test('a quoted phrase marks only the complete phrase', () => {
+    expect(highlightWordRuns('cafe, header, Café header', '“cafe header”')).toEqual([
+      { text: 'cafe, header, ', hit: false },
+      { text: 'Café header', hit: true },
+    ])
+  })
 })

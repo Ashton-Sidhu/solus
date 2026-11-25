@@ -45,7 +45,7 @@ class FakeWindow {
   }
 }
 
-mock.module('electron', () => ({ BrowserWindow: FakeWindow, session: {}, dialog: {} }))
+mock.module('electron', () => ({ BrowserWindow: FakeWindow, session: {}, dialog: {}, systemPreferences: {} }))
 
 const { registerBrowserHeadlessHost } = await import('../../apps/desktop/src/main/browser/headless-window')
 const { browserHeadlessHost, setBrowserHeadlessHost } = await import('@solus/server/browser/surface-driver')

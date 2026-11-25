@@ -11,8 +11,11 @@
   <!-- Required to load native Node addons (node-pty, etc.) -->
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
-  <!-- Required for microphone access (voice input via Whisper) -->
+  <!-- Required for microphone access (voice input and browser pages) -->
   <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- Required for camera access in browser pages -->
+  <key>com.apple.security.device.camera</key>
   <true/>
   <!-- Required to send Apple Events to terminal apps (Terminal, iTerm2, Ghostty) -->
   <key>com.apple.security.automation.apple-events</key>

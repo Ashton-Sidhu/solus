@@ -27,7 +27,7 @@
   interface Props {
     taskTitle: string;
     /** The control the menu drops from, or the point a context menu opened at. */
-    anchor: TaskSnoozeAnchor;
+    anchor?: TaskSnoozeAnchor;
     /** The context submenu already offered presets; open its custom form directly. */
     customTime?: boolean;
     /** While the session is rate limited: when its provider window reopens,
@@ -53,7 +53,7 @@
   let rowsEl: HTMLDivElement | undefined = $state();
   let customEl = $state<HTMLElement | null>(null);
   const noteId = $props.id();
-  const anchorTarget = $derived(taskSnoozeAnchorTarget(anchor));
+  const anchorTarget = $derived(anchor && taskSnoozeAnchorTarget(anchor));
 
   /** Presets take focus on open, so the menu answers ↓/↑/⏎ the way every other
    *  menu does. The note is one Shift+Tab away for the rarer case. */
@@ -121,7 +121,7 @@
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>
-{:else}
+{:else if anchorTarget}
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) onClose(); }}>
   <Popover.Content
     data-solus-ui

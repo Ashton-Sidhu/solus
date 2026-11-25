@@ -6,6 +6,7 @@ import { rankSessions, type RankedSession, type SessionCandidate, type SessionMe
 import { rowToSession, SESSION_ROW_SPAN, sessionRowSchema } from './session-indexer'
 import { getDb } from '.'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
+import { ftsExactPhrase } from './fts'
 
 /** How a session search is narrowed and paged. */
 export interface SessionSearchOptions extends SessionSearchPageOptions {
@@ -41,6 +42,7 @@ const nameRowSchema = z.object({
   last_timestamp: z.number().nullable(),
 })
 const passageRowSchema = z.object({ id: z.number(), session_id: z.string(), uuid: z.string().nullable(), role: z.string(), ts: z.number().nullable(), text: z.string() })
+const candidateTextSchema = passageRowSchema.pick({ text: true })
 
 /** A session's hits for one query word: how many of its messages hold it,
  *  and the ids of the newest few, newest first. */
@@ -55,27 +57,30 @@ const MAX_PAGE = 50
 
 /** Words as one FTS5 phrase of their tokens, the last a prefix. */
 function phraseTerm(words: readonly string[]): string {
-  const phrase = `"${words.join(' ').replaceAll('"', '""')}"`
+  const phrase = ftsExactPhrase(words)
   return /^\d+$/.test(words.at(-1) ?? '') ? phrase : `${phrase}*`
 }
 
 /** Per session number, the hits of one FTS5 query over the messages in scope. */
-function messageHits(db: ReturnType<typeof getDb>, term: string, options: SessionSearchOptions): Map<number, WordHits> {
+function messageHits(db: ReturnType<typeof getDb>, term: string, options: SessionSearchOptions, exactQuery?: SearchQuery): Map<number, WordHits> {
   const filters: string[] = []
   const params: Array<string | number> = [term]
   if (options.role) { filters.push('m.role = ?'); params.push(options.role) }
   if (options.sinceTs !== undefined) { filters.push('m.ts >= ?'); params.push(options.sinceTs) }
   if (options.untilTs !== undefined) { filters.push('m.ts <= ?'); params.push(options.untilTs) }
   // The session is read from the row id. Only a message filter joins the row.
-  const rows = filters.length
+  const rows = filters.length || exactQuery
     ? db.prepare(`
-        SELECT session_fts.rowid AS id FROM session_fts
+        SELECT session_fts.rowid AS id${exactQuery ? ', m.text' : ''} FROM session_fts
         JOIN session_messages m ON m.id = session_fts.rowid
-        WHERE session_fts MATCH ? AND ${filters.join(' AND ')}
-      `).all(...params)
+        WHERE session_fts MATCH ?${filters.length ? ` AND ${filters.join(' AND ')}` : ''}
+      `).iterate(...params)
     : db.prepare('SELECT rowid AS id FROM session_fts WHERE session_fts MATCH ?').all(term)
   const hits = new Map<number, WordHits>()
   for (const row of rows) {
+    // The index folds punctuation and appends joined identifiers. Only a
+    // phrase in the original text counts or takes up a passage slot.
+    if (exactQuery && !exactQuery.holdsEveryWord(candidateTextSchema.parse(row).text)) continue
     // A common word answers with most of the index, so its rows are read
     // without a schema: a parse of every row was a third of the search. An
     // FTS5 row id is an integer by construction.
@@ -213,6 +218,10 @@ function queryHits(db: ReturnType<typeof getDb>, query: SearchQuery, options: Se
   // An optional filler word is in nearly every message: reading its postings
   // costs the most and decides nothing. The phrase still holds it.
   const { required, words } = query
+  if (query.exactPhrase) {
+    const phrase = messageHits(db, ftsExactPhrase(words), options, query)
+    return { perWord: [phrase], together: phrase, phrase }
+  }
   return {
     perWord: required.map((word) => messageHits(db, phraseTerm([word]), options)),
     together: required.length > 1 ? messageHits(db, required.map((word) => phraseTerm([word])).join(' '), options) : null,

@@ -153,6 +153,7 @@ export class SessionListStore {
   private statesBySession = new SvelteMap<string, SessionState>()
   /** This person's view of each session they settled, archived, or snoozed. */
   private viewsBySession = new SvelteMap<string, SessionView>()
+  private archivedHomes = new Map<string, string>()
   private watchedServerIds = new Set<string>()
   /** Per home, the latest grant this client told the reader about. */
   private grantsSeenUntil = new Map<string, number>()
@@ -232,6 +233,7 @@ export class SessionListStore {
    *  list, and nothing else in this home's list. */
   private async loadSession(serverId: string, sessionId: string): Promise<void> {
     const api = serverConnections.apiFor(serverId)
+    const previousView = this.viewsBySession.get(sessionId)
     const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
     if (record === undefined || serverConnections.apiFor(serverId) !== api) return
     if (record && isSolusApiId(serverId)) this.cloud.writeRecord(serverId, record)
@@ -243,18 +245,28 @@ export class SessionListStore {
       this.writeListed(serverId, record)
       this.announceNewGrants(serverId, [record])
     } else {
-      this.dropListedRecord(serverId, sessionId)
-      const share = record ? sessionShareOf(record) : undefined
-      if (record && share) this.formerShares.set(sessionId, { title: record.customTitle ?? record.title ?? record.slug, share })
+      this.loadUnlistedRecord(serverId, sessionId, record, this.viewsBySession.get(sessionId) === previousView)
     }
     sessionPullRequestsStore.adoptSession(serverId, sessionId, isListed ? record : null)
+  }
+
+  private loadUnlistedRecord(serverId: string, sessionId: string, record: SessionRecord | null, viewIsCurrent: boolean): void {
+    this.dropListedRecord(serverId, sessionId)
+    if (!record) return
+    // An archived record is outside the list but its open conversation can restore it.
+    if (record.view?.archivedAt != null && viewIsCurrent && !this.listedBySession.has(sessionId)
+      && this.homeOf(serverId, record) === serverId) {
+      this.writeView(sessionId, record.view, serverId)
+    }
+    const share = sessionShareOf(record)
+    if (share) this.formerShares.set(sessionId, { title: record.customTitle ?? record.title ?? record.slug, share })
   }
 
   private removeListed(listed: ListedSession): void {
     this.rememberFormerShare(listed)
     this.listedBySession.delete(listed.sessionId)
     this.statesBySession.delete(listed.sessionId)
-    this.viewsBySession.delete(listed.sessionId)
+    this.writeView(listed.sessionId, null)
   }
 
   /** A home lists a session. When another home lists it too, the row shows the
@@ -335,7 +347,7 @@ export class SessionListStore {
     if (record.codebaseId) listed.codebaseId = record.codebaseId
     this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
     this.writeState(record.sessionId, record.state)
-    this.writeView(record.sessionId, record.view)
+    this.writeView(record.sessionId, record.view, serverId)
   }
 
   /** Tell the listeners of each direct share this read shows for the first time. */
@@ -387,13 +399,16 @@ export class SessionListStore {
         this.listedRecords.delete(sessionId)
         this.listedBySession.delete(sessionId)
         this.statesBySession.delete(sessionId)
-        this.viewsBySession.delete(sessionId)
+        this.writeView(sessionId, null)
       } else if (listed.serverId === serverId) {
         homes.add(listed.homeServerId)
       }
     }
     for (const [sessionId, others] of this.listedRecords) {
       if (others.delete(serverId) && others.size === 0) this.listedRecords.delete(sessionId)
+    }
+    for (const [sessionId, home] of this.archivedHomes) {
+      if (home === serverId) this.writeView(sessionId, null)
     }
     this.hostTurnsBook.forgetHost(serverId)
     for (const home of homes) void this.loadHost(home)
@@ -431,7 +446,8 @@ export class SessionListStore {
    *  an organization session is not its place in the list. */
   private isHomeOf(serverId: string, sessionId: string): boolean {
     const listed = this.listedBySession.get(sessionId)
-    return !listed || listed.homeServerId === serverId
+    const home = listed?.homeServerId ?? this.archivedHomes.get(sessionId)
+    return !home || home === serverId
   }
 
   private applyState(serverId: string, sessionId: string, state: SessionState | null): void {
@@ -443,7 +459,7 @@ export class SessionListStore {
    *  is not listed here is read again. */
   private applyView(serverId: string, sessionId: string, view: SessionView | null): void {
     if (!this.isHomeOf(serverId, sessionId)) return
-    this.writeView(sessionId, view)
+    this.writeView(sessionId, view, serverId)
     const listed = this.listedBySession.get(sessionId)
     if (view?.archivedAt != null) {
       if (listed) this.rememberFormerShare(listed)
@@ -457,7 +473,9 @@ export class SessionListStore {
     else this.statesBySession.delete(sessionId)
   }
 
-  private writeView(sessionId: string, view: SessionView | null | undefined): void {
+  private writeView(sessionId: string, view: SessionView | null | undefined, serverId?: string): void {
+    if (view?.archivedAt == null) this.archivedHomes.delete(sessionId)
+    else if (serverId) this.archivedHomes.set(sessionId, serverId)
     if (view && (view.settledAt != null || view.archivedAt !== null || view.snoozedUntil !== null)) this.viewsBySession.set(sessionId, keepEqual(view, this.viewsBySession.get(sessionId) ?? view))
     else this.viewsBySession.delete(sessionId)
   }
@@ -565,6 +583,7 @@ export class SessionListStore {
   /** The home that keeps one session's list state. */
   homeFor(target: SessionListTarget): string {
     return this.listedBySession.get(target.sessionId)?.homeServerId
+      ?? this.archivedHomes.get(target.sessionId)
       ?? sessionHomeId(target.serverId, target, this.hosts)
   }
 
@@ -604,7 +623,7 @@ export class SessionListStore {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
     const previousView = this.viewsBySession.get(target.sessionId)
-    this.writeView(target.sessionId, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: isArchived ? Date.now() : null })
+    this.writeView(target.sessionId, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: isArchived ? Date.now() : null }, serverId)
     const listed = isArchived ? this.listedBySession.get(target.sessionId) : undefined
     const homes = this.listedRecords.get(target.sessionId)
     if (listed) {
@@ -614,10 +633,10 @@ export class SessionListStore {
     }
     try {
       const { view } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { archived: isArchived })
-      this.writeView(target.sessionId, view)
+      this.writeView(target.sessionId, view, serverId)
       if (!isArchived && !this.listedBySession.has(target.sessionId)) void this.loadSession(serverId, target.sessionId)
     } catch (error) {
-      this.writeView(target.sessionId, previousView)
+      this.writeView(target.sessionId, previousView, serverId)
       if (listed && !this.listedBySession.has(target.sessionId)) {
         this.listedBySession.set(target.sessionId, listed)
         if (homes) this.listedRecords.set(target.sessionId, homes)

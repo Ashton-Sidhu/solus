@@ -815,6 +815,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   /** Bound so `off` can remove it — a leaked listener per attach would keep
    *  every closed page's ring alive for the life of the app. */
   private onProtocolMessage = (_event: Electron.Event, method: string, params: CdpEventParams, sessionId?: string): void => {
+    if (method === 'Page.frameDetached') this.guestEvents?.selectMenuInvalidated()
     // Electron sends an empty session id for the root debugger.
     if (sessionId) return
     if (method === 'Runtime.consoleAPICalled') this.recordConsoleApi(params)
@@ -828,6 +829,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   }
 
   private onDebuggerDetach = (): void => {
+    this.guestEvents?.selectMenuInvalidated()
     this.guestClick.clear()
     this.guestPaint.stop()
   }
@@ -841,6 +843,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
 
   /** A new document has no chooser open. */
   private onNavigationStart = (_event: ElectronEvent, _url: string, isInPlace: boolean, isMainFrame: boolean): void => {
+    this.guestEvents?.selectMenuInvalidated()
     if (isMainFrame && !isInPlace) this.fileChooser.forget()
   }
 

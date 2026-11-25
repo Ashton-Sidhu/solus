@@ -1,3 +1,4 @@
+import { SearchQuery } from '@solus/contracts/search-query'
 import type { Component } from 'svelte'
 
 export interface Command {
@@ -18,6 +19,8 @@ export interface Command {
    * "Open worktree…") stand in for a long list without polluting the root view.
    */
   children?: Command[]
+  /** Include this short list of children in root searches. */
+  searchChildren?: boolean
   /** Invoked when the command is selected. Optional for pure parent commands. */
   run?: () => void
 }
@@ -50,11 +53,19 @@ function commandSearchText(command: Command): string {
   return text
 }
 
-/** Case-insensitive substring match over label, group and keywords. */
+/** Match each command field on its own when the user quotes a phrase. */
+function commandMatcher(query: string): (command: Command) => boolean {
+  const phrase = /^["“”]/.test(query) ? new SearchQuery(query) : null
+  if (phrase?.exactPhrase) {
+    return (command) => phrase.holdsEveryWord(command.label) || phrase.holdsEveryWord(command.group) ||
+      (command.keywords?.some((keyword) => phrase.holdsEveryWord(keyword)) ?? false)
+  }
+  return (command) => commandSearchText(command).includes(query)
+}
+
 export function filterCommands(commands: Command[], query: string): Command[] {
   const q = query.trim().toLowerCase()
-  if (!q) return commands
-  return commands.filter((c) => commandSearchText(c).includes(q))
+  return q ? commands.filter(commandMatcher(q)) : commands
 }
 
 /** A sub-page can hold a command per branch, which is thousands in a large
@@ -65,7 +76,14 @@ export const SUB_PAGE_ROWS_SHOWN = 100
 /** The commands a page shows for a search, and how many matches it leaves
  *  out. The root page is a fixed set of commands, so only a sub-page is cut. */
 export function commandsShown(commands: Command[], query: string, isSubPage: boolean) {
-  const matched = filterCommands(commands, query)
+  const q = query.trim().toLowerCase()
+  const matches = commandMatcher(q)
+  const matched = !isSubPage && q
+    ? commands.flatMap((command) => {
+        if (matches(command)) return [command]
+        return command.searchChildren ? command.children?.filter(matches) ?? [] : []
+      })
+    : q ? commands.filter(matches) : commands
   const shown = isSubPage ? matched.slice(0, SUB_PAGE_ROWS_SHOWN) : matched
   return { shown, hiddenCount: matched.length - shown.length }
 }
