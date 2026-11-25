@@ -14,6 +14,7 @@
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
+  import * as Tooltip from "../ui/tooltip";
   import FleetAttention from "./FleetAttention.svelte";
   import FleetHostMenu from "./FleetHostMenu.svelte";
   import FleetMap from "./FleetMap.svelte";
@@ -105,6 +106,7 @@
   const openZone = $derived(ZONES.find((zone) => zone.id === openZoneId) ?? null);
   const withUpdate = $derived(machines.filter((machine) => machine.hasUpdate).map((machine) => machine.serverId));
   const matchCount = $derived(machines.filter((machine) => machineMatches(machine, query)).length);
+  const foundCount = $derived(discoverStore.found.length);
   /** Motion and load reads run only while the map is seen. */
   const isLive = $derived(view === "map" && isInView && isWindowVisible && !isPaused);
   const serverIds = $derived(machines.map((machine) => machine.serverId).join("\n"));
@@ -278,37 +280,48 @@
       <div class="flex min-h-7 flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h2 class="text-base font-medium tracking-[-0.01em] text-foreground">Map</h2>
         <div class="flex flex-wrap items-center gap-1" role="radiogroup" aria-label="Color tiles by">
-          {#each [["status", "Status"], ["cpu", "CPU"], ["sessions", "Sessions"]] as const as [value, label] (value)}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={colorMode === value}
-              onclick={() => (colorMode = value)}
-              class="inline-flex h-[1.625rem] items-center rounded-full px-2.5 text-[0.8125rem] text-muted-foreground hover:bg-(--wash-1) hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]"
-            >{label}</button>
+          {#each [
+            ["status", "Status", "Color host tiles by status"],
+            ["cpu", "CPU", "Color host tiles by CPU usage"],
+            ["sessions", "Sessions", "Color host tiles by the number of running sessions"],
+          ] as const as [value, label, tooltip] (value)}
+            <Tooltip.Root delayDuration={150}>
+              <Tooltip.Trigger
+                type="button"
+                role="radio"
+                aria-checked={colorMode === value}
+                onclick={() => (colorMode = value)}
+                class="inline-flex h-[1.625rem] items-center rounded-full px-2.5 text-[0.8125rem] text-muted-foreground hover:bg-(--wash-1) hover:text-foreground aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]"
+              >{label}</Tooltip.Trigger>
+              <Tooltip.Content value={tooltip} />
+            </Tooltip.Root>
           {/each}
-          <button
-            type="button"
-            aria-pressed={!isPaused}
-            aria-label={isPaused ? "Resume live updates" : "Pause live updates"}
-            title={isLive ? "Live. Select to pause." : isPaused ? "Paused. Select to resume." : "Paused off screen"}
-            onclick={() => (isPaused = !isPaused)}
-            class="grid size-[1.625rem] place-items-center rounded-full hover:bg-(--wash-1) {isLive ? 'text-(--success)' : 'text-muted-foreground hover:text-foreground'}"
-          >{#if isLive}<Radio size={14} />{:else}<Pause size={14} />{/if}</button>
-          <!-- Discover: the scan, and how many machines it found that are not added. -->
-          <button
-            type="button"
-            disabled={discoverStore.isScanning}
-            aria-label={discoverStore.isScanning ? "Scanning for machines" : "Scan for machines"}
-            title={discoverStore.isScanning
-              ? "Looking on your network, on Tailscale, on your Windows machines, and in your SSH config"
-              : `${discoverStore.found.length} found and not added. Select to scan again.`}
-            onclick={() => void discoverStore.scan()}
-            class="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full px-2 text-[0.8125rem] text-muted-foreground tabular-nums hover:bg-(--wash-1) hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-          >
-            <Radar size={14} class={discoverStore.isScanning ? "animate-pulse motion-reduce:animate-none" : ""} />
-            {#if discoverStore.found.length}{discoverStore.found.length}{/if}
-          </button>
+          <Tooltip.Root delayDuration={150}>
+            <Tooltip.Trigger
+              type="button"
+              aria-pressed={!isPaused}
+              aria-label={isPaused ? "Resume live updates" : "Pause live updates"}
+              onclick={() => (isPaused = !isPaused)}
+              class="grid size-[1.625rem] place-items-center rounded-full hover:bg-(--wash-1) {isLive ? 'text-(--success)' : 'text-muted-foreground hover:text-foreground'}"
+            >{#if isLive}<Radio size={14} />{:else}<Pause size={14} />{/if}</Tooltip.Trigger>
+            <Tooltip.Content value={isPaused ? "Resume live updates" : isLive ? "Pause live updates" : "Live updates pause when the map is out of view"} />
+          </Tooltip.Root>
+          <!-- Keep the scan control focusable so it can show the tooltip during a scan. -->
+          <Tooltip.Root delayDuration={150}>
+            <Tooltip.Trigger
+              type="button"
+              aria-disabled={discoverStore.isScanning}
+              aria-label={discoverStore.isScanning ? "Scanning for machines" : "Scan for machines"}
+              onclick={() => { if (!discoverStore.isScanning) void discoverStore.scan(); }}
+              class="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full px-2 text-[0.8125rem] text-muted-foreground tabular-nums hover:bg-(--wash-1) hover:text-foreground aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
+            >
+              <Radar size={14} class={discoverStore.isScanning ? "animate-pulse motion-reduce:animate-none" : ""} />
+              {#if foundCount}{foundCount}{/if}
+            </Tooltip.Trigger>
+            <Tooltip.Content value={discoverStore.isScanning
+              ? "Scanning the local network and Tailscale. Checking WSL and SSH settings."
+              : `Scan for machines${foundCount ? ` · ${foundCount} found` : ""}`} />
+          </Tooltip.Root>
         </div>
       </div>
       <label class="flex h-8 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 text-muted-foreground focus-within:border-(--solus-status-running)/45">
@@ -380,7 +393,7 @@
               {machines}
               {colorMode}
               {query}
-              foundCount={discoverStore.found.length}
+              {foundCount}
               answers={fleetStore.answers}
               onRetry={(zone) => fleetStore.retryZone(zone)}
               onPoint={(serverId) => (pointedId = serverId)}

@@ -63,6 +63,10 @@ them again. A pairing made from chat or the CLI shows its health but has no
 
 ## Selecting, moving, and finding
 
+- Use **Status**, **CPU**, or **Sessions** to change the color of host tiles.
+  Use the live updates button to pause or resume updates, and the radar button
+  to scan for machines you can add. Hover over a control or move keyboard focus
+  to it to see its tooltip.
 - Click a host to select it. Its details show its routes and the hosts it
   reaches. Click it again, or press Enter again, to open the host's page.
 - Drag the background to move the map. Pinch, or hold Ctrl or ⌘ and scroll,
