@@ -24,12 +24,6 @@ export const solus = new SolusApp({
   ...expoPlatform,
   createTransport: createConversationTransport,
 });
-setTimeout(async () => { // QA_INPUTS
- const url = "http://127.0.0.1:51149";
- const result = await solus.preview(url);
- if(result.kind === "found" && !solus.registry.host(result.preview.installationId)?.sessionToken)
-   await solus.pair(result.preview,process.env.EXPO_PUBLIC_INPUTS_PAIR,"Input profile");
-}, 3500);
 export const nearby = new NearbyDiscovery(solus, expoPlatform.storage);
 let loaded = false;
 let shellCachesRead = false;

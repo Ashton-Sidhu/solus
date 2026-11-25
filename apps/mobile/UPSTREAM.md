@@ -105,6 +105,7 @@ native header action, and scroll insets follow the T3 linked pull requests sheet
 revision `c64d1f0ab74698d6d03006cf255e995cb0159176`. The sheet uses the shared
 Solus server controller for the run host and opens endpoints in Browser preview.
 The empty state opens Server URLs for the selected session folder.
+The sheet uses T3's provider icon for the launch provider reported by the host.
 
 New-session and scheduled-task branch pickers use T3's branch paging hook. Their shared read uses Solus Git status and branch refs. Searching and paging reuse the checkout's answer. The host identifies a remote-only branch by its branch name and does not supply a remote tracking ref.
 
