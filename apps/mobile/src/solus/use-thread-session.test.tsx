@@ -16,6 +16,8 @@ const state = vi.hoisted(() => ({
   cacheRead: false,
   scope: "first",
   readiness: "ready",
+  historyPhase: "ready",
+  rows: [] as string[],
   records: new Map<string, TestRecord>(),
   listeners: new Set<() => void>(),
   read: vi.fn<(sessionId: string) => Promise<TestRecord | null>>(),
@@ -86,7 +88,10 @@ vi.mock("./runtime", () => {
       newSessionId: () => "draft",
       openConversation: () => null,
       conversation: (hostId: string, target: { record?: TestRecord; newSession?: { sessionId: string } }) => ({
+        meta: changes,
+        orderSnapshot: () => state.rows,
         controller: {
+          get phase() { return { kind: state.historyPhase }; },
           hostId,
           run: { sessionId: target.record?.sessionId ?? target.newSession?.sessionId },
           title: target.record?.title,
@@ -113,6 +118,8 @@ function mountRoute() {
   state.cacheRead = false;
   state.scope = "first";
   state.readiness = "ready";
+  state.historyPhase = "ready";
+  state.rows = [];
   state.records.clear();
   state.read.mockReset();
   state.retry.mockClear();
@@ -166,6 +173,24 @@ it("restores an explicit codebase only when it holds the saved draft folder", as
       notify();
     });
     expect(state.chooseCodebase).toHaveBeenCalledExactlyOnceWith("shop");
+    expect(route.current.kind).toBe("ready");
+    expect(state.observe).toHaveBeenCalledOnce();
+  } finally {
+    route.close();
+  }
+});
+
+it("opens the saved feed as soon as its first rows arrive while the watch is still loading", async () => {
+  const route = mountRoute();
+  try {
+    state.historyPhase = "loading";
+    state.records.set("session", record("session", "Saved session"));
+    await route.render("session");
+    expect(route.current.kind).toBe("loading");
+    await act(async () => {
+      state.rows = ["first reply"];
+      notify();
+    });
     expect(route.current.kind).toBe("ready");
     expect(state.observe).toHaveBeenCalledOnce();
   } finally {

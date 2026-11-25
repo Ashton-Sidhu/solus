@@ -33,6 +33,28 @@ describe('native sent-prompt attachments', () => {
     expect(files.map((file) => file.kind === 'file' && file.video)).toEqual([false, true])
   })
 
+  test('the host and live stream restore the same attachment and keep literal text', async () => {
+    const { projectPromptFiles } = await import('@solus/server/data/sessions/result-projection')
+    const content = '[Attached file: /host/photo.jpg]\n\n[Attached file: typed]'
+    const [projected] = projectPromptFiles([{ role: 'user', content, timestamp: 1, messageId: 'm' }])
+    expect(projected).toMatchObject({ content: '[Attached file: typed]', attachedFilePaths: ['/host/photo.jpg'] })
+    const saved = TranscriptModel.fromHistory('s', { messages: [projected!], before: null })
+    const live = new TranscriptModel('s')
+    live.apply({ type: 'user_message', text: content, clientPromptId: 'm' })
+    const message = saved.items.get('m')
+    expect(message?.kind).toBe('user')
+    if (message?.kind === 'user') expect(live.items.get('m')).toMatchObject({ text: message.text, attachments: message.attachments })
+  })
+
+  test('a projected history row preserves literal attachment markers in the typed text', () => {
+    const text = '[Attached file: /typed-by-user]'
+    const model = TranscriptModel.fromHistory('s', {
+      messages: [{ role: 'user', content: text, attachedFilePaths: ['/host/doc.txt'], messageId: 'm', timestamp: 1 }],
+      before: null,
+    })
+    expect(model.items.get('m')).toMatchObject({ text, attachments: [{ kind: 'file', hostPath: '/host/doc.txt' }] })
+  })
+
   test('a reloaded turn shows its pictures and files, and only the typed text', () => {
     const model = TranscriptModel.fromHistory('s', {
       messages: [{ role: 'user', content: composed, messageId: 'u1', timestamp: 1, imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,AA' }] }],

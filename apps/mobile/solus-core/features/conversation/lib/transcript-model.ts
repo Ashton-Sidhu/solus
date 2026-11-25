@@ -31,6 +31,9 @@ export type { ToolItem } from './tool-item'
  * that row re-renders, and the order array changes only when a row is added.
  */
 
+// A live edit replaces its item. Only the unchanged saved item can reuse its host body.
+export const savedTurnItems = new WeakMap<TranscriptItem, NonNullable<WireSessionLoadMessage['turnItem']>>()
+
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
@@ -178,6 +181,7 @@ export class TranscriptModel {
   })
   private streamTarget: string | null = null
   /** The compaction that started and has not stopped. */
+  get isCompacting(): boolean { return this.runningCompactionId !== null }
   private runningCompactionId: string | null = null
   private proseSinceUser = false
   private lastResponseId: string | null = null
@@ -248,6 +252,7 @@ export class TranscriptModel {
         if (id) {
           ids.push(id)
           const item = this.items.get(id)
+          if (item && row.turnItem) savedTurnItems.set(item, row.turnItem)
           if (item) this.trackAgent(item)
         }
       }
@@ -270,6 +275,11 @@ export class TranscriptModel {
   /** One history row as an item; null for rows this client does not render yet
    *  (reasoning, most activity). */
   private historyItem(row: WireSessionLoadMessage): string | null {
+    const body = row.turnItem
+    if (body?.type === 'user_message' || body?.type === 'assistant_message') row = { ...row, content: body.text }
+    else if (body?.type === 'dynamic_tool' && body.input !== null && row.toolInput === undefined) {
+      row = { ...row, toolInput: JSON.stringify(body.input) }
+    }
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched' || row.activity?.kind === 'forked') return this.addDivider(row.activity, false)
@@ -281,15 +291,15 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'user') {
-      const backgroundCommand = backgroundCommandWake(row.content)
+      const backgroundCommand = row.attachedFilePaths ? null : backgroundCommandWake(row.content)
       // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
-      if (!backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
+      if (!row.attachedFilePaths && !backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
       if (backgroundCommand) {
         this.items.set(id, { kind: 'user', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
         return id
       }
-      const { text, files } = splitAttachedFiles(stripSessionReferenceContext(row.content))
+      const { text, files } = splitAttachedFiles(row.attachedFilePaths ? row.content : stripSessionReferenceContext(row.content), row.attachedFilePaths)
       this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
@@ -305,6 +315,7 @@ export class TranscriptModel {
         kind: 'tool', id, toolId: row.toolId, toolName, timestamp: row.timestamp,
         input: row.toolInput ?? null,
         ...(row.toolInputKey && { toolInputKey: row.toolInputKey }),
+        ...(row.viewedImagePath && { viewedImagePath: row.viewedImagePath }),
         status,
         errorHead: null, childCount: 0,
         subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
@@ -339,7 +350,7 @@ export class TranscriptModel {
     const toolId = this.toolRows.find(this, row.toolResultForId)
     const tool = toolId ? this.items.get(toolId) : undefined
     if (tool?.kind === 'tool') {
-      const render = artifactFromHistory(tool.toolName, tool.input, row, tool.toolInputKey)
+      const render = artifactFromHistory(tool.toolName, row)
       if (render) this.place({ kind: 'artifact', id: this.mintId('r'), ...render })
     }
     this.patchToolById(row.toolResultForId, false, (tool) => ({
@@ -353,11 +364,6 @@ export class TranscriptModel {
       leftOut: row.toolLeftOut ?? tool.leftOut,
       secretOutcomes: row.secretOutcomes ?? tool.secretOutcomes,
     }))
-  }
-
-  updateArtifact(id: string, update: Partial<Pick<ArtifactRender, 'html' | 'loading' | 'error'>>): void {
-    const item = this.items.get(id)
-    if (item?.kind === 'artifact') this.replace({ ...item, ...update }, id)
   }
 
   // ─── Live events ───
@@ -669,11 +675,18 @@ export class TranscriptModel {
     for (const item of this.items.values()) {
       if (item.kind === 'artifact' && item.workId === event.workId) earlier = item
     }
-    if (event.docType !== 'artifact' && !earlier) return
+    if ((event.docType !== 'artifact' && !earlier) || !event.contentVersion) return
     const applied = this.artifactUpdates.get(event.workId)
     if (applied !== undefined && applied >= event.updatedAt) return
     this.artifactUpdates.set(event.workId, event.updatedAt)
-    this.append({ kind: 'artifact', id: this.mintId('r'), html: event.content, title: event.title || earlier?.title || 'Artifact', workId: event.workId })
+    this.append({
+      kind: 'artifact',
+      id: this.mintId('r'),
+      title: event.title || earlier?.title || 'Artifact',
+      workId: event.workId,
+      contentVersion: event.contentVersion,
+      ...(event.layout && { layout: event.layout }),
+    })
   }
 
   private updateToolInput(toolId: string, input: string | undefined): void {
@@ -841,6 +854,7 @@ export class TranscriptModel {
     if (event.preTokens !== undefined) compaction.preTokens = event.preTokens
     if (event.postTokens !== undefined) compaction.postTokens = event.postTokens
     const runningId = this.runningCompactionId
+    if (runningId) this.metaChanged = true
     this.runningCompactionId = null
     if (runningId && this.items.has(runningId)) {
       this.replace({ kind: 'compaction', id: runningId, compaction })
@@ -1054,6 +1068,8 @@ export class TranscriptModel {
     const item = id ? this.items.get(id) : undefined
     if (!id || item?.kind !== 'tool') return
     const next = patch(item)
+    const body = savedTurnItems.get(item)
+    if (body && next.input === item.input && next.toolName === item.toolName) savedTurnItems.set(next, body)
     this.replace(next, id)
     // A failed orchestration call made no card: it shows after all.
     if (next.status === 'error' && this.heldTools.delete(id)) {

@@ -61,8 +61,8 @@ import {
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
-import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
-import { IosThreadFeedList } from "./IosThreadFeedList";
+import { KeyboardAwareLegendList } from "../../../.qa-cold/observer";
+import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
@@ -121,7 +121,6 @@ import {
   resolveViewedImageAsset,
 } from "@t3tools/client-runtime/work-log/presentation";
 import { workspaceRelativeImagePath } from "@solus/client-core/viewed-workspace-image";
-import { hostPathBaseName, joinHostPath } from "@solus/contracts/host-path";
 import { splitCodexArtifactTemplateMarkdown } from "@t3tools/shared/codexMarkdownDirectives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { imageMimeType } from "@t3tools/shared/image";
@@ -278,7 +277,7 @@ import {
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
-import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
+import { htmlRenderRowHeight, ThreadHtmlPreviewsReady, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
 import { useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
 import { readEnvironmentScope } from "../../state/session";
@@ -379,8 +378,6 @@ export interface ThreadFeedHistoryControls {
 }
 
 export interface ThreadFeedProps {
-  readonly hostImageRenderer?: MarkdownImageRenderer;
-  readonly hostImageSource?: MarkdownImageSourceResolver;
   readonly toolCallVisibility?: ToolCallVisibility;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly preparingWorktree?: boolean;
@@ -394,8 +391,6 @@ export interface ThreadFeedProps {
   readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
-  readonly openedAsDraft?: boolean;
-  readonly onReady?: () => void;
   readonly pendingHandoff?: HandoffEndpoints | null;
   /** Thread states that close the feed: background work, then snooze or settle. */
   readonly statusLines?: ReadonlyArray<ThreadStatusLineModel>;
@@ -412,8 +407,7 @@ export interface ThreadFeedProps {
   readonly onJumpedToMessage?: () => void;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
-  readonly keyboardStickyEnabled: boolean;
-  readonly isClosingKeyboardForSubmission: boolean;
+  readonly sendingWithKeyboard?: boolean;
   readonly fitShortFeedToViewport?: boolean;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
@@ -1204,7 +1198,15 @@ function MessageAttachmentUnknown(props: { readonly name: string }) {
 // LegendList only computes hook visibility when the list has a viewability config.
 const THREAD_MEDIA_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 0 };
 
-const ThreadList = Platform.OS === "ios" ? IosThreadFeedList : KeyboardAwareLegendList;
+// The composer and overlays beside the feed keep UIKit from finding it on its own, so
+// register it with the screen controller. Header minimization observes this scroll view.
+function ThreadFeedScrollView(props: ComponentPropsWithRef<typeof Animated.ScrollView>) {
+  return (
+    <NativeScrollViewMarker style={{ flex: 1 }}>
+      <Animated.ScrollView {...props} />
+    </NativeScrollViewMarker>
+  );
+}
 
 function ThreadMediaVisibility(props: {
   readonly rowId: string;
@@ -3111,6 +3113,8 @@ function DisclosureRow(props: {
 
 // A thread switch remounts the feed. Starting from the last split pane's size lays rows out once,
 // instead of at width 0 and again when the new feed's own layout reports the same width.
+// A compact thread can also seed LegendList from the previous measured screen.
+let lastCompactViewport: { windowWidth: number; windowHeight: number; height: number } | null = null;
 let lastSplitViewport: { windowWidth: number; width: number; height: number } | null = null;
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
@@ -3137,7 +3141,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const { themeAppearance } = useAppearancePreferences();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerMaterialVisibleRef = useRef(false);
-  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
   const { appearance } = useAppearancePreferences();
   const workRowSizing = deriveThreadWorkLogSizing({
     baseFontSize: appearance.baseFontSize,
@@ -3153,7 +3157,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
   const viewportWidth =
     settledPaneWidth !== null ? Math.round(settledPaneWidth) : measuredViewportWidth;
-  const [viewportHeight, setViewportHeight] = useState(() => initialSplitViewport?.height ?? 0);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    !splitLayout && lastCompactViewport?.windowWidth === windowWidth &&
+      lastCompactViewport.windowHeight === windowHeight
+      ? lastCompactViewport.height : initialSplitViewport?.height ?? 0,
+  );
   const [disclosureLayout, setDisclosureLayout] = useState<DisclosureLayout | null>(null);
   const disclosureMotionRef = useRef<DisclosureLayout | null>(null);
   const disclosureMotionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3511,16 +3519,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       ),
     onLinkPress: (href, reply) => onMarkdownLinkPress(href, false, reply),
     linkCustomization: enrichedThreadLinkCustomization,
-    onImagePress: async (href, withGallery) => {
-      if (!props.hostImageSource) return onMarkdownLinkPress(href, true, undefined, withGallery);
-      try {
-        const source = await props.hostImageSource({ href, alt: null, title: null });
-        if (source) openPreview(markdownLinkScope, { file: { kind: "image", uri: source.uri } });
-      } catch {
-        Dialog.alert(gt("Could not open image"), gt("Try again."));
-      }
-    },
-    resolveImageSource: props.hostImageSource ?? resolveImageSource,
+    onImagePress: (href, withGallery) => onMarkdownLinkPress(href, true, undefined, withGallery),
+    resolveImageSource,
     fileContextMenu: (href) => {
       const skill = enrichedSkillReference(href, props.skills);
       if (skill) {
@@ -3634,7 +3634,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     },
   };
   const renderMarkdownImage: MarkdownImageRenderer = (image) => {
-    if (props.hostImageRenderer) return props.hostImageRenderer(image);
     const media = resolveMarkdownMediaPreview(image.href, {
       environmentId: props.environmentId,
       threadId: props.threadId,
@@ -3724,13 +3723,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     if (!root) return null;
     const path = workspaceRelativeImagePath(image.href, root);
     if (!path) return null;
-    if (props.hostImageRenderer) {
-      return props.hostImageRenderer({
-        ...image,
-        href: joinHostPath(root, path),
-        alt: image.alt ?? hostPathBaseName(path),
-      });
-    }
     const href = `./${path.split("/").map(encodeURIComponent).join("/")}`;
     const viewedImage = resolveViewedImageAsset(href, {
       threadId: props.threadId,
@@ -3822,9 +3814,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // LegendList reports ready, and shows its rows, while rows measured during its initial scroll can
   // still leave it hundreds of points short of the end; isAtEnd stays true through that.
   const settling = props.feed.length > 0 && landedListKey !== feedThreadKey;
-  // A first prompt has no history to land on. Paint it as soon as the feed
-  // replaces the draft, while the list finishes measuring its first rows.
-  const hideUntilLanded = settling && !props.openedAsDraft;
   const landingFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reportMetrics = (ready: boolean) => {
     const state = listRef.current?.getState();
@@ -3883,14 +3872,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     setInteractionState((current) => ({ ...current, revealedMessageId: jumpToMessageId }));
   }
   const [appendPendingTurn] = useState(createPendingTurnAppender);
-  const presentedFeed = appendGuestPendingMessages(
-    appendPendingTurn(
-      useThreadFeedPresentation(props, expandedTurnIds, expandedWorkGroups, revealedMessageId),
-      { zen: props.toolCallVisibility === "zen" },
-      m,
-    ),
-    guestShare,
-    m,
+  const feed = useThreadFeedPresentation(
+    props, expandedTurnIds, expandedWorkGroups, revealedMessageId,
+  );
+  const zen = props.toolCallVisibility === "zen";
+  const presentedFeed = useMemo(
+    () => appendGuestPendingMessages(appendPendingTurn(feed, { zen }, m), guestShare, m),
+    [appendPendingTurn, feed, zen, m, guestShare],
   );
   const pendingFoldMessageId =
     presentedFeed.findLast((entry) => entry.type === "pending-fold")?.messageId ?? null;
@@ -3921,17 +3909,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         )?.id ?? null)
       : null;
   const [groupFeed] = useState(createThreadFeedGrouping);
-  const groupedFeed = groupFeed(presentedFeed, {
-    workflowOpeningMessageId: workflowOpening?.messageId,
-    setupAnchorIndex: props.worktreeSetup || props.preparingWorktree ? setupAnchorIndex : undefined,
-  });
+  const workflowOpeningMessageId = workflowOpening?.messageId;
+  const setupGroupingIndex =
+    props.worktreeSetup || props.preparingWorktree ? setupAnchorIndex : undefined;
+  const groupedFeed = useMemo(
+    () =>
+      groupFeed(presentedFeed, { workflowOpeningMessageId, setupAnchorIndex: setupGroupingIndex }),
+    [groupFeed, presentedFeed, workflowOpeningMessageId, setupGroupingIndex],
+  );
   const { contentInsetEndAdjustment } = props;
   const attachList = (list: LegendListRef | null) => {
     listRef.current = list;
-    if (list && Platform.OS !== "ios") {
-      const bottom = contentInsetEndAdjustment.get();
-      if (bottom > 0) list.reportContentInset({ bottom });
-    }
+    const bottom = contentInsetEndAdjustment.get();
+    if (list && bottom > 0) list.reportContentInset({ bottom });
   };
   const jumpIndex = jumpReady
     ? presentedFeed.findIndex((entry) => entry.type === "message" && entry.id === jumpToMessageId)
@@ -3960,6 +3950,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     const nextHeight = Math.round(event.nativeEvent.layout.height);
     if (splitLayout) lastSplitViewport = { windowWidth, width: nextWidth, height: nextHeight };
+    else if (nextHeight > 0 && nextWidth === Math.round(windowWidth)) {
+      lastCompactViewport = { windowWidth, windowHeight, height: nextHeight };
+    }
     setViewportWidth((current) => (Math.abs(current - nextWidth) > 1 ? nextWidth : current));
     setViewportHeight((current) => (Math.abs(current - nextHeight) > 1 ? nextHeight : current));
   };
@@ -4348,7 +4341,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
-  return (
+  const content = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
         {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
@@ -4358,10 +4351,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           className="flex-1"
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
         >
-          <ThreadList
+          {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
+          <KeyboardAwareLegendList
             ref={attachList}
             dataKey={feedThreadKey}
-            style={hideUntilLanded ? { flex: 1, opacity: 0 } : { flex: 1 }}
+            style={settling ? { flex: 1, opacity: 0 } : { flex: 1 }}
+            // RN 0.81+ drops inset-area touches (facebook/react-native#54123), making blank post-send space unscrollable.
+            applyWorkaroundForContentInsetHitTestBug
+            {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
             scrollIndicatorInsets={{ top: anchorTopInset, bottom: 0 }}
@@ -4369,18 +4366,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             contentInsetEndAdjustment={props.contentInsetEndAdjustment}
             keyboardOffset={props.keyboardOffset}
             {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
-            {...(Platform.OS === "ios"
-              ? { keyboardStickyEnabled: props.keyboardStickyEnabled }
-              : {
-                  freeze: props.freeze,
-                  keyboardLiftBehavior: "whenAtEnd" as const,
-                  applyWorkaroundForContentInsetHitTestBug: true,
-                })}
-            maintainScrollAtEnd={
-              jumpReady || props.isClosingKeyboardForSubmission
-                ? false
-                : THREAD_FEED_MAINTAIN_SCROLL_AT_END
-            }
+            freeze={props.freeze}
+            maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
             maintainScrollAtEndThreshold={THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD}
             maintainVisibleContentPosition
             data={groupedFeed}
@@ -4412,6 +4399,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Android scrolls a tapped selectable message into view when it takes focus, which reads
             // as a user scroll and drops end following before the keyboard closes.
             scrollsChildToFocus={false}
+            keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
             // Seed the initial viewport before native onLayout.
             {...(viewportHeight > 0 && viewportWidth > 0
               ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
@@ -4419,11 +4407,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             scrollToOverflowEnabled
             estimatedItemSize={180}
             alignItemsAtEnd
-            initialScrollAtEnd={!props.openedAsDraft}
+            initialScrollAtEnd
             onReady={() => {
               setLoadedListKey(feedThreadKey);
+              if (props.threadTitle?.startsWith("Scroll Less") && props.historyControls?.hasMoreHistory)
+                requestAnimationFrame(() => requestAnimationFrame(() => props.historyControls?.onLoadEarlier()));
               reportMetrics(true);
-              props.onReady?.();
               // Never leave the feed hidden if end following stalls short of the end.
               landingFallback.current = setTimeout(() => setLandedListKey(feedThreadKey), 1000);
             }}
@@ -4505,6 +4494,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       </View>
     </PresentationSource>
   );
+  return <ThreadHtmlPreviewsReady value={!settling}>{content}</ThreadHtmlPreviewsReady>;
 });
 
 function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {

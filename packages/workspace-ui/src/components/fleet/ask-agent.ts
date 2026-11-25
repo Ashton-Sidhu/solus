@@ -5,7 +5,7 @@ import type { FleetMachine } from './lib/fleet-model'
 import { hostAgentPrompt, hostToAskOn, type HostAsk } from './lib/host-agent'
 
 /**
- * "Ask an agent" (docs/plans/host-fleet.md D12): a new chat about these hosts,
+ * "Ask an agent": a new chat about these hosts,
  * with its prompt ready for the person to read and send. It runs on the host
  * itself when that host answers, else on this device.
  */

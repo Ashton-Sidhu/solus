@@ -14,7 +14,7 @@
   import type { AddWay } from "./lib/fleet-model";
 
   /**
-   * Add a machine (docs/plans/host-fleet.md D8): Nearby is always first, and a
+   * Add a machine: Nearby is always first, and a
    * machine in reach is one action away. Below it, the other ways as one choice;
    * the chosen way opens in place, its first field focused, and finishes here.
    * Only SSH has its own form. Several machines that run Solus are added at

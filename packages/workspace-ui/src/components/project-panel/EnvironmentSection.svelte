@@ -4,7 +4,6 @@
     Check as CheckIcon,
     ChevronDown as CaretDownIcon,
     Folder as FolderIcon,
-    FolderGit2 as CodebaseIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
     Smartphone as SmartphoneIcon,
@@ -188,7 +187,7 @@
          Solus, the caret offers the other places that can show it. -->
     {@const hasNoFolder = projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles}
     {#snippet projectFavicon()}
-      <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
+      <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} {codebaseId} class="size-4" />
     {/snippet}
     <div class="split-row">
       <MenuRow
@@ -196,7 +195,7 @@
         item={{
           key: "project",
           label: project.label,
-          icon: project.isCodebase ? CodebaseIcon : FolderIcon,
+          icon: FolderIcon,
           badge: project.badge,
           badgeIcon: runServer?.local ? LaptopIcon : undefined,
           hint: comboHint("global.toggle-files"),
@@ -205,7 +204,7 @@
           disabled: hasNoFolder || !onOpenFiles,
           tooltip: project.tooltip,
         }}
-        iconSnippet={project.isCodebase ? undefined : projectFavicon}
+        iconSnippet={projectFavicon}
         onActivate={() => onOpenFiles?.()}
       />
       <button

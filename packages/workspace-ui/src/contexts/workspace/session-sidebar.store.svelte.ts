@@ -4,6 +4,7 @@ import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
+import { sessionRunKey } from '@solus/contracts/session-execution'
 import type { HostApi } from '@solus/client-core/host-api'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { makePrompt } from './session.factories'
@@ -1282,31 +1283,38 @@ export class SessionSidebarStore {
     // the metadata read rather than after it.
     const listed = sessionListStore.listed(row.sessionId)
     if (listed && !listed.runnerOffline) {
-      this.session.opening.prefetchFirstPage({ sessionId: row.sessionId, serverId: listed.serverId, ...listed.opensWith })
+      this.session.opening.prefetchOpening({ sessionId: row.sessionId, serverId: listed.serverId, ...listed.opensWith })
       // The open takes its facts from the list: no metadata read is needed.
       this.preparedOpen = { rowKey: row.key, at: Date.now(), meta: Promise.resolve(listedSessionMeta(listed)) }
       return
     }
     const meta = readSessionMeta(row.serverId, row.sessionId)
-    void meta.then((read) => { if (read) this.session.opening.prefetchFirstPage(read) })
+    void meta.then((read) => { if (read) this.session.opening.prefetchOpening(read) })
     this.preparedOpen = { rowKey: row.key, at: Date.now(), meta }
   }
 
   /**
    * The pointer or the keyboard rests on a row: its first history page is read
-   * before the click, so an open on a remote host does not wait a round trip
-   * for it. A row passed over on the way to another is not read. A running
-   * session changes while the reader decides, so it is read at the click.
+   * before the click, so the open does not wait for the host to read it. A row
+   * passed over on the way to another is not read. A running session is read
+   * too: the watch at the open replays the run at work, so the page stays whole
+   * while that run goes on. When a run starts or ends before the click, the
+   * page is stale and the open reads it again.
    */
   restOn(row: SidebarTask, isResting: boolean): void {
     if (this.restTimer) clearTimeout(this.restTimer)
     this.restTimer = null
     if (!isResting || row.tabIds.length || !row.sessionId) return
     const listed = sessionListStore.listed(row.sessionId)
-    if (!listed || listed.runnerOffline || listed.status === 'running') return
+    if (!listed || listed.runnerOffline) return
     this.restTimer = setTimeout(() => {
       this.restTimer = null
-      this.session.opening.prefetchFirstPage({ sessionId: listed.sessionId, serverId: listed.serverId, ...listed.opensWith }, RESTED_PAGE_LIFE_MS)
+      const runs = () => sessionRunKey(this.session.sessions.executionFor(listed.serverId, listed.sessionId))
+      const readDuring = runs()
+      this.session.opening.prefetchOpening(
+        { sessionId: listed.sessionId, serverId: listed.serverId, ...listed.opensWith },
+        { maxAgeMs: RESTED_PAGE_LIFE_MS, isCurrent: () => runs() === readDuring },
+      )
     }, ROW_REST_MS)
   }
 

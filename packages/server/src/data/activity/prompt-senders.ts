@@ -56,7 +56,7 @@ export async function withPromptSenders(scope: RecordScope, sessionId: string, m
     from: Math.min(...prompts.map((message) => message.timestamp)) - MATCH_WINDOW_MS,
     until: Math.max(...prompts.map((message) => message.timestamp)) + MATCH_WINDOW_MS,
   }
-  const records = (await activityFor(scope, { kind: 'session', id: sessionId }, { window })).filter((entry) => entry.kind === 'prompt_sent')
+  const records = await activityFor(scope, { kind: 'session', id: sessionId }, { window, kind: 'prompt_sent' })
   if (records.length) stampPromptSenders(messages, records)
   return messages
 }

@@ -106,8 +106,8 @@ export function sshTargetCandidates(server: DiscoveredServer): SshTargetCandidat
 const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org', 'ssh.dev.azure.com', 'vs-ssh.visualstudio.com', 'codeberg.org'])
 
 /**
- * Every machine `~/.ssh/config` names, as a target to add over SSH
- * (docs/plans/host-fleet.md D7). A pattern entry (`Host *`) names no machine, and a
+ * Every machine `~/.ssh/config` names, as a target to add over SSH.
+ * A pattern entry (`Host *`) names no machine, and a
  * git hosting service is not one either. The first plain alias of an entry is its name.
  */
 export function sshConfigHostCandidates(entries: SshConfigEntry[] = readSshConfigEntries()): SshTargetCandidate[] {

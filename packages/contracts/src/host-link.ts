@@ -1,7 +1,7 @@
 import type { HostOperatingSystem } from "./types";
 
 /**
- * A host named in a prompt or a reply (docs/plans/host-fleet.md D12), as a
+ * A host named in a prompt or a reply, as a
  * Markdown link:
  *
  *   [studio-mini](host://ref?serverId=h1&route=Tailscale&system=linux&address=http%3A%2F%2F100.88.12.4%3A4317&state=unreachable)

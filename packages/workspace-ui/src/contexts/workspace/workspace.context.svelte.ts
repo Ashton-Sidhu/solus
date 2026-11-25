@@ -555,11 +555,23 @@ export class WorkspaceContext implements SurfaceContext {
    *  by itself (docs/plans/project-model.md §5); this is the one explicit way
    *  to ask for it. False when the input bar names no project. */
   scopePageToCurrentProject(): boolean {
+    const project = this.currentProject
+    if (!project) return false
+    this.scopeOpenProjectPage(project)
+    return true
+  }
+
+  /** The project the input bar is in, keyed as a page scope keys it, so a
+   *  project selector can mark that row; null when the input bar names none. */
+  get currentProjectKey(): string | null {
+    const project = this.currentProject
+    return project ? projectsStore.projectKeyFor(project.serverId, project.projectRoot) : null
+  }
+
+  private get currentProject(): ProjectRef | null {
     const run = this.activeRun
     const root = projectRoot(run)
-    if (!run || !root) return false
-    this.scopeOpenProjectPage({ serverId: projectHome(run).serverId, projectRoot: worktreeProjectRoot(root) })
-    return true
+    return run && root ? { serverId: projectHome(run).serverId, projectRoot: worktreeProjectRoot(root) } : null
   }
   projectDefaultBranchFor(run: RunConfig): string | null {
     const place = checkoutPlace(run)

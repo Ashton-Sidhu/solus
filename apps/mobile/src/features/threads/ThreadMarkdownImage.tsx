@@ -97,6 +97,7 @@ export function ThreadMarkdownImageView(props: {
   readonly unavailable: boolean;
   readonly unavailableDetail?: string | undefined;
   readonly alt: string | null;
+  readonly keepInitialFrame?: boolean;
   readonly knownSize?: { readonly width: number; readonly height: number } | undefined;
   readonly format?: "svg";
   readonly actionsSource?: MediaActionsSource;
@@ -125,7 +126,9 @@ export function ThreadMarkdownImageView(props: {
   const [failure, setFailure] = useState({ uri: props.uri, failed: false });
   if (failure.uri !== props.uri) setFailure({ uri: props.uri, failed: false });
 
-  const sourceSize = decodedSize ?? props.knownSize ?? null;
+  // A signed host image may resolve after the list has positioned the next message.
+  const [initialSize] = useState(props.knownSize);
+  const sourceSize = props.keepInitialFrame ? initialSize ?? null : decodedSize ?? props.knownSize ?? null;
   const displaySize: MarkdownImageDisplaySize | null =
     sourceSize === null || availableWidth <= 0
       ? null
@@ -307,6 +310,8 @@ export function ThreadMarkdownImage(props: {
 
   return (
     <ThreadMarkdownImageView
+      key={resourceKey}
+      keepInitialFrame
       uri={assetUrl._tag === "Success" ? assetUrl.url + (props.srcFragment ?? "") : null}
       cacheKey={
         assetUrl._tag === "Success"

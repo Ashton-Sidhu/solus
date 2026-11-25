@@ -3,7 +3,7 @@ import type { DiscoveredServer, HostOperatingSystem } from '@solus/contracts/typ
 import type { FleetZoneId } from './fleet-model'
 
 /**
- * Discover (docs/plans/host-fleet.md D7): what this device can see but has not
+ * Discover: what this device can see but has not
  * added, from four sources, as one list. Each found machine names its source,
  * the zone it would join, and the one action that adds it.
  */

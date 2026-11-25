@@ -1,6 +1,6 @@
 import { readUploadAttachmentId } from "../solus/upload-attachment-id";
 import { attachmentUrl } from "../solus/attachment-resource";
-import { checkoutMediaAsset, signCheckoutAsset } from "../solus/checkout-files";
+import { checkoutMediaAsset, signCheckoutAsset, type CheckoutAsset } from "../solus/checkout-files";
 import { mobileHost, fileAccountScope } from "./mobile-host";
 import { mediaTypeFor } from "@solus/contracts/media-types";
 import { useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
@@ -17,7 +17,7 @@ import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runt
 import { msg, useMessages } from "gt-react-native";
 import { m } from "../i18n/messages";
 import type { AssetResource, EnvironmentId } from "@t3tools/contracts";
-import { videoMimeType } from "@t3tools/shared/video";
+import { solus } from "../solus/runtime";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -44,33 +44,32 @@ const emptyHostMediaState = Atom.make<AssetUrlState | null>(null).pipe(
   Atom.withLabel("host-media-state:none"),
 );
 
-function hostMediaPath(resource: AssetResource | null) {
+function hostMediaPath(resource: AssetResource | null, environmentId: EnvironmentId | null): CheckoutAsset | null {
   if (resource?._tag === "attachment") {
     const upload = readUploadAttachmentId(resource.attachmentId);
-    return upload ? { cwd: "~", ...upload } : null;
+    return upload ? { cwd: "~", ...upload }
+      : /^[a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15}$/.test(resource.attachmentId)
+        ? { cwd: "~", assetId: resource.attachmentId } : null;
   }
   if (resource?._tag !== "media-file" && resource?._tag !== "draft-workspace-file") return null;
-  if (
-    mediaTypeFor(resource.path)?.kind !== "image" &&
-    !videoMimeType({ name: resource.path, mimeType: "" })
-  ) {
-    return null;
-  }
-  // Markdown resolves thread media links against the workspace before building the resource.
-  return { cwd: resource._tag === "draft-workspace-file" ? resource.cwd : "~", path: resource.path };
+  const thread = resource._tag === "media-file" && environmentId
+    ? solus.threads.thread(environmentId, resource.threadId)?.record : undefined;
+  const cwd = resource._tag === "draft-workspace-file" ? resource.cwd
+    : environmentId ? solus.openConversation(environmentId, resource.threadId)?.controller.run.workingDirectory
+      ?? thread?.cwd ?? thread?.projectPath : undefined;
+  return {
+    cwd: cwd ?? "~",
+    path: resource.path,
+    ...(resource._tag === "media-file" && { sessionId: resource.threadId }),
+    ...(resource.disposition === "attachment" || !mediaTypeFor(resource.path) ? { download: true } : {}),
+  };
 }
 
 const hostMediaState = Atom.family(
   ({
     environmentId,
     ...input
-  }: {
-    environmentId: EnvironmentId;
-    cwd: string;
-    path: string;
-    sessionId?: string;
-    revision?: string | null;
-  }) =>
+  }: CheckoutAsset & { environmentId: EnvironmentId }) =>
     Atom.make((get): AssetUrlState => {
       const host = get(mobileHost(environmentId));
       if (!host) return { _tag: "Failure", reason: "disconnected" };
@@ -87,7 +86,7 @@ export function useAssetConnectionAvailable(
   environmentId: EnvironmentId | null,
   resource: AssetResource | null,
 ): boolean {
-  const isHostMedia = hostMediaPath(resource) !== null;
+  const isHostMedia = hostMediaPath(resource, environmentId) !== null;
   const host = useAtomValue(isHostMedia && environmentId ? mobileHost(environmentId) : noHost);
   const connection = usePreparedConnection(isHostMedia ? null : environmentId);
   return isHostMedia ? host !== null : connection._tag === "Some";
@@ -102,7 +101,7 @@ export function useAssetUrlState(
   resource: AssetResource | null,
   revision?: string | null,
 ): AssetUrlState {
-  const media = hostMediaPath(resource);
+  const media = hostMediaPath(resource, environmentId);
   const hostState = useAtomValue(
     media && environmentId
       ? hostMediaState({ environmentId, ...media, ...(revision === undefined ? {} : { revision }) })
@@ -161,7 +160,7 @@ export function useRefreshAssetUrl(
   environmentId: EnvironmentId | null,
   resource: AssetResource | null,
 ): () => Promise<string | null> {
-  const media = hostMediaPath(resource);
+  const media = hostMediaPath(resource, environmentId);
   const connection = usePreparedConnection(media ? null : environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const createUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -201,7 +200,7 @@ export async function refreshAssetUrl(
 ): Promise<string | null> {
   if (resource._tag === "attachment")
     return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);
-  const media = hostMediaPath(resource);
+  const media = hostMediaPath(resource, environmentId);
   if (media) {
     const hostAtom = mobileHost(environmentId);
     const release = appAtomRegistry.mount(hostAtom);
@@ -308,7 +307,7 @@ export function useFreshAssetUrl(
   resource: AssetResource | null,
   revision: number,
 ): AsyncResult.AsyncResult<AuthorizedAssetUrl, Error> {
-  const usesSolusHost = resource?._tag === "attachment" || hostMediaPath(resource) !== null;
+  const usesSolusHost = resource?._tag === "attachment" || hostMediaPath(resource, environmentId) !== null;
   const connection = usePreparedConnection(usesSolusHost ? null : environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const host = useAtomValue(

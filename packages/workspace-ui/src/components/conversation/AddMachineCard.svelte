@@ -4,6 +4,7 @@
    *  session's host (an SSH add, an approval request, or a pairing code), then
    *  answers the card with the outcome only. A typed code or password lives
    *  only in this card's state and goes to the host once, in that call. */
+  import { tick } from "svelte";
   import { ArrowUpRight as ArrowUpRightIcon, KeyRound as KeyIcon, Plus as PlusIcon, Terminal as TerminalIcon } from "@lucide/svelte";
   import { rankAddMachineCandidates } from "@solus/client-core/add-machine-candidates";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
@@ -25,8 +26,9 @@
   import InterruptCard from "./InterruptCard.svelte";
   import StatusCard from "./StatusCard.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { countdown } from "../../lib/countdown";
-  import { ANOTHER_ADDRESS_KEY, approveSteps, codeSteps, reachableMachines, stepTextParts, targetName, wayLabel } from "./lib/add-machine-card";
+  import { ANOTHER_ADDRESS_KEY, ANOTHER_SSH_KEY, approveSteps, codeSteps, reachableMachines, stepTextParts, wayLabel } from "./lib/add-machine-card";
   import { AddMachineCardState } from "./lib/add-machine-card.svelte";
   import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
   import SyncSettingsCheckbox from "../connections/SyncSettingsCheckbox.svelte";
@@ -46,6 +48,7 @@
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
   const ask = $derived(request.hostLink ?? { reason: "The agent asks to add a machine." });
   const idBase = $derived(`add-machine-${request.questionId}`);
+  const sessionHostName = $derived(serversStore.hostFor(sessionHostId)?.label || "the session's host");
 
   // The session host's SSH targets: read once, an empty list when it cannot say.
   let sshTargets = $state<SshTargetCandidate[]>([]);
@@ -83,6 +86,7 @@
   settingsSyncStore.startAdd();
   const card = new AddMachineCardState({
     candidates: () => candidates,
+    ask: () => ask,
     addOverSsh: (sshRequest) => session.apiFor(tabId).hostsAddOverSsh(sshRequest),
     pair: (pairRequest) => session.apiFor(tabId).hostsPair(pairRequest),
     watchSshProgress: (requestId, onProgress) =>
@@ -94,7 +98,7 @@
     passwordIssue: () =>
       serverConnections.hasEncryptedConnection(sessionHostId)
         ? ""
-        : unencryptedPasswordMessage(serversStore.hostFor(sessionHostId)?.label || "the session's host"),
+        : unencryptedPasswordMessage(sessionHostName),
     afterSshAdd: async (result) => {
       // A forward held by this computer is one this client can dial too.
       if (result.status === "forwarded" && sessionHostId === hosts.device?.id) await serversStore.savePairedServer(serverFromSshAdd(result, null));
@@ -115,10 +119,10 @@
   // A failed add shows where it stopped above the choice, so the message is not also at the field.
   const showsFieldMessage = $derived(!card.statusCard);
   const selected = $derived(card.selected);
-  const name = $derived(targetName(selected, card.address));
+  const name = $derived(card.machineName);
   const isAddressRow = $derived(card.selectedKey === ANOTHER_ADDRESS_KEY);
   const canEnterCode = $derived(!card.showsCodeField && (isAddressRow || selected?.way === "approve" || !!selected?.minted));
-  const showsPassword = $derived(card.isPasswordAsked && selected?.way === "ssh");
+  const showsPassword = $derived(card.isPasswordAsked && !!card.selectedSshTarget);
   const failureAt = $derived(card.failure?.field);
 
   let now = $state(Date.now());
@@ -136,6 +140,29 @@
       event.preventDefault();
       void card.add();
     }
+  }
+
+  // The key is a file on the session's host, which runs SSH, so the picker browses that host.
+  let identityInput: HTMLInputElement | null = $state(null);
+  let isKeyPickerOpen = $state(false);
+
+  function focusIdentityInput() {
+    void tick().then(() => identityInput?.focus());
+  }
+
+  function openKeyField() {
+    card.openKeyField();
+    focusIdentityInput();
+  }
+
+  function closeKeyPicker() {
+    isKeyPickerOpen = false;
+    focusIdentityInput();
+  }
+
+  function chooseKey(path: string) {
+    card.identityFile = path;
+    closeKeyPicker();
   }
 
   function showCodeOnTarget() {
@@ -223,6 +250,20 @@
             </div>
           {/each}
           <div
+            id="{idBase}-{ANOTHER_SSH_KEY}"
+            role="option"
+            tabindex="-1"
+            aria-selected={card.isSshTargetRow}
+            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", card.isSshTargetRow && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
+            onclick={() => card.select(ANOTHER_SSH_KEY)}
+            onkeydown={onListKey}
+          >
+            <span class="flex size-7 shrink-0 items-center justify-center rounded-lg text-(--muted-foreground) shadow-[inset_0_0_0_0.0625rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true">
+              <TerminalIcon size={14} />
+            </span>
+            <span class={["min-w-0 flex-1 truncate text-[0.8125rem]", card.isSshTargetRow ? "font-medium text-(--solus-text-primary)" : "text-(--muted-foreground) group-hover:text-(--solus-text-primary)"]}>Another machine over SSH…</span>
+          </div>
+          <div
             id="{idBase}-{ANOTHER_ADDRESS_KEY}"
             role="option"
             tabindex="-1"
@@ -253,6 +294,70 @@
               class="h-8 font-mono text-xs"
             />
             {#if failureAt === "address" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+          </div>
+        {/if}
+
+        {#if card.isSshTargetRow}
+          <div class="flex min-w-0 flex-col gap-1">
+            <label for="{idBase}-ssh-target" class="text-transcript-meta text-(--muted-foreground)">Target</label>
+            <Input
+              id="{idBase}-ssh-target"
+              bind:value={card.sshTarget}
+              dictation={false}
+              spellcheck={false}
+              autocomplete="off"
+              placeholder="ubuntu@3.91.20.4"
+              disabled={closed || isBusy}
+              aria-invalid={failureAt === "target"}
+              class="h-8 font-mono text-xs"
+            />
+            {#if failureAt === "target" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+          </div>
+        {/if}
+
+        {#if selected?.way === "ssh" && !card.isKeyFieldOpen}
+          <p class="m-0 flex min-w-0 flex-wrap items-center gap-x-1.5 text-transcript-meta text-(--muted-foreground)">
+            <span>Key: from ~/.ssh/config</span>
+            <span aria-hidden="true">·</span>
+            <button type="button" class="interrupt-link" disabled={closed || isBusy} onclick={openKeyField}>Use another key…</button>
+          </p>
+        {/if}
+
+        {#if card.showsKeyField}
+          <div class="flex min-w-0 flex-col gap-1">
+            <label for="{idBase}-identity-file" class="text-transcript-meta text-(--muted-foreground)">Identity file (optional)</label>
+            <div class="flex min-w-0 gap-1.5">
+              <Input
+                id="{idBase}-identity-file"
+                bind:ref={identityInput}
+                bind:value={card.identityFile}
+                dictation={false}
+                spellcheck={false}
+                autocomplete="off"
+                placeholder="~/.ssh/my-key.pem"
+                disabled={closed || isBusy}
+                aria-invalid={failureAt === "identity"}
+                aria-describedby="{idBase}-identity-file-hint"
+                class="h-8 min-w-0 flex-1 font-mono text-xs"
+              />
+              <Button size="sm" variant="outline" class="h-8 shrink-0" disabled={closed || isBusy || !sessionHostId} onclick={() => (isKeyPickerOpen = true)}>Browse…</Button>
+            </div>
+            {#if failureAt === "identity"}<p role="alert" class="m-0 text-transcript-meta text-pretty text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+            <p id="{idBase}-identity-file-hint" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">
+              A private key on {sessionHostName}, as with ssh -i. Empty: its SSH keys and ~/.ssh/config.
+            </p>
+            {#if !card.isSshTargetRow}
+              <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.closeKeyField()}>Use the key from ~/.ssh/config</button>
+            {/if}
+          </div>
+        {/if}
+
+        {#if card.keyPermissions}
+          <div role="alert" class="flex min-w-0 flex-col items-start gap-2 rounded-lg bg-(--solus-surface-hover) px-3 py-2.5">
+            <p class="m-0 text-transcript-meta text-pretty text-(--solus-text-secondary)">{card.keyPermissions.message}</p>
+            <Button size="sm" variant="outline" disabled={closed || isBusy} onclick={() => void card.fixKeyPermissions()}>
+              Fix permissions
+            </Button>
           </div>
         {/if}
 
@@ -287,7 +392,7 @@
         {#if showsPassword}
           <div class="flex min-w-0 flex-col gap-1">
             <label for="{idBase}-password" class="flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
-              <KeyIcon size={14} class="shrink-0" />SSH password or key passphrase for {selected?.sshTarget}
+              <KeyIcon size={14} class="shrink-0" />SSH password or key passphrase for {card.selectedSshTarget}
             </label>
             <Input
               id="{idBase}-password"
@@ -332,4 +437,19 @@
       {/if}
     {/snippet}
   </InterruptCard>
+{/if}
+
+{#if isKeyPickerOpen && sessionHostId}
+  <DirectoryPicker
+    open={isKeyPickerOpen}
+    onClose={closeKeyPicker}
+    onSelect={chooseKey}
+    initialPath="~/.ssh/"
+    title="Choose an identity file"
+    actionLabel="Choose"
+    chooses={(entry) => !entry.isDir}
+    api={session.apiFor(tabId)}
+    hostLabel={sessionHostName}
+    serverId={sessionHostId}
+  />
 {/if}

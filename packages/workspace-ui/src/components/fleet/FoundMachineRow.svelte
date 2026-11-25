@@ -13,7 +13,7 @@
   import { openSshAdd, pairWithCode } from "./add-machine";
   import type { FoundMachine } from "./lib/discover";
 
-  /** One found machine and the one action that adds it (D7, D8). A host that runs
+  /** One found machine and the one action that adds it. A host that runs
    *  Solus pairs in this row with the code it shows, or joins the machines added
    *  together (`selection`); a WSL distro installs Solus; an SSH config machine
    *  opens the SSH form, filled in. */

@@ -474,3 +474,67 @@ describe('auto-merge', () => {
     expect(prMenuHostActions({ ...merged, state: 'open' }, null).revert).toBe(false)
   })
 })
+
+describe('workflows that wait for approval', () => {
+  // WHY: GitHub holds some workflow runs until a maintainer approves them.
+  // Their checks do not exist yet, so the pull request can look green or
+  // "in progress" forever. The status must name the approval, and offer it
+  // only to a viewer the host lets approve, for the head the runs belong to.
+  function approvable(viewerActions: PrLifecycleAction[] = ['merge', 'approve-workflows']): PullRequest {
+    const detail = detailOf({ viewerActions, mergeStateStatus: 'blocked' })
+    detail.capabilities.actions = [...detail.capabilities.actions, 'approve-workflows']
+    return detail
+  }
+  const run = (id: number) => ({ id, name: `Workflow ${id}`, url: null })
+  const waitingRuns = { headSha: 'sha-1', runs: [run(1), run(2)] }
+
+  test('a maintainer gets the approval as the move', () => {
+    const readiness = mergeReadiness({
+      detail: approvable(),
+      checks: checksOf('passing'),
+      ...quiet,
+      pendingWorkflowRuns: waitingRuns,
+    })
+    expect(readiness.key).toBe('workflows')
+    expect(readiness.headline).toBe('Workflows need approval')
+    expect(readiness.note).toBe('2 workflows wait for your approval')
+    expect(readiness.action).toEqual({ kind: 'approve-workflows', label: 'Approve and run 2 workflows', headSha: 'sha-1' })
+  })
+
+  test('a viewer who may not approve sees who must, and gets no button', () => {
+    const readiness = mergeReadiness({
+      detail: approvable(['merge']),
+      checks: checksOf('passing'),
+      ...quiet,
+      pendingWorkflowRuns: waitingRuns,
+    })
+    expect(readiness.key).toBe('workflows')
+    expect(readiness.note).toBe('A maintainer must approve 2 workflows')
+    expect(readiness.action).toBeNull()
+  })
+
+  test('checks held for approval do not also say to wait for them', () => {
+    const readiness = mergeReadiness({
+      detail: approvable(),
+      checks: checksOf('pending'),
+      ...quiet,
+      pendingWorkflowRuns: { headSha: 'sha-1', runs: [run(1)] },
+    })
+    expect(readiness.key).toBe('workflows')
+    expect(readiness.note).toBe('1 workflow waits for your approval')
+  })
+
+  test('a conflict still comes first', () => {
+    const detail = { ...approvable(), mergeable: false, mergeStateStatus: 'dirty' }
+    expect(mergeReadiness({ detail, checks: checksOf('passing'), ...quiet, pendingWorkflowRuns: waitingRuns }).key)
+      .toBe('conflicts')
+  })
+
+  test('runs read for an older head, or none at all, change nothing', () => {
+    for (const pendingWorkflowRuns of [{ headSha: 'sha-0', runs: [run(1)] }, { headSha: 'sha-1', runs: [] }]) {
+      const readiness = mergeReadiness({ detail: approvable(), checks: checksOf('pending'), ...quiet, pendingWorkflowRuns })
+      expect(readiness.key).not.toBe('workflows')
+      expect(readiness.action?.kind).not.toBe('approve-workflows')
+    }
+  })
+})

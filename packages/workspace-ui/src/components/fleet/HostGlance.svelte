@@ -3,7 +3,7 @@
   import type { HostLoad } from "./fleet.store.svelte";
   import { routeHops, sparklinePath, type FleetMachine } from "./lib/fleet-model";
 
-  /** A host's four numbers, the same for every host (D2): CPU, memory, sessions, and latency.
+  /** A host's four numbers, the same for every host: CPU, memory, sessions, and latency.
    *  Each cell is a label, a value, and one 20px line below it, so the cells align. */
   interface Props {
     machine: FleetMachine;

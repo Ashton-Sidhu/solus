@@ -75,7 +75,13 @@ export function sessionReferenceHref(reference: SessionReference): string {
  *  composer turns it into the same `SessionReference` and the agent reads the
  *  session with read_session. */
 export function sessionReferenceMarkdown(reference: SessionReference): string {
-  const label = reference.title.replaceAll("[", "\\[").replaceAll("]", "\\]");
+  // A chip's label is one line: a line break in a title (an automation run's
+  // header, for example) would end the chip and leave raw markdown.
+  const label = reference.title
+    .replace(/\s+/g, " ")
+    .trim()
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]");
   return `[${label}](${sessionReferenceHref(reference)})`;
 }
 

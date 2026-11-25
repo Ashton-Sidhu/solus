@@ -17,17 +17,39 @@
  * `reading` is the wait for those reads to settle. */
 export type ScopeSwitchPhase = 'idle' | 'starting' | 'reading'
 
-/** A read for a search never takes the page: the skeleton replaces the
- *  toolbar too, which unmounts the search field and drops the reader's focus
- *  mid-typing. The list area shows its own row skeleton for that read. */
+/** `loadedRows` counts the rows the scope holds before the page's filters.
+ *  A read for a search or a filter never takes the page: the skeleton
+ *  replaces the toolbar too, which unmounts the search field and the Filters
+ *  menu while the reader uses them. The list area shows its own row skeleton
+ *  for that read. */
 export function showsPrPageSkeleton(
   phase: ScopeSwitchPhase,
   loading: boolean,
-  rowCount: number,
+  loadedRows: number,
   searching: boolean,
 ): boolean {
   if (phase !== 'idle') return true
-  return loading && rowCount === 0 && !searching
+  return loading && loadedRows === 0 && !searching
+}
+
+/** What the page knows of one project's read. */
+export interface PrScopeRead {
+  loading: boolean
+  error: { kind: string } | null
+  filter: { query?: string }
+}
+
+/**
+ * Has every project in view answered the search and the filters now set?
+ * Until it has, the rows on screen are the answer to the previous question,
+ * so an empty list says it is loading, not that nothing matches. A project
+ * the host has said has no pull requests is never asked again, so it is not
+ * waited for.
+ */
+export function prHostAnswered(scopes: readonly PrScopeRead[], hostQuery: string): boolean {
+  return scopes.every(
+    (scope) => scope.error?.kind === 'unavailable' || (!scope.loading && (scope.filter.query ?? '') === hostQuery),
+  )
 }
 
 /**

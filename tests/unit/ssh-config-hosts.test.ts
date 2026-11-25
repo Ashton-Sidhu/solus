@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { sshConfigHostCandidates, type SshConfigEntry } from '@solus/server/remote-machines/ssh-targets'
 
-// WHY: docs/plans/host-fleet.md D7. Discover lists the machines in the owner's
+// WHY: Discover lists the machines in the owner's
 // ~/.ssh/config as machines to add over SSH. A pattern names no machine and a git
 // host is not one, so neither may show up as something to add.
 

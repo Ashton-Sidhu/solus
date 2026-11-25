@@ -53,6 +53,7 @@ export interface AssetCreateUrlRequest {
 }
 
 export interface AssetCreateUrlResult {
+  imageDimensions?: { width: number; height: number }
   relativeUrl: string
   expiresAt: number
 }

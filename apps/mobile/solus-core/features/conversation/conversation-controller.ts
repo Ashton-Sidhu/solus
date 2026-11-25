@@ -6,6 +6,7 @@ import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
+import { sessionFeedHistoryOptions } from '@solus/contracts/session-feed-item'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, loadSessionHistoryPage, sameHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
@@ -32,7 +33,6 @@ import {
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
 import { attachmentKind } from '@solus/contracts/media-types'
-import { htmlFromSavedRenderInput } from './lib/artifacts'
 import { reconcileWatchReplay } from './lib/watch-replay'
 import { queuedMessageAttachments, uploadedMessageAttachments, type MessageAttachment } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
@@ -137,7 +137,9 @@ export function conversationOutboxPrefix(hostId: string): string {
   return `solus.sendOutbox.v1.${hostId}/`
 }
 
-/** An upload in flight. `landed` is the host's copy, or null when it failed. */
+// A known disk page can save a full network response. Keep the wait bounded on slow storage.
+const HISTORY_CACHE_WAIT_MS = 50
+
 interface HistoryPreview {
   shown: SessionHistoryPage | null
   saved: SessionHistoryPage | null
@@ -158,6 +160,7 @@ type PromptSubmission =
   | { messageId: null; delivered: Promise<void> }
   | { messageId: string; saved: Promise<boolean>; delivered: Promise<void> }
 
+/** An upload in flight. `landed` is the host's copy, or null when it failed. */
 interface InFlightUpload {
   readonly id?: string
   readonly file?: PickedFile
@@ -277,56 +280,6 @@ export class ConversationController {
   private hasHostHistory = false
   /** Turns this conversation saw end, so a replayed event counts a turn once. */
   private readonly settledTurnIds = new Set<string>()
-  /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
-  private readonly artifactReads = new WeakMap<TranscriptModel, Map<string, Promise<void>>>()
-
-  /**
-   * Read the HTML an `html_path` render saved: the work's body at the version
-   * the receipt names, else its revision at that version. Never the work's
-   * latest body. A reply for a transcript a reload replaced is dropped.
-   */
-  ensureArtifact(id: string): Promise<void> {
-    const model = this.model
-    const reads = this.artifactReads.get(model) ?? new Map<string, Promise<void>>()
-    this.artifactReads.set(model, reads)
-    const pending = reads.get(id)
-    if (pending) return pending
-    const item = model.items.get(id)
-    if (item?.kind !== 'artifact' || item.html || !item.workId || !item.contentVersion) return Promise.resolve()
-    const { workId, contentVersion } = item
-    const isCurrent = () => !this.closed && this.model === model
-    model.updateArtifact(id, { loading: true, error: undefined })
-    this.flush()
-    const read = (async () => {
-      try {
-        let html = await this.savedWorkBody(workId, contentVersion).catch(error => {
-          if (!item.toolInputKey) throw error
-          return null
-        })
-        if (html === null && item.toolInputKey && isCurrent()) html = htmlFromSavedRenderInput(await this.readToolInput(item.toolInputKey))
-        if (!isCurrent()) return
-        model.updateArtifact(id, html === null
-          ? { loading: false, error: 'This artifact version is no longer available.' }
-          : { html, loading: false, error: undefined })
-      } catch {
-        if (isCurrent()) model.updateArtifact(id, { loading: false, error: 'Could not load this artifact. Try again.' })
-      } finally {
-        reads.delete(id)
-        if (isCurrent()) this.flush()
-      }
-    })()
-    reads.set(id, read)
-    return read
-  }
-
-  private async savedWorkBody(workId: string, contentVersion: number): Promise<string | null> {
-    const api = this.deps.connection.api
-    const work = await api.loadWork(workId)
-    if (work?.contentVersion === contentVersion) return work.content
-    const revisions = await api.loadWorkRevisions(workId)
-    const revision = revisions.find((entry) => entry.sourceContentVersion === contentVersion)
-    return revision ? (await api.loadWorkRevision(workId, revision.revisionId)).content : null
-  }
 
   constructor(readonly target: ConversationTarget, private readonly deps: ConversationDeps) {
     this.attachments = target.newSession?.attachments ?? []
@@ -682,13 +635,14 @@ export class ConversationController {
     this.watching = false
     this.setPhase({ kind: 'loading' })
     try {
+      const history = this.readHistory(generation, cached && cache?.hasHistoryKey(this.run.sessionId) ? cached : undefined, preview)
       const settings = this.applyRunSettingsOnce()
       this.runOptionsLoaded = settings.then(() => {
         if (!this.closed && generation === this.loadGeneration) return this.loadRunOptions(generation)
       })
       // A history read does not use composer defaults. Start both on open.
       void this.runOptionsLoaded.catch(() => {})
-      const model = await this.readHistory(generation, cached, preview)
+      const model = await history
       if (!model) return
       receivedHistory = true
       this.keepUnsentPrompts(model)
@@ -841,11 +795,15 @@ export class ConversationController {
     // The page travels while the session is described. A lineage that moves
     // the thread to another provider reads the page again from that provider.
     const firstSource = this.historySource
+    const qaLimit = this.target.record?.title?.startsWith('Scroll Less') ? 1 : INITIAL_HISTORY_TURNS
     const firstPage = this.target.movedFrom || this.target.fromCloud
-      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true },
-        cached ? () => cached : undefined)
-    void firstPage?.then(preview.paint).catch(() => {}) // The authoritative read below reports errors.
+      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: qaLimit, ...sessionFeedHistoryOptions, knownHistoryBlocks: [] },
+        cached ? () => cached : undefined, HISTORY_CACHE_WAIT_MS)
+    let waitingForDescription = true
+    // If the source is already known, the authoritative read below paints this page.
+    void firstPage?.then(page => { if (waitingForDescription) preview.paint(page) }).catch(() => {})
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
+    waitingForDescription = false
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
     this.deps.runHosts?.noteMeta(this.hostId, description?.meta)
@@ -861,7 +819,7 @@ export class ConversationController {
     const source = this.historySource
     const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
       ? firstPage
-      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true }))
+      : api.loadSessionPage({ ...source, turnLimit: qaLimit, ...sessionFeedHistoryOptions }))
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     if (!preview.saved || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
@@ -920,7 +878,7 @@ export class ConversationController {
       } else {
         const page = await this.deps.connection.api.loadSessionPage({
           ...this.historySource,
-          turnLimit: OLDER_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true,
+          turnLimit: OLDER_HISTORY_TURNS, ...sessionFeedHistoryOptions,
           before: cursor,
           ...(throughEntryId && { throughEntryId }),
         })

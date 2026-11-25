@@ -15,7 +15,7 @@ import {
   type FleetMachineInput,
 } from '@solus/workspace-ui/components/fleet/lib/fleet-model'
 
-// WHY: docs/plans/host-fleet.md D2–D8. The map puts each host in the zone of the
+// WHY: The map puts each host in the zone of the
 // route this device reaches it by, says its state as one icon, keeps healthy hosts
 // green and only problems loud, switches a full zone to tiles, and the Add page
 // recommends one way. These answers are what the map, the summary, and the host

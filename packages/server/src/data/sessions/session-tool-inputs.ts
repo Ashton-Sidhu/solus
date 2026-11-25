@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { viewedImagePath } from '@solus/client-core/viewed-workspace-image'
 import { z } from 'zod'
 import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import type { SessionLoadMessage, WireSessionLoadMessage, SessionToolInput } from '@solus/contracts/session-history'
@@ -19,7 +20,6 @@ function inputKey(message: Pick<SessionLoadMessage, 'toolName' | 'toolInput'>): 
 /** A string longer than this is content — a file body, a patch, a heredoc —
  *  not a fact a folded row or the changed-files list reads. */
 const SUMMARY_STRING_LIMIT = 256
-const longString = z.string().min(SUMMARY_STRING_LIMIT + 1)
 
 /** The input with its shape kept and every long string dropped: paths, the
  *  command, and the stated intent stay; what they act on does not. A folded
@@ -30,7 +30,7 @@ function summarizeToolInput(toolInput: string): string | null | undefined {
   let dropped = false
   try {
     const summary = JSON.stringify(JSON.parse(toolInput), (_key, value) => {
-      if (!longString.safeParse(value).success) return value
+      if (typeof value !== 'string' || value.length <= SUMMARY_STRING_LIMIT) return value
       dropped = true
       return undefined
     })
@@ -53,6 +53,8 @@ export function deferSessionToolInputs(messages: WireSessionLoadMessage[]): Wire
     const summary = summarizeToolInput(toolInput)
     if (summary === null) return message
     const deferred: WireSessionLoadMessage = { ...rest, toolInputKey: inputKey(message) }
+    const imagePath = viewedImagePath(message.toolName, toolInput, message.toolStatus ?? 'completed')
+    if (imagePath) deferred.viewedImagePath = imagePath
     if (summary !== undefined) deferred.toolInput = summary
     return deferred
   })

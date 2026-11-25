@@ -1,4 +1,5 @@
 import { Atom } from "effect/reactivity";
+import { shellDirectorySource } from "./shell-snapshot";
 import { createNavigationThreads } from "./navigation-threads";
 import { appAtomRegistry } from "../state/atom-registry";
 import { mobileHostConnections, fileAccountScope } from "../state/mobile-host";
@@ -23,6 +24,12 @@ export const solus = new SolusApp({
   ...expoPlatform,
   createTransport: createConversationTransport,
 });
+setTimeout(async () => { // QA_INPUTS
+ const url = "http://127.0.0.1:51149";
+ const result = await solus.preview(url);
+ if(result.kind === "found" && !solus.registry.host(result.preview.installationId)?.sessionToken)
+   await solus.pair(result.preview,process.env.EXPO_PUBLIC_INPUTS_PAIR,"Input profile");
+}, 3500);
 export const nearby = new NearbyDiscovery(solus, expoPlatform.storage);
 let loaded = false;
 let shellCachesRead = false;
@@ -66,6 +73,7 @@ const subscribe = (listener: () => void) => {
 };
 
 export function startSolus() {
+  appAtomRegistry.set(shellDirectorySource, solusDirectoryAtom);
   appAtomRegistry.set(mobileHostConnections, solus.connections);
   let active = true;
   let localReady = false;
@@ -280,6 +288,7 @@ export function startSolus() {
     },
   );
   return () => {
+    appAtomRegistry.set(shellDirectorySource, null);
     appAtomRegistry.set(mobileHostConnections, null);
     active = false;
     stopAgentAwareness?.();

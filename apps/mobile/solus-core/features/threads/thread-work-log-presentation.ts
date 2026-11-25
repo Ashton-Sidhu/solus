@@ -1,6 +1,7 @@
 // Adapted from T3 Code packages/client-runtime/src/work-log/presentation.ts and
 // apps/mobile/src/lib/threadActivity.ts (MIT, see UPSTREAM.md).
 import { z } from 'zod'
+import { commandText, isCommandTool } from '@solus/contracts/session-feed-item'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
@@ -35,13 +36,6 @@ const ACTION_BY_TOOL: Readonly<Partial<Record<string, ToolGroupAction>>> = {
   NotebookEdit: 'edit',
   apply_patch: 'edit',
   file_change: 'edit',
-  Bash: 'command',
-  BashOutput: 'command',
-  KillShell: 'command',
-  exec_command: 'command',
-  shell: 'command',
-  local_shell: 'command',
-  command_execution: 'command',
   WebSearch: 'search',
   web_search: 'search',
   WebFetch: 'browser',
@@ -50,6 +44,7 @@ const ACTION_BY_TOOL: Readonly<Partial<Record<string, ToolGroupAction>>> = {
 }
 
 export function toolGroupAction(toolName: string): ToolGroupAction {
+  if (isCommandTool(toolName)) return 'command'
   const known = ACTION_BY_TOOL[toolName]
   if (known) return known
   if (/browser_/.test(toolName)) return 'browser'
@@ -98,16 +93,6 @@ export function parseToolInput(input: string | null): ParsedToolInput | null {
   }
   parseCache.set(input, parsed)
   return parsed
-}
-
-export function commandText(parsed: ParsedToolInput | null): string | null {
-  const command = parsed?.command ?? parsed?.cmd
-  if (Array.isArray(command)) {
-    // Codex wraps commands as ["bash", "-lc", "<script>"].
-    const script = command.length >= 3 && /sh$/.test(command[0] ?? '') && command[1]?.startsWith('-') ? command[2] : command.join(' ')
-    return script?.trim() || null
-  }
-  return command?.trim() || null
 }
 
 function filePath(parsed: z.infer<typeof toolPathSchema> | null): string | null {

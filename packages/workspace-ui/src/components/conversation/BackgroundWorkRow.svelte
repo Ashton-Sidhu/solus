@@ -30,6 +30,9 @@
    *
    * A server the session's agent started still listens: the row prints its
    * address and opens the Running servers list, which shows and stops it.
+   *
+   * Otherwise the row is a disclosure: one line ends in an ellipsis, so a
+   * click opens the whole sentence and command, wrapped, under the row.
    */
   interface Props {
     wait: BackgroundWait;
@@ -46,6 +49,7 @@
   );
 
   let isStopping = $state(false);
+  let expanded = $state(false);
 
   function showAgents(event: MouseEvent): void {
     if (wait.agentCardKey && event.currentTarget instanceof HTMLElement) {
@@ -70,6 +74,13 @@
 
 {#snippet commandText()}{wait.command || serversText}{/snippet}
 
+{#snippet fullText()}
+  <p class="m-0 whitespace-pre-wrap break-words text-transcript-card leading-relaxed text-muted-foreground">{wait.label}</p>
+  {#if wait.command}
+    <pre class="m-0 mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-all font-mono text-tool-step text-foreground">{wait.command}</pre>
+  {/if}
+{/snippet}
+
 <!-- Stop sits on the rail, where a finished row keeps its step count, and takes
      the rail's own type: the row adds a control, not a new style. -->
 {#snippet stopRail()}
@@ -86,6 +97,9 @@
   target={wait.command || serversText ? commandText : undefined}
   rail={stopRail}
   onActivate={wait.agentCardKey ? showAgents : serversText && onShowServers ? showServers : undefined}
+  onToggle={wait.agentCardKey || (serversText && onShowServers) ? undefined : () => (expanded = !expanded)}
+  {expanded}
+  detail={fullText}
   testid="background-work-row"
 >
   {#snippet glyph()}

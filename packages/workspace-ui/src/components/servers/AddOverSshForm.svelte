@@ -62,7 +62,7 @@
         <Input
           bind:ref={targetInput}
           bind:value={store.sshTarget}
-          placeholder="user@host or an alias"
+          placeholder="ubuntu@3.91.20.4 or an alias"
           autocomplete="off"
           spellcheck={false}
           dictation={false}
@@ -103,10 +103,14 @@
           autocomplete="off"
           spellcheck={false}
           dictation={false}
+          aria-invalid={!!store.identityFileError}
           aria-describedby="ssh-identity-file-hint"
         />
         <Button variant="outline" disabled={!store.sshHostId} onclick={() => (isKeyPickerOpen = true)}>Browse…</Button>
       </div>
+      {#if store.identityFileError}
+        <span class="mt-1 block cursor-text select-text text-pretty text-chrome-dense text-destructive" role="alert">{store.identityFileError}</span>
+      {/if}
       <span id="ssh-identity-file-hint" class="mt-1 block text-chrome-dense text-(--solus-text-tertiary)">
         A private key on {store.sshHostName}, as with ssh -i. Empty: its SSH keys and ~/.ssh/config.
       </span>
@@ -131,6 +135,15 @@
         {/if}
       </span>
     </label>
+  {/if}
+
+  {#if store.keyPermissions}
+    <div class="flex flex-col items-start gap-2 rounded-lg bg-(--solus-surface-hover) px-3 py-2.5" role="alert">
+      <p class="cursor-text select-text text-pretty text-chrome-dense text-(--solus-text-secondary)">{store.keyPermissions.message}</p>
+      <Button size="sm" variant="outline" disabled={store.phase !== "form"} onclick={() => void store.fixKeyPermissions()}>
+        Fix permissions
+      </Button>
+    </div>
   {/if}
 
   {#if store.statusCard}

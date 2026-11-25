@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-// docs/plans/host-fleet.md D9: the renderer asks main to stop, restart, change, delete,
+// The renderer asks main to stop, restart, change, delete,
 // or create a cloud machine. Main holds the account token, so it checks every argument
 // before a request leaves the machine: a malformed host id or spec reaches no website.
 

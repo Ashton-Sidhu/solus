@@ -9,8 +9,11 @@ import {
   HTML_PREVIEW_DEFAULT_WIDTH,
   inlineHostImages,
   previewArtifactHtml,
+  saveCheckPreview,
   type HtmlPreview,
 } from '../../../data/works/artifact-preview'
+import { keepArtifactVersionLayout } from '../../../data/works/artifact-layout'
+import type { ArtifactLayout } from '@solus/contracts/artifact-page'
 import { dataDir } from '../../../platform/paths'
 import { agentToolImageFromDataUrl, type AgentTool, type AgentToolResult } from './agent-tool'
 import { createAgentWork, type WorkCreateCtx } from './work-tools'
@@ -41,6 +44,8 @@ export interface ArtifactPayload {
   title: string
   /** The organization whose Solus API holds the artifact; null when it is on this host. */
   organizationId: string | null
+  /** The frame the save check measured for the saved version, when it measured one. */
+  layout?: ArtifactLayout
 }
 
 export type OnArtifact = (artifact: ArtifactPayload) => void
@@ -69,7 +74,7 @@ const artifactFields = {
     'Check the page instead of saving it. Use it before a ```html fence as well as before saving an artifact.',
   ),
   preview_width: z.number().int().optional().describe(
-    `Preview width in CSS pixels, 320-1440. Defaults to ${HTML_PREVIEW_DEFAULT_WIDTH}, the reply column; use about 390 to check a phone.`,
+    `Preview width in CSS pixels, 320-1440. Defaults to ${HTML_PREVIEW_DEFAULT_WIDTH}, the usual reply column at its narrowest; in a wide window the column grows to 1088, so check a wide layout at 1088. Use about 390 to check a phone.`,
   ),
   preview_appearance: z.enum(['light', 'dark']).optional().describe('Theme to preview in. Defaults to light.'),
 } as const
@@ -80,8 +85,8 @@ export const ARTIFACT_TOOL_DESC = [
   'For a visual the user reads once, write a ```html fence in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence with a <style>, a <script>, or a whole document renders; a bare fragment stays code. Write ```html render or ```html source when the content does not make it obvious. Give a fence an identity, ```html render artifact=revenue-chart (letters, digits, - and _, up to 80 characters): reuse it to revise that visual, use a new one for a separate visual, and emit one completed revision per identity in a reply.',
   'The reader sees the page as part of your reply: do not announce it, say where it is, or restate it.',
   'Author one self-contained HTML page. Put CSS in an inline <style> and any JavaScript in an inline <script>. The page runs in a sandbox without access to the workspace or Solus APIs.',
-  'Solus sets its theme as CSS variables on :root, following light and dark mode live. Style with them, never fixed colors: --background (the conversation background), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground, --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (solid buttons in a mock-up of Solus itself), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (chart series), --radius, --font-sans, --font-mono. The base stylesheet sets a 14px font, body margin 0, monospace code, and a hidden scrollbar.',
-  'The frame is borderless and aligned with your text. Give html, body, and the outermost element no background color (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title. A box with its own background gets at least 16px padding and var(--radius) corners. Give charts fixed pixel heights. Let content set the height: never 100vh or height:100% on html or body.',
+  'Solus sets its theme as CSS variables on :root, following light and dark mode live. Style with them, never fixed colors: --background (the conversation background), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground, --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (solid buttons in a mock-up of Solus itself), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (chart series), --radius, --font-sans, --font-mono. The base stylesheet sets a 14px font, body margin 0, monospace code, and a hidden scrollbar. --accent-surface is the selected fill and --muted the hover fill. Mark a warning or an error box with a 3px bar and an icon in --warning or --destructive, and keep its title in body text.',
+  'The frame is borderless and aligned with your text. Give html, body, and the outermost element no background color (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title. A box with its own background gets at least 16px padding and var(--radius) corners. Give charts fixed pixel heights. The frame width follows the window (often 736 to 1088px), and an SVG with width: 100% scales its text with the frame: give an SVG diagram a max-width equal to its viewBox width, so its text stays at the size you set. Let content set the height: never 100vh or height:100% on html or body.',
   'For a local image, write its absolute path in src or CSS url() and Solus writes the file into the page. Remote http(s) URLs, such as a CDN library, load as they are.',
   'Check a page first with preview: true. It renders the page in a headless browser with the Solus theme at the reply width and returns a screenshot you see, the page height, console output and errors, and missing local images. It saves and shows nothing. Fix what it shows, then write the fence or call again without preview.',
   'For a file on disk, pass html_path. For HTML you want to pass directly, use html.',
@@ -96,8 +101,6 @@ interface ArtifactToolArgs {
   preview_appearance?: 'light' | 'dark'
 }
 
-/** How long a save waits for its render check before it reports without one. */
-const SAVE_CHECK_TIMEOUT_MS = 8_000
 const MAX_REPORTED_CONSOLE_ENTRIES = 20
 
 function consoleLines(entries: HtmlPreview['console'], levels: ReadonlySet<string>): string[] {
@@ -136,12 +139,7 @@ async function previewReport(title: string, preview: HtmlPreview): Promise<Agent
 
 /** Errors a saved page raises, so a broken render is reported rather than silent.
  *  A host with no headless browser, or a slow page, saves without the check. */
-async function saveCheckNote(html: string, deps: ArtifactToolDeps): Promise<string> {
-  const preview = deps.preview ?? previewArtifactHtml
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SAVE_CHECK_TIMEOUT_MS) })
-  const checked = await Promise.race([preview({ html }).catch(() => null), timeout])
-  clearTimeout(timer)
+function saveCheckNote(checked: HtmlPreview | null): string {
   if (!checked) return ''
   const errors = consoleLines(checked.console, ERROR_LEVELS)
   const notes = []
@@ -178,13 +176,16 @@ export async function executeArtifactTool(
     // and matches what a preview showed.
     html = (await (deps.inlineImages ?? inlineHostImages)(html)).html
     const created = await createAgentWork(title, 'artifact', html, deps.ctx, false)
-    deps.onArtifact?.({ html, workId: created.workId, title: created.title, organizationId: created.organizationId })
+    // The render shows once the check measured its frame, so a client sizes it before it loads.
+    const checked = await saveCheckPreview(html, deps.preview)
+    const layout = await keepArtifactVersionLayout(created.workId, NEW_WORK_CONTENT_VERSION, checked)
+    deps.onArtifact?.({ html, workId: created.workId, title: created.title, organizationId: created.organizationId, layout })
     const syncNote = created.foreignTaskId
       ? ` It syncs to the task's host and keeps its originating session.`
       : created.organizationId
         ? ' It is saved in the organization’s Solus API and associated with this session.'
         : ' It is associated with this session.'
-    const checkNote = await saveCheckNote(html, deps)
+    const checkNote = saveCheckNote(checked)
     const embedNote = `\n\nTo embed this artifact in a Solus document or plan, place this token on its own line:\n\n${serializeWorkEmbed({ workId: created.workId, title: created.title, type: 'artifact' })}`
     return {
       ok: true,
@@ -195,6 +196,9 @@ export async function executeArtifactTool(
     return { ok: false, text: `render_artifact error: ${String(err?.message ?? err)}` }
   }
 }
+
+/** A new work's first body is version 1, as its receipt is read (`result-projection.ts`). */
+const NEW_WORK_CONTENT_VERSION = 1
 
 const artifactInputSchema = z.object({
   html: z.string().catch(''),
@@ -227,6 +231,8 @@ export const renderArtifactAgentTool: AgentTool = {
       workId: artifact.workId,
       title: artifact.title,
       organizationId: artifact.organizationId,
+      contentVersion: NEW_WORK_CONTENT_VERSION,
+      ...(artifact.layout && { layout: artifact.layout }),
     }),
   }),
 }

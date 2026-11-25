@@ -3,7 +3,7 @@ import { configureUplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { UplinkAccountSource } from '@solus/client-core/uplink-session'
 import type { AccountResponse } from '@solus/contracts/uplink'
 
-// docs/plans/host-fleet.md D9: the fleet UI manages Solus Cloud machines through one
+// The fleet UI manages Solus Cloud machines through one
 // store. A new machine is only worth opening once the directory lists it, and an
 // action on a host whose compute Solus Cloud does not operate must never reach Solus Cloud.
 

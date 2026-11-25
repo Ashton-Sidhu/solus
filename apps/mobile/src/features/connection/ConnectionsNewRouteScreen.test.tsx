@@ -48,6 +48,7 @@ vi.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success", Error: "error" },
 }));
 vi.mock("../../components/ui/ListRow", () => ({ ListRow: () => null }));
+vi.mock("../../solus/AddOverSsh", () => ({ AddOverSshRow: () => null }));
 vi.mock("../../components/ui/Dialog", () => ({ alert: vi.fn() }));
 vi.mock("../../components/ui/ScreenScrollView", () => ({ ScreenScrollView: Children }));
 vi.mock("../../components/ui/AppText", () => ({

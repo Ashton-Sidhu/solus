@@ -1,4 +1,3 @@
-import { useSolusDirectory, useSolusWorkspace } from "../solus/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { deriveReportedModelSelection } from "@t3tools/client-runtime/state/thread-execution";
 
@@ -195,11 +194,11 @@ export function waitForProject(
 }
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
-  return useSolusWorkspace().projects;
+  return useAtomValue(environmentProjects.projectsAtom);
 }
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
-  return useSolusDirectory().threads;
+  return useAtomValue(environmentThreadShells.threadShellsAtom);
 }
 
 /** Thread shells minus those the tag filter hides, for lists that show threads to the user. */

@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { ForwardedHost, SshAddResult } from '@solus/contracts/remote-machines'
 import {
+  discoveredAddFailure,
   forwardedReachNote,
   forwardedRowStatus,
   forwardsNewlyWaiting,
+  isMissingIdentityFile,
   sshAddOutcome,
   sshAddRequest,
   sshBridgePhase,
@@ -42,6 +44,13 @@ describe('the SSH add request', () => {
     expect(sshAddRequest({ ...form, identityFile: '  ', linkToAccount: false, password: '' }, null)).not.toHaveProperty('identityFile')
   })
 
+  // WHY: Fix permissions is the same add with one flag; the host changes a key only when the person asked, and only a key that the add names.
+  test('Fix permissions goes only with a key that the add names', () => {
+    expect(sshAddRequest({ ...form, identityFile: '~/.ssh/aws.pem', linkToAccount: false, fixIdentityFilePermissions: true, password: '' }, null).fixIdentityFilePermissions).toBe(true)
+    expect(sshAddRequest({ ...form, identityFile: '~/.ssh/aws.pem', linkToAccount: false, password: '' }, null)).not.toHaveProperty('fixIdentityFilePermissions')
+    expect(sshAddRequest({ ...form, identityFile: '', linkToAccount: false, fixIdentityFilePermissions: true, password: '' }, null)).not.toHaveProperty('fixIdentityFilePermissions')
+  })
+
   test('a link choice without a ticket sends no link, so the host never links with nothing', () => {
     expect(sshAddRequest({ ...form, linkToAccount: true, password: 'x' }, null).link).toBeUndefined()
   })
@@ -67,6 +76,22 @@ describe('the outcome of an SSH add', () => {
     const outcome = sshAddOutcome(refused, desktop)
     expect(outcome.kind).toBe('ask-password')
     expect(outcome.message).toContain('Enter the password for me@box')
+  })
+
+  test('a key that others can read is a fix the person can choose, not a failure', () => {
+    const readable: SshAddResult = { status: 'key-permissions', identityFile: '~/.ssh/aws.pem', message: 'Other users can read it.' }
+    expect(sshAddOutcome(readable, web)).toEqual({ kind: 'key-permissions', identityFile: '~/.ssh/aws.pem', message: 'Other users can read it.' })
+  })
+
+  test('a discovered server with a readable key says so plainly, because its flow offers no fix', () => {
+    expect(discoveredAddFailure({ status: 'key-permissions', identityFile: '~/k.pem', message: 'Other users can read ~/k.pem.' }, 'nas')).toBe('Other users can read ~/k.pem.')
+    expect(discoveredAddFailure({ status: 'linked', installationId: 'i', label: 'nas' }, 'nas')).toContain('Pair it with a code instead')
+  })
+
+  test('only a missing key file belongs to the identity file field', () => {
+    expect(isMissingIdentityFile('No file at ~/.ssh/aws.pem on Mac. Choose the private key on Mac.')).toBe(true)
+    expect(isMissingIdentityFile('Error: No file at ~/.ssh/aws.pem.')).toBe(true)
+    expect(isMissingIdentityFile('Permission denied (publickey).')).toBe(false)
   })
 
   test('a linked host is done through the account directory', () => {

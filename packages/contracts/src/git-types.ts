@@ -327,6 +327,42 @@ export interface GitRepositoryStatus {
   branch: string | null
   primaryRemoteName: string | null
   primaryRemoteUrl: string | null
+  /** Present when the caller requests the working tree and branch status together. */
+  checkout?: ReturnType<typeof checkoutStatus>
+}
+
+function checkoutPullRequest(state: GitState | null, branch: string | null) {
+  const url = state?.prUrl
+  const match = url?.match(/\/(?:pull|merge_requests)\/(\d+)\/?$/)
+  if (!state || !url || !match) return null
+  return { number: Number(match[1]), url, title: url, baseRef: state.targetBranch, headRef: branch ?? '', state: 'open' as const }
+}
+
+/** The status consumed by the T3 Git menu, including an unborn or detached branch. */
+export function checkoutStatus(repo: Pick<GitRepositoryStatus, 'branch' | 'isRepository' | 'primaryRemoteName'>, state: GitState | null) {
+  const branch = state?.branch ?? repo.branch
+  return {
+    isRepo: repo.isRepository,
+    refName: branch,
+    hasPrimaryRemote: !!repo.primaryRemoteName,
+    isDefaultRef: !!branch && branch === state?.targetBranch,
+    hasWorkingTreeChanges: !!state?.uncommittedChanges.fileCount,
+    workingTree: {
+      files:
+        state?.uncommittedChanges.files.map((file) => ({
+          path: file.path,
+          insertions: 0,
+          deletions: 0,
+        })) ?? [],
+      insertions: state?.uncommittedTotals?.insertions ?? 0,
+      deletions: state?.uncommittedTotals?.deletions ?? 0,
+    },
+    hasUpstream: !!state?.upstreamRef,
+    aheadCount: state?.aheadCount ?? 0,
+    behindCount: state?.behindCount ?? 0,
+    aheadOfDefaultCount: state?.targetAheadCount,
+    pr: checkoutPullRequest(state, branch),
+  }
 }
 
 export interface GitInitRepositoryResult {

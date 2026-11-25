@@ -52,6 +52,7 @@
   import PrReviewButton from "./PrReviewButton.svelte";
   import PrPrimaryAction from "./PrPrimaryAction.svelte";
   import { mergeReadiness, type MergeAction } from "./lib/merge-readiness";
+  import { readsPendingWorkflowRuns } from "./lib/workflow-approval";
   import { isFailing, orderedChecks } from "../prs/lib/checks";
   import PrStackMenu from "./PrStackMenu.svelte";
   import PageComposer from "../page-composer/PageComposer.svelte";
@@ -469,6 +470,9 @@
   // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
   // The header and Activity use the same readiness. It also loads when the
   // pull request opens directly on Diff, Guide, Map, or Lens.
+  const indexedPullRequest = $derived(
+    pullRequests.projects.get(getApi(), serverId, prCtx()).get(target.number),
+  );
   const readiness = $derived(
     reviewDetail
       ? mergeReadiness({
@@ -478,12 +482,19 @@
           unresolvedCount: review.unresolvedCount,
           approvedReviewCount: reviewDetail.reviewers?.filter((reviewer) => reviewer.state === "APPROVED").length,
           openedTime: formatTimeAgoFromTimestamp(new Date(reviewDetail.createdAt).getTime()),
+          pendingWorkflowRuns: indexedPullRequest?.pendingWorkflowRuns,
         })
       : null,
   );
-  const indexedPullRequest = $derived(
-    pullRequests.projects.get(getApi(), serverId, prCtx()).get(target.number),
-  );
+  // The workflow runs that wait for approval feed the status and the rail's
+  // Checks. Read them again for each head: a push brings new runs that wait
+  // again.
+  $effect(() => {
+    const target = indexedPullRequest;
+    if (!target || !readsPendingWorkflowRuns(target)) return;
+    void target.headSha;
+    untrack(() => void target.loadPendingWorkflowRuns().catch(() => {}));
+  });
   async function runBandAgentAction(action: MergeAction): Promise<void> {
     if (action.kind === "resolve-conflicts")
       await session.prReview.startConflictResolverSession(

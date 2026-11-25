@@ -32,6 +32,11 @@ export interface SshAddRequest {
   sshTarget?: string
   /** A private key on the host that runs SSH (`ssh -i`), such as an AWS `.pem`. Absent: SSH's own keys and config. */
   identityFile?: string
+  /**
+   * The person chose Fix permissions after `key-permissions`: the host first lets only
+   * its owner read `identityFile` (chmod 600, a file this user owns), then adds.
+   */
+  fixIdentityFilePermissions?: boolean
   /** A server found on the network, when the person added it from the nearby list. */
   discovered?: DiscoveredServer
   /** A password or key passphrase, read through askpass. A forward keeps it in the host's memory until the host restarts. */
@@ -60,6 +65,11 @@ export type SshAddResult =
   | { status: 'needs-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
   /** SSH refused the key or the secret; the person can give a password or passphrase. */
   | { status: 'needs-auth'; sshTarget: string; message: string }
+  /**
+   * Other users can read the identity file, so SSH refuses it. Nothing was sent. The
+   * person can choose Fix permissions: the same add again with `fixIdentityFilePermissions`.
+   */
+  | { status: 'key-permissions'; identityFile: string; message: string }
   /**
    * A discovered server, reached on the network it was found on: the client dials it
    * there with this session, and no forward is needed.

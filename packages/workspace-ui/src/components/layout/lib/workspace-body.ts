@@ -64,14 +64,18 @@ export const SIDEBAR_MIN_WIDTH = 200
 export const SIDEBAR_DEFAULT_WIDTH = 380
 export const SIDEBAR_MAX_WIDTH = 400
 
+/** The narrowest conversation the window keeps between the two rails. */
+export const CONVERSATION_BESIDE_RAILS_MIN_WIDTH = 900
+
 /**
- * Below this workspace width the session list and a conversation cannot both
- * keep their floors, so the sidebar stays at its places column and its list
- * opens as a drawer over the conversation. As a share, the pane would give the
- * list a sliver: 17% of a 430px phone is 73px, and the places column takes 54
- * of it. This is the same 600px the project rail stops at.
+ * Below this workspace width both rails fold: the sidebar stays at its places
+ * column and its list opens as a drawer over the conversation, and the project
+ * rail hides (`project-panel/lib/rail-width`). It is where the two rails at
+ * their default share leave the conversation less than its floor, 1364px.
  */
-export const SIDEBAR_DRAWER_BELOW_WIDTH = SIDEBAR_MIN_WIDTH + MIN_PRIMARY_PANE_WIDTH
+export const SIDEBAR_DRAWER_BELOW_WIDTH = Math.ceil(
+  (CONVERSATION_BESIDE_RAILS_MIN_WIDTH * 100) / (100 - 2 * SIDEBAR_PANE_DEFAULT_SIZE),
+)
 
 export function isSidebarDrawer(workspaceWidth: number): boolean {
   return workspaceWidth > 0 && workspaceWidth < SIDEBAR_DRAWER_BELOW_WIDTH

@@ -4,6 +4,7 @@ import { parseFlags } from '@solus/contracts/entrypoint'
 import { formatCheckCode, normalizeCheckCode, PAIR_APPROVAL_TTL_MS, type PairApprovalDecision, type PairApprovalRequest } from '@solus/contracts/add-machine'
 import type { HostListing } from '@solus/contracts/host-list'
 import type { HostPairRequest, HostPairingsSnapshot } from '@solus/contracts/host-pairing'
+import type { SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import { normalizeServerUrl, parsePairLink } from '@solus/client-core/pairing'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
 import { defaultDataDir, runtimePaths } from './runtime'
@@ -60,18 +61,57 @@ function pairRequestOf(url: string, options: { code: string; codeFile: string; l
   return request
 }
 
-/** Same host-owned pairing path as the chat tools. The CLI never opens the live database. */
-export async function runHostCommand(argv: string[], log: (line: string) => void): Promise<void> {
-  const [command, ...rest] = argv
-  const options = { dataDir: defaultDataDir(), code: '', codeFile: '', label: '', json: false }
-  const positional = rest[0] && !rest[0].startsWith('-') ? [rest.shift()!] : []
+/** An install over SSH can take minutes: Solus downloads and starts there. */
+const SSH_ADD_TIMEOUT_MS = 20 * 60 * 1000
+
+/** What one SSH add means for the person at the terminal, and whether it added the machine. */
+export interface SshAddReport {
+  text: string
+  isAdded: boolean
+}
+
+export function sshAddText(result: SshAddResult): SshAddReport {
+  switch (result.status) {
+    case 'forwarded': return { text: `Added ${result.host.label} (${result.host.installationId}) through an SSH forward.`, isAdded: true }
+    case 'session':
+    case 'linked': return { text: `Added ${result.label} (${result.installationId}).`, isAdded: true }
+    case 'key-permissions': return { text: `${result.message}\nRun the command again with --fix-key-permissions to let only you read it.`, isAdded: false }
+    case 'needs-auth': return { text: `${result.message}\nUse a key with --identity-file, or add the machine in the app to give a password.`, isAdded: false }
+    case 'needs-target': return { text: `${result.message}\nTry: ${result.candidates.map((candidate) => candidate.target).join(', ') || result.defaultTarget}`, isAdded: false }
+  }
+}
+
+/** Adds a machine over SSH from this host; with `fixKey`, the host first lets only its owner read the key. */
+async function runSshAdd(serverUrl: string, sshTarget: string, options: { identityFile: string; fixKey: boolean; json: boolean }, log: (line: string) => void): Promise<void> {
+  const request: SshAddRequest = { sshTarget, requestId: `cli-${randomInt(1e9)}`, deviceLabel: 'Solus CLI' }
+  if (options.identityFile) request.identityFile = options.identityFile
+  if (options.identityFile && options.fixKey) request.fixIdentityFilePermissions = true
+  const result = await withLocalRpc<SshAddResult>(serverUrl, (call) => call<SshAddResult>('hostsAddOverSsh', [request], SSH_ADD_TIMEOUT_MS))
+  const { text, isAdded } = sshAddText(result)
+  log(options.json ? JSON.stringify(result) : text)
+  if (!isAdded) process.exitCode = 1
+}
+
+/** The options of `solus host`, from its arguments after the command and its one positional value. */
+function hostCommandOptions(rest: string[]) {
+  const options = { dataDir: defaultDataDir(), code: '', codeFile: '', label: '', json: false, identityFile: '', fixKey: false }
   parseFlags(rest, {
     '--data-dir': { value: (value) => { options.dataDir = value } },
     '--code': { value: (value) => { options.code = value } },
     '--code-file': { value: (value) => { options.codeFile = value } },
     '--label': { value: (value) => { options.label = value } },
     '--json': { set: () => { options.json = true } },
+    '--identity-file': { value: (value) => { options.identityFile = value } },
+    '--fix-key-permissions': { set: () => { options.fixKey = true } },
   }, (arg) => new Error(`Unknown host option: ${arg}`))
+  return options
+}
+
+/** Same host-owned pairing path as the chat tools. The CLI never opens the live database. */
+export async function runHostCommand(argv: string[], log: (line: string) => void): Promise<void> {
+  const [command, ...rest] = argv
+  const positional = rest[0] && !rest[0].startsWith('-') ? [rest.shift()!] : []
+  const options = hostCommandOptions(rest)
   const serverUrl = requireRunningServerUrl(runtimePaths(options.dataDir))
   if (command === 'list') {
     if (positional.length) throw new Error('Usage: solus host list [--json]')
@@ -83,13 +123,23 @@ export async function runHostCommand(argv: string[], log: (line: string) => void
     log(await runApprovalCommand(serverUrl, command, positional, options.json))
     return
   }
+  if (command === 'add-ssh') {
+    if (positional.length !== 1) throw new Error('Usage: solus host add-ssh <user@host | ssh-config alias> [--identity-file PATH] [--fix-key-permissions]')
+    await runSshAdd(serverUrl, positional[0]!, options, log)
+    return
+  }
   if (command === 'remove') {
     if (positional.length !== 1) throw new Error('Usage: solus host remove <installation-id>')
     const result = await withLocalRpc<{ removed: boolean }>(serverUrl, (call) => call('hostsForget', [positional[0]]))
     log(options.json ? JSON.stringify(result) : result.removed ? 'Host forgotten.' : 'Host was already absent.')
     return
   }
-  if (command !== 'pair' || positional.length !== 1 || (options.code && options.codeFile)) {
+  if (command !== 'pair') throw new Error('Usage: solus host pair <url> [--code CODE | --code-file PATH] [--label NAME]')
+  await runPair(serverUrl, positional, options, log)
+}
+
+async function runPair(serverUrl: string, positional: string[], options: ReturnType<typeof hostCommandOptions>, log: (line: string) => void): Promise<void> {
+  if (positional.length !== 1 || (options.code && options.codeFile)) {
     throw new Error('Usage: solus host pair <url> [--code CODE | --code-file PATH] [--label NAME]')
   }
   const request = pairRequestOf(normalizeServerUrl(positional[0]!), options, log)

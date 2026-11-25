@@ -60,6 +60,36 @@ export const browseProjectFolders = hostQuery(
   5_000,
 );
 
+/** One row of `browseHostFiles`: a folder to open, or a file to choose. */
+export interface HostFileEntry {
+  readonly name: string;
+  readonly fullPath: string;
+  readonly isDir: boolean;
+}
+
+/**
+ * The folders and files of one folder on a host, for a picker that chooses a
+ * file (an SSH identity file). Hidden entries stay: keys live in `~/.ssh`.
+ */
+export const browseHostFiles = hostQuery(
+  async (
+    id,
+    input: Pick<FilesystemBrowseInput, "partialPath">,
+  ): Promise<{ readonly entries: readonly HostFileEntry[] }> => {
+    if (!solus.connections.may(id, "host.files.read"))
+      throw new Error("This connection cannot browse host files.");
+    const result = await projectApi(id).listDirectory(input.partialPath, true);
+    if (result.error) throw new Error(result.error);
+    return {
+      entries: result.entries
+        .map((entry) => ({ name: entry.name, fullPath: entry.path, isDir: entry.isDir }))
+        .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name)),
+    };
+  },
+  0,
+  5_000,
+);
+
 /**
  * Add a folder on a host as a project, and answer where its draft opens. A
  * container (a folder that is no repository and that holds two or more

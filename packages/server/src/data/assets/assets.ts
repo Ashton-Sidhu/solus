@@ -1,3 +1,4 @@
+import { imageSizeFromFile } from 'image-size/fromFile'
 import { isInsideRoot } from '../../paths'
 import { attachmentsRoot, uploadFolderName } from './attachment-store'
 import { createHash, randomBytes } from 'crypto'
@@ -105,7 +106,7 @@ const assetTokenPayloadSchema = z
     expiresAt: z.number().int(),
     downloadName: z.string().optional(),
     uploadFile: z.object({ dev: z.number(), ino: z.number() }).optional(),
-    mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/octet-stream']).optional(),
+    mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/octet-stream', 'text/html']).optional(),
   })
   .strict()
 
@@ -222,6 +223,14 @@ export async function writeAssetFile(
   }
 }
 
+async function imageFrame(target: string, mime: string | undefined) {
+  if (!mime?.startsWith('image/')) return {}
+  const dimensions = await imageSizeFromFile(target).catch(() => undefined)
+  if (!dimensions?.width || !dimensions.height) return {}
+  const { width, height, orientation } = dimensions
+  return { imageDimensions: (orientation ?? 0) >= 5 ? { width: height, height: width } : { width, height } }
+}
+
 /**
  * Sign a short-lived URL for host media, a stored asset, or a file uploaded to this conversation.
  * A path may name any media file the host can read: every caller already reads
@@ -272,8 +281,27 @@ export async function createAssetUrl(
     ...(hostMime === 'application/octet-stream' && { uploadFile: { dev: targetStat.dev, ino: targetStat.ino } }),
   }
   const token = signToken(payload, options.secret ?? getAssetSigningSecret())
-  return { relativeUrl: `/api/assets/${token}`, expiresAt }
+  return {
+    relativeUrl: `/api/assets/${token}`, expiresAt,
+    ...await imageFrame(target, hostMime ?? mediaTypeFor(target)?.mime),
+  }
 }
+
+/** Mint a URL that shows a stored page the host wrote itself (an artifact
+ *  version, `data/works/artifact-page.ts`). Only this signer marks a token as a page. */
+export function createPageAssetUrl(
+  assetId: string,
+  options: { secret?: Buffer; now?: number; assetsDir?: string } = {},
+): AssetCreateUrlResult {
+  const expiresAt = (options.now ?? Date.now()) + ASSET_URL_TTL_MS
+  const payload: AssetTokenPayload = { path: storedAssetPath(assetId, options.assetsDir), expiresAt, mime: 'text/html' }
+  return { relativeUrl: `/api/assets/${signToken(payload, options.secret ?? getAssetSigningSecret())}`, expiresAt }
+}
+
+/** A page runs its own script. The `sandbox` policy gives it an opaque origin,
+ *  so it cannot read this host's storage or send its cookies; the policy in the
+ *  page's own document limits what it loads. */
+const PAGE_SECURITY_POLICY = 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox'
 
 /** Mint an attachment URL for a checked-out file or a file already uploaded
  * to the originating draft/session. Use the canonical path and bind the token
@@ -339,6 +367,8 @@ export async function serveAssetToken(
   }
   if (!fileStat.isFile()) return new Response('Not found', { status: 404 })
   const isStoredAsset = ASSET_ID.test(basename(payload.path))
+  const isPage = payload.mime === 'text/html'
+  if (isPage && !isStoredAsset) return new Response('Unsupported type', { status: 415 })
   const mediaType = mediaTypeFor(payload.path)
   const audioMime = isStoredAsset ? audioAssetMime(basename(payload.path)) : null
   const knownMime = payload.mime ?? mediaType?.mime ?? audioMime ?? undefined
@@ -346,7 +376,7 @@ export async function serveAssetToken(
   if (!isStoredAsset && !knownMime) return new Response('Unsupported type', { status: 415 })
   // A stored video or audio plays in place like a stored image shows. Every
   // other stored asset downloads, because its bytes were never checked against its type.
-  const isInline = isStoredAsset && (isRasterImage(payload.path) || mediaType?.kind === 'video' || audioMime !== null)
+  const isInline = isStoredAsset && (isPage || isRasterImage(payload.path) || mediaType?.kind === 'video' || audioMime !== null)
 
   const range = parseByteRange(request.range, fileStat.size)
   if (request.range && !range) {
@@ -363,7 +393,7 @@ export async function serveAssetToken(
     'Accept-Ranges': 'bytes',
     // `media-src 'self'`: a video opened on its own is a media document that
     // loads this same URL.
-    'Content-Security-Policy': "default-src 'none'; img-src data: *; media-src 'self' *; style-src 'unsafe-inline'",
+    'Content-Security-Policy': isPage ? PAGE_SECURITY_POLICY : "default-src 'none'; img-src data: *; media-src 'self' *; style-src 'unsafe-inline'",
     'X-Content-Type-Options': 'nosniff',
   }
   if ((isStoredAsset && !isInline) || mime === 'application/octet-stream') {

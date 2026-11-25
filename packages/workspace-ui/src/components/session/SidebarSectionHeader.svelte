@@ -65,9 +65,9 @@
        Pinned, and Completed take the same header. A section that opens
        the list needs no space above it. -->
   <div
-    class="mt-2 first:mt-0 {section === 'completed' || (section === 'working' && !hasRowsBelow)
-      ? ''
-      : 'mb-1'}"
+    class={section === 'completed'
+      ? 'shrink-0'
+      : `mt-2 first:mt-0 ${section === 'working' && !hasRowsBelow ? '' : 'mb-1'}`}
     data-sidebar-section-header={section}
   >
     {@render label(

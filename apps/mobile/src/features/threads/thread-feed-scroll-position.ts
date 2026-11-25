@@ -12,18 +12,6 @@ export function resolveThreadWorkGroupInitialScroll(
   return index >= 0 && position ? { index, viewOffset: -position.offsetWithinRow } : undefined;
 }
 
-export async function finishThreadFeedSubmission(input: {
-  readonly scope: AbortSignal;
-  readonly keyboardVisible: boolean;
-  readonly blurEditor: () => void;
-  readonly dismissKeyboard: () => Promise<void>;
-  readonly scrollToEnd: (() => Promise<void> | undefined) | null;
-}) {
-  if (input.keyboardVisible) await input.dismissKeyboard();
-  else input.blurEditor();
-  if (!input.scope.aborted) await input.scrollToEnd?.();
-}
-
 export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
   readonly currentAnchorMessageId: AnchorId | null;
   readonly submittedMessageId: AnchorId;

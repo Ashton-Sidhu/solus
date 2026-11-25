@@ -67,6 +67,7 @@ export function useCheckoutGit(
   controller: ConversationController,
   cwd: string,
   target?: Pick<CheckoutGitTarget, "repository" | "folder">,
+  includeDetails = true,
 ) {
   const navigation = useNavigation();
   const repository = target?.repository;
@@ -74,6 +75,7 @@ export function useCheckoutGit(
   const { api, data, repositoryStatus, refresh, error, isRefreshing } = useFolderGitStatus(
     controller.hostId,
     cwd,
+    includeDetails,
   );
   const action = useSettingsAction(refresh);
   // The session still works in the folder of this sheet: its working directory, or a session folder that is still attached.
@@ -181,7 +183,7 @@ export function useCheckoutGitControls(
   cwd: string,
   draft: boolean,
 ) {
-  const git = useCheckoutGit(controller, cwd);
+  const git = useCheckoutGit(controller, cwd, undefined, false);
   const environmentId = controller.hostId;
   const canOpenFiles = useListened(solus.connections.changes, () =>
     solus.connections.may(environmentId, "host.files.read"),

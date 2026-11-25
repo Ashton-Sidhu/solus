@@ -152,6 +152,8 @@ Usage:
   solus logs [--data-dir PATH] [--lines N]
   solus host pair <url> [--code CODE | --code-file PATH] [--label NAME] [--data-dir PATH]
                      With no code, asks that host to approve this one and prints the check code
+  solus host add-ssh <user@host> [--identity-file PATH] [--fix-key-permissions] [--json] [--data-dir PATH]
+                     Adds a machine this host reaches over SSH; the key path is on this host
   solus host list [--json] [--data-dir PATH]
   solus host remove <installation-id> [--data-dir PATH]
   solus host approvals [--json] [--data-dir PATH]

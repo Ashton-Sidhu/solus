@@ -58,8 +58,8 @@ Give each connection type a distinct dash pattern and a palette colour (used con
 
 | Type | Colour | Style | Use for |
 |---|---|---|---|
-| `data-flow` | `--chart-1` (orange) | Solid | request/response, data passing |
-| `tool-call` | `--chart-6` (green) | Dashed (6,3) | function calls, API invocations |
+| `data-flow` | `--chart-1` (blue) | Solid | request/response, data passing |
+| `tool-call` | `--chart-6` (terracotta) | Dashed (6,3) | function calls, API invocations |
 | `event` | `--chart-5` (rose) | Short dash (4,4) | async events, pub/sub |
 | `dependency` | `--input` | Dotted | import/require relationships |
 
@@ -75,12 +75,12 @@ Assign each layer one palette colour, used consistently for every node in that l
 
 | Layer | Fill |
 |---|---|
-| Client/UI | `--chart-1` (orange) |
-| Server/API | `--chart-3` (blue) |
-| SDK/Core | `--chart-4` (purple) |
-| Agent/Logic | `--chart-6` (green) |
+| Client/UI | `--chart-1` (blue) |
+| Server/API | `--chart-3` (gold) |
+| SDK/Core | `--chart-4` (violet) |
+| Agent/Logic | `--chart-2` (teal) |
 | Data | `--chart-5` (rose) |
-| External | `--chart-2` (teal) |
+| External | `--chart-6` (terracotta) |
 
 ```css
 .node-client { fill: color-mix(in srgb, var(--chart-1) 18%, transparent); }

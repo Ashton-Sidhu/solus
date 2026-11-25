@@ -71,7 +71,7 @@
   // What a paste into a composer restores this chip from (`reference-clipboard.ts`).
   const reference = $derived(linkReference(text ?? "", href));
   const sessionParams = $derived(parseSessionHref(href));
-  // A host chip (docs/plans/host-fleet.md D12). It opens the host's page when
+  // A host chip. It opens the host's page when
   // the host is one of this client's; a reader with no such host sees what the
   // link says of it.
   // An image embed copies as the image it is.

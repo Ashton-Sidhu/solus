@@ -1,21 +1,24 @@
+import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import type { ReactNode } from "react";
 import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
 import {
+  EventId,
   MessageId,
   ProviderThreadId,
   RunId,
   ThreadId,
   TurnItemId,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2ConversationMessage,
 } from "@t3tools/contracts";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { DateTime } from "effect";
-import {
-  commandText,
-  parseToolInput,
-  toolGroupAction,
-} from "@solus-mobile/features/threads/thread-work-log-presentation";
+import { toolFeedBody, userMessageBody } from "@solus/contracts/session-feed-item";
+import { savedTurnItems } from "@solus-mobile/features/conversation/lib/transcript-model";
 import {
   buildThreadFeed,
   createThreadFeedCache,
@@ -24,7 +27,10 @@ import {
   type RawThreadFeedEntry,
 } from "../lib/threadActivity";
 import { messageAttachments } from "./upload-images";
-import { createArtifactGrouping, type ArtifactGroup } from "./artifact-groups";
+import { artifactHtmlRender, type ArtifactRender } from "@solus-mobile/features/conversation/lib/artifacts";
+import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
+
+const empty = [] as const;
 
 export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, hasPendingText: boolean) {
   // T3 already reserves the working rows below a pending prompt.
@@ -35,16 +41,51 @@ export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, ha
   return { runlessWorkActive, activeWorkStartedAt };
 }
 
+/** A saved artifact version as a finished T3 `html_render` call. T3's feed
+ *  builder makes its render row, sized before the page loads. */
+function htmlRenderRow(
+  threadId: ThreadId,
+  key: string,
+  render: ArtifactRender,
+  runId: RunId | null,
+  date: Date | null,
+): ThreadFeedSourceRow {
+  const time = DateTime.makeUnsafe(date ?? 0);
+  const itemId = TurnItemId.make(key);
+  return {
+    sourceItemId: itemId,
+    sourceThreadId: threadId,
+    position: 0,
+    visibility: "local",
+    hostTime: date ? date.toISOString() : "",
+    item: {
+      id: itemId,
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 0,
+      status: "completed",
+      title: null,
+      startedAt: date ? time : null,
+      completedAt: date ? time : null,
+      updatedAt: time,
+      type: "dynamic_tool",
+      toolName: HTML_RENDER_TOOL_NAME,
+      input: null,
+      output: { htmlRender: artifactHtmlRender(render) },
+    },
+  };
+}
+
 // The T3 list owns text messages. Rich cards subscribe to their own item on mount.
 export function conversationFeed(
   store: Pick<ConversationStore, "item" | "subscribeFeedItems">,
   id: string,
-  renderCard: (
-    key: string,
-    superseded: boolean,
-    liveAppOnly?: boolean,
-    artifactGroup?: ArtifactGroup,
-  ) => ReactNode,
+  renderCard: (key: string, liveAppOnly?: boolean) => ReactNode,
   resolveImagePath: (path: string, refresh?: boolean) => Promise<string>,
   readToolInput: (key: string) => Promise<string>,
 ) {
@@ -53,8 +94,6 @@ export function conversationFeed(
     Item,
     {
       leadingRun: RunId | null;
-      superseded: boolean;
-      group: ArtifactGroup | undefined;
       sources: ThreadFeedSourceRow[];
     }
   >();
@@ -63,20 +102,18 @@ export function conversationFeed(
     key: string,
     item: Item,
     leadingRun: RunId | null,
-    superseded: boolean,
-    group: ArtifactGroup | undefined,
   ): ThreadFeedSourceRow[] => {
-    // The group card shows at its first member; the other members are in it.
-    if (group && group.id !== key) return [];
     if (
       item.kind === "user" &&
       item.waitsForTurn &&
       (item.delivery === "queued" || item.delivery === "sending")
     )
       return [];
+    const saved = savedTurnItems.get(item);
     const timestamp = "timestamp" in item ? item.timestamp : undefined;
     const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
     const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
+    if (item.kind === "artifact") return [htmlRenderRow(threadId, key, item, leadingRun, date && createdAt ? date : null)];
     if (item.kind === "fork") {
       const sourceThreadId = ThreadId.make(item.activity.sourceSessionId);
       const time = DateTime.makeUnsafe(item.activity.at);
@@ -107,7 +144,7 @@ export function conversationFeed(
       }];
     }
     const viewedImage =
-      item.kind === "tool" ? viewedImagePath(item.toolName, item.input, item.status) : undefined;
+      item.kind === "tool" ? item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
     // Calls with Solus resources keep their interactive card.
     if (
@@ -138,32 +175,11 @@ export function conversationFeed(
         completedAt: item.status === "running" || !createdAt ? null : time,
         updatedAt: time,
       };
-      const toolItem = (input: string | null): OrchestrationV2TurnItem => {
-        if (toolGroupAction(item.toolName) === "command")
-          return {
-            ...base,
-            type: "command_execution",
-            input: commandText(parseToolInput(input)) ?? (input === "{}" ? "" : input) ?? "",
-            ...(item.errorHead && { output: item.errorHead }),
-          };
-        let args = input;
-        if (input) {
-          try {
-            args = JSON.parse(input);
-          } catch {
-            /* Provider supplied plain text. */
-          }
-        }
-        return {
-          ...base,
-          type: "dynamic_tool",
-          toolName: item.toolName,
-          input: args,
-          output: item.errorHead,
-          ...(viewedImage && { viewedImagePath: viewedImage }),
-        };
-      };
-      const projected = toolItem(item.input);
+      const toolItem = (input: string | null, body = toolFeedBody(item.toolName, input)): OrchestrationV2TurnItem =>
+        body.type === "command_execution"
+          ? { ...base, ...body, ...(item.errorHead && { output: item.errorHead }) }
+          : { ...base, ...body, output: item.errorHead, ...(viewedImage && { viewedImagePath: viewedImage }) };
+      const projected = toolItem(item.input, saved?.type === "command_execution" || saved?.type === "dynamic_tool" ? saved : undefined);
       const detailKey = item.toolInputKey;
       let detail: Promise<OrchestrationV2TurnItem> | undefined;
       const loadHostDetail = detailKey
@@ -197,7 +213,7 @@ export function conversationFeed(
       runId: leadingRun,
       ...(item.kind === "tool" && { toolStatus: item.status }),
       ...(viewedImage && { viewedImagePath: viewedImage }),
-      render: () => (group ? renderCard(key, false, false, group) : renderCard(key, superseded)),
+      render: () => renderCard(key),
     };
     if (item.kind !== "user" && item.kind !== "assistant") {
       return [
@@ -211,7 +227,7 @@ export function conversationFeed(
                     id: key + ":app",
                     runId: null,
                     createdAt,
-                    render: () => renderCard(key, false, true),
+                    render: () => renderCard(key, true),
                   },
                 ]
               : [card],
@@ -236,7 +252,6 @@ export function conversationFeed(
       updatedAt: time,
       status: streaming ? ("running" as const) : ("completed" as const),
       messageId: MessageId.make(key),
-      text: item.text,
     };
     const row: ThreadFeedSourceRow = {
       hostTime: createdAt,
@@ -249,13 +264,10 @@ export function conversationFeed(
       visibility: "local",
       item:
         item.kind === "assistant"
-          ? { ...base, type: "assistant_message", streaming }
+          ? { ...base, ...(saved?.type === "assistant_message" ? saved : { type: "assistant_message" as const, text: item.text, streaming }) }
           : {
               ...base,
-              type: "user_message",
-              inputIntent: "turn_start",
-              createdBy: "user",
-              creationSource: "provider",
+              ...(saved?.type === "user_message" && saved.text === item.text ? saved : userMessageBody(item.text)),
               attachments: messageAttachments(item.sourceSessionId ?? id, item.attachments, resolveImagePath),
             },
     };
@@ -265,42 +277,25 @@ export function conversationFeed(
       : [row];
   };
   const feedCache = createThreadFeedCache();
-  const artifactGroups = createArtifactGrouping();
   return (order: readonly string[]) => {
     const observed = new Map<string, NonNullable<ReturnType<ConversationStore["item"]>>>();
     const rows = new Map<string, ThreadFeedSourceRow[]>();
-    const latest = new Map<string, string>();
     const leadingTools = new Set<string>();
     let hasPrompt = false;
     for (const key of order) {
       const item = store.item(key);
       if (item?.kind === "user") hasPrompt = true;
       if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
-      if (item?.kind === "artifact" && item.workId) latest.set(item.workId, key);
     }
-    const groups = artifactGroups(order, (key) => store.item(key));
     const update = (key: string) => {
       const item = store.item(key);
       if (!item) return;
       if (item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
         observed.set(key, item);
-      const group = groups.get(key);
-      const superseded =
-        !group && item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
       let held = cache.get(item);
-      if (
-        !held ||
-        held.leadingRun !== leadingRun ||
-        held.superseded !== superseded ||
-        held.group !== group
-      ) {
-        held = {
-          leadingRun,
-          superseded,
-          group,
-          sources: project(key, item, leadingRun, superseded, group),
-        };
+      if (!held || held.leadingRun !== leadingRun) {
+        held = { leadingRun, sources: project(key, item, leadingRun) };
         cache.set(item, held);
       }
       rows.set(key, held.sources);
@@ -316,12 +311,66 @@ export function conversationFeed(
       return sources;
     };
     let sources = collectSources();
+    const messageOf = (item: OrchestrationV2TurnItem): OrchestrationV2ConversationMessage | null => {
+      if (item.type !== "user_message" && item.type !== "assistant_message") return null;
+      return {
+        id: item.messageId, threadId, runId: item.runId, nodeId: item.nodeId,
+        role: item.type === "assistant_message" ? "assistant" : "user",
+        text: item.text, streaming: item.type === "assistant_message" && item.streaming,
+        createdAt: item.startedAt ?? item.updatedAt, updatedAt: item.updatedAt,
+        createdBy: item.type === "assistant_message" ? "agent" : item.createdBy,
+        creationSource: "provider", attachments: item.type === "user_message" ? item.attachments : [],
+      };
+    };
+    const buildProjection = (shell: OrchestrationV2ThreadShell): OrchestrationV2ThreadProjection => {
+      const visibleTurnItems: OrchestrationV2ProjectedTurnItem[] = [];
+      const messages: OrchestrationV2ConversationMessage[] = [];
+      const turnItems: OrchestrationV2TurnItem[] = [];
+      sources.forEach((source) => {
+        if (!source.item) return;
+        const row = visibleTurnItems.length;
+        const message = messageOf(source.item);
+        visibleTurnItems.push({ ...source, position: row });
+        turnItems.push(source.item);
+        if (message) messages.push(message);
+      });
+      return {
+        thread: { ...shell, lastVisitedAt: shell.lastVisitedAt ?? null },
+        visibleTurnItems, messages, turnItems,
+        runs: empty,
+        attempts: empty,
+        nodes: empty,
+        subagents: empty,
+        providerSessions: empty,
+        providerThreads: empty,
+        providerTurns: empty,
+        runtimeRequests: empty,
+        plans: empty,
+        checkpointScopes: empty,
+        checkpoints: empty,
+        contextHandoffs: empty,
+        contextTransfers: empty,
+        updatedAt: shell.updatedAt,
+      };
+    };
+    let projection: OrchestrationV2ThreadProjection | null = null;
+    let previousShell: OrchestrationV2ThreadShell | undefined;
+    let sequence = 0;
     let snapshot = buildThreadFeed(sources, { cache: feedCache });
     return {
       get: () => snapshot,
+      projection: (shell: OrchestrationV2ThreadShell) => {
+        if (!projection) projection = buildProjection(shell);
+        else if (shell !== previousShell) {
+          projection = { ...projection, thread: { ...shell, lastVisitedAt: shell.lastVisitedAt ?? null }, updatedAt: shell.updatedAt };
+        }
+        previousShell = shell;
+        return projection;
+      },
       subscribe: (notify: () => void) => {
         const refresh = (keys: Iterable<string>) => {
           let rebuild = false;
+          const changedOffsets: number[] = [];
           let patched: ThreadFeedSourceRow[] | undefined;
           for (const key of keys) {
             const before = observed.get(key);
@@ -355,11 +404,32 @@ export function conversationFeed(
               const offset = offsets.get(key)!;
               afterRows.forEach((row, index) => {
                 patched![offset + index] = row;
+                changedOffsets.push(offset + index);
               });
             }
           }
           if (rebuild || patched) {
+            // T3 records which slot changed. Its detail selectors can then update one
+            // streamed item without scanning the history. Rebuild once for a batch
+            // or a change in row shape, including inherited rows and Solus cards.
+            const offset = changedOffsets.length === 1 ? changedOffsets[0] : undefined;
+            const before = offset === undefined ? undefined : sources[offset];
             sources = rebuild ? collectSources() : patched!;
+            const after = offset === undefined ? undefined : sources[offset];
+            if (projection && !rebuild && before?.item && after?.item &&
+                before.item.type === after.item.type && before.item.id === after.item.id &&
+                after.sourceThreadId === threadId && after.visibility === "local") {
+              const base = { threadId, occurredAt: projection.updatedAt };
+              const message = messageOf(after.item);
+              if (message) projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "message.updated", payload: message,
+              });
+              projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "turn-item.updated", payload: after.item,
+              });
+            } else {
+              projection = null;
+            }
             snapshot = buildThreadFeed(sources, { cache: feedCache });
             notify();
           }

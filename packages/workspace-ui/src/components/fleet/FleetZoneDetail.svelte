@@ -6,8 +6,9 @@
   import { fleetStore } from "./fleet.store.svelte";
   import { groupsOf, MAP_HEIGHT, rollup, type FleetMachine, type FleetZone, type TileColorMode } from "./lib/fleet-model";
 
-  /** One full zone, opened over the map (D4): a group for each organization or
-   *  owner, a larger tile for each host, and the zone's bulk actions. */
+  /** One full zone, opened over the map: a group for each organization or owner,
+   *  a larger tile for each host, and the zone's bulk actions. A tile opens its
+   *  host, and each tile is a Tab stop. */
   interface Props {
     zone: FleetZone;
     machines: FleetMachine[];
@@ -62,7 +63,18 @@
           </div>
           <div class="flex flex-wrap gap-[3px]">
             {#each grouped as machine (machine.serverId)}
-              <FleetTile {machine} {colorMode} size={14} {query} isFocused={focusId === machine.serverId} {onPoint} {onOpen} />
+              <FleetTile
+                {machine}
+                {colorMode}
+                size={14}
+                {query}
+                isFocused={focusId === machine.serverId}
+                isSelected={false}
+                isPicked={false}
+                isCurrent
+                {onPoint}
+                onSelect={(serverId) => onOpen(serverId)}
+              />
             {/each}
           </div>
           <p class="flex items-center gap-2.5">

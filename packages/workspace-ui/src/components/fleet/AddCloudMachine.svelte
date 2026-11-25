@@ -6,7 +6,7 @@
   import { defaultSize, newCloudHostRequest } from "../onboarding/lib/cloud-compute";
   import { Button } from "../ui/button";
 
-  /** "Create a cloud machine" (D8): a name, a size from the account's catalog, and
+  /** "Create a cloud machine": a name, a size from the account's catalog, and
    *  optional packages and a setup script. It opens the new host's page when the
    *  directory lists it. */
   let name = $state("");

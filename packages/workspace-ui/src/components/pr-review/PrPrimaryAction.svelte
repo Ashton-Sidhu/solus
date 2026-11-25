@@ -11,6 +11,7 @@
     Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
     RefreshCw as RefreshIcon,
+    ShieldCheck as ShieldCheckIcon,
     TriangleAlert as TriangleAlertIcon,
   } from "@lucide/svelte";
   import type { MergeMethod } from "@solus/contracts/types";
@@ -31,7 +32,7 @@
   /**
    * The pull request's one action in the status card: the move the readiness
    * model chose, coloured by the state it changes — merge, update the branch,
-   * resolve conflicts, auto-merge, mark ready. With no move for this viewer it
+   * resolve conflicts, auto-merge, mark ready, approve waiting workflows. With no move for this viewer it
    * states where the pull request stands — merged, closed, auto-merge on,
    * checks running.
    *
@@ -76,7 +77,9 @@
       ? "Merging…"
       : running === "update-branch"
         ? "Updating…"
-        : "Working…",
+        : running === "approve-workflows"
+          ? "Approving…"
+          : "Working…",
   );
 
   async function write(kind: NonNullable<typeof running>, work: () => Promise<PullRequest | void>, failure: string) {
@@ -105,6 +108,11 @@
       void write("mark-ready", () => pr.updateLifecycle("ready", pr.headSha), "Couldn't mark the pull request ready");
     else if (move.kind === "update-branch")
       void write("update-branch", () => pr.updateBranch(), "Couldn't update the branch");
+    else if (move.kind === "approve-workflows")
+      void write("approve-workflows", async () => {
+        const approved = await pr.approveWorkflowRuns(move.headSha);
+        toasts.success(approved === 1 ? "1 workflow run approved" : `${approved} workflow runs approved`);
+      }, "Couldn't approve the workflow runs");
     else void write(move.kind, () => onAgentAction(move), "Couldn't start the pull request action");
   }
 
@@ -191,6 +199,8 @@
               <TriangleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
             {:else if action.glyph === "checks"}
               <HammerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "workflows"}
+              <ShieldCheckIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
             {:else if action.glyph === "closed"}
               <CircleXIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
             {:else if action.glyph === "blocked"}

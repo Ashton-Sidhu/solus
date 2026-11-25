@@ -58,7 +58,7 @@ export class PromptComposer {
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${sessionCtx}` : sessionCtx
     }
     // A host chip is a link in the typed text, so the text itself says which
-    // hosts it names (docs/plans/host-fleet.md D12). The block tells the agent
+    // hosts it names. The block tells the agent
     // what it can do with each one; the link holds what the host is.
     const hostCtx = hostReferenceContext(prompt, (host) => serverConnections.resolveId(host.serverId) === runHost(session.run))
     if (hostCtx) fullPrompt = `${fullPrompt}\n\n${hostCtx}`

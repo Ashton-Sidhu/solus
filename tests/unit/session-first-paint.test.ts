@@ -41,6 +41,8 @@ test('messages display while git identity and task binding are still pending', a
       resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
     const isSolusWorktreePath = () => false, isTaskFolderPath = () => false, gitCheckoutFromState = () => null;
+    const isGuessed = false, requestSessionHistoryPage = () => Promise.resolve(null);
+    const measureOpenStep = () => {}, openedAt = 0;
     const loadSessionTranscript = async () => transcript;
     const requestConversationScrollToBottom = () => {}, track = () => {};
     ${compiled}

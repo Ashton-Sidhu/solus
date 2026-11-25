@@ -36,8 +36,6 @@ import {
 import { StateMarkView } from "../features/threads/StateMark";
 import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
 import { PlanCard } from "./PlanCard";
-import { ArtifactCard, ArtifactGroupCard } from "./ArtifactCards";
-import type { ArtifactGroup } from "./artifact-groups";
 import { solus } from "./runtime";
 
 function Details({
@@ -223,18 +221,7 @@ function ToolCard({
   );
 }
 
-export function ConversationCard({
-  store,
-  id,
-  superseded = false,
-  artifactGroup,
-}: {
-  store: ConversationStore;
-  id: string;
-  superseded?: boolean;
-  /** The group card of the saved works of one turn, shown at its first member. */
-  artifactGroup?: ArtifactGroup;
-}) {
+export function ConversationCard({ store, id }: { store: ConversationStore; id: string }) {
   const item = useTranscriptItem(store, id);
   if (!item) return null;
   switch (item.kind) {
@@ -258,11 +245,7 @@ export function ConversationCard({
     case "assistant":
       return null; // The upstream feed renders the message.
     case "artifact":
-      return artifactGroup ? (
-        <ArtifactGroupCard store={store} group={artifactGroup} />
-      ) : (
-        <ArtifactCard store={store} item={item} superseded={superseded} />
-      );
+      return null; // The upstream feed renders the saved version as an `html_render` row.
     case "mcp_app":
       return <ThreadMcpApp store={store} id={id} />;
     case "tool":

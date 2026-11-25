@@ -7,8 +7,8 @@
   import { fleetStore } from "./fleet.store.svelte";
   import { attentionRows, type AttentionRow, type FleetMachine } from "./lib/fleet-model";
 
-  /** What wants the person (D4): a host that is down, an agent to sign in, an update.
-   *  Each row has its own fix, and a session about its hosts (D12). */
+  /** What wants the person: a host that is down, an agent to sign in, an update.
+   *  Each row has its own fix, and a session about its hosts. */
   interface Props {
     machines: FleetMachine[];
     onOpen: (serverId: string) => void;

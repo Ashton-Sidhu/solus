@@ -20,6 +20,7 @@ import type { TreeAgentRow } from './rail-agents'
 export type EnvironmentFolderAction =
   | 'open-in-solus'
   | 'open-in-file-manager'
+  | 'open-in-editor'
   | 'open-terminal'
   | 'attach'
   | 'detach'
@@ -100,6 +101,8 @@ export interface EnvironmentMenuInput {
   isInCodebase?(repositoryPath: string): boolean
   /** How the host names its file manager ("Finder"), or null when this client cannot open it. */
   fileManagerName: string | null
+  /** The name of the editor that the "Open in" row of the card opens, or null when it opens a terminal or this client cannot open an editor. */
+  editorName?: string | null
   /** This client can open a terminal on the run host: the desktop app, on its own machine. */
   canOpenTerminal: boolean
   /** This person can add a folder to the session. */
@@ -112,14 +115,15 @@ const ACTION_LABEL = {
   attach: 'Attach to this session',
   detach: 'Detach from this session',
   'track-with-git': 'Track with Git',
-} satisfies Record<Exclude<EnvironmentFolderAction, 'open-in-file-manager' | 'add-to-codebase'>, string>
+} satisfies Record<Exclude<EnvironmentFolderAction, 'open-in-file-manager' | 'open-in-editor' | 'add-to-codebase'>, string>
 
 /** The items of a folder on the run host: the two places that show it, then its options. */
-function actionItems(folderKey: string, actions: readonly EnvironmentFolderAction[], input: Pick<EnvironmentMenuInput, 'fileManagerName' | 'codebaseName'>): EnvironmentMenuItem[] {
+function actionItems(folderKey: string, actions: readonly EnvironmentFolderAction[], input: Pick<EnvironmentMenuInput, 'fileManagerName' | 'editorName' | 'codebaseName'>): EnvironmentMenuItem[] {
   const items: EnvironmentMenuItem[] = []
   for (const action of actions) {
     const label =
       action === 'open-in-file-manager' ? (input.fileManagerName ? `Open in ${input.fileManagerName}` : null)
+      : action === 'open-in-editor' ? (input.editorName ? `Open in ${input.editorName}` : null)
       : action === 'add-to-codebase' ? (input.codebaseName ? `Add to ${input.codebaseName}` : null)
       : ACTION_LABEL[action]
     if (label) items.push({ kind: 'action', key: `${action}:${folderKey}`, action, label })
@@ -128,7 +132,7 @@ function actionItems(folderKey: string, actions: readonly EnvironmentFolderActio
 }
 
 function sessionFolderActions(folder: SessionFolder, input: EnvironmentMenuInput): EnvironmentFolderAction[] {
-  const actions: EnvironmentFolderAction[] = ['open-in-solus', 'open-in-file-manager']
+  const actions: EnvironmentFolderAction[] = ['open-in-solus', 'open-in-file-manager', 'open-in-editor']
   if (input.canOpenTerminal) actions.push('open-terminal')
   if (!folder.granted) actions.push('attach')
   // The host refuses to detach a folder of the codebase, and an observed folder is not attached.
@@ -144,8 +148,9 @@ function workingSection(input: EnvironmentMenuInput, hasOtherFolders: boolean): 
   const key = hostPathKey(working.path)
   const actions: EnvironmentFolderAction[] = ['open-in-solus', 'open-in-file-manager']
   // A session with one folder has the menu of a session with one project: the
-  // row "Open in" of the card opens its terminal. With more folders, each
-  // section has the same options, so the working folder has its terminal here also.
+  // row "Open in" of the card opens its editor or terminal. With more folders,
+  // each section has the same options, so the working folder has them here also.
+  if (hasOtherFolders) actions.push('open-in-editor')
   if (hasOtherFolders && input.canOpenTerminal) actions.push('open-terminal')
   // A folder with no repository that holds repositories: the Git card lists
   // them, so the way to make the folder itself a repository is here. With no
@@ -217,9 +222,9 @@ function otherHostSections(host: OtherHostFolders): EnvironmentMenuSection[] {
 /**
  * The menu of the project row: the working folder first, then each session
  * folder in the order of the host, then the folders on other hosts. Each
- * section of the run host has the two places that show its folder ("Open in
- * Solus", and the file manager of the host where this client can open it),
- * then the options of that folder. "Add folder…" is the last item.
+ * section of the run host has the places that show its folder ("Open in
+ * Solus", the file manager of the host where this client can open it, and the
+ * editor of the "Open in" row), then the options of that folder. "Add folder…" is the last item.
  */
 export function environmentMenu(input: EnvironmentMenuInput): EnvironmentMenu {
   const others = [

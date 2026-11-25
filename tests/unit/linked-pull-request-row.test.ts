@@ -34,12 +34,12 @@ function summary(items: CheckItem[], headSha = 'head'): PrChecksSummary {
 describe('the checks button on the pull request row', () => {
   test('names failures before running checks, cancelled ones included', () => {
     const checks = summary([check('lint', 'failure'), check('bot', 'cancelled'), check('unit', 'running'), check('e2e', 'success')])
-    expect(checksButtonLabel(checksPresentation(checks, 'head', false), checks)).toBe('2 failed')
+    expect(checksButtonLabel(checksPresentation(checks, 'head', false), checks)).toEqual({ count: 2, word: 'failed' })
   })
 
-  test('names running checks while nothing has failed', () => {
+  test('counts running checks with no word: the running glyph says it', () => {
     const checks = summary([check('unit', 'running'), check('e2e', 'running'), check('lint', 'success')])
-    expect(checksButtonLabel(checksPresentation(checks, 'head', false), checks)).toBe('2 running')
+    expect(checksButtonLabel(checksPresentation(checks, 'head', false), checks)).toEqual({ count: 2, word: null })
   })
 
   test('says nothing when every check passed: the green glyph says it', () => {
@@ -49,11 +49,11 @@ describe('the checks button on the pull request row', () => {
 
   test('does not assert a result read against an older head', () => {
     const checks = summary([check('lint', 'failure')], 'old-head')
-    expect(checksButtonLabel(checksPresentation(checks, 'new-head', false), checks)).toBe('Checking')
+    expect(checksButtonLabel(checksPresentation(checks, 'new-head', false), checks)).toEqual({ count: null, word: 'Checking' })
   })
 
   test('says so when the checks could not be read', () => {
-    expect(checksButtonLabel(checksPresentation(undefined, 'head', true), undefined)).toBe('Unavailable')
+    expect(checksButtonLabel(checksPresentation(undefined, 'head', true), undefined)).toEqual({ count: null, word: 'Unavailable' })
   })
 })
 

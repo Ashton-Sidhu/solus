@@ -1,5 +1,6 @@
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { CheckoutBranches } from "./solus/CheckoutGit";
+import { fileRouteLinking } from "./features/files/filePath";
 import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { SourceControlSettings, GithubSettings, IssueTrackerSettings } from "./solus/SourceControlSettings";
 import { AutomationModelPicker } from "./solus/AutomationModelPicker";
@@ -692,7 +693,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute({ header: "solid" }),
     }),
     NewTaskFile: createNativeStackScreen({
-      linking: "new/draft/files/:path*",
+      linking: fileRouteLinking("new/draft/files"),
       screen: ThreadFileScreen,
       options: pageRoute({ header: "solid" }),
     }),
@@ -751,7 +752,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     ThreadFile: createNativeStackScreen({
       screen: ThreadFileScreen,
-      linking: `${THREAD_LINKING_PREFIX}/files/:path*`,
+      linking: fileRouteLinking(`${THREAD_LINKING_PREFIX}/files`),
       options: pageRoute(),
     }),
     ThreadMcpApp: createNativeStackScreen({
@@ -848,7 +849,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.55, maxDetent: 0.7 }),
     }),
     NotFound: createNativeStackScreen({
-      screen: routeBody(NotFoundScreen, Wip),
+      screen: NotFoundScreen,
       linking: "*",
     }),
   },

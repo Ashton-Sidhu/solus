@@ -3,6 +3,7 @@
   import {
     CircleAlert as CircleAlertIcon,
     CircleCheck as CheckCircleIcon,
+    CircleDashed as CircleDashedIcon,
     ChevronRight as CaretRightIcon,
     CircleX as XCircleIcon,
     Clock as ClockIcon,
@@ -11,6 +12,7 @@
     LoaderCircle as CircleNotchIcon,
     Pen as PencilSimpleIcon,
     RotateCw as RotateIcon,
+    ShieldAlert as ShieldAlertIcon,
     UserRoundPlus as UserPlusIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -36,7 +38,11 @@
     reviewerStateLabel,
   } from "./lib/reviewer-state";
   import { fileName, dirName } from "./lib/activity-data";
-  import { readinessTone, type MergeReadiness } from "./lib/merge-readiness";
+  import {
+    readinessTone,
+    waitingWorkflowRuns,
+    type MergeReadiness,
+  } from "./lib/merge-readiness";
   import {
     CHECKS_VISIBLE_ROWS,
     FILES_VISIBLE_ROWS,
@@ -46,7 +52,6 @@
   import { Skeleton } from "../ui/skeleton";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
   import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
-  import PrWorkflowApproval from "./PrWorkflowApproval.svelte";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
   // The activity tab's reference rail. The status leads it: what state
@@ -90,7 +95,8 @@
     /** The page's one reading of whether the pull request can land, which
      *  the status card states and the actions act on. Null until detail. */
     readiness: MergeReadiness | null;
-    /** The indexed pull request, which reads and approves waiting workflow runs. */
+    /** The indexed pull request, which holds the workflow runs that wait
+     *  for approval. The status above approves them; Checks lists them. */
     pullRequest?: IndexedPullRequest | null;
     reviewers: PrReviewer[];
     reviewersLoading: boolean;
@@ -134,7 +140,7 @@
   // this sitting, not a preference worth persisting. Read once on mount: a
   // rail that moves homes is a different instance, not the same one resized.
   const startsOpen = untrack(() => variant === "column");
-  // Checks stay folded until a failure needs attention.
+  // Checks stay folded until a failure or a waiting workflow needs attention.
   let sectionOpen = $state({
     reviewers: startsOpen,
     checks: false,
@@ -145,11 +151,20 @@
   // Failing checks lead, so the rows above "Show more" always show what's
   // broken rather than whichever the host happened to list first.
   const allChecks = $derived(orderedChecks(checks));
-  const checksHeadline = $derived(checksSummary(allChecks));
-  const hasFailedChecks = $derived(checksHeadline.icon === "failed");
-  // Open when failures arrive, but let the reader fold the section again.
+  // Runs held for approval have no checks yet, so they are rows of their own
+  // above the checks. The status's move approves them.
+  const waitingRuns = $derived(
+    (detail && waitingWorkflowRuns(detail, pullRequest?.pendingWorkflowRuns)?.runs) || [],
+  );
+  const checksHeadline = $derived(checksSummary(allChecks, waitingRuns.length));
+  const needsAttention = $derived(
+    checksHeadline.icon === "failed" || checksHeadline.icon === "waiting",
+  );
+  const hasChecksSection = $derived(allChecks.length > 0 || waitingRuns.length > 0);
+  // Open when failures or waiting runs arrive, but let the reader fold the
+  // section again.
   $effect(() => {
-    if (hasFailedChecks) sectionOpen.checks = true;
+    if (needsAttention) sectionOpen.checks = true;
   });
   let showAllChecks = $state(false);
   const visibleChecks = $derived(
@@ -163,7 +178,7 @@
     inline ? "" : !sectionOpen.reviewers ? "" : "mt-6",
   );
   const filesGap = $derived(
-    allChecks.length > 0 ? (sectionOpen.checks ? "mt-6" : "") : checksGap,
+    hasChecksSection ? (sectionOpen.checks ? "mt-6" : "") : checksGap,
   );
   const approvedReviewers = $derived(
     reviewers.reduce(
@@ -200,6 +215,12 @@
   function openCheck(item: CheckItem) {
     if (!item.detailsUrl) return;
     void localApi.openExternal(item.detailsUrl);
+    requestInputFocus();
+  }
+
+  function openWorkflowRun(url: string | null) {
+    if (!url) return;
+    void localApi.openExternal(url);
     requestInputFocus();
   }
 </script>
@@ -288,6 +309,8 @@
       <XCircleIcon size={15} />
     {:else if readiness?.key === "draft"}
       <PencilSimpleIcon size={13} />
+    {:else if readiness?.key === "workflows"}
+      <ShieldAlertIcon size={15} />
     {:else if readiness?.blocked}
       <CircleAlertIcon size={15} />
     {:else}
@@ -528,8 +551,7 @@
     </section>
     {/if}
 
-    <PrWorkflowApproval {pullRequest} class={inline ? "" : "mt-6"} />
-    {#if allChecks.length > 0}
+    {#if hasChecksSection}
       <section class={checksGap}>
         {#snippet checksCount()}
           <!-- The folded section's whole answer: the rows' own status glyph,
@@ -537,6 +559,8 @@
           <span class="flex items-center gap-1.5 tabular-nums text-muted-foreground">
             {#if checksHeadline.icon === "failed"}
               <XCircleFillIcon size={13} class="shrink-0 text-(--solus-art-negative)" aria-hidden="true" />
+            {:else if checksHeadline.icon === "waiting"}
+              <CircleDashedIcon size={13} class="shrink-0 text-(--warning)" aria-hidden="true" />
             {:else if checksHeadline.icon === "running"}
               <DotFillIcon size={13} class="shrink-0 text-chart-2" aria-hidden="true" />
             {:else}
@@ -558,6 +582,28 @@
           aria-label="Checks"
         >
           <ul class="flex flex-col" role="list">
+            <!-- Each run held for approval: the same row as a check, with a
+                 dashed ring for a check that has not started and the word
+                 "waiting" in the duration column. -->
+            {#each waitingRuns as run (run.id)}
+              <li class="flex h-[30px] items-center rounded-lg transition-colors hover:bg-[var(--wash-2)]">
+                <button
+                  type="button"
+                  disabled={!run.url}
+                  class="flex h-full min-w-0 flex-1 items-center justify-start gap-2.5 overflow-hidden rounded-lg px-2 py-0 pr-3 text-left font-normal enabled:cursor-pointer disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+                  onclick={() => openWorkflowRun(run.url)}
+                  title={run.url ? `Open ${run.name} on GitHub` : undefined}
+                >
+                  <span class="grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
+                    <CircleDashedIcon size={13} class="text-(--warning)" />
+                  </span>
+                  <span class="min-w-0 flex-1 truncate">{run.name}</span>
+                  <span class="w-[48px] shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
+                    waiting
+                  </span>
+                </button>
+              </li>
+            {/each}
             {#each visibleChecks as item (item.id)}
               {@const duration = checkDuration(item)}
               {@const verdict = checkVerdict(item)}

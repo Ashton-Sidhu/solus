@@ -189,7 +189,7 @@ describe('native attachments', () => {
   })
 
   test('a host chip in the text gets the note for the agent, after the text and after the file lines', () => {
-    // WHY: host-fleet.md D12. The agent must know what it can do with a host
+    // WHY: The agent must know what it can do with a host
     // the person names, on the phone as on desktop.
     const typed = 'Check [studio-mini](host://ref?serverId=install-1).'
     const { prompt } = composePrompt(typed, [{ id: '1', kind: 'file', name: 'spec.pdf', hostPath: '/h/spec.pdf', mimeType: 'application/pdf', size: 1, dataUrl: null }], true)

@@ -21,6 +21,20 @@ export function stripAttachedFileLines(text: string): string {
   return text.replace(LEADING_ATTACHED_FILES, '')
 }
 
+/** The composer puts one attachment path per line before a blank line and the prompt. */
+export function splitPromptFiles(content: string) {
+  const paths: string[] = []
+  if (!content.startsWith('[Attached file: ')) return { text: content, paths }
+  const lines = content.split('\n')
+  for (const line of lines) {
+    const path = /^\[Attached file: (.+)\]$/.exec(line)?.[1]
+    if (!path) break
+    paths.push(path)
+  }
+  if (!paths.length || (paths.length < lines.length && lines[paths.length] !== '')) return { text: content, paths: [] }
+  return { text: lines.slice(paths.length).join('\n').replace(/^\n+/, ''), paths }
+}
+
 /** Also used when a client reads a history page saved before the host stripped these blocks. */
 export function stripSessionReferenceContext(text: string): string {
   return text.replace(SESSION_REFERENCE_BLOCK, '')

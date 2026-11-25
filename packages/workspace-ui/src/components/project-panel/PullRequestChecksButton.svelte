@@ -50,7 +50,13 @@
                 : checks.state === 'pending'
                   ? 'text-(--solus-status-running)'
                   : 'text-(--solus-text-tertiary)'}"><Glyph size={14} /></span>
-          {#if label}<span class="min-w-0 truncate tabular-nums">{label}</span>{/if}
+          <!-- A narrow rail keeps the glyph and the count and drops the word. -->
+          {#if label}<span
+              class="min-w-0 truncate tabular-nums {label.count === null ? '@max-[19rem]/rail:hidden' : ''}"
+              >{label.count ?? ""}{#if label.word}<span class="@max-[19rem]/rail:hidden"
+                  >{label.count === null ? "" : " "}{label.word}</span
+                >{/if}</span
+            >{/if}
         </button>
       {/snippet}
     </Popover.Trigger>

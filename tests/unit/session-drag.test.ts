@@ -70,6 +70,19 @@ describe("session drag into the input bar", () => {
     expect(parseSessionHref(href)).toMatchObject({ sessionId: "sess-remote-1", serverId: "host-b" });
   });
 
+  test("a session whose title has a line break still becomes one chip", () => {
+    // An automation run's title starts with its multi-line run header.
+    const automationRun: SessionReference = {
+      ...remote,
+      title: "This is an automation run.\nAutomation run id: a4700414",
+    };
+    const { insert } = sessionDropInsertion("", 0, readSessionDrag(dragOf([automationRun])))!;
+    const tokens = parseReferenceTokens(insert);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].token).toMatchObject({ kind: "session", sessionId: "sess-remote-1" });
+    expect(insert).not.toContain("\n");
+  });
+
   test("several selected sessions add one chip each", () => {
     const references = readSessionDrag(dragOf([remote, local]));
     const insertion = sessionDropInsertion("", 0, references)!;

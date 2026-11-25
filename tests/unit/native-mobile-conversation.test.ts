@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { withTurnItemBodies } from '@solus/server/data/sessions/result-projection'
 import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
 import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 import { SendOutbox } from '@solus/client-core/send-outbox'
@@ -11,6 +12,9 @@ import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
+import { artifactHtmlRender, type ArtifactRender } from '../../apps/mobile/solus-core/features/conversation/lib/artifacts'
+import { UNMEASURED_REPLY_HEIGHT } from '@solus/contracts/session-history'
 
 const page = (messages: SessionHistoryPage['messages'], before: string | null = null): SessionHistoryPage => ({ messages, before })
 const userRow = (content: string, messageId: string) => ({ role: 'user', content, messageId, timestamp: 1 })
@@ -73,6 +77,69 @@ const texts = (controller: ConversationController) => controller.model.order.map
 })
 
 describe('native conversation: history and live events', () => {
+  test('a known disk miss sends history before navigation can occupy the JS thread', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    await cache.saveHistory('another-session', page([]))
+    const api = baseApi()
+    const disk = Promise.withResolvers<SessionHistoryPage | null>()
+    const { controller } = await open({ api, sessionCache: { ...cache, history: () => disk.promise } })
+    const loading = controller.load()
+    expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ sessionId: 'thread-1', knownHistoryBlocks: [], turnItems: true })
+    disk.resolve(null)
+    await loading
+    controller.close()
+  })
+
+  test('reads pre-upgrade history and clears both saved formats when access ends', async () => {
+    const storage = new PullRequestCache(memoryPullRequestCacheDatabase())
+    let scope = 'first'
+    const caches = new MobileSessionCache(storage, () => scope)
+    const cache = caches.forHost('host')
+    const key = JSON.stringify(['sessions-v1', scope, 'history', 's'])
+    const old = page([assistantRow('old page', 'a')])
+    const current = page(withTurnItemBodies([assistantRow('new page', 'a')]))
+    await storage.write('host', key, old)
+    expect(await cache.history('s')).toEqual(old)
+    await cache.saveHistory('s', current)
+    expect(await cache.history('s')).toEqual(current)
+    expect(await storage.read('host', key)).toEqual(old)
+    scope = 'second'
+    expect(await cache.history('s')).toBeNull()
+    expect(await caches.forHost('host').history('s')).toBeNull()
+    scope = 'first'
+    await cache.saveHistory('s', null)
+    expect(await storage.read('host', key)).toBeNull()
+    expect(await cache.history('s')).toBeNull()
+  })
+
+  test('a projected call on an older page receives its newer result and survives a live reconnect', async () => {
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      expect(request.turnItems).toBe(true)
+      return request.before ? page(withTurnItemBodies([
+        userRow('open it', 'u'),
+        { role: 'tool', toolName: 'Read', toolId: 'call', toolInput: '{"path":"old"}', messageId: 't', content: '', timestamp: 1 },
+      ])) : page(withTurnItemBodies([
+        { role: 'tool_result', content: '', toolResultForId: 'call', status: 'error', errorHead: 'missing', timestamp: 2 },
+        assistantRow('saved reply', 'a'),
+      ]), 'older')
+    })
+    const { controller, transport } = await open({ api })
+    await controller.load()
+    await controller.loadOlder()
+    expect(texts(controller)).toEqual(['user:open it', 'tool', 'assistant:saved reply'])
+    expect(controller.model.items.get('t')).toMatchObject({ input: '{"path":"old"}', status: 'error', errorHead: 'missing' })
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.1', event: { type: 'text_chunk', text: 'live' } })
+    api.on('watchSession', () => {
+      transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.2', event: { type: 'text_chunk', text: ' tail' } })
+      return { resumed: true }
+    })
+    await transport.accept(false)
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:open it', 'tool', 'assistant:saved reply', 'assistant:live tail'])
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    controller.close()
+  })
+
   test('a saved page shows its session link without the agent instruction', async () => {
     const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
     const typed = 'Review [the earlier session](session://ref?sessionId=prior&provider=codex).'
@@ -324,6 +391,24 @@ describe('native conversation: history and live events', () => {
       expect(api.callsOf('loadSessionPage').at(-1)?.[0]).toMatchObject({ provider: activeProvider })
       expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
     }
+  })
+
+  test('a late first page from the previous provider cannot paint over a known handoff', async () => {
+    const prior = Promise.withResolvers<SessionHistoryPage>()
+    const current = Promise.withResolvers<SessionHistoryPage>()
+    const api = baseApi()
+      .on('loadSessionPage', (request: SessionHistoryPageRequest) => request.provider === 'codex' ? current.promise : prior.promise)
+      .on('describeSession', () => ({ lineage: { active: { provider: 'codex', providerSessionId: 'new' } } }))
+    const { controller } = await open({ api })
+    const loading = controller.load()
+    await flushPromises()
+    prior.resolve(page([assistantRow('previous provider', 'a')]))
+    await flushPromises()
+    expect(texts(controller)).toEqual([])
+    current.resolve(page([assistantRow('current provider', 'b')]))
+    await loading
+    expect(texts(controller)).toEqual(['assistant:current provider'])
+    controller.close()
   })
 
   test('opens a Codex session with its own provider on every call', async () => {
@@ -784,77 +869,34 @@ describe('native conversation: requests and plans', () => {
   })
 })
 
-describe('native saved artifact bodies', () => {
+describe('native saved artifacts', () => {
   const artifactPage = () => page([
     { role: 'tool', toolId: 'render', toolName: 'render_artifact', toolInput: '{"html_path":"/tmp/render.html"}', content: '', timestamp: 1 },
-    { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2 }, timestamp: 2 },
+    { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2, layout: { height: 640, heights: [[375, 640]] } }, timestamp: 2 },
   ])
-  test('a deferred render reads its original HTML if the saved work version is gone', async () => {
-    const rows = artifactPage()
-    rows.messages[0] = { ...rows.messages[0]!, toolInput: '{}', toolInputKey: 'a'.repeat(64) }
-    const api = baseApi().on('loadSessionPage', () => rows)
-      .on('loadWork', () => null).on('loadWorkRevisions', () => [])
-      .on('loadSessionToolInputs', () => [{ key: 'a'.repeat(64), toolInput: JSON.stringify({ html: '<p>Original</p>' }) }])
+  const artifacts = (model: TranscriptModel) =>
+    [...model.items.values()].filter((item) => item.kind === 'artifact')
+
+  test('a saved render names its version and frame, and the phone reads no HTML for it', async () => {
+    // WHY: the feed sizes the row from this frame before the page loads, and
+    // the page itself comes from the host. A body read here is a second loader.
+    const api = baseApi().on('loadSessionPage', artifactPage)
     const { controller } = await open({ api })
     await controller.load()
-    const id = controller.model.order.find(id => controller.model.items.get(id)?.kind === 'artifact')!
+    expect(artifacts(controller.model)).toEqual([expect.objectContaining({ workId: 'w', title: 'Chart', contentVersion: 2, layout: { height: 640, heights: [[375, 640]] } })])
+    expect(api.callsOf('loadWork')).toHaveLength(0)
     expect(api.callsOf('loadSessionToolInputs')).toHaveLength(0)
-    await controller.ensureArtifact(id)
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Original</p>' })
     controller.close()
   })
-  test('an old card reads its saved revision, with one request shared by mounted readers', async () => {
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => ({ id: 'w', content: 'latest', contentVersion: 3 }))
-      .on('loadWorkRevisions', () => [{ revisionId: 9, sourceContentVersion: 2 }])
-      .on('loadWorkRevision', () => ({ content: '<p>Version 2</p>' }))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    await Promise.all([controller.ensureArtifact(id), controller.ensureArtifact(id)])
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Version 2</p>', contentVersion: 2 })
-    expect(api.callsOf('loadWorkRevision')).toHaveLength(1)
-    expect(api.callsOf('loadWorkRevision')[0]).toEqual(['w', 9])
-  })
-  test('a slow read from before reconnect cannot replace the rebuilt card', async () => {
-    let release!: (work: { content: string; contentVersion: number }) => void
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => new Promise((resolve) => { release = resolve }))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    const old = controller.ensureArtifact(id)
-    await controller.load()
-    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
-    await controller.ensureArtifact(id)
-    release({ content: '<p>Stale reply</p>', contentVersion: 2 })
-    await old
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
-  })
-  test('a card asked for during a reload still reads into the rebuilt transcript', async () => {
-    // WHY: a read shared across the rebuild would answer the old transcript only,
-    // and the new card would wait forever.
-    let releasePage!: () => void
-    let pageRequested!: () => void
-    const reloadAsksForPage = new Promise<void>((resolve) => { pageRequested = resolve })
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => new Promise(() => {}))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    void controller.ensureArtifact(id)
-    api.on('loadSessionPage', () => new Promise((resolve) => {
-      releasePage = () => resolve(artifactPage())
-      pageRequested()
-    }))
-    const reloading = controller.load()
-    await reloadAsksForPage
-    void controller.ensureArtifact(id)
-    releasePage()
-    await reloading
-    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
-    await controller.ensureArtifact(id)
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
+
+  test('live renders and updates name the version they saved', () => {
+    const model = new TranscriptModel('s')
+    model.apply({ type: 'artifact_created', kind: 'html', html: '<p>one</p>', workId: 'w', title: 'Chart', contentVersion: 1, layout: { height: 300 } })
+    model.apply({ type: 'work_updated', workId: 'w', title: 'Chart', docType: 'artifact', content: '<p>two</p>', updatedAt: '2026-11-25T00:00:01Z', contentVersion: 2 })
+    // An update that names no version cannot name a page, so it adds no render.
+    model.apply({ type: 'work_updated', workId: 'w', title: 'Chart', docType: 'artifact', content: '<p>three</p>', updatedAt: '2026-11-25T00:00:02Z' })
+    expect(artifacts(model).map((item) => item.kind === 'artifact' && [item.contentVersion, item.layout?.height])).toEqual([[1, 300], [2, undefined]])
+    expect(artifactHtmlRender(artifacts(model)[1] as ArtifactRender)).toEqual({ attachmentId: 'artifact:w:2', title: 'Chart', height: UNMEASURED_REPLY_HEIGHT })
   })
 })
 

@@ -16,6 +16,7 @@ import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@so
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { afterPaint } from '../../lib/after-paint'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { localApi } from '@solus/client-core/local-api'
@@ -617,8 +618,10 @@ export class PromptDispatch {
     }
     const before = this.heldSends.get(session.id)
     if (isUploading || before) this.sendWhenUploaded(targetTabId, session, sent, { clientPromptId, isQueued: isBusy, before }, send)
-    else send()
-    requestConversationScrollToBottom(targetTabId)
+    else this.sendAfterPaint(targetTabId, session, send)
+    // Only a session's first message moves to the top of the view, as in T3
+    // Code. A later send keeps the conversation above it in view.
+    requestConversationScrollToBottom(targetTabId, { firstMessageId: isFirstMessage && !isBusy ? clientPromptId : undefined })
     return true
   }
 
@@ -659,6 +662,23 @@ export class PromptDispatch {
       // A later send of the session waits on this one, so it must settle.
       .catch((error) => console.warn('[Solus] A send that waited for its uploads failed.', error))
     const settled: Promise<void> = held.finally(() => {
+      if (this.heldSends.get(session.id) === settled) this.heldSends.delete(session.id)
+    })
+    this.heldSends.set(session.id, settled)
+  }
+
+  /**
+   * The message, the cleared composer, and the busy row paint first. Then the
+   * send composes the prompt, writes its outbox record, and goes to the host.
+   * That work is synchronous and grows with the prompt and its images, so on
+   * the Enter frame it would delay the paint. A later send of the session
+   * waits for this one, as it waits for a send held for its uploads.
+   */
+  private sendAfterPaint(tabId: string, session: Session, send: () => void): void {
+    const painted = afterPaint().then(() => {
+      if (this.workspace.sessionFor(tabId) === session) send()
+    })
+    const settled: Promise<void> = painted.finally(() => {
       if (this.heldSends.get(session.id) === settled) this.heldSends.delete(session.id)
     })
     this.heldSends.set(session.id, settled)

@@ -58,6 +58,8 @@ export type FileManagerKind = 'finder' | 'file-explorer' | 'files'
  * safe when connected to older hosts. Some fields answer for the caller: a
  * cloud member's projects folder is their own. */
 export interface HostCapabilities {
+  /** The repository status read can include the projected working tree. */
+  checkoutStatus?: boolean
   /** The host build's version, for the per-host skew notice. */
   version?: string
   /** What the machine calls itself, from the operating system. `/health` withholds
@@ -67,6 +69,8 @@ export interface HostCapabilities {
   name?: string
   /** The sessions API accepts personal list order and shared auto-settle changes. */
   sessionListControls?: boolean
+  /** Session commands this host can admit through its prompt and provider APIs. */
+  sessionComposer?: { providerSwitch: boolean; sideChatCommands: boolean }
   attachUpload?: boolean
   /** The host reads `PromptOptions.imageAttachmentRefs` from its own attachment
    *  store. Without it a client sends image bytes inline on every turn. */
@@ -2172,10 +2176,12 @@ export type NormalizedEvent =
   /** `organizationId` names the organization whose Solus API holds the work;
    *  null when the session's host holds it. Older hosts send neither. */
   | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string; organizationId?: string | null }
-  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number; organizationId?: string | null }
+  /** `layout` is the frame the host measured for an artifact's new version. */
+  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number; organizationId?: string | null; layout?: import('./artifact-page').ArtifactLayout }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
-   *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
-  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null }
+   *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither.
+   *  `contentVersion` and `layout` name the saved version and its measured frame. */
+  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null; contentVersion?: number; layout?: import('./artifact-page').ArtifactLayout }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
@@ -3243,10 +3249,12 @@ export interface FilePreviewRequest {
   path: string
   cwd?: string
   /** Opt in to bounded, read-only pages when the file exceeds the preview limit. */
-  textPage?: { index: number; revision?: string }
+  textPage?: { index: number; revision?: string; line?: number }
 }
 
 export interface FilePreviewPage {
+  /** One-based line within the returned page for a citation. */
+  targetLine?: number
   index: number
   count: number
   revision: string
@@ -3490,6 +3498,8 @@ export type FilePreviewResult =
       ok: false
       path: string
       error: string
+      /** Older hosts omit the path kind on a failed preview. */
+      isDirectory?: boolean
     }
 
 // ─── Plugin Commands ───

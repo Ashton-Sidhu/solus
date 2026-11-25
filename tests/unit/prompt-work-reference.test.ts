@@ -38,7 +38,7 @@ describe('a referenced work in the prompt', () => {
 
 describe('a host chip in the prompt', () => {
   test('adds the note for the agent after the typed text, and leaves a prompt with no host as it is', () => {
-    // WHY: docs/plans/host-fleet.md D12. The chip is a link in the typed text;
+    // WHY: The chip is a link in the typed text;
     // the note that says what the agent can do with the host rides the prompt
     // the host runs, not the text the person sees.
     const composer = new PromptComposer({ get: () => null } as unknown as PlanStore, { get: () => undefined } as unknown as WorksStore)

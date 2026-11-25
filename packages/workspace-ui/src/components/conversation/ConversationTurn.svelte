@@ -290,12 +290,12 @@
   @container pane (width < 30rem) {
     .turn-items { --turn-item-gap: 0.75rem; }
   }
-  /* An activity row's chassis already pads 7px above and below its label, so
-     text beside a tool group takes a smaller item gap: the padding makes up
-     the rest. */
-  .turn-item[data-body-kind="tool-group"]:has(+ .turn-item[data-body-kind="assistant"]:not([hidden])),
-  .turn-item[data-body-kind="assistant"]:has(+ .turn-item[data-body-kind="tool-group"]:not([hidden])) {
-    --turn-item-gap: 0.25rem;
+  /* An activity row (a thought, a tool group, or an answered question) already
+     pads 7px above and below its label. Beside text or another activity row,
+     that padding is the whole space: the item gap would double it. */
+  .turn-item:is([data-body-kind="assistant"], [data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):has(+ .turn-item:is([data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):not([hidden])),
+  .turn-item:is([data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):has(+ .turn-item[data-body-kind="assistant"]:not([hidden])) {
+    --turn-item-gap: 0;
   }
 
   /* The open body's rail: each item draws its own edge, and an item followed

@@ -34,6 +34,12 @@ export const sessionExecutionSchema = z.strictObject({
 export type SessionExecution = z.infer<typeof sessionExecutionSchema>
 export type DelegatedRequest = NonNullable<SessionExecution['delegatedRequest']>
 
+/** Which runs a session has: the one at work and the last one that ended. It
+ *  changes when a run starts or ends, and stays the same while one run goes on. */
+export function sessionRunKey(execution: SessionExecution | undefined): string {
+  return `${execution?.current?.runId ?? ''}:${execution?.lastTurn?.runId ?? ''}`
+}
+
 /** The state shown when no other presentation facts are needed. */
 export function sessionExecutionStatus(execution: SessionExecution): SessionStatus {
   return execution.current?.phase ?? execution.lastTurn?.outcome ?? 'idle'

@@ -5,7 +5,7 @@
   import { fileDrag } from "../../lib/file-drag";
   import { getMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestFilePreview } from "../../lib/filePreview";
-  import { codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
+  import { COMMIT_HASH_RE, codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
   import { boldTextInCodeSpan } from "@solus/document-model/markdown";
   import { hostPathBaseName } from "@solus/contracts/host-path";
 
@@ -27,11 +27,7 @@
   const copyText = $derived(text ?? raw.replace(/^`+|`+$/g, ""));
   const boldText = $derived(boldTextInCodeSpan(copyText));
 
-  // A bare abbreviated-or-full hex hash — an address rather than a literal you
-  // would retype. A surface may style it through `.markdown-sha`.
-  const SHA_RE = /^[0-9a-f]{7,40}$/i;
-
-  const isSha = $derived(SHA_RE.test(copyText));
+  const isSha = $derived(COMMIT_HASH_RE.test(copyText));
   const fileTarget = $derived(workspace ? codeSpanFileTarget(copyText) : null);
   const filePath = $derived(fileTarget?.path ?? "");
   const fileLine = $derived(fileTarget?.line);

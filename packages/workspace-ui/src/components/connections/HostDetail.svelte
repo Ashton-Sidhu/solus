@@ -33,7 +33,7 @@
   const setup = $derived(hostSetupStore.sessionFor(host.id));
   const workspace = getWorkspaceContext();
 
-  // A host is a host (docs/plans/host-fleet.md D2): every kind gets this header and these numbers.
+  // A host is a host: every kind gets this header and these numbers.
   const busySessions = $derived(
     Object.values(workspace.sessions.byId).filter((session) => runHost(session.run) === host.id && isSessionBusyStatus(session.status)).length,
   );

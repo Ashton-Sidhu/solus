@@ -13,7 +13,7 @@
   import type { ListProjectOption } from "./list-page";
   import { formatComboText } from "../../../lib/keybindings/match";
 
-  const currentKey = formatComboText({ alt: true, code: "KeyC" });
+  const currentShortcut = formatComboText({ alt: true, code: "KeyC" });
 
   /**
    * The project rows of a scope menu. A list page's Filters menu shows them in
@@ -32,10 +32,10 @@
     /** When set, an "All projects" row leads the list and clears the scope. */
     onSelectAll?: () => void;
     allLabel?: string;
-    /** When set, a "Current project" row scopes the page to the project the
-     *  input bar is in — one explicit step, never automatic
-     *  (docs/plans/project-model.md §5). */
-    onSelectCurrent?: () => void;
+    /** The key of the project the input bar is in. Its row leads the list
+     *  and says so, with the page's shortcut that scopes to it — one explicit
+     *  step, never automatic (docs/plans/project-model.md §5). */
+    currentKey?: string | null;
     projectsFirst?: boolean;
     showAdd?: boolean;
     onAddProject?: () => void;
@@ -48,7 +48,7 @@
     onRemoveProject,
     onSelectAll,
     allLabel = "All projects",
-    onSelectCurrent,
+    currentKey = null,
     projectsFirst = false,
     showAdd = true,
     onAddProject,
@@ -58,11 +58,11 @@
   let query = $state("");
 
   const allActive = $derived(!!onSelectAll && !activeKey);
-  const showScopeRows = $derived(!query.trim() && (!!onSelectAll || !!onSelectCurrent));
+  const showScopeRows = $derived(!query.trim() && !!onSelectAll);
   const orderedProjects = $derived.by(() => {
-    if (!projectsFirst || !activeKey) return projects;
-    const selected = projects.find((project) => project.key === activeKey);
-    return selected ? [selected, ...projects.filter((project) => project !== selected)] : projects;
+    const leadKey = projectsFirst && activeKey ? activeKey : currentKey;
+    const lead = leadKey ? projects.find((project) => project.key === leadKey) : undefined;
+    return lead ? [lead, ...projects.filter((project) => project !== lead)] : projects;
   });
   // A handful of projects is a list you read; past that it is one you search.
   const showFind = $derived(projects.length > 6);
@@ -128,6 +128,10 @@
         <span class="min-w-0 flex-1 truncate {isActive ? 'font-medium' : ''}">
           {project.label}
         </span>
+        {#if project.key === currentKey}
+          <span class="shrink-0 text-xs text-muted-foreground">Current</span>
+          <kbd class="shrink-0 font-sans text-xs text-muted-foreground opacity-70">{currentShortcut}</kbd>
+        {/if}
         {#if project.count !== undefined}
           <span class="min-w-4 shrink-0 text-center text-xs text-muted-foreground tabular-nums {remove || isActive ? '' : 'pointer-coarse:mr-1'}">
             {project.count}
@@ -161,12 +165,6 @@
       <AllIcon size={15} class="shrink-0" />
       <span class="min-w-0 flex-1 truncate">{allLabel}</span>
       {#if allActive}{@render selectedCheck()}{/if}
-    </DropdownMenu.Item>
-  {/if}
-  {#if onSelectCurrent}
-    <DropdownMenu.Item onSelect={onSelectCurrent}>
-      <span class="min-w-0 flex-1 truncate">Current project</span>
-      <kbd class="mr-1 shrink-0 font-sans text-muted-foreground opacity-70">{currentKey}</kbd>
     </DropdownMenu.Item>
   {/if}
 {/snippet}

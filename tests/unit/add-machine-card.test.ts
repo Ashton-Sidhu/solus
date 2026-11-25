@@ -1,16 +1,18 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { readAddMachineOutcome } from '@solus/contracts/add-machine'
+import { readAddMachineOutcome, type AddMachineAsk } from '@solus/contracts/add-machine'
 import type { HostPairRequest } from '@solus/contracts/host-pairing'
 import type { HostListing } from '@solus/contracts/host-list'
 import type { SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import type { AddMachineCandidate } from '@solus/client-core/add-machine-candidates'
 import {
   ANOTHER_ADDRESS_KEY,
+  ANOTHER_SSH_KEY,
   addressAttempt,
   candidateAttempt,
   reachableMachines,
   sessionHostDialUrl,
   sshCardOutcome,
+  sshTargetAttempt,
   stepTextParts,
   typedCodeAttempt,
   wayLabel,
@@ -38,10 +40,12 @@ function harness(candidates: AddMachineCandidate[], overrides: Partial<{
   mint: (serverId: string) => Promise<string>
   passwordIssue: () => string
   watchSshProgress: (requestId: string, onProgress: (progress: SshAddProgress) => void) => () => void
+  ask: AddMachineAsk
 }> = {}) {
   const calls = { ssh: [] as SshAddRequest[], pair: [] as HostPairRequest[], answers: [] as Record<string, string>[], added: [] as string[] }
   const card = new AddMachineCardState({
     candidates: () => candidates,
+    ask: () => overrides.ask ?? { reason: 'Add a machine.' },
     addOverSsh: async (request) => { calls.ssh.push({ ...request }); return overrides.addOverSsh ? overrides.addOverSsh(request) : { status: 'linked', installationId: 'win', label: 'Windows' } },
     pair: async (request) => { calls.pair.push({ ...request }); return overrides.pair ? overrides.pair(request) : listing('target', 'Target') },
     watchSshProgress: overrides.watchSshProgress ?? (() => () => {}),
@@ -257,6 +261,8 @@ describe('the card', () => {
     expect(card.selectedKey).toBe(windows.key)
     card.move('ArrowDown')
     card.move('ArrowDown')
+    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
+    card.move('ArrowDown')
     expect(card.selectedKey).toBe(ANOTHER_ADDRESS_KEY)
     card.move('ArrowDown')
     expect(card.selectedKey).toBe(windows.key)
@@ -267,5 +273,128 @@ describe('the card', () => {
     await card.decline()
     expect(calls.answers).toEqual([{ status: 'declined' }])
     expect(card.phase).toBe('closed')
+  })
+})
+
+describe('SSH with a target and a key the person names', () => {
+  // A cloud machine is often not in ~/.ssh/config: the person has only its address and the key the console gave.
+  const ec2 = { sshTarget: 'ubuntu@3.91.20.4', identityFile: '~/.ssh/aws.pem' }
+
+  test('an SSH target with no value is refused at its field, and a key goes only when it is named', () => {
+    expect(sshTargetAttempt('  ', '~/.ssh/aws.pem')).toEqual({ error: 'Enter the SSH target, such as ubuntu@3.91.20.4.', field: 'target' })
+    expect(sshTargetAttempt(' ubuntu@3.91.20.4 ', ' ~/.ssh/aws.pem ')).toEqual({ attempt: { way: 'ssh', ...ec2 } })
+    expect(sshTargetAttempt('ubuntu@3.91.20.4', '  ')).toEqual({ attempt: { way: 'ssh', sshTarget: 'ubuntu@3.91.20.4' } })
+    // A config row sends its alias, with the other key only when the person named one.
+    expect(candidateAttempt(windows, '', false, '~/.ssh/win.pem')).toEqual({ attempt: { way: 'ssh', sshTarget: 'solus-windows', identityFile: '~/.ssh/win.pem' } })
+    expect(candidateAttempt(windows, '', false)).toEqual({ attempt: { way: 'ssh', sshTarget: 'solus-windows' } })
+  })
+
+  test('the card sends the typed target and key to the session host', async () => {
+    const { card, calls } = harness([windows])
+    card.select(ANOTHER_SSH_KEY)
+    card.sshTarget = ec2.sshTarget
+    card.identityFile = ec2.identityFile
+    await card.add()
+    expect(calls.ssh[0]).toMatchObject(ec2)
+    expect(readAddMachineOutcome(calls.answers[0])?.status).toBe('added')
+  })
+
+  test('the card sends nothing for an empty target', async () => {
+    const { card, calls } = harness([])
+    card.select(ANOTHER_SSH_KEY)
+    await card.add()
+    expect(calls.ssh).toEqual([])
+    expect(card.failure?.field).toBe('target')
+    expect(card.statusCard).toBeNull()
+  })
+
+  test('a config row uses its config key until the person asks for another one', async () => {
+    // WHY: a key typed for another row must not go to this machine while its field is hidden.
+    const { card, calls } = harness([windows])
+    card.identityFile = '~/.ssh/other.pem'
+    expect(card.showsKeyField).toBe(false)
+    await card.add()
+    expect(calls.ssh[0].identityFile).toBeUndefined()
+  })
+
+  test('the agent\'s target and key fill the card: a typed target opens its own row', () => {
+    const { card } = harness([windows, nearby], { ask: { reason: 'Add the EC2 box.', ...ec2 } })
+    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
+    expect(card.sshTarget).toBe(ec2.sshTarget)
+    expect(card.identityFile).toBe(ec2.identityFile)
+    expect(card.showsKeyField).toBe(true)
+  })
+
+  test('the agent\'s target that is a config alias selects that row, with its key field open when a key was named', () => {
+    const { card } = harness([nearby, windows], { ask: { reason: 'Add Windows.', sshTarget: 'solus-windows', identityFile: '~/.ssh/win.pem' } })
+    expect(card.selectedKey).toBe(windows.key)
+    expect(card.isKeyFieldOpen).toBe(true)
+    expect(card.showsKeyField).toBe(true)
+    // The way back: the config's key again, and no key is sent.
+    card.closeKeyField()
+    expect(card.identityFile).toBe('')
+    expect(card.showsKeyField).toBe(false)
+  })
+
+  test('the agent\'s alias selects its row once the config hosts arrive', () => {
+    const candidates: AddMachineCandidate[] = []
+    const { card } = harness(candidates, { ask: { reason: 'Add Windows.', sshTarget: 'solus-windows' } })
+    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
+    candidates.push(windows)
+    expect(card.selectedKey).toBe(windows.key)
+    expect(card.isKeyFieldOpen).toBe(false)
+  })
+
+  test('a key that others can read is offered a fix, and the fix is the same add, asking the host to fix the key first', async () => {
+    // WHY: a key downloaded from a cloud console is often readable by others, and ssh refuses it with an unclear error.
+    const { card, calls } = harness([], {
+      ask: { reason: 'Add the EC2 box.', ...ec2 },
+      addOverSsh: async (request) => request.fixIdentityFilePermissions
+        ? { status: 'linked', installationId: 'ec2', label: 'EC2' }
+        : { status: 'key-permissions', identityFile: ec2.identityFile, message: 'Other users on Mac can read ~/.ssh/aws.pem, so SSH refuses it.' },
+    })
+    await card.add()
+    expect(calls.ssh[0]?.fixIdentityFilePermissions).toBeUndefined()
+    expect(card.keyPermissions).toEqual({ identityFile: ec2.identityFile, message: 'Other users on Mac can read ~/.ssh/aws.pem, so SSH refuses it.' })
+    // Nothing was sent, so no setup card shows a failed SSH step.
+    expect(card.statusCard).toBeNull()
+    expect(card.phase).toBe('choose')
+    expect(calls.answers).toEqual([])
+
+    await card.fixKeyPermissions()
+    expect(calls.ssh).toHaveLength(2)
+    expect(calls.ssh[1]).toMatchObject({ ...ec2, fixIdentityFilePermissions: true })
+    expect(card.keyPermissions).toBeNull()
+    expect(readAddMachineOutcome(calls.answers[0])).toEqual({ status: 'added', installationId: 'ec2', way: 'ssh' })
+  })
+
+  test('a fix the host refuses shows its error, and a later add does not ask for the fix again', async () => {
+    const { card, calls } = harness([], {
+      ask: { reason: 'Add the EC2 box.', ...ec2 },
+      addOverSsh: async (request) => {
+        if (request.fixIdentityFilePermissions) throw new Error('~/.ssh/aws.pem belongs to another user, so Solus does not change it.')
+        return { status: 'key-permissions', identityFile: ec2.identityFile, message: 'SSH refuses it.' }
+      },
+    })
+    await card.add()
+    await card.fixKeyPermissions()
+    expect(card.failure?.message).toBe('~/.ssh/aws.pem belongs to another user, so Solus does not change it.')
+    expect(card.phase).toBe('choose')
+    await card.add()
+    expect(calls.ssh.map((request) => request.fixIdentityFilePermissions)).toEqual([undefined, true, undefined])
+  })
+
+  test('a key the host does not have shows at the key field, not as a failed add', async () => {
+    const { card } = harness([], {
+      ask: { reason: 'Add the EC2 box.', ...ec2 },
+      addOverSsh: async () => { throw new Error('No file at ~/.ssh/aws.pem on Mac. Choose the private key on Mac.') },
+    })
+    await card.add()
+    expect(card.failure).toEqual({ field: 'identity', message: 'No file at ~/.ssh/aws.pem on Mac. Choose the private key on Mac.' })
+    expect(card.statusCard).toBeNull()
+  })
+
+  test('the SSH result for a readable key maps to a fix', () => {
+    expect(sshCardOutcome({ status: 'key-permissions', identityFile: '~/k.pem', message: 'Refused.' })).toEqual({ kind: 'key-permissions', identityFile: '~/k.pem', message: 'Refused.' })
   })
 })

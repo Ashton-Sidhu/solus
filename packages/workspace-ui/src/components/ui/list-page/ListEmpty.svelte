@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  /** A filter miss, rendered as a washed panel rather than a bare column, so it
-   *  reads as a state of the list rather than an empty page. */
+  /** A filter miss: a quiet statement where the rows would be, with the way
+   *  back out. No panel and no fill, so it reads as the list saying it is
+   *  empty rather than as a box placed on the page. */
   interface Props {
     title: string;
     children?: Snippet;
@@ -11,14 +12,12 @@
   let { title, children, actions }: Props = $props();
 </script>
 
-<div
-  class="mt-2.5 flex flex-col items-center gap-1.5 rounded-2xl bg-[var(--wash-1)] py-[70px]"
->
-  <span class="font-medium">{title}</span>
+<div class="flex flex-col items-center gap-1 px-4 pt-20 pb-10 text-center">
+  <span class="text-sm font-medium text-foreground">{title}</span>
   {#if children}
-    <span class="text-xs text-muted-foreground">{@render children()}</span>
+    <span class="max-w-[25rem] text-sm text-muted-foreground">{@render children()}</span>
   {/if}
   {#if actions}
-    <div class="mt-2 flex items-center gap-2">{@render actions()}</div>
+    <div class="mt-3 flex flex-wrap items-center justify-center gap-2">{@render actions()}</div>
   {/if}
 </div>

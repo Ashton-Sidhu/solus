@@ -32,9 +32,9 @@ import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { actingPreferences } from '../../execution/person-settings'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { withReplyHtmlLayouts } from '../../data/works/artifact-layout'
+import { withArtifactLayouts, withReplyHtmlLayouts } from '../../data/works/artifact-layout'
 import { readHistoryThroughEntry } from '../../data/sessions/history-through-entry'
-import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
+import { withTurnItemBodies, projectPromptFiles, projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type ProviderHistoryPage, type SessionLoadMessage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -208,7 +208,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       turnLimit: z.number().int().min(1).max(100),
       before: z.string().max(16384).optional(),
       deferArtifactHtml: z.boolean().optional(),
-      replyLayout: z.boolean().optional(),
+      replyLayout: z.boolean().optional(), promptFiles: z.boolean().optional(), turnItems: z.boolean().optional(),
       throughEntryId: z.string().min(1).max(16384).optional(),
       knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
     }).parse(input)
@@ -225,7 +225,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     // Preview measurements can change without an edit to a provider row.
     const hasRender = request.replyLayout && source.messages.some(row => row.role === 'assistant' && /(?:`{3,}|~{3,})[ \t]*html\b/i.test(row.content))
     const key = !hasRender && request.knownHistoryBlocks && manifests.sourceKey(
-      (mirrored ? 'mirror' : request.provider) + (request.replyLayout ? ':layout' : ''), request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
+      (mirrored ? 'mirror' : request.provider) + (request.replyLayout ? ':layout' : '') + (request.promptFiles ? ':files' : '') + (request.turnItems ? ':items' : ''), request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
     if (key && request.knownHistoryBlocks) {
       const resumed = manifests.resume(key, request.knownHistoryBlocks)
       if (resumed) {
@@ -246,7 +246,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
     }
+    if (request.promptFiles) full.messages = projectPromptFiles(full.messages)
     if (hasRender) full.messages = await withReplyHtmlLayouts(full.messages)
+    if (request.replyLayout) full.messages = await withArtifactLayouts(full.messages)
+    if (request.turnItems) full.messages = withTurnItemBodies(full.messages)
     const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
     if (key) manifests.remember(key, result, full.messages)
     const preparedAt = performance.now()

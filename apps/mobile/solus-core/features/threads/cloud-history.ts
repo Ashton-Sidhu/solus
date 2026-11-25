@@ -1,3 +1,4 @@
+import { sessionFeedHistoryOptions } from '@solus/contracts/session-feed-item'
 import { readSessionCloudPage, readSessionTurnDiff } from '@solus/client-core/session-cloud-read'
 import type { SessionTurnDiffRef } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
@@ -125,7 +126,7 @@ export class CloudHistory {
   private async readPage(model: TranscriptModel, copy: CloudRead, throughEntryId?: string): Promise<void> {
     const connection = this.cloud.connection
     if (!connection) throw new Error('Sign in to Solus Cloud to read this session.')
-    const page = await readSessionCloudPage(connection.api, { replyLayout: true, sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined, ...(throughEntryId && { throughEntryId }) })
+    const page = await readSessionCloudPage(connection.api, { ...sessionFeedHistoryOptions, sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined, ...(throughEntryId && { throughEntryId }) })
     model.prependHistory(page)
     if (page.turnDiffs) copy.turnDiffs.push(...page.turnDiffs)
     if (copy.turnDiffs.length > 0) joinTurnDiffs(model, copy)

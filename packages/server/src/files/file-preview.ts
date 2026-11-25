@@ -76,15 +76,38 @@ async function canonicalTarget(
   }
 }
 
+/** Find the bounded byte page and line within it without decoding the entire file. */
+async function locateLine(handle: FileHandle, size: number, target: number) {
+  if (!Number.isSafeInteger(target) || target < 1) throw new Error('Invalid source line.')
+  let line = 1
+  let lineStart = 0
+  let firstLine = 1
+  let index = 0
+  for (let offset = 0; offset < size && line < target; offset += TEXT_PAGE_BYTES) {
+    const bytes = await readBytes(handle, Math.min(size - offset, TEXT_PAGE_BYTES), offset)
+    if (!bytes.length) break
+    const pageFirstLine = line
+    for (let end = bytes.indexOf(10); end >= 0; end = bytes.indexOf(10, end + 1)) {
+      line++
+      lineStart = offset + end + 1
+      index = Math.floor(Math.min(lineStart, size - 1) / TEXT_PAGE_BYTES)
+      firstLine = lineStart === (index * TEXT_PAGE_BYTES) ? line : pageFirstLine
+      if (line === target) break
+    }
+  }
+  return { index, targetLine: line - firstLine + 1 }
+}
+
 async function readTextPage(
   handle: FileHandle,
   file: Stats,
   request: NonNullable<FilePreviewRequest['textPage']>,
   revision: string,
 ) {
-  const { index } = request
+  const location = request.line === undefined ? null : await locateLine(handle, file.size, request.line)
+  const index = location?.index ?? request.index
   const count = Math.ceil(file.size / TEXT_PAGE_BYTES)
-  if (!Number.isSafeInteger(index) || index < 0 || index >= count || (index > 0 && !request.revision)) {
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count || (index > 0 && !request.revision && !location)) {
     throw new Error('This preview page is unavailable.')
   }
   const start = index * TEXT_PAGE_BYTES
@@ -96,7 +119,7 @@ async function readTextPage(
     utf8Boundary(buffer, start - readStart),
     utf8Boundary(buffer, end - readStart),
   ).toString('utf-8')
-  return { contents, page: { index, count, revision } }
+  return { contents, page: { index, count, revision, ...(location && { targetLine: location.targetLine }) } }
 }
 
 async function readTextPreview(
@@ -158,12 +181,12 @@ export async function readFilePreview(
     }
     target = await canonicalTarget(resolved, root, request.path)
     if (scope !== null && (!scope || !isInsideRoot(await realpath(scope), target))) {
-      return { ok: false, path: request.path, error: 'The file is outside the shared checkout.' }
+      return { ok: false, path: request.path, isDirectory: false, error: 'The file is outside the shared checkout.' }
     }
 
     const fileStat = await stat(target)
     if (!fileStat.isFile()) {
-      return { ok: false, path: target, error: 'Only files can be previewed.' }
+      return { ok: false, path: target, isDirectory: fileStat.isDirectory(), error: 'Only files can be previewed.' }
     }
     const displayPath = (root && isInsideRoot(root, target) ? relativeHostPath(root, target) : null) ?? target
     // Media is named, not sent: the client loads it from a signed asset URL.
@@ -175,6 +198,7 @@ export async function readFilePreview(
     return {
       ok: false,
       path: target,
+      isDirectory: false,
       error: error instanceof Error ? error.message : String(error),
     }
   }

@@ -84,6 +84,9 @@
     /** Width of the whole workspace body — the same measure the session sidebar
      *  sizes against, so the two rails match. */
     workspaceWidth: number;
+    /** The workspace width while this conversation has the workspace to itself,
+     *  so the rail folds with the session sidebar. Omitted in a split. */
+    soleViewWorkspaceWidth?: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
     /** The user opened the rail in a view too narrow for it to open alone. */
@@ -99,6 +102,7 @@
     isSplit = false,
     containerWidth,
     workspaceWidth,
+    soleViewWorkspaceWidth,
     minimized = false,
     revealed = false,
     active = true,
@@ -192,7 +196,7 @@
   // honour it. Temporary minimization leaves that preference intact, so the
   // rail returns when the secondary panel closes.
   const open = $derived(
-    isProjectRailOpen(preferOpen, containerWidth, minimized, revealed),
+    isProjectRailOpen(preferOpen, containerWidth, minimized, revealed, soleViewWorkspaceWidth),
   );
 
   const panelSession = $derived(session.sessionFor(sourceId));
