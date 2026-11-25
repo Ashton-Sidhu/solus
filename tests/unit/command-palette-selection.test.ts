@@ -84,6 +84,15 @@ describe('commandsShown', () => {
     expect(commandsShown(branches, 'feature-3999', true).shown.map((command) => command.id)).toEqual(['branch:3999'])
   })
 
+  test('quoted queries match whole phrases in command labels, keywords, and sub-pages', () => {
+    const restore = { id: 'restore', label: 'Restore session', group: 'Current session' }
+    const restores = { id: 'restores', label: 'Restore sessions', group: 'Current session' }
+    const child = { id: 'child', label: 'Bring back conversation', group: 'Current session', keywords: ['restore session'] }
+    const parent = { id: 'parent', label: 'More actions', group: 'Current session', children: [child], searchChildren: true }
+    expect(commandsShown([restore, restores, parent], '"restore session"', false).shown).toEqual([restore, child])
+    expect(commandsShown([restores, child], '“restore session”', true).shown).toEqual([child])
+  })
+
   test('the root page is never cut', () => {
     expect(commandsShown(branches, '', false)).toEqual({ shown: branches, hiddenCount: 0 })
   })
