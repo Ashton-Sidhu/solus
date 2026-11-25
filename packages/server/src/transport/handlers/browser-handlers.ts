@@ -140,7 +140,7 @@ export function registerBrowserHandlers(
   })
   server.register('browserAnswerFileChooser', async (args) => { drives(args[0]); return registry.answerFileChooser(args[0], args[1]) })
   server.register('browserSnapshot', async (args) => { drives(args[0]); return registry.snapshot(args[0], args[1]) })
-  server.register('browserInteract', async (args) => { drives(args[0]); return registry.interact(args[0], args[1]) })
+  server.register('browserInteract', async (args, ctx) => { drives(args[0]); return registry.interact(args[0], args[1], ctx.clientId) })
   server.register('browserAttachSurface', async (args) => { drives(args[0]); return registry.attachSurface(args[0], args[1]) })
   server.register('browserDetachSurface', async (args) => { drives(args[0]); return registry.detachSurface(args[0], args[1]) })
   server.register('browserReportSurface', async (args) => {

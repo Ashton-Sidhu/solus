@@ -3,7 +3,10 @@
     browserGuestViewport,
     type BrowserInteractOp,
     type BrowserPage,
+    type BrowserSelectMenu,
   } from "@solus/contracts/browser-types";
+  import { splitHostKey } from "@solus/client-core/host-key";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { untrack } from "svelte";
   import {
     browserStore,
@@ -11,6 +14,7 @@
   } from "../../contexts/browser/browser.store.svelte";
   import BrowserPageRequests from "./BrowserPageRequests.svelte";
   import BrowserSkeleton from "./BrowserSkeleton.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import { FramePainter, paneFrameCaps } from "./lib/frame-painter";
   import {
     isPrintableKey,
@@ -55,6 +59,13 @@
   let canvasWidth = $state(0);
   let canvasHeight = $state(0);
   let watch: BrowserFrameWatch | null = null;
+  let selectOffer = $state<BrowserSelectMenu | null>(null);
+  let selectAnchor = $state<HTMLDivElement | null>(null);
+  let clickSequence = 0;
+  const selectMenu = $derived(
+    active && hasFrame && !streamError && !page.devToolsOpen &&
+      selectOffer?.id === page.selectMenuId ? selectOffer : null,
+  );
 
   // One subscription per (canvas, page, visible). The painter belongs to the
   // canvas; the subscription to the host. Tearing both down together is what
@@ -79,8 +90,16 @@
       },
       untrack(() => paneFrameCaps(canvasWidth, canvasHeight, window.devicePixelRatio)),
     );
+    const { serverId } = splitHostKey(pageKey);
+    const stopReadiness = serverConnections.onReadinessChange((changedId, status) => {
+      if (changedId !== serverConnections.resolveId(serverId) || status === "ready") return;
+      clickSequence++;
+      selectOffer = null;
+    });
     watch = current;
     return () => {
+      selectOffer = null;
+      stopReadiness();
       current.stop();
       if (watch === current) watch = null;
       painter.dispose();
@@ -249,7 +268,24 @@
     if (window.matchMedia("(pointer: coarse)").matches) {
       textBridge?.focus({ preventScroll: true });
     }
-    send({ kind: "clickAt", x: point.x, y: point.y });
+    const click = { kind: "clickAt", x: point.x, y: point.y } as const;
+    const sequence = ++clickSequence;
+    selectOffer = null;
+    if (!watch || page.annotationTool || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      send(click);
+      return;
+    }
+    const current = watch;
+    void browserStore.interact(pageKey, { ...click, selectMenu: true }).then((result) => {
+      if (current === watch && sequence === clickSequence) selectOffer = result.selectMenu ?? null;
+    }).catch(() => {});
+  }
+
+  function answerSelectMenu(id: string, index: number | null) {
+    if (selectMenu?.id !== id) return;
+    selectOffer = null;
+    send({ kind: "answerSelectMenu", id, index });
+    surface?.focus({ preventScroll: true });
   }
 
   function onWheel(event: WheelEvent) {
@@ -416,6 +452,44 @@
 
   {#if !streamError && hasFrame}
     <BrowserPageRequests {pageKey} {page} />
+  {/if}
+
+  {#if selectMenu}
+    {#key selectMenu.id}
+      {@const menu = selectMenu}
+      <div
+        bind:this={selectAnchor}
+        class="pointer-events-none absolute"
+        style:left="{100 * menu.x / guestViewport.width}%"
+        style:top="{100 * menu.y / guestViewport.height}%"
+        style:width="{100 * menu.width / guestViewport.width}%"
+        style:height="{100 * menu.height / guestViewport.height}%"
+      ></div>
+      {#if selectAnchor}
+        <DropdownMenu.Root open={true} onOpenChange={(open) => {
+          if (!open) answerSelectMenu(menu.id, null);
+        }}>
+          <DropdownMenu.Content
+            customAnchor={selectAnchor}
+            aria-label="Choose an option"
+            class="w-max min-w-36 max-w-[min(24rem,calc(100vw-2rem))]"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <DropdownMenu.RadioGroup value={String(menu.selectedIndex)}>
+              {#each menu.options as option, index (index)}
+                <DropdownMenu.RadioItem
+                  value={String(index)}
+                  disabled={option.disabled}
+                  onSelect={() => answerSelectMenu(menu.id, index)}
+                >
+                  <span class="min-w-0 break-words">{option.label}</span>
+                </DropdownMenu.RadioItem>
+              {/each}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
+    {/key}
   {/if}
 
   {#if streamError}

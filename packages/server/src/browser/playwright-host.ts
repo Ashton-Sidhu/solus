@@ -94,6 +94,7 @@ interface PlaywrightPage {
   on(event: 'filechooser', handler: (chooser: PlaywrightFileChooser) => void): void
   on(event: 'download', handler: (download: PlaywrightDownload) => void): void
   on(event: string, handler: () => void): void
+  off(event: string, handler: () => void): void
 }
 
 interface PlaywrightDialog {
@@ -495,6 +496,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     this.page.on('filechooser', this.onFileChooser)
     this.page.on('download', this.onDownload)
     this.page.on('domcontentloaded', this.onDocument)
+    this.page.on('framenavigated', this.onSelectMenuInvalidated)
+    this.page.on('framedetached', this.onSelectMenuInvalidated)
+    this.page.on('crash', this.onSelectMenuInvalidated)
     await Promise.all(
       ['Runtime.enable', 'Network.enable', 'Page.enable'].map((method) => this.send(method)),
     )
@@ -748,6 +752,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     this.guestEvents = null
     this.dialogTracker.listener = null
     this.fileChooser.listener = null
+    this.page.off('framenavigated', this.onSelectMenuInvalidated)
+    this.page.off('framedetached', this.onSelectMenuInvalidated)
+    this.page.off('crash', this.onSelectMenuInvalidated)
     this.cdp.off('Runtime.consoleAPICalled', this.onConsoleApi)
     this.cdp.off('Network.responseReceived', this.onResponse)
     this.cdp.off('Network.loadingFailed', this.onFailure)
@@ -790,6 +797,10 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   /** A new document has no chooser open. */
   private onDocument = (): void => {
     this.fileChooser.forget()
+  }
+
+  private onSelectMenuInvalidated = (): void => {
+    this.guestEvents?.selectMenuInvalidated()
   }
 
   private onDownload = (download: PlaywrightDownload): void => {
