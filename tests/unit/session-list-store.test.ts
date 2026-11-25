@@ -328,3 +328,23 @@ test('a session on two hosts is one row, from the host with the newer turn, and 
     expect(store.listed('moved')?.homeServerId).toBe('studio')
   } finally { restore() }
 })
+
+test('a conversation opened from archive can restore through its record home', async () => {
+  const home = 'workspace:org-1'
+  const archived = record('old', {
+    organizationId: 'org-1', publication: 'published', listed: false,
+    view: { ...EMPTY_SESSION_VIEW, archivedAt: 4 },
+  })
+  const { store, fakes, restore } = fakeHomes({ runner: [], [home]: [archived] })
+  try {
+    store.markOpened({ serverId: 'runner', sessionId: 'old', organizationId: 'org-1', publication: 'published' })
+    await Bun.sleep(0)
+    expect(store.stateFor('old')?.archivedAt).toBe(4)
+    expect(store.sessions).toEqual([])
+    fakes.get(home)!.records[0] = { ...archived, listed: true, view: EMPTY_SESSION_VIEW }
+    await store.setArchived({ serverId: 'runner', sessionId: 'old' }, false)
+    expect(fakes.get(home)?.viewWrites).toEqual(['old'])
+    expect(fakes.get('runner')?.viewWrites).toEqual([])
+    expect(store.stateFor('old')?.archivedAt ?? null).toBeNull()
+  } finally { restore() }
+})
