@@ -46,10 +46,8 @@
   import SidebarSky from "./SidebarSky.svelte";
   import { SKY_HEADER_DROP_REM } from "./lib/sidebar-sky";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
-  import {
-    taskSnoozeToastLabel,
-    type TaskSnoozeAnchor,
-  } from "./lib/task-snooze";
+  import type { TaskSnoozeAnchor } from "./lib/task-snooze";
+  import { applySessionSnooze, completeSidebarSession, tabSessionLifecycleActions } from "./lib/session-actions";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import { taskPrNavigation } from "./lib/pr-navigation";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
@@ -651,21 +649,6 @@
     requestInputFocus();
   }
 
-  /** Completion settles the session on its host. The store's command also
-   *  clears the mounted conversation, the same way the row's close control
-   *  does. */
-  async function completeTask(task: SidebarTask) {
-    try {
-      await sidebarStore.completeTask(task);
-      requestInputFocus();
-    } catch (error) {
-      toasts.error("Couldn't complete session", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-      requestInputFocus();
-    }
-  }
-
   /** A delegated session listed under a row keeps a row of its own in the
    *  store, so its X does what that row's X does. */
   function removeChild(child: SidebarSessionChild) {
@@ -695,14 +678,6 @@
     );
   }
 
-  /** Whether a turn is in flight for this row, so the confirmation can say
-   *  that snoozing it did not stop the agent. */
-  function isRunningRow(rowKey: string): boolean {
-    return sidebarStore.allTasks.some(
-      (row) => row.key === rowKey && row.attention === "running",
-    );
-  }
-
   function openSnooze(target: SnoozeTarget, anchor: TaskSnoozeAnchor, customTime = false) {
     snoozeCustomTime = customTime;
     snoozeAnchor = anchor;
@@ -712,7 +687,6 @@
   function navigateAfterLifecycleMove(next: SidebarTask | null) {
     if (next) void sidebarStore.selectTask(next);
     else newSession();
-    requestInputFocus();
     onSessionSelect?.();
   }
 
@@ -731,33 +705,7 @@
   /** Shared by the snooze popover and the context menu's preset submenu, which
    *  skips the popover entirely and therefore carries no reminder note. */
   function applySnooze(targets: SnoozeTarget[], until: number, note: string) {
-    if (!targets.length) return;
-    const row =
-      openRows.find((candidate) => candidate.key === targets[0].rowKey) ?? null;
-    const leavingTaskIds = new Set(
-      openRows
-        .filter((task) => targets.some((target) => target.rowKey === task.key))
-        .map((task) => task.id),
-    );
-    const next = row
-      ? nextTaskAfterLeaving(openRows, row.id, leavingTaskIds)
-      : null;
-    const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
-    for (const target of targets)
-      sidebarStore.snoozeRow(target.rowKey, until, note);
-    toasts.undo(
-      taskSnoozeToastLabel({
-        count: targets.length,
-        hasNote: !!note,
-        keepsRunning: targets.some((target) => isRunningRow(target.rowKey)),
-      }),
-      () => {
-        for (const target of targets)
-          sidebarStore.snoozeRow(target.rowKey, null);
-      },
-    );
-    if (wasSelected) navigateAfterLifecycleMove(next);
-    requestInputFocus();
+    applySessionSnooze(session, sidebarStore, openRows, targets.map((target) => target.rowKey), until, note, navigateAfterLifecycleMove);
   }
 
   /** ⌫ on a row is the row's X: it never stops the run. It archives the
@@ -799,26 +747,19 @@
 
   /** The row actions of an open tab's menu. */
   function tabRowActions(menuTabId: string | null, menuPoint: TaskSnoozeAnchor) {
-    const sessionRow = menuTabId ? sidebarStore.taskForTab(menuTabId) : null;
+    const actions = menuTabId ? tabSessionLifecycleActions(session, sidebarStore, menuTabId) : null;
+    const snoozeRow = actions?.snoozeRow;
     return {
+      ...actions,
       onStop:
         menuTabId && sidebarStore.childForTab(menuTabId).attention === "running"
           ? () => session.controls.interruptTabSession(menuTabId)
           : undefined,
-      done: sessionRow?.status === "done",
-      onToggleDone: sessionRow ? () => void completeTask(sessionRow) : undefined,
-      onSnooze:
-        sessionRow && sessionRow.lifecycle !== "snoozed" && sidebarStore.canShelve(sessionRow)
-          ? (until?: number) => {
-              const target = { rowKey: sessionRow.key, title: sessionRow.title };
-              if (until !== undefined) applySnooze([target], until, "");
-              else openSnooze(target, menuPoint, true);
-            }
-          : undefined,
-      onArchive:
-        sessionRow && sidebarStore.canArchive(sessionRow)
-          ? () => removeTask(sessionRow)
-          : undefined,
+      onSnooze: snoozeRow ? (until?: number) => {
+        const target = { rowKey: snoozeRow.key, title: snoozeRow.title };
+        if (until !== undefined) applySnooze([target], until, "");
+        else openSnooze(target, menuPoint, true);
+      } : undefined,
     };
   }
 
@@ -958,7 +899,7 @@
     onSnooze={(anchor) =>
       openSnooze({ rowKey: task.key, title: task.title }, anchor)}
     onWake={() => wakeRow(task.key)}
-    onComplete={() => completeTask(task)}
+    onComplete={() => void completeSidebarSession(sidebarStore, task)}
     onClose={() => removeTask(task)}
     onOpenPr={openTaskPr}
     onWarmPr={warmTaskPr}

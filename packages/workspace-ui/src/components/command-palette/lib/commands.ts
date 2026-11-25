@@ -18,6 +18,8 @@ export interface Command {
    * "Open worktree…") stand in for a long list without polluting the root view.
    */
   children?: Command[]
+  /** Include this short list of children in root searches. */
+  searchChildren?: boolean
   /** Invoked when the command is selected. Optional for pure parent commands. */
   run?: () => void
 }
@@ -65,7 +67,13 @@ export const SUB_PAGE_ROWS_SHOWN = 100
 /** The commands a page shows for a search, and how many matches it leaves
  *  out. The root page is a fixed set of commands, so only a sub-page is cut. */
 export function commandsShown(commands: Command[], query: string, isSubPage: boolean) {
-  const matched = filterCommands(commands, query)
+  const q = query.trim().toLowerCase()
+  const matched = !isSubPage && q
+    ? commands.flatMap((command) => {
+        if (commandSearchText(command).includes(q)) return [command]
+        return command.searchChildren ? filterCommands(command.children ?? [], q) : []
+      })
+    : filterCommands(commands, query)
   const shown = isSubPage ? matched.slice(0, SUB_PAGE_ROWS_SHOWN) : matched
   return { shown, hiddenCount: matched.length - shown.length }
 }

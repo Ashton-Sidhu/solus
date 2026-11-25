@@ -21,6 +21,7 @@
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
     Share as ShareIcon,
+    Sun as SunIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { GitPullRequestIcon } from "../ui/octicons";
@@ -29,6 +30,7 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
+  import { sessionPinAction } from "./lib/session-actions";
   import { selectSessionRename } from "./lib/session-context-menu";
   import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from "./lib/task-snooze";
   import { askInsights } from "../insights/lib/ask-insights";
@@ -74,6 +76,7 @@
       onToggleDone?: () => void;
       /** Applies a preset, or opens the picker when no time is given. */
       onSnooze?: (until?: number) => void;
+      onWake?: () => void;
       /** Archives the row's session (docs/plans/session-archive.md). */
       onArchive?: () => void;
       /** Returns an archived session to the list. */
@@ -342,29 +345,14 @@
     await sessionPullRequestsStore.link(pullRequestServerId, sess.id, url);
   }
 
-  const pinSessionId = $derived(sess?.id ?? sessionId);
-  const canChangePin = $derived(!rowActions?.onUnarchive && sidebarStore.canPinSession(pinSessionId));
-  const pin = $derived(canChangePin
-    ? sidebarStore.pinFor(pinSessionId, unreadServerId)
-    : null);
-  const canPin = $derived(canChangePin && !pin && (!!rowActions?.onPin || (!!tabId && !!sess?.agentSessionId)));
-
-  async function togglePin() {
-    const targetPin = pin;
-    const targetTabId = tabId;
-    const pinListedSession = rowActions?.onPin;
-    onClose();
-    try {
-      if (targetPin) await sidebarStore.unpinSession(targetPin);
-      else if (targetTabId) await sidebarStore.togglePinnedSession(targetTabId);
-      else await pinListedSession?.();
-    } catch (error) {
-      toasts.error(targetPin ? "Couldn't unpin the session" : "Couldn't pin the session", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-    requestInputFocus();
-  }
+  const pinAction = $derived(sessionPinAction(sidebarStore, {
+    sessionId: unreadSessionId,
+    serverId: unreadServerId,
+    tabId,
+    hasAgentSession: !!sess?.agentSessionId,
+    isArchived: !!rowActions?.onUnarchive,
+    pinListedSession: rowActions?.onPin,
+  }));
 
   /** Sharing needs the session's host, which only an open tab names. */
   const hasSession = $derived(!!tabId && !!sess?.id);
@@ -476,6 +464,16 @@
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
     {/if}
+    {#if canDrive && rowActions?.onWake}
+      <ContextMenu.Item onSelect={() => {
+        const action = rowActions?.onWake;
+        onClose();
+        action?.();
+      }}>
+        <SunIcon />
+        Wake now
+      </ContextMenu.Item>
+    {/if}
     <!-- Archive writes the reader's own view, so a member who may only read a
          shared session archives it too (docs/plans/shared-with-you.md §2). -->
     {#if rowActions?.onArchive}
@@ -502,7 +500,7 @@
         Return to List
       </ContextMenu.Item>
     {/if}
-    {#if (unreadSessionId && unreadServerId) || rowActions?.onArchive || rowActions?.onUnarchive || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze))}
+    {#if (unreadSessionId && unreadServerId) || rowActions?.onArchive || rowActions?.onUnarchive || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze || rowActions?.onWake))}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}
@@ -563,9 +561,13 @@
       {/if}
       <ContextMenu.Separator />
     {/if}
-    {#if pin || canPin}
-      <ContextMenu.Item onSelect={() => void togglePin()}>
-        {#if pin}
+    {#if pinAction}
+      <ContextMenu.Item onSelect={() => {
+        const action = pinAction;
+        onClose();
+        void action?.run();
+      }}>
+        {#if pinAction.isPinned}
           <PinOffIcon />
           Unpin
         {:else}
