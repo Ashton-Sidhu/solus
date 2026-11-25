@@ -762,8 +762,8 @@ On iOS, the transcript viewport ends at the composer and follows the
 keyboard's visible position during opening and closing. This restores the
 list from `ce4995a4b`, which `afd793ddc` removed before the T3 parity merge.
 
-The first prompt keeps the draft visible until the list has prepared the
-message and the keyboard has closed. On a follow-up in an open iOS session,
+The transcript appears as soon as the list can paint the first prompt.
+On a follow-up in an open iOS session,
 the growing viewport reveals the prompt as the keyboard closes. After
 dismissal, the list scrolls to the end if necessary.
 

@@ -446,15 +446,10 @@ function ThreadDetailBody(
   const gt = useGT();
   const messages = useMessages();
   const [openedAsDraft] = useState(() => props.draftMode !== undefined);
-  const [submittingDraft, setSubmittingDraft] = useState<{
-    readonly content: NonNullable<ThreadDetailScreenProps["draftMode"]>["content"];
-    readonly feedReady: boolean;
-  } | null>(null);
-  const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
-  if (submittingDraft?.feedReady && !props.draftMode && !isKeyboardVisible) {
-    setSubmittingDraft(null);
-  }
-  const draftContent = props.draftMode?.content ?? submittingDraft?.content ?? null;
+  const [submittingDraftContent, setSubmittingDraftContent] = useState<
+    NonNullable<ThreadDetailScreenProps["draftMode"]>["content"] | null
+  >(null);
+  const draftContent = props.draftMode?.content ?? submittingDraftContent;
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const deviceType = useDeviceType();
   const workspace = useWorkspaceTabs();
@@ -502,6 +497,7 @@ function ThreadDetailBody(
       ...(tabId === undefined ? {} : { tabId }),
     });
   };
+  const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
   // Android can lose IME hide callbacks on backgrounding. Quarantine translation on resume unless focused input retained its keyboard.
   const [keyboardStateSuspect, setKeyboardStateSuspect] = useState(false);
@@ -1404,12 +1400,13 @@ function ThreadDetailBody(
         Platform.OS === "ios" && hasUserMessage && KeyboardController.isVisible();
       if (followAfterKeyboardClose) setIsClosingKeyboardForSubmission(true);
       if (props.draftMode) {
-        setSubmittingDraft({ content: props.draftMode.content, feedReady: false });
+        const content = props.draftMode.content;
+        setSubmittingDraftContent(() => content);
       }
     });
     if (messageId === null || scope.aborted) {
       if (!scope.aborted) {
-        if (props.draftMode) setSubmittingDraft(null);
+        if (props.draftMode) setSubmittingDraftContent(null);
         if (followAfterKeyboardClose) setIsClosingKeyboardForSubmission(false);
       }
       return messageId;
@@ -1574,8 +1571,7 @@ function ThreadDetailBody(
     feedTouchStartRef.current = null;
   };
 
-  // Prepare the first rows behind the draft. Reveal them after the list is
-  // ready and the keyboard has settled.
+  // Prepare the first rows behind the draft. Reveal them as soon as the list can paint.
   const showThreadFeed =
     showContent &&
     (!props.draftMode ||
@@ -1585,10 +1581,10 @@ function ThreadDetailBody(
   const coverThreadFeed = draftContent !== null && contentPresentationKind === "ready";
   // Release the cover if layout fails so the feed can expose its error or retry.
   useEffect(() => {
-    if (props.draftMode || submittingDraft === null) return;
-    const timeout = setTimeout(() => setSubmittingDraft(null), 1200);
+    if (props.draftMode || submittingDraftContent === null) return;
+    const timeout = setTimeout(() => setSubmittingDraftContent(null), 1200);
     return () => clearTimeout(timeout);
-  }, [props.draftMode, submittingDraft]);
+  }, [props.draftMode, submittingDraftContent]);
 
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
@@ -1636,11 +1632,8 @@ function ThreadDetailBody(
                   feed={props.selectedThreadFeed}
                   openedAsDraft={openedAsDraft}
                   onReady={
-                    submittingDraft !== null
-                      ? () =>
-                          setSubmittingDraft((current) =>
-                            current && !current.feedReady ? { ...current, feedReady: true } : current,
-                          )
+                    submittingDraftContent !== null
+                      ? () => setSubmittingDraftContent(null)
                       : undefined
                   }
                   pendingHandoff={props.pendingHandoff}
