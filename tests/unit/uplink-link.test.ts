@@ -417,6 +417,15 @@ describe('linking a device to Solus cloud: a new registration links (rule 9, ame
     expect(host.connector.events).toEqual(['start'])
   })
 
+  test('the desktop registers its own host without a link, so the Mac stays off the internet until its owner turns Link on', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await registerAndLink(host.registrar, host.link, { ticket: 'set_ticket', directoryUrl: DIRECTORY, link: false })
+    expect(host.status()).toMatchObject({ registration: { registered: true }, link: { linked: false } })
+    expect(host.connector.events).toEqual([])
+    expect(linkPosts(plane)).toHaveLength(0)
+  })
+
   test('a host registered already keeps the link its owner chose: an unlink stays an unlink', async () => {
     const plane = fakeControlPlane()
     const host = hostOf(plane)

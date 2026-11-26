@@ -203,6 +203,7 @@ export const RPC_PLANES = {
   projectConfigSave: 'execution',
   listProjects: 'execution',
   listProjectIdentities: 'execution',
+  agentHistoryProjects: 'execution',
   resolveDispatchHistoryRoots: 'execution',
   deleteProject: 'execution',
   untrackProject: 'execution',

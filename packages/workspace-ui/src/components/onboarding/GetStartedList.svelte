@@ -2,7 +2,7 @@
   /**
    * "Get started" on the new-tab home, for a Solus Cloud account only
    * (docs/plans/cloud-onboarding.md §3.7): the onboarding questions the person
-   * skipped, as live facts. A row reopens onboarding at the stage that answers
+   * skipped, as live facts. A row reopens onboarding at the step that answers
    * it, and goes away once its fact is true, wherever it was made true. With
    * nothing open, or at any origin that is not Solus Cloud, it renders nothing.
    */
@@ -47,7 +47,7 @@
         <button
           type="button"
           class="flex min-h-9 items-center gap-2 rounded-lg px-3 text-left hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
-          onclick={() => cloud.reopenAt(item.stage)}
+          onclick={() => cloud.reopenAt(item.step)}
           title={item.detail}
         >
           {#if item.id === "github"}

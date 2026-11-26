@@ -1897,6 +1897,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         void integrationGateway.close()
         if (scope === 'personal') {
           sessionPusher?.signedOut()
+          githubCredentials().forgetOwnerAccountCopy()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }

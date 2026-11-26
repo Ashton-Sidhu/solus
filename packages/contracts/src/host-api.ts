@@ -78,6 +78,7 @@ import type { CloudAddressChange, CloudAddressState } from './cloud-address'
 import type { ConnectionTokenResource } from './auth/clients'
 import type { SolusApiRequest, SolusApiResponse } from './solus-api/request'
 import type { DesktopUpdateStatus } from './desktop-update-types'
+import type { AgentHistoryProject } from './agent-history'
 import type { HostUpdateStatus } from './host-update-types'
 import type { Permission } from './permissions'
 import type { LiveActivityRegistration } from './live-activity'
@@ -1420,6 +1421,8 @@ export interface SolusAPI {
   projectConfigSave(cwd: string, config: ProjectConfig): Promise<ProjectConfig>
   listProjects(): Promise<ProjectEntry[]>
   listProjectIdentities(): Promise<ProjectIdentity[]>
+  /** The folders the person used with Claude Code and Codex on this host, newest first (docs/plans/one-page-onboarding.md §3.2). */
+  agentHistoryProjects(): Promise<AgentHistoryProject[]>
   resolveDispatchHistoryRoots(repoKeys: string[]): Promise<DispatchHistoryRoot[]>
   deleteProject(projectPath: string): Promise<void>
   /** Takes a folder off this host's project list. Its tasks, sessions and

@@ -17,6 +17,7 @@ import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { DeviceCloudAddress } from './cloud-address'
+import { hostDisplayName } from '@solus/server/platform/host-display-name'
 import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
 import {
@@ -109,6 +110,7 @@ export function registerAccountIpc(broadcast: (channel: string, payload: Account
     now: () => Date.now(),
     store: new AccountStore(join(app.getPath('userData'), 'account.bin'), secureStorage(safeStorage)),
     authorizer: loopbackAuthorizer({ openExternal: (url) => shell.openExternal(url) }),
+    machineName: hostDisplayName(),
     onStateChange: (state) => broadcast(ACCOUNT_CHANNELS.stateChanged, state),
   })
 

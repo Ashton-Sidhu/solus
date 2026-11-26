@@ -266,7 +266,7 @@
               "Solus Cloud host",
               "A machine Solus runs for your organization.",
               null,
-              () => cloud.reopenAt("compute"),
+              () => cloud.reopenAt("machine"),
             )}
           {/if}
         {/if}
