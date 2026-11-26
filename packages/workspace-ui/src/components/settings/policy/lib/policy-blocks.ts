@@ -1,6 +1,5 @@
 import {
   PERMISSION_MODE_LABELS,
-  POLICY_PROVIDER_IDS,
   policyDocumentFields,
   type ManagedHostSettings,
   type ManagedSessionSettings,
@@ -8,7 +7,7 @@ import {
   type PolicyKind,
   type SessionLimits,
 } from '@solus/contracts/policy'
-import { PERMISSION_MODES } from '@solus/contracts/types'
+import { AGENT_IDS, PERMISSION_MODES } from '@solus/contracts/types'
 import { policyText } from './policy-editor'
 
 /**
@@ -116,7 +115,7 @@ const ALLOWED_AGENT_CHOICES: readonly PolicyBlockChoice[] = [
 ]
 
 function allowedAgents(value: string | undefined): SessionLimits['providers'] {
-  const ids = (value ?? '').split(',').flatMap((id) => oneOf(POLICY_PROVIDER_IDS, id) ?? [])
+  const ids = (value ?? '').split(',').flatMap((id) => oneOf(AGENT_IDS, id) ?? [])
   const [first, ...rest] = ids
   return first ? { allowed: [first, ...rest] } : undefined
 }

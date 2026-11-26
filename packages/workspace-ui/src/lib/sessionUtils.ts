@@ -11,7 +11,7 @@ import {
   import type { AgentActivity } from '@solus/contracts/agent-activity'
   import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from '@solus/client-core/dot-marks'
   import type { HostReadiness } from '@solus/client-core/host-readiness'
-  import type { TaskSessionLink } from '@solus/contracts/task-types'
+  import type { IssueSessionLink } from '@solus/contracts/task-types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
@@ -488,7 +488,7 @@ export function liveSessionTitle(
  * indexed yet, not that a read dropped the column.
  */
 export function sessionDisplayName(input: {
-  link: Pick<TaskSessionLink, 'sessionId' | 'sessionTitle'>
+  link: Pick<IssueSessionLink, 'sessionId' | 'sessionTitle'>
   liveTitle?: string | null
   taskTitle?: string | null
 }): string {
@@ -515,7 +515,7 @@ export function sessionDisplayName(input: {
  * resolves to this client's id for that host.
  */
 export function attemptServerId(input: {
-  link: Pick<TaskSessionLink, 'executionServerId'>
+  link: Pick<IssueSessionLink, 'executionServerId'>
   liveServerId?: string | null
   taskServerId: string | null
 }): string | null {

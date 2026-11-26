@@ -14,7 +14,7 @@ export function notificationHeadline(notification: HubNotification): string {
     case 'work.review_requested': return 'Review requested'
     case 'work.review_decided':
       return facts.decision === 'approved' ? 'Approved' : facts.decision === 'changes_requested' ? 'Changes requested' : 'Review comment'
-    case 'task.assigned': return 'Assigned to you'
+    case 'issue.assigned': return 'Assigned to you'
     case 'pr.assigned': return 'Pull request assigned'
     case 'pr.review_requested': return 'Pull request review requested'
     case 'automation.finished':
@@ -50,7 +50,7 @@ export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'aut
 /** The kind filter's choices: each names the kinds it shows. */
 export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; label: string; kinds: readonly NotificationKind[] }[] = [
   { value: 'reviews', label: 'Work reviews', kinds: ['work.review_requested', 'work.review_decided'] },
-  { value: 'tasks', label: 'Issues', kinds: ['task.assigned'] },
+  { value: 'tasks', label: 'Issues', kinds: ['issue.assigned'] },
   { value: 'pull-requests', label: 'Pull requests', kinds: ['pr.assigned', 'pr.review_requested'] },
   { value: 'automations', label: 'Automations', kinds: ['automation.finished'] },
   { value: 'apps', label: 'Apps', kinds: ['app.signal'] },

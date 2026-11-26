@@ -29,7 +29,7 @@ const rowSchema = z.object({
   session_id: z.string(),
   settled_at: z.number().nullable(),
   auto_settle_disabled_at: z.number().nullable(),
-  settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  settled_by: z.enum(['person', 'pull-request', 'issue', 'idle']).nullable(),
   unsettled_at: z.number().nullable(),
   last_prompt_at: z.number().nullable(),
 })
@@ -147,7 +147,7 @@ export class SessionShelf {
   /** A task was reopened: make the session active again if the task's finish
    *  settled it. A settle by a pull request stays. */
   async reopenFromTask(at = Date.now()): Promise<boolean> {
-    const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_by = 'task'`)
+    const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_by = 'issue'`)
     if (changed) await this.announce()
     return changed
   }

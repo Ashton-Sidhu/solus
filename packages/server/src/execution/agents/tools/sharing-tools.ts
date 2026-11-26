@@ -27,7 +27,7 @@ const resourceField = z.object({
 /** Roles an agent may give: never `custom`, which only the Share dialog makes. */
 const roleField = z.enum(['viewer', 'commenter', 'editor'])
 
-const SHARING_NOTE = 'Documents, decks, and artifacts are works (ids from find_works). People and team ids come from list_organization_members.'
+const SHARING_NOTE = 'Documents, decks, and artifacts are works (ids from list_works). People and team ids come from list_organization_members.'
 
 /** One subject; `shareSet` checks it against the contract. A flat object keeps the schema the model reads small. */
 const subjectField = z.object({ kind: z.enum(['user', 'team', 'organization']), id: z.string().min(1).max(200) })

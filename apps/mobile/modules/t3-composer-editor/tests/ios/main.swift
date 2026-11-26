@@ -229,7 +229,7 @@ private let pasteEditor = ComposerTextView()
 private let pasteProvider = ImmediateImageProvider(image: image)
 private var pastedImages: [[String]] = []
 pasteEditor.text = "Keep this draft"
-pasteEditor.onPasteImages = { pastedImages.append($0) }
+pasteEditor.onPasteImages = { urls, _ in pastedImages.append(urls) }
 pasteEditor.paste(itemProviders: [pasteProvider])
 
 for readOnly in [true, false] {
@@ -264,7 +264,7 @@ gifProvider.registerDataRepresentation(forTypeIdentifier: UTType.gif.identifier,
   return nil
 }
 private let gifEditor = ComposerTextView()
-gifEditor.onPasteImages = { urls in
+gifEditor.onPasteImages = { urls, _ in
   let files = urls.compactMap(URL.init(string:))
   let contents = files.compactMap { try? Data(contentsOf: $0) }
   files.forEach { try? FileManager.default.removeItem(at: $0) }
@@ -302,14 +302,15 @@ DispatchQueue.main.async {
         "The attachment must contain the pasted image's pixels")
   check(pasteEditor.text == "Keep this draft", "Image paste must preserve the draft text")
   print("Composer provider-paste checks passed")
-  deferredEditor.onPasteImages = { urls in
-    check(pendingDeltas == [1, -1], "Release the native placeholder before handing the image to the composer")
+  deferredEditor.onPasteImages = { urls, reservedCount in
+    check(reservedCount == 1, "The file event must carry its reserved slot")
+    check(pendingDeltas == [1], "The photo must arrive with its placeholder still visible")
     let files = urls.compactMap(URL.init(string:))
     check(files.count == 1 && (try? Data(contentsOf: files[0])) == deferredPNG,
           "A pasted PNG must keep the provider's original bytes")
     files.forEach { try? FileManager.default.removeItem(at: $0) }
     DispatchQueue.main.async {
-      check(pendingDeltas == [1, -1], "A finished paste must settle its preparation: \(pendingDeltas)")
+      check(pendingDeltas == [1], "A successful handoff must keep its reservation: \(pendingDeltas)")
       print("Composer paste-preparation checks passed")
       check(gifProvider.canLoadObject(ofClass: UIImage.self), "A GIF provider must take the image paste path")
       gifEditor.paste(itemProviders: [gifProvider, ImmediateImageProvider(image: image)])

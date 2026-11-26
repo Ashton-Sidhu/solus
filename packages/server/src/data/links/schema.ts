@@ -85,7 +85,7 @@ export const resourceLinks = defineTable('resource_links', {
     // The reverse read: key before scope, so a work is found by its id alone (`readTasksLinkingTargets`).
     { name: 'resource_links_by_target', columns: ['target_kind', 'target_key', 'target_scope'] },
     // One task works on a session at a time (`transferSessionOwnership`).
-    { name: 'resource_links_working_owner', columns: ['organization_id', 'target_key'], unique: true, where: "source_kind = 'task' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active'" },
+    { name: 'resource_links_working_owner', columns: ['organization_id', 'target_key'], unique: true, where: "source_kind = 'issue' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active'" },
     // The links that keep their session listed: the measured covering index of the session list's candidate query.
     { name: 'resource_links_open_session', columns: ['source_id', 'organization_id'], where: 'keeps_session = 1' },
     // A watch's generation guard (`endPullRequestWatch`, `recordPullRequestWatchState`).

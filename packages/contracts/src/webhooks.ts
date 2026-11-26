@@ -157,7 +157,7 @@ export const webhookActionSchema = z.discriminatedUnion('type', [
   z.object({
     ...actionBase,
     type: z.literal('start_session'),
-    agentProvider: z.enum(['claude-code', 'codex']),
+    agentProvider: z.enum(['claude-code', 'codex', 'antigravity']),
     modelId: z.string().nullable(),
     reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']),
     cwd: z.string().min(1),

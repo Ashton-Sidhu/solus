@@ -76,9 +76,9 @@ export class ProviderInstanceAuth {
     })
   }
 
-  submit(seat: Seat, instanceId: string, code: string): void {
+  submit(seat: Seat, instanceId: string, code: string): Promise<void> {
     const { instance } = this.target(seat, instanceId)
-    this.deps.connector.submitCode(seat, instance.provider, code, instanceId)
+    return this.deps.connector.submitCode(seat, instance.provider, code, instanceId)
   }
 
   async cancel(seat: Seat, instanceId: string): Promise<boolean> {

@@ -7,6 +7,7 @@ import {
   type AgentProfileKey,
   type AgentProfileSkillEntry,
   type AgentProfileStatus,
+  PROFILE_PROVIDERS,
 } from '@solus/contracts/agent-profile'
 import { integrationSlug, type IntegrationProbeResult } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
@@ -24,9 +25,9 @@ import { InstalledIntegration, urlHost, type ConnectionListState, type Installed
 export const PROVIDER_LABELS = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 } as const satisfies Record<SeatProvider, string>
 
-export const SEAT_PROVIDERS: readonly SeatProvider[] = ['claude-code', 'codex']
 
 // ─── Bytes ───
 
@@ -108,7 +109,7 @@ export function agentProfileParts(entries: AgentProfile): AgentProfileParts {
     } else files.push(entry)
   }
   files.sort((a, b) => {
-    if (a.provider !== b.provider) return SEAT_PROVIDERS.indexOf(a.provider) - SEAT_PROVIDERS.indexOf(b.provider)
+    if (a.provider !== b.provider) return PROFILE_PROVIDERS.indexOf(a.provider) - PROFILE_PROVIDERS.indexOf(b.provider)
     return a.path.localeCompare(b.path)
   })
   return {
@@ -205,7 +206,7 @@ export interface ModelInstructionChoice {
 export function modelInstructionChoices(saved: Readonly<Record<string, string>>): ModelInstructionChoice[] {
   const seen = new Set<string>()
   const choices: ModelInstructionChoice[] = []
-  for (const provider of SEAT_PROVIDERS) {
+  for (const provider of PROFILE_PROVIDERS) {
     for (const [model, profile] of Object.entries(MODEL_PROFILES[provider] ?? {})) {
       if (seen.has(model) || (profile.isLegacy && !saved[model]?.trim())) continue
       seen.add(model)

@@ -55,7 +55,7 @@ const memberPrincipal = (userId: string, organizationId = 'org1'): Extract<Princ
 const member = (userId: string, organizationId = 'org1'): WorkspaceRequestContext => ({
   principal: memberPrincipal(userId, organizationId),
   home: { kind: 'organization', organizationId, serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 })
 const alice = member('alice')
 const bob = member('bob')
@@ -91,7 +91,7 @@ describe('the record API feed', () => {
     expect((await operations.listMyNotifications(carol, {})).items).toHaveLength(1)
     expect((await operations.listMyNotifications(alice, {})).items).toEqual([])
     // A credential that may not read works reads no work notifications.
-    expect((await operations.listMyNotifications({ ...bob, scopes: ['tasks:read'] }, {})).items).toEqual([])
+    expect((await operations.listMyNotifications({ ...bob, scopes: ['issues:read'] }, {})).items).toEqual([])
   })
 
   test('a member of another organization reads nothing of this one', async () => {

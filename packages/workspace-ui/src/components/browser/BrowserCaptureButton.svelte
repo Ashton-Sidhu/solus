@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Camera } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import type {
     BrowserEvidenceOptions,
     BrowserEvidenceTarget,
@@ -25,7 +25,7 @@
 
   interface Props {
     options: BrowserEvidenceOptions | null;
-    tasks: Task[];
+    tasks: Issue[];
     cwd: string | undefined;
     busy: boolean;
     onOpen: () => void;

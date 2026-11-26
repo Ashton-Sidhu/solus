@@ -4,7 +4,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, requestPairApproval, urlHost, type PairServerResult } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
+import { agentIdSchema, replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
@@ -44,6 +44,7 @@ import { NativeDevices } from '../features/devices/native-devices'
 import { NativeBrowser } from '../features/browser/native-browser'
 import { HostAccess } from '../features/settings/host-access'
 import { PairApprovals } from '../features/settings/pair-approvals'
+import { AppSignIns } from '../features/settings/app-sign-in'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
@@ -128,7 +129,7 @@ const lastRouteSchema = z.object({
   projectPath: z.string(),
   record: z.object({
     sessionId: z.string().min(1),
-    provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+    provider: agentIdSchema,
     projectPath: z.string(),
     cwd: z.string().nullable(),
     model: z.string().nullable(),
@@ -235,6 +236,8 @@ export class SolusApp {
   readonly hostReach: HostReach
   /** The open approval requests of the hosts this phone may decide them on (docs/plans/add-machine-card.md). */
   readonly pairApprovals: PairApprovals
+  /** The outside app sign-in that the person approves on the phone (plans/035 §0.5). */
+  readonly appSignIns: AppSignIns
   /** The codebases of the hosts of this phone (docs/plans/codebases.md §10). */
   readonly codebases: Codebases
   readonly devices: NativeDevices
@@ -396,6 +399,16 @@ export class SolusApp {
       readyConnections: () => this.connections.readyConnections(),
       mayReach: (hostId) => this.connections.may(hostId, 'host.local.reach'),
       onChange: (listener) => this.connections.changes.subscribe(listener),
+    })
+    this.appSignIns = new AppSignIns({
+      hosts: () => this.registry.hosts().map((host) => {
+        // Only a ready host is asked for its answer: reading the list dials no host.
+        const connection = this.connections.state(host.id)?.readiness === 'ready' ? this.connections.connection(host.id) : null
+        return { hostId: host.id, installationId: connection?.facts.value('serverInfo')?.installationId ?? host.installationId }
+      }),
+      hostsSettled: () => this.registry.listState() !== 'loading' && this.registry.directoryState() !== 'loading',
+      onHostsChange: (listener) => this.registry.changes.subscribe(listener),
+      connectionFor: (hostId) => this.connections.connection(hostId),
     })
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())

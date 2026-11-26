@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Bot as BotIcon } from "@lucide/svelte";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { providerMark } from "../insights/lib/provider";
 
   /**
    * The provider mark fits the same 16px slot as other panel rows. In a
@@ -12,9 +13,7 @@
   }
   let { provider, variant = "stack" }: Props = $props();
 
-  const mark = $derived(
-    provider === "codex" ? "codex" : provider === "claude-code" ? "claude" : null,
-  );
+  const mark = $derived(providerMark(provider));
   // Match the provider sizes in the Environment panel's 16px icon column.
   const rowMarkSize = $derived(mark === "codex" ? 14 : 16);
 </script>

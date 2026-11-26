@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { ExternalLink as ExternalLinkIcon } from "@lucide/svelte";
-  import type { Task, TaskLink } from "@solus/contracts/task-types";
+  import type { Issue, IssueLink } from "@solus/contracts/task-types";
   import { getPullRequestsContext, getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { relativeTime, taskRef } from "../../tasks/lib/tasks-api";
@@ -23,18 +23,18 @@
   import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
 
   /**
-   * The selected task in miniature. Task-level commands live in the pinned
+   * The selected task in miniature. Issue-level commands live in the pinned
    * action bar; each linked row keeps its own open and unlink commands beside
    * the item, matching the task page table on desktop and phone.
    */
   interface Props {
-    task: Task;
+    task: Issue;
     /** The task's sessions, the same list the sidebar draws under it. */
     sessions: SidebarSessionChild[];
     onSelectSession: (session: SidebarSessionChild) => void;
-    onOpenLink: (link: TaskLink) => void;
+    onOpenLink: (link: IssueLink) => void;
     onOpenExternal: (url: string) => void;
-    onUnlink: (link: TaskLink) => void;
+    onUnlink: (link: IssueLink) => void;
     /** The picker's live search term. A row only shows a passage of a body
      *  hit; the preview is where the whole body is, so it marks the hit too. */
     query?: string;
@@ -60,20 +60,20 @@
   // asks for them once the selection settles and shows no Linked section until
   // they arrive. PR identities are already in the sidebar snapshot.
   const previewDetails = new TaskPreviewDetails((taskId) =>
-    session.tasksStore.get(taskId).loadDetails(),
+    session.issuesStore.get(taskId).loadDetails(),
   );
-  const details = $derived(session.tasksStore.get(task.id).details);
+  const details = $derived(session.issuesStore.get(task.id).details);
   const links = $derived(details?.links ?? []);
   const linkedRows = $derived(linkedTableLinks(links).map((link) => linkRow(link)));
   // Read and observe links through the same store as the task page and sidebar.
   const prScope = $derived({
     cwd: session.projectRootOfTask(task.id),
-    serverId: session.tasksStore.get(task.id).serverId,
+    serverId: session.issuesStore.get(task.id).serverId,
   });
   const prRows = $derived(
     previewPrRows(
       links,
-      session.tasksStore.get(task.id).prLink,
+      session.issuesStore.get(task.id).prLink,
       (link) => pullRequests.projects.linkedPr(prScope.serverId, link, prScope.cwd),
     ),
   );
@@ -81,7 +81,7 @@
 
   $effect(() => {
     const { serverId, cwd } = prScope;
-    const prLinks = session.tasksStore.get(task.id).prLinks;
+    const prLinks = session.issuesStore.get(task.id).prLinks;
     if (!serverId) return;
     return untrack(() => pullRequests.projects.wantLinkedPrs(
       serverConnections.apiFor(serverId), serverId,

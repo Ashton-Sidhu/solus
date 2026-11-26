@@ -507,7 +507,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     // The task source is the person's own, from the preferences the run carries.
     const settings = await import('@solus/server/execution/sessions/session-settings')
     const recorded = settings.sessionSettings('s-new')
-    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, taskSources: [REPO] } })
+    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, issueSources: [REPO] } })
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
     try {

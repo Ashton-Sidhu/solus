@@ -178,8 +178,8 @@ describe('authorship', () => {
 
   test('an unnamed Codex thread signs as Solus, never with the user prompt it reports as its name', async () => {
     // Codex reports an unnamed thread's first message as both `slug` and
-    // `firstMessage`; that prompt carries Solus's injected task context.
-    const prompt = 'what would a similar change look like for confluence?\n\n[Working On Task "Sync"]'
+    // `firstMessage`; that prompt carries Solus's injected reference context.
+    const prompt = 'what would a similar change look like for confluence?\n\n[Referenced Work: "Sync" (work_id: w1)]'
     sessionTools.setSessionController({
       ...controller,
       getSessionInfo: async (sessionId) => ({ ...PEER, sessionId, slug: prompt, firstMessage: prompt }),

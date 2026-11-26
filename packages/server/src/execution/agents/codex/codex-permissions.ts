@@ -129,8 +129,7 @@ export class CodexPermissionResponder implements PermissionResponder {
     const { req, client } = entry
     this.pending.delete(questionId)
 
-    // Execute-after-approve entry (dynamicTools work-tool call): the handler
-    // runs the tool and responds to the JSON-RPC request itself.
+    // A Solus tool the endpoint asked about: the endpoint waits on the decision.
     if (req.execute) {
       void req.execute(isAllowDecision(normalizeDecision(decision)))
       return true

@@ -28,6 +28,7 @@ import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitc
 import { CloudAddressSetting } from "./CloudAddressSetting";
 import { HostAccessSection } from "./HostAccessSection";
 import { HostRoutesSection } from "./HostRoutesSection";
+import { OutsideAppsSection } from "./OutsideAppsSection";
 import { ReachedMachinesSection } from "./ReachedMachinesSection";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
 import { SYNC_STATE_LABELS } from "./settings-labels";
@@ -367,6 +368,14 @@ export function SolusHostDetail({
         isConnected={host?.connectionState === "connected"}
         makeCode={route.params.pairCode === "new"}
       />
+      <OutsideAppsSection hostId={id} hostName={host?.environmentLabel ?? "this host"} />
+      <SettingsSection>
+        <SettingsRow
+          label="Sharing & access"
+          icon="person.2"
+          onPress={() => nav.navigate("SettingsSharingAccess", { environmentId: id })}
+        />
+      </SettingsSection>
       <ReachedMachinesSection hostId={id} />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (

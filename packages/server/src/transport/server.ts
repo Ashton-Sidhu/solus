@@ -147,6 +147,8 @@ export interface HandlerCtx {
   abortSignal?: AbortSignal
   /** Web-client device label, set after pairing. */
   deviceLabel?: string
+  /** The host that presented a person's token for them (`act`): an agent working for the person, not the person at a client. */
+  actingHostId?: string
   /**
    * Stable device identifier from the paired client session token. Used to scope
    * tabs per-device so one device's tabs don't appear on another device's snapshot.

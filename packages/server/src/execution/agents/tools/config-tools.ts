@@ -27,6 +27,7 @@ import {
 import { agentDeviceSettingsPatchSchema, type AgentPersonalReply, type AgentPersonalRequest } from '@solus/contracts/agent-personal-request'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import type { AgentTool, AgentToolResult } from './agent-tool'
+import { toolActionRefusal, workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { getHostConfig, setHostConfig } from '../../../host/settings'
 
 /**
@@ -335,7 +336,15 @@ export const updateConfigAgentTool: AgentTool = {
   requiresApproval: false,
   execute: async (input, context) => {
     const parsed = updateConfigInputSchema.safeParse(input)
-    if (parsed.success) return new AgentSettings(toolHost, context.sessionId()).write(parsed.data)
+    if (parsed.success) {
+      // This machine's settings are an administrator's, as setHostConfig and deviceConfigure are.
+      const principal = workspaceToolAuthority()
+      const refusal = principal && (parsed.data.host || parsed.data.deviceManager)
+        ? await toolActionRefusal('update_config', principal, 'host.admin', null)
+        : null
+      if (refusal) return { ok: false, text: refusal }
+      return new AgentSettings(toolHost, context.sessionId()).write(parsed.data)
+    }
     // The first refused value, named by its path: `section.key`.
     const issue = parsed.error.issues[0]
     return { ok: false, text: `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'invalid value'}` }

@@ -50,6 +50,7 @@ import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desk
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
 import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
+import { outsideAppLinkUrl } from './outside-app-links'
 import { parseAppLink, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 import { appLinkTargetIn } from '@solus/desktop-main/app-shortcuts/app-links'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
@@ -636,7 +637,7 @@ const attachmentReadSchema = z.tuple([z.string(), z.string()])
 ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {
   const parsedUrl = externalUrlSchema.safeParse(input)
   if (!parsedUrl.success) return false
-  const target = /^https?:\/\//i.test(parsedUrl.data) ? parsedUrl.data : remoteEditorFileUrl(parsedUrl.data)
+  const target = /^https?:\/\//i.test(parsedUrl.data) ? parsedUrl.data : remoteEditorFileUrl(parsedUrl.data) ?? outsideAppLinkUrl(parsedUrl.data)
   if (!target) return false
   try {
     await shell.openExternal(target)

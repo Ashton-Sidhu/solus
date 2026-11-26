@@ -3,14 +3,16 @@ import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
+import { showsOutsideApps } from './outside-app-setup'
 
 /**
  * Each host's registration to the person's Solus Cloud account and, apart from it,
  * its link, as the desktop and web Access tab shows them
  * (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). A paired phone is the
  * host's local owner: signed in, it registers a host that is not registered by itself,
- * and it turns the link on and off. A phone that reached the host through the tunnel
- * only sees them (`uplinkControl`). The ticket comes from the phone's own account session.
+ * and it turns the link on and off. A phone that reached the host through the tunnel,
+ * and a member of the host's organization, only see them (`uplinkControl`); the member
+ * reads them to connect an outside app. The ticket comes from the phone's own account session.
  */
 
 export type HostCloudLinkState =
@@ -70,8 +72,10 @@ export class HostCloudLink {
     this.watch(hostId, connection)
     if (this.stateOf(hostId).kind !== 'loaded') this.set(hostId, { kind: 'loading' })
     try {
-      const control = uplinkControl(await connection.api.connectionsGetServerInfo())
-      const status = control === 'none' ? null : await connection.api.uplinkStatus()
+      const info = await connection.api.connectionsGetServerInfo()
+      const control = uplinkControl(info)
+      // Every person who uses the host reads the status (`host.use`): connecting an outside app waits on it.
+      const status = control === 'none' && !showsOutsideApps(info) ? null : await connection.api.uplinkStatus()
       if (this.connectionFor(hostId) !== connection) return
       this.set(hostId, { kind: 'loaded', control, status, busy: false })
       // Rule 8: a signed-in owner's client registers a host that is not registered.

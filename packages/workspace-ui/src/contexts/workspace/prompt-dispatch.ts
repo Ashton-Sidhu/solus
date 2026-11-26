@@ -7,7 +7,7 @@ import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { serversStore } from '../connections/servers.store.svelte'
 import { hosts } from '../hosts/hosts.svelte'
 import { hostHasManagedCompute } from '../../components/servers/lib/managed-host'
-import { type TaskSnapshot } from '@solus/contracts/task-types'
+import { type IssueSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { ownedTaskId } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
@@ -59,7 +59,7 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'tabIdForSession'
   | 'tabOrder'
   | 'tabs'
-  | 'tasksStore'
+  | 'issuesStore'
 >
 
 /**
@@ -333,7 +333,7 @@ export class PromptDispatch {
    * A failure here is not allowed to swallow the prompt. The send then runs
    * with no task.
    */
-  private async resolveTaskOnItsHost<T extends { taskId?: string; taskSnapshot?: TaskSnapshot }>(
+  private async resolveTaskOnItsHost<T extends { taskId?: string; taskSnapshot?: IssueSnapshot }>(
     tabId: string,
     options: T,
   ): Promise<T> {
@@ -349,15 +349,15 @@ export class PromptDispatch {
     if (!options.taskId) return options
     const project = projectHome(session.run)
     try {
-      const { task, snapshot } = await this.workspace.tasksStore.prepareForSession(project.serverId, {
-        taskId: options.taskId,
+      const { task, snapshot } = await this.workspace.issuesStore.prepareForSession(project.serverId, {
+        issueId: options.taskId,
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
       let preparedSnapshot = snapshot
       if (session.prReview) {
         try {
-          await this.workspace.tasksStore.get(task.id).link({
+          await this.workspace.issuesStore.get(task.id).link({
             kind: 'pr',
             targetScope: project.path,
             targetKey: String(session.prReview.number),
@@ -367,7 +367,7 @@ export class PromptDispatch {
           // The first snapshot was read in the binding transaction, before the
           // PR edge existed. A dispatched run must ship the linked version.
           if (snapshot) {
-            preparedSnapshot = await this.workspace.tasksStore.get(task.id).dispatchSnapshot(projectHome(session.run).serverId)
+            preparedSnapshot = await this.workspace.issuesStore.get(task.id).dispatchSnapshot(projectHome(session.run).serverId)
           }
         } catch (error) {
           console.warn('[Solus] PR task link failed; the prompt will still send.', error)
@@ -384,14 +384,14 @@ export class PromptDispatch {
   /** Re-ship a dispatched session's task state with a follow-up prompt. Best
    *  effort: a failure means the packet goes stale for one turn, never that the
    *  send is swallowed. */
-  private async attachTaskSnapshot<T extends { taskId?: string; taskSnapshot?: TaskSnapshot }>(
+  private async attachTaskSnapshot<T extends { taskId?: string; taskSnapshot?: IssueSnapshot }>(
     session: Session,
     options: T,
   ): Promise<T> {
-    const taskId = ownedTaskId(this.workspace.tasksStore, session)
+    const taskId = ownedTaskId(this.workspace.issuesStore, session)
     if (!taskId) return options
     try {
-      const snapshot = await this.workspace.tasksStore
+      const snapshot = await this.workspace.issuesStore
         .get(taskId)
         .dispatchSnapshot(projectHome(session.run).serverId)
       return snapshot ? { ...options, taskId, taskSnapshot: snapshot } : options
@@ -593,7 +593,7 @@ export class PromptDispatch {
       this.workspace.eventReducer.closeAgentConversationTurn(session)
     }
 
-    const promptTaskId = ownedTaskId(this.workspace.tasksStore, session)
+    const promptTaskId = ownedTaskId(this.workspace.issuesStore, session)
     const goalObjective = isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined
     const send = () => {
       const fullPrompt = this.workspace.promptComposer.compose(prompt, sent, session)

@@ -249,7 +249,7 @@
       aria-modal="true"
       aria-label={previewVideo.label}
       tabindex="-1"
-      class="fixed inset-0 z-[9999] flex items-center justify-center modal-backdrop p-4"
+      class="fixed inset-0 z-[9999] flex items-center justify-center media-backdrop p-4"
       transition:fly={{ duration: 150 }}
     >
       <!-- Focus moves into the dialog, so Tab reaches the player's controls. -->
@@ -280,7 +280,8 @@
       role="dialog"
       aria-modal="true"
       tabindex="-1"
-      style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;cursor:zoom-out"
+      class="media-backdrop"
+      style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out"
       transition:fly={{ duration: 150 }}
     >
       <button

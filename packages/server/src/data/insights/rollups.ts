@@ -336,7 +336,7 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
 
   const rowsWithAttrs = rows.map((row) => ({ row, attrs: parseAttrs(row.attrs) }))
   const firstTaskId = rowsWithAttrs
-    .map(({ attrs }) => attrs.taskId ?? null)
+    .map(({ attrs }) => attrs.issueId ?? null)
     .find((value) => value !== null) ?? null
   const firstTaskTitle = rowsWithAttrs
     .map(({ attrs }) => attrs.taskTitle ?? null)
@@ -365,7 +365,7 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
 
   return {
     sessionId,
-    taskId: firstTaskId,
+    issueId: firstTaskId,
     taskTitle: firstTaskTitle,
     turnCount: turns.length,
     totalDurationMs: turns.reduce((total, turn) => total + (turn.durationMs ?? 0), 0),

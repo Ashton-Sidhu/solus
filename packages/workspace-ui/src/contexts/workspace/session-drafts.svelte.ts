@@ -28,7 +28,7 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
   | 'sessionFor'
   | 'sessions'
   | 'settings'
-  | 'tasksStore'
+  | 'issuesStore'
 >
 
 /**

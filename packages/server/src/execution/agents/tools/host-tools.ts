@@ -30,7 +30,7 @@ import {
   thisHostId,
 } from './cloud-machine-tools'
 import { asPerson } from './person-rpc'
-import { connectRemoteHost, listedRemoteHosts } from './session-tools'
+import { connectRemoteHost, listedRemoteHosts, reachCallerOf, type ReachCaller } from './session-tools'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 
 /**
@@ -54,15 +54,20 @@ function actionsFor(row: { kind: HostKind; hasManagedCompute: boolean; source: L
   return actions
 }
 
+/** Who reaches other hosts for this call: its session, or an outside app's person (plans/035 §0.6). */
+function toolReachCaller(context: AgentToolContext): ReachCaller | null {
+  return reachCallerOf({ sessionId: context.sessionId(), requesterKey: context.requesterKey?.() })
+}
+
 export const listHostsAgentTool: AgentTool<Record<string, never>> = {
   name: 'list_hosts',
   description: 'List every host you reach: your own computers and the cloud machines of your organizations, with id, name, kind, organizations, state, connection status, and the actions that apply to each (not-paired: use add_host). Also this host, your organizations, and the sizes of a new cloud machine. Use an id or name as host in the other host tools, list_agent_targets, or start_sessions. No credentials are returned.',
   inputFields: {},
   requiresApproval: false,
   async execute(_input, context) {
-    const sessionId = context.sessionId()
-    const reached = sessionId ? await listedRemoteHosts(sessionId) : null
-    if (!reached) return failed('Only a session with host access can list its hosts.')
+    const caller = toolReachCaller(context)
+    const reached = caller ? await listedRemoteHosts(caller) : null
+    if (!reached) return failed('Only a person with host access can list their other hosts.')
     // Signed out, the list has the hosts this host reaches and no cloud facts.
     const person = await cloudPerson(context)
     const read = person ? await readDirectory(person) : null
@@ -116,7 +121,7 @@ const updateFields = {
 
 /** The newest Solus release on another host, through its own gate. */
 async function updateRelease(named: string, context: AgentToolContext): Promise<AgentToolResult> {
-  const remote = await connectRemoteHost(named, context.sessionId())
+  const remote = await connectRemoteHost(named, toolReachCaller(context))
   if ('error' in remote) return failed(remote.error)
   const status = await remote.call('the update check', () => remote.api.hostCheckForUpdates())
   if (status.serverUpdate && !status.serverUpdate.supported) return failed(`Solus on ${remote.label} cannot update itself${status.serverUpdate.reason ? `: ${status.serverUpdate.reason}` : ''}.${status.remediation ? ` ${status.remediation}` : ''}`)
@@ -133,7 +138,8 @@ const NAME_A_CHANGE = 'Name what to change: release: true installs the newest So
 /** Whether this host reaches a host of that name: a computer, which has no stored setup. */
 async function isReachedHost(named: string, context: AgentToolContext): Promise<boolean> {
   const name = named.trim()
-  const reached = await listedRemoteHosts(context.sessionId() ?? '') ?? []
+  const caller = toolReachCaller(context)
+  const reached = caller ? await listedRemoteHosts(caller) ?? [] : []
   return reached.some((row) => row.id === name || row.installationId === name || row.name.toLowerCase() === name.toLowerCase())
 }
 
@@ -198,7 +204,7 @@ export const checkHostAgentTool: AgentTool<typeof checkFields> = {
         return answered({ host: 'this host', selfTest, resources })
       })
     }
-    const remote = await connectRemoteHost(named, context.sessionId())
+    const remote = await connectRemoteHost(named, toolReachCaller(context))
     if ('error' in remote) return failed(remote.error)
     const [selfTest, resources] = await Promise.all([
       remote.call('the self test', () => remote.api.hostSelfTest()),

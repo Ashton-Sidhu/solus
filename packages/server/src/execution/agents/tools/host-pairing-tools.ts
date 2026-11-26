@@ -104,7 +104,7 @@ async function addPairedHost(input: z.output<z.ZodObject<typeof addHostFields>>,
     if (input.url?.trim()) ask.url = askedOrigin(input.url)
     if (input.ssh_target?.trim()) ask.sshTarget = input.ssh_target.trim()
     if (input.identity_file?.trim()) ask.identityFile = input.identity_file.trim()
-    const reached = reachedMatch(await listedRemoteHosts(sessionId) ?? [], ask)
+    const reached = reachedMatch(await listedRemoteHosts({ sessionId }) ?? [], ask)
     if (reached) return { ok: true, text: JSON.stringify({ added: false, alreadyReached: true, host: hostFacts(reached), note: 'This host already reaches that machine, so no card was shown. Use it with start_sessions.' }) }
     const answers = await askOnCard(context, ask)
     if (!answers) return { ok: false, text: 'The run stopped before a machine was added.' }
@@ -112,7 +112,7 @@ async function addPairedHost(input: z.output<z.ZodObject<typeof addHostFields>>,
     if (!outcome) return { ok: false, text: 'The card gave an answer that names no machine. Nothing was added; call add_host again if the person still wants it.' }
     if (outcome.status === 'declined') return { ok: true, text: JSON.stringify({ added: false, declined: true, note: 'The person declined. Do not ask again unless they ask you to.' }) }
     // The answer comes from a client: return only a host that this host now holds a credential for.
-    const host = (await listedRemoteHosts(sessionId) ?? []).find((listed) => listed.installationId === outcome.installationId && listed.source !== 'listed')
+    const host = (await listedRemoteHosts({ sessionId }) ?? []).find((listed) => listed.installationId === outcome.installationId && listed.source !== 'listed')
     if (!host) return { ok: false, text: 'The card said a machine was added, but this host holds no record for it. Nothing was added; call add_host again.' }
     return { ok: true, text: JSON.stringify({ added: true, way: outcome.way, host: hostFacts(host), note: 'Agents here can use this host with start_sessions.' }) }
   } catch (error) { return { ok: false, text: error instanceof Error ? error.message : 'Could not add the machine.' } }

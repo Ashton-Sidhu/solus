@@ -1,10 +1,10 @@
 // Pure helpers for the Tasks page: what the search matches, and what the page
 // says about the task sources it shows.
-import type { Task, TaskSourceState } from '@solus/contracts/task-types'
-import { taskSourceProvider } from '@solus/contracts/task-sources'
+import type { Issue, IssueSourceState } from '@solus/contracts/task-types'
+import { issueSourceProvider } from '@solus/contracts/task-sources'
 
 /** Whether a task matches the text in the page's search box. */
-export function matchesTaskQuery(task: Pick<Task, 'title' | 'reference' | 'labels'>, query: string): boolean {
+export function matchesTaskQuery(task: Pick<Issue, 'title' | 'reference' | 'labels'>, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
   return `${task.title} ${task.reference ?? ''} ${task.labels.join(' ')}`.toLowerCase().includes(needle)
@@ -25,12 +25,12 @@ export function withProviderMatches<T extends { id: string }>(listed: readonly T
  * tasks of a source that the person removed until its next read, so the page
  * never shows a task only because the host still holds it.
  */
-export function tasksOfSources<T extends Pick<Task, 'placements'>>(tasks: readonly T[], sourceKeys: ReadonlySet<string>): T[] {
+export function tasksOfSources<T extends Pick<Issue, 'placements'>>(tasks: readonly T[], sourceKeys: ReadonlySet<string>): T[] {
   return tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
 }
 
 /** How many of the tasks each source lists, by source key. */
-export function taskCountsBySource(tasks: readonly Pick<Task, 'placements'>[]): Map<string, number> {
+export function taskCountsBySource(tasks: readonly Pick<Issue, 'placements'>[]): Map<string, number> {
   const counts = new Map<string, number>()
   for (const task of tasks) {
     for (const placement of task.placements) counts.set(placement.sourceKey, (counts.get(placement.sourceKey) ?? 0) + 1)
@@ -46,7 +46,7 @@ export interface SourcesSyncState {
   fromCache: boolean
 }
 
-export function sourcesSyncState(sources: readonly Pick<TaskSourceState, 'fetchedAt' | 'health'>[]): SourcesSyncState {
+export function sourcesSyncState(sources: readonly Pick<IssueSourceState, 'fetchedAt' | 'health'>[]): SourcesSyncState {
   const readTimes = sources.flatMap((source) => (source.fetchedAt === undefined ? [] : [source.fetchedAt]))
   return {
     syncedAt: readTimes.length ? Math.min(...readTimes) : null,
@@ -70,13 +70,13 @@ export interface SourcesFailure {
   key: string
 }
 
-const AUTH_HEALTHS = new Set<TaskSourceState['health']>(['not_connected', 'reconnect'])
+const AUTH_HEALTHS = new Set<IssueSourceState['health']>(['not_connected', 'reconnect'])
 
-export function sourcesFailure(sources: readonly TaskSourceState[]): SourcesFailure | null {
+export function sourcesFailure(sources: readonly IssueSourceState[]): SourcesFailure | null {
   const failed = sources.filter((source) => source.health !== 'ok')
   if (!failed.length) return null
   const authOf = (provider: 'github' | 'jira') =>
-    failed.filter((source) => AUTH_HEALTHS.has(source.health) && taskSourceProvider(source.source) === provider)
+    failed.filter((source) => AUTH_HEALTHS.has(source.health) && issueSourceProvider(source.source) === provider)
   const kind = authOf('github').length ? 'github-auth' : authOf('jira').length ? 'jira-auth' : 'generic'
   const title = kind === 'github-auth'
     ? 'Connect GitHub to load issues.'

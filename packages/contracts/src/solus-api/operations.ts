@@ -33,7 +33,7 @@ export const solusApiOperations = {
   listSessionPullRequests: { method: 'get', path: '/sessions/:sessionId/pull-requests', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionPullRequestListSchema, status: 200 },
   /**
    * Link a task or a session to another record. The same link again changes nothing.
-   * It needs `tasks:write` from a task and `sessions:write` from a session, and editor on `from`.
+   * It needs `issues:write` from a task and `sessions:write` from a session, and editor on `from`.
    * Removing a pull request from a session leaves it removed: PR sync does not link it again.
    */
   putLink: { method: 'put', path: '/links', query: empty, body: schemas.workspaceLinkSchema, status: 204 },

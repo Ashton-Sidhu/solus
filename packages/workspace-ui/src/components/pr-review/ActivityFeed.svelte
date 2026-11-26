@@ -349,8 +349,8 @@
   // linked to that task. Each joins the timeline at the moment it was linked,
   // collapsed, so the reader meets it where it happened.
   const tasksOnPr = $derived(
-    session.tasksStore.tasks.filter((task) =>
-      taskLinksToPr(task.prLinks, session.tasksStore.get(task.id).serverId, serverId, prUrl),
+    session.issuesStore.tasks.filter((task) =>
+      taskLinksToPr(task.prLinks, session.issuesStore.get(task.id).serverId, serverId, prUrl),
     ),
   );
   // Keyed on the ids, not the task rows: the task list changes on every task
@@ -361,7 +361,7 @@
     const ids = tasksOnPrIds.split("\n");
     untrack(() => {
       for (const id of ids) {
-        const task = session.tasksStore.get(id);
+        const task = session.issuesStore.get(id);
         if (!task.details) void task.loadDetails();
       }
     });
@@ -371,7 +371,7 @@
       tasksOnPr.map((task) => ({
         taskId: task.id,
         taskTitle: task.title,
-        links: session.tasksStore.get(task.id).details?.links ?? [],
+        links: session.issuesStore.get(task.id).details?.links ?? [],
       })),
     ),
   );

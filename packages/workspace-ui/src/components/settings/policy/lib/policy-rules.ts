@@ -1,8 +1,6 @@
 import {
   MANAGED_SESSION_SETTING_KEYS,
   PERMISSION_MODE_LABELS,
-  POLICY_PROVIDER_IDS,
-  PROVIDER_LABELS,
   type ManagedHostSettings,
   type ManagedSessionSettingKey,
   type ManagedSessionSettings,
@@ -10,6 +8,7 @@ import {
   type PolicySet,
   type SessionLimits,
 } from '@solus/contracts/policy'
+import { AGENT_IDS, AGENT_LABELS } from '@solus/contracts/types'
 import { HOST_KEY_LABELS } from './host-locks'
 
 /**
@@ -163,7 +162,7 @@ const SETTING_TEXT: SettingTextFormatters = {
   codebaseNaming: () => 'Set',
   defaultPermissionMode: (value) => PERMISSION_MODE_LABELS[value],
   rateLimitBehavior: words,
-  reviewAgent: (value) => PROVIDER_LABELS[value],
+  reviewAgent: (value) => AGENT_LABELS[value],
   reviewModel: (value) => value,
   reviewGuideInstructions: quoted,
 }
@@ -201,13 +200,13 @@ function limitRules(limits: SessionLimits | undefined): PolicyRule[] {
   if (!limits) return []
   const rules: PolicyRule[] = []
   if (limits.maxPermissionMode) rules.push({ label: 'Highest permission mode', value: PERMISSION_MODE_LABELS[limits.maxPermissionMode] })
-  if (limits.providers?.allowed) rules.push({ label: 'Allowed agents', value: limits.providers.allowed.map((provider) => PROVIDER_LABELS[provider]).join(', ') })
-  for (const provider of POLICY_PROVIDER_IDS) {
+  if (limits.providers?.allowed) rules.push({ label: 'Allowed agents', value: limits.providers.allowed.map((provider) => AGENT_LABELS[provider]).join(', ') })
+  for (const provider of AGENT_IDS) {
     const models = limits.models?.[provider]
-    if (models) rules.push({ label: `Allowed ${PROVIDER_LABELS[provider]} models`, value: models.join(', ') })
+    if (models) rules.push({ label: `Allowed ${AGENT_LABELS[provider]} models`, value: models.join(', ') })
   }
-  for (const provider of POLICY_PROVIDER_IDS) {
-    if (limits.providers?.launch?.[provider]) rules.push({ label: `${PROVIDER_LABELS[provider]} launch settings`, value: 'Pinned' })
+  for (const provider of AGENT_IDS) {
+    if (limits.providers?.launch?.[provider]) rules.push({ label: `${AGENT_LABELS[provider]} launch settings`, value: 'Pinned' })
   }
   if (limits.sessionCloudSync !== undefined) rules.push({ label: 'Cloud copy of sessions', value: onOff(limits.sessionCloudSync) })
   if (limits.insights) rules.push({ label: 'Send all Insights', value: onOff(limits.insights.syncAll) })

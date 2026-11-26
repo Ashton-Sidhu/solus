@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import type { NormalizedEvent } from '@solus/contracts/types'
+import { SolusCallItems } from '@solus/server/execution/agents/codex/codex-solus-tools'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -78,7 +79,7 @@ function setup() {
   const startRoot = (turnId: string, persistence: 'session' | 'ephemeral' = 'session'): RootRun => {
     const run: RootRun = {
       agentSessionId: ROOT, threadId: ROOT, turnId, client: appServer,
-      normalizer: new CodexTurnNormalizer({ planMode: false }), persistent: false, persistence,
+      normalizer: new CodexTurnNormalizer({ planMode: false }), solusCalls: new SolusCallItems(), persistent: false, persistence,
       permissionMode: 'supervised', interrupted: false, isCompaction: false,
       abortController: new AbortController(), toolCallCount: 0, _resolveRun() {},
     }

@@ -1,15 +1,16 @@
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { MANAGED_SESSION_SETTING_KEYS } from '@solus/contracts/policy'
 import { organizationOfSession } from '../../data/sessions/session-records'
-import { childPermissionMode } from './child-permissions'
+import { childPermissionMode, rootPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
+import { updateAutomationAgentTool } from '../agents/tools/automation-tools'
 import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '../agents/run-input'
 import { actingPreferences } from '../person-settings'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
-import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { responseForkStart } from './session-forks'
@@ -17,6 +18,7 @@ import { type CreateSessionOrder, type ModelChoice } from '../orchestration/sess
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptSender, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { toolCallActor } from '../../admission/workspace-tool-authority'
 import { hostUserKey } from '../../host/host-user'
 import { userKey } from '@solus/contracts/user'
 import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
@@ -404,7 +406,8 @@ export class PromptDispatch {
   async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string }> {
     const parentId = req.sourceSessionId ?? req.delegation?.parentSessionId
     // A child works for the person its parent works for, on their seat (plans/019 decision 5).
-    const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
+    // An outside app's call has no parent: the session works for the app's person (plans/035 §8).
+    const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : toolCallActor())
     const sessionId = req.sessionId ?? crypto.randomUUID()
     await this.admitNewSession(req, sessionId, runActor)
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
@@ -416,7 +419,7 @@ export class PromptDispatch {
     // A default is lowered to the policy's ceiling; an explicit mode above it is refused where the provider starts.
     const permissionMode = parentMode
       ? childPermissionMode(parentMode, req.permissionMode)
-      : req.permissionMode ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode(preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode)
+      : rootPermissionMode(hostPolicies().forWork(await organizationOfSession(sessionId)), req.permissionMode, preferences)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -532,7 +535,6 @@ export class PromptDispatch {
       executionPreferences: lockedPreferences,
     }
     const sessionId = crypto.randomUUID()
-    const { list, read, update } = solusToolbox.automations
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
@@ -554,7 +556,7 @@ export class PromptDispatch {
         solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
-        req.startedBy.kind === 'automation' ? { list, read, update } : {},
+        req.startedBy.kind === 'automation' ? { read: solusToolbox.automations.read, update: updateAutomationAgentTool } : {},
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
       options: req.startedBy.kind === 'automation'

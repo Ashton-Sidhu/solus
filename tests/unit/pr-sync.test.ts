@@ -64,8 +64,8 @@ async function sourceTask() {
   const issue = githubIssue(++nextIssue)
   taskProviders.hold(issue)
   const { storeProviderTask } = await import('@solus/server/data/tasks/task-cache')
-  const { taskSourceKey } = await import('@solus/contracts/task-sources')
-  const stored = await storeProviderTask(issue, { place: { sourceKey: taskSourceKey(TASK_REPO), columnId: 'open', itemId: null } })
+  const { issueSourceKey } = await import('@solus/contracts/task-sources')
+  const stored = await storeProviderTask(issue, { place: { sourceKey: issueSourceKey(TASK_REPO), columnId: 'open', itemId: null } })
   return attachedTask(stored.id)
 }
 

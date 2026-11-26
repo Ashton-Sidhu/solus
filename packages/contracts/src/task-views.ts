@@ -10,7 +10,6 @@ export const taskViewFiltersSchema = z
     runningOnly: z.boolean(),
     overdueOnly: z.boolean(),
     assignedOnly: z.boolean(),
-    snoozedOnly: z.boolean(),
     columnIds: z.array(z.string().max(256)).max(100).nullable()
   })
   .strict()
@@ -26,7 +25,7 @@ export const taskSavedViewSchema = z
 export type TaskSavedView = z.infer<typeof taskSavedViewSchema>
 
 /** A saved view is a bounded personal preference, never a copy of tasks. */
-export const taskSavedViewsSchema = z
+export const issueSavedViewsSchema = z
   .array(taskSavedViewSchema)
   .max(50)
   .refine(
@@ -39,5 +38,5 @@ export function putTaskSavedView(
   view: TaskSavedView
 ): TaskSavedView[] {
   const parsed = taskSavedViewSchema.parse(view)
-  return taskSavedViewsSchema.parse([...views.filter((held) => held.id !== parsed.id), parsed])
+  return issueSavedViewsSchema.parse([...views.filter((held) => held.id !== parsed.id), parsed])
 }

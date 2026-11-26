@@ -107,9 +107,8 @@ export interface ParseGuideResult {
   error?: string
 }
 
-/** Validate raw tool args into a draft. The Claude SDK pre-validates against the
- *  zod shape, but the Codex dynamicTools path hands us raw JSON, so we parse here
- *  for both. */
+/** Validate raw tool args into a draft. A call over the /mcp endpoint carries raw
+ *  JSON for every harness, so we parse here. */
 export function parseGuideArgs(args: Parameters<typeof submitReviewGuideObject.safeParse>[0]): ParseGuideResult {
   const parsed = submitReviewGuideObject.safeParse(args ?? {})
   if (!parsed.success) {

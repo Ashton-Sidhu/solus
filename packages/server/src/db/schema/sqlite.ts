@@ -19,15 +19,15 @@ import * as receiptsSchema from '../../data/receipts/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
 import * as transcriptSchema from '../../data/sessions/transcript-schema'
 import * as sharingSchema from '../../sharing/schema'
-import * as tasksSchema from '../../data/tasks/schema'
+import * as issuesSchema from '../../data/tasks/schema'
 import * as webhooksSchema from '../../data/webhooks/schema'
 import * as appsSchema from '../../data/apps/schema'
 
-export const tasks = tasksSchema.tasks.sqlite
-export const task_sources = tasksSchema.taskSources.sqlite
-export const task_source_items = tasksSchema.taskSourceItems.sqlite
-export const task_source_access = tasksSchema.taskSourceAccess.sqlite
-export const asset_publications = tasksSchema.assetPublications.sqlite
+export const issues = issuesSchema.issues.sqlite
+export const issue_sources = issuesSchema.issueSources.sqlite
+export const issue_source_items = issuesSchema.issueSourceItems.sqlite
+export const issue_source_access = issuesSchema.issueSourceAccess.sqlite
+export const asset_publications = issuesSchema.assetPublications.sqlite
 export const works = folioSchema.works.sqlite
 export const work_revisions = folioSchema.workRevisions.sqlite
 export const work_reviewers = folioSchema.workReviewers.sqlite

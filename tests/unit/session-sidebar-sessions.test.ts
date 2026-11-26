@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { Issue } from '@solus/contracts/task-types'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import type { ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { runGroupKey, SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { projectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
@@ -8,7 +8,7 @@ import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/li
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import { provideCodebaseRules } from '@solus/workspace-ui/contexts/codebases/codebase-rules'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'childForTab' | 'sessionsForPickableTask'> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'childForTab' | 'sessionsForPickableIssue'> & {
   session: unknown
   tabIdBySessionId: Map<string, string>
   pickerSessionsByTaskId: Map<string, unknown>
@@ -16,7 +16,7 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'childForTab' | 'sessionsFo
   lifecycleNow: number
   liveChildFor(tabId: string): Omit<ReturnType<SessionSidebarStore['childForTab']>, 'lastActivityAt'>
   tabActivityAt(tabId: string): number
-  buildListedSessionRow(listed: ListedSession): SidebarTask
+  buildListedSessionRow(listed: ListedSession): SidebarSession
 }
 
 /** No cloud host and every runner up: the rows merge to themselves (session-home.ts). */
@@ -30,7 +30,7 @@ function sidebarStore(): SidebarStoreHarness {
   return store
 }
 
-function task(id: string, title: string): Task {
+function task(id: string, title: string): Issue {
   return {
     id,
     providerId: 'github',
@@ -55,7 +55,7 @@ describe('session sidebar session rows', () => {
     const store = sidebarStore()
     store.lifecycleNow = 10
     store.session = {
-      tasksStore: { taskForSession: (sessionId: string) => (sessionId === 'linked' ? root : null) },
+      issuesStore: { taskForSession: (sessionId: string) => (sessionId === 'linked' ? root : null) },
     }
     const listed = (sessionId: string) => ({
       sessionId, serverId: 'workshop', title: sessionId, projectPath: '/repo', createdAt: 1,
@@ -73,7 +73,7 @@ describe('session sidebar session rows', () => {
     // the sidebar and the breadcrumb must not be the mark of one of them.
     const store = sidebarStore()
     store.lifecycleNow = 10
-    store.session = { tasksStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
+    store.session = { issuesStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
     const listed = (sessionId: string, codebaseId?: string) => ({
       sessionId, serverId: 'workshop', title: sessionId, projectPath: '/repo', createdAt: 1, codebaseId,
     }) as ListedSession
@@ -86,7 +86,7 @@ describe('session sidebar session rows', () => {
     // WHY: the row, its badge, the breadcrumb, and the project picker name one codebase one way.
     const store = sidebarStore()
     store.lifecycleNow = 10
-    store.session = { tasksStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
+    store.session = { issuesStore: { taskForSession: () => null }, sessions: { executionFor: () => null } }
     provideCodebaseRules({
       isContainerRoot: () => false,
       codebaseOf: (id) => (id === 'cb-1' ? { id, name: 'Solus', roots: [], updatedAt: 1, deletedAt: null } : undefined),
@@ -107,7 +107,7 @@ describe('session sidebar session rows', () => {
     const root = task('root', 'Ship the release')
     const store = sidebarStore()
     store.session = {
-      tasksStore: {
+      issuesStore: {
         tasks: [root],
         get: () => ({
           serverId: 'workshop',
@@ -119,7 +119,7 @@ describe('session sidebar session rows', () => {
       },
     }
 
-    expect(store.sessionsForPickableTask(root).map((row) => row.sessionId)).toEqual(['owned', 'referenced'])
+    expect(store.sessionsForPickableIssue(root).map((row) => row.sessionId)).toEqual(['owned', 'referenced'])
   })
 
   test('a closed attempt reports the host it ran on, not the reader', () => {
@@ -130,7 +130,7 @@ describe('session sidebar session rows', () => {
     const root = task('root', 'Ship the release')
     const store = sidebarStore()
     store.session = {
-      tasksStore: {
+      issuesStore: {
         tasks: [root],
         // The task's own host answers for a link that recorded none: not a
         // dispatch means it ran wherever the task lives.
@@ -144,7 +144,7 @@ describe('session sidebar session rows', () => {
       },
     }
 
-    const rows = store.sessionsForPickableTask(root)
+    const rows = store.sessionsForPickableIssue(root)
     expect(rows.map((row) => [row.sessionId, row.serverId])).toEqual([
       ['here', 'workshop'],
       ['dispatched', 'studio'],
@@ -159,7 +159,7 @@ describe('session sidebar session rows', () => {
     const root = task('root', 'Ship the release')
     const store = sidebarStore()
     store.session = {
-      tasksStore: {
+      issuesStore: {
         tasks: [root],
         get: () => ({
           serverId: 'workshop',
@@ -172,7 +172,7 @@ describe('session sidebar session rows', () => {
       },
     }
 
-    const rows = store.sessionsForPickableTask(root)
+    const rows = store.sessionsForPickableIssue(root)
     expect(rows.map((row) => [row.sessionId, row.label])).toEqual([
       ['named', 'lady'],
       ['unnamed', 'Ship the release'],
@@ -185,7 +185,7 @@ describe('session sidebar session rows', () => {
     const root = task('root', 'Ship the release')
     const store = sidebarStore()
     store.session = {
-      tasksStore: {
+      issuesStore: {
         tasks: [root],
         get: () => ({
           serverId: 'workshop',
@@ -215,7 +215,7 @@ describe('session sidebar session rows', () => {
     // The mounted transcript is still empty.
     store.tabActivityAt = () => 0
 
-    const [row] = store.sessionsForPickableTask(root)
+    const [row] = store.sessionsForPickableIssue(root)
     expect(row.lastActivityAt).toBe(120)
   })
 })
@@ -259,8 +259,8 @@ describe('the drawer of sessions a row started', () => {
     return store
   }
   // SAFETY: the fold reads only a row's id.
-  const lead = { id: 'lead' } as SidebarTask
-  const other = { id: 'other' } as SidebarTask
+  const lead = { id: 'lead' } as SidebarSession
+  const other = { id: 'other' } as SidebarSession
 
   test('opens under the row on the path to the conversation on screen, and under no other', () => {
     // WHY: the sessions a row started matter while the person is in that

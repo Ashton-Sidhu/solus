@@ -4,7 +4,7 @@
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
-    taskSourcesStore,
+    issueSourcesStore,
   } from "../../../contexts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -86,7 +86,7 @@
   const session = getSurfaceContext();
   const pullRequests = getPullRequestsContext();
   const shell = getClientShellContext();
-  const store = session.tasksStore;
+  const store = session.issuesStore;
   const outbox = session.outboxStore;
   const pane = paneActions(() => paneId);
 
@@ -203,9 +203,9 @@
   // The provider decides which fields this task takes, and each source that
   // lists the task owns the columns it can move to.
   const locks = $derived(externalIssue ? taskFieldLocks(externalIssue.details.task, true) : storedTask ? taskFieldLocks(storedTask) : null);
-  const placements = $derived(task ? taskPlacementLabels(task, taskSourcesStore.sourceByKey) : []);
-  const moveGroups = $derived(task && !externalIssue ? taskMoveGroups(task, taskSourcesStore.sourceByKey, details?.statusOptions) : []);
-  const assigneeTarget = $derived({ taskId });
+  const placements = $derived(task ? taskPlacementLabels(task, issueSourcesStore.sourceByKey) : []);
+  const moveGroups = $derived(task && !externalIssue ? taskMoveGroups(task, issueSourcesStore.sourceByKey, details?.statusOptions) : []);
+  const assigneeTarget = $derived({ issueId: taskId });
   const labelCandidates = $derived(store.knownLabels);
 
   let picking = $state(false);
@@ -230,8 +230,8 @@
       void store.ensureLoaded().catch(() => {});
       // The columns of the move menu come with the task sources. A page opened
       // from a link can be the first surface that needs them.
-      if (untrack(() => taskSourcesStore.sourceByKey.size === 0)) {
-        void taskSourcesStore.load().catch(() => {});
+      if (untrack(() => issueSourcesStore.sourceByKey.size === 0)) {
+        void issueSourcesStore.load().catch(() => {});
       }
       void store
         .get(id)

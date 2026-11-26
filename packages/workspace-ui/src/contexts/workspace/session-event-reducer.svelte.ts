@@ -10,13 +10,13 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import { agentWorkHost } from '../works/agent-work-host'
-import type { TasksStore } from '../tasks/tasks.store.svelte'
+import type { IssuesStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, attachedFile, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { hostReportedSetup, isWorktreeSetupCard, settleSetupCard } from '@solus/contracts/setup-card'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -38,7 +38,7 @@ export interface SessionEventReducerDeps {
   settings: SettingsContext
   planStore: PlanStore
   worksStore: WorksStore
-  tasksStore: TasksStore
+  issuesStore: IssuesStore
   automationsStore: AutomationsStore
   workStreamTracker: WorkStreamTracker
   /** Is this conversation on screen anywhere — the active tab, or a chat pinned
@@ -427,13 +427,13 @@ export class SessionEventReducer {
           && runHost(session.run) !== taskServerId
           && canDriveSession(runHost(session.run), session.id)
         ) {
-          this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId, taskServerId)
+          this.deps.issuesStore.get(pendingTaskId).trackSessionStart(taskSessionId, taskServerId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own
           // checkout is a path on the borrowed machine.
           const branch = checkoutGit(session.run)?.branch
-          void this.deps.tasksStore.get(pendingTaskId).linkSession(
+          void this.deps.issuesStore.get(pendingTaskId).linkSession(
             taskSessionId,
             {
               serverId: runHost(session.run),
@@ -446,13 +446,13 @@ export class SessionEventReducer {
             : undefined)
             .catch(() => null)
         }
-        void this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId)
+        void this.deps.issuesStore.refreshSessionBinding(taskSessionId, taskServerId)
           .then((task) => {
             if (!task) return
             // The durable relationship is now authoritative. Keep its task id
             // on the mounted session so later prompts never look taskless while
             // the sidebar reconciles its session links.
-            session.task = { kind: 'existing', taskId: task.id }
+            session.task = { kind: 'existing', issueId: task.id }
           })
           .catch(() => null)
         this.deps.onSessionInitialized?.(sessionId)
@@ -900,7 +900,7 @@ export class SessionEventReducer {
           ) {
             void serverConnections.apiFor(taskServerId)
               .setSessionBranch(taskSessionId, event.gitContext.branch)
-              .then(() => this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId))
+              .then(() => this.deps.issuesStore.refreshSessionBinding(taskSessionId, taskServerId))
               .catch(() => null)
           }
         }
@@ -961,14 +961,17 @@ export class SessionEventReducer {
         if (outbound?.reason === 'rate_limit' && outbound.enqueuedAt) {
           message.queuedWaitMs = Date.now() - outbound.enqueuedAt
         }
-        // A prompt this client did not compose (another agent's send_session)
-        // carries its files as the composer's `[Attached file: …]` lines.
+        // A prompt this client did not compose names its files beside the
+        // text (`attachedFilePaths`), or, from another agent's send_session,
+        // as the composer's `[Attached file: …]` lines in the text.
         const attached = outbound ? null : splitSentAttachments(event.text, runHost(session.run))
+        const namedFiles = outbound ? [] : (event.attachedFilePaths ?? []).map((path, index) => attachedFile(path, index, runHost(session.run)))
         if (attached?.attachments.length) message.content = attached.text
         if (outbound?.attachments?.length) {
           message.attachments = outbound.attachments
-        } else if (attached?.attachments.length || event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
+        } else if (namedFiles.length || attached?.attachments.length || event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
           message.attachments = [
+            ...namedFiles,
             ...(attached?.attachments ?? []),
             ...(imageRefAttachments(event.imageAttachmentRefs) ?? []),
             ...(event.imageAttachments ?? []).map((image) => ({
@@ -1188,7 +1191,7 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           taskRef: {
-            taskId: event.taskId,
+            issueId: event.issueId,
             title: event.title,
             url: event.url,
           },

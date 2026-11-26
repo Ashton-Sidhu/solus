@@ -1,7 +1,7 @@
 import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
 import { clearActiveHistoryLoading } from "@t3tools/client-runtime/state/thread-history-merge"
 import type { MobileSessionCache } from "../threads/session-cache"
-import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueSnapshot } from '@solus/contracts/task-types'
 import { startsHistoryTurn, type SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
@@ -1212,7 +1212,7 @@ export class ConversationController {
       text: prompt,
       enqueuedAt: Date.now(),
       accountScope: this.deps.accountScope,
-      payload: { ...composed, taskId: this.taskBinding?.taskId, taskHostId: this.taskBinding?.hostId, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
+      payload: { ...composed, issueId: this.taskBinding?.taskId, taskHostId: this.taskBinding?.hostId, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
@@ -1877,23 +1877,23 @@ export class ConversationController {
         if (!this.watching) this.watchBeside()
         const ctx = this.context()
         this.policyRefusals.delete(record.clientPromptId)
-        const taskId = record.payload?.taskId
+        const taskId = record.payload?.issueId
         const taskHostId = record.payload?.taskHostId
         const isRemoteTask = !!taskHostId && taskHostId !== this.target.hostId
         const taskApi = taskId && taskHostId ? isRemoteTask ? this.deps.taskApi?.(taskHostId) : this.deps.connection.api : null
         if (taskId && !taskApi) throw new Error('The task host is unavailable.')
-        let taskSnapshot: TaskSnapshot | undefined
+        let taskSnapshot: IssueSnapshot | undefined
         if (taskId && taskApi && !this.started) {
-          const prepared = await taskApi.tasksPrepareForSession({ taskId, includeSnapshot: isRemoteTask })
+          const prepared = await taskApi.issuesPrepareForSession({ issueId: taskId, includeSnapshot: isRemoteTask })
           if (!prepared.task) throw new Error('The task is unavailable. Open it again before starting this session.')
           taskSnapshot = prepared.snapshot ?? undefined
-        } else if (taskId && taskApi && isRemoteTask) taskSnapshot = await taskApi.tasksSnapshot(taskId)
+        } else if (taskId && taskApi && isRemoteTask) taskSnapshot = await taskApi.issuesSnapshot(taskId)
         if (this.closed) throw new TransportDisconnectedError()
         const result = await this.deps.connection.api.prompt(ctx, {
           // The newest head this device knows, from reads that already
           // happened: a host that is behind syncs before the turn (plan §7.1).
           ...this.deps.runHosts?.promptFields(this.run.sessionId, this.hostId),
-          taskId, taskSnapshot,
+          issueId: taskId, taskSnapshot,
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
           clientPromptId: record.clientPromptId,
@@ -1909,7 +1909,7 @@ export class ConversationController {
           if (code === SESSION_DIVERGED) this.noteSessionDiverged()
           throw error
         })
-        if (taskId && taskApi && isRemoteTask) await taskApi.tasksLinkSession(taskId, this.run.sessionId, 'working', taskHostId === this.target.hostId ? null : { serverId: this.target.hostId, provider: this.run.provider, projectRoot: this.run.workingDirectory })
+        if (taskId && taskApi && isRemoteTask) await taskApi.issuesLinkSession(taskId, this.run.sessionId, 'working', taskHostId === this.target.hostId ? null : { serverId: this.target.hostId, provider: this.run.provider, projectRoot: this.run.workingDirectory })
         this.started = true
         // The worktree is made once, by the prompt that started the session.
         this.run.worktreeBaseBranch = null

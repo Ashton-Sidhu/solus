@@ -10,7 +10,12 @@ export interface PairToken {
 }
 
 export type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
-import type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
+import type { AppAccess, ConnectionsServerInfo, PairedDevice, SolusAPI } from '@solus/contracts/host-api'
+
+/** Where an outside app reaches a host's tools over MCP (plans/035 §10). */
+export type AppEndpoint = Awaited<ReturnType<SolusAPI['connectionsAppEndpoint']>>
+/** A one-time code that approves an outside app on its sign-in page. */
+export type AppPairingCode = Awaited<ReturnType<SolusAPI['connectionsCreateAppPairingCode']>>
 
 export interface ConnectionEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'
@@ -55,6 +60,14 @@ export class ConnectionsStore {
   trustLocalNetworkUpdating = $state(false)
   private metadataServerId: string | null = null
 
+  // Outside apps (Access → Use Solus in other apps), for one host at a time.
+  appEndpoint = $state<AppEndpoint | null>(null)
+  appEndpointError = $state<string | null>(null)
+  appPairingCode = $state<AppPairingCode | null>(null)
+  appPairingCodeCreating = $state(false)
+  appPairingCodeError = $state<string | null>(null)
+  private appServerId: string | null = null
+
   providerStatus = $state<AuthStatus | null>(null)
   providerLoaded = $state(false)
   providerLoading = $state(false)
@@ -69,6 +82,16 @@ export class ConnectionsStore {
   /** The GitHub status last read, only when it was read from this host. */
   providerStatusFor(serverId: string | null): AuthStatus | null {
     return serverId && this.providerServerId === serverId ? this.providerStatus : null
+  }
+
+  /**
+   * Reads one host's server settings now and every five seconds, until the returned
+   * stop. Settings → Sharing & access holds it while it shows.
+   */
+  watchServerMetadata(serverId: string): () => void {
+    void this.refreshServerMetadata(serverId)
+    const interval = setInterval(() => void this.refreshServerMetadata(serverId), 5000)
+    return () => clearInterval(interval)
   }
 
   async refreshServerMetadata(serverId: string): Promise<void> {
@@ -124,6 +147,40 @@ export class ConnectionsStore {
       this.activePair = await serverConnections.apiFor(serverId).connectionsGeneratePairToken()
     } catch (e) {
       console.error('generate pair token failed', e)
+    }
+  }
+
+  /** Reads where outside apps reach this host. A read for another host clears the last host's address and code. */
+  async loadAppEndpoint(serverId: string): Promise<void> {
+    if (this.appServerId !== serverId) {
+      this.appServerId = serverId
+      this.appEndpoint = null
+      this.appEndpointError = null
+      this.appPairingCode = null
+      this.appPairingCodeError = null
+    }
+    try {
+      const endpoint = await serverConnections.apiFor(serverId).connectionsAppEndpoint()
+      if (this.appServerId !== serverId) return
+      this.appEndpoint = endpoint
+      this.appEndpointError = null
+    } catch (e) {
+      if (this.appServerId === serverId) this.appEndpointError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  /** Makes a new one-time code for an outside app's sign-in page; it replaces the code shown. */
+  async createAppPairingCode(serverId: string, access: AppAccess): Promise<void> {
+    if (this.appPairingCodeCreating) return
+    this.appPairingCodeCreating = true
+    this.appPairingCodeError = null
+    try {
+      const code = await serverConnections.apiFor(serverId).connectionsCreateAppPairingCode({ access })
+      if (this.appServerId === serverId) this.appPairingCode = code
+    } catch (e) {
+      if (this.appServerId === serverId) this.appPairingCodeError = e instanceof Error ? e.message : String(e)
+    } finally {
+      this.appPairingCodeCreating = false
     }
   }
 
@@ -188,6 +245,15 @@ export class ConnectionsStore {
   async setProjectsBaseDirectory(serverId: string, path: string): Promise<void> {
     const result = await serverConnections.apiFor(serverId).setProjectsBaseDirectory(path)
     hosts.get(serverId).patchCapabilities(result)
+  }
+
+  /** Revokes several devices or apps ("Revoke all apps"), then reads the list once. False when one revoke failed. */
+  async revokeDevices(serverId: string, deviceIds: readonly string[]): Promise<boolean> {
+    const api = serverConnections.apiFor(serverId)
+    const results = await Promise.allSettled(deviceIds.map((deviceId) => api.connectionsRevokeDevice({ deviceId })))
+    for (const result of results) if (result.status === 'rejected') console.error('revoke failed', result.reason)
+    await this.refreshServerMetadata(serverId)
+    return results.every((result) => result.status === 'fulfilled')
   }
 
   async revokeDevice(serverId: string, deviceId: string): Promise<void> {

@@ -9,7 +9,7 @@ import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/princip
 import { attributionOf } from '../../admission/actor'
 import { hostAttribution } from '../../data/stored-attribution'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
-import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueSnapshot } from '@solus/contracts/task-types'
 import type { AgentId, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { solusDir } from '../../platform/paths'
 import type { SessionRunRequest } from '../session-runtime'
@@ -48,8 +48,8 @@ export async function taskOfTurn(
     const task = options.taskSnapshot.details.task
     return { id: task.id, title: task.title }
   }
-  if (options.taskId) {
-    return titledTask(options.taskId)
+  if (options.issueId) {
+    return titledTask(options.issueId)
   }
   try {
     const taskId = await taskIdForSession(ANY_ORGANIZATION, run.sessionId)
@@ -66,7 +66,7 @@ async function titledTask(taskId: string): Promise<{ id: string; title?: string 
 }
 
 export async function linkPreparedTask(run: SessionRunRequest, sessionId: string): Promise<void> {
-  const taskId = run.options.taskId
+  const taskId = run.options.issueId
   if (!taskId) return
   // A shipped snapshot marks the task as foreign: another host holds its
   // attachments, and the dispatching client writes this link there itself.
@@ -91,7 +91,7 @@ export async function linkPreparedTask(run: SessionRunRequest, sessionId: string
  */
 export async function taskSystemContext(
   taskId: string,
-  shipped: TaskSnapshot | null,
+  shipped: IssueSnapshot | null,
   sessionId: string,
 ): Promise<string> {
   if (shipped && shipped.details.task.id === taskId) {

@@ -32,6 +32,7 @@ export function useSubmitAfterNativeImages(props: {
   }, [releasedSend, props.blocked]);
   return {
     preparingImageCount,
+    adjustImageReservations: (delta: number) => setPreparingImageCount((count) => count + delta),
     deferSend: (followUp?: ActiveTurnComposerAction) => {
       if (pendingCount.current === 0) return false;
       heldSend.current = {
@@ -41,10 +42,12 @@ export function useSubmitAfterNativeImages(props: {
       };
       return true;
     },
-    pasteImages: (uris: ReadonlyArray<string>) => {
+    pasteImages: (uris: ReadonlyArray<string>, reservedCount = 0) => {
       if (pendingCount.current === 0) failed.current = false;
       pendingCount.current += 1;
-      setPreparingImageCount((count) => count + uris.length);
+      if (uris.length !== reservedCount) {
+        setPreparingImageCount((count) => count + uris.length - reservedCount);
+      }
       let preparing = true;
       const finishPreparation = () => {
         if (!preparing) return;

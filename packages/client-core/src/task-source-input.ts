@@ -1,4 +1,4 @@
-import type { TaskSource } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com'])
 // A GitHub login: letters, digits and single hyphens, 39 characters at most.
@@ -25,7 +25,7 @@ const GITHUB_RESERVED_OWNERS = new Set(['orgs', 'users'])
  * whole repository would add a source they did not ask for. Nothing here
  * checks that the source exists; the host reports that after its first read.
  */
-export function parseManualTaskSource(text: string): TaskSource | null {
+export function parseManualTaskSource(text: string): IssueSource | null {
   const trimmed = text.trim()
   if (!trimmed || /\s/.test(trimmed)) return null
   const segments = githubPathSegments(trimmed)
@@ -41,7 +41,7 @@ export function parseManualTaskSource(text: string): TaskSource | null {
 
 /** `orgs/<owner>/projects/<n>` or `users/<owner>/projects/<n>`, then nothing
  *  or `views/<m>`. Another path under `orgs` or `users` is not a Project. */
-function projectSourceOf(segments: readonly string[]): TaskSource | null {
+function projectSourceOf(segments: readonly string[]): IssueSource | null {
   const [, owner, section, number, ...rest] = segments
   if (!owner || !GITHUB_OWNER.test(owner)) return null
   if (section !== 'projects' || !number || !/^[1-9]\d*$/.test(number)) return null

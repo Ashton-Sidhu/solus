@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { SessionRecord, SessionRecordList, SessionRecordListFilter, SessionRecordSearch, SessionRecordSearchQuery } from '@solus/contracts/types'
-import type { TaskCommentHit, TaskCommentSearchQuery } from '@solus/contracts/task-types'
+import type { IssueCommentHit, IssueCommentSearchQuery } from '@solus/contracts/task-types'
 import { solusApiId } from '@solus/contracts/uplink'
 import { SessionSearch, searchFailureSummary } from '@solus/client-core/session-search'
 
@@ -608,20 +608,20 @@ describe('TaskCommentSearch', () => {
     // WHY: a task is found by its discussion as a session is by its messages
     // (unified-search.md §7). A reply that lands after the box changed must not
     // mark tasks for words no longer in it.
-    const replies: Array<(hits: TaskCommentHit[]) => void> = []
+    const replies: Array<(hits: IssueCommentHit[]) => void> = []
     const search = new TaskCommentSearch({
       serverIds: () => ['local', 'laptop'],
       apiFor: (serverId) => ({
-        tasksSearchComments: (query: TaskCommentSearchQuery) => serverId === 'laptop' && query.query === 'first'
-          ? new Promise<TaskCommentHit[]>((resolve) => replies.push(resolve))
-          : Promise.resolve([{ taskId: `${serverId}-${query.query}`, commentId: 'c', snippet: query.query, createdAt: 1 }]),
+        issuesSearchComments: (query: IssueCommentSearchQuery) => serverId === 'laptop' && query.query === 'first'
+          ? new Promise<IssueCommentHit[]>((resolve) => replies.push(resolve))
+          : Promise.resolve([{ issueId: `${serverId}-${query.query}`, commentId: 'c', snippet: query.query, createdAt: 1 }]),
       }),
     }, 0)
     search.search('first', '/repo')
     await settle()
     search.search('second', null)
     await settle()
-    replies[0]!([{ taskId: 'stale', commentId: 'c', snippet: 'first', createdAt: 1 }])
+    replies[0]!([{ issueId: 'stale', commentId: 'c', snippet: 'first', createdAt: 1 }])
     await settle()
     expect([...search.passages.keys()].sort()).toEqual(['laptop-second', 'local-second'])
     search.search('x', null)
@@ -635,7 +635,7 @@ describe('TaskCommentSearch', () => {
     const search = new TaskCommentSearch({
       serverIds: () => ['desktop', 'laptop', 'server'],
       apiFor: (serverId) => ({
-        tasksSearchComments: (query: TaskCommentSearchQuery) => {
+        issuesSearchComments: (query: IssueCommentSearchQuery) => {
           asked.push([serverId, query.projectKey])
           return Promise.resolve([])
         },

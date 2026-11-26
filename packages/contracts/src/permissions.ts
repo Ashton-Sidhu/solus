@@ -80,6 +80,11 @@ const PERMISSION_OF_METHOD = {
   uplinkUnlink: 'host.local.reach',
   // Administers the machine: credentials, updates, host config.
   connectionsListDevices: 'host.admin',
+  // A person connects an outside app that acts as them (plans/035 §0.3): the owner, or a member of an organization.
+  connectionsAppEndpoint: HOST_USE,
+  connectionsCreateAppPairingCode: HOST_USE,
+  connectionsReadAppSignIn: HOST_USE,
+  connectionsDecideAppSignIn: HOST_USE,
   connectionsRevokeDevice: 'host.admin',
   // Introductions give one host a token for another: a local owner's, never on a managed host (host-reach.md §4).
   hostIntroductionsList: 'host.local.reach',
@@ -167,8 +172,7 @@ const PERMISSION_OF_METHOD = {
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',
   pinnedSessionsList: 'host.sessions.read',
-  tasksSidebarSnapshot: 'host.sessions.read',
-  tasksSnoozes: 'host.sessions.read',
+  issuesList: 'host.sessions.read',
   createHeadlessSession: 'host.sessions.start',
   listProjects: 'host.projects.read',
   listRecentProjects: 'host.projects.read',
@@ -178,6 +182,9 @@ const PERMISSION_OF_METHOD = {
   gitRepositoryStatus: 'host.git.read',
   checkoutSnapshot: 'host.git.read',
   worktreeListProject: 'host.git.read',
+  managedWorktreesList: 'host.git.read',
+  managedWorktreeRemove: 'host.git.write',
+  managedWorktreeSizes: 'host.git.read',
   worktreeBranches: 'host.git.read',
   gitRunAction: 'host.git.write',
   gitDiscard: 'host.git.write',
@@ -299,14 +306,14 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
-  tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
-  tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
-  tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
-  tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,
-  tasksListAssigneeCandidates: HOST_USE, tasksSessions: HOST_USE, tasksSnapshot: HOST_USE,
-  tasksLink: HOST_USE, tasksUnlink: HOST_USE, tasksAttachArtifact: HOST_USE,
-  tasksSearchComments: HOST_USE, tasksPrepareForSession: HOST_USE, tasksLinkedTo: HOST_USE, outboxList: HOST_USE,
+  issuesSourceOptions: HOST_USE, issuesSearch: HOST_USE, issuesGet: HOST_USE,
+  issuesReact: HOST_USE, issuesTemplates: HOST_USE, issuesResolve: HOST_USE,
+  issuesAttachments: HOST_USE, issuesCreate: HOST_USE, issuesUpdate: HOST_USE, issuesMove: HOST_USE,
+  issuesDelete: HOST_USE, issuesMarkRead: HOST_USE,
+  issuesComment: HOST_USE, issuesRetryComment: HOST_USE, issuesDeleteComment: HOST_USE,
+  issuesListAssigneeCandidates: HOST_USE, issuesSnapshot: HOST_USE,
+  issuesLink: HOST_USE, issuesUnlink: HOST_USE, issuesAttachArtifact: HOST_USE,
+  issuesSearchComments: HOST_USE, issuesPrepareForSession: HOST_USE, issuesLinkedTo: HOST_USE, outboxList: HOST_USE,
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
   hostWebhookSettingsRead: HOST_USE,
@@ -438,7 +445,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript', integrationResourceWatchList: 'read.transcript',
   sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
-  tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
+  issuesForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
   togglePinnedSession: 'read.transcript', sessionSuggestions: 'read.transcript',
   // Sessions — reading the changes the agent made
   listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs', diffStatsBatch: 'read.diffs',
@@ -470,7 +477,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // A new worktree in the task folder of a session changes where its agent works.
   sessionAddRepositoryWorktree: 'drive.prompt', sessionWorktreeCandidates: 'drive.prompt',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
-  pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
+  pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', issuesLinkSession: 'edit', issuesUnlinkSession: 'edit',
   // An app's linked session: the app is its host owner's, and the edge is the session's.
   appSessionLink: 'edit', appSessionUnlink: 'edit',
   // Works — reading

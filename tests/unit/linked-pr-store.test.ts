@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import type { IpcContext } from '@solus/contracts/types'
 import type { RepoRef } from '@solus/contracts/providers'
-import type { TaskLink } from '@solus/contracts/task-types'
+import type { IssueLink } from '@solus/contracts/task-types'
 import { linkedPrIdentity } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 
@@ -22,9 +22,9 @@ function ctx(projectPath: string): IpcContext {
   return { session: { projectPath, workingDirectory: projectPath }, statusBar: {} } as IpcContext
 }
 
-function link(repo: string): TaskLink {
+function link(repo: string): IssueLink {
   return {
-    taskId: 'task', kind: 'pr', targetScope: '/old-project', targetKey: '42',
+    issueId: 'task', kind: 'pr', targetScope: '/old-project', targetKey: '42',
     title: '#42', url: `https://github.com/acme/${repo}/pull/42`, createdBy: { kind: 'user', user: { id: { kind: 'account', accountId: 'u1' }, displayName: 'U One' } }, linkedAt: 1,
   }
 }

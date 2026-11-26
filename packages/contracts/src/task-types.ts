@@ -6,55 +6,55 @@
 import type { AgentId, WorkType } from './types'
 import type { Attribution } from './user'
 import type { Activity } from './activity'
-import type { TaskSource, TaskStatusCategory } from './task-sources'
+import type { IssueSource, IssueStatusCategory } from './task-sources'
 import type { TaskProviderMetadata } from './task-data'
 
-export type TaskProviderId = 'github' | 'jira' | 'linear'
+export type IssueProviderId = 'github' | 'jira' | 'linear'
 
 /** A GitHub issue or a Jira issue is an `issue`. A `draft` is a GitHub Project
  *  item that is not an issue yet: it has no repository, reference or URL. */
-export type TaskKind = 'issue' | 'draft'
+export type IssueKind = 'issue' | 'draft'
 
 /** How a session relates to a task. `working` is an attempt; `referenced` is
  *  a relationship, not ownership. */
-export type TaskSessionRole = 'working' | 'referenced'
+export type IssueSessionRole = 'working' | 'referenced'
 
 /** The provider's own state of a task, in the provider's words: a Jira status,
  *  a GitHub repository planning status, or `Open` / `Closed` on GitHub. */
-export interface TaskState {
+export interface IssueState {
   /** The GitHub planning status ID, when the repository supplies one. */
   id?: string
   name: string
-  category: TaskStatusCategory
+  category: IssueStatusCategory
 }
 
 /** A status grouping that a task source owns: a GitHub Project Status option, a
  *  Jira board column, repository planning status or legacy Open / Closed, or a
  *  workflow status of a Jira project. Solus shows the provider's names in the provider's order. */
-export interface TaskColumn {
+export interface IssueColumn {
   id: string
   name: string
-  category: TaskStatusCategory
+  category: IssueStatusCategory
 }
 
 /** Where a task is in one source that lists it. `columnId` is null for a board
  *  item that has no column yet. */
-export interface TaskPlacement {
+export interface IssuePlacement {
   sourceKey: string
   columnId: string | null
 }
 
 /** A task field that Solus can send a change of to the provider. Which of them
  *  one task takes is `Task.writableFields`. */
-export type TaskField = 'title' | 'body' | 'labels' | 'assignee' | 'priority' | 'dueDate'
+export type IssueField = 'title' | 'body' | 'labels' | 'assignee' | 'priority' | 'dueDate'
 
 /**
  * The epic (a Jira parent, a GitHub parent issue) a task belongs to, as a
  * snapshot taken on each read. Solus shows it and gives its description to the
  * agent; it never creates, moves, or closes one.
  */
-export interface TaskEpic {
-  provider: TaskProviderId
+export interface IssueEpic {
+  provider: IssueProviderId
   /** The epic as a person reads it: an issue number or a Jira key. */
   externalId: string
   url: string
@@ -64,7 +64,7 @@ export interface TaskEpic {
 }
 
 /** A person the provider permits a task to be assigned to. */
-export interface TaskAssigneeCandidate {
+export interface IssueAssigneeCandidate {
   login: string
   avatarUrl?: string
 }
@@ -72,17 +72,17 @@ export interface TaskAssigneeCandidate {
 /** Normalized priority (undefined = unset). On GitHub it is read from a
  *  board's Priority field, or from conventional priority labels off a board.
  *  Drives the "what's next" sort and the priority badge. */
-export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
+export type IssuePriority = 'urgent' | 'high' | 'medium' | 'low'
 
 /** The newest pull request linked to a task in Solus, for compact display. */
-export interface TaskPr {
+export interface IssuePr {
   url: string
   /** Parsed from the URL for compact display (`#123`); 0 if unparseable. */
   number: number
 }
 
 /** Last host observation for a linked PR. It is display state, not a merge permission. */
-export interface TaskPrSnapshot {
+export interface IssuePrSnapshot {
   number: number
   url: string
   title: string
@@ -97,9 +97,9 @@ export interface TaskPrSnapshot {
  * a link made on the task itself, or a link that one of the task's sessions
  * owns (docs/plans/session-pull-requests.md).
  */
-export interface TaskSidebarPrLink {
+export interface IssueSidebarPrLink {
   /** What PR sync last saw. Absent until it first answers. */
-  snapshot?: TaskPrSnapshot
+  snapshot?: IssuePrSnapshot
   /** The code host says that this pull request does not exist. */
   missing?: boolean
   number: number
@@ -114,11 +114,11 @@ export interface TaskSidebarPrLink {
   ownerSessionId?: string
 }
 
-export interface Task {
-  /** The task key (`taskKey` in `task-sources.ts`): the only id of a task. */
+export interface Issue {
+  /** The task key (`issueKey` in `task-sources.ts`): the only id of a task. */
   id: string
-  providerId: TaskProviderId
-  kind: TaskKind
+  providerId: IssueProviderId
+  kind: IssueKind
   /** The task as a person reads it: `owner/repo#123` or `PROJ-12`. Absent on a draft. */
   reference?: string
   title: string
@@ -126,56 +126,39 @@ export interface Task {
   body: string
   /** Deep link to the task on its provider. Null for a draft. */
   url: string | null
-  state: TaskState
+  state: IssueState
   /** The one coarse status of the task: `done` when the provider closed it,
    *  `active` when its state or one of its columns is active, else `open`. */
-  category: TaskStatusCategory
+  category: IssueStatusCategory
   /** The sources that list the task, with its column in each. */
-  placements: TaskPlacement[]
-  assignees?: TaskAssigneeCandidate[]
+  placements: IssuePlacement[]
+  assignees?: IssueAssigneeCandidate[]
   assignee?: string
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
   labels: string[]
   /** The epic this task belongs to. Set only from a provider read. */
-  epic?: TaskEpic
+  epic?: IssueEpic
   /** Due date as an ISO calendar day (`YYYY-MM-DD`); drives sorting + overdue cues. */
   dueDate?: string
   /** Priority; drives the "what's next" sort and the priority badge. */
-  priority?: TaskPriority
+  priority?: IssuePriority
   /** The newest pull request linked to the task in Solus. */
-  pr?: TaskPr
+  pr?: IssuePr
   /** The fields the provider takes a change of for this task. A GitHub issue
    *  takes a priority or a due date only when a Project it is on has that field. */
-  writableFields: TaskField[]
+  writableFields: IssueField[]
   /** Epoch milliseconds, as the provider reports them. */
   createdAt?: number
   updatedAt: number
   /** Last time the task was visited or explicitly marked read on this host. */
   lastReadAt?: number
-  /** The reading person's own snooze (`TaskSnooze`), in epoch ms: their task
-   *  lists hide the task until then. A host never sends it on a task record; a
-   *  client fills it from `tasksSnoozes`, so one person's snooze never reaches
-   *  another. A time in the past is a snooze that ended and was not yet seen. */
-  snoozedUntil?: number
-  /** The reminder the reading person wrote with their snooze. */
-  snoozeNote?: string
-}
-
-/** One person's snooze of a task (docs/task-snooze.md). Only that person reads
- *  it: the task stays in everyone else's lists, and its status and agents do
- *  not change. */
-export interface TaskSnooze {
-  taskId: string
-  /** Epoch ms. A time in the past is a snooze that ended and was not yet woken. */
-  snoozedUntil: number
-  snoozeNote?: string
 }
 
 /** A new task. It is created on the provider, in one of the person's task
  *  sources. A GitHub Project source creates a draft item. */
-export interface TaskCreateInput {
-  source: TaskSource
+export interface IssueCreateInput {
+  source: IssueSource
   title: string
   body?: string
   /** A column of the source to start in. Absent = where the provider starts a task. */
@@ -183,37 +166,37 @@ export interface TaskCreateInput {
   assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
-  priority?: TaskPriority | null
+  priority?: IssuePriority | null
   labels?: string[]
 }
 
 /** A change of a task's fields, sent to the provider. A field outside the
  *  task's `writableFields` is refused. */
-export interface TaskUpdatePatch {
+export interface IssueUpdatePatch {
   title?: string
   body?: string
   assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
-  priority?: TaskPriority | null
+  priority?: IssuePriority | null
   labels?: string[]
 }
 
 /** Move to a source column, a GitHub repository status, or a status category
  *  where the host chooses the column of each source. */
-export type TaskMoveTarget =
+export type IssueMoveTarget =
   | { sourceKey: string; columnId: string }
-  | { category: TaskStatusCategory }
+  | { category: IssueStatusCategory }
   | { statusId: string }
 
 /** A comment on a task. Each comment is a provider comment; one that Solus
  *  could not send yet is `unsent` and stays on this host until it is sent or
  *  discarded. */
-export interface TaskComment {
+export interface IssueComment {
   /** Stable comment id on the provider, for reactions. */
   providerCommentId?: string
   id: string
-  taskId: string
+  issueId: string
   /** Who wrote a comment that Solus sent or holds. Absent on a comment that
    *  Solus only read from the provider. */
   author?: Attribution
@@ -232,8 +215,8 @@ export interface TaskComment {
  *  picker labels "Docs" (the `works` table, `WorkReference`); the renderer maps
  *  at that one boundary. `session` is deliberately absent: a session binding is
  *  the task's `works-on` or `reference` edge, which carries a role a plain link
- *  cannot (`TaskSessionLink`). */
-export type TaskLinkKind = 'work' | 'plan' | 'pr' | 'automation'
+ *  cannot (`IssueSessionLink`). */
+export type IssueLinkKind = 'work' | 'plan' | 'pr' | 'automation'
 
 /** An explicit edge from a task to another workspace object.
  *
@@ -248,9 +231,9 @@ export type TaskLinkKind = 'work' | 'plan' | 'pr' | 'automation'
  *  a PR (remote) or a target that has since been deleted. `liveTitle` and
  *  `liveStatus` are re-derived per read by joining the target's table, and are
  *  absent for kinds that do not live in this database (`pr`). */
-export interface TaskLink {
-  taskId: string
-  kind: TaskLinkKind
+export interface IssueLink {
+  issueId: string
+  kind: IssueLinkKind
   targetScope: string
   targetKey: string
   title: string
@@ -276,25 +259,25 @@ export interface TaskLink {
 }
 
 /** The identity of a link target — the key a reverse lookup takes. */
-export interface TaskLinkTarget {
-  kind: TaskLinkKind
+export interface IssueLinkTarget {
+  kind: IssueLinkKind
   targetScope: string
   targetKey: string
 }
 
 /** A task that links a target, as a conversation card names it: enough to
  *  label the edge and open the task, never the task's full record. */
-export interface TaskLinkedTask extends TaskLinkTarget {
-  taskId: string
+export interface IssueLinkedIssue extends IssueLinkTarget {
+  issueId: string
   title: string
-  category: TaskStatusCategory
+  category: IssueStatusCategory
   reference?: string
 }
 
 /** What a caller passes to link something; the store fills in the snapshot
  *  title it can resolve and the timestamp. */
-export interface TaskLinkInput {
-  kind: TaskLinkKind
+export interface IssueLinkInput {
+  kind: IssueLinkKind
   targetScope?: string
   targetKey: string
   /** Snapshot label. When omitted the store resolves it from the target's
@@ -312,9 +295,9 @@ export interface TaskLinkInput {
 }
 
 /** What a `task_changed` activity says Solus did to a task. Interleaved with
- *  `TaskComment[]` to build the feed. A change made on the provider has no
+ *  `IssueComment[]` to build the feed. A change made on the provider has no
  *  activity here: the provider keeps that history. */
-export type TaskEventKind =
+export type IssueEventKind =
   | 'created'
   | 'status_changed'
   | 'priority_changed'
@@ -333,14 +316,14 @@ export type TaskEventKind =
  * place — the renderer's `sessionsByTask`, fed by `taskSessions()` — because a
  * second copy on this object could only ever disagree with it, and the detail
  * surfaces that would render it are the ones that overwrite it. */
-export interface TaskDetails {
-  task: Task
+export interface IssueDetails {
+  task: Issue
   /** Provider fields already included in the detail read. */
   providerMetadata?: TaskProviderMetadata
   /** Repository planning statuses and the acting viewer’s permission. */
-  statusOptions?: TaskStatusOptions
-  comments: TaskComment[]
-  links: TaskLink[]
+  statusOptions?: IssueStatusOptions
+  comments: IssueComment[]
+  links: IssueLink[]
   /** The task's `task_changed` activity, newest last, capped at
    *  `TASK_ACTIVITY_LIMIT`. Merge with `comments` by time to build the feed. */
   activity: Activity[]
@@ -348,19 +331,19 @@ export interface TaskDetails {
   fromCache?: boolean
 }
 
-export interface TaskStatusOptions {
-  columns: TaskColumn[]
+export interface IssueStatusOptions {
+  columns: IssueColumn[]
   canSetStatus: boolean
 }
 
 /** What Solus holds about a task on one host: the answer of a host that has
  *  attachments of a task but does not read it from a provider, such as the
  *  organization's Solus API. */
-export type TaskAttachments = Pick<TaskDetails, 'links' | 'activity'>
+export type IssueAttachments = Pick<IssueDetails, 'links' | 'activity'>
 
-export interface TaskForSessionResult {
-  task: Task
-  attempts: TaskSessionLink[]
+export interface IssueForSessionResult {
+  task: Issue
+  attempts: IssueSessionLink[]
 }
 
 /**
@@ -370,29 +353,29 @@ export interface TaskForSessionResult {
  *
  * There is no `sessionId`: the session does not exist yet at first dispatch, and
  * the execution host — which may be a different machine entirely — issues it.
- * The link is written afterwards through `tasksLinkSession`.
+ * The link is written afterwards through `issuesLinkSession`.
  */
-export interface PrepareSessionTaskRequest {
+export interface PrepareSessionIssueRequest {
   /** The task the session joins. */
-  taskId: string
-  /** Also return a `TaskSnapshot` of the bound task. Set by a client about to
+  issueId: string
+  /** Also return a `IssueSnapshot` of the bound task. Set by a client about to
    *  dispatch to a different execution host, which needs the snapshot to ride
    *  the prompt (see docs/plans/dispatch-parity.md). */
   includeSnapshot?: boolean
 }
 
-export interface PrepareSessionTaskResult {
-  task: Task | null
+export interface PrepareSessionIssueResult {
+  task: Issue | null
   /** Present only when `includeSnapshot` was requested and a task was bound. */
-  snapshot: TaskSnapshot | null
+  snapshot: IssueSnapshot | null
 }
 
 /** A read-only copy of a content-bearing linked item — a work's document or a
  *  plan's markdown — shipped alongside the snapshot for dispatched sessions:
  *  the execution host cannot read the task host's stores, so
- *  `read_work`/`read_plan`/`find_works` answer from these copies. PR and
+ *  `read_work`/`read_plan`/`list_works` answer from these copies. PR and
  *  automation links ship no content: their facts (title, url, live status)
- *  already ride `TaskDetails.links`. */
+ *  already ride `IssueDetails.links`. */
 interface LinkedItemSnapshotBase {
   /** The link's target key: a work id, or a plan's `planToolUseId`. */
   key: string
@@ -403,7 +386,7 @@ interface LinkedItemSnapshotBase {
   updatedAt?: string
 }
 
-export type TaskLinkedItemSnapshot =
+export type IssueLinkedItemSnapshot =
   | (LinkedItemSnapshotBase & {
     kind: 'work'
     /** How the content renders. */
@@ -420,29 +403,31 @@ export type TaskLinkedItemSnapshot =
  * it verbatim and serves `read_issue` from the same shape. Assembled on the
  * task's own host; never persisted on the execution host.
  */
-export interface TaskSnapshot {
-  details: TaskDetails
-  sessions: TaskSessionLink[]
+export interface IssueSnapshot {
+  details: IssueDetails
+  sessions: IssueSessionLink[]
   /** Full content of the task's content-bearing linked items (works, plans),
    *  so the dispatched agent can read the documents its task points at.
    *  Absent on snapshots from older hosts. */
-  linked?: TaskLinkedItemSnapshot[]
+  linked?: IssueLinkedItemSnapshot[]
 }
 
 /** A task as a list shows it: every field of `Task` but the body and the epic,
  *  which only the detail read carries (plans/029 §8). */
-export type TaskSummary = Omit<Task, 'body' | 'epic'>
+export type IssueSummary = Omit<Issue, 'body' | 'epic'>
 
-/** One authoritative renderer snapshot of the tasks a host holds for the reader
- * and their session ownership, read together so the sidebar never has to
- * reconcile independently timed task and link responses. A host that holds
- * only attachments (the organization's Solus API) answers no tasks, and the
- * links of the task keys it knows. */
-export interface TaskSidebarSnapshot {
-  tasks: TaskSummary[]
-  sessionsByTask: Record<string, TaskSessionLink[]>
+/** `issuesList`: the issues a host holds for the reader and their session
+ * ownership, read together so the sidebar never has to reconcile independently
+ * timed issue and link responses. A host that holds only attachments (the
+ * organization's Solus API) answers no issues, and the links of the issue keys
+ * it knows. `sources` is there when the request named the person's sources. */
+export interface IssueList {
+  /** The host's last read of each source the request named. */
+  sources?: IssueSourceState[]
+  tasks: IssueSummary[]
+  sessionsByTask: Record<string, IssueSessionLink[]>
   /** Every durable PR edge, newest first. The first entry is the newest link. */
-  prLinkListsByTask?: Record<string, TaskSidebarPrLink[]>
+  prLinkListsByTask?: Record<string, IssueSidebarPrLink[]>
   /** The state of the list this answer covers. A whole read and a resume give
    *  it; send it back as `since` to resume. Absent from older hosts. */
   revision?: string
@@ -452,17 +437,17 @@ export interface TaskSidebarSnapshot {
   changedTaskIds?: string[]
 }
 
-/** `tasksSearchComments`: the tasks whose comments hold every word of a query
+/** `issuesSearchComments`: the tasks whose comments hold every word of a query
  *  (docs/plans/unified-search.md §7). */
-export interface TaskCommentSearchQuery {
+export interface IssueCommentSearchQuery {
   query: string
   /** One project; omit to search every project. */
   projectKey?: string
 }
 
 /** One task found by its comments, with the passage of the comment that matched. */
-export interface TaskCommentHit {
-  taskId: string
+export interface IssueCommentHit {
+  issueId: string
   commentId: string
   /** The comment's passage, each matched word between the markers of `search-snippet.ts`. */
   snippet: string
@@ -472,8 +457,18 @@ export interface TaskCommentHit {
 /** Narrows a sidebar snapshot to named tasks, so one changed task costs one
  *  row rather than the whole list. A named task absent from the answer was
  *  deleted or is no longer visible to the caller. */
-export interface TaskSidebarFilter {
-  taskIds?: string[]
+export interface IssueListRequest {
+  /** The person's sources, from their settings. The host reads each one that is
+   *  not fresh (every one with `refresh: 'force'`), `issues.sourcesChanged` says
+   *  when a read ends, and the answer carries their state. Only the task host
+   *  reads sources; it needs `host.use`. */
+  sources?: IssueSource[]
+  refresh?: 'stale' | 'force'
+  /** The key of one of `sources`: read its next pages from the provider before
+   *  answering. */
+  loadMore?: string
+  /** Only these rows. `[]` reads source state alone, with no rows. */
+  issueIds?: string[]
   /** The `revision` of the last answer this client applied for the whole list.
    *  The host then names only the tasks changed after it, or sends the whole
    *  list when it cannot. Ignored with `taskIds`. */
@@ -482,21 +477,21 @@ export interface TaskSidebarFilter {
 
 /** The most task ids one narrowed sidebar read may name. A client with more
  *  changes waiting reads the whole list instead. */
-export const MAX_SIDEBAR_TASK_IDS = 200
+export const MAX_SIDEBAR_ISSUE_IDS = 200
 
 /** Why a task source cannot be read. `reconnect` means the connection exists
  *  but lacks a permission the source needs (the GitHub `project` scope, the
  *  Jira Software scopes). */
-export type TaskSourceHealth = 'ok' | 'not_connected' | 'reconnect' | 'no_access' | 'error'
+export type IssueSourceHealth = 'ok' | 'not_connected' | 'reconnect' | 'no_access' | 'error'
 
 /** One task source of a project, as the host last read it for the reader. */
-export interface TaskSourceState {
+export interface IssueSourceState {
   sourceKey: string
-  source: TaskSource
+  source: IssueSource
   /** The source as a person reads it: `acme/app`, a Project's title, `SOL`, a board's name. */
   label: string
-  columns: TaskColumn[]
-  health: TaskSourceHealth
+  columns: IssueColumn[]
+  health: IssueSourceHealth
   /** Why `health` is not `ok`, in words a person can read. */
   message?: string
   /** Epoch ms of the last read that the provider answered. Absent = never read. */
@@ -504,12 +499,12 @@ export interface TaskSourceState {
   /** The source holds more tasks than the host read. Search reaches the rest. */
   truncated?: boolean
   nextCursor?: string | null
-  /** The host reads the source now; `tasks.sourcesChanged` says when it ends. */
+  /** The host reads the source now; `issues.sourcesChanged` says when it ends. */
   refreshing?: boolean
 }
 
 /** What a person can choose as a task source: what their GitHub and Jira connections list. */
-export interface TaskSourceOptions {
+export interface IssueSourceOptions {
   linear?: { connected: boolean; account?: string; workspaceId?: string; teams: Array<{ id: string; key: string; name: string }>; error?: string }
   github: {
     connected: boolean
@@ -543,7 +538,7 @@ export interface TaskSourceOptions {
 
 /** Stable marker prepended to auth/connection failures from a task provider,
  *  so the renderer can offer "Connect GitHub" without sniffing error prose. */
-export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '
+export const ISSUES_AUTH_ERROR_PREFIX = '[tasks-auth] '
 
 /**
  * Where a session ran, as only the client that dispatched it can state it.
@@ -569,8 +564,8 @@ export interface SessionExecutionHost {
 /** A Solus session linked to a task, surfaced on the task card as a back-link so
  *  the user can jump from a task to the work happening on it. An attachment:
  *  Solus stores it by task key and never writes it to the provider. */
-export interface TaskSessionLink {
-  taskId?: string
+export interface IssueSessionLink {
+  issueId?: string
   sessionId: string
   /** Display title from the indexed session's custom title or first message.
    *  Required, not optional: a reader that skips the `sessions` join produces a
@@ -595,7 +590,7 @@ export interface TaskSessionLink {
   /** Session-owned execution host, projected through the task/session join.
    *  Null means the task host for older and non-dispatched attempts. */
   executionServerId?: string | null
-  role?: TaskSessionRole
+  role?: IssueSessionRole
   /** Session-owned checkout branch, projected through the relationship. */
   branch?: string
   /** Checkout address on executionServerId (or the task host), when indexed. */

@@ -93,7 +93,7 @@ describe('provider host routing', () => {
   })
 })
 
-describe('paired devices on the Access tab', () => {
+describe('paired devices on Sharing & access', () => {
   test('a refused read of the pairings says why, and the rest of the tab still loads', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
@@ -136,5 +136,59 @@ describe('paired devices on the Access tab', () => {
     expect(store.sessions).toEqual([])
     expect(store.pairedDevices).toEqual([tablet])
     expect(store.pairedDevicesError).toBeNull()
+  })
+})
+
+describe('outside apps on Sharing & access', () => {
+  function useState() {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+  }
+
+  test('an address read for a host left behind does not show on the next host', async () => {
+    useState()
+    let answerOld!: (endpoint: { localUrl: string; publicUrl: string | null }) => void
+    mockedServerConnections.registerHost('old', {
+      connectionsAppEndpoint: () => new Promise((resolve) => { answerOld = resolve }),
+    })
+    mockedServerConnections.registerHost('new', {
+      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:2/mcp', publicUrl: null }),
+    })
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
+    const store = new ConnectionsStore()
+
+    const oldRead = store.loadAppEndpoint('old')
+    await store.loadAppEndpoint('new')
+    answerOld({ localUrl: 'http://localhost:1/mcp', publicUrl: 'https://old.example/mcp' })
+    await oldRead
+
+    expect(store.appEndpoint).toEqual({ localUrl: 'http://localhost:2/mcp', publicUrl: null })
+  })
+
+  test('a refused pairing code says why, and another host starts with no code', async () => {
+    useState()
+    mockedServerConnections.registerHost('locked', {
+      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:1/mcp', publicUrl: null }),
+      connectionsCreateAppPairingCode: async () => { throw new Error('A policy turns off remote access') },
+    })
+    mockedServerConnections.registerHost('open', {
+      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:2/mcp', publicUrl: null }),
+      connectionsCreateAppPairingCode: async () => ({ code: '123456', access: 'write', expiresAt: 10 }),
+    })
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
+    const store = new ConnectionsStore()
+
+    await store.loadAppEndpoint('open')
+    await store.createAppPairingCode('open', 'write')
+    expect(store.appPairingCode).toEqual({ code: '123456', access: 'write', expiresAt: 10 })
+
+    await store.loadAppEndpoint('locked')
+    expect(store.appPairingCode).toBeNull()
+    await store.createAppPairingCode('locked', 'write')
+    expect(store.appPairingCode).toBeNull()
+    expect(store.appPairingCodeError).toBe('A policy turns off remote access')
+    expect(store.appPairingCodeCreating).toBe(false)
   })
 })

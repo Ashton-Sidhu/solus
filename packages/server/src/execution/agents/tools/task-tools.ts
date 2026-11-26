@@ -1,4 +1,4 @@
-import { taskSessions, tasksForSession } from '../../../data/tasks/task-sessions'
+import { taskSessions, issuesForSession } from '../../../data/tasks/task-sessions'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
@@ -14,14 +14,14 @@ import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { hostUserKey } from '../../../host/host-user'
 import { captureActingScope } from '../../../vault/acting-scope'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
-import { inferTaskSourceKey, taskSourceKey, type TaskSource, type TaskSourceHints } from '@solus/contracts/task-sources'
+import { inferIssueSourceKey, issueSourceKey, type IssueSource, type IssueSourceHints } from '@solus/contracts/task-sources'
 import { resolvePrimaryRepoRef } from '../../../git/git-helpers'
 import { resolveHomePath } from '../../../platform/paths'
 import type {
-  TaskSessionLink,
-  Task as TaskRecord,
-  TaskLink as TaskLinkRecord,
-  TaskSummary,
+  IssueSessionLink,
+  Issue as TaskRecord,
+  IssueLink as TaskLinkRecord,
+  IssueSummary,
 } from '@solus/contracts/task-types'
 import type { AgentId } from '@solus/contracts/types'
 import { attributionLabel } from '@solus/contracts/user'
@@ -140,7 +140,7 @@ interface TaskToolArgs {
 }
 
 /** One task as a list line names it: the key an agent passes back, then what a person reads. */
-function taskLine(task: TaskSummary): string {
+function taskLine(task: IssueSummary): string {
   const meta = [task.priority ?? 'no priority', task.assignee ?? 'unassigned'].join(', ')
   return `${task.id}  [${task.category}]  ${task.reference ? `${task.reference}  ` : ''}${task.title}  (${meta})`
 }
@@ -163,16 +163,16 @@ async function listTasksTool({ args, deps, personKey }: TaskToolCall): Promise<T
   const input = listTasksInputSchema.parse(args)
   const status = input.status ?? 'all'
   // The person's own task sources, from the preferences the session's run was dispatched with.
-  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.taskSources
+  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.issueSources
   if (sources && !sources.length) return { ok: true, text: NO_TASK_SOURCE }
-  const sourceKeys = new Set(input.source ? [input.source.trim()] : sources?.map(taskSourceKey) ?? [])
+  const sourceKeys = new Set(input.source ? [input.source.trim()] : sources?.map(issueSourceKey) ?? [])
   // A run with no task sources in its preferences lists every task this host holds for the person.
   let tasks = await listTasks({ personKey, scope })
   if (sourceKeys.size) tasks = tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
   if (status !== 'all') tasks = tasks.filter((task) => task.category === status)
   const lines = tasks.slice(0, LIST_LIMIT).map(taskLine)
   const suffix = tasks.length > LIST_LIMIT ? `\n\nNote: ${tasks.length - LIST_LIMIT} more issues matched. Narrow the list with status.` : ''
-  const header = sources?.length ? `Issue sources: ${sources.map(taskSourceKey).join(', ')}\n\n` : ''
+  const header = sources?.length ? `Issue sources: ${sources.map(issueSourceKey).join(', ')}\n\n` : ''
   return { ok: true, text: `${header}${lines.length ? `Issues:\n${lines.join('\n')}${suffix}` : 'No issues matched.'}` }
 }
 
@@ -218,7 +218,7 @@ async function createTaskTool({ args, deps, personKey }: TaskToolCall): Promise<
   const parsed = createTaskInputSchema.parse(args)
   const title = parsed.title.trim()
   if (!title) return { ok: false, text: 'create_issue requires a non-empty title.' }
-  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.taskSources ?? []
+  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.issueSources ?? []
   if (!sources.length) return { ok: false, text: NO_TASK_SOURCE }
   const chosen = await newTaskSource(parsed.source?.trim(), sources, deps.ctx)
   if ('refusal' in chosen) return { ok: false, text: chosen.refusal }
@@ -227,9 +227,9 @@ async function createTaskTool({ args, deps, personKey }: TaskToolCall): Promise<
   const columnName = parsed.column?.trim().toLowerCase()
   let columnId: string | undefined
   if (columnName) {
-    const stored = (await loadTaskSources([taskSourceKey(source)])).get(taskSourceKey(source))
+    const stored = (await loadTaskSources([issueSourceKey(source)])).get(issueSourceKey(source))
     columnId = stored?.columns.find((column) => column.name.toLowerCase() === columnName)?.id
-    if (!columnId) return { ok: false, text: `The issue source ${taskSourceKey(source)} has no column "${parsed.column}".${stored ? ` Its columns: ${stored.columns.map((column) => column.name).join(', ')}.` : ''}` }
+    if (!columnId) return { ok: false, text: `The issue source ${issueSourceKey(source)} has no column "${parsed.column}".${stored ? ` Its columns: ${stored.columns.map((column) => column.name).join(', ')}.` : ''}` }
   }
   const task = await createTask({
     source,
@@ -248,15 +248,15 @@ async function createTaskTool({ args, deps, personKey }: TaskToolCall): Promise<
 }
 
 /** The source that `create_issue` writes to: the one the agent names, else the
- *  one the session points to (`inferTaskSourceKey`). A refusal names the
+ *  one the session points to (`inferIssueSourceKey`). A refusal names the
  *  person's sources, so that the agent can name one. */
 async function newTaskSource(
   named: string | undefined,
-  sources: readonly TaskSource[],
+  sources: readonly IssueSource[],
   ctx: TaskToolCtx,
-): Promise<{ source: TaskSource } | { refusal: string }> {
-  const sourceKey = named || inferTaskSourceKey(sources.map(taskSourceKey), await newTaskHints(ctx))
-  const source = sources.find((candidate) => taskSourceKey(candidate) === sourceKey)
+): Promise<{ source: IssueSource } | { refusal: string }> {
+  const sourceKey = named || inferIssueSourceKey(sources.map(issueSourceKey), await newTaskHints(ctx))
+  const source = sources.find((candidate) => issueSourceKey(candidate) === sourceKey)
   if (source) return { source }
   return {
     refusal: named
@@ -267,9 +267,9 @@ async function newTaskSource(
 
 /** What the calling session says about where its new task belongs: the task
  *  it works on, and the GitHub repository of its checkout. */
-async function newTaskHints(ctx: TaskToolCtx): Promise<TaskSourceHints> {
+async function newTaskHints(ctx: TaskToolCtx): Promise<IssueSourceHints> {
   const [linked, repository] = await Promise.all([
-    ctx.sessionId ? tasksForSession(scope, ctx.sessionId) : null,
+    ctx.sessionId ? issuesForSession(scope, ctx.sessionId) : null,
     ctx.cwd ? resolvePrimaryRepoRef(ctx.cwd).catch(() => null) : null,
   ])
   return {
@@ -279,10 +279,10 @@ async function newTaskHints(ctx: TaskToolCtx): Promise<TaskSourceHints> {
 }
 
 /** The person's sources as `key (label)`, so that an agent can name one. */
-async function sourceChoices(sources: readonly TaskSource[]): Promise<string> {
-  const stored = await loadTaskSources(sources.map(taskSourceKey))
+async function sourceChoices(sources: readonly IssueSource[]): Promise<string> {
+  const stored = await loadTaskSources(sources.map(issueSourceKey))
   return sources
-    .map((source) => `${taskSourceKey(source)} (${stored.get(taskSourceKey(source))?.label ?? taskSourceLabel(source)})`)
+    .map((source) => `${issueSourceKey(source)} (${stored.get(issueSourceKey(source))?.label ?? taskSourceLabel(source)})`)
     .join(', ')
 }
 
@@ -363,7 +363,7 @@ function formatTaskForAgent(
   columns: string[] = [],
   comments: Array<{ author: string; body: string; unsent: boolean }> = [],
   links: TaskLinkRecord[] = [],
-  sessions: Pick<TaskSessionLink, 'sessionId' | 'sessionTitle' | 'role'>[] = [],
+  sessions: Pick<IssueSessionLink, 'sessionId' | 'sessionTitle' | 'role'>[] = [],
   fromCache = false,
 ): string {
   const lines = [
@@ -403,7 +403,7 @@ function taskAgentTool(
       ctx: { sessionId: context.sessionId(), agentProvider: context.provider, cwd: resolveHomePath(context.cwd) },
       onTaskCreated: (task) => context.emit({
         type: 'task_created',
-        taskId: task.taskId,
+        issueId: task.taskId,
         title: task.title,
         url: task.url,
       }),

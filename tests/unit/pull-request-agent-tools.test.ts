@@ -8,7 +8,7 @@ import { selectChecks } from '@solus/server/providers/check-selection'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
 import { mergeAgentPullRequest } from '@solus/server/providers/github/pull-request-actions'
-import { claudeToolResponse } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import { actionsJobId, readActionsCheckLog, rerunActionsChecks } from '@solus/server/providers/github/check-runs'
 import { invalidateAgentPullRequestReads } from '@solus/server/providers/github/agent-pull-requests'
 import type { CodeHost } from '@solus/server/prs/code-host'
@@ -254,10 +254,10 @@ test('merge uses queue for a plain call, lands a ready auto call, and rejects a 
 
 test('Claude receives structured PR results with the existing text fallback', () => {
   const text = '{"number":42,"checks":{"pending":1}}'
-  expect(claudeToolResponse({ ok: true, text, format: 'json' })).toEqual({
+  expect(mcpToolResult({ ok: true, text, format: 'json' })).toEqual({
     content: [{ type: 'text', text }], structuredContent: { number: 42, checks: { pending: 1 } },
   })
-  expect(claudeToolResponse({ ok: false, text: 'Refused.' })).toEqual({
+  expect(mcpToolResult({ ok: false, text: 'Refused.' })).toEqual({
     content: [{ type: 'text', text: 'Refused.' }], isError: true,
   })
 })

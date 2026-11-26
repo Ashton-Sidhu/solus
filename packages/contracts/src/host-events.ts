@@ -128,10 +128,7 @@ export interface HostEventMap {
   'review.lensChanged': ReviewLensChangedEvent
   /** A task changed. `taskId` names it; no id means many tasks changed at
    *  once (a bulk sync, an import, a delete), so clients read everything. */
-  'tasks.invalidated': { taskId?: string }
-  /** The caller's own task snoozes changed. Delivered only to that person's
-   *  connections; they read `tasksSnoozes` again. Names nothing. */
-  'tasks.snoozesChanged': Record<string, never>
+  'issues.invalidated': { issueId?: string }
   /** The recipient opened these records on another client (docs/plans/person-state.md).
    *  Delivered only to that person's connections; a client keeps the later time of each. */
   'personHistory.changed': { entries: PersonHistoryEntry[] }
@@ -139,8 +136,8 @@ export interface HostEventMap {
    *  Delivered only to that person's connections; a client that shows this host's copy reads it again. */
   'personalDocument.changed': { kind: PersonalDocumentKind }
   /** The host read these task sources again, or one of them changed health.
-   *  Clients that show a source it names read `tasksSources` again. */
-  'tasks.sourcesChanged': { sourceKeys: string[] }
+   *  Clients that show a source it names read `issuesList` with their sources again. */
+  'issues.sourcesChanged': { sourceKeys: string[] }
   'workspaceProjects.changed': Record<string, never>
   /** A codebase was saved or deleted on this host. Clients read `codebaseList` again. */
   'codebases.changed': Record<string, never>
@@ -326,9 +323,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'review.lensChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review lens, its comments, or its job changed.' },
-  'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The host's copy of one or more tasks, or a task's attachments, changed." },
-  'tasks.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
-  'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
+  'issues.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The host's copy of one or more tasks, or a task's attachments, changed." },
+  'issues.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
   'personHistory.changed': { owner: 'people', category: 'delta', recovery: 'reload', description: 'The recipient opened records on another client; merge the later times.' },
   'personalDocument.changed': { owner: 'people', category: 'invalidation', recovery: 'reload', description: "The recipient's own settings or agent profile on this host changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },

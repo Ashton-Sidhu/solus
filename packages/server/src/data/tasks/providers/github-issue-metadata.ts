@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import type { TaskProviderMetadata, TaskProviderPullRequest } from '@solus/contracts/task-data'
+import { GITHUB_PROVIDER_CAPABILITIES, type TaskProviderMetadata, type TaskProviderPullRequest } from '@solus/contracts/task-data'
 import type { GraphQLClient } from '../../../providers/github/octokit'
+import { ISSUE_TIMELINE_FIELDS, issueHistoryOf, issueTimelineSchema } from './github-issue-timeline'
 
 export const ISSUE_REACTION_FIELDS = 'reactionGroups { content viewerHasReacted users { totalCount } }'
 const CLOSING_PR_FIELDS = 'pageInfo { hasNextPage endCursor } nodes { number title url state }'
@@ -8,6 +9,7 @@ export const ISSUE_PROVIDER_FIELDS = `
   author { login }
   ${ISSUE_REACTION_FIELDS}
   closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { ${CLOSING_PR_FIELDS} }
+  ${ISSUE_TIMELINE_FIELDS}
 `
 
 export const githubReactionContent = z.enum(['THUMBS_UP', 'THUMBS_DOWN', 'LAUGH', 'HOORAY', 'CONFUSED', 'HEART', 'ROCKET', 'EYES'])
@@ -28,6 +30,7 @@ const metadataSchema = target.extend({
   author: z.object({ login: z.string() }).nullable(),
   assignees: z.object({ nodes: z.array(z.object({ login: z.string(), avatarUrl: z.string() })) }),
   comments: z.object({ totalCount: z.number(), nodes: z.array(target) }),
+  timelineItems: issueTimelineSchema.nullish(),
   ...closingReferences.shape
 })
 export type GitHubIssueMetadataSelection = Partial<z.input<typeof metadataSchema>>
@@ -51,9 +54,10 @@ export const githubIssueIdentity = z.object({
 })
 export type GitHubIssueProviderSelection = z.infer<typeof githubIssueIdentity> & GitHubIssueMetadataSelection
 
-/** Follow only the closing-PR connection when its first page is incomplete. */
+/** Follow only the closing-PR connection when its first page is incomplete.
+ *  The newest page of history comes with the selection, so it costs no read. */
 export async function githubIssueMetadata(
-  selection: GitHubIssueMetadataSelection, graphql: GraphQLClient
+  taskId: string, selection: GitHubIssueMetadataSelection, graphql: GraphQLClient
 ): Promise<TaskProviderMetadata | undefined> {
   const parsed = metadataSchema.safeParse(selection)
   if (!parsed.success) return undefined
@@ -82,7 +86,10 @@ export async function githubIssueMetadata(
     page = z.object({ node: closingReferences }).parse(answer).node.closedByPullRequestsReferences
     if (!page) throw new Error('GitHub did not return the next page of closing pull requests.')
   }
+  const history = node.timelineItems ? issueHistoryOf(taskId, node.timelineItems) : null
+  for (const pr of history?.pullRequests ?? []) if (!pullRequests.has(pr.url)) pullRequests.set(pr.url, pr)
   return {
+    ...(history && { events: history.events, comments: history.comments, historyCursor: history.historyCursor }),
     commentsTruncated: node.comments.totalCount > node.comments.nodes.length,
     author: node.author?.login ?? null,
     assignees: node.assignees.nodes,
@@ -94,6 +101,7 @@ export async function githubIssueMetadata(
         viewerHasReacted: group.viewerHasReacted
       }))
     ),
-    pullRequests: [...pullRequests.values()]
+    pullRequests: [...pullRequests.values()],
+    capabilities: GITHUB_PROVIDER_CAPABILITIES
   }
 }

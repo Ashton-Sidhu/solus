@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Layers as LayersIcon, TriangleAlert as WarningIcon, X as XIcon } from "@lucide/svelte";
-  import { taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getClientShellContext, getSettingsContext, taskSourcesStore } from "../../contexts";
+  import { issueSourceProvider } from "@solus/contracts/task-sources";
+  import { getClientShellContext, getSettingsContext, issueSourcesStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { SourceLogo } from "../ui/list-page";
   import TaskSourceAdd from "./sources/TaskSourceAdd.svelte";
@@ -16,7 +16,7 @@
    * (docs/plans/provider-owned-tasks.md §7). A source that cannot be read
    * shows a warning that is its repair; the × removes a source, with Undo.
    * The last chip adds a source. There is no default source: a new task goes
-   * where its work says (`inferTaskSourceKey`).
+   * where its work says (`inferIssueSourceKey`).
    */
   interface Props {
     /** The source on screen. Null = all sources. */
@@ -32,8 +32,8 @@
   const settings = getSettingsContext();
   const shell = getClientShellContext();
 
-  const config = $derived({ taskSources: settings.taskSources });
-  const rows = $derived(sourceStripRows(config, taskSourcesStore.sources));
+  const config = $derived({ issueSources: settings.issueSources });
+  const rows = $derived(sourceStripRows(config, issueSourcesStore.sources));
   function save(patch: Parameters<typeof saveTaskSources>[1]): boolean {
     const isSaved = saveTaskSources(settings, patch);
     if (isSaved) onChanged();
@@ -43,21 +43,21 @@
   // No confirm: the tasks stay on the provider, and Undo puts the source back
   // where it was.
   function remove(row: SourceStripRow) {
-    const before = $state.snapshot(config.taskSources);
+    const before = $state.snapshot(config.issueSources);
     if (!save(withoutTaskSource(config, row.sourceKey))) return;
-    toasts.undo(`Removed ${row.label}`, () => save({ taskSources: before }));
+    toasts.undo(`Removed ${row.label}`, () => save({ issueSources: before }));
   }
 
   // The repair the warning stands for: the connection, or a new read.
   function repair(row: SourceStripRow) {
     const health = row.state?.health;
     if (health === "not_connected" || health === "reconnect") openConnections();
-    else void taskSourcesStore.load({ refresh: "force" });
+    else void issueSourcesStore.load({ refresh: "force" });
   }
 
   // The repair of a connection: the connections page of the host that reads the sources.
   function openConnections() {
-    const serverId = taskSourcesStore.host;
+    const serverId = issueSourcesStore.host;
     if (serverId) shell.openResource({ kind: "connections", serverId });
   }
 </script>
@@ -102,7 +102,7 @@
           onclick={() => onSelect(rows.length === 1 ? null : row.sourceKey)}
           class="flex h-7 min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent pr-1.5 pl-2.5 text-workspace-chrome text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
         >
-          <SourceLogo source={taskSourceProvider(row.source)} />
+          <SourceLogo source={issueSourceProvider(row.source)} />
           <span class="truncate">{row.label}</span>
         </button>
         {#if note && health !== "ok"}
@@ -133,7 +133,7 @@
           <button
             type="button"
             class="pointer-events-none flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 [grid-area:1/1] group-focus-within/chip:pointer-events-auto group-focus-within/chip:opacity-60 group-hover/chip:pointer-events-auto group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:pointer-events-auto pointer-coarse:tap-area pointer-coarse:opacity-60"
-            title="Remove {row.label}. The issues stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
+            title="Remove {row.label}. The issues stay on {issueSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
             aria-label="Remove {row.label}"
             onclick={() => remove(row)}
           >

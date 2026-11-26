@@ -7,8 +7,9 @@
 import { z } from 'zod'
 import type { DocProviderId } from './docs'
 import { PRESENCE_COLOR_COUNT } from './presence'
-import type { TaskProviderId } from './task-types'
+import type { IssueProviderId } from './task-types'
 import type { AgentId } from './types'
+import { agentIdSchema } from './types'
 
 /** The kind of person, and their id in that kind (U3). */
 export type UserId =
@@ -33,7 +34,7 @@ export type Attribution =
    *  `provider` is absent only on a record written before Solus stored it. */
   | { kind: 'agent'; sessionId: string; provider?: AgentId; title?: string; for?: User }
   | { kind: 'automation'; automationId: string; name?: string; for?: User }
-  | { kind: 'upstream'; provider: DocProviderId | TaskProviderId }
+  | { kind: 'upstream'; provider: DocProviderId | IssueProviderId }
   | { kind: 'system' }
 
 export const userIdSchema: z.ZodType<UserId> = z.discriminatedUnion('kind', [
@@ -54,7 +55,7 @@ export const attributionSchema: z.ZodType<Attribution> = z.discriminatedUnion('k
   z.object({
     kind: z.literal('agent'),
     sessionId: z.string(),
-    provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+    provider: agentIdSchema.optional(),
     title: z.string().optional(),
     for: userSchema.optional(),
   }),

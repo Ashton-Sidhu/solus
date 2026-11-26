@@ -7,7 +7,7 @@ import type {
   SessionPullRequestSource,
   SessionPullRequestsBySession,
 } from '@solus/contracts/session-pull-requests'
-import type { TaskPrSnapshot } from '@solus/contracts/task-types'
+import type { IssuePrSnapshot } from '@solus/contracts/task-types'
 import type { Attribution } from '@solus/contracts/user'
 import { attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { getDatabase } from '../../db/database'
@@ -215,7 +215,7 @@ function titleOf(row: Pick<Row, 'title' | 'pr_title'>): string {
 
 /** The part of a pull request a row draws, as PR sync last saw it: display
  *  state, never a permission. */
-function snapshotOf(row: Row): TaskPrSnapshot | null {
+function snapshotOf(row: Row): IssuePrSnapshot | null {
   if (!row.pr_state || row.pr_state === 'missing' || row.pr_updated_at === null) return null
   const parsed = parseGitHubPullRequestUrl(row.url)
   if (!parsed) return null

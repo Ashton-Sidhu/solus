@@ -206,6 +206,16 @@
   {:catch}
     {@render loadError()}
   {/await}
+{:else if session.settingsTab === "sharing" && selectedSettingsHost}
+  {#key selectedSettingsHost.serverId}
+    {#await settingsSection("sharing")}
+      {@render loading()}
+    {:then { default: SharingAccessPage }}
+      <SharingAccessPage serverId={selectedSettingsHost.serverId} />
+    {:catch}
+      {@render loadError()}
+    {/await}
+  {/key}
 {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
   {#await settingsSection("tools")}
     {@render loading()}

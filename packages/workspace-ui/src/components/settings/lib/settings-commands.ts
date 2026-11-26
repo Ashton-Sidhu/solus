@@ -1,4 +1,4 @@
-import { Building2, FileSearch, FolderGit2, RefreshCw, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
+import { Building2, FileSearch, FolderGit2, RefreshCw, Share2, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
@@ -33,6 +33,23 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
     icon: ShieldCheck,
     keywords: ['policy', 'managed', 'mdm', 'lock', 'permission', 'limit', 'insights', 'export', 'mobileconfig'],
     run: () => shell.showSettings('policy', 'palette'),
+  }]
+}
+
+/**
+ * The palette entry for Settings → Sharing & access (docs/outside-apps.md), shared
+ * by desktop and web. The page opens on the host of the current session, else on
+ * this device's host. "Use Solus in other apps" and "Approve an app sign-in" open
+ * the dialog, not the page (fleet-commands.ts).
+ */
+export function sharingAccessCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
+  return [{
+    id: 'open-sharing-access',
+    label: 'Sharing & access',
+    group: 'General',
+    icon: Share2,
+    keywords: ['sharing', 'access', 'mcp', 'outside apps', 'connected apps', 'authorized clients', 'paired devices', 'pairing', 'revoke', 'pair code'],
+    run: () => shell.showSettings('sharing', 'palette'),
   }]
 }
 

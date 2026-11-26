@@ -23,7 +23,7 @@ import { taskEpicRow } from '@solus/workspace-ui/components/tasks/task-page/lib/
 import { taskMoveGroups } from '@solus/workspace-ui/components/tasks/task-page/lib/task-move'
 import { taskPrRows } from '@solus/workspace-ui/components/tasks/task-page/lib/task-prs'
 import { taskRow } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
-import type { Task, TaskField, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Issue, IssueField, IssueLink, IssueSessionLink } from '@solus/contracts/task-types'
 import type { Activity } from '@solus/contracts/activity'
 import { activityLine } from '@solus/workspace-ui/components/activity/lib/activity-line'
 import type { Work } from '@solus/contracts/types'
@@ -46,8 +46,8 @@ describe('an artifact on the task activity feed', () => {
     target: { kind: 'work', scope: '', key: 'work-1', title: 'Latency report' },
     at: 1,
   } satisfies Activity
-  const artifact: TaskLink = {
-    taskId: 't',
+  const artifact: IssueLink = {
+    issueId: 't',
     kind: 'work',
     targetScope: '',
     targetKey: 'work-1',
@@ -88,7 +88,7 @@ describe('an artifact on the task activity feed', () => {
 })
 
 describe('task comment session attribution', () => {
-  const session: TaskSessionLink = {
+  const session: IssueSessionLink = {
     sessionId: 'session-123456789',
     sessionTitle: 'Fix comment attribution',
     provider: 'codex',
@@ -122,7 +122,7 @@ describe('task comment session attribution', () => {
 })
 
 describe('the task conversation', () => {
-  const link = (sessionId: string, role?: TaskSessionLink['role'], linkedAt = 1): TaskSessionLink => ({
+  const link = (sessionId: string, role?: IssueSessionLink['role'], linkedAt = 1): IssueSessionLink => ({
     sessionId,
     sessionTitle: sessionId,
     provider: 'claude-code',
@@ -226,7 +226,7 @@ describe('task list assignee avatars', () => {
       assigneeAvatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4',
       labels: [],
       updatedAt: Date.parse('2026-08-04T12:00:00Z'),
-    } satisfies Task
+    } satisfies Issue
 
     expect(taskRow(task, 0, Date.parse('2026-08-04T13:00:00Z')).people).toEqual([
       expect.objectContaining({
@@ -239,8 +239,8 @@ describe('task list assignee avatars', () => {
 })
 
 describe('linked pull requests', () => {
-  const prLink = (targetKey: string, title: string): TaskLink => ({
-    taskId: '01J',
+  const prLink = (targetKey: string, title: string): IssueLink => ({
+    issueId: '01J',
     kind: 'pr',
     targetScope: '/repo',
     targetKey,
@@ -249,7 +249,7 @@ describe('linked pull requests', () => {
     linkedAt: 1,
   })
 
-  const resolved = (link: TaskLink, title = link.title, state: 'open' | 'merged' = 'merged'): LinkedPr => ({
+  const resolved = (link: IssueLink, title = link.title, state: 'open' | 'merged' = 'merged'): LinkedPr => ({
     ...linkedPrIdentity(link, '/repo')!, title,
     pullRequest: pullRequestFixture(Number(link.targetKey), { state, title }),
   })
@@ -258,14 +258,14 @@ describe('linked pull requests', () => {
     // WHY: two places listing the same PR would disagree the moment one of them
     // learns the PR merged.
     const links = [prLink('418', 'Unify picker index'), {
-      taskId: '01J',
+      issueId: '01J',
       kind: 'work',
       targetScope: '',
       targetKey: 'w1',
       title: 'RFC',
       createdBy: { kind: 'user', user: ME },
       linkedAt: 2,
-    } satisfies TaskLink]
+    } satisfies IssueLink]
     expect(linkedTableLinks(links).map((link) => link.kind)).toEqual(['work'])
   })
 
@@ -302,8 +302,8 @@ describe('linked pull requests', () => {
     // the read joins the work's type into `liveStatus`. The row must say
     // "Artifact" and offer the in-place render, without the type leaking into
     // the status column as a bare word.
-    const artifact: TaskLink = {
-      taskId: 't1',
+    const artifact: IssueLink = {
+      issueId: 't1',
       kind: 'work',
       targetScope: '',
       targetKey: 'w-art',
@@ -358,14 +358,14 @@ describe('linked pull requests', () => {
 
 describe('linked work providers', () => {
   const workLink = {
-    taskId: '01J',
+    issueId: '01J',
     kind: 'work',
     targetScope: '',
     targetKey: 'work-1',
     title: 'Published RFC',
     createdBy: { kind: 'user', user: ME },
     linkedAt: 1,
-  } satisfies TaskLink
+  } satisfies IssueLink
 
   test('shows a provider only when the linked work has a mirrored doc', () => {
     const linkedWork = {
@@ -381,9 +381,9 @@ describe('linked work providers', () => {
 })
 
 describe('the Kind column becomes a group header where there is no column', () => {
-  const link = (over: Partial<TaskLink>): TaskLink =>
+  const link = (over: Partial<IssueLink>): IssueLink =>
     ({
-      taskId: '01J',
+      issueId: '01J',
       kind: 'work',
       targetScope: '',
       targetKey: 'k',
@@ -391,7 +391,7 @@ describe('the Kind column becomes a group header where there is no column', () =
       createdBy: { kind: 'user', user: ME },
       linkedAt: 1,
       ...over,
-    }) satisfies TaskLink
+    }) satisfies IssueLink
 
   test('keeps the wide table\'s kind order, so the same reader finds the same sequence', () => {
     const groups = linkGroups([
@@ -573,9 +573,9 @@ describe('the move menu', () => {
 })
 
 describe('which fields the page lets the person edit', () => {
-  const taskWith = (writable: TaskField[]) => ({
+  const taskWith = (writable: IssueField[]) => ({
     providerId: 'github' as const,
-    canWrite: (field: TaskField) => writable.includes(field),
+    canWrite: (field: IssueField) => writable.includes(field),
   })
 
   test('an editor is enabled only for a field that the provider takes for this task', () => {

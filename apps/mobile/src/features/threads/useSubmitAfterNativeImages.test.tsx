@@ -134,3 +134,15 @@ it("replaces only the prepared photos' placeholders while their upload is pendin
   expect(state.queue.preparingImageCount).toBe(0);
   expect(state.onSubmit).not.toHaveBeenCalled();
 });
+
+it("keeps native paste slots across the file handoff, including partial provider failure", async () => {
+  using state = setup();
+  act(() => state.queue.adjustImageReservations(2));
+  expect(state.queue.preparingImageCount).toBe(2);
+  act(() => { void state.queue.pasteImages(["a"], 2); });
+  expect(state.queue.preparingImageCount).toBe(1);
+  act(() => state.previews[0]!());
+  expect(state.queue.preparingImageCount).toBe(0);
+  await state.finish(true);
+  expect(state.queue.preparingImageCount).toBe(0);
+});

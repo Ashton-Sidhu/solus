@@ -36,7 +36,7 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
     // A session share grants no host device access (docs/plans/native-devices.md, D3).
     if (event.type === 'device.stateChanged' || event.type === 'device.surfaceRequested') return false
     // A guest link never reaches a task (docs/plans/provider-owned-tasks.md §4.3).
-    if (event.type === 'tasks.invalidated' || event.type === 'tasks.sourcesChanged') return false
+    if (event.type === 'issues.invalidated' || event.type === 'issues.sourcesChanged') return false
     return resource !== null && await shares.roleFor(principal, resource) !== 'none'
   }
   const owned = ownedResourceOf(event)
@@ -86,8 +86,8 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'device.stateChanged',
   'session.indexChanged',
   'attention.snapshotChanged',
-  'tasks.invalidated',
-  'tasks.sourcesChanged',
+  'issues.invalidated',
+  'issues.sourcesChanged',
   'workspaceProjects.changed',
   'codebases.changed',
   'projects.changed',

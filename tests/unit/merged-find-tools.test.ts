@@ -51,7 +51,7 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-describe('find_works answers with or without a query', () => {
+describe('list_works answers with or without a query', () => {
   test('no query lists the open works; a query searches their content', async () => {
     await works.createWork('local', 
       'Rate limit handling',
@@ -63,19 +63,19 @@ describe('find_works answers with or without a query', () => {
       process.cwd(),
     )
 
-    const listed = await workTools.findWorksAgentTool.execute({}, toolContext('find-works'))
+    const listed = await workTools.listWorksAgentTool.execute({}, toolContext('find-works'))
     expect(listed.ok).toBe(true)
     expect(listed.text).toContain('Rate limit handling')
 
     // The point of the query half: it matches body text no title carries.
-    const searched = await workTools.findWorksAgentTool.execute(
+    const searched = await workTools.listWorksAgentTool.execute(
       { query: 'dead transport' },
       toolContext('find-works'),
     )
     expect(searched.ok).toBe(true)
     expect(searched.text).toContain('Rate limit handling')
 
-    const missed = await workTools.findWorksAgentTool.execute(
+    const missed = await workTools.listWorksAgentTool.execute(
       { query: 'nothing writes this phrase' },
       toolContext('find-works'),
     )

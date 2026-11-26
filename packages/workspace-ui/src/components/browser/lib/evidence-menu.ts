@@ -2,7 +2,7 @@ import TaskIcon from '../../ui/TaskIcon.svelte'
 import { Camera } from '@lucide/svelte'
 import { GitPullRequestIcon } from '../../ui/octicons'
 import type { BrowserEvidenceOptions, BrowserEvidenceTarget } from '@solus/contracts/browser-types'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 
 /**
  * What the capture button offers, and what each choice means.
@@ -32,14 +32,14 @@ export interface EvidenceChoice {
 /** Tasks worth filing against: the tasks that are not done. A done task is
  *  not where the evidence for the current change belongs. A task belongs to
  *  no project, so the page's project does not narrow the list. */
-export function attachableTasks<T extends Pick<Task, 'category'>>(tasks: readonly T[]): T[] {
+export function attachableTasks<T extends Pick<Issue, 'category'>>(tasks: readonly T[]): T[] {
   return tasks.filter((task) => task.category !== 'done')
 }
 
 /** `tasks` is the answer of `attachableTasks`. */
 export function evidenceChoices(
   options: BrowserEvidenceOptions,
-  tasks: Task[],
+  tasks: Issue[],
   cwd: string | undefined,
 ): EvidenceChoice[] {
   // "Capture only" leads: it is the one choice that always works and never goes
@@ -64,7 +64,7 @@ export function evidenceChoices(
       label: task.title,
       detail: task.state.name,
       icon: TaskIcon,
-      target: { kind: 'task', taskId: task.id },
+      target: { kind: 'task', issueId: task.id },
     })
   }
   return choices

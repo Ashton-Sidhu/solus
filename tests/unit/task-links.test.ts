@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskSessionLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueSessionLink, IssueSidebarPrLink } from '@solus/contracts/task-types'
 import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from '@solus/workspace-ui/contexts/tasks/task-links'
 
-function link(sessionId: string, linkedAt: number, sessionTitle: string | null = null): TaskSessionLink {
+function link(sessionId: string, linkedAt: number, sessionTitle: string | null = null): IssueSessionLink {
   return { sessionId, sessionTitle, provider: 'claude-code', model: null, startedAt: null, lastActivityAt: null, linkedAt }
 }
 
@@ -75,7 +75,7 @@ describe('session links of one task key from more than one host', () => {
 })
 
 describe('pull request links from more than one host', () => {
-  const pr = (number: number, targetScope: string | undefined, title: string): TaskSidebarPrLink => ({ number, targetScope, title })
+  const pr = (number: number, targetScope: string | undefined, title: string): IssueSidebarPrLink => ({ number, targetScope, title })
 
   test('one pull request is one repository and one number', () => {
     // WHY: two hosts can hold the link to the same pull request, and #12 of

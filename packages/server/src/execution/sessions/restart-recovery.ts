@@ -46,7 +46,7 @@ export class RestartRecovery {
       author: request.actor?.user ?? null, authority,
       prompt: request.options.displayPrompt ?? request.options.prompt,
       options: state === 'starting' ? optionsToResend(request) : undefined,
-      taskId: request.options.taskId, queueId: request.servedQueueId, backgroundTools: [],
+      issueId: request.options.issueId, queueId: request.servedQueueId, backgroundTools: [],
       clientPromptId,
     })
   }
@@ -108,7 +108,7 @@ export class RestartRecovery {
       held: !!error, error, author: saved.author ?? undefined, revision: 0,
       run: { sessionId: saved.sessionId, target: { kind: 'session', sessionId: saved.sessionId }, input,
         runId: crypto.randomUUID(), tools: [], actor,
-        options: saved.options ? { ...saved.options, clientPromptId } : { prompt, displayPrompt: prompt, clientPromptId, promptSource: 'agent', taskId: saved.taskId } },
+        options: saved.options ? { ...saved.options, clientPromptId } : { prompt, displayPrompt: prompt, clientPromptId, promptSource: 'agent', issueId: saved.issueId } },
       resolve() {}, reject() {},
     }
     try {

@@ -378,15 +378,15 @@ export const browserSnapshotAgentTool = browserTool({
     + 'wrong: wait for the page with browser_wait_for and take the snapshot again. '
     + 'This is how you verify a UI change at a viewport instead of guessing. The user '
     + 'sees the screenshot in the conversation as soon as you take it, so report what you found '
-    + 'rather than narrating the picture. Pass attach_to_task_id or attach_to_pr_number to file the '
+    + 'rather than narrating the picture. Pass attach_to_issue_id or attach_to_pr_number to file the '
     + 'capture where it will outlive this session — a UI change needs before/after images on its '
     + 'pull request, and this is how they get there.',
   inputFields: {
     browserPageId: z.string(),
     screenshot: z.boolean().optional().describe('Default true. Set false for structure only.'),
     maxElements: z.number().optional().describe('Cap on returned elements. Default 120.'),
-    attach_to_task_id: z.string().optional().describe(
-      'File the capture as a comment on this task. It renders inline in Solus and stays local.',
+    attach_to_issue_id: z.string().optional().describe(
+      'File the capture as a comment on this issue. It renders inline in Solus and stays local.',
     ),
     attach_to_pr_number: z.number().optional().describe(
       'File the capture as a comment on this pull request. The image is published to the repository '
@@ -438,7 +438,7 @@ export const browserSnapshotAgentTool = browserTool({
  * instead, where the agent can act on it — usually by connecting GitHub.
  */
 async function fileCapture(
-  input: { attach_to_task_id?: string | undefined; attach_to_pr_number?: number | undefined; caption?: string | undefined },
+  input: { attach_to_issue_id?: string | undefined; attach_to_pr_number?: number | undefined; caption?: string | undefined },
   assetId: string,
   snapshot: BrowserSnapshot,
   context: AgentToolContext,
@@ -459,10 +459,10 @@ async function fileCapture(
 /** A pull request is addressed by number plus the checkout it belongs to — the
  *  session's own working directory, because that is the one the agent is in. */
 function evidenceTargetFrom(
-  input: { attach_to_task_id?: string | undefined; attach_to_pr_number?: number | undefined },
+  input: { attach_to_issue_id?: string | undefined; attach_to_pr_number?: number | undefined },
   context: AgentToolContext,
 ): BrowserEvidenceTarget | null {
-  if (input.attach_to_task_id) return { kind: 'task', taskId: input.attach_to_task_id }
+  if (input.attach_to_issue_id) return { kind: 'task', issueId: input.attach_to_issue_id }
   if (input.attach_to_pr_number) return { kind: 'pr', number: input.attach_to_pr_number, cwd: context.cwd }
   return null
 }
@@ -487,12 +487,12 @@ export const browserRecordStopAgentTool = browserTool({
   name: 'browser_record_stop',
   description:
     'Stop recording a browser page and save the MP4. The user sees the recording in the conversation '
-    + 'as soon as it stops. Pass attach_to_task_id or attach_to_pr_number to file it where it will '
+    + 'as soon as it stops. Pass attach_to_issue_id or attach_to_pr_number to file it where it will '
     + 'outlive this session — a recording that is not filed is deleted after a day.',
   inputFields: {
     browserPageId: z.string(),
-    attach_to_task_id: z.string().optional().describe(
-      'File the recording as a comment on this task. It plays inline in Solus and stays local.',
+    attach_to_issue_id: z.string().optional().describe(
+      'File the recording as a comment on this issue. It plays inline in Solus and stays local.',
     ),
     attach_to_pr_number: z.number().optional().describe(
       'File the recording as a comment on this pull request. The video is uploaded to GitHub first, '

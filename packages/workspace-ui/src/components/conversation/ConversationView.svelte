@@ -105,6 +105,7 @@
     keepTranscriptVisible = false,
     onReady,
     viewState = new ConversationViewState(),
+    paneId,
   }: {
     tabId: string;
     forceVisible?: boolean;
@@ -116,6 +117,9 @@
     /** The pool hands back what the reader left open and where they were.
      *  A split-pane view keeps its own. */
     viewState?: ConversationViewState;
+    /** The pane this view fills, when it fills one of its own; unset in the
+     *  workspace's own column. The Run on shortcut names it. */
+    paneId?: string;
   } = $props();
   // Read once: a view is mounted for one tab and keeps that tab's state.
   const { disclosure, turnExpansion, virtualizer } = untrack(() => viewState);
@@ -190,8 +194,8 @@
   // belongs to — the one-click target. Resolved once here, not per card.
   const conversationTaskId = $derived(
     sess
-      ? (session.tasksStore.taskForSession(sess.id)?.id ??
-        session.tasksStore.taskForSession(sess.agentSessionId)?.id ??
+      ? (session.issuesStore.taskForSession(sess.id)?.id ??
+        session.issuesStore.taskForSession(sess.agentSessionId)?.id ??
         null)
       : null,
   );
@@ -976,6 +980,7 @@
       {#if showSessionActions}
         <SessionActionRow
           {tabId}
+          {paneId}
           isAwayFromEnd={arrival.isAwayFromEnd}
           onJumpToEnd={jumpToEnd}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}

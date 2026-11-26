@@ -1,6 +1,6 @@
 import type { PinnedSession } from '@solus/contracts/types'
 import type { DraftRow } from './draft-list'
-import type { SidebarTask } from './task-list'
+import type { SidebarSession } from './sidebar-rows'
 import type { SidebarFolder } from './sidebar-project-folders'
 
 /** Where a row sits in the one list. */
@@ -23,7 +23,7 @@ export type SidebarListItem =
   /** A project folder's header, in the project view only. */
   | { kind: 'folder'; key: string; folder: SidebarFolder }
   /** `folderKey` names the project folder a row sits in, in the project view. */
-  | { kind: 'task'; key: string; section: SidebarSection; task: SidebarTask; folderKey?: string }
+  | { kind: 'session'; key: string; section: SidebarSection; session: SidebarSession; folderKey?: string }
   /** A pinned session the list has no row for, such as a closed one. */
   | { kind: 'pinned'; key: string; pin: PinnedSession }
 
@@ -50,30 +50,30 @@ export function groupSidebarListItems(items: readonly SidebarListItem[]) {
  *  session when the list has one. */
 export interface PinnedEntry {
   pin: PinnedSession
-  row: SidebarTask | null
+  row: SidebarSession | null
 }
 
 export interface SidebarListInput {
   drafts: readonly DraftRow[]
   /** Open sessions that are not working. Every row stands for one session; a
    *  session linked to a task names it in its tooltip. */
-  sessions: readonly SidebarTask[]
+  sessions: readonly SidebarSession[]
   /** Other people's sessions in the reader's list (docs/plans/shared-with-you.md). */
-  shared: readonly SidebarTask[]
+  shared: readonly SidebarSession[]
   /** The sessions the person pinned, open or not. No other section lists them. */
   pinned: readonly PinnedEntry[]
   /** Open sessions whose agent is busy without the user. */
-  working: readonly SidebarTask[]
-  snoozed: readonly SidebarTask[]
-  completed: readonly SidebarTask[]
+  working: readonly SidebarSession[]
+  snoozed: readonly SidebarSession[]
+  completed: readonly SidebarSession[]
   isSharedOpen: boolean
   isWorkingOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
   /** The row a collapsed section still shows: the one holding the conversation
    *  on screen, so the row you are reading never disappears into a section. The
-   *  store leaves out a row the user is completing (`shelfRevealTaskId`). */
-  shelfRevealTaskId: string | null
+   *  store leaves out a row the user is completing (`shelfRevealRowId`). */
+  shelfRevealRowId: string | null
 }
 
 /**
@@ -82,21 +82,21 @@ export interface SidebarListInput {
  * shape, which the list cross-fades, while a row that keeps its shape — a slim
  * row moving within a shelf — keeps its element and slides.
  */
-export function taskItem(task: SidebarTask, section: SidebarSection): Extract<SidebarListItem, { kind: 'task' }> {
+export function sessionItem(task: SidebarSession, section: SidebarSection): Extract<SidebarListItem, { kind: 'session' }> {
   // A working row keeps its card shape when a turn starts or finishes.
   const isCard = section === 'sessions' || section === 'shared' || section === 'working'
   const variant = isCard ? 'card' : 'slim'
-  return { kind: 'task', key: `${task.key}:${variant}`, section, task }
+  return { kind: 'session', key: `${task.key}:${variant}`, section, session: task }
 }
 
 export function sectionItems(
   name: SidebarShelf,
-  tasks: readonly SidebarTask[],
+  tasks: readonly SidebarSession[],
   isOpen: boolean,
-  shelfRevealTaskId: string | null,
+  shelfRevealRowId: string | null,
 ): SidebarListItem[] {
   if (tasks.length === 0) return []
-  const shown = isOpen ? tasks : tasks.filter((task) => task.id === shelfRevealTaskId)
+  const shown = isOpen ? tasks : tasks.filter((task) => task.id === shelfRevealRowId)
   return [
     {
       kind: 'header',
@@ -104,9 +104,9 @@ export function sectionItems(
       section: name,
       count: tasks.length,
       isOpen,
-      canToggle: tasks.some((task) => task.id !== shelfRevealTaskId),
+      canToggle: tasks.some((task) => task.id !== shelfRevealRowId),
     },
-    ...shown.map((task) => taskItem(task, name)),
+    ...shown.map((task) => sessionItem(task, name)),
   ]
 }
 
@@ -114,7 +114,7 @@ export function sectionItems(
 export function pinnedItems(entries: readonly PinnedEntry[]): SidebarListItem[] {
   return entries.map((entry): SidebarListItem =>
     entry.row
-      ? taskItem(entry.row, 'pinned')
+      ? sessionItem(entry.row, 'pinned')
       : { kind: 'pinned', key: `pinned:${entry.pin.serverId ?? ''}:${entry.pin.sessionId}`, pin: entry.pin },
   )
 }
@@ -145,11 +145,11 @@ export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[
     ...pinnedItems(input.pinned),
     ...draftItems(input.drafts),
     // Active sessions stay visible below the drafts and cannot collapse.
-    ...input.sessions.map((task) => taskItem(task, 'sessions')),
-    ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
-    ...sectionItems('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
-    ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
-    ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
+    ...input.sessions.map((task) => sessionItem(task, 'sessions')),
+    ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealRowId),
+    ...sectionItems('working', input.working, input.isWorkingOpen, input.shelfRevealRowId),
+    ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealRowId),
+    ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealRowId),
   ]
 }
 
@@ -163,6 +163,6 @@ export function sidebarListOrderKey(
   items: readonly ({ kind: string; key: string } | SidebarListItem)[],
 ): string {
   return items
-    .map((item) => ('section' in item && item.kind === 'task' ? `${item.key}:${item.section}` : item.key))
+    .map((item) => ('section' in item && item.kind === 'session' ? `${item.key}:${item.section}` : item.key))
     .join('\0')
 }

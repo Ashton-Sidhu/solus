@@ -495,10 +495,11 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
   const { comments, nextCursor, loadingOlder, canLoadOlder } = useAtomValue(pager.view);
   const detail = detailQuery.data;
   const providerTaskId = detail?.providerTaskId;
-  const activityQuery = useEnvironmentQuery(providerTaskId
+  // GitHub's detail carries the newest history; other providers read it here.
+  const activityQuery = useEnvironmentQuery(providerTaskId && !detail?.firstActivity
     ? solusIssueActivity({ environmentId: target.environmentId, input: { taskId: providerTaskId, timelineOnly: detail?.timelineOnly } })
     : null);
-  const firstActivityPage = activityQuery.data;
+  const firstActivityPage = activityQuery.data ?? detail?.firstActivity;
   const [history, setHistory] = useState<{
     first: NonNullable<typeof firstActivityPage>;
     later: NonNullable<typeof firstActivityPage>;

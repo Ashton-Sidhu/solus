@@ -29,7 +29,7 @@ interface WorkCommentSendContext {
     hostFor(workId: string): string | null
     ensureContent(workId: string, reason: string, cwd?: string): Promise<boolean>
   }
-  tasksStore: {
+  issuesStore: {
     ensureLinkedTasks(
       targets: Array<{ kind: 'work'; targetScope: string; targetKey: string }>,
       serverId?: string,
@@ -141,7 +141,7 @@ function contextWith(events: string[], owningTaskId: string | null = 'task-1'): 
       hostFor: () => 'task-host',
       ensureContent: async () => true,
     },
-    tasksStore: {
+    issuesStore: {
       ensureLinkedTasks: async (targets, serverId) => {
         events.push(`lookup:${targets[0]?.targetKey}:${serverId}`)
       },

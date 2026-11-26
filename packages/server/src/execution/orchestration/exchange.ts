@@ -14,7 +14,10 @@ export type ExchangeState = 'dispatched' | 'queued' | 'running' | 'awaiting_inpu
 export interface Exchange {
   exchangeId: string
   kind: 'create' | 'independent' | 'prompt'
-  /** The session that sent the message; its cards hear every change, and its report is delivered to it. */
+  /** Who sent the message: a session id, or the requester key of an outside
+   *  app (`client:<grantId>`, plans/035 §8). A session's cards hear every
+   *  change, and its report is delivered to it; an app has neither and reads
+   *  the exchange with `read_session_exchange`. */
   senderSessionId: string
   /** The target session, known from dispatch: a created session's id is chosen before its provider starts. */
   targetSessionId: string
@@ -62,6 +65,18 @@ export type ExchangeEvent =
   | { type: 'revision_requested' }
   | { type: 'children_pending'; runId: string }
   | { type: 'settled'; runId?: string; outcome: ExchangeOutcome }
+
+const CLIENT_REQUESTER_PREFIX = 'client:'
+
+/** The requester key of an outside app (plans/035 §8): it sends messages, and has no session. */
+export function clientRequesterKey(grantId: string): string {
+  return `${CLIENT_REQUESTER_PREFIX}${grantId}`
+}
+
+/** The session that sent an exchange; undefined for an outside app, which has none. */
+export function senderSessionOf(sender: string): string | undefined {
+  return sender.startsWith(CLIENT_REQUESTER_PREFIX) ? undefined : sender
+}
 
 export function isOpenExchange(exchange: Exchange): boolean {
   return exchange.state !== 'settled'

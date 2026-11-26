@@ -1,4 +1,4 @@
-import type { TaskLinkedTask } from '@solus/contracts/task-types'
+import type { IssueLinkedIssue } from '@solus/contracts/task-types'
 import { taskRef } from '../../lib/tasks-api'
 
 /**
@@ -16,7 +16,7 @@ export interface TaskLinkContext {
 
 /** `#412` or `PROJ-12`, as a task row names the task. A task with no
  *  reference is a draft item of a board. */
-export function linkedTaskRef(task: Pick<TaskLinkedTask, 'reference'>): string {
+export function linkedTaskRef(task: Pick<IssueLinkedIssue, 'reference'>): string {
   return taskRef({ reference: task.reference, kind: task.reference ? 'issue' : 'draft' })
 }
 
@@ -27,14 +27,14 @@ export type TaskLinkControlState =
    *  it has one — the one-click target. */
   | { kind: 'none'; currentTask: TaskLinkedTaskSummary | null }
   /** Exactly one task links this: name it, and offer the way out. */
-  | { kind: 'one'; task: TaskLinkedTask; label: string }
+  | { kind: 'one'; task: IssueLinkedIssue; label: string }
   /** Several do: count them, and offer the picker to manage the set. */
-  | { kind: 'many'; tasks: TaskLinkedTask[]; label: string }
+  | { kind: 'many'; tasks: IssueLinkedIssue[]; label: string }
 
-export type TaskLinkedTaskSummary = Pick<TaskLinkedTask, 'taskId' | 'title' | 'category' | 'reference'>
+export type TaskLinkedTaskSummary = Pick<IssueLinkedIssue, 'issueId' | 'title' | 'category' | 'reference'>
 
 export function taskLinkControlState(
-  linked: TaskLinkedTask[] | undefined,
+  linked: IssueLinkedIssue[] | undefined,
   currentTask: TaskLinkedTaskSummary | null,
 ): TaskLinkControlState {
   if (!linked) return { kind: 'unknown' }
@@ -65,25 +65,25 @@ export interface TaskLinkPickerRow extends TaskLinkedTaskSummary {
 
 export function taskLinkPickerRows(
   candidates: TaskLinkedTaskSummary[],
-  linked: TaskLinkedTask[],
+  linked: IssueLinkedIssue[],
   currentTaskId: string | null,
 ): TaskLinkPickerRow[] {
-  const linkedIds = new Set(linked.map((edge) => edge.taskId))
+  const linkedIds = new Set(linked.map((edge) => edge.issueId))
   const seen = new Set<string>()
   const rows: TaskLinkPickerRow[] = []
   const push = (task: TaskLinkedTaskSummary) => {
-    if (seen.has(task.taskId)) return
-    seen.add(task.taskId)
+    if (seen.has(task.issueId)) return
+    seen.add(task.issueId)
     rows.push({
-      taskId: task.taskId,
+      issueId: task.issueId,
       title: task.title,
       category: task.category,
       reference: task.reference,
-      linked: linkedIds.has(task.taskId),
-      current: task.taskId === currentTaskId,
+      linked: linkedIds.has(task.issueId),
+      current: task.issueId === currentTaskId,
     })
   }
-  const current = candidates.find((task) => task.taskId === currentTaskId)
+  const current = candidates.find((task) => task.issueId === currentTaskId)
   if (current) push(current)
   for (const task of candidates) push(task)
   for (const edge of linked) push(edge)

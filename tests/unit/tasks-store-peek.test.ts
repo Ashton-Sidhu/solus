@@ -16,19 +16,19 @@ afterAll(() => {
 const world = await createTasksWorld()
 const detailReads: string[] = []
 world.connections.registerPrimary('local', {
-  tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-  tasksGet: async (id: string) => {
+  issuesList: async () => ({ tasks: [], sessionsByTask: {} }),
+  issuesGet: async (id: string) => {
     detailReads.push(id)
     return { task: issueRecord(id, { title: 'Opened by its key' }), comments: [], links: [], activity: [] }
   },
 })
 const fixture = runes.module('fixture', `
   import { flushSync } from 'svelte'
-  import { TasksStore } from ${JSON.stringify(world.modules.tasksStore)}
+  import { IssuesStore } from ${JSON.stringify(world.modules.issuesStore)}
   // The task page reads \`peek\` from its template, which is an effect: read it
   // the same way, so the derived caches and invalidates as it does in the app.
   export function open(taskId) {
-    const tasks = new TasksStore()
+    const tasks = new IssuesStore()
     const page = $state({ title: null })
     $effect.root(() => {
       const shown = $derived(tasks.peek(taskId))

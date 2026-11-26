@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import { onMount } from "svelte";
-  import type { TaskLinkInput, TaskLinkKind } from "@solus/contracts/task-types";
+  import type { IssueLinkInput, IssueLinkKind } from "@solus/contracts/task-types";
   import { getPlanStore, getPullRequestsContext, getWorkspaceContext } from "../../../contexts";
   import { ReferenceIndex } from "../../editor/unified-autocomplete/reference-index.svelte";
   import { rank } from "../../editor/unified-autocomplete/rank";
@@ -10,7 +10,7 @@
 
   interface Props {
     projectCwd: string | undefined;
-    onPick: (input: TaskLinkInput) => void;
+    onPick: (input: IssueLinkInput) => void;
     onClose: () => void;
   }
 
@@ -55,7 +55,7 @@
 
   /** The picker labels a Solus document "Doc"; the wire calls it `work`. This
    *  is the one boundary that translates. */
-  function linkFor(item: MenuItem): TaskLinkInput | null {
+  function linkFor(item: MenuItem): IssueLinkInput | null {
     const token = item.token;
     switch (token.kind) {
       case "work":
@@ -92,7 +92,7 @@
     plan: "Plan",
     automation: "Automation",
     pr: "PR",
-  } satisfies Record<TaskLinkKind, string>;
+  } satisfies Record<IssueLinkKind, string>;
 
   // A modal: shortcuts behind it stay quiet while it is open.
   useScope("modal-dialog", { exclusive: true, pre: true });

@@ -1,4 +1,4 @@
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import { createLogger } from '../../logger'
 import { cachedTask, moveTask } from './task'
 import { linkTaskSession } from './task-attachments'
@@ -11,7 +11,7 @@ interface PrepareSessionTaskInput {
    * dispatch: its task is bound already. */
   existingAgentSessionId?: string | null
   /** The task the session joins. */
-  taskId: string
+  issueId: string
   sessionId?: string
 }
 
@@ -29,20 +29,20 @@ interface PrepareSessionTaskInput {
  * `organizationId` is the caller's, for the link of a session that has no
  * record yet.
  */
-export async function prepareSessionTask(organizationId: string, input: PrepareSessionTaskInput): Promise<Task | null> {
+export async function prepareSessionTask(organizationId: string, input: PrepareSessionTaskInput): Promise<Issue | null> {
   if (input.existingAgentSessionId) return null
-  assertTaskKey(input.taskId)
-  let task = await cachedTask(input.taskId).catch((error) => {
-    log.warn('session_task_unreadable', { taskId: input.taskId, error: error instanceof Error ? error.message : String(error) })
+  assertTaskKey(input.issueId)
+  let task = await cachedTask(input.issueId).catch((error) => {
+    log.warn('session_task_unreadable', { taskId: input.issueId, error: error instanceof Error ? error.message : String(error) })
     return null
   })
   // A provider session id is not available during the usual pre-launch bind;
   // the later `linkTaskSession` write makes the link then.
-  if (input.sessionId) await linkTaskSession(organizationId, input.taskId, input.sessionId, 'working')
+  if (input.sessionId) await linkTaskSession(organizationId, input.issueId, input.sessionId, 'working')
   if (task?.category === 'open') {
-    task = await moveTask(input.taskId, { category: 'active' }).catch(async (error) => {
-      log.warn('session_task_start_move_failed', { taskId: input.taskId, error: error instanceof Error ? error.message : String(error) })
-      return loadTask(input.taskId)
+    task = await moveTask(input.issueId, { category: 'active' }).catch(async (error) => {
+      log.warn('session_task_start_move_failed', { taskId: input.issueId, error: error instanceof Error ? error.message : String(error) })
+      return loadTask(input.issueId)
     })
   }
   return task

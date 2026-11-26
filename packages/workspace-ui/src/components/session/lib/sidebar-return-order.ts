@@ -1,4 +1,4 @@
-import { isInWorkingSection, type SidebarTask } from './task-list'
+import { isInWorkingSection, type SidebarSession } from './sidebar-rows'
 
 /**
  * When each row came back to the user, as this client saw it: the moment a row
@@ -14,7 +14,7 @@ export class SidebarReturnOrder {
   private returnedAtByRowId = new Map<string, number>()
   private workingRowIds: Set<string> | null = null
 
-  observe(rows: readonly SidebarTask[], now: number): void {
+  observe(rows: readonly SidebarSession[], now: number): void {
     const working = new Set<string>()
     const present = new Set<string>()
     for (const row of rows) {
@@ -31,7 +31,7 @@ export class SidebarReturnOrder {
     this.workingRowIds = working
   }
 
-  returnedAt(row: SidebarTask): number {
+  returnedAt(row: SidebarSession): number {
     return Math.max(row.createdAt, this.returnedAtByRowId.get(row.id) ?? 0)
   }
 }

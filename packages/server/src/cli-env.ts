@@ -216,7 +216,7 @@ export function getCliPath(): string {
 /** Walk a PATH ourselves, the way `which` is supposed to — the fallback for
  *  callers that can't afford to believe a probe which answers "nothing". */
 export function findOnPath(bin: string, path: string, includeManaged = true): string | null {
-  const managed = includeManaged && (bin === 'claude' || bin === 'codex') ? agentExecutables[bin].binary : null
+  const managed = includeManaged && isManagedAgentCommand(bin) ? agentExecutables[bin].binary : null
   if (managed) return managed
   if (isWindows) return findWindowsCommand(bin, path, process.env.PATHEXT)
   for (const dir of path.split(':')) {
@@ -256,7 +256,7 @@ export function hostCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  */
 export function startableCommand(file: string, env: NodeJS.ProcessEnv): ResolvedCommand {
   // A managed native package is selected by an atomic file, not a shell shim.
-  if (file === 'claude' || file === 'codex') file = findOnPath(file, env.PATH ?? getCliPath()) ?? file
+  if (isManagedAgentCommand(file)) file = findOnPath(file, env.PATH ?? getCliPath()) ?? file
   // A path names its file, unless that file is a shim Node cannot start.
   if (!isWindows || (/[\\/]/.test(file) && !/\.(?:cmd|bat)$/i.test(file))) return { file, args: [] }
   const path = Object.entries(env).find(([name]) => name.toUpperCase() === 'PATH')?.[1] ?? getCliPath()
@@ -531,4 +531,13 @@ export class AgentExecutable {
   }
 }
 
-export const agentExecutables = { claude: new AgentExecutable('claude'), codex: new AgentExecutable('codex') }
+export const agentExecutables = {
+  claude: new AgentExecutable('claude'),
+  codex: new AgentExecutable('codex'),
+  agy: new AgentExecutable('agy'),
+} satisfies Record<SetupAgent, AgentExecutable>
+
+/** A command Solus can install and select itself (`updates/agent-software.ts`). */
+function isManagedAgentCommand(command: string): command is SetupAgent {
+  return Object.hasOwn(agentExecutables, command)
+}

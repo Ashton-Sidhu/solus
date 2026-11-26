@@ -19,7 +19,7 @@ export function settledUpdate(
     messageId: exchange.exchangeId, status: outcome, replyText: reply, settledAt: Date.now(),
   }
   if (exchange.outputs.length) update.outputs = exchange.outputs
-  if (taskId) update.taskId = taskId
+  if (taskId) update.issueId = taskId
   if (metrics?.durationMs !== undefined) update.durationMs = metrics.durationMs
   if (metrics?.toolCallCount !== undefined) update.toolCallCount = metrics.toolCallCount
   return update

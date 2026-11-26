@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { readSessionMeta } from "@solus/client-core/session-meta";
-  import type { Task, TaskLink } from "@solus/contracts/task-types";
+  import type { Issue, IssueLink } from "@solus/contracts/task-types";
   import type { SessionMeta } from "@solus/contracts/types";
   import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
@@ -34,19 +34,19 @@
     /** The list has no row yet and its reads are in flight. */
     loading: boolean;
     query: string;
-    sessionsFor: (task: Task) => SidebarSessionChild[];
+    sessionsFor: (task: Issue) => SidebarSessionChild[];
     /** Where the dropdowns portal, so they paint above the search's scrim. */
     portalTarget: HTMLElement | null;
     /** ⏎ on the row: the primary button makes the same move. */
     onActivate: (entry: PickerEntry) => void;
     onSelectSession: (session: SidebarSessionChild) => void;
-    onSelectTask: (task: Task) => void;
-    onStartDraft: (task: Task) => void;
-    onOpenTaskPage: (task: Task) => void;
-    onOpenSource: (task: Task) => void;
-    onOpenLink: (task: Task, link: TaskLink) => void;
+    onSelectTask: (task: Issue) => void;
+    onStartDraft: (task: Issue) => void;
+    onOpenTaskPage: (task: Issue) => void;
+    onOpenSource: (task: Issue) => void;
+    onOpenLink: (task: Issue, link: IssueLink) => void;
     onOpenExternal: (url: string) => void;
-    onUnlink: (link: TaskLink) => void;
+    onUnlink: (link: IssueLink) => void;
   }
   let {
     entry,

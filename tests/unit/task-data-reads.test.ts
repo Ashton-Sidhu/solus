@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test'
 import { TaskDataStore } from '@solus/client-core/task-data'
 import { taskReadOptionsSchema, type TaskReadOptions } from '@solus/contracts/task-read'
-import type { TaskDetails } from '@solus/contracts/task-types'
+import type { IssueDetails } from '@solus/contracts/task-types'
 import type { TaskProviderData } from '@solus/contracts/task-data'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import { FakeApi } from './helpers/native-mobile-fakes'
 import { deferred, hostWorld } from './helpers/native-mobile-prs-fixtures'
 
-const details: TaskDetails = {
+const details: IssueDetails = {
   task: {
     id: 'github:I1',
     providerId: 'github',
@@ -41,22 +41,22 @@ async function storeWith(api: FakeApi) {
 }
 
 test('normal detail reads stay compatible and concurrent readers share one request', async () => {
-  const answer = deferred<TaskDetails>(),
-    api = new FakeApi().on('tasksGet', () => answer.promise)
+  const answer = deferred<IssueDetails>(),
+    api = new FakeApi().on('issuesGet', () => answer.promise)
   const store = await storeWith(api),
     first = store.loadDetails(),
     second = store.loadDetails()
   expect(first).toBe(second)
   answer.resolve(details)
   await first
-  expect(api.callsOf('tasksGet')).toEqual([[details.task.id]])
+  expect(api.callsOf('issuesGet')).toEqual([[details.task.id]])
   expect(store.current.details.value).toEqual(details)
   expect(store.current.provider.value).toBeNull()
 })
 
 test('provider failures do not hide task content, and older history reads request no task body', async () => {
   let fail = true
-  const api = new FakeApi().on('tasksGet', (_id: string, read?: TaskReadOptions) => {
+  const api = new FakeApi().on('issuesGet', (_id: string, read?: TaskReadOptions) => {
     if (read?.section !== 'provider') return details
     if (fail) throw new Error('History rate limited')
     return { ...provider, historyCursor: read.cursor ? null : 'older' }
@@ -68,7 +68,7 @@ test('provider failures do not hide task content, and older history reads reques
   fail = false
   await store.loadProvider()
   await store.loadOlderHistory()
-  expect(api.callsOf('tasksGet').slice(-1)).toEqual([
+  expect(api.callsOf('issuesGet').slice(-1)).toEqual([
     [details.task.id, { section: 'provider', cursor: 'older' }]
   ])
   expect(store.current.provider.value?.historyCursor).toBeNull()
@@ -76,7 +76,7 @@ test('provider failures do not hide task content, and older history reads reques
 })
 
 test('when the issue already has reactions and closing links, activity asks only for the timeline', async () => {
-  const api = new FakeApi().on('tasksGet', () => ({ ...provider, author: null }))
+  const api = new FakeApi().on('issuesGet', () => ({ ...provider, author: null }))
   const store = await storeWith(api)
   const metadata = {
     author: 'Ada', assignees: [], reactions: [],
@@ -86,12 +86,12 @@ test('when the issue already has reactions and closing links, activity asks only
     }],
   }
   await store.loadProvider(metadata)
-  expect(api.callsOf('tasksGet')).toEqual([[details.task.id, { section: 'provider', timelineOnly: true }]])
+  expect(api.callsOf('issuesGet')).toEqual([[details.task.id, { section: 'provider', timelineOnly: true }]])
   expect(store.current.provider.value).toMatchObject({ author: 'Ada', pullRequests: metadata.pullRequests })
 })
 
 test('an older host that ignores the requested section gives a retryable error', async () => {
-  const store = await storeWith(new FakeApi().on('tasksGet', () => details))
+  const store = await storeWith(new FakeApi().on('issuesGet', () => details))
   await store.loadDetails()
   await store.loadProvider()
   expect(store.current.details.value).toEqual(details)
@@ -106,17 +106,17 @@ test('task read sections reject unrelated cursors and the separate inspection RP
   )
   expect(taskReadOptionsSchema.safeParse({ section: 'provider', cursor: '' }).success).toBe(false)
   expect(taskReadOptionsSchema.safeParse({ section: 'anything' }).success).toBe(false)
-  expect(RPC_INVOKE_METHODS.some((method) => method === 'tasksGet')).toBe(true)
+  expect(RPC_INVOKE_METHODS.some((method) => method === 'issuesGet')).toBe(true)
   expect(RPC_INVOKE_METHODS.some((method) => String(method) === 'tasksInspect')).toBe(false)
 })
 
 test('a refresh after a write cannot reuse or be overwritten by a read started before the write', async () => {
-  const old = deferred<TaskDetails>(),
+  const old = deferred<IssueDetails>(),
     started = deferred<void>()
   let reads = 0
   const updated = { ...details, task: { ...details.task, title: 'Updated title' } }
   const store = await storeWith(
-    new FakeApi().on('tasksGet', () => {
+    new FakeApi().on('issuesGet', () => {
       if (++reads === 1) {
         started.resolve()
         return old.promise

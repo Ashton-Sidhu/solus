@@ -1,9 +1,9 @@
 import { parseGitHubPullRequestUrl, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { repositoryKeyOf } from '@solus/contracts/repository-key'
-import type { TaskLink, TaskPrSnapshot, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueLink, IssuePrSnapshot, IssueSidebarPrLink } from '@solus/contracts/task-types'
 import type { IpcContext } from '@solus/contracts/types'
 
-export type PrLink = TaskLink | TaskSidebarPrLink
+export type PrLink = IssueLink | IssueSidebarPrLink
 
 export interface LinkedPr {
   key: string
@@ -11,7 +11,7 @@ export interface LinkedPr {
   targetScope: string
   title: string
   url: string | null
-  pullRequest: PullRequest | TaskPrSnapshot | null
+  pullRequest: PullRequest | IssuePrSnapshot | null
   /** PR sync found that the code host has no such pull request. */
   missing: boolean
 }
@@ -50,7 +50,7 @@ export function repositoryContext(ctx: IpcContext, repository: string): IpcConte
 
 /** Prefer a newer saved host observation to a stale client response. At equal
  * timestamps the full live record retains viewer-specific review attention. */
-export function latestPrObservation(live: PullRequest | TaskPrSnapshot | null | undefined, saved?: PullRequest | TaskPrSnapshot | null): PullRequest | TaskPrSnapshot | null {
+export function latestPrObservation(live: PullRequest | IssuePrSnapshot | null | undefined, saved?: PullRequest | IssuePrSnapshot | null): PullRequest | IssuePrSnapshot | null {
   if (!saved) return live ?? null
   if (!live || Date.parse(saved.updatedAt) > Date.parse(live.updatedAt)) return saved
   return live

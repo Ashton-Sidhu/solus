@@ -1,4 +1,5 @@
 import { mediaTypeFor } from "@solus/contracts/media-types";
+import type { BrowserSnapshotRef } from "@solus/contracts/browser-types";
 import type { IpcContext } from "@solus/contracts/types";
 import { requestInputFocus } from "./inputFocus";
 import { splitFileLine } from "./file-href";
@@ -12,6 +13,9 @@ export interface FilePreviewRequest {
   mediaKind?: "image" | "video";
   /** Images in the carousel, in display order. Paths use the same source. */
   gallery?: readonly string[];
+  /** The browser captures among the gallery's paths. The viewer offers their
+   *  page actions when it shows one. */
+  snapshots?: readonly BrowserSnapshotRef[];
   source?: { serverId?: string; cwd?: string; ctx?: IpcContext };
 }
 

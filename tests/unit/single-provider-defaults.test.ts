@@ -140,6 +140,11 @@ describe('the agent a new automation is created on', () => {
     expect(automationAgents(agents).map((entry) => entry.id)).toEqual(['claude-code', 'codex'])
   })
 
+  test('an Antigravity host can run an automation on Antigravity', () => {
+    const agents = [agent('claude-code', false), agent('antigravity', true)]
+    expect(runnableAutomationAgent(agents, 'antigravity')).toBe('antigravity')
+  })
+
   test('never offers an agent with no headless runner', () => {
     const agents = [agent('opencode', true), agent('codex', true)]
     expect(runnableAutomationAgent(agents, 'opencode')).toBe('codex')

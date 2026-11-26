@@ -1,17 +1,17 @@
 import type { TaskInvolvement, TaskProviderMetadata } from '@solus/contracts/task-data'
 import type { z } from 'zod'
-import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueRef, IssueSource, IssueStatusCategory } from '@solus/contracts/task-sources'
 import type {
-  TaskAssigneeCandidate,
-  TaskColumn,
-  TaskEpic,
-  TaskField,
-  TaskKind,
-  TaskPriority,
-  TaskSourceHealth,
-  TaskState,
-  TaskStatusOptions,
-  TaskUpdatePatch,
+  IssueAssigneeCandidate,
+  IssueColumn,
+  IssueEpic,
+  IssueField,
+  IssueKind,
+  IssuePriority,
+  IssueSourceHealth,
+  IssueState,
+  IssueStatusOptions,
+  IssueUpdatePatch,
 } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '../../../atlassian/api'
 import type { GitHubClient } from '../../../providers/github/octokit'
@@ -23,35 +23,61 @@ import type { AssetReference } from '../task-assets'
  * gives them in these shapes; nothing provider-shaped passes this file.
  */
 
-/** What an adapter needs to write to one task. Stored as `tasks.home`. */
+/** What an adapter needs to write to one task. Stored as `issues.home`. */
+/**
+ * One Project item of a GitHub issue, with the ids that a write of its
+ * priority or due date needs, so that the write reads nothing first.
+ */
+export interface GitHubBoardItem {
+  projectId: string
+  itemId: string
+  priority?: { fieldId: string; options: Array<{ id: string; name: string }> }
+  dueFieldId?: string
+}
+
+/** A Jira workflow transition and the status it reaches. */
+export interface JiraTransition {
+  id: string
+  to: { id: string; name: string; statusCategory: { key: string } }
+}
+
 export type TaskHome =
-  | { provider: 'github'; kind: 'issue'; owner: string; repo: string; number: number }
+  /**
+   * `boardItems` is absent when the read could not see the Projects of the
+   * issue. `canSetStatus` is absent when GitHub did not say whether this
+   * connection may set the planning status.
+   */
+  | {
+    provider: 'github'; kind: 'issue'; owner: string; repo: string; number: number
+    boardItems?: GitHubBoardItem[]; canSetStatus?: boolean
+  }
   /** A draft item has no repository: it is addressed by its Project and its item. */
   | { provider: 'github'; kind: 'draft'; projectId: string; itemId: string }
-  | { provider: 'jira'; cloudId: string; key: string }
+  /** `transitions` are the legal moves from the status of the read that gave them. */
+  | { provider: 'jira'; cloudId: string; key: string; transitions?: JiraTransition[] }
   | { provider: 'linear'; workspaceId: string; issueId: string; teamId: string }
 
 /** One task as a provider read gives it. */
 export interface ProviderTask {
-  ref: TaskRef
-  kind: TaskKind
+  ref: IssueRef
+  kind: IssueKind
   /** `owner/repo#123` or `PROJ-12`. Absent on a draft. */
   reference?: string
   url: string | null
   title: string
   body: string
-  state: TaskState
+  state: IssueState
   /** The provider status id of `state`, where the provider supplies one. */
   stateId?: string
-  assignees?: TaskAssigneeCandidate[]
+  assignees?: IssueAssigneeCandidate[]
   assignee?: string
   assigneeAvatarUrl?: string
   labels: string[]
-  priority?: TaskPriority
+  priority?: IssuePriority
   dueDate?: string
   /** A list read gives the epic with an empty `body`; `fetch` gives the body. */
-  epic?: TaskEpic
-  writableFields: TaskField[]
+  epic?: IssueEpic
+  writableFields: IssueField[]
   home: TaskHome
   createdAt?: number
   updatedAt: number
@@ -72,26 +98,26 @@ export interface ProviderTaskDetails {
   /** The task has more comments than `comments` holds. */
   commentsTruncated: boolean
   providerMetadata?: TaskProviderMetadata
-  statusOptions?: TaskStatusOptions
+  statusOptions?: IssueStatusOptions
 }
 
 /** One task of a source, with where the source puts it. */
 export interface SourceItem {
   task: ProviderTask
-  /** A `TaskColumn.id` of the source; null for a board item with no column. */
+  /** A `IssueColumn.id` of the source; null for a board item with no column. */
   columnId: string | null
   /** The board item, for a write to a GitHub Project. Null in each other source. */
   itemId: string | null
 }
 
-/** What a source adapter needs to write to its source. Stored as `task_sources.write_state`. */
+/** What a source adapter needs to write to its source. Stored as `issue_sources.write_state`. */
 export type SourceWriteState =
   | { kind: 'github-project'; projectId: string; statusFieldId: string | null }
   | {
     kind: 'jira-board'
     /** The project a new task of the board is created in. Null when the board has none. */
     projectKey: string | null
-    /** The Jira status ids of each column, by `TaskColumn.id`. */
+    /** The Jira status ids of each column, by `IssueColumn.id`. */
     columns: Array<{ columnId: string; statusIds: string[] }>
   }
 
@@ -99,7 +125,7 @@ export interface SourceRead {
   /** The source as a person reads it: `acme/app`, a Project's title, `SOL`, a board's name. */
   label: string
   /** The provider's columns in the provider's order. */
-  columns: TaskColumn[]
+  columns: IssueColumn[]
   writeState: SourceWriteState | null
   /** At most `MAX_SOURCE_TASKS` tasks. */
   items: SourceItem[]
@@ -107,6 +133,9 @@ export interface SourceRead {
   truncated: boolean
   nextCursor?: string | null
 }
+
+/** What the first page of a source read gave, which its next pages keep. */
+export type SourceReadHeld = Pick<SourceRead, 'label' | 'columns' | 'writeState'>
 
 /** A list read of one source holds at most this many tasks. */
 export const MAX_SOURCE_TASKS = 200
@@ -120,28 +149,35 @@ export interface TaskDraft {
   assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
-  priority?: TaskPriority | null
+  priority?: IssuePriority | null
   labels?: string[]
 }
 
 export interface SourceMove {
-  source: TaskSource
+  source: IssueSource
   writeState: SourceWriteState | null
   home: TaskHome
   /** `SourceItem.itemId` of the task in this source. */
   itemId: string | null
-  /** The `TaskColumn.id` to move to. */
+  /** The `IssueColumn.id` to move to. */
   columnId: string
+  /** The host's copy of the task, which the move answers from instead of a read. */
+  current: ProviderTask
 }
 
 /** One adapter for each source kind. Each method refuses a source of another kind. */
 export interface TaskSourceAdapter {
-  readonly kind: TaskSource['kind']
-  read(source: TaskSource, cursor?: string): Promise<SourceRead>
+  readonly kind: IssueSource['kind']
+  /**
+   * The first page, or with `cursor` the next one. `held` is what the first
+   * page gave: a next page uses it instead of reading the source's columns and
+   * write state again.
+   */
+  read(source: IssueSource, cursor?: string, held?: SourceReadHeld): Promise<SourceRead>
   /** Ask the provider for the tasks of the source that match `query`. */
-  search(source: TaskSource, query: string, involvement?: TaskInvolvement): Promise<ProviderTask[]>
+  search(source: IssueSource, query: string, involvement?: TaskInvolvement): Promise<ProviderTask[]>
   /** Create a task in the source. A GitHub Project source creates a draft item. */
-  create(input: { source: TaskSource; writeState: SourceWriteState | null; draft: TaskDraft }): Promise<SourceItem>
+  create(input: { source: IssueSource; writeState: SourceWriteState | null; draft: TaskDraft }): Promise<SourceItem>
   /**
    * Move a task to a column of the source. Answers the task after the move
    * when the move changed the task's own state (a repository, a Jira source),
@@ -150,25 +186,27 @@ export interface TaskSourceAdapter {
    */
   move(input: SourceMove): Promise<ProviderTask | null>
   /** The people a new task of the source can be assigned to. Empty when the provider cannot say. */
-  assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]>
+  assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]>
 }
 
 /** One adapter for each provider. It works from the task's `home`. */
 export interface TaskProviderAdapter {
-  readonly id: TaskRef['provider']
+  readonly id: IssueRef['provider']
   /** Read one task by its stable id, with its comments and its epic. */
-  fetch(ref: TaskRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails>
+  fetch(ref: IssueRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails>
   /** Change fields. Answers the task as the provider has it after the write. */
-  update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask>
+  /** `current` is the host's copy: an adapter answers it with the written
+   *  fields instead of reading the issue again. */
+  update(home: TaskHome, patch: IssueUpdatePatch, current: ProviderTask): Promise<ProviderTask>
   /**
    * Move the task's own state to a category. GitHub closes (`done`) or reopens
    * an issue. Jira makes a legal transition to a status of the category and
    * fails loudly when there is none. A GitHub draft has no state of its own.
    */
-  setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask>
-  setNamedStatus?(home: TaskHome, statusId: string): Promise<ProviderTask>
+  setState(home: TaskHome, category: IssueStatusCategory, current: ProviderTask): Promise<ProviderTask>
+  setNamedStatus?(home: TaskHome, statusId: string, current: ProviderTask): Promise<ProviderTask>
   comment(home: TaskHome, body: string): Promise<ProviderComment>
-  assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]>
+  assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]>
   /** Upload the local assets that `body` references and answer the body to send. */
   publishAssets(home: TaskHome, body: string): Promise<string>
   /** The references in `body` that the provider cannot hold for this task. */
@@ -179,7 +217,7 @@ export interface TaskProviderAdapter {
 
 /** A failure that already knows what it means for the person's connection. */
 export class TaskProviderError extends Error {
-  constructor(readonly health: Exclude<TaskSourceHealth, 'ok'>, message: string) {
+  constructor(readonly health: Exclude<IssueSourceHealth, 'ok'>, message: string) {
     super(message)
     this.name = 'TaskProviderError'
   }

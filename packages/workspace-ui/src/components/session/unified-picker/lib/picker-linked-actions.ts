@@ -1,4 +1,4 @@
-import type { Task, TaskLink } from "@solus/contracts/task-types";
+import type { Issue, IssueLink } from "@solus/contracts/task-types";
 import { getWorkspaceContext } from "../../../../contexts";
 import { linkedPrNavigationTarget } from "../../../tasks/task-page/lib/linked-pr-navigation";
 
@@ -7,8 +7,8 @@ type WorkspaceContext = ReturnType<typeof getWorkspaceContext>;
 /** Open a task link on the same pane and host that the task page uses. */
 export function openPickerLinkedItem(
   session: WorkspaceContext,
-  task: Task,
-  link: TaskLink,
+  task: Issue,
+  link: IssueLink,
 ): void {
   switch (link.kind) {
     case "work":
@@ -27,7 +27,7 @@ export function openPickerLinkedItem(
     case "pr": {
       const number = Number(link.targetKey);
       if (!Number.isFinite(number)) break;
-      const taskStore = session.tasksStore.get(task.id);
+      const taskStore = session.issuesStore.get(task.id);
       const target = linkedPrNavigationTarget({
         taskServerId: taskStore.serverId,
         taskProjectDirectory: session.projectRootOfTask(task.id),

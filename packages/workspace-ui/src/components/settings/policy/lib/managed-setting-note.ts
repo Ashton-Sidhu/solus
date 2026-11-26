@@ -1,7 +1,7 @@
 import { managedSettingLines } from '@solus/client-core/policy'
 import type { HostPolicies } from '@solus/contracts/host-policies'
 import type { ManagedSessionSettingKey, ManagedSessionSettings } from '@solus/contracts/policy'
-import { MODEL_PROFILES, type AgentId } from '@solus/contracts/types'
+import { AGENT_LABELS, MODEL_PROFILES, type AgentId } from '@solus/contracts/types'
 import { PERMISSION_MODE_DISPLAY } from '../../../../lib/permission-modes'
 
 /** What a settings row shows for a managed key (plans/030 §7): one line per organization that locks it. */
@@ -17,7 +17,6 @@ function modelName(provider: AgentId, model: string): string {
   return MODEL_PROFILES[provider]?.[model]?.label ?? model
 }
 
-const PROVIDER_NAMES = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 const RATE_LIMIT_BEHAVIOR = {
   ask: 'ask at a rate limit',
@@ -43,7 +42,7 @@ const DESCRIBE: ManagedValueDescriptions = {
   codebaseNaming: (value) => value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names',
   defaultPermissionMode: (value) => `${PERMISSION_MODE_DISPLAY[value].label} by default`,
   rateLimitBehavior: (value) => RATE_LIMIT_BEHAVIOR[value],
-  reviewAgent: (value) => `${PROVIDER_NAMES[value]} for reviews`,
+  reviewAgent: (value) => `${AGENT_LABELS[value]} for reviews`,
   reviewModel: (value) => `${value} for reviews`,
   reviewGuideInstructions: () => 'set review guide instructions',
 }

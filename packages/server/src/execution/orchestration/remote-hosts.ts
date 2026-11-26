@@ -12,6 +12,7 @@ import { createLogger } from '../../logger'
 import type { HostPairings } from '../../host/host-pairings'
 import type { IntroducedHosts } from './introduced-hosts'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
+import type { Principal } from '../../admission/principal'
 
 const log = createLogger('orchestration', 'remote-hosts.ts')
 
@@ -28,6 +29,17 @@ export interface ReachRequest {
   account: ReachActor | null
   /** Introduced hosts are the owner's local reach (§4): only the owner's turns use them. */
   isOwner: boolean
+}
+
+/**
+ * What a person reaches on other hosts from this host (§3.2), for an agent's
+ * turn and an outside app's call alike: the owner their own reach, through the
+ * personal delegation and the introduced hosts; a member only through the
+ * organization they work in here; anyone else nothing.
+ */
+export function reachOfPrincipal(principal: Principal, ownerReach: () => ReachRequest): ReachRequest | null {
+  if (principal.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
+  return principal.kind === 'owner' ? ownerReach() : null
 }
 
 /** Account reach for one person (§3): the hosts the account plane says they reach from here, and a token for one. */

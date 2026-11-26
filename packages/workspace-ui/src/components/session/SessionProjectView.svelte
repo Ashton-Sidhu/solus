@@ -36,7 +36,7 @@
       isSharedOpen: input.isSharedOpen,
       isSnoozedOpen: input.isSnoozedOpen,
       isCompletedOpen: input.isCompletedOpen,
-      shelfRevealTaskId: input.shelfRevealTaskId,
+      shelfRevealRowId: input.shelfRevealRowId,
       projects: sidebarStore.projectFilterChoices,
       isFolderOpen: (folderKey) => isSearching || folders.isOpen(folderKey),
       sentAt: (row) => sidebarStore.sentAtFor(row),

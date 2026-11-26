@@ -1,3 +1,4 @@
+import type { OutsideAppId } from './outside-apps'
 import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
 import type { PairApprovalDecision, PairApprovalRequest } from './add-machine'
 import type { PersonHistoryEntry } from './person-history'
@@ -18,10 +19,10 @@ import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentUsageLimits, IpcContext, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
+import type { AgentId, AgentUsageLimits, IpcContext, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, ManagedWorktree, ManagedWorktreeRemoveResult, ManagedWorktreeSize, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrFilterChoice, PrFilterField, PrInterest, PrLabel, PrListPage, PrProjectCursor, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
-import type { TaskSource } from './task-sources'
-import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskAttachments, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskMoveTarget, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskSourceOptions, TaskSourceState, TaskSummary, TaskUpdatePatch } from './task-types'
+import type { IssueSource } from './task-sources'
+import type { PrepareSessionIssueRequest, PrepareSessionIssueResult, SessionExecutionHost, Issue, IssueAssigneeCandidate, IssueAttachments, IssueCommentHit, IssueCommentSearchQuery, IssueCreateInput, IssueDetails, IssueForSessionResult, IssueLinkInput, IssueLinkKind, IssueLinkTarget, IssueLinkedIssue, IssueMoveTarget, IssueSessionLink, IssueSessionRole, IssueListRequest, IssueList, IssueSnapshot, IssueSourceOptions, IssueSourceState, IssueSummary, IssueUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
@@ -113,7 +114,7 @@ import type { McpTask, McpTaskAnswerRequest, McpTaskIdRequest, McpTaskListReques
 import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopRequest, ResourceWatch } from './integrations/resource-watch'
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundChangeRequest, IntegrationFoundChangeResult, IntegrationDiscoverRequest, IntegrationFoundListRequest, IntegrationDiscovery, IntegrationFoundTestRequest, IntegrationFoundTestResult, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
-import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
+import type { SeatConnectCodeRequest, SeatConnectStartRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileDocumentPatch, AgentProfileStatus, HostAgentProfileDocument } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
@@ -181,6 +182,26 @@ export interface PairedDevice {
   lastSeenAt: number
   /** Set once the owner revoked it. A revoked device pairs again as a new device. */
   revokedAt: number | null
+  /** An outside app that reaches this host's tools over MCP, and the access it was given (plans/035 §10). */
+  app?: { access: AppAccess; appId: OutsideAppId }
+}
+
+/** What an outside app may do with this host's tools: read only, change records, or also run tools that need approval. */
+export type AppAccess = 'read' | 'write' | 'full'
+
+/** An outside app's sign-in that waits for a person to approve it in their Solus client (plans/035 §0.5). */
+export interface AppSignInRequest {
+  requestId: string
+  /** The name the app gave itself. */
+  appName: string
+  appId: OutsideAppId
+  /** Where the app's access goes: the host of its web address, or its app scheme. */
+  redirectPlace: string
+  /** The app's sign-in returns to the computer that opened the sign-in page. */
+  onThisComputer: boolean
+  /** The access chosen on the sign-in page. */
+  access: AppAccess
+  expiresAt: number
 }
 
 export interface ConnectionsServerInfo {
@@ -541,6 +562,14 @@ export interface SolusAPI {
   hostListRemove(id: string): Promise<void>
   /** The devices this host paired, offline and revoked ones included (plans/033 §4.4): the ones with access first, then the most recently seen. Owner only. */
   connectionsListDevices(): Promise<PairedDevice[]>
+  /** Where an outside app reaches this host's tools: on this machine, and at the public tunnel address when the host has one. */
+  connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null }>
+  /** A one-time code that approves an outside app's sign-in on its consent page, with the access it gives. */
+  connectionsCreateAppPairingCode(args: { access: AppAccess }): Promise<{ code: string; access: AppAccess; expiresAt: number }>
+  /** An outside app's sign-in that waits for a person to approve it in Solus, by the id in its link or the code on its sign-in page. */
+  connectionsReadAppSignIn(args: { requestId: string } | { checkCode: string }): Promise<AppSignInRequest>
+  /** Approves or denies that sign-in as the calling person: the app then acts as them (plans/035 §0.5). */
+  connectionsDecideAppSignIn(args: { requestId: string; decision: 'approve' | 'deny' }): Promise<{ ok: true }>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean }>
   connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>
@@ -616,7 +645,7 @@ export interface SolusAPI {
   providerInstancesWrite(request: ProviderInstancesWrite): Promise<ProviderInstancesSnapshot>
   seatList(): Promise<SeatStatus[]>
   /** Starts the provider's login on the host for the caller's seat; answers once it has printed where to sign in. */
-  seatConnectStart(request: SeatProviderRequest): Promise<SeatConnectStartResult>
+  seatConnectStart(request: SeatConnectStartRequest): Promise<SeatConnectStartResult>
   /** Hands the browser's code to the login waiting on stdin. Completion arrives as `host.seatChanged`. */
   seatConnectSubmitCode(request: SeatConnectCodeRequest): Promise<{ submitted: true }>
   seatConnectCancel(request: SeatProviderRequest): Promise<{ cancelled: boolean }>
@@ -1231,81 +1260,71 @@ export interface SolusAPI {
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
   /**
-   * The person's task sources, as this host last read them for the caller
-   * (docs/tasks.md). Tasks belong to no project: the client sends the sources
-   * from the person's settings. The call also says that the caller wants these
-   * sources: the host reads each one that is not fresh, or every one with
-   * `refresh: 'force'`, and `tasks.sourcesChanged` says when a read ends. The
-   * tasks themselves come with `tasksSidebarSnapshot`.
+   * The issue list: the rows this host holds for the reader, and with `sources`
+   * the state of each of the person's sources (docs/tasks.md). Naming the
+   * sources also says the caller wants them: the host reads each one that is not
+   * fresh, and `issues.sourcesChanged` says when a read ends. `since` resumes the
+   * whole list and `issueIds` reads only those rows (`[]`: no rows).
    */
-  tasksSources(sources: TaskSource[], opts?: { refresh?: 'stale' | 'force' }): Promise<TaskSourceState[]>
+  issuesList(request?: IssueListRequest): Promise<IssueList>
   /** What the caller can choose as a task source. */
-  tasksLoadMore(source: TaskSource): Promise<void>
-  tasksSourceOptions(): Promise<TaskSourceOptions>
+  issuesSourceOptions(): Promise<IssueSourceOptions>
   /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
-  tasksSearch(sources: TaskSource[], query: string, involvement?: TaskInvolvement): Promise<TaskSummary[]>
-  tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
+  issuesSearch(sources: IssueSource[], query: string, involvement?: TaskInvolvement): Promise<IssueSummary[]>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
-  tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
+  issuesSearchComments(query: IssueCommentSearchQuery): Promise<IssueCommentHit[]>
   /** Read one task from its provider, with its comments and its attachments on
    *  this host. Answers the host's last copy, with `fromCache`, when the
    *  provider does not answer. */
-  tasksGet(id: string, read?: TaskDetailsRead): Promise<TaskDetails>
-  tasksGet(id: string, read: TaskProviderRead): Promise<TaskProviderData>
-  tasksGet(id: string, read?: TaskReadOptions): Promise<TaskDetails | TaskProviderData>
-  tasksReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
-  tasksTemplates(source: TaskSource): Promise<TaskTemplate[]>
+  issuesGet(id: string, read?: TaskDetailsRead): Promise<IssueDetails>
+  issuesGet(id: string, read: TaskProviderRead): Promise<TaskProviderData>
+  issuesGet(id: string, read?: TaskReadOptions): Promise<IssueDetails | TaskProviderData>
+  issuesReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
+  issuesTemplates(source: IssueSource): Promise<TaskTemplate[]>
   /** Resolve an issue URL. Clients that load history separately request details only. */
-  tasksResolve(url: string, options?: { detailsOnly?: boolean }): Promise<TaskExternalIssue>
+  issuesResolve(url: string, options?: { detailsOnly?: boolean }): Promise<TaskExternalIssue>
   /** The attachments of a task on a host that does not read the task itself. */
-  tasksAttachments(id: string): Promise<TaskAttachments>
+  issuesAttachments(id: string): Promise<IssueAttachments>
   /** Create a task on the provider. */
-  tasksCreate(input: TaskCreateInput): Promise<Task>
-  tasksPrepareForSession(input: PrepareSessionTaskRequest): Promise<PrepareSessionTaskResult>
-  tasksSnapshot(taskId: string): Promise<TaskSnapshot>
+  issuesCreate(input: IssueCreateInput): Promise<Issue>
+  issuesPrepareForSession(input: PrepareSessionIssueRequest): Promise<PrepareSessionIssueResult>
+  issuesSnapshot(taskId: string): Promise<IssueSnapshot>
   /** Change a task's fields on the provider. */
-  tasksUpdate(id: string, patch: TaskUpdatePatch): Promise<Task>
+  issuesUpdate(id: string, patch: IssueUpdatePatch): Promise<Issue>
   /** Move a task to a column of one source, or to a status category. */
-  tasksMove(id: string, target: TaskMoveTarget): Promise<Task>
+  issuesMove(id: string, target: IssueMoveTarget): Promise<Issue>
   /** Delete a draft item from its GitHub Project. An issue is closed or moved, never deleted. */
-  tasksDelete(id: string): Promise<boolean>
-  tasksMarkRead(id: string, read: boolean): Promise<Task>
-  /** Hide the task from the caller's own task lists until `until`, or wake it
-   *  now with null. Nobody else's lists change, and its agents keep working
-   *  (docs/task-snooze.md). Answers the caller's snooze, null once woken. */
-  tasksSnooze(id: string, until: number | null, note?: string): Promise<TaskSnooze | null>
-  /** The caller's own task snoozes. `tasks.snoozesChanged` says to read again. */
-  tasksSnoozes(): Promise<TaskSnooze[]>
+  issuesDelete(id: string): Promise<boolean>
+  issuesMarkRead(id: string, read: boolean): Promise<Issue>
   /** Post a comment to the provider. A comment the provider did not take stays
    *  on this host as `unsent`. */
-  tasksComment(id: string, body: string): Promise<TaskDetails>
+  issuesComment(id: string, body: string): Promise<IssueDetails>
   /** Send an unsent comment again. */
-  tasksRetryComment(id: string, commentId: string): Promise<TaskDetails>
+  issuesRetryComment(id: string, commentId: string): Promise<IssueDetails>
   /** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
-  tasksDeleteComment(id: string, commentId: string): Promise<TaskDetails>
+  issuesDeleteComment(id: string, commentId: string): Promise<IssueDetails>
   /** The people the provider permits to be assigned: for one task, or for a
    *  new task in one source. */
-  tasksListAssigneeCandidates(target: { taskId: string } | { source: TaskSource }): Promise<TaskAssigneeCandidate[]>
-  tasksLinkSession(
+  issuesListAssigneeCandidates(target: { issueId: string } | { source: IssueSource }): Promise<IssueAssigneeCandidate[]>
+  issuesLinkSession(
     taskId: string,
     sessionId: string,
-    role?: TaskSessionRole,
+    role?: IssueSessionRole,
     /** Where the agent ran, when that is not this host. See `SessionExecutionHost`. */
     execution?: SessionExecutionHost | null,
   ): Promise<void>
-  /** Detach a session from a task. The reverse of `tasksLinkSession`. */
-  tasksUnlinkSession(taskId: string, sessionId: string): Promise<void>
-  tasksSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>>
-  tasksForSession(sessionId: string): Promise<TaskForSessionResult | null>
-  tasksLink(taskId: string, input: TaskLinkInput): Promise<TaskAttachments>
-  tasksUnlink(taskId: string, kind: TaskLinkKind, targetKey: string, targetScope?: string): Promise<TaskAttachments>
+  /** Detach a session from a task. The reverse of `issuesLinkSession`. */
+  issuesUnlinkSession(taskId: string, sessionId: string): Promise<void>
+  issuesForSession(sessionId: string): Promise<IssueForSessionResult | null>
+  issuesLink(taskId: string, input: IssueLinkInput): Promise<IssueAttachments>
+  issuesUnlink(taskId: string, kind: IssueLinkKind, targetKey: string, targetScope?: string): Promise<IssueAttachments>
   /** The reverse read: which tasks on this host link each target. A card
    *  batches the targets it shows; the answer lists one row per edge. */
-  tasksLinkedTo(targets: TaskLinkTarget[]): Promise<TaskLinkedTask[]>
+  issuesLinkedTo(targets: IssueLinkTarget[]): Promise<IssueLinkedIssue[]>
   /** Render a linked `artifact` work to a still and post it, with the HTML
    *  where the provider takes files, as a comment on the task. */
-  tasksAttachArtifact(taskId: string, workId: string): Promise<TaskDetails>
+  issuesAttachArtifact(taskId: string, workId: string): Promise<IssueDetails>
 
   outboxList(): Promise<OutboxOp[]>
   outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>
@@ -1383,6 +1402,13 @@ export interface SolusAPI {
   liveActivityUnregister(pushToken: string): Promise<void>
 
   worktreeListProject(ctx: IpcContext): Promise<WorktreeEntry[]>
+  /** The worktrees that Solus made in each project of this host that the caller sees, newest first. */
+  managedWorktreesList(): Promise<ManagedWorktree[]>
+  /** Remove a managed worktree or task folder and its branch. Without
+   *  `force`, one with unsaved work answers `unsaved` and stays. */
+  managedWorktreeRemove(worktreePath: string, options?: { force?: boolean }): Promise<ManagedWorktreeRemoveResult>
+  /** The sizes on disk of managed worktrees, in request order. Slow: the list does not wait for it. */
+  managedWorktreeSizes(worktreePaths: string[]): Promise<ManagedWorktreeSize[]>
   diff(ctx: IpcContext, request: DiffRequest): Promise<DiffResult | null>
   diffFileContents(ctx: IpcContext, request: DiffFileContentsRequest): Promise<DiffFileContentsResult | null>
   diffStats(ctx: IpcContext, request: DiffRequest): Promise<ChangedFileStat[]>

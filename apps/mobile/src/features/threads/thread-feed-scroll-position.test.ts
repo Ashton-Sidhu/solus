@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  finishThreadFeedGlide,
   resolveThreadFeedSubmissionAnchor,
   threadOpeningBottomInset,
   resolveThreadWorkGroupInitialScroll,
@@ -106,36 +105,5 @@ describe("resolveThreadFeedSubmissionAnchor", () => {
         queuedMessageCount: 0,
       }),
     ).toBeNull();
-  });
-});
-
-describe("follow-up submission glide", () => {
-  it("lets the prompt paint and the keyboard settle before scrolling", async () => {
-    const events: string[] = [];
-    let finishPaint!: () => void;
-    const paint = new Promise<void>((resolve) => { finishPaint = resolve; });
-    const done = finishThreadFeedGlide({
-      afterPaint: () => paint,
-      isCurrent: () => true,
-      dismissKeyboard: async () => { events.push("dismiss"); },
-      scrollToEnd: async () => { events.push("scroll"); },
-    });
-    expect(events).toEqual([]);
-    finishPaint();
-    await done;
-    expect(events).toEqual(["dismiss", "scroll"]);
-  });
-
-  it("glides with a hardware keyboard and skips a superseded send", async () => {
-    let current = true;
-    let scrolls = 0;
-    const options = {
-      afterPaint: async () => {},
-      isCurrent: () => current,
-      scrollToEnd: async () => { scrolls++; },
-    };
-    await finishThreadFeedGlide(options);
-    await finishThreadFeedGlide({ ...options, dismissKeyboard: async () => { current = false; } });
-    expect(scrolls).toBe(1);
   });
 });

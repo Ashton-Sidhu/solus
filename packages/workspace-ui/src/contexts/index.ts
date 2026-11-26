@@ -8,7 +8,7 @@
  * from their own files).
  */
 
-/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/router. */
+/** Core workspace access; the gateway to session.issuesStore/prsStore/worksStore/automationsStore/router. */
 export { getWorkspaceContext, setWorkspaceContext } from './workspace/workspace.context.svelte'
 
 /** Every session this client holds, by id — with or without a tab showing it. */
@@ -41,8 +41,8 @@ export { getSessionEnvironmentStore, environmentBranchKey } from './git/session-
 export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
-export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
-export { taskHostId, taskSourcesStore } from './tasks/task-sources.store.svelte'
+export { IssuesStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
+export { taskHostId, issueSourcesStore } from './tasks/task-sources.store.svelte'
 
 /** Known projects and per-project configuration. */
 export { CHATS_GROUP_KEY, groupKeyFor, projectsStore } from './projects/projects.store.svelte'

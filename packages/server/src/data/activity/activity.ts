@@ -166,7 +166,7 @@ export async function sessionForkActivity(scope: RecordScope, sessionId: string,
 
 const activityRowSchema = z.object({
   id: z.string(),
-  subject_kind: z.enum(['session', 'task', 'work']),
+  subject_kind: z.enum(['session', 'issue', 'work']),
   subject_id: z.string(),
   at: z.coerce.number(),
   turn_id: z.string().nullable(),

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentId, Attachment, ModelConfig, PromptOptions, QueuedPromptSnapshot } from './types'
+import { agentIdSchema } from './types'
 
 export interface QueueAttachment extends Pick<Attachment, 'id' | 'type' | 'name' | 'mimeType' | 'size'> {
   hostPath?: string
@@ -10,7 +11,7 @@ export interface QueueAttachment extends Pick<Attachment, 'id' | 'type' | 'name'
 
 export interface QueueEntryDetails {
   kind?: 'prompt' | 'provider_switch'
-  provider?: 'claude-code' | 'codex' | 'opencode' | 'replay'
+  provider?: AgentId
   modelConfig?: ModelConfig
   revision?: number
   held?: boolean
@@ -47,7 +48,7 @@ const modelConfigSchema: z.ZodType<ModelConfig> = z.object({
 const revision = { queueId: z.string().min(1), revision: z.number().int().nonnegative() }
 export const sessionQueueMutationSchema: z.ZodType<SessionQueueMutation> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('edit'), ...revision, text: z.string().min(1), attachmentContext: z.string().optional(),
-    selection: z.object({ provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']), modelConfig: modelConfigSchema }).optional(),
+    selection: z.object({ provider: agentIdSchema, modelConfig: modelConfigSchema }).optional(),
     attachments: z.array(queueAttachmentSchema).optional(),
     images: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).optional(),
     imageRefs: z.array(z.object({ mimeType: z.string(), hostPath: z.string(), name: z.string().optional() })).optional(),

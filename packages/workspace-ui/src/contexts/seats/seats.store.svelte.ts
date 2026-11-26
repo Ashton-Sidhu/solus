@@ -2,8 +2,8 @@ import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { localApi } from '@solus/client-core/local-api'
-import { seatProviderSchema, type SeatConnectStartResult, type SeatProvider, type SeatStatus } from '@solus/contracts/seats'
-import type { AgentId } from '@solus/contracts/types'
+import { seatProviderSchema, type AntigravityBrowserSignIn, type AntigravityCredential, type SeatConnectStartResult, type SeatProvider, type SeatStatus } from '@solus/contracts/seats'
+import { AGENT_LABELS, type AgentId } from '@solus/contracts/types'
 import { sharesStore } from '../sharing/shares.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { seatNeeded } from './seat-need'
@@ -148,11 +148,12 @@ class SeatsStore {
   }
 
   /** Starts the provider's login on the host and opens where to sign in on this device. */
-  async connect(serverId: string, provider: SeatProvider): Promise<void> {
+  /** `antigravity`: how an Antigravity seat signs in; absent, the way it last did. */
+  async connect(serverId: string, provider: SeatProvider, antigravity?: AntigravityBrowserSignIn): Promise<void> {
     const key = seatKey(serverId, provider)
     await this.run(key, async () => {
       this.errors.delete(key)
-      const verification = await serverConnections.apiFor(serverId).seatConnectStart({ provider })
+      const verification = await serverConnections.apiFor(serverId).seatConnectStart(antigravity ? { provider, antigravity } : { provider })
       this.verifications.set(key, verification)
       await this.load(serverId)
       // The sign-in happens in the browser on this device, never on the host.
@@ -177,7 +178,7 @@ class SeatsStore {
     const outcome = await settled
     if (outcome.state === 'connected') return
     if (outcome.error?.toLowerCase().includes('cancelled')) throw new SeatConnectCancelled()
-    throw new Error(outcome.error ?? `${provider === 'claude-code' ? 'Claude' : 'Codex'} did not sign in.`)
+    throw new Error(outcome.error ?? `${AGENT_LABELS[provider]} did not sign in.`)
   }
 
   async submitCode(serverId: string, provider: SeatProvider, code: string): Promise<void> {
@@ -193,11 +194,12 @@ class SeatsStore {
     })
   }
 
-  async connectToken(serverId: string, provider: SeatProvider, token: string): Promise<void> {
+  /** `antigravity`: what an Antigravity token is; absent, a Gemini API key. */
+  async connectToken(serverId: string, provider: SeatProvider, token: string, antigravity?: AntigravityCredential): Promise<void> {
     const key = seatKey(serverId, provider)
     await this.run(key, async () => {
       this.errors.delete(key)
-      await serverConnections.apiFor(serverId).seatConnectToken({ provider, token })
+      await serverConnections.apiFor(serverId).seatConnectToken(antigravity ? { provider, token, antigravity } : { provider, token })
       this.verifications.delete(key)
       await this.load(serverId)
     })

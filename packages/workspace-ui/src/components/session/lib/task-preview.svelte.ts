@@ -1,5 +1,5 @@
 import { GitPullRequestIcon } from '../../ui/octicons'
-import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueDetails, IssueLink, IssueSidebarPrLink } from '@solus/contracts/task-types'
 import type { LinkedPrLifecycle } from '../../tasks/task-page/lib/task-prs'
 import type { LinkedPr, PrLink } from '../../../contexts/prs/linked-pr'
 import { taskPrRows, prLifecycleOf, titleWithoutPrRef } from '../../tasks/task-page/lib/task-prs'
@@ -27,7 +27,7 @@ export class TaskPreviewDetails {
   private readonly requested = new Set<string>()
 
   constructor(
-    private readonly load: (taskId: string) => Promise<TaskDetails | null>,
+    private readonly load: (taskId: string) => Promise<IssueDetails | null>,
   ) {}
 
   /** Ask for this task's detail once the selection has stopped moving. */
@@ -56,7 +56,7 @@ export interface TaskPreviewPrRow {
   key: string
   /** Present after task details load; snapshot-only rows can still open their
    *  external URL while the durable link is in flight. */
-  link: TaskLink | null
+  link: IssueLink | null
   ref: string
   /** Empty until the detail read lands: the snapshot edge carries a number and
    *  a url, never a title, and the row says nothing rather than inventing one. */
@@ -83,8 +83,8 @@ export function previewPrGlyph(state: LinkedPrLifecycle | null) {
  * with the full list, which is also where titles come from.
  */
 export function previewPrRows(
-  links: TaskLink[],
-  snapshotLink: TaskSidebarPrLink | null,
+  links: IssueLink[],
+  snapshotLink: IssueSidebarPrLink | null,
   readPr: (link: PrLink) => LinkedPr | null,
 ): TaskPreviewPrRow[] {
   const rows = taskPrRows(links, readPr)

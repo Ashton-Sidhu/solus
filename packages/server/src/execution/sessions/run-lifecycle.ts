@@ -7,6 +7,7 @@ import { captureServerEvent } from '../../analytics'
 import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { taskOfTurn, linkPreparedTask } from './run-task-context'
 import type { AgentTool } from '../agents/tools/agent-tool'
+import { toolAccessRefusal } from '../agents/tools/tool-access'
 import type { RunHandle } from '../agents/agent-backend'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
 import type { TurnStop } from './turn-stops'
@@ -27,12 +28,17 @@ function startedSession(agentSessionId: string, taskId?: string): Parameters<Pen
  * A member's turn calls GitHub, Google, and Atlassian as that member
  * (cloud-service-model.md §22): every tool the run is handed executes under
  * their credential scope. The host's own work keeps the host's connections.
+ * A call runs only when its person may take the action it names (plans/035 §5).
  */
 export function credentialScopedAgentTools(tools: AgentTool[], actor: Actor = HOST_ACTOR): AgentTool[] {
   return tools.map((agentTool) => {
     const scoped: AgentTool = {
       ...agentTool,
-      execute: (input, context) => withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
+      execute: async (input, context) => {
+        const refusal = await toolAccessRefusal(agentTool, input, context.sessionId(), actor.principal)
+        if (refusal) return { ok: false, text: refusal }
+        return withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context)))
+      },
     }
     // Whether the tool is for this person is read as them too.
     const { isOffered } = agentTool
@@ -130,7 +136,7 @@ async function finishRunSetup(
   const turnTask = await rt.sessionEmitter.runDispatch(
     request.sessionId,
     'task_dimension',
-    { taskId: run.options.taskId ?? '', fn: 'taskOfTurn', file: 'run-task-context.ts' },
+    { taskId: run.options.issueId ?? '', fn: 'taskOfTurn', file: 'run-task-context.ts' },
     async (annotate) => {
       const task = await taskOfTurn(run)
       annotate({ taskId: task?.id ?? '', title: task?.title ?? '' })
@@ -156,7 +162,7 @@ async function finishRunSetup(
   if (request.servedEnqueuedAt !== undefined) {
     rt.sessionEmitter.recordQueueWait(request.sessionId, request.servedEnqueuedAt, runStartedAt)
   }
-  if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.taskId) {
+  if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.issueId) {
     await linkPreparedTask(run, request.sessionId)
   }
   return observeRun(rt, pendingStarts, startedRun, request, trace)
@@ -167,7 +173,7 @@ function observeRun(
   request: SessionRunRequest, { runStartedAt, turnTraceId }: RunTrace,
 ): SessionRunLifecycle {
   const agentSessionId = handle.agentSessionId
-    ? Promise.resolve(startedSession(handle.agentSessionId, run.options.taskId))
+    ? Promise.resolve(startedSession(handle.agentSessionId, run.options.issueId))
     : new Promise<{ agentSessionId: string; taskId?: string }>((resolve, reject) => {
         pendingStarts.set(handle, {
           run,

@@ -7,6 +7,7 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionTranscripts } from './transcript-schema'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * The workspace service's history reads (docs/plans/cloud-service-model.md §6):
@@ -17,7 +18,6 @@ import { sessionTranscripts } from './transcript-schema'
  * can hand it back without knowing what it is.
  */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
 const conversationResultSchema = z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: agentIdSchema.optional(), serverId: z.string().optional(), item: z.number().int().optional() })
 

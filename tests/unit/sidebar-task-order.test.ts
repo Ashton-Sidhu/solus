@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import {
   sortSidebarRowsByCreation,
-  type SidebarTask,
-  type TaskStatus,
-} from '@solus/workspace-ui/components/session/lib/task-list'
+  type SidebarSession,
+  type SidebarStatus,
+} from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 
 function sidebarTask(
   id: string,
-  status: TaskStatus,
+  status: SidebarStatus,
   createdAt: number,
-): SidebarTask {
+): SidebarSession {
   // SAFETY: the sort reads only a row's identity and creation time.
   return {
     id,
@@ -25,7 +25,7 @@ function sidebarTask(
     createdAt,
     runStartedAt: 0,
     tabIds: [id],
-  } as SidebarTask
+  } as SidebarSession
 }
 
 describe('sortSidebarRowsByCreation', () => {

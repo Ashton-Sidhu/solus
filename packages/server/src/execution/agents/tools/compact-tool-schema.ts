@@ -34,7 +34,9 @@ function dropNullBranch(jsonSchema: JsonSchema): void {
  * Remove from one schema node what costs context on every turn and constrains
  * nothing: `default`, an `additionalProperties` or `propertyNames` that allows
  * every value, safe-integer bounds, and the `null` branch of an optional
- * field. Descriptions, enums, `required` lists, and real bounds stay.
+ * field. Also `minLength: 1`: a model never sends an empty string on purpose,
+ * and the parse still refuses one with a clear error. Descriptions, enums,
+ * `required` lists, and other bounds stay.
  */
 function compactNode(jsonSchema: JsonSchema, optional: boolean): void {
   delete jsonSchema.default
@@ -43,6 +45,7 @@ function compactNode(jsonSchema: JsonSchema, optional: boolean): void {
   if (JSON.stringify(jsonSchema.propertyNames) === '{"type":"string"}') delete jsonSchema.propertyNames
   if (jsonSchema.maximum === Number.MAX_SAFE_INTEGER) delete jsonSchema.maximum
   if (jsonSchema.minimum === Number.MIN_SAFE_INTEGER) delete jsonSchema.minimum
+  if (jsonSchema.minLength === 1) delete jsonSchema.minLength
   if (optional) dropNullBranch(jsonSchema)
 }
 

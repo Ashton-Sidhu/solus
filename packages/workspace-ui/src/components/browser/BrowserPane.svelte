@@ -375,7 +375,7 @@
   const pageWorktree = $derived(
     entry?.page.target.kind === "url" ? entry.page.target.worktreePath : undefined,
   );
-  const evidenceTasks = $derived(attachableTasks(session.tasksStore.tasks));
+  const evidenceTasks = $derived(attachableTasks(session.issuesStore.tasks));
   let capturing = $state(false);
   /** Bumped once per completed capture, so the stage can flash the shutter. A
    *  count rather than a flag: two captures in a row must play twice. */
@@ -394,7 +394,7 @@
   // natural next step the toast should offer.
   function openEvidenceTarget(target: BrowserEvidenceTarget) {
     if (target.kind === "task") {
-      session.goToTask(target.taskId, "click");
+      session.goToTask(target.issueId, "click");
       return;
     }
     void session

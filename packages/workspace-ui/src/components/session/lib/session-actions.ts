@@ -4,8 +4,8 @@ import { sessionListStore, type SessionListTarget } from '../../../contexts/work
 import { nextTaskAfterLeaving } from '../../../contexts/workspace/session-sidebar-selection'
 import { requestInputFocus } from '../../../lib/inputFocus'
 import { toasts } from '../../../lib/toasts'
-import type { SidebarTask } from './task-list'
-import { taskSnoozeToastLabel } from './task-snooze'
+import type { SidebarSession } from './sidebar-rows'
+import { snoozeToastLabel } from './snooze'
 
 export function sessionPinAction(
   sidebar: SessionSidebarStore,
@@ -39,7 +39,7 @@ export function sessionPinAction(
   }
 }
 
-export async function completeSidebarSession(sidebar: SessionSidebarStore, row: SidebarTask) {
+export async function completeSidebarSession(sidebar: SessionSidebarStore, row: SidebarSession) {
   const completing = sidebar.completeTask(row)
   requestInputFocus()
   try {
@@ -88,8 +88,8 @@ export function tabSessionLifecycleActions(workspace: WorkspaceContext, sidebar:
   }
 
   // A completed shared session leaves the list, but its open tab can reopen it.
-  const row = sidebar.taskForTab(tabId) ?? (state?.settledAt != null
-    ? sidebar.allTasks.find((candidate) => candidate.tabIds.includes(tabId))
+  const row = sidebar.rowForTab(tabId) ?? (state?.settledAt != null
+    ? sidebar.allRows.find((candidate) => candidate.tabIds.includes(tabId))
     : undefined)
   if (!row) return null
   const canShelve = sidebar.canShelve(row)
@@ -117,11 +117,11 @@ export function tabSessionLifecycleActions(workspace: WorkspaceContext, sidebar:
 export function applySessionSnooze(
   workspace: WorkspaceContext,
   sidebar: SessionSidebarStore,
-  openRows: SidebarTask[],
+  openRows: SidebarSession[],
   rowKeys: string[],
   until: number,
   note: string,
-  navigate: (next: SidebarTask | null) => void,
+  navigate: (next: SidebarSession | null) => void,
 ) {
   if (!rowKeys.length) return
   const row = openRows.find((candidate) => candidate.key === rowKeys[0])
@@ -133,10 +133,10 @@ export function applySessionSnooze(
     : null
   for (const rowKey of rowKeys) sidebar.snoozeRow(rowKey, until, note)
   toasts.undo(
-    taskSnoozeToastLabel({
+    snoozeToastLabel({
       count: rowKeys.length,
       hasNote: !!note,
-      keepsRunning: sidebar.allTasks.some((task) => rowKeys.includes(task.key) && task.attention === 'running'),
+      keepsRunning: sidebar.allRows.some((task) => rowKeys.includes(task.key) && task.attention === 'running'),
     }),
     () => {
       for (const rowKey of rowKeys) sidebar.snoozeRow(rowKey, null)

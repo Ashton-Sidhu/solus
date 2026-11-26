@@ -154,6 +154,60 @@ describe('queue author', () => {
     const snapshot = plane.scheduler.queuedPromptsForSession('s1')
     expect(snapshot.map((prompt) => [prompt.clientPromptId, prompt.author])).toEqual([['p-cara', cara], [undefined, undefined]])
   })
+
+  // The provider's transcript keeps only the text of a prompt. In a session that
+  // two people drive, a reload names each prompt's author only from this record.
+  test('the host keeps the person who wrote a sent prompt, and nobody for a message that no person wrote', async () => {
+    const backend = holdingBackend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { backend.releaseAll(); plane.shutdown() })
+    const { activityFor } = await import('@solus/server/data/activity/activity')
+    const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
+    const { promptHash } = await import('@solus/server/data/activity/prompt-senders')
+    const keptFor = (sessionId: string) => activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId }, { kind: 'prompt_sent' })
+    /** The record is written beside the launch, so a read waits for it. */
+    const settled = async (sessionId: string) => {
+      for (let attempt = 0; attempt < 50 && (await keptFor(sessionId)).length === 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
+      return keptFor(sessionId)
+    }
+
+    await plane.dispatch.submitPrompt(ctx('by-bob'), { prompt: '[Attached file: /tmp/a.log]\n\nRead this log', displayPrompt: 'Read this log' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    const kept = await settled('by-bob')
+    expect(kept.map((entry) => entry.by)).toEqual([{ kind: 'user', user: actors.accountUser('bob', 'Bob') }])
+    // The key is what the person typed, which is what a client shows.
+    expect(kept[0]).toMatchObject({ kind: 'prompt_sent', promptHash: promptHash('Read this log') })
+
+    await plane.dispatch.submitPrompt(ctx('by-host'), { prompt: 'start' }, { clientId: 'c-owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(ctx('by-solus'), { prompt: 'The command ended.', via: 'background-command' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(await keptFor('by-host')).toEqual([])
+    expect(await keptFor('by-solus')).toEqual([])
+  })
+})
+
+// WHY: a composer sends only the typed text for display. Without the paths,
+// every client that did not send the prompt shows it with no file at all.
+test('the echo of a prompt names its files for the clients that did not send it', async () => {
+  const backend = holdingBackend()
+  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
+  plane.on('error', () => {})
+  cleanups.push(() => { backend.releaseAll(); plane.shutdown() })
+  const sent: NormalizedEvent[] = []
+  plane.on('event', (_sessionId: string, event: NormalizedEvent) => sent.push(event))
+
+  await plane.dispatch.submitPrompt(ctx('with-file'), {
+    prompt: '[Attached file: /tmp/clip.mp4]\n\nIt still loads', displayPrompt: 'It still loads', clientPromptId: 'phone-1',
+  }, { clientId: 'c-phone', actor: HOST_ACTOR })
+  // send_session has no display text: its lines are in the text already.
+  await plane.dispatch.submitPrompt(ctx('from-agent'), { prompt: '[Attached file: /tmp/a.log]\n\nRead this' }, { actor: HOST_ACTOR })
+
+  const echoes = sent.filter((event) => event.type === 'user_message')
+  expect(echoes).toMatchObject([
+    { text: 'It still loads', attachedFilePaths: ['/tmp/clip.mp4'] },
+    { text: '[Attached file: /tmp/a.log]\n\nRead this' },
+  ])
+  expect(echoes[1]).not.toHaveProperty('attachedFilePaths')
 })
 
 test('a prompt sent after Stop waits for the stopped provider run to exit', async () => {

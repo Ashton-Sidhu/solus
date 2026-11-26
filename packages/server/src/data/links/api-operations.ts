@@ -8,7 +8,7 @@ import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
 import { isApiMode } from '../../host/api-mode'
 import { apiOrganization, apiScope, requireResource, requireScope, writerAttribution } from '../workspace/context'
-import { parseTaskKey } from '@solus/contracts/task-sources'
+import { parseIssueKey } from '@solus/contracts/task-sources'
 import type { RecordScope } from '../../admission/principal'
 import { linkTask, linkTaskSession, linkWorkingSessionPullRequest, unlinkTask, unlinkTaskSession } from '../tasks/task-attachments'
 import { Work } from '../works/work'
@@ -22,7 +22,7 @@ import { linkSessionPullRequest, unlinkSessionPullRequest } from '../sessions/se
  * A link from a session needs editor on the session. A task is not a Solus
  * resource (docs/plans/provider-owned-tasks.md §4.3): `from.id` is a task key,
  * the link is made in the caller's organization, and the caller needs the
- * `tasks:write` scope alone. The rule of each (from, to) pair checks its
+ * `issues:write` scope alone. The rule of each (from, to) pair checks its
  * target — readable, and in the organization of `from` — and writes the table that
  * pair has always used, through the store functions that emit its activity and events.
  */
@@ -171,7 +171,7 @@ const SESSION_RULES: SessionRules = {
 }
 
 /** The rule of one (from, to) pair, or a refusal for a pair that is not a link. */
-function ruleOf<From>(rules: { [K in TargetKind]?: LinkRule<From, K> }, fromKind: 'task' | 'session', kind: TargetKind): LinkRule<From, TargetKind> {
+function ruleOf<From>(rules: { [K in TargetKind]?: LinkRule<From, K> }, fromKind: 'issue' | 'session', kind: TargetKind): LinkRule<From, TargetKind> {
   const rule = rules[kind]
   if (!rule) throw new SolusApiError(400, 'INVALID_REQUEST', `A ${fromKind} cannot link a ${kind}.`)
   // SAFETY: the table is keyed by target kind, so the rule found for `kind` takes a target of that kind.
@@ -194,14 +194,14 @@ export class LinkApiOperations {
   /** The checks every pair shares, then the pair's own check and write. A delete checks `from` alone: its target may be gone. */
   private async apply(context: WorkspaceRequestContext, input: WorkspaceLink, verb: 'put' | 'delete'): Promise<void> {
     const { from, to } = input
-    requireScope(context, from.kind === 'task' ? 'tasks:write' : 'sessions:write')
+    requireScope(context, from.kind === 'issue' ? 'issues:write' : 'sessions:write')
     if (from.kind === 'session') await requireResource(this.shares, context, { kind: 'session', id: from.id }, 'edit')
     if (input.originSessionId) await requireResource(this.shares, context, { kind: 'session', id: input.originSessionId }, 'edit')
     const by = writerAttribution(context, input.originSessionId ?? (from.kind === 'session' ? from.id : undefined))
     const shared = { context, shares: this.shares, to, title: input.title, role: input.role, originSessionId: input.originSessionId, by }
-    if (from.kind === 'task') {
-      if (!parseTaskKey(from.id)) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
-      const rule = ruleOf<TaskEnd>(TASK_RULES, 'task', to.kind)
+    if (from.kind === 'issue') {
+      if (!parseIssueKey(from.id)) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+      const rule = ruleOf<TaskEnd>(TASK_RULES, 'issue', to.kind)
       const request = { ...shared, from: { taskId: from.id, scope: apiScope(context) }, organizationId: apiOrganization(context) }
       if (verb === 'put') await rule.check(request)
       await rule[verb](request)

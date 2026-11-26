@@ -15,6 +15,7 @@ import {
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
 import { settingManagedMessage, type ManagedHostKey } from '@solus/contracts/policy'
+import { withRenamedSolusTools } from '@solus/contracts/agent-tools'
 import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
@@ -147,7 +148,7 @@ function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>[
     // Retiring tools must not reset the person's other tool switches.
     const storedTools = key === 'solusTools' ? z.record(z.string(), z.boolean()).safeParse(value) : null
     const currentValue = storedTools?.success
-      ? Object.fromEntries(Object.entries(storedTools.data).filter(([name]) => !RETIRED_TOOL_NAMES.has(name)))
+      ? withRenamedSolusTools(Object.fromEntries(Object.entries(storedTools.data).filter(([name]) => !RETIRED_TOOL_NAMES.has(name))))
       : value
     const parsed = isHostConfigKey(key) ? HOST_CONFIG_FIELDS[key].patch.safeParse(currentValue) : null
     if (parsed?.success) Object.assign(patch, { [key]: parsed.data })

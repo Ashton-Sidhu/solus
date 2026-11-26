@@ -21,8 +21,8 @@
   import HostDetailGit from "./HostDetailGit.svelte";
   import HostDetailProviders from "./HostDetailProviders.svelte";
   import HostDetailEnvironment from "./HostDetailEnvironment.svelte";
-  import HostDetailAccess from "./HostDetailAccess.svelte";
   import HostRoutesSection from "./HostRoutesSection.svelte";
+  import { openSharingAccess } from "./lib/sharing-access";
 
   interface Props {
     host: ServerItem;
@@ -109,14 +109,14 @@
     <!-- The active tab colors its own segment of the list's hairline: same
          thickness, same place, so the divider reads as one line. -->
     <Tabs.List variant="line" class="w-full justify-start gap-5 border-b border-border p-0 group-data-horizontal/tabs:h-auto">
-      {#each [["overview", "Overview"], ["resources", "Resources"], ["access", "Access"], ["git", "Git"], ["providers", "AI providers"], ["environment", "Environment"]] as [value, label] (value)}
+      {#each [["overview", "Overview"], ["resources", "Resources"], ["git", "Git"], ["providers", "AI providers"], ["environment", "Environment"]] as [value, label] (value)}
         <Tabs.Trigger {value} class="h-auto flex-none rounded-none px-0 pt-0 pb-2.5 text-workspace-chrome group-data-[orientation=horizontal]/tabs:after:bottom-[-1px] group-data-[orientation=horizontal]/tabs:after:h-px data-active:text-foreground">{label}</Tabs.Trigger>
       {/each}
     </Tabs.List>
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
       <HostRoutesSection serverId={host.id} />
-      <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
+      <HostDetailOverview {host} {setup} onOpenTab={(next) => (next === "access" ? openSharingAccess(workspace.router, host.id) : (connectionsNav.tab = next))} />
     </Tabs.Content>
     <!-- Mounted only while selected: the tab holds the watch that makes the host sample. -->
     {#if connectionsNav.tab === "resources"}
@@ -126,10 +126,6 @@
         {/await}
       </Tabs.Content>
     {/if}
-    <!-- Room below the last card: the page ends with space, not on the window's edge. -->
-    <Tabs.Content value="access" class="mt-5 flex flex-col gap-7 pb-16">
-      <HostDetailAccess serverId={host.id} />
-    </Tabs.Content>
     <Tabs.Content value="git" class="mt-5 flex flex-col gap-7">
       <HostDetailGit {setup} />
     </Tabs.Content>

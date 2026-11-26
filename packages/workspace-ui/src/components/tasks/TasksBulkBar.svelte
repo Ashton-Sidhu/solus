@@ -6,7 +6,7 @@
     Dot as DotOutlineIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ListBulkAction, ListBulkBar, type ListSelection } from "../ui/list-page";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
@@ -19,7 +19,7 @@
   interface Props {
     selection: ListSelection;
     /** The columns of the view on screen that a task can be moved to. */
-    moveOptions: { id: string; label: string; category: TaskStatusCategory }[];
+    moveOptions: { id: string; label: string; category: IssueStatusCategory }[];
     onComplete: () => void;
     /** Absent where the surface has no read marks. */
     onMarkUnread?: () => void;

@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
-import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueSidebarPrLink } from '@solus/contracts/task-types'
 import type { SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { keepEqual } from '@solus/client-core/keep-equal'
@@ -136,8 +136,8 @@ export class SessionPullRequestsStore {
 export const sessionPullRequestsStore = new SessionPullRequestsStore()
 
 /** A session's link in the shape the linked pull request reads take. */
-export function sessionPrLink(link: SessionPullRequestLink): TaskSidebarPrLink {
-  const prLink: TaskSidebarPrLink = {
+export function sessionPrLink(link: SessionPullRequestLink): IssueSidebarPrLink {
+  const prLink: IssueSidebarPrLink = {
     number: link.number,
     url: link.url,
     title: link.title || `#${link.number}`,

@@ -1,5 +1,5 @@
 import { clip } from '@solus/contracts/session-exchange'
-import type { TaskEpic, TaskLink } from '@solus/contracts/task-types'
+import type { IssueEpic, IssueLink } from '@solus/contracts/task-types'
 
 /** Characters of the epic's description read_issue returns. The epic is
  *  context for this task, not the work itself; the agent can open the url. */
@@ -22,7 +22,7 @@ export function formatTaskContext(task: { id: string; title?: string }): string 
 
 /** The epic this task belongs to: one line that names it, then its
  *  description on one indented line, clipped. */
-export function formatTaskEpic(epic: TaskEpic): string[] {
+export function formatTaskEpic(epic: IssueEpic): string[] {
   const ref = /^\d+$/.test(epic.externalId) ? `#${epic.externalId}` : epic.externalId
   const lines = [`Epic: ${epic.provider} ${ref} — "${epic.title}" — ${epic.url}`]
   const body = clip(epic.body, EPIC_BODY_LIMIT)
@@ -32,7 +32,7 @@ export function formatTaskEpic(epic: TaskEpic): string[] {
 
 /** One linked item as the agent should address it: the id its read tool takes,
  *  the human title, and the live status when the link carries one. */
-export function formatTaskLink(link: TaskLink): string {
+export function formatTaskLink(link: IssueLink): string {
   const title = link.liveTitle ?? link.title
   const status = link.liveStatus ? ` [${link.liveStatus}]` : ''
   switch (link.kind) {
@@ -44,6 +44,6 @@ export function formatTaskLink(link: TaskLink): string {
       // No Solus tool reads a pull request; the code host's own CLI does.
       return `PR #${link.targetKey} — "${title}"${link.url ? ` — ${link.url}` : ''} (gh pr view ${link.targetKey})`
     case 'automation':
-      return `automation ${link.targetKey} — "${title}"${status} (read_automation)`
+      return `automation ${link.targetKey} — "${title}"${status} (read_automations)`
   }
 }

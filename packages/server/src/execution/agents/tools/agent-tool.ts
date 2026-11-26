@@ -4,6 +4,7 @@ import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 import { downscalePng } from './bounded-png'
 import { compactToolSchema } from './compact-tool-schema'
+import type { ToolAccess } from './tool-access'
 
 export interface AgentToolResult {
   ok: boolean
@@ -51,6 +52,9 @@ export interface AgentToolContext {
   /** The session id: what every record the tool writes names
    *  (docs/plans/session-identity.md). */
   sessionId: () => string | undefined
+  /** An outside app's requester key (`client:<grantId>`) when no session calls
+   *  (plans/035 §8): the work it starts is keyed by it, and only it reads that work. */
+  requesterKey?: () => string | undefined
   abortSignal: AbortSignal
   parentToolUseId: () => string | undefined
   emit: (event: NormalizedEvent) => void
@@ -73,6 +77,8 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   passthroughInput?: boolean
   /** Refuse extra input fields before parsing can discard a retired argument. */
   strictInput?: boolean
+  /** Who may call a tool that is made for one run (an integration's or an app's). A Solus tool's rule is in `TOOL_ACCESS`. */
+  access?: ToolAccess
   /**
    * False when this tool is not for the person of the turn: the catalog leaves it out,
    * and a call is refused (plans/035-cloud-machine-tools.md §7). It reads the person

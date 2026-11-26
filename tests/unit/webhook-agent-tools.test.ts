@@ -71,9 +71,18 @@ const hmac = {
 const actions = [{ id: 'review', type: 'send_to_session' as const, sessionId: 's1', enabled: true, filters: [{ path: 'headers.x-github-event', op: 'equals' as const, value: 'pull_request' }], template: 'Review {{body.pull_request.html_url}}' }]
 
 describe('webhook agent tools', () => {
+  // WHY: approval is per tool, so the changes and the reads are two tools.
+  // A read or a dry run must never wait for a person; a change always asks.
   test('changes need approval; reads and request_secret do not', () => {
-    expect([tools.createWebhookAgentTool, tools.updateWebhookAgentTool, tools.deleteWebhookAgentTool, tools.rotateWebhookAgentTool].every((tool) => tool.requiresApproval)).toBe(true)
-    expect([tools.listWebhooksAgentTool, tools.readWebhookDeliveryAgentTool, tools.dryRunWebhookAgentTool, secretTool.requestSecretAgentTool].some((tool) => tool.requiresApproval)).toBe(false)
+    expect(tools.manageWebhooksAgentTool.requiresApproval).toBe(true)
+    expect([tools.readWebhooksAgentTool, secretTool.requestSecretAgentTool].some((tool) => tool.requiresApproval)).toBe(false)
+  })
+
+  test('a change of one webhook names it', async () => {
+    for (const action of ['update', 'delete', 'rotate'] as const) {
+      expect(await tools.manageWebhooksAgentTool.execute({ action }, context('session-a', []))).toEqual({ ok: false, text: `${action} needs a webhook_id.` })
+    }
+    expect(await tools.readWebhooksAgentTool.execute({ action: 'deliveries' }, context('session-a', []))).toEqual({ ok: false, text: 'deliveries needs a webhook_id.' })
   })
 
   test('request_secret shows a private card; the secretRef creates the webhook and the value never reaches the agent', async () => {
@@ -92,13 +101,13 @@ describe('webhook agent tools', () => {
     expect(events.at(-1)).toEqual({ type: 'permission_resolved', questionId })
     const [{ secretRef }] = (JSON.parse(answer.text) as { secrets: { status: 'saved'; secretRef: string }[] }).secrets
 
-    const created = await tools.createWebhookAgentTool.execute({ name: 'GitHub', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
+    const created = await tools.manageWebhooksAgentTool.execute({ action: 'create', name: 'GitHub', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
     expect(created.ok).toBe(true)
     expect(created.text).toContain('Ask the user to link this host to Solus Cloud')
     const id = /id: ([^)]+)\)/.exec(created.text)![1]
     expect(Buffer.from(secrets.readWebhookSecrets(id)!.secret!, 'base64').toString()).toBe('typed-secret')
     // The ref worked once.
-    const again = await tools.createWebhookAgentTool.execute({ name: 'GitHub 2', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
+    const again = await tools.manageWebhooksAgentTool.execute({ action: 'create', name: 'GitHub 2', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
     expect(again).toMatchObject({ ok: false })
     expect(again.text).toContain('secretRef is not valid')
   })
@@ -127,13 +136,13 @@ describe('webhook agent tools', () => {
     expect(secretRequests.takeSecretRef(ref, 'session-a', Date.now() + 16 * 60 * 1000)).toBeNull()
   })
 
-  test('dry_run_webhook shows filter results and prompts; list_webhooks never shows the token', async () => {
-    const dry = await tools.dryRunWebhookAgentTool.execute({ actions, sample: { headers: [['x-github-event', 'push']], body: '{}' } }, context('session-a', []))
+  test('a dry run shows filter results and prompts; the list never shows the token', async () => {
+    const dry = await tools.readWebhooksAgentTool.execute({ action: 'dry_run', actions, sample: { headers: [['x-github-event', 'push']], body: '{}' } }, context('session-a', []))
     expect(dry.text).toContain('Action review (send_to_session): skipped')
     expect(dry.text).toContain('FAIL')
-    const created = await tools.createWebhookAgentTool.execute({ name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
+    const created = await tools.manageWebhooksAgentTool.execute({ action: 'create', name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
     const id = /id: ([^)]+)\)/.exec(created.text)![1]
-    const listed = await tools.listWebhooksAgentTool.execute({}, context('session-a', []))
+    const listed = await tools.readWebhooksAgentTool.execute({ action: 'list' }, context('session-a', []))
     expect(listed.text).toContain(id)
     expect(listed.text).toContain('UNVERIFIED')
     expect(listed.text).not.toContain(secrets.readWebhookSecrets(id)!.token)
@@ -141,20 +150,20 @@ describe('webhook agent tools', () => {
 
   test('a save the organization policy refuses is a clear tool error, and nothing is created', async () => {
     refusal = 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.'
-    const answer = await tools.createWebhookAgentTool.execute({ name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
-    expect(answer).toEqual({ ok: false, text: `create_webhook: ${refusal}` })
+    const answer = await tools.manageWebhooksAgentTool.execute({ action: 'create', name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
+    expect(answer).toEqual({ ok: false, text: `manage_webhooks: ${refusal}` })
     refusal = null
-    expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
+    expect((await tools.readWebhooksAgentTool.execute({ action: 'list' }, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
   })
 
   test('the flat schema the model reads is still checked by the strict contract: a wrong input changes nothing', async () => {
     // The advertised schema is flat to keep the tool list small (agent-tool-schema-size);
     // the contract still refuses an hmac without its signed text, and an eleventh action.
-    const missing = await tools.createWebhookAgentTool.execute({ name: 'Bad', verification: { scheme: 'hmac', algorithm: 'sha256', secretRef: 'x' }, actions }, context('session-a', []))
+    const missing = await tools.manageWebhooksAgentTool.execute({ action: 'create', name: 'Bad', verification: { scheme: 'hmac', algorithm: 'sha256', secretRef: 'x' }, actions }, context('session-a', []))
     expect(missing.ok).toBe(false)
-    expect(missing.text).toStartWith('create_webhook: Invalid arguments:')
-    const tooMany = await tools.dryRunWebhookAgentTool.execute({ actions: Array.from({ length: 11 }, (_, index) => ({ ...actions[0], id: `a${index}` })), sample: { body: '{}' } }, context('session-a', []))
+    expect(missing.text).toStartWith('manage_webhooks: Invalid arguments:')
+    const tooMany = await tools.readWebhooksAgentTool.execute({ action: 'dry_run', actions: Array.from({ length: 11 }, (_, index) => ({ ...actions[0], id: `a${index}` })), sample: { body: '{}' } }, context('session-a', []))
     expect(tooMany.ok).toBe(false)
-    expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
+    expect((await tools.readWebhooksAgentTool.execute({ action: 'list' }, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
   })
 })

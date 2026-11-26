@@ -1,7 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Octokit } from '@octokit/rest'
-import { taskKey } from '@solus/contracts/task-sources'
-import type { TaskSource } from '@solus/contracts/task-sources'
+import { issueKey } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import type { GithubRun, SourceWriteState, TaskHome } from '@solus/server/data/tasks/providers/types'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -9,7 +8,8 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { GitHubTaskProvider, githubIssueDetails, readIssueNode } = await import('@solus/server/data/tasks/providers/github')
-const { readGithubIssueTimeline } = await import('@solus/server/providers/github/issue-timeline')
+const { readGithubIssueTimeline } = await import('@solus/server/data/tasks/providers/github-issue-timeline')
+const { draftToTask, issueToTask } = await import('@solus/server/data/tasks/providers/github-model')
 const { GitHubRepoSource } = await import('@solus/server/data/tasks/sources/github-repo')
 const { GitHubProjectSource } = await import('@solus/server/data/tasks/sources/github-project')
 const { TaskProviderError, MAX_SOURCE_TASKS } = await import('@solus/server/data/tasks/providers/types')
@@ -118,7 +118,7 @@ function draftNode(id = 'DI_draft1', title = 'Sketch the flow') {
 }
 
 /** A board item of the issue, in a Project with the given field definitions. */
-function boardItem(fields: Array<{ name: string; dataType: string }>, values: unknown[] = []) {
+function boardItem(fields: Array<{ id?: string; name: string; dataType: string; options?: Array<{ id: string; name: string }> }>, values: unknown[] = []) {
   return { id: 'PVTI_issue', project: { id: 'PVT_1', fields: { nodes: fields } }, fieldValues: { nodes: values } }
 }
 
@@ -135,11 +135,13 @@ function projectAnswer(nodes: unknown[], pageInfo = { hasNextPage: false, endCur
   }
 }
 
-const REPO_SOURCE: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
-const PROJECT_SOURCE: TaskSource = { kind: 'github-project', owner: 'acme', number: 4 }
+const REPO_SOURCE: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
+const PROJECT_SOURCE: IssueSource = { kind: 'github-project', owner: 'acme', number: 4 }
 const PROJECT_WRITE_STATE: SourceWriteState = { kind: 'github-project', projectId: 'PVT_1', statusFieldId: 'FIELD_status' }
 const ISSUE_HOME: TaskHome = { provider: 'github', kind: 'issue', owner: 'acme', repo: 'app', number: 7 }
 const DRAFT_HOME: TaskHome = { provider: 'github', kind: 'draft', projectId: 'PVT_1', itemId: 'PVTI_draft' }
+/** The host's copy of acme/app#7 as a read stored it, which a write receives. */
+const CURRENT = issueToTask(issueNode())
 
 describe('the identity of a GitHub task', () => {
   test('an issue is named by its node id and shown by the repository it is in now', async () => {
@@ -151,9 +153,9 @@ describe('the identity of a GitHub task', () => {
 
     const { task } = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'I_node7' })
 
-    expect(taskKey(task.ref)).toBe('github:I_node7')
+    expect(issueKey(task.ref)).toBe('github:I_node7')
     expect(task.reference).toBe('acme/platform#7')
-    expect(task.home).toEqual({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'platform', number: 7 })
+    expect(task.home).toMatchObject({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'platform', number: 7 })
     expect(task.state).toEqual({ name: 'Open', category: 'open' })
   })
 
@@ -171,7 +173,7 @@ describe('the identity of a GitHub task', () => {
 
     const details = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'DI_draft1' })
 
-    expect(taskKey(details.task.ref)).toBe('github:DI_draft1')
+    expect(issueKey(details.task.ref)).toBe('github:DI_draft1')
     expect(details.task.kind).toBe('draft')
     expect(details.task.reference).toBeUndefined()
     expect(details.task.url).toBeNull()
@@ -196,44 +198,41 @@ describe('the identity of a GitHub task', () => {
 })
 
 describe('reading one issue', () => {
-  test('reads every GitHub timeline page and keeps comments and unfamiliar event types', async () => {
-    const pages: number[] = []
+  test('the detail read carries the newest history, and an older page is one query', async () => {
+    // WHY: the issue page used a second request for history, and GitHub's REST
+    // timeline cost two more calls and read the comments again. One GraphQL
+    // connection serves both, and older comments still arrive with their page.
+    const timeline = (nodes: unknown[], hasPreviousPage: boolean) => ({ pageInfo: { hasPreviousPage, startCursor: hasPreviousPage ? 'older' : null }, nodes })
     const sha = '8a81adf' + 'a'.repeat(33)
-    const rest = new Octokit({
-      request: {
-        fetch: async (input) => {
-          const url = new URL(String(input))
-          expect(url.pathname).toBe('/repos/acme/app/issues/7/timeline')
-          const page = Number(url.searchParams.get('page'))
-          pages.push(page)
-          return Response.json(page === 1 ? [{
-            id: 1, event: 'commented', node_id: 'comment-1',
-            created_at: '2024-05-30T12:00:00Z', body: 'Older comment', user: { login: 'ada' },
-          }] : [{
-            id: 2, event: 'referenced', actor: { login: 'stainless-app' },
-            created_at: '2025-09-22T12:00:00Z',
-            commit_id: sha, commit_url: `https://api.github.com/repos/acme/app/commits/${sha}`,
-          }, {
-            id: 3, event: 'added_to_project_v2', created_at: '2025-09-23T12:00:00Z'
-          }], {
-            headers: page === 1
-              ? { link: `<${url.origin}${url.pathname}?page=2>; rel="next", <${url.origin}${url.pathname}?page=2>; rel="last"` }
-              : {},
-          })
-        },
-      },
-    })
-    const issue = { owner: 'acme', repo: 'app', number: 7 }
-    const latest = await readGithubIssueTimeline(rest, 'github:issue', issue)
-    expect(latest.events).toMatchObject([
+    const { run, graphqlCalls, restCalls } = fakeGithub(({ query }) => query.includes('query IssueTimeline')
+      ? { node: { __typename: 'Issue', timelineItems: timeline([
+          { __typename: 'IssueComment', id: 'IC_old', createdAt: '2024-05-30T12:00:00Z', body: 'Older comment', author: { login: 'ada' } },
+        ], false) } }
+      : { node: issueNode({
+          author: null, reactionGroups: [], comments: { totalCount: 0, nodes: [] },
+          closedByPullRequestsReferences: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          timelineItems: timeline([
+            { __typename: 'ReferencedEvent', id: 'RE_1', createdAt: '2025-09-22T12:00:00Z', actor: { login: 'stainless-app' }, commit: { oid: sha, url: `https://github.com/acme/app/commit/${sha}` } },
+            { __typename: 'CrossReferencedEvent', id: 'CR_1', createdAt: '2025-09-23T12:00:00Z', actor: { login: 'ada' },
+              source: { __typename: 'PullRequest', number: 9, title: 'Fix it', url: 'https://github.com/acme/app/pull/9', pullRequestState: 'MERGED', merged: true } },
+          ], true),
+        }) })
+
+    const result = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'I_node7' }, { providerMetadata: true })
+    expect(graphqlCalls).toHaveLength(1)
+    expect(restCalls).toHaveLength(0)
+    expect(result.providerMetadata?.events).toMatchObject([
       { actor: 'stainless-app', link: { label: '8a81adf', url: `https://github.com/acme/app/commit/${sha}` } },
-      { text: 'recorded “added to project v2”' },
+      { text: 'referenced this issue', link: { url: 'https://github.com/acme/app/pull/9' } },
     ])
-    expect(latest.historyCursor).toBe('older:1')
-    const earlier = await readGithubIssueTimeline(rest, 'github:issue', issue, latest.historyCursor ?? undefined)
-    expect(earlier.comments).toMatchObject([{ providerCommentId: 'comment-1', body: 'Older comment' }])
-    expect(earlier.historyCursor).toBeNull()
-    expect(pages).toEqual([1, 2, 1])
+    expect(result.providerMetadata?.pullRequests).toMatchObject([{ number: 9, state: 'merged' }])
+    expect(result.providerMetadata?.historyCursor).toBe('older')
+
+    const earlier = await run('older_history', ({ graphql }) => readGithubIssueTimeline(graphql, 'github:I_node7', 'I_node7', 'older'))
+    expect(graphqlCalls).toHaveLength(2)
+    expect(graphqlCalls[1]?.variables).toEqual({ id: 'I_node7', cursor: 'older' })
+    expect(earlier?.comments).toMatchObject([{ providerCommentId: 'IC_old', body: 'Older comment' }])
+    expect(earlier?.historyCursor).toBeNull()
   })
 
   test('gets the issue, latest comments, and reactions in one provider request', async () => {
@@ -263,7 +262,7 @@ describe('reading one issue', () => {
     expect(graphqlCalls).toHaveLength(1)
     expect(graphqlCalls[0]?.variables).toEqual({ owner: 'acme', repo: 'app', number: 7 })
     expect(graphqlCalls[0]?.query).toContain('comments(last: 100)')
-    expect(graphqlCalls[0]?.query).not.toContain('timelineItems')
+    expect(graphqlCalls[0]?.query).toContain('timelineItems(last: 100')
     expect(restCalls).toHaveLength(0)
   })
 
@@ -359,16 +358,19 @@ describe('the fields a GitHub issue takes', () => {
 })
 
 describe('writing to a GitHub issue', () => {
-  test('the answer has the written fields when the read after the write is stale', async () => {
-    // WHY: GitHub's GraphQL reads lag its REST writes. Without the overlay, a
-    // new label shows and then goes away in the UI.
-    const { run, restCalls } = fakeGithub(
-      () => ({ repository: { issue: issueNode() } }),
-      { update: () => ({}) },
+  test('an update is one REST write, and answers the host copy with the written fields', async () => {
+    // WHY: a read after the write cost a second call, and GitHub's GraphQL
+    // reads lag its REST writes, so it could give the issue as it was.
+    const { run, restCalls, graphqlCalls } = fakeGithub(
+      () => { throw new Error('An update reads nothing.') },
+      { update: () => ({ updated_at: '2026-08-05T10:00:00Z' }) },
     )
 
-    const task = await new GitHubTaskProvider(run).update(ISSUE_HOME, { labels: ['bug', 'urgent'], assignee: null })
+    const task = await new GitHubTaskProvider(run).update(ISSUE_HOME, { labels: ['bug', 'urgent'], assignee: null }, issueToTask(issueNode()))
 
+    expect(graphqlCalls).toHaveLength(0)
+    expect(task.updatedAt).toBe(Date.parse('2026-08-05T10:00:00Z'))
+    expect(task.title).toBe(issueToTask(issueNode()).title)
     expect(restCalls).toEqual([{
       method: 'update',
       params: { owner: 'acme', repo: 'app', issue_number: 7, labels: ['bug', 'urgent'], assignees: [] },
@@ -378,41 +380,51 @@ describe('writing to a GitHub issue', () => {
     expect(task.assignee).toBeUndefined()
   })
 
-  test('a priority goes to the Priority field of the board item, as the option id', async () => {
-    const item = boardItem([{ name: 'Priority', dataType: 'SINGLE_SELECT' }])
-    const { run, graphqlCalls, restCalls } = fakeGithub(({ query }) => {
-      if (query.includes('node(id: $projectId)')) {
-        return {
-          node: {
-            fields: {
-              nodes: [{ id: 'FIELD_priority', name: 'Priority', dataType: 'SINGLE_SELECT', options: [{ id: 'opt_p0', name: 'P0' }, { id: 'opt_p2', name: 'P2' }] }],
-            },
-          },
-        }
-      }
-      if (query.includes('updateProjectV2ItemFieldValue')) return {}
-      return { repository: { issue: issueNode({ projectItems: { nodes: [item] } }) } }
-    })
+  test('priority and due date are one mutation, with the ids of the host copy and no read first', async () => {
+    // WHY: the board item, field and option ids come with each read of the
+    // issue. Reading them again before a write cost two more calls.
+    const item = boardItem([
+      { id: 'FIELD_priority', name: 'Priority', dataType: 'SINGLE_SELECT', options: [{ id: 'opt_p0', name: 'P0' }, { id: 'opt_p2', name: 'P2' }] },
+      { id: 'FIELD_start', name: 'Start', dataType: 'DATE' },
+      { id: 'FIELD_due', name: 'Due date', dataType: 'DATE' },
+    ])
+    const { run, graphqlCalls, restCalls } = fakeGithub(() => ({}))
+    const current = issueToTask(issueNode({ projectItems: { nodes: [item] } }))
 
-    const task = await new GitHubTaskProvider(run).update(ISSUE_HOME, { priority: 'medium' })
+    const task = await new GitHubTaskProvider(run).update(current.home, { priority: 'medium', dueDate: null }, current)
 
-    const write = graphqlCalls.find((call) => call.query.includes('updateProjectV2ItemFieldValue'))
-    expect(write?.variables).toEqual({
-      projectId: 'PVT_1',
-      itemId: 'PVTI_issue',
-      fieldId: 'FIELD_priority',
-      value: { singleSelectOptionId: 'opt_p2' },
+    expect(graphqlCalls).toHaveLength(1)
+    expect(graphqlCalls[0]?.query).toContain('priority: updateProjectV2ItemFieldValue')
+    expect(graphqlCalls[0]?.query).toContain('dueDate: clearProjectV2ItemFieldValue')
+    expect(graphqlCalls[0]?.variables).toEqual({
+      priorityProject: 'PVT_1', priorityItem: 'PVTI_issue', priorityField: 'FIELD_priority', priorityValue: { singleSelectOptionId: 'opt_p2' },
+      dueDateProject: 'PVT_1', dueDateItem: 'PVTI_issue', dueDateField: 'FIELD_due',
     })
     expect(restCalls).toHaveLength(0)
     expect(task.priority).toBe('medium')
+    expect(task.dueDate).toBeUndefined()
+  })
+
+  test('a host copy stored without board items reads them once before the write', async () => {
+    const item = boardItem([{ id: 'FIELD_priority', name: 'Priority', dataType: 'SINGLE_SELECT', options: [{ id: 'opt_p2', name: 'P2' }] }])
+    const { run, graphqlCalls } = fakeGithub(({ query }) => query.includes('mutation')
+      ? {}
+      : { repository: { issue: issueNode({ projectItems: { nodes: [item] } }) } })
+    const current = issueToTask(issueNode({ projectItems: { nodes: [item] } }))
+
+    await new GitHubTaskProvider(run).update(ISSUE_HOME, { priority: 'medium' }, current)
+
+    expect(graphqlCalls).toHaveLength(2)
+    expect(graphqlCalls[1]?.variables).toMatchObject({ priorityValue: { singleSelectOptionId: 'opt_p2' } })
   })
 
   test('a due date for an issue on no Project fails and writes nothing', async () => {
     // WHY: a silent success would show a due date that GitHub does not hold.
     const { run, graphqlCalls } = fakeGithub(() => ({ repository: { issue: issueNode() } }))
-    await expect(new GitHubTaskProvider(run).update(ISSUE_HOME, { dueDate: '2026-09-01' }))
+    const current = issueToTask(issueNode({ projectItems: { nodes: [] } }))
+    await expect(new GitHubTaskProvider(run).update(current.home, { dueDate: '2026-09-01' }, current))
       .rejects.toThrow(/no GitHub Project with a date field/)
-    expect(graphqlCalls.some((call) => call.query.includes('mutation'))).toBe(false)
+    expect(graphqlCalls).toHaveLength(0)
   })
 
   test('done closes the issue, and open or active reopens it', async () => {
@@ -423,8 +435,8 @@ describe('writing to a GitHub issue', () => {
     )
     const provider = new GitHubTaskProvider(run)
 
-    const closed = await provider.setState(ISSUE_HOME, 'done')
-    await provider.setState(ISSUE_HOME, 'active')
+    const closed = await provider.setState(ISSUE_HOME, 'done', CURRENT)
+    await provider.setState(ISSUE_HOME, 'active', CURRENT)
 
     expect(restCalls.map((call) => call.params.state)).toEqual(['closed', 'open'])
     // The read after the write is stale (still OPEN); the answer is not.
@@ -455,27 +467,16 @@ describe('writing to a GitHub issue', () => {
 })
 
 describe('writing to a draft item', () => {
-  test('an update addresses the draft, whose id comes from the board item', async () => {
-    // WHY: `updateProjectV2DraftIssue` takes the draft id, and the home of a
-    // draft holds only the Project and the item.
-    const { run, graphqlCalls } = fakeGithub(({ query }) => {
-      if (query.includes('updateProjectV2DraftIssue')) {
-        return { updateProjectV2DraftIssue: { draftIssue: draftNode('DI_draft1', 'New title') } }
-      }
-      return {
-        node: {
-          id: 'PVTI_draft',
-          project: { id: 'PVT_1' },
-          fieldValues: { nodes: [statusValue('opt_todo', 'Todo')] },
-          content: draftNode(),
-        },
-      }
-    })
+  test('an update addresses the draft by the id of the host copy, with no read first', async () => {
+    // WHY: `updateProjectV2DraftIssue` takes the draft id, which the host copy
+    // holds as its id. Reading the board item for it cost a call.
+    const { run, graphqlCalls } = fakeGithub(() => ({ updateProjectV2DraftIssue: { draftIssue: draftNode('DI_draft1', 'New title') } }))
+    const current = draftToTask(draftNode(), { projectId: 'PVT_1', itemId: 'PVTI_draft', statusName: 'Todo' })
 
-    const task = await new GitHubTaskProvider(run).update(DRAFT_HOME, { title: 'New title' })
+    const task = await new GitHubTaskProvider(run).update(DRAFT_HOME, { title: 'New title' }, current)
 
-    expect(graphqlCalls[0]?.variables).toEqual({ itemId: 'PVTI_draft' })
-    expect(graphqlCalls[1]?.variables).toMatchObject({ draftIssueId: 'DI_draft1', title: 'New title' })
+    expect(graphqlCalls).toHaveLength(1)
+    expect(graphqlCalls[0]?.variables).toMatchObject({ draftIssueId: 'DI_draft1', title: 'New title' })
     expect(task.title).toBe('New title')
     expect(task.state).toEqual({ name: 'Todo', category: 'open' })
     expect(task.home).toEqual(DRAFT_HOME)
@@ -486,7 +487,7 @@ describe('writing to a draft item', () => {
     const provider = new GitHubTaskProvider(run)
     const body = `![shot](asset://${'a'.repeat(64)}.png)`
 
-    await expect(provider.setState(DRAFT_HOME, 'done')).rejects.toThrow(/no state of its own/)
+    await expect(provider.setState(DRAFT_HOME, 'done', CURRENT)).rejects.toThrow(/no state of its own/)
     await expect(provider.comment(DRAFT_HOME, 'hello')).rejects.toThrow(/takes no comments/)
     expect(provider.unpublishableAssets(DRAFT_HOME, body)).toHaveLength(1)
     await expect(provider.publishAssets(DRAFT_HOME, body)).rejects.toThrow(/cannot hold attachments/)
@@ -596,7 +597,7 @@ describe('a GitHub repository source', () => {
       { update: () => ({}) },
     )
     const source = new GitHubRepoSource(run)
-    const move = { source: REPO_SOURCE, writeState: null, home: ISSUE_HOME, itemId: null }
+    const move = { source: REPO_SOURCE, writeState: null, home: ISSUE_HOME, itemId: null, current: CURRENT }
 
     const task = await source.move({ ...move, columnId: 'closed' })
     expect(restCalls[0]?.params).toMatchObject({ issue_number: 7, state: 'closed' })
@@ -630,7 +631,7 @@ describe('a GitHub repository source', () => {
     })
 
     expect(restCalls[0]?.params).toEqual({ owner: 'acme', repo: 'app', title: 'New work', body: 'Why', labels: ['bug'], assignees: ['ada'] })
-    expect(taskKey(item.task.ref)).toBe('github:I_new')
+    expect(issueKey(item.task.ref)).toBe('github:I_new')
     expect(item.task.reference).toBe('acme/app#12')
     expect(item.columnId).toBe('open')
     expect(graphqlCalls).toHaveLength(0)
@@ -693,7 +694,7 @@ describe('a GitHub Project source', () => {
 
     const read = await new GitHubProjectSource(run).read(PROJECT_SOURCE)
 
-    expect(graphqlCalls[0]?.variables).toEqual({ owner: 'acme', number: 4, cursor: null })
+    expect(graphqlCalls[0]?.variables).toEqual({ owner: 'acme', number: 4, cursor: null, first: 100 })
     expect(read.label).toBe('Launch board')
     expect(read.columns).toEqual([
       { id: 'opt_todo', name: 'Todo', category: 'open' },
@@ -701,7 +702,7 @@ describe('a GitHub Project source', () => {
       { id: 'opt_done', name: 'Done', category: 'done' },
     ])
     expect(read.writeState).toEqual(PROJECT_WRITE_STATE)
-    expect(read.items.map((item) => [taskKey(item.task.ref), item.task.kind, item.columnId, item.itemId])).toEqual([
+    expect(read.items.map((item) => [issueKey(item.task.ref), item.task.kind, item.columnId, item.itemId])).toEqual([
       ['github:I_node7', 'issue', 'opt_doing', 'PVTI_issue'],
       ['github:DI_draft1', 'draft', null, 'PVTI_draft'],
     ])
@@ -806,7 +807,7 @@ describe('a GitHub Project source', () => {
     })
     expect(item.itemId).toBe('PVTI_draft')
     expect(item.columnId).toBe('opt_doing')
-    expect(taskKey(item.task.ref)).toBe('github:DI_draft1')
+    expect(issueKey(item.task.ref)).toBe('github:DI_draft1')
     expect(item.task.state).toEqual({ name: 'In progress', category: 'active' })
   })
 
@@ -815,7 +816,7 @@ describe('a GitHub Project source', () => {
     const source = new GitHubProjectSource(run)
     await expect(source.create({ source: PROJECT_SOURCE, writeState: null, draft: { title: 'x' } }))
       .rejects.toThrow(/has not read this GitHub Project/)
-    await expect(source.move({ source: PROJECT_SOURCE, writeState: PROJECT_WRITE_STATE, home: ISSUE_HOME, itemId: null, columnId: 'opt_done' }))
+    await expect(source.move({ source: PROJECT_SOURCE, writeState: PROJECT_WRITE_STATE, home: ISSUE_HOME, itemId: null, columnId: 'opt_done', current: CURRENT }))
       .rejects.toThrow(/not an item of the GitHub Project/)
     await expect(source.move({
       source: PROJECT_SOURCE,
@@ -823,6 +824,7 @@ describe('a GitHub Project source', () => {
       home: ISSUE_HOME,
       itemId: 'PVTI_issue',
       columnId: 'opt_done',
+      current: CURRENT,
     })).rejects.toThrow(/no Status field/)
     expect(graphqlCalls).toHaveLength(0)
   })
@@ -838,6 +840,7 @@ describe('a GitHub Project source', () => {
       home: ISSUE_HOME,
       itemId: 'PVTI_issue',
       columnId: 'opt_done',
+      current: CURRENT,
     })
 
     expect(moved).toBeNull()
@@ -865,10 +868,25 @@ test('repository continuation starts after the last retained page, without losin
   expect(JSON.parse(first.nextCursor!)).toEqual({ state: 'OPEN', cursor: '4' })
 })
 
-test('writing multiple assignees retains the complete written set despite a stale GraphQL read', async () => {
+test('a repository read asks each page for no more than the cap leaves', async () => {
+  // WHY: a page cut at the cap would leave its other issues behind its cursor,
+  // and the next page would never show them.
+  const github = fakeGithub(({ variables }) => {
+    const count = Number(variables.first)
+    const open = variables.states instanceof Array && variables.states[0] === 'OPEN'
+    const nodes = Array.from({ length: open ? 30 : count }, (_, index) => issueNode({ id: `I_${String(variables.cursor)}_${index}` }))
+    return { repository: { issues: { nodes, pageInfo: { hasNextPage: !open, endCursor: 'next' } } } }
+  })
+  const read = await new GitHubRepoSource(github.run).read(REPO_SOURCE)
+  expect(github.graphqlCalls.map((call) => call.variables.first)).toEqual([100, 100, 70])
+  expect(read.items).toHaveLength(MAX_SOURCE_TASKS)
+  expect(read.truncated).toBe(true)
+})
+
+test('writing multiple assignees answers the complete written set', async () => {
   const github = fakeGithub(() => ({ repository: { issue: issueNode() } }), { update: () => ({}) })
   const provider = new GitHubTaskProvider(github.run)
-  const task = await provider.update({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'app', number: 7 }, { assignees: ['ada', 'grace'] })
+  const task = await provider.update({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'app', number: 7 }, { assignees: ['ada', 'grace'] }, issueToTask(issueNode()))
   expect(github.restCalls[0]?.params.assignees).toEqual(['ada', 'grace'])
   expect(task.assignees?.map((person) => person.login)).toEqual(['ada', 'grace'])
 })
@@ -926,17 +944,22 @@ test('issue details advertise planning statuses and GitHub controls who can use 
   const details = await provider.fetch({ provider: 'github', id: 'I_node7' })
 
   expect(details.statusOptions).toMatchObject({ canSetStatus: false, columns: [{ id: 'PS_backlog' }, { id: 'PS_review' }, { id: 'PS_duplicate' }] })
-  await expect(provider.setNamedStatus(ISSUE_HOME, 'PS_backlog')).rejects.toThrow(/cannot change/)
+  await expect(provider.setNamedStatus(details.task.home, 'PS_backlog', details.task)).rejects.toThrow(/cannot change/)
   expect(graphqlCalls.some(({ query }) => query.includes('mutation SetIssueStatus'))).toBe(false)
   expect(restCalls).toHaveLength(0)
 
   canSetStatus = true
-  await expect(provider.setNamedStatus(ISSUE_HOME, 'unknown')).rejects.toThrow(/no such issue status/)
+  const { task } = await provider.fetch({ provider: 'github', id: 'I_node7' })
+  // WHY: a move read the whole issue before each write. The host copy and the
+  // statuses that the read kept make each move one write.
+  const reads = graphqlCalls.length
+  await expect(provider.setNamedStatus(task.home, 'unknown', task)).rejects.toThrow(/no such issue status/)
   const source = new GitHubRepoSource(run)
-  const moved = await source.move({ source: REPO_SOURCE, writeState: null, home: ISSUE_HOME, itemId: null, columnId: 'PS_backlog' })
+  const moved = await source.move({ source: REPO_SOURCE, writeState: null, home: task.home, itemId: null, columnId: 'PS_backlog', current: task })
   expect(moved).toMatchObject({ stateId: 'PS_backlog', state: { name: 'Backlog', category: 'open' } })
   expect(graphqlCalls.at(-1)?.variables).toEqual({ issueId: 'I_node7', statusId: 'PS_backlog' })
-  const duplicate = await provider.setNamedStatus(ISSUE_HOME, 'PS_duplicate')
+  expect(graphqlCalls).toHaveLength(reads + 1)
+  const duplicate = await provider.setNamedStatus(task.home, 'PS_duplicate', task)
   expect(duplicate.state).toEqual({ name: 'Duplicate', category: 'done' })
   expect(restCalls[0]?.params).toMatchObject({ issue_number: 7, state: 'closed', state_reason: 'duplicate' })
 })
@@ -955,6 +978,23 @@ test('refused preview fields retry legacy issue reads with GitHub Project data',
   expect(graphqlCalls).toHaveLength(2)
   expect(graphqlCalls[1]?.query).toContain('projectItems')
   expect(graphqlCalls[1]?.query).not.toContain('planningStatuses')
+})
+
+test('a connection that refused the preview fields is not asked again on the next read', async () => {
+  // WHY: each read paid a refused query before the one that works. The refusal
+  // is a fact about the connection, so the next read goes straight to the
+  // query GitHub takes.
+  const { run, graphqlCalls } = fakeGithub(({ query }) => {
+    if (query.includes('viewerCanSetStatus')) throw previewError
+    return { node: issueNode({}) }
+  })
+  const provider = new GitHubTaskProvider(run)
+  await provider.fetch({ provider: 'github', id: 'I_node7' })
+  expect(graphqlCalls).toHaveLength(2)
+
+  await provider.fetch({ provider: 'github', id: 'I_node7' })
+  expect(graphqlCalls).toHaveLength(3)
+  expect(graphqlCalls[2]?.query).not.toContain('viewerCanSetStatus')
 })
 
 test('GitHub search returns named statuses and keeps the search qualifiers', async () => {

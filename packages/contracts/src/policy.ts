@@ -6,12 +6,11 @@
 // person's own. The host enforces every key; clients only show the locks.
 
 import { z } from 'zod'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, withRenamedSolusTools } from './agent-tools'
 import { PERSONAL_SETTING_SCHEMAS } from './settings'
-import { PERMISSION_MODES, type AgentId, type PermissionMode } from './types'
+import { AGENT_LABELS, PERMISSION_MODES, agentIdSchema, type AgentId, type PermissionMode } from './types'
+import { OUTSIDE_APP_IDS, OUTSIDE_APP_NAMES, type OutsideAppId } from './outside-apps'
 
-export const POLICY_PROVIDER_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
-const providerIdSchema = z.enum(POLICY_PROVIDER_IDS)
 
 /** Narrowest first. `plan` cannot change anything, `full-access` asks for nothing. */
 const PERMISSION_MODE_RANK = {
@@ -127,13 +126,15 @@ export const sessionLimitsSchema = z.object({
   sessionCloudSync: z.boolean().optional(),
   maxPermissionMode: z.enum(PERMISSION_MODES).optional(),
   providers: z.object({
-    allowed: z.array(providerIdSchema).nonempty().optional(),
-    launch: z.partialRecord(providerIdSchema, providerLaunchPinSchema).optional(),
+    allowed: z.array(agentIdSchema).nonempty().optional(),
+    launch: z.partialRecord(agentIdSchema, providerLaunchPinSchema).optional(),
   }).strict().optional(),
   /** By provider: the only model ids that may run. A provider not named is not limited. */
-  models: z.partialRecord(providerIdSchema, z.array(z.string().trim().min(1)).nonempty()).optional(),
+  models: z.partialRecord(agentIdSchema, z.array(z.string().trim().min(1)).nonempty()).optional(),
   insights: z.object({ syncAll: z.boolean() }).strict().optional(),
   webhooks: z.object({ allowUnverified: z.boolean() }).strict().optional(),
+  /** The outside apps whose members may connect to this work's hosts (plans/035 §10). Not set: every app. */
+  apps: z.object({ allowed: z.array(z.enum(OUTSIDE_APP_IDS)).nonempty() }).strict().optional(),
 }).strict()
 export type SessionLimits = z.infer<typeof sessionLimitsSchema>
 
@@ -200,9 +201,18 @@ export type PolicyDocument = z.output<typeof policyDocumentFields>
 
 export type PolicyValidation = { ok: true; document: PolicyDocument } | { ok: false; issues: string[] }
 
+const documentWithToolSwitches = z.looseObject({ host: z.looseObject({ solusTools: z.record(z.string(), z.boolean()) }) })
+
+/** A document written before tools were grouped names the old tools; it still decodes, and an old tool that was off turns its new tool off. */
+function withRenamedPolicyTools(input: unknown): unknown {
+  const document = documentWithToolSwitches.safeParse(input)
+  if (!document.success) return input
+  return { ...document.data, host: { ...document.data.host, solusTools: withRenamedSolusTools(document.data.host.solusTools) } }
+}
+
 /** The one validator: the host, the cloud, the editor, and `solus policy check` all call it. */
 export function validatePolicyDocument(input: unknown, kind: PolicyKind): PolicyValidation {
-  const parsed = policyDocumentSchema(kind).safeParse(input)
+  const parsed = policyDocumentSchema(kind).safeParse(withRenamedPolicyTools(input))
   if (parsed.success) return { ok: true, document: parsed.data }
   return { ok: false, issues: parsed.error.issues.map((issue) => `${issue.path.length ? issue.path.join('.') : '(document)'}: ${issue.message}`) }
 }
@@ -308,6 +318,7 @@ export const POLICY_REFUSAL_CODES = [
   'UPDATES_MANAGED',
   'POLICY_UNAVAILABLE',
   'POLICY_UNENFORCEABLE',
+  'APP_NOT_ALLOWED',
 ] as const
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number]
 
@@ -323,14 +334,17 @@ export const PERMISSION_MODE_LABELS = {
   'full-access': 'Full access',
 } satisfies Record<PermissionMode, string>
 
-export const PROVIDER_LABELS = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 export function permissionCeilingMessage(source: PolicySource, ceiling: PermissionMode): string {
   return `${capitalize(policySourceLabel(source))} limits sessions to ${PERMISSION_MODE_LABELS[ceiling]}.`
 }
 
 export function providerDeniedMessage(source: PolicySource, provider: AgentId): string {
-  return `${capitalize(policySourceLabel(source))} does not allow ${PROVIDER_LABELS[provider]}.`
+  return `${capitalize(policySourceLabel(source))} does not allow ${AGENT_LABELS[provider]}.`
+}
+
+export function appDeniedMessage(source: PolicySource, app: OutsideAppId): string {
+  return `${capitalize(policySourceLabel(source))} does not allow ${OUTSIDE_APP_NAMES[app]} to use Solus.`
 }
 
 export function modelDeniedMessage(source: PolicySource, model: string): string {

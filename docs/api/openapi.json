@@ -546,7 +546,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "mirroredDoc": {
@@ -1023,7 +1024,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -1271,7 +1273,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -1709,7 +1712,8 @@
                       "claude-code",
                       "codex",
                       "opencode",
-                      "replay"
+                      "replay",
+                      "antigravity"
                     ]
                   },
                   "projectKey": {
@@ -2622,7 +2626,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -2870,7 +2875,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -3745,7 +3751,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -3993,7 +4000,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -4596,7 +4604,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -4844,7 +4853,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -5595,7 +5605,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "model": {
@@ -6119,7 +6130,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           },
@@ -6265,7 +6277,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "title": {
@@ -6863,7 +6876,7 @@
                                         "enum": [
                                           "person",
                                           "pull-request",
-                                          "task",
+                                          "issue",
                                           "idle"
                                         ]
                                       },
@@ -7133,7 +7146,8 @@
                                             "claude-code",
                                             "codex",
                                             "opencode",
-                                            "replay"
+                                            "replay",
+                                            "antigravity"
                                           ]
                                         },
                                         "title": {
@@ -7738,7 +7752,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           },
@@ -8003,7 +8018,8 @@
                                   "claude-code",
                                   "codex",
                                   "opencode",
-                                  "replay"
+                                  "replay",
+                                  "antigravity"
                                 ]
                               },
                               "title": {
@@ -8601,7 +8617,7 @@
                                             "enum": [
                                               "person",
                                               "pull-request",
-                                              "task",
+                                              "issue",
                                               "idle"
                                             ]
                                           },
@@ -8871,7 +8887,8 @@
                                                 "claude-code",
                                                 "codex",
                                                 "opencode",
-                                                "replay"
+                                                "replay",
+                                                "antigravity"
                                               ]
                                             },
                                             "title": {
@@ -9664,7 +9681,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "title": {
@@ -10262,7 +10280,7 @@
                                   "enum": [
                                     "person",
                                     "pull-request",
-                                    "task",
+                                    "issue",
                                     "idle"
                                   ]
                                 },
@@ -10532,7 +10550,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -11125,7 +11144,7 @@
                               "enum": [
                                 "person",
                                 "pull-request",
-                                "task",
+                                "issue",
                                 "idle"
                               ]
                             },
@@ -11570,7 +11589,8 @@
                           "claude-code",
                           "codex",
                           "opencode",
-                          "replay"
+                          "replay",
+                          "antigravity"
                         ]
                       },
                       "projectPath": {
@@ -11940,7 +11960,7 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task"
+                                    "const": "issue"
                                   },
                                   "id": {
                                     "type": "string",
@@ -12269,7 +12289,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -12847,7 +12868,7 @@
                       "kind": {
                         "type": "string",
                         "enum": [
-                          "task",
+                          "issue",
                           "session"
                         ]
                       },
@@ -13178,7 +13199,7 @@
                       "kind": {
                         "type": "string",
                         "enum": [
-                          "task",
+                          "issue",
                           "session"
                         ]
                       },
@@ -13941,7 +13962,7 @@
               "enum": [
                 "work.review_requested",
                 "work.review_decided",
-                "task.assigned",
+                "issue.assigned",
                 "pr.assigned",
                 "pr.review_requested",
                 "automation.finished",
@@ -14052,7 +14073,7 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task.assigned"
+                                    "const": "issue.assigned"
                                   }
                                 },
                                 "required": [
@@ -14239,16 +14260,16 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task"
+                                    "const": "issue"
                                   },
-                                  "taskId": {
+                                  "issueId": {
                                     "type": "string",
                                     "minLength": 1
                                   }
                                 },
                                 "required": [
                                   "kind",
-                                  "taskId"
+                                  "issueId"
                                 ],
                                 "additionalProperties": false
                               },
@@ -14534,7 +14555,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -15470,7 +15492,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           }
@@ -16769,7 +16792,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -16895,7 +16918,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -17235,7 +17259,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -17361,7 +17385,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -17617,7 +17642,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -17743,7 +17768,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18009,7 +18035,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18135,7 +18161,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18402,7 +18429,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18528,7 +18555,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18791,7 +18819,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18917,7 +18945,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19225,7 +19254,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -19351,7 +19380,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19615,7 +19645,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -19741,7 +19771,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19980,7 +20011,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "model": {
@@ -19992,7 +20024,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "fromModel": {
@@ -20022,7 +20055,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20148,7 +20181,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -20419,7 +20453,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20545,7 +20579,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -20818,7 +20853,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20944,7 +20979,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -21204,7 +21240,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -21330,7 +21366,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -21595,7 +21632,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -21721,7 +21758,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22066,7 +22104,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22192,7 +22230,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22431,7 +22470,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     }
                   },
@@ -22458,7 +22498,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22584,7 +22624,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22844,7 +22885,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22970,7 +23011,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -23230,7 +23272,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -23356,7 +23398,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -23678,7 +23721,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -23804,7 +23847,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -24122,7 +24166,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -24248,7 +24292,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -24647,7 +24692,7 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "task.assigned"
+                    "const": "issue.assigned"
                   }
                 },
                 "required": [
@@ -24834,16 +24879,16 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "task"
+                    "const": "issue"
                   },
-                  "taskId": {
+                  "issueId": {
                     "type": "string",
                     "minLength": 1
                   }
                 },
                 "required": [
                   "kind",
-                  "taskId"
+                  "issueId"
                 ],
                 "additionalProperties": false
               },
@@ -25129,7 +25174,8 @@
                       "claude-code",
                       "codex",
                       "opencode",
-                      "replay"
+                      "replay",
+                      "antigravity"
                     ]
                   },
                   "title": {

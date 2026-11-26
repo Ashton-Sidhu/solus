@@ -643,7 +643,9 @@
         }),
       );
     },
-    { enabled: () => ownsComposerShortcuts && !!draftId },
+    // A draft's picker sits in its destination strip; a started session's sits
+    // in the session action row above the bar.
+    { enabled: () => ownsComposerShortcuts && (!!draftId || !!targetTabId) },
   );
   // ─── Reference composer wiring ───
 

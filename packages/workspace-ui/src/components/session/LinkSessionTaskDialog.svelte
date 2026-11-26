@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { onMount } from "svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
   import { linkTabToTask } from "../../contexts/workspace/session-task-link";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -36,14 +36,14 @@
   const session = getWorkspaceContext();
   let query = $state("");
   const matchingTasks = $derived(
-    session.tasksStore.tasks.filter(
+    session.issuesStore.tasks.filter(
       (task) => task.category !== "done" && matchesSearch(`${task.title} ${task.reference ?? ""} ${task.id}`, query),
     ),
   );
   const sections = $derived(taskPickerSections(matchingTasks));
   // The host lists at most a part of a large task source. A query also asks
   // the provider, and the tasks only it found show below the listed ones.
-  const providerSearch = new ProviderTaskSearch((text) => session.tasksStore.search(text));
+  const providerSearch = new ProviderTaskSearch((text) => session.issuesStore.search(text));
   const foundTasks = $derived(tasksOnlyFound(providerSearch.results, matchingTasks));
 
   /** The task whose link is in flight. */
@@ -52,7 +52,7 @@
   let dialogEl = $state<HTMLDivElement | null>(null);
 
   onMount(() => {
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
     dialogEl?.querySelector<HTMLInputElement>("input")?.focus();
   });
 
@@ -61,7 +61,7 @@
     requestInputFocus({ tabId });
   }
 
-  async function pick(task: Task): Promise<void> {
+  async function pick(task: Issue): Promise<void> {
     if (linkingTaskId) return;
     linkingTaskId = task.id;
     try {

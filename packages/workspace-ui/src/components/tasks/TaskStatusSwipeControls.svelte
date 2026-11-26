@@ -1,14 +1,14 @@
 <script lang="ts">
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import { CATEGORY_META, TASK_CATEGORIES } from "./lib/tasks-api";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
 
   /** The controls under a swiped task row: one for each status category. The
    *  host chooses the column of each source for the category. */
   interface Props {
-    category: TaskStatusCategory;
+    category: IssueStatusCategory;
     revealed: boolean;
-    onSelect: (category: TaskStatusCategory) => void;
+    onSelect: (category: IssueStatusCategory) => void;
     class?: string;
   }
 

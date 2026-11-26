@@ -79,6 +79,7 @@ export class BaseAgentBackend<H extends RunHandle = RunHandle> extends EventEmit
   }
 
   protected finishRun(handle: H): void {
+    handle.releaseTools?.()
     const sessionId = handle.agentSessionId
     if (sessionId) {
       this.finishedRuns.set(sessionId, handle)

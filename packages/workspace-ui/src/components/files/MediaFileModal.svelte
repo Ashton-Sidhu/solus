@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { X as CloseIcon, ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import { Check, ChevronLeft, ChevronRight, Copy, PanelRight, PenLine, X as CloseIcon } from "@lucide/svelte";
+  import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
+  import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import type { FilePreviewRequest } from "../../lib/filePreview";
   import { HostMediaUrl, type HostMediaRequest } from "../../lib/host-media-url.svelte";
   import { markdownAssetId, markdownImagePath } from "../conversation/lib/markdown-image";
@@ -7,12 +10,20 @@
   import ImageFilePreview from "./ImageFilePreview.svelte";
   import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
   import { ImageGallery } from "./lib/image-gallery.svelte";
+  import { copyImage } from "./lib/copy-image";
+  import { Button } from "../ui/button";
+  import { snapshotAddress, snapshotHref } from "../browser/lib/snapshot-card";
+  import { isSnapshotPageOpen, openSnapshotPage } from "../browser/lib/snapshot-page";
 
   let { request, onclose }: { request: FilePreviewRequest; onclose: () => void } = $props();
   let dialog: HTMLDialogElement;
+  const session = getWorkspaceContext();
   const gallery = $derived(new ImageGallery(request.gallery ?? [], request.path));
   const currentPath = $derived(gallery.path);
-  const label = $derived(hostPathBaseName(currentPath.split(/[?#]/, 1)[0]) || "Media");
+  /** The browser capture on screen, when the picture is one. */
+  const snapshot = $derived(request.snapshots?.find((item) => snapshotHref(item) === currentPath));
+  const label = $derived(snapshot ? browserSnapshotLabel(snapshot) : hostPathBaseName(currentPath.split(/[?#]/, 1)[0]) || "Media");
+  const pageIsOpen = $derived(snapshot ? isSnapshotPageOpen(request.source?.serverId, snapshot) : false);
   const assetId = $derived(markdownAssetId(currentPath));
   const path = $derived(markdownImagePath(currentPath, request.source?.cwd ?? (isAbsoluteHostPath(currentPath) ? "/" : undefined)));
   const hostRequest = $derived<HostMediaRequest | null>(
@@ -32,25 +43,81 @@
     else gallery.next();
   }
 
+  let copied = $state(false);
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copy() {
+    if (!src) return;
+    try {
+      await copyImage(src);
+      copied = true;
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => (copied = false), 1500);
+    } catch (error) {
+      toasts.error("Could not copy the image", { description: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  let isOpeningPage = $state(false);
+  async function openPage(annotate: boolean) {
+    if (!snapshot || isOpeningPage) return;
+    isOpeningPage = true;
+    try {
+      await openSnapshotPage(session, request.source?.serverId, snapshot, { annotate });
+      dialog.close();
+    } catch (error) {
+      toasts.error("Could not open the captured page", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      isOpeningPage = false;
+    }
+  }
+
   $effect(() => {
     dialog.showModal();
+    return () => clearTimeout(copyTimer);
   });
 </script>
 
 <dialog
   bind:this={dialog}
   aria-label={label}
-  class="m-auto h-[min(85dvh,60rem)] w-[min(90vw,80rem)] max-w-none overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:modal-backdrop"
+  class="m-auto h-[min(85dvh,60rem)] w-[min(90vw,80rem)] max-w-none overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:media-backdrop"
   {onclose}
   onkeydown={navigate}
   onclick={(event) => { if (event.target === dialog) dialog.close(); }}
 >
   <div class="flex h-full min-h-0 flex-col">
-    <header class="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
-      <span class="min-w-0 flex-1 truncate text-workspace-chrome">{label}</span>
+    <header class="@container flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
+      <div class="flex min-w-0 flex-1 items-baseline gap-2">
+        <span class="min-w-0 shrink truncate text-workspace-chrome">{label}</span>
+        <!-- Two worktrees serving one app differ only by port, so a capture
+             states where it was taken. -->
+        {#if snapshot}
+          <span class="min-w-0 flex-1 truncate text-chrome-dense text-muted-foreground @max-[32rem]:hidden">{snapshotAddress(snapshot)}</span>
+        {/if}
+      </div>
       {#if gallery.paths.length > 1}
         <span role="status" class="text-workspace-chrome text-muted-foreground tabular-nums">{gallery.index + 1} / {gallery.paths.length}</span>
       {/if}
+      <div class="flex shrink-0 items-center gap-1">
+        {#if request.mediaKind !== "video" && src && !image.hasFailed}
+          <Button variant="ghost" size="sm" class="text-workspace-chrome" aria-label={copied ? "Image copied" : "Copy image"} onclick={copy}>
+            {#if copied}<Check />{:else}<Copy />{/if}
+            <span class="@max-[40rem]:hidden">{copied ? "Copied" : "Copy"}</span>
+          </Button>
+        {/if}
+        {#if snapshot}
+          {#if pageIsOpen}
+            <Button variant="ghost" size="sm" class="text-workspace-chrome" aria-label="Annotate page" disabled={isOpeningPage} onclick={() => openPage(true)}>
+              <PenLine />
+              <span class="@max-[40rem]:hidden">Annotate</span>
+            </Button>
+          {/if}
+          <Button variant="outline" size="sm" class="text-workspace-chrome" aria-label="Open in pane" disabled={isOpeningPage} onclick={() => openPage(false)}>
+            <PanelRight />
+            <span class="@max-[40rem]:hidden">Open in pane</span>
+          </Button>
+        {/if}
+      </div>
       <!-- svelte-ignore a11y_autofocus (The modal puts keyboard focus on its close control.) -->
       <button type="button" aria-label="Close media preview" autofocus class="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring" onclick={() => dialog.close()}><CloseIcon size={18} /></button>
     </header>

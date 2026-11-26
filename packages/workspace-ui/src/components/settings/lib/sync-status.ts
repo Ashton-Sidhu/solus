@@ -42,7 +42,7 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['codeFontFamily', 'Code font'],
   ['codeFontSize', 'Code font size'],
   ['delegationInstructions', 'Delegation instructions'],
-  ['taskSources', 'Issue sources'],
+  ['issueSources', 'Issue sources'],
   ['textGenerationModel', 'Text-generation model'],
   ['sourceControlWriting', 'Commit and pull request writing'],
   ['worktreeBranchNaming', 'Branch names'],

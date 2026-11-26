@@ -139,5 +139,7 @@ host wins over a Solus API, because a host has the full provider transcript
 - A row of the session list that says "host offline" is computed when the list
   is read. It can be stale after a host disconnects.
 - The Solus API serves only the fields of a row that its schema names
-  (`data/sessions/transcript-reads.ts`). It does not serve `sender`, so the
-  copy does not say which agent or automation sent a prompt.
+  (`data/sessions/transcript-reads.ts`). It does not serve `sender` or
+  `author`, so the copy does not say which agent, automation, or person sent a
+  prompt. A host does: it keeps who sent each prompt, and its history read puts
+  the name back on the row.

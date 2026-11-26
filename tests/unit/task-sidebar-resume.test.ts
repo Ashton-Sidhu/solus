@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import type { TaskSidebarFilter, TaskSidebarSnapshot } from '@solus/contracts/task-types'
+import type { IssueListRequest, IssueList } from '@solus/contracts/task-types'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { HandlerCtx } from '@solus/server/transport/server'
 import { actorFor } from '@solus/server/admission/actor'
@@ -21,7 +21,7 @@ const EDITED = 'github:I_2'
 
 let host: Awaited<ReturnType<typeof openTaskTestHost>>
 let server: import('@solus/server/transport/server').SolusServer
-let read: (filter?: TaskSidebarFilter, ctx?: HandlerCtx) => Promise<TaskSidebarSnapshot>
+let read: (filter?: IssueListRequest, ctx?: HandlerCtx) => Promise<IssueList>
 let sources: typeof import('@solus/server/data/tasks/task-sources')
 let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 
@@ -33,14 +33,14 @@ beforeAll(async () => {
   attachments = await import('@solus/server/data/tasks/task-attachments')
   server = new SolusServer()
   registerTasksHandlers(server)
-  read = (filter, ctx = TEST_HANDLER_CTX) => server.handle('tasksSidebarSnapshot', filter ? [filter] : [], ctx)
+  read = (filter, ctx = TEST_HANDLER_CTX) => server.handle('issuesList', filter ? [filter] : [], ctx)
 })
 afterEach(() => host.reset())
 afterAll(() => host.close())
 
 /** Read these task sources as the caller of `ctx`, through the RPC a client uses. */
 async function readSources(which: Array<typeof REPO>, ctx: HandlerCtx = TEST_HANDLER_CTX): Promise<void> {
-  await server.handle('tasksSources', [which, { refresh: 'force' }], ctx)
+  await server.handle('issuesList', [{ sources: which, refresh: 'force', issueIds: [] }], ctx)
   await sources.taskSourceReadsEnd()
 }
 
@@ -57,11 +57,34 @@ describe('task list resume', () => {
     expect(JSON.stringify(resumed).length).toBeLessThan(200)
   })
 
+  test('one list call answers the state of the sources and their rows', async () => {
+    // WHY: a client read the sources, then the rows, one call after the other.
+    // One call now serves both.
+    host.providers.answer(REPO, repoRead([githubIssue(1)]))
+    await readSources([REPO])
+
+    const answer = await read({ sources: [REPO] })
+    expect(answer.sources?.map((source) => source.sourceKey)).toHaveLength(1)
+    expect(answer.tasks.map((task) => task.id)).toEqual([KEPT])
+
+    expect((await read()).sources).toBeUndefined()
+  })
+
+  test('a read narrowed to named issues sends only those rows', async () => {
+    // WHY: each `issues.invalidated` makes a client read the named issues. A
+    // filter the host drops turns every one of those reads into the whole list.
+    host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2)]))
+    await readSources([REPO])
+
+    const narrowed = await read({ issueIds: [EDITED] })
+    expect(narrowed.tasks.map((task) => task.id)).toEqual([EDITED])
+  })
+
   test('a change while the client was away names that task and sends its new row', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2)]))
     await readSources([REPO])
     const whole = await read()
-    await server.handle('tasksUpdate', [EDITED, { title: 'After' }], TEST_HANDLER_CTX)
+    await server.handle('issuesUpdate', [EDITED, { title: 'After' }], TEST_HANDLER_CTX)
 
     const resumed = await read({ since: whole.revision })
     expect(resumed.changedTaskIds).toEqual([EDITED])
@@ -101,7 +124,7 @@ describe('task list resume', () => {
     host.providers.answer(BOARD, boardRead([{ task: draft, columnId: null }, { task: githubIssue(1), columnId: null }]))
     await readSources([BOARD])
     const whole = await read()
-    await server.handle('tasksDelete', ['github:DI_1'], TEST_HANDLER_CTX)
+    await server.handle('issuesDelete', ['github:DI_1'], TEST_HANDLER_CTX)
 
     const resumed = await read({ since: whole.revision })
     expect(resumed.changedTaskIds).toBeUndefined()
@@ -152,8 +175,8 @@ describe('the task sources a client sends', () => {
     // read what no settings could hold.
     // SAFETY: a malformed source, as a client of another version could send it.
     const malformed = [{ kind: 'trello', board: 'x' }] as never
-    await expect(server.handle('tasksSources', [malformed, { refresh: 'force' }], TEST_HANDLER_CTX)).rejects.toThrow()
-    await expect(server.handle('tasksSearch', [malformed, 'crash'], TEST_HANDLER_CTX)).rejects.toThrow()
+    await expect(server.handle('issuesList', [{ sources: malformed, refresh: 'force' }], TEST_HANDLER_CTX)).rejects.toThrow()
+    await expect(server.handle('issuesSearch', [malformed, 'crash'], TEST_HANDLER_CTX)).rejects.toThrow()
     expect(host.providers.calls).toEqual([])
   })
 })

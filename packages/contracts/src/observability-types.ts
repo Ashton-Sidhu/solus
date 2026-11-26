@@ -92,7 +92,7 @@ export interface MetricsTurnFilter {
   status?: MetricsTurnStatus
   search?: string
   sessionId?: string
-  taskId?: string
+  issueId?: string
   /** One host's turns: a host id names a turn pulled from that host, null the
    *  turns the host being read ran itself. Absent is every host
    *  (docs/plans/insights-across-hosts.md). */
@@ -140,6 +140,7 @@ export interface MetricsTurnVolumeBucket {
   total: number
   claudeCode: number
   codex: number
+  antigravity: number
   unknownProvider: number
   costUsd: number
   costedCount: number
@@ -308,7 +309,7 @@ export interface MetricsSpanAttrs {
   automationName?: string
   automationId?: string
   taskTitle?: string
-  taskId?: string
+  issueId?: string
   projectName?: string
   branch?: string
   hostname?: string
@@ -473,7 +474,7 @@ export interface MetricsSessionSummary {
   sessionId: string
   /** First task identity recorded by any turn in the session. Optional for
    *  hosts that predate session-level task context. */
-  taskId?: string | null
+  issueId?: string | null
   taskTitle?: string | null
   turnCount: number
   totalDurationMs: number

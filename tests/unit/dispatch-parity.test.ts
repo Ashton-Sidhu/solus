@@ -4,7 +4,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueSnapshot } from '@solus/contracts/task-types'
 import { FakeTaskProviders, githubIssue, jiraIssue, JIRA, jiraRead, seedTask } from './helpers/task-fixtures'
 
 /** An agent's session, as the doer of what it wrote. */
@@ -77,7 +77,7 @@ beforeEach(() => {
 
 /** A snapshot the way a dispatching client would ship it: another host reads
  *  the task, so nothing here writes a copy of it. */
-function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['details']['task']> = {}): TaskSnapshot {
+function shippedSnapshot(taskId: string, overrides: Partial<IssueSnapshot['details']['task']> = {}): IssueSnapshot {
   return {
     details: {
       task: {
@@ -315,7 +315,7 @@ describe('task tools on a dispatched session (foreign task)', () => {
 
 describe('read_issue returns what the task packet no longer carries', () => {
   const sessionId = 'dispatched-session-read'
-  const read = async (snapshot: TaskSnapshot) => {
+  const read = async (snapshot: IssueSnapshot) => {
     foreignTasks.setForeignTaskSnapshot(sessionId, snapshot)
     return taskTools.readTaskAgentTool.execute({ issue_id: snapshot.details.task.id }, toolContext(sessionId))
   }
@@ -422,8 +422,8 @@ describe('linked-item tools on a dispatched session', () => {
     expect(result.text).toContain('read-only')
   })
 
-  test('find_works with no query surfaces the shipped works beside local ones', async () => {
-    const result = await workTools.findWorksAgentTool.execute({}, toolContext(sessionId))
+  test('list_works with no query surfaces the shipped works beside local ones', async () => {
+    const result = await workTools.listWorksAgentTool.execute({}, toolContext(sessionId))
     expect(result.ok).toBe(true)
     expect(result.text).toContain(shippedWork.key)
     expect(result.text).toContain('Host-backed PR Reading')
@@ -484,14 +484,14 @@ describe('linked-item tools on a dispatched session', () => {
     expect(result.text).toContain('read-only')
   })
 
-  test('read_automation serves linked facts and writes fail honestly', async () => {
+  test('reading an automation serves linked facts and writes fail honestly', async () => {
     const ctx = { agentProvider: 'claude-code' as const, cwd: '/p', sessionId }
-    const read = await automationTools.executeAutomationTool('read_automation', { automation_id: 'automation-on-task-host' }, { ctx })
+    const read = await automationTools.executeAutomationTool('read', { automation_id: 'automation-on-task-host' }, { ctx })
     expect(read.ok).toBe(true)
     expect(read.text).toContain('Nightly triage')
     expect(read.text).toContain("task's host")
 
-    const run = await automationTools.executeAutomationTool('run_automation', { automation_id: 'automation-on-task-host' }, { ctx })
+    const run = await automationTools.executeAutomationTool('run', { automation_id: 'automation-on-task-host' }, { ctx })
     expect(run.ok).toBe(false)
     expect(run.text).toContain("issue's host")
   })

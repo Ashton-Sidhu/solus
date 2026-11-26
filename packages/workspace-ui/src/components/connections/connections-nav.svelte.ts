@@ -2,7 +2,7 @@ import { hostCatalog } from "@solus/client-core/host-catalog"
 import type { AddWay } from "../fleet/lib/fleet-model"
 
 /** The tabs of one host's page. */
-export type HostPageTab = "overview" | "resources" | "access" | "git" | "providers" | "environment"
+export type HostPageTab = "overview" | "resources" | "git" | "providers" | "environment"
 
 /**
  * Where the Connections page is: the fleet, one host's page, or the Add page.

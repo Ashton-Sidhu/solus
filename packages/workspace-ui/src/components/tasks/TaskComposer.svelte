@@ -32,13 +32,13 @@
     labelSuggestions,
     composerFieldsFor,
   } from "./lib/task-composer";
-  import type { TaskCreateInput, TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
+  import type { IssueCreateInput, IssuePriority, IssueSourceState } from "@solus/contracts/task-types";
   import { TaskTemplateStore } from '@solus/client-core/task-data';
   import type { TaskTemplate } from '@solus/contracts/task-data';
   import { taskHostId } from '../../contexts/tasks/task-sources.store.svelte';
   import { serverConnections } from '@solus/client-core/server-connections';
   import { localApi } from '@solus/client-core/local-api';
-  import { taskSourceProvider } from "@solus/contracts/task-sources";
+  import { issueSourceProvider } from "@solus/contracts/task-sources";
   import { formatComboText } from "../../lib/keybindings/match";
 
   const keys = {
@@ -54,7 +54,7 @@
   interface Props {
     /** The person's task sources. The task is created on the provider, in
      *  one of them. */
-    sources: TaskSourceState[];
+    sources: IssueSourceState[];
     /** The source to preselect: the person's default source, or the source
      *  whose board the composer was opened from. */
     initialSourceKey?: string;
@@ -69,7 +69,7 @@
     provider: AgentId;
     /** Performs the write. Throws on failure (the caller surfaces a toast); on
      *  success the composer owns dismissal (so "Create more" can stay open). */
-    onCreate: (input: TaskCreateInput) => Promise<void> | void;
+    onCreate: (input: IssueCreateInput) => Promise<void> | void;
     /** Fires after a successful create, once the composer has dismissed — so a
      *  caller can hand off to another surface. Not called while "Create more"
      *  keeps the composer open. */
@@ -129,7 +129,7 @@
   let body = $state("");
   // ISO calendar day (YYYY-MM-DD), empty when unset.
   let dueDate = $state("");
-  let priority = $state<TaskPriority | "">("");
+  let priority = $state<IssuePriority | "">("");
   let sourceKey = $state(
     untrack(() => initialSourceKey ?? sources[0]?.sourceKey ?? ""),
   );
@@ -146,7 +146,7 @@
   let labels = $state<string[]>([]);
   let createAnother = $state(loadCreateAnother());
 
-  const PRIORITY_OPTIONS: TaskPriority[] = ["urgent", "high", "medium", "low"];
+  const PRIORITY_OPTIONS: IssuePriority[] = ["urgent", "high", "medium", "low"];
   const presets = dueDatePresets();
 
   let titleEl = $state<HTMLInputElement | null>(null);
@@ -338,7 +338,7 @@
 </script>
 
 <!-- The task page's priority mark: four bars, filled to the level. -->
-{#snippet priorityGlyph(level: TaskPriority | undefined)}
+{#snippet priorityGlyph(level: IssuePriority | undefined)}
   <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
     {#each priorityBars(level) as bar (bar.height)}
       <span
@@ -496,7 +496,7 @@
                   ? `Issue source (${keys.source})`
                   : `The issue is created in ${source.label}`}
               >
-                <SourceLogo source={taskSourceProvider(source.source)} />
+                <SourceLogo source={issueSourceProvider(source.source)} />
                 <span class="truncate">{source.label}</span>
               </button>
             {/snippet}
@@ -516,7 +516,7 @@
                     columnId = "";
                   })}
               >
-                <SourceLogo source={taskSourceProvider(option.source)} />
+                <SourceLogo source={issueSourceProvider(option.source)} />
                 <span class="min-w-0 flex-1 truncate">{option.label}</span>
                 {#if option.sourceKey === source.sourceKey}
                   <span class="ml-auto text-primary" aria-hidden="true">✓</span>

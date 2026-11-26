@@ -144,9 +144,8 @@ export interface CodexPendingServerRequest {
   method: string
   params: any
   sessionId: string | null
-  /** For execute-after-approve entries (e.g. update_work via dynamicTools):
-   *  called with the approval decision so the handler runs the tool and
-   *  responds itself, instead of the responder emitting a protocol decision. */
+  /** For a Solus tool the endpoint asked about (plans/035 §6): called with the
+   *  person's decision, instead of the responder sending one to Codex. */
   execute?: (approved: boolean) => void | Promise<void>
 }
 
@@ -852,8 +851,8 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolInput: JSON.stringify({ changes: item.changes }),
     })
   } else if (!isSubagent) {
-    // An MCP result keeps its images in `result.content`; a Solus dynamic tool
-    // in `contentItems`. The pictures go to the asset store, and the text
+    // An MCP result keeps its images in `result.content`; a dynamic tool of an
+    // older thread in `contentItems`. The pictures go to the asset store, and the text
     // output keeps only their type.
     const toolImages = storeToolResultImages(item.result?.content ?? item.contentItems)
     const result = toolImages && Array.isArray(item.result?.content)

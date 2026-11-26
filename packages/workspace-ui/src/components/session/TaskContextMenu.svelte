@@ -7,21 +7,19 @@
     Check as CheckIcon,
     Copy as CopyIcon,
     ListChecks as ListChecksIcon,
-    Moon as MoonIcon,
     Play as PlayIcon,
     Pen as PencilSimpleIcon,
-    Sun as SunIcon,
     CircleStop as StopCircleIcon,
     Trash2 as TrashIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { GitPullRequestIcon } from "../ui/octicons";
-  import type { Task } from "@solus/contracts/task-types";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { Issue } from "@solus/contracts/task-types";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
-  import type { TaskPrChoice } from "./lib/task-list";
+  import type { PrChoice } from "./lib/sidebar-rows";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
-  import { taskPrMenuTitle } from "./lib/task-pr-menu";
+  import { prMenuTitle } from "./lib/pr-menu";
   import { askInsights } from "../insights/lib/ask-insights";
   import { getSurfaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -29,12 +27,11 @@
   import * as ContextMenu from "../ui/context-menu";
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
   import { CATEGORY_META, PROVIDER_NAMES, TASK_CATEGORIES } from "../tasks/lib/tasks-api";
-  import { TASK_SNOOZE_CHOICES, taskSnoozeToastLabel, taskSnoozeUntil } from "./lib/task-snooze";
 
   interface Props {
     x: number;
     y: number;
-    task: Task;
+    task: Issue;
     hasLinkedSession: boolean;
     isRunning: boolean;
     onStart?: () => void;
@@ -42,17 +39,14 @@
     onStop?: () => void;
     onOpenTask: () => void;
     onOpenSource?: () => void;
-    prChoices?: TaskPrChoice[];
-    onOpenPr?: (choice: TaskPrChoice, tab?: PrReviewTab) => void;
-    onOpenPrWeb?: (choice: TaskPrChoice) => void;
-    onUnlinkPr?: (choice: TaskPrChoice) => void;
+    prChoices?: PrChoice[];
+    onOpenPr?: (choice: PrChoice, tab?: PrReviewTab) => void;
+    onOpenPrWeb?: (choice: PrChoice) => void;
+    onUnlinkPr?: (choice: PrChoice) => void;
     onStartRename?: () => void;
     /** Move the task to a status category. The menu mixes task sources, so
      *  the host chooses the column of each source. */
-    onSetStatus?: (category: TaskStatusCategory) => void;
-    /** Opens the full snooze menu, with its note and custom time, at the
-     *  point the menu opened. Without it the submenu offers presets only. */
-    onSnoozeCustom?: () => void;
+    onSetStatus?: (category: IssueStatusCategory) => void;
     onRemove?: () => void;
     onDelete?: () => void;
     /** Opens the prompt that links a pull request to the task itself: one
@@ -85,7 +79,6 @@
     onUnlinkPr,
     onStartRename,
     onSetStatus,
-    onSnoozeCustom,
     onRemove,
     onDelete,
     onLinkPr,
@@ -159,27 +152,6 @@
     onClose();
   }
 
-  // A snooze is an attachment that the host that reads the task holds. A
-  // client with no workspace has no such host.
-  const canSnooze = $derived(!!session.workspace);
-  const isSnoozed = $derived(!!task.snoozedUntil && task.snoozedUntil > Date.now());
-
-  async function snooze(until: number | null) {
-    const taskId = task.id;
-    onClose();
-    const record = session.tasksStore.get(taskId);
-    try {
-      await record.snooze(until);
-      if (until !== null) {
-        toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: false, keepsRunning: isRunning }), () => {
-          void record.snooze(null).catch(() => toasts.error("Couldn't wake issue"));
-        });
-      }
-    } catch (error) {
-      toasts.error(error instanceof Error ? error.message : until === null ? "Couldn't wake issue" : "Couldn't snooze issue");
-    }
-    requestInputFocus();
-  }
 
   async function copyPrValue(value: string, label: string) {
     onClose();
@@ -203,7 +175,7 @@
   }
 </script>
 
-{#snippet prActions(choice: TaskPrChoice)}
+{#snippet prActions(choice: PrChoice)}
   <ContextMenu.Item onSelect={() => select(() => onOpenPr?.(choice))}>
     <GitPullRequestIcon />
     Open pull request
@@ -290,7 +262,7 @@
               <div class="flex items-center">
                 <ContextMenu.Item
                   class="min-w-0 flex-1 text-workspace-chrome"
-                  title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
+                  title={`Open #${choice.number} ${prMenuTitle(choice)}`}
                   onSelect={() => select(() => onOpenPr?.(choice))}
                 >
                   <TaskPrMenuLabel {choice} />
@@ -352,32 +324,6 @@
               {/if}
             </ContextMenu.Item>
           {/each}
-        </ContextMenu.SubContent>
-      </ContextMenu.Sub>
-    {/if}
-    {#if canSnooze && isSnoozed}
-      <ContextMenu.Item onSelect={() => void snooze(null)}>
-        <SunIcon />
-        Wake now
-      </ContextMenu.Item>
-    {:else if canSnooze}
-      <ContextMenu.Sub>
-        <ContextMenu.SubTrigger>
-          <MoonIcon />
-          Snooze
-        </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent>
-          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
-            <ContextMenu.Item onSelect={() => void snooze(taskSnoozeUntil(choice.preset))}>
-              {choice.label}
-            </ContextMenu.Item>
-          {/each}
-          {#if onSnoozeCustom}
-            <ContextMenu.Separator />
-            <ContextMenu.Item onSelect={() => select(onSnoozeCustom)}>
-              Pick date and time…
-            </ContextMenu.Item>
-          {/if}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
     {/if}

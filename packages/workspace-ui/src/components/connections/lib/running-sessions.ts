@@ -8,8 +8,9 @@ import { codebaseOf, projectRoot, runHost } from '../../../contexts/workspace/ru
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { worktreeDisplayName } from '../../../lib/git-context'
 import { attentionLabel, sessionTitle } from '../../../lib/sessionUtils'
-import { prChipForChoices } from '../../session/lib/task-list'
+import { prChipForChoices } from '../../session/lib/sidebar-rows'
 import { activeTurnAuthorOf } from '../../presence/lib/presence-people'
+import { providerMark } from '../../insights/lib/provider'
 
 /**
  * The sessions with a turn open on one host, each with the facts its sidebar
@@ -37,7 +38,7 @@ export function runningSessionRows(workspace: WorkspaceContext, sidebarStore: Se
         attention,
         live,
         state: attentionLabel(attention, null, live),
-        providerMark: provider === 'claude-code' ? 'claude' as const : provider === 'codex' ? 'codex' as const : null,
+        providerMark: providerMark(provider),
         model: modelLabelFor(provider, session.sessionModel ?? session.run.modelConfig.modelId),
         effort: REASONING_EFFORT_LABELS[session.run.modelConfig.reasoningEffort],
         branch: environment.branch ? worktreeDisplayName(environment.branch) : null,
@@ -46,7 +47,7 @@ export function runningSessionRows(workspace: WorkspaceContext, sidebarStore: Se
         groupKey: project ? runGroupKey(session.run, project) : null,
         codebaseId,
         codebase: codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name ?? null : null,
-        task: taskId ? workspace.tasksStore.get(taskId).title || null : null,
+        task: taskId ? workspace.issuesStore.get(taskId).title || null : null,
         pullRequest,
         runStartedAt: workspace.sessions.executionFor(hostId, session.id)?.current?.startedAt ?? turnStartedAt(session),
         people,

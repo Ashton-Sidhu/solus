@@ -120,13 +120,13 @@ describe('turn attributes', () => {
     // A task shown on the full turn page is context, not inert telemetry. Both
     // its readable name and its id must preserve the task identity needed to
     // open the task beside Insights; older turns may have only the id.
-    const { root, view } = traceOf({ taskId: 'task-1', taskTitle: 'Fix the tests' })
+    const { root, view } = traceOf({ issueId: 'task-1', taskTitle: 'Fix the tests' })
 
-    expect(findAttribute(root, view, 'task').destination).toEqual({
+    expect(findAttribute(root, view, 'issue').destination).toEqual({
       name: 'task',
       taskId: 'task-1',
     })
-    expect(findAttribute(root, view, 'task_id').destination).toEqual({
+    expect(findAttribute(root, view, 'issue_id').destination).toEqual({
       name: 'task',
       taskId: 'task-1',
     })

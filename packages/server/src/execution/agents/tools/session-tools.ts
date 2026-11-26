@@ -13,8 +13,8 @@ import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PermissionM
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { loadTask } from '../../../data/tasks/task-store'
-import { ANY_ORGANIZATION } from '../../../admission/principal'
-import { assertToolMay, toolMayRead, type ToolCommand } from '../../../admission/workspace-tool-authority'
+import { ANY_ORGANIZATION, type Principal } from '../../../admission/principal'
+import { assertToolMay, toolMayRead, workspaceToolAuthority, type ToolCommand } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type ModelChoice, type RateLimitHold, type RemoteTarget, type SendOrder, type SentMessage, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import { resolveSessionLineageById } from '../../../data/sessions/session-lineage'
@@ -48,10 +48,11 @@ const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 
 // ─── Injected orchestrator and controller (wired in server/index.ts) ───
 
-/** The orchestration commands the acting tools call. */
+/** The orchestration commands the acting tools call. A sender is the calling
+ *  session, or an outside app's requester key (`client:<grantId>`, plans/035 §8). */
 export interface SessionOrchestration {
   spawn(
-    senderSessionId: string | undefined,
+    sender: string | undefined,
     order: SpawnOrder,
     report: boolean,
     waitMs?: number,
@@ -59,14 +60,14 @@ export interface SessionOrchestration {
     target?: RemoteTarget,
   ): Promise<{ exchangeId: string; sessionId: string; starting?: boolean; waited?: OrchestrationItem | null }>
   send(
-    senderSessionId: string,
+    sender: string,
     targetSessionId: string,
     message: SendOrder,
     target?: RemoteTarget,
   ): Promise<SentMessage>
-  readExchange?(senderSessionId: string, exchangeId: string): Exchange | undefined
-  releaseRateLimit(senderSessionId: string, targetSessionId: string): boolean
-  stop(senderSessionId: string | undefined, targetSessionId: string): boolean
+  readExchange?(sender: string, exchangeId: string): Exchange | undefined
+  releaseRateLimit(sender: string, targetSessionId: string): boolean
+  stop(sender: string | undefined, targetSessionId: string): boolean
   /** The host a session the sender started runs on, when it is not this host. */
   remoteHostOf?(senderSessionId: string, targetSessionId: string): string | undefined
 }
@@ -90,10 +91,10 @@ export interface SessionController {
   permissionModeFor?(sessionId: string): PermissionMode | undefined
   /** The codebase of a session, which a session it starts gets too (docs/plans/codebases.md decision 5). */
   codebaseIdFor?(sessionId: string): Promise<string | null>
-  /** What the session's current turn may reach on other hosts; null when its person reaches none from here (a guest). */
-  reachRequestFor?(sessionId: string): ReachRequest | null
-  /** The Solus APIs of the organizations the session's current turn may read, as its person. */
-  organizationApisFor?(sessionId: string): OrganizationApi[]
+  /** What the caller's person may reach on other hosts; null when they reach none from here (a guest). */
+  reachRequestFor?(caller: ReachCaller): ReachRequest | null
+  /** The Solus APIs of the organizations the caller's person may read. */
+  organizationApisFor?(caller: ReachCaller): OrganizationApi[]
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
@@ -136,6 +137,37 @@ export interface SessionToolCtx {
   cwd: string
   /** The calling session; every row the tool writes names it. */
   sessionId: string | undefined
+  /** An outside app's requester key (`client:<grantId>`), when no session calls (plans/035 §8). */
+  requesterKey?: string
+}
+
+/** What a tool that acts on a session says to an outside app that names none (plans/035 §8). */
+export const APP_NEEDS_SESSION_ID = 'Pass session_id: this app is not running inside a Solus session.'
+
+/**
+ * Who reaches the person's other hosts: the calling session, whose current turn
+ * names the person, or an outside app, with the person it acts for (plans/035 §0.6).
+ */
+export type ReachCaller = { sessionId: string } | { principal: Principal }
+
+/** The caller that reaches other hosts; null before a session is initialized and for a call that has no person. */
+export function reachCallerOf(call: { sessionId?: string; requesterKey?: string } | undefined): ReachCaller | null {
+  if (call?.sessionId) return { sessionId: call.sessionId }
+  // An outside app's call runs with its person's authority, set where it was admitted, never from its arguments.
+  const principal = call?.requesterKey ? workspaceToolAuthority() : undefined
+  return principal ? { principal } : null
+}
+
+/** Who sends a message: the calling session, else the outside app's requester key. */
+function senderOf(deps: SessionToolDeps): string | undefined {
+  return deps.ctx?.sessionId ?? deps.ctx?.requesterKey
+}
+
+/** An outside app gets no report or notice: it reads the result itself. Empty
+ *  for a session, and when the report came while the call waited. */
+export function clientReadNote(readsItself: boolean, exchangeId: string, waited: OrchestrationItem | null | undefined): string {
+  if (!readsItself || waited?.type === 'report') return ''
+  return ` read_session_exchange with exchange_id=${exchangeId} reads its result, and read_session reads the session.`
 }
 
 export interface SessionToolDeps {
@@ -361,10 +393,10 @@ export function waitedBlock(waited: OrchestrationItem | null | undefined): strin
   return waited ? `\n\n${formatOrchestrationItem(waited)}` : ''
 }
 
-/** The other host a session the caller started runs on, if any. */
+/** The other host a session the caller (a session or an outside app) started runs on, if any. */
 function remoteHostOf(deps: SessionToolDeps, sessionId: string): string | undefined {
-  const caller = deps.ctx?.sessionId
-  return caller ? sessionOrchestration?.remoteHostOf?.(caller, sessionId) : undefined
+  const sender = senderOf(deps)
+  return sender ? sessionOrchestration?.remoteHostOf?.(sender, sessionId) : undefined
 }
 
 export async function findSession(sessionId: string): Promise<SessionMeta | null> {
@@ -413,7 +445,7 @@ function validatedSessionTool<Args>(
 
 async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTargetsFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (args.host) {
-    const remote = await connectRemoteHost(args.host, deps.ctx?.sessionId)
+    const remote = await connectRemoteHost(args.host, reachCallerOf(deps.ctx))
     if ('error' in remote) return { ok: false, text: remote.error }
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
@@ -436,30 +468,33 @@ function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
   })
 }
 
+const NO_HOST_REACH = 'Only a person with access to this host can reach their other hosts from it.'
+
 async function listHostsTool(_args: Record<string, never>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const hosts = deps.ctx?.sessionId ? await listedRemoteHosts(deps.ctx.sessionId) : null
-  if (!hosts) return { ok: false, text: 'Only a session with host access can list its remote hosts.' }
+  const caller = reachCallerOf(deps.ctx)
+  const hosts = caller ? await listedRemoteHosts(caller) : null
+  if (!hosts) return { ok: false, text: 'Only a person with host access can list their other hosts.' }
   return { ok: true, text: JSON.stringify({ hosts }, null, 2) }
 }
 
-/** The hosts `list_hosts` shows a session, with their status; null when its person reaches none from here. */
-export async function listedRemoteHosts(sessionId: string): Promise<ListedRemoteHost[] | null> {
-  const request = reachRequestOf(sessionId)
+/** The hosts `list_hosts` shows a caller, with their status; null when its person reaches none from here. */
+export async function listedRemoteHosts(caller: ReachCaller): Promise<ListedRemoteHost[] | null> {
+  const request = reachRequestOf(caller)
   if (!request) return null
   return remoteHosts ? remoteHosts.summaries(request) : []
 }
 
-/** The connection to one of the owner's other hosts, by id or name. */
-export async function connectRemoteHost(ref: string, callerSessionId: string | undefined): Promise<RemoteHost | { error: string }> {
+/** The connection to one of the person's other hosts, by id or name. */
+export async function connectRemoteHost(ref: string, caller: ReachCaller | null): Promise<RemoteHost | { error: string }> {
   if (!remoteHosts) return { error: 'This host cannot reach other hosts.' }
-  const request = callerSessionId ? reachRequestOf(callerSessionId) : null
-  if (!request) return { error: 'Only a person with access to this host can reach their other hosts from it.' }
+  const request = caller ? reachRequestOf(caller) : null
+  if (!request) return { error: NO_HOST_REACH }
   return remoteHosts.connectTo(request, ref)
 }
 
-/** What the turn may reach; with no controller (tests, a bare host), the owner's own reach. */
-function reachRequestOf(sessionId: string): ReachRequest | null {
-  return sessionController?.reachRequestFor ? sessionController.reachRequestFor(sessionId) : { account: null, isOwner: true }
+/** What the caller's person may reach; with no controller (tests, a bare host), the owner's own reach. */
+function reachRequestOf(caller: ReachCaller): ReachRequest | null {
+  return sessionController?.reachRequestFor ? sessionController.reachRequestFor(caller) : { account: null, isOwner: true }
 }
 
 /** What another host offers, read the way a client reads it. */
@@ -498,7 +533,7 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
   if (!(await toolMayRead({ kind: 'session', id: requestedId }))) return { ok: false, text: `No session ${requestedId} that this turn may read.` }
   const meta = await findSession(requestedId)
   if (!meta) {
-    const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
+    const remote = await findOffHost(requestedId, reachCallerOf(deps.ctx))
     // Its task and pending input stay on the host that holds it.
     if (remote) return readResult({ meta: remote.meta, status: remote.meta.status ?? 'idle', foundOn: remote.source }, await remote.load(), request)
     const remoteHost = remoteHostOf(deps, requestedId)
@@ -555,15 +590,15 @@ function readResult(context: SessionReadContext, messages: readonly SessionLoadM
 }
 
 /** The session on one of the person's other hosts or organizations' Solus APIs; null when none has it. */
-async function findOffHost(sessionId: string, callerSessionId: string | undefined): Promise<RemoteSession | null> {
-  if (!callerSessionId) return null
-  const request = reachRequestOf(callerSessionId)
+async function findOffHost(sessionId: string, caller: ReachCaller | null): Promise<RemoteSession | null> {
+  if (!caller) return null
+  const request = reachRequestOf(caller)
   const targets = remoteHosts && request ? await remoteHosts.list(request) : []
   const hosts = 'error' in targets ? [] : targets.flatMap((target) => {
     const connected = remoteHosts!.connect(target)
     return 'error' in connected ? [] : [connected]
   })
-  const apis = sessionController?.organizationApisFor?.(callerSessionId) ?? []
+  const apis = sessionController?.organizationApisFor?.(caller) ?? []
   return findRemoteSession(sessionId, hosts, apis)
 }
 
@@ -622,27 +657,29 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
   if (!sessionOrchestration) return { ok: false, text: 'send_session is unavailable — no session orchestrator is wired.' }
   const sessionId = args.session_id.trim()
   const callerSessionId = deps.ctx?.sessionId
-  if (!callerSessionId) return { ok: false, text: 'send_session is unavailable before the calling session is initialized.' }
+  const sender = senderOf(deps)
+  if (!sender) return { ok: false, text: 'send_session is unavailable before the calling session is initialized.' }
   if (sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const message = args.message
   if (!message.trim() && !args.release_rate_limit) return { ok: false, text: 'send_session requires a non-empty message.' }
-  const report = args.report
+  // An outside app has no session to report to: it reads the result itself.
+  const report = callerSessionId ? args.report : false
   const waitMs = args.wait_seconds * 1000
-  const order = sendOrderFor(args)
-  const recipient = await sendRecipient(sessionId, callerSessionId, deps)
+  const order = sendOrderFor({ ...args, report })
+  const recipient = await sendRecipient(sessionId, deps)
   if ('error' in recipient) return { ok: false, text: recipient.error }
   const model = await checkedSend(args, recipient)
   if ('error' in model) return { ok: false, text: model.error }
   order.model = model.choice
-  if (!message.trim()) return releaseOnly(sessionOrchestration, callerSessionId, recipient, deps)
+  if (!message.trim()) return releaseOnly(sessionOrchestration, sender, recipient, deps)
   const attachError = await attachTo(order, args.attachments, deps)
   if (attachError) return { ok: false, text: attachError }
-  const sent = await sessionOrchestration.send(callerSessionId, recipient.sessionId, order, recipient.target)
+  const sent = await sessionOrchestration.send(sender, recipient.sessionId, order, recipient.target)
   const dispatch = DISPATCH_VERBS[sent.disposition]
-  const provider = recipient.meta?.provider ?? sessionOrchestration.readExchange?.(callerSessionId, sent.exchangeId)?.provider ?? deps.ctx!.agentProvider
+  const provider = recipient.meta?.provider ?? sessionOrchestration.readExchange?.(sender, sent.exchangeId)?.provider ?? deps.ctx!.agentProvider
   return {
     ok: true,
-    text: `${dispatch} ${recipientLink(recipient, provider)}.${modelNote(model.choice, recipient)}${releaseNote(sent.rateLimitReleased)}${holdNote(sent.rateLimitHold)}${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
+    text: `${dispatch} ${recipientLink(recipient, provider)}.${modelNote(model.choice, recipient)}${releaseNote(sent.rateLimitReleased)}${holdNote(sent.rateLimitHold)}${outcomeNote(report, waitMs, sent.waited)}${clientReadNote(!callerSessionId, sent.exchangeId, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider, serverId: recipient.target?.host.installationId })}${waitedBlock(sent.waited)}`,
   }
 }
 
@@ -689,8 +726,8 @@ function sendOrderFor(args: z.infer<z.ZodObject<typeof sendSessionFields>>): Sen
 }
 
 /** An empty message with release_rate_limit: release the hold, and send nothing. */
-function releaseOnly(orchestration: SessionOrchestration, callerSessionId: string, recipient: SendRecipient, deps: SessionToolDeps): SessionToolResult {
-  const released = orchestration.releaseRateLimit(callerSessionId, recipient.sessionId)
+function releaseOnly(orchestration: SessionOrchestration, sender: string, recipient: SendRecipient, deps: SessionToolDeps): SessionToolResult {
+  const released = orchestration.releaseRateLimit(sender, recipient.sessionId)
   const link = recipientLink(recipient, recipient.meta?.provider ?? deps.ctx!.agentProvider)
   return released
     ? { ok: true, text: `Released the rate-limit hold of ${link}. The messages it held run now, and their reports come back as before.` }
@@ -747,16 +784,16 @@ type SendRecipient =
   | { sessionId: string; meta: SessionMeta; target?: undefined }
   | { sessionId: string; meta?: undefined; target: RemoteTarget }
 
-async function sendRecipient(sessionId: string, callerSessionId: string, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
+async function sendRecipient(sessionId: string, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
   const remoteHost = remoteHostOf(deps, sessionId)
   if (remoteHost) {
-    // The other host is reached for the turn's person, as for start_sessions.
-    const target = await remoteTarget(remoteHost, callerSessionId)
+    // The other host is reached for the caller's person, as for start_sessions.
+    const target = await remoteTarget(remoteHost, reachCallerOf(deps.ctx))
     return 'error' in target ? target : { sessionId, target }
   }
   const meta = await findSession(sessionId)
   if (!meta) return { error: `Session ${sessionId} not found.` }
-  if (meta.sessionId === callerSessionId) return { error: 'Cannot message your own session.' }
+  if (meta.sessionId === deps.ctx?.sessionId) return { error: 'Cannot message your own session.' }
   return { sessionId: meta.sessionId, meta }
 }
 
@@ -776,11 +813,18 @@ export async function attachTo(order: { attachments?: string[] }, paths: string[
   return null
 }
 
-/** Another host, reached as `start_sessions` with `host` reaches it. */
-export async function remoteTarget(hostRef: string, callerSessionId: string): Promise<RemoteTarget | { error: string }> {
-  const remote = await connectRemoteHost(hostRef, callerSessionId)
+/**
+ * Another host, reached as `start_sessions` with `host` reaches it. A session
+ * there names the calling session as its origin. An outside app's work names
+ * none: the other host records the person who started it, as this host does
+ * for an app's work here (plans/035 §0.6).
+ */
+export async function remoteTarget(hostRef: string, caller: ReachCaller | null): Promise<RemoteTarget | { error: string }> {
+  const remote = await connectRemoteHost(hostRef, caller)
   if ('error' in remote) return remote
-  return { host: remote, origin: { kind: 'session', hostLabel: hostDisplayName(), sessionId: callerSessionId } }
+  return caller && 'sessionId' in caller
+    ? { host: remote, origin: { kind: 'session', hostLabel: hostDisplayName(), sessionId: caller.sessionId } }
+    : { host: remote }
 }
 
 const readExchangeFields = {
@@ -789,10 +833,11 @@ const readExchangeFields = {
 }
 
 async function readExchangeTool(args: z.infer<z.ZodObject<typeof readExchangeFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const sender = deps.ctx?.sessionId
+  const sender = senderOf(deps)
   if (!sender) return { ok: false, text: 'read_session_exchange requires exchange_id and an initialized calling session.' }
+  // An exchange is read only by who sent it: its session, or the app whose key it carries.
   const exchange = sessionOrchestration?.readExchange?.(sender, args.exchange_id)
-  if (!exchange) return { ok: false, text: 'Exchange not found for this calling session.' }
+  if (!exchange) return { ok: false, text: deps.ctx?.sessionId ? 'Exchange not found for this calling session.' : 'Exchange not found for this app.' }
   const lines = [`Exchange ${exchange.exchangeId}: ${exchange.state}. Session ${exchange.targetSessionId}.`]
   if (exchange.deliveryState) lines.push(`Report delivery: ${exchange.deliveryState}.`)
   if (exchange.report) {
@@ -812,9 +857,10 @@ async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionField
   if (!sessionOrchestration) return { ok: false, text: 'stop_session is unavailable — no session orchestrator is wired.' }
   const sessionId = args.session_id.trim()
   if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot stop your own session.' }
+  const sender = senderOf(deps)
   const remoteHost = remoteHostOf(deps, sessionId)
   if (remoteHost) {
-    return sessionOrchestration.stop(deps.ctx?.sessionId, sessionId)
+    return sessionOrchestration.stop(sender, sessionId)
       ? { ok: true, text: `Asked ${remoteHost} to stop session ${sessionId}. Its report says when it stopped.` }
       : { ok: true, text: `Session ${sessionId} on ${remoteHost} is not running a turn you sent.` }
   }
@@ -822,7 +868,7 @@ async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionField
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
   const refused = await refusalOf(['stopSession'], meta.sessionId)
   if (refused) return { ok: false, text: refused }
-  return sessionOrchestration.stop(deps.ctx?.sessionId, meta.sessionId)
+  return sessionOrchestration.stop(sender, meta.sessionId)
     ? { ok: true, text: `Stopped session ${sessionId}.` }
     : { ok: true, text: `Session ${sessionId} is not currently running.` }
 }
@@ -854,6 +900,7 @@ function sessionAgentTool(
         agentProvider: context.provider,
         cwd: resolveHomePath(context.cwd),
         sessionId: context.sessionId(),
+        requesterKey: context.requesterKey?.(),
       },
     }),
   }
@@ -861,7 +908,7 @@ function sessionAgentTool(
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
-export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
+export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session (or this app) sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
 export const sendSessionAgentTool = sessionAgentTool('send_session', SEND_SESSION_DESC, sendSessionFields, false)
 export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionFields, false)

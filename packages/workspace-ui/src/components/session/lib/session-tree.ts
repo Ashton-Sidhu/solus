@@ -1,6 +1,6 @@
 import type { DotMarkName } from '@solus/client-core/dot-marks'
-import { isGlyphStatus, taskStatusFor, type GlyphStatus } from './task-list'
-import type { SidebarRowMark, SidebarTask } from './task-list'
+import { isGlyphStatus, sidebarStatusFor, type GlyphStatus } from './sidebar-rows'
+import type { SidebarRowMark, SidebarSession } from './sidebar-rows'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
 /**
@@ -19,7 +19,7 @@ import type { AttentionState } from '../../../lib/sessionUtils'
  * each nested row id with the id of the row it sits under.
  */
 export function nestedRowParents(
-  rows: readonly Pick<SidebarTask, 'id' | 'lifecycle'>[],
+  rows: readonly Pick<SidebarSession, 'id' | 'lifecycle'>[],
   parentSessionOf: ReadonlyMap<string, string>,
   rowOfSession: ReadonlyMap<string, string>,
 ): Map<string, string> {
@@ -123,7 +123,7 @@ export function nestedStateMarks(
   let running = false
   let starting = false
   for (const session of sessions) {
-    const status = taskStatusFor(session.attention)
+    const status = sidebarStatusFor(session.attention)
     if (isGlyphStatus(status)) glyphs.add(status)
     if (session.unread) unread = true
     if (status === 'running') running = true

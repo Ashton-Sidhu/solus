@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
   import type { ListRowSpec } from "../ui/list-page/list-page";
@@ -23,17 +23,17 @@
    *  disagreement. `TASK_RECORD_ROW_HEIGHT` is this row's height.
    *
    *  Its twin is `MobileTaskRow` in the web client's session drawer, which draws
-   *  the same 62px row from a `SidebarTask`. They share the spec and its
+   *  the same 62px row from a `SidebarSession`. They share the spec and its
    *  measurements, not a module: that one lives in `apps/client` and carries the
    *  drawer's own concerns (project favicon, review glyph, snooze). Converging
    *  them means promoting it to `ui/`, which is a change of its own. */
   interface Props {
     row: ListRowSpec;
     /** Drives the leading tile's glyph and tint — the row's one use of colour. */
-    category: TaskStatusCategory;
+    category: IssueStatusCategory;
     selected?: boolean;
     onSelect?: () => void;
-    onSetCategory: (category: TaskStatusCategory) => void;
+    onSetCategory: (category: IssueStatusCategory) => void;
     revealed?: boolean;
     onRevealChange?: (revealed: boolean) => void;
     onContextMenu?: (event: MouseEvent) => void;
@@ -55,7 +55,7 @@
 
   const meta = $derived(CATEGORY_META[category]);
   const lead = $derived(row.people[0] ?? null);
-  function setCategory(next: TaskStatusCategory) {
+  function setCategory(next: IssueStatusCategory) {
     onRevealChange?.(false);
     if (next !== category) onSetCategory(next);
   }

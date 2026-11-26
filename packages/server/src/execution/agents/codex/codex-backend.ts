@@ -10,7 +10,8 @@ import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path
 import { historyFileRevision, ProviderHistoryPages } from '../history-page-cache'
 import { historyPageTurnId, loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
-import type { AgentToolImage } from '../tools/agent-tool'
+import { randomUUID } from 'node:crypto'
+import type { AgentTool } from '../tools/agent-tool'
 import { loadCodexTurns, loadCodexTurnWindow } from './codex-turns'
 import { rememberCodexModels } from './listed-models'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
@@ -104,6 +105,7 @@ import {
   permissionToolName,
   permissionDescription,
   permissionOptions,
+  mcpElicitationResponse,
 } from './codex-permissions'
 import {
   approvalPolicyFor,
@@ -127,7 +129,8 @@ import {
   codexBackgroundCommandWake,
   codexSubagentWake,
 } from './codex-utils'
-import { adaptCodexTools, bareAgentToolName, codexDynamicCallId, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
+import { bindRunTools, type RunToolAccess, type ToolArguments } from '../tools/agent-tool-endpoint'
+import { codexSolusServers, isSolusMcpServer, SolusCallItems } from './codex-solus-tools'
 import { CodexNativeChildren, type ChildStop, type ChildTurn, type SettledChild } from './codex-native-children'
 import type { Turn } from './generated/v2/Turn'
 import { z } from 'zod'
@@ -318,7 +321,10 @@ type CodexRunHandle = RunHandle & {
   userMessagePreview: string
   /** The Insights trace of this turn, recorded on its git snapshot. */
   turnTraceId: string | undefined
-  toolDispatcher: CodexToolDispatcher
+  /** The run's tools on the host's MCP endpoint; null when the run has none. */
+  toolAccess: RunToolAccess | null
+  /** The Solus tool calls Codex started, for the endpoint to name. */
+  solusCalls: SolusCallItems
   persistent: boolean
   isCompaction: boolean
   /** Armed by Stop: Solus settles the run if Codex has not ended the turn by then. */
@@ -409,9 +415,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: 60_000, maxEntries: 64 })
   private sessionIndexRefresh: Promise<void> | null = null
   private sessionIndexRefreshTimer: ReturnType<typeof setTimeout> | null = null
-  /** Set once if `thread/start` rejects dynamicTools — we then drop them and
-   *  the agent loses work create/read/update for the run (experimental API). */
-  private dynamicToolsUnavailable = false
   /** Each app-server's number, so its request ids cannot collide with another's. */
   private readonly clientNumbers = new WeakMap<CodexAppServerClient, number>()
   private nextClientNumber = 0
@@ -432,6 +435,31 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   /** The question id for a request `client` sent: unique across every app-server on the host. */
+  /** Asks the person before a Solus tool that needs approval runs; the endpoint waits on the answer. */
+  private askToolApproval(handle: CodexRunHandle, tool: AgentTool, input: ToolArguments, toolUseId: string | undefined): Promise<boolean> {
+    if (handle.permissionMode === 'full-access') return Promise.resolve(true)
+    const sessionId = handle.threadId
+    if (!sessionId) return Promise.resolve(false)
+    handle.sawPermissionRequest = true
+    const questionId = `solus-tool-${randomUUID()}`
+    return new Promise((resolve) => {
+      this.permissionResponder().add(questionId, { id: questionId, method: 'item/tool/call', params: {}, sessionId, execute: async (approved: boolean) => resolve(approved) }, handle.client)
+      const toolInput = z.record(z.string(), z.json()).safeParse(input ?? {})
+      this.emit('normalized', sessionId, {
+        type: 'permission_request',
+        questionId,
+        toolName: tool.name,
+        toolUseId,
+        toolDescription: tool.description,
+        toolInput: toolInput.success ? toolInput.data : {},
+        options: [
+          { id: 'accept', label: 'Allow', kind: 'allow' },
+          { id: 'decline', label: 'Deny', kind: 'deny' },
+        ],
+      })
+    })
+  }
+
   private questionIdFor(client: CodexAppServerClient, requestId: string | number): string {
     let clientNumber = this.clientNumbers.get(client)
     if (clientNumber === undefined) {
@@ -672,14 +700,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const abortController = new AbortController()
     const client = this.clientFor(request.seat, request.providerRuntime)
     let handle!: CodexRunHandle
-    const toolDispatcher = new CodexToolDispatcher(request.tools, {
-      provider: 'codex',
-      cwd: resolveHomePath(request.cwd),
-      sessionId: () => handle?.sessionId,
-      abortSignal: abortController.signal,
-      parentToolUseId: () => undefined,
-      emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),
-    })
+    const solusCalls = new SolusCallItems()
+    // The run's tools are served over the host's MCP endpoint (plans/035 §9).
+    // A session keeps one token: Codex may keep a loaded thread's MCP config.
+    const toolAccess = request.tools.length > 0 ? bindRunTools({
+      tools: request.tools,
+      context: {
+        provider: 'codex',
+        cwd: resolveHomePath(request.cwd),
+        sessionId: () => handle?.sessionId,
+        abortSignal: abortController.signal,
+        emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),
+      },
+      permissionMode: () => handle.permissionMode,
+      approve: (tool, input, toolUseId) => this.askToolApproval(handle, tool, input, toolUseId),
+      toolUseIdOf: (toolName, input) => solusCalls.claim(toolName, JSON.stringify(input ?? {})),
+    }, sessionState?.sessionId) : null
 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
@@ -711,7 +747,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       cwd: resolveHomePath(request.cwd),
       userMessagePreview: request.prompt.slice(0, 80),
       turnTraceId: sessionState?.turnTraceId,
-      toolDispatcher,
+      toolAccess,
+      solusCalls,
+      releaseTools: toolAccess?.release,
       persistent: request.persistence === 'session',
       isCompaction: request.operation === 'compact',
     }
@@ -732,7 +770,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       let threadId = handle.threadId
       const model = this.resolveModel(request.model ?? null)
       const reasoningEffort = request.reasoningEffort ?? 'high'
-      const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
+      const tools = enabledAgentTools(request.tools)
       const developerInstructions = [
         request.systemPrompt?.trim(),
         runtimeInstructions({
@@ -746,11 +784,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
       const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
-      const config = {
+      const config: NonNullable<CodexThreadStartParams['config']> = {
         ...THREAD_CONFIG,
         [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '',
         [`shell_environment_policy.set.${RUNNING_SERVER_PROVIDER_ENV}`]: 'codex',
       }
+      if (handle.toolAccess) Object.assign(config, codexSolusServers(handle.toolAccess, tools))
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,
@@ -763,16 +802,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         config: request.bare ? { ...config, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : { ...config, ...cliSkipConfig },
       }
       threadConfig.developerInstructions = developerInstructions
-      // Dynamic tools (list/read/update_work) are an experimental app-server
-      // capability — include them unless a prior start rejected them.
-      const toolsConfig = this.dynamicToolsUnavailable
-        ? threadConfig
-        : {
-            ...threadConfig,
-            dynamicTools: [
-              ...adaptCodexTools(request.tools),
-            ],
-          }
 
       // A turn that ignored Stop would take this run's input as its own.
       if (threadId && !(conversation.kind === 'fork' && conversation.pointId)) await this.forceStopUnansweredTurn(threadId)
@@ -795,19 +824,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }))
         threadId = response.thread.id
       } else if (!threadId) {
-        try {
-          response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...toolsConfig, reasoning_effort: reasoningEffort })
-        } catch (err: any) {
-          if (this.dynamicToolsUnavailable || !(err instanceof CodexRpcError) || err.code !== -32602) throw err
-          // Retry once without dynamicTools — the agent loses work tools this run.
-          log.warn('thread_start_dynamic_tools_rejected', { error: err?.message ?? String(err) })
-          this.dynamicToolsUnavailable = true
-          threadConfig.developerInstructions = [
-            request.systemPrompt?.trim(),
-            runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd, codebase: request.codebase }, []),
-          ].filter(Boolean).join('\n\n')
-          response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
-        }
+        response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
         threadId = response.thread.id
       } else {
         const resumedThreadId = threadId
@@ -816,7 +833,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           try {
             return await handle.client.request('thread/resume', handle.isCompaction ? { threadId: resumedThreadId } : {
               threadId: resumedThreadId,
-              ...toolsConfig,
+              ...threadConfig,
             })
           } finally {
             this.reportStartup(handle, handle.startingMcpServers?.get(resumedThreadId)?.size ? 'mcp' : 'waiting')
@@ -1623,6 +1640,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (msg.method === 'turn/started' && handle?.threadId === msg.params.threadId && handle.client === client) {
       this.onTurnStarted(handle, msg.params.turn.id)
     }
+    if (msg.method === 'item/started') handle?.solusCalls.noteStarted(msg.params)
     if (msg.method === 'item/started' && params?.item?.type === 'commandExecution' && optionalString(params?.threadId) === sessionId) {
       this.runningCommands.set(params.item.id, {
         threadId: sessionId,
@@ -1753,60 +1771,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.cacheFileChanges(params)
 
     if (msg.method === 'item/tool/call') {
-      const toolName = optionalString(params?.tool)
-        ?? optionalString(params?.tool?.name)
-        ?? optionalString(params?.name)
-        ?? optionalString(params?.toolName)
-        ?? ''
-      const respondWithToolText = (text: string, success: boolean, images?: AgentToolImage[]) => {
-        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, images) })
-      }
-      let args = params?.arguments ?? params?.input ?? params?.args ?? {}
-      const serializedArgs = optionalString(args)
-      if (serializedArgs !== undefined) {
-        try { args = JSON.parse(serializedArgs) } catch { args = {} }
-      }
-      const selectedTool = handle?.toolDispatcher.get(toolName)
-      if (!selectedTool || !handle) {
-        respondWithToolText(toolName ? `Unsupported dynamic tool: ${bareAgentToolName(toolName)}` : 'Unsupported dynamic tool call.', false)
-        return
-      }
-      // The call's own id: its transcript row, its approval, and the tool's context all name it.
-      const parentToolUseId = codexDynamicCallId(params, msg.id)
-      const respondWithResult = async (approved: boolean) => {
-        if (!approved) {
-          respondWithToolText(`The user declined ${selectedTool.name}.`, false)
-          return
-        }
-        const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
-        respondWithToolText(result.text, result.ok, result.images)
-      }
-      if (!selectedTool.requiresApproval) { void respondWithResult(true); return }
-      if (handle.permissionMode === 'plan') {
-        respondWithToolText(`Cannot run ${selectedTool.name} in plan mode. Exit plan mode to apply changes.`, false)
-        return
-      }
-      if (handle.permissionMode === 'full-access') { void respondWithResult(true); return }
+      // A thread started before Solus tools moved to MCP may still offer the old dynamic tools.
+      client.respond(msg.id, { success: false, contentItems: [{ type: 'inputText', text: 'This tool moved: call it from the solus MCP server.' }] })
+      return
+    }
 
-      handle.sawPermissionRequest = true
-      const questionId = this.questionIdFor(client, msg.id)
-      this.permissionResponder().add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult }, client)
-      const parsedToolInput = z.record(z.string(), z.json()).safeParse(args)
-      const toolRequest: Extract<NormalizedEvent, { type: 'permission_request' }> = {
-        type: 'permission_request',
-        questionId,
-        toolName: selectedTool.name,
-        toolUseId: parentToolUseId,
-        toolDescription: selectedTool.description,
-        toolInput: parsedToolInput.success ? parsedToolInput.data : {},
-        options: [
-          { id: 'accept', label: 'Allow', kind: 'allow' },
-          { id: 'decline', label: 'Deny', kind: 'deny' },
-        ],
-      }
-      const toolStartedAt = z.number().finite().safeParse(params?.startedAtMs)
-      if (toolStartedAt.success) toolRequest.startedAtMs = toolStartedAt.data
-      this.emit('normalized', sessionId, toolRequest)
+    // Codex asks before it calls an MCP tool. For a Solus tool the endpoint has already asked the person (plans/035 §6).
+    if (msg.method === 'mcpServer/elicitation/request' && isSolusMcpServer(optionalString(params?.serverName))) {
+      client.respond(msg.id, mcpElicitationResponse(params, { __action: 'accept' }))
       return
     }
 

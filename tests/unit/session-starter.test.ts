@@ -177,11 +177,14 @@ describe('each way a session starts names its starter on the run', () => {
 
     const automationToolNames = new Set(Object.values(solusToolbox.automations).map((tool) => tool.name))
     const tools = runs[0]?.tools.filter((tool) => automationToolNames.has(tool.name))
-    expect(tools).toEqual([
-      solusToolbox.automations.list,
-      solusToolbox.automations.read,
-      solusToolbox.automations.update,
-    ])
+    const { updateAutomationAgentTool } = await import('@solus/server/execution/agents/tools/automation-tools')
+    expect(tools).toEqual([solusToolbox.automations.read, updateAutomationAgentTool])
+    // The run can change its automation, never create, delete, or start one.
+    const { z } = await import('zod')
+    for (const action of ['create', 'delete', 'run']) {
+      expect(z.object(updateAutomationAgentTool.inputFields).safeParse({ action }).success, action).toBe(false)
+    }
+    expect(z.object(updateAutomationAgentTool.inputFields).safeParse({ action: 'update', automation_id: 'automation-1' }).success).toBe(true)
   })
 
   test('a webhook delivery names its webhook and delivery', async () => {

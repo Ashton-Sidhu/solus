@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ChevronDown, Circle, Square } from "@lucide/svelte";
   import type { BrowserEvidenceOptions } from "@solus/contracts/browser-types";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import { getWorkspaceContext, hosts } from "../../contexts";
   import {
     browserStore,
@@ -38,7 +38,7 @@
     paneId: string;
     surfaceVisible: boolean;
     options: BrowserEvidenceOptions | null;
-    tasks: Task[];
+    tasks: Issue[];
     cwd: string | undefined;
     /** Ask the host where this page could be filed. */
     onOpenDestinations: () => void;

@@ -38,6 +38,7 @@ export type SettingsTab =
   | 'review'
   | 'providers'
   | 'api-access'
+  | 'sharing'
   | 'tools'
   | 'integrations'
   | 'mcp'
@@ -66,6 +67,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'review',
   'providers',
   'api-access',
+  'sharing',
   'tools',
   'integrations',
   'mcp',
@@ -128,7 +130,7 @@ export interface RouteParams {
    *  as query text, so a link opens the same view (docs/plans/webhooks.md §4).
    *  `codebase` is the codebase that the Codebases page shows: its id, or
    *  `new` for the form of a new one (docs/plans/codebases.md §9). */
-  settings: { tab?: SettingsTab; projectCwd?: string; webhooks?: string; codebase?: string }
+  settings: { tab?: SettingsTab; projectCwd?: string; webhooks?: string; codebase?: string; host?: string }
   /** `tab` names the group the page opens on; absent, the page keeps its own choice. */
   folio: { tab?: 'apps' }
   automations: { automationId?: string }
@@ -394,6 +396,8 @@ export const ROUTES: RouteTable = {
       const rest = optional(cwd.join('/'))
       if (settingsTab === 'webhooks') return rest ? { tab: settingsTab, webhooks: rest } : { tab: settingsTab }
       if (settingsTab === 'codebases') return rest ? { tab: settingsTab, codebase: rest } : { tab: settingsTab }
+      // Sharing & access names its host, as T3 Code's `/settings/access?machine=` does.
+      if (settingsTab === 'sharing') return rest ? { tab: settingsTab, host: rest } : { tab: settingsTab }
       return {
         tab: settingsTab,
         projectCwd: rest,
@@ -402,6 +406,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => {
       if (p.tab === 'webhooks') return p.webhooks ? `webhooks/${p.webhooks}` : 'webhooks'
       if (p.tab === 'codebases') return p.codebase ? `codebases/${p.codebase}` : 'codebases'
+      if (p.tab === 'sharing') return p.host ? `sharing/${p.host}` : 'sharing'
       return p.projectCwd ? `${p.tab === 'projects' ? 'providers' : p.tab ?? 'providers'}/${p.projectCwd}` : p.tab === 'projects' ? 'providers' : p.tab ?? ''
     },
     placement: 'destination',

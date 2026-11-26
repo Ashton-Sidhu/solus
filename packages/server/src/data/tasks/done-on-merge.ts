@@ -26,7 +26,7 @@ export interface MergedPullRequestCompletion {
   isMerged?: (target: PrLinkTarget) => Promise<boolean>
 }
 
-const taskIdRowSchema = z.object({ task_id: z.string() })
+const taskIdRowSchema = z.object({ issue_id: z.string() })
 
 /**
  * Finish the work a merged pull request finished: move each task that links it
@@ -62,8 +62,8 @@ export async function completeTasksForMergedPullRequest(
   // A task links the pull request itself, or reads it through a session that
   // owns the link (docs/plans/session-pull-requests.md).
   const rows = taskIdRowSchema.array().parse(await db.all(sql`
-    SELECT DISTINCT resource_links.source_id AS task_id FROM ${resourceLinks}
-    WHERE ${inScope} AND resource_links.source_kind = 'task' AND (
+    SELECT DISTINCT resource_links.source_id AS issue_id FROM ${resourceLinks}
+    WHERE ${inScope} AND resource_links.source_kind = 'issue' AND (
       (resource_links.target_kind = 'pr' AND resource_links.target_key = ${String(number)} AND resource_links.target_scope = ${repository})
       OR (resource_links.target_kind = 'session' AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
         AND EXISTS (
@@ -76,7 +76,7 @@ export async function completeTasksForMergedPullRequest(
   `))
 
   const completed: string[] = []
-  for (const { task_id: taskId } of rows) {
+  for (const { issue_id: taskId } of rows) {
     const task = await loadTask(taskId)
     // A task this host never read has no copy to judge.
     if (!task || task.category === 'done') continue

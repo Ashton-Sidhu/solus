@@ -31,6 +31,7 @@
   import ConversationArtifact from "./ConversationArtifact.svelte";
   import ArtifactGroupCard from "./ArtifactGroupCard.svelte";
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
+  import { artifactGroupTabs } from "./lib/artifact-group";
   import { setReplyFrameMessage } from "./lib/reply-frame-layout";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import McpAppCard from "./McpAppCard.svelte";
@@ -118,6 +119,21 @@
   }
 
 </script>
+
+{#snippet artifactRender(message: Message)}
+  {#if message.artifact}
+    {@const artifact = message.artifact}
+    {@const revisions = message.workRef ? artifactRevisions?.().get(`work:${message.workRef.workId}`) : undefined}
+    {@const revision = revisions?.find((entry) => entry.messageId === message.id)}
+    {#if revisions && revision}
+      <ConversationArtifact {revisions} {revision} />
+    {:else if revisions && artifact.streaming}
+      <ConversationArtifact {revisions} update={artifact} />
+    {:else}
+      <ArtifactView {artifact} workRef={message.workRef} {linkContext} {tabId} {skipMotion} />
+    {/if}
+  {/if}
+{/snippet}
 
 {#snippet assistantBody(displayContent: string, streaming: boolean)}
   <div
@@ -335,25 +351,17 @@
     {tabId}
     {skipMotion}
   />
-{:else if item.kind === "artifact" && item.message.artifact}
-  {@const artifact = item.message.artifact}
-  {@const revisions = item.message.workRef ? artifactRevisions?.().get(`work:${item.message.workRef.workId}`) : undefined}
-  {@const revision = revisions?.find((entry) => entry.messageId === item.message.id)}
-  {#if revisions && revision}
-    <ConversationArtifact {revisions} {revision} />
-  {:else if revisions && artifact.streaming}
-    <ConversationArtifact {revisions} update={artifact} />
-  {:else}
-  <ArtifactView
-    artifact={item.message.artifact}
-    workRef={item.message.workRef}
-    {linkContext}
-    {tabId}
-    {skipMotion}
-  />
-  {/if}
+{:else if item.kind === "artifact"}
+  {@render artifactRender(item.message)}
 {:else if item.kind === "artifact-group"}
-  <ArtifactGroupCard messages={item.messages} />
+  <!-- One work is a flush render of its newest write in the turn; its
+       version line reaches the earlier writes. -->
+  {@const works = artifactGroupTabs(item.messages)}
+  {#if works.length === 1}
+    {@render artifactRender(works[0].message)}
+  {:else}
+    <ArtifactGroupCard messages={item.messages} />
+  {/if}
 {:else if item.kind === "review-guide" && item.message.reviewGuideRef}
   <ReviewGuideCard
     ref={item.message.reviewGuideRef}

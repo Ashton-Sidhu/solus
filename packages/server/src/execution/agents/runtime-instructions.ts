@@ -78,7 +78,7 @@ The device tools control iOS Simulators, Android Emulators, and connected phones
 
 const AUTOMATION_INSTRUCTIONS = `## Automations
 
-create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Add \`ends_at\` (an ISO-8601 instant) to an interval or cron trigger to stop it on a date. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: use list_automation_runs for run status, errors, and session_id, then read_session for agent output. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
+manage_automations with action create sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Add \`ends_at\` (an ISO-8601 instant) to an interval or cron trigger to stop it on a date. Omit trigger for an automation that runs only when you start it with action run. Each run starts its own session, and its result does not come back to this conversation: use read_automations runs for run status, errors, and session_id, then read_session for agent output. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
 
 /** Solus binds a session to one checkout. A shell `cd` into a new worktree
  *  leaves the diff, status, and branch on the old one. */
@@ -241,7 +241,7 @@ const INSTALLED_MCP_SERVER_INSTRUCTION = 'When you install an MCP server for you
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['device_list', DEVICE_INSTRUCTIONS],
-  ['create_automation', AUTOMATION_INSTRUCTIONS],
+  ['manage_automations', AUTOMATION_INSTRUCTIONS],
   ['request_secret', SECRET_REF_INSTRUCTIONS],
   ['deploy_app', APP_INSTRUCTIONS],
   ['connect_integration', LOCAL_MCP_SERVER_INSTRUCTION],
@@ -271,7 +271,7 @@ function orchestrationInstructions(runtime: AgentRuntime, has: (name: string) =>
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_sessions` for Sessions
  *  `move_checkout` for worktrees, `render_artifact` for visuals,
- *  `device_list` for Devices, `create_automation` for Automations,
+ *  `device_list` for Devices, `manage_automations` for Automations,
  *  `request_secret` for the secretRef rule, `deploy_app` for Apps,
  *  `connect_integration` for the offer of a local MCP server, `add_mcp_server`
  *  for a server the agent installed for its CLI. */
@@ -295,7 +295,7 @@ You can embed images and videos in your response with Markdown and absolute file
         : PULL_REQUEST_LINKING_INSTRUCTIONS,
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
-    has('link') && 'Use link to attach works, automations, PRs, and project files to the current session. When the session works on a GitHub or Jira task, link it with kind=task and the task key; a started session joins no task by itself. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
+    has('link') && 'Use link to attach works, automations, PRs, and project files to the current session. When the session works on a GitHub, Jira or Linear issue, link it with kind=issue and the issue key; a started session joins no task by itself. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
     has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again. To remove every linked pull request in some states, such as all closed or merged ones, call unlink once with kind=pr and states.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     has('background_wait') && (runtime.harness === 'Claude Code' ? BACKGROUND_WAIT_INSTRUCTIONS : CODEX_BACKGROUND_WAIT_INSTRUCTIONS),

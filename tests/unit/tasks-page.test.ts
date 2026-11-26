@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskSourceState } from '@solus/contracts/task-types'
+import type { IssueSourceState } from '@solus/contracts/task-types'
 import {
   matchesTaskQuery,
   sourcesFailure,
@@ -7,7 +7,7 @@ import {
   withProviderMatches,
 } from '@solus/workspace-ui/components/tasks/lib/tasks-page'
 
-function source(label: string, overrides: Partial<TaskSourceState> = {}): TaskSourceState {
+function source(label: string, overrides: Partial<IssueSourceState> = {}): IssueSourceState {
   return {
     sourceKey: `github-repo:acme/${label}`,
     source: { kind: 'github-repo', owner: 'acme', repo: label },

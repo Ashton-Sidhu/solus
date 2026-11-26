@@ -100,7 +100,7 @@ function personKeyOf(by: Attribution): string | null {
 function resourceKeyOf(resource: NotificationResource): string {
   switch (resource.kind) {
     case 'work': return `work:${resource.workId}`
-    case 'task': return `task:${resource.taskId}`
+    case 'issue': return `issue:${resource.issueId}`
     case 'session': return `session:${resource.sessionId}`
     case 'pr': return `pr:${prKey(resource.pr)}`
     case 'automation': return `automation:${resource.automationId}`

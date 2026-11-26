@@ -985,7 +985,7 @@
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
     0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
 
-  /* Insights provider colours: orange for Claude, charcoal for Codex. The
+  /* Insights provider colours: orange for Claude, charcoal for Codex, blue for Antigravity. The
      fills are the marks' colours washed toward the card: a bar of solid
      charcoal beside a bar of orange is the loudest thing on the plot, and the
      legend's swatch, not the bar, carries the full hue. */
@@ -993,6 +993,8 @@
   --insights-provider-codex: #292929;
   --insights-provider-claude-fill: color-mix(in srgb, var(--insights-provider-claude) 85%, var(--card));
   --insights-provider-codex-fill: color-mix(in srgb, var(--insights-provider-codex) 62%, var(--card));
+  --insights-provider-antigravity: #4c8df6;
+  --insights-provider-antigravity-fill: color-mix(in srgb, var(--insights-provider-antigravity) 75%, var(--card));
 
   /* Blue distinguishes the spend line from the provider counts. */
   --insights-cost-line: var(--solus-art-5);
@@ -1292,9 +1294,8 @@ html, body, #root {
      a path. A keycap sets `leading-none` on itself and is unaffected. */
   --text-micro: 0.625rem;
   --text-micro--line-height: 1.25;
-  /* The chip rung the browser snapshot gallery and lightbox annotate an image
-     with: a viewport size or an error count laid over the capture, where the
-     chrome rung would cover what it labels. It began as the pull request
+  /* The small rung for a caption on a browser recording, where the chrome
+     rung would crowd what it labels. It began as the pull request
      review's meta rung; the review now reads at the chrome rung like the rest
      of the workspace, and only these overlays still want the smaller step. */
   --text-review-meta: 0.6875rem;
@@ -2818,6 +2819,12 @@ html.is-mac-workspace
   @variant dark {
     background: color-mix(in srgb, var(--background) 64%, transparent);
   }
+}
+
+/* One dark background for every image and video viewer, in both themes, so
+   the picture stands out from the page behind it. Dialogs use modal-backdrop. */
+@utility media-backdrop {
+  background: rgb(0 0 0 / 0.7);
 }
 
 @utility menu-surface {

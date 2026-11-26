@@ -1,9 +1,9 @@
 <script lang="ts">
   import type {
-    Task,
-    TaskAssigneeCandidate,
-    TaskMoveTarget,
-    TaskUpdatePatch,
+    Issue,
+    IssueAssigneeCandidate,
+    IssueMoveTarget,
+    IssueUpdatePatch,
   } from "@solus/contracts/task-types";
   import { GROUP, ROW, ROW_LABEL, VALUE, VALUE_BUTTON } from "./lib/sidebar-styles";
   import { SourceLogo } from "../../ui/list-page";
@@ -29,7 +29,7 @@
   import LabelPicker from "../../ui/labels/LabelPicker.svelte";
 
   interface Props {
-    task: Task;
+    task: Issue;
     /** Which of the sidebar's homes this is: the rail beside the task, or a
      *  panel opened under the task's title where the rail has folded. The panel
      *  takes the column's rhythm. */
@@ -41,12 +41,12 @@
     /** What the move menu offers (`taskMoveGroups`). */
     moveGroups: TaskMoveGroup[];
     labelCandidates: string[];
-    assigneeCandidates: TaskAssigneeCandidate[];
+    assigneeCandidates: IssueAssigneeCandidate[];
     assigneeCandidatesLoading: boolean;
     assigneeCandidatesError: string | null;
-    onMove: (target: TaskMoveTarget) => void;
+    onMove: (target: IssueMoveTarget) => void;
     /** Answers false when the provider refused the change. */
-    onSave: (patch: TaskUpdatePatch) => Promise<boolean>;
+    onSave: (patch: IssueUpdatePatch) => Promise<boolean>;
     onOpenExternal: (url: string) => void;
     onOpenAssigneeMenu: () => void;
   }
@@ -74,7 +74,7 @@
   const panel = $derived(variant === "panel");
 
   const bars = $derived(priorityBars(task.priority));
-  // Task labels are names alone; the picker draws them in the accent.
+  // Issue labels are names alone; the picker draws them in the accent.
   const taskLabels = $derived(task.labels.map((name) => ({ name })));
   const labelCandidateOptions = $derived(labelCandidates.map((name) => ({ name })));
   const epic = $derived(taskEpicRow(task));

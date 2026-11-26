@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { ulid } from '@solus/contracts/ulid'
-import type { TaskComment } from '@solus/contracts/task-types'
+import type { IssueComment } from '@solus/contracts/task-types'
 import type { Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
 import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
@@ -30,13 +30,13 @@ import type { ProviderComment } from './providers/types'
 
 /** The comment threads of a task: the subject every thread write names. */
 export function taskThreads(taskId: string): ThreadSubject {
-  return { organizationId: LOCAL_ORGANIZATION_ID, kind: 'task', id: taskId }
+  return { organizationId: LOCAL_ORGANIZATION_ID, kind: 'issue', id: taskId }
 }
 
 /** A task's comment, from its thread row. A comment that Solus sent keeps who
  *  wrote it; a comment only read from the provider has the provider's name. */
-function taskCommentOf(taskId: string, thread: ThreadRecord): TaskComment {
-  const comment: TaskComment = { id: thread.threadId, taskId, body: thread.body, createdAt: thread.createdAt }
+function taskCommentOf(taskId: string, thread: ThreadRecord): IssueComment {
+  const comment: IssueComment = { id: thread.threadId, issueId: taskId, body: thread.body, createdAt: thread.createdAt }
   if (thread.external) comment.providerCommentId = thread.external.id
   if (thread.author.kind === 'external') comment.externalAuthor = thread.author.name
   else comment.author = thread.author
@@ -49,7 +49,7 @@ function taskCommentOf(taskId: string, thread: ThreadRecord): TaskComment {
 }
 
 /** The task's comments, oldest first; two written in one millisecond keep their id order. */
-export async function commentsForTask(taskId: string, db: Db = database()): Promise<TaskComment[]> {
+export async function commentsForTask(taskId: string, db: Db = database()): Promise<IssueComment[]> {
   return (await readThreads(db, taskThreads(taskId))).map((thread) => taskCommentOf(taskId, thread))
 }
 

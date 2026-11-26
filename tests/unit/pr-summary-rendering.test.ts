@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskPrSnapshot } from '@solus/contracts/task-types'
-import { prChipForChoices } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { IssuePrSnapshot } from '@solus/contracts/task-types'
+import { prChipForChoices } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { latestPrObservation } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { samePrLinks } from '@solus/workspace-ui/contexts/tasks/task-reconcile'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 
-const snapshot: TaskPrSnapshot = {
+const snapshot: IssuePrSnapshot = {
   number: 12, url: 'https://github.com/acme/repo/pull/12', title: 'Saved title',
   state: 'merged', draft: false, updatedAt: '2026-09-16T20:00:00Z',
   baseRepo: { host: 'github.com', owner: 'acme', repo: 'repo' },

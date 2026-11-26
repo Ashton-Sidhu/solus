@@ -221,7 +221,7 @@ export class SessionApiOperations {
       if (item.kind === 'automation') return [{ target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }]
       return [{ target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }]
     })
-    for (const id of taskIds.sort()) links.push({ target: { kind: 'task', id }, title: '' })
+    for (const id of taskIds.sort()) links.push({ target: { kind: 'issue', id }, title: '' })
     return { items: links }
   }
 

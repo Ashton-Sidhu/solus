@@ -18,7 +18,7 @@ import { sourceNotices } from '../../packages/workspace-ui/src/components/notifi
 // row's headline tells a failure from a success.
 
 const row = (patch: Partial<HubNotification>): HubNotification => ({
-  id: 'n', eventId: 'e', organizationId: 'local', facts: { kind: 'task.assigned' }, resource: { kind: 'task', taskId: 't' },
+  id: 'n', eventId: 'e', organizationId: 'local', facts: { kind: 'issue.assigned' }, resource: { kind: 'task', issueId: 't' },
   by: { kind: 'system' }, createdAt: 1, summary: { title: 'Ship the API' }, readAt: null, archivedAt: null, ...patch,
 })
 

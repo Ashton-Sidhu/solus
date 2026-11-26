@@ -1,6 +1,6 @@
 <script lang="ts">
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
-  import type { TaskLink, TaskLinkKind } from "@solus/contracts/task-types";
+  import type { IssueLink, IssueLinkKind } from "@solus/contracts/task-types";
   import type { DocProviderId } from "@solus/contracts/docs";
   import DocProviderLogo from "../../work/DocProviderLogo.svelte";
   import { Pin as PinIcon } from "@lucide/svelte";
@@ -14,9 +14,9 @@
   } from "./lib/task-page";
 
   interface Props {
-    links: TaskLink[];
-    onOpen: (link: TaskLink) => void;
-    onUnlink: (link: TaskLink) => void;
+    links: IssueLink[];
+    onOpen: (link: IssueLink) => void;
+    onUnlink: (link: IssueLink) => void;
     /** Pick a doc, plan, automation or PR to link. Null on a client that cannot
      *  reach a machine's index (the cloud console). */
     onAdd: (() => void) | null;
@@ -25,24 +25,24 @@
      *  section drops its header, spends the width on 32px chips and 52px rows,
      *  and stops capping the list — the tab *is* the "show all". */
     stacked?: boolean;
-    upstreamProvider: (link: TaskLink) => DocProviderId | null;
+    upstreamProvider: (link: IssueLink) => DocProviderId | null;
     /** The HTML of a linked `artifact` work once its body is loaded; null
      *  until then. Read from the works store, never fetched here. */
-    artifactHtml?: (link: TaskLink) => string | null;
+    artifactHtml?: (link: IssueLink) => string | null;
     /** Asks the store to load an artifact's body for the preview. */
-    onExpandArtifact?: (link: TaskLink) => void;
+    onExpandArtifact?: (link: IssueLink) => void;
     /** False while the page is mounted but hidden: a preview keeps its
      *  expanded state, but its sandbox is not kept alive off-screen. */
     previewsEnabled?: boolean;
     /** Files the artifact's still (and HTML, where the ticket takes it) as a
      *  comment for the ticket. Resolves when the host has filed it. */
-    onAttachArtifact?: (link: TaskLink) => Promise<void>;
+    onAttachArtifact?: (link: IssueLink) => Promise<void>;
     /** What the attach control offers — "Send to GitHub", or "Attach preview"
      *  when the task has no ticket and the comment stays local. */
     attachLabel?: string;
     /** Move the task's pinned artifact — the one the page opens with — onto
      *  this row, or off it. */
-    onPin?: (link: TaskLink, pinned: boolean) => void;
+    onPin?: (link: IssueLink, pinned: boolean) => void;
   }
 
   let {
@@ -64,7 +64,7 @@
    *  second click, since a still takes a browser a few seconds to draw. */
   let attachingKey = $state<string | null>(null);
 
-  async function attach(row: { key: string; link: TaskLink }) {
+  async function attach(row: { key: string; link: IssueLink }) {
     if (!onAttachArtifact || attachingKey) return;
     attachingKey = row.key;
     try {
@@ -80,7 +80,7 @@
   /** Six rows, then "Show all". Expanding does not collapse again — a user who
    *  asked for the whole list is not asking to hide it a moment later. */
   const CAP = 6;
-  let filter = $state<TaskLinkKind | null>(null);
+  let filter = $state<IssueLinkKind | null>(null);
   let expanded = $state(false);
   /** One artifact renders in place at a time: each preview is a live
    *  sandbox, and a task page is not a gallery of them. */
@@ -97,7 +97,7 @@
     linkGroups(links.filter((link) => filter === null || link.kind === filter)),
   );
 
-  function togglePreview(row: { key: string; link: TaskLink }) {
+  function togglePreview(row: { key: string; link: IssueLink }) {
     if (previewKey === row.key) {
       previewKey = null;
       return;
