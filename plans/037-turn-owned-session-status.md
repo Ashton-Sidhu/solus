@@ -1,6 +1,7 @@
 # Plan 037: The turn owns the session status
 
-Status: IN PROGRESS on `solus/turn-owned-status`. Planned at `9c9b9b632`, 2026-11-26.
+Status: steps 1–4 DONE on `solus/turn-owned-status` (`c5c225511`); step 5 waits on the
+decisions in §7. Planned at `9c9b9b632`, 2026-11-26.
 Category: correctness. Risk: MED (every status writer on the host changes).
 Replaces the two plans that the code names but that do not exist:
 `docs/plans/derived-session-status.md` and `docs/plans/turn-stop.md`.
@@ -154,3 +155,33 @@ baseline of the step before.
 
 - A run event that arrives with no handle (an exit without a run, which can
   belong to any pending run) acts on the current turn, as today.
+
+### Decisions that step 5 needs
+
+Each writer was compared with `deriveSessionStatus`. These writers do not map
+one to one. If step 5 derives the status without a decision here, clients see a
+different status than today.
+
+1. **Stop with a pending permission.** Stop writes `interrupted`. The pending
+   permission stays until the run exits. The derived status puts the person's
+   input first, so it gives `awaiting_input` until the exit. Proposal: Stop
+   expires the turn's pending input (Stop already removes pending plans).
+2. **A queued prompt that takes over.** Today the host writes no status, so the
+   session shows `running` until the next turn begins. A derived status gives
+   `completed` at the next `refresh` (for example a client that reconnects).
+   Proposal: a turn fact "the queue takes over" that derives `running`.
+3. **A session with no record.** Setup statuses (`connecting`, `failed`) of a
+   new session are published before its record exists, with no previous
+   status. A derived status needs a last published status for each session,
+   and it then publishes a repeated status one time, not two times.
+4. **A failed exit after a completed result.** The first outcome stays on the
+   turn (`completed`). Today a failed exit with background work ends as
+   `failed`. Proposal: the exit outcome replaces `completed` while the
+   settlement event has not gone out.
+5. **The rate-limit fact.** `rateLimits.peek` must hold only a limit that parks
+   the turn (`deferCurrentRun !== true`), never an `allowed` snapshot. This
+   needs a check before the fact replaces the `rate_limited` writes.
+
+Steps 1–4 removed the defect group (a stopped or older run that reopens, ends,
+or deletes a newer turn). Step 5 removes the 32 writers, so that a new writer
+cannot add the defect again.
