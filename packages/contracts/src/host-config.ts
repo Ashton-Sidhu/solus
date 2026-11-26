@@ -20,6 +20,8 @@ export interface HostConfig {
   sessionCloudSync: boolean
   /** Allow desktop clients to forward this host’s loopback preview ports. */
   previewTunnelEnabled: boolean
+  /** The https origin where the person's own ingress serves this host, for outside apps (plans/035 §0.8). Empty: none. */
+  publicAddress: string
   /** Update only the native agent packages this host installed through Solus. */
   agentAutoUpdates: boolean
   solusTools: SolusToolPreferences
@@ -99,6 +101,7 @@ function field<const Value, Patch>(
 export const HOST_CONFIG_FIELDS = {
   sessionCloudSync: field(z.boolean().catch(true), true),
   previewTunnelEnabled: field(z.boolean().describe("Allow connected desktop clients to forward this host’s loopback preview ports."), true),
+  publicAddress: field(z.union([z.literal(''), z.url({ protocol: /^https$/ }).transform((url) => new URL(url).origin)]).describe('The https origin where your own ingress (a reverse proxy, or a tunnel of your own) serves this host, so outside apps can reach /mcp without a Solus account. Empty for none.'), ''),
   agentAutoUpdates: field(z.boolean().describe('Automatically download, verify, and select new native agent releases installed through Solus on this host. Active agent processes keep their current version. Other installations remain under their existing package manager.'), true),
   solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),

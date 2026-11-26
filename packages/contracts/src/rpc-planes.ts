@@ -253,6 +253,8 @@ export const RPC_PLANES = {
   connectionsListDevices: 'collaboration',
   connectionsAppEndpoint: 'collaboration',
   connectionsCreateAppPairingCode: 'collaboration',
+  connectionsTestAppAddress: 'collaboration',
+  connectionsSetTailscaleFunnel: 'collaboration',
   connectionsReadAppSignIn: 'collaboration',
   connectionsDecideAppSignIn: 'collaboration',
   connectionsRevokeDevice: 'collaboration',

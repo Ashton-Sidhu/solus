@@ -53,6 +53,7 @@ const PERMISSION_OF_METHOD = {
   connectionsSetRemoteAccess: 'host.local.reach',
   connectionsGetTailscaleServe: 'host.connect',
   connectionsEnableTailscaleServe: 'host.local.reach',
+  connectionsSetTailscaleFunnel: 'host.local.reach',
   connectionsDisableTailscaleServe: 'host.local.reach',
   connectionsSetTrustLocalNetwork: 'host.local.reach',
   connectionsGeneratePairToken: 'host.local.reach',
@@ -83,6 +84,7 @@ const PERMISSION_OF_METHOD = {
   // A person connects an outside app that acts as them (plans/035 §0.3): the owner, or a member of an organization.
   connectionsAppEndpoint: HOST_USE,
   connectionsCreateAppPairingCode: HOST_USE,
+  connectionsTestAppAddress: HOST_USE,
   connectionsReadAppSignIn: HOST_USE,
   connectionsDecideAppSignIn: HOST_USE,
   connectionsRevokeDevice: 'host.admin',

@@ -167,6 +167,8 @@ export type RemoteAccessMode = 'off' | 'private' | 'any'
 
 export interface TailscaleServeStatus {
   enabled: boolean
+  /** Tailscale Funnel serves the same address to the whole internet, not only the tailnet (plans/035 §0.8). */
+  funnel: boolean
   port: number
   state: 'off' | 'ready' | 'active' | 'other' | 'error'
   url: string | null
@@ -184,6 +186,25 @@ export interface PairedDevice {
   revokedAt: number | null
   /** An outside app that reaches this host's tools over MCP, and the access it was given (plans/035 §10). */
   app?: { access: AppAccess; appId: OutsideAppId }
+}
+
+/**
+ * Where an outside app reaches this host's `/mcp` (plans/035 §0.8). A person
+ * does not have to link the host to a Solus account: Tailscale, or their own
+ * ingress (a reverse proxy, a tunnel of their own), serves it too.
+ *  - `solus`: the tunnel of a host linked to a Solus account.
+ *  - `tailscale-funnel`: Tailscale Funnel, open to the internet.
+ *  - `tailscale-serve`: Tailscale Serve, only for devices on the person's tailnet.
+ *  - `custom`: the https address of the person's own ingress (host setting `publicAddress`).
+ */
+export type AppAddressSource = 'solus' | 'tailscale-funnel' | 'tailscale-serve' | 'custom'
+
+export interface AppAddress {
+  source: AppAddressSource
+  /** The full `/mcp` address. */
+  url: string
+  /** Who can open it: anyone on the internet (a cloud app), or only the person's tailnet. */
+  reach: 'internet' | 'tailnet'
 }
 
 /** What an outside app may do with this host's tools: read only, change records, or also run tools that need approval. */
@@ -563,7 +584,12 @@ export interface SolusAPI {
   /** The devices this host paired, offline and revoked ones included (plans/033 §4.4): the ones with access first, then the most recently seen. Owner only. */
   connectionsListDevices(): Promise<PairedDevice[]>
   /** Where an outside app reaches this host's tools: on this machine, and at the public tunnel address when the host has one. */
-  connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null }>
+  /** `publicUrl` is the first address that the internet reaches; `addresses` lists every way an app reaches `/mcp` (plans/035 §0.8). */
+  connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null; addresses: AppAddress[] }>
+  /** The host asks its own address from outside, as an app would: `/mcp`'s sign-in metadata must answer. Only an address the host lists. */
+  connectionsTestAppAddress(args: { source: AppAddressSource }): Promise<{ reachable: boolean; reason: string | null }>
+  /** Tailscale Funnel on or off for the address Tailscale Serve gives this host. Local owner only. */
+  connectionsSetTailscaleFunnel(args: { enabled: boolean }): Promise<TailscaleServeStatus>
   /** A one-time code that approves an outside app's sign-in on its consent page, with the access it gives. */
   connectionsCreateAppPairingCode(args: { access: AppAccess }): Promise<{ code: string; access: AppAccess; expiresAt: number }>
   /** An outside app's sign-in that waits for a person to approve it in Solus, by the id in its link or the code on its sign-in page. */
