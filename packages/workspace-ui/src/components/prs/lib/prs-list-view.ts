@@ -421,7 +421,7 @@ export function emptyListView(): PrListView {
     lens: 'all',
     query: '',
     statusKeys: [...OPEN_PR_STATUS_KEYS],
-    sortMode: 'ready',
+    sortMode: 'updated',
     involvement: 'all',
     author: null,
     label: null,

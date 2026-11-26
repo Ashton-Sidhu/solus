@@ -11,6 +11,7 @@ import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { loginShellCommand, tmuxTerminal } from '@solus/desktop-main/terminal-launcher'
 import type { DesktopPlatform } from './desktop-platform'
 import { macTerminalApps } from './darwin-terminal'
+import { macAppLaunchers } from './darwin-app-launchers'
 
 const log = createLogger('main', 'platform-darwin')
 const tmux = tmuxTerminal(macTerminalApps)
@@ -99,6 +100,8 @@ export const darwinPlatform: DesktopPlatform = {
       })
     },
   },
+
+  appLaunchers: macAppLaunchers,
 
   captureScreen(path, signal) {
     return new Promise<boolean>((resolve, reject) => {

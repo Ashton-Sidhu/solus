@@ -1,11 +1,16 @@
 import type { ListMySessionsResponse, SessionRepositoryFacts } from '@solus/contracts/session-repositories'
 import type { SessionRecord } from '@solus/contracts/types'
+import { organizationIdOfSolusApiId } from '@solus/contracts/uplink'
 import type { SessionCloudHead } from '@solus/client-core/session-heads'
+import { readsSessionsFromSolusApi } from '@solus/client-core/session-home'
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 
 type CloudEntry = ListMySessionsResponse['items'][number]
+
+/** The answer of the organization's session list when the Solus API is not a source of its sessions. */
+const NO_ORGANIZATION_RECORDS: { records: readonly SessionRecord[] } = { records: [] }
 
 /** A session the cloud lists, as a thread record: the card, and the four facts as plain properties.
  *  A session with no session repository has no head and no turn count. */
@@ -18,6 +23,12 @@ export interface CloudSessionsDeps {
   isReady(hostId: string): boolean
   /** Every host this phone keeps, in the order it shows them. */
   hostIds(): readonly string[]
+  /**
+   * Whether an organization saves the conversations of its sessions in Solus
+   * Cloud, as the account directory says (`DirectoryWorkspace.sessionCloudSync`).
+   * Absent: it does.
+   */
+  savesSessionsToCloud?(organizationId: string): boolean
 }
 
 /** A session only the cloud lists, and the host its thread opens on. */
@@ -37,6 +48,12 @@ export interface CloudOnlySession {
  * the transcript mirror holds). It reads them again on each reconnect, and
  * writes each `session.headChanged` into the session's record in place.
  * Everything goes when the connection goes (sign-out, another organization).
+ *
+ * An organization that does not save its sessions to Solus Cloud keeps their
+ * conversations on their hosts (client-core `session-home.ts`). Its Solus API
+ * is then not a source of its sessions: the session list of the organization
+ * is not read and no published record stays here. The machines list these
+ * sessions. The person's own entries of `listMySessions` stay.
  */
 export class CloudSessions {
   readonly changes = new Listeners()
@@ -46,6 +63,8 @@ export class CloudSessions {
   /** Bumps on each `follow`, so a list answer from an older connection is dropped. */
   private generation = 0
   private loading: Promise<void> | null = null
+  /** The Solus API followed now is a source of its organization's sessions (`readsSessionsFromSolusApi`). */
+  private readsOrganization = true
 
   constructor(private readonly deps: CloudSessionsDeps) {}
 
@@ -68,6 +87,14 @@ export class CloudSessions {
   recordFor(sessionId: string): CloudSessionRecord | undefined {
     return this.records.get(sessionId)
   }
+
+  /**
+   * Solus Cloud has no copy of this session to read: the organization of the
+   * Solus API followed now keeps its sessions on their hosts, and the session
+   * is not one of the person's own cloud entries.
+   */
+  isKeptOnHost = (sessionId: string): boolean =>
+    this.followed !== null && !this.readsOrganization && !this.records.has(sessionId)
 
   /** What the cloud knows of a session, with its last run host as this phone names it. */
   headFor = (sessionId: string): SessionCloudHead | null => {
@@ -128,6 +155,7 @@ export class CloudSessions {
     this.generation += 1
     this.loading = null
     this.followed = connection
+    this.readsOrganization = this.readsOrganizationNow()
     this.records.clear()
     // Also with no record: the readers of `connection` hear that it changed.
     this.changes.notify()
@@ -139,20 +167,57 @@ export class CloudSessions {
     if (connection.state.readiness === 'ready') void this.load()
   }
 
+  /**
+   * The account directory changed. When its answer to "does this organization
+   * save its sessions to Solus Cloud" is a new one, the published records go
+   * at once if the answer is no, and the lists are read again. A list answer
+   * from before the change is dropped, as one from an older connection is.
+   */
+  followSessionSource(): void {
+    const readsOrganization = this.readsOrganizationNow()
+    if (readsOrganization === this.readsOrganization) return
+    this.readsOrganization = readsOrganization
+    this.generation += 1
+    this.loading = null
+    if (!readsOrganization) this.dropPublishedRecords()
+    // Also with no record dropped: the readers of `isKeptOnHost` hear that it changed.
+    this.changes.notify()
+    if (this.followed?.state.readiness === 'ready') void this.load()
+  }
+
   /** Read the sessions the cloud lists for this person. A list that cannot be read keeps what it answered last time. */
   load(): Promise<void> {
-    this.loading ??= this.read().finally(() => { this.loading = null })
-    return this.loading
+    if (this.loading) return this.loading
+    // A read that `follow` or `followSessionSource` replaced must not clear the read that came after it.
+    const loading: Promise<void> = this.read().finally(() => { if (this.loading === loading) this.loading = null })
+    this.loading = loading
+    return loading
+  }
+
+  /** Whether the organization of the followed Solus API saves its sessions to Solus Cloud now. */
+  private readsOrganizationNow(): boolean {
+    const organizationId = this.followed ? organizationIdOfSolusApiId(this.followed.hostId) : null
+    return !organizationId || readsSessionsFromSolusApi(organizationId, this.deps)
+  }
+
+  private dropPublishedRecords(): void {
+    for (const record of this.records.values()) {
+      if (record.publication === 'published') this.records.delete(record.sessionId)
+    }
   }
 
   private async read(): Promise<void> {
     const connection = this.followed
     if (!connection) return
+    // The directory's answer as it is now: the rule holds also when no one called `followSessionSource`.
+    const readsOrganization = this.readsOrganizationNow()
+    this.readsOrganization = readsOrganization
     const generation = this.generation
     const [items, organization] = await Promise.all([
       // An older Solus API has no such route; that is "no cloud entries", not an error.
       Promise.resolve().then(() => connection.api.sessionCloudList()).catch(() => null),
-      Promise.resolve().then(() => connection.api.sessionRecordList()).catch(() => null),
+      // An organization that keeps its sessions on their hosts: its list is not asked, and it answers no record.
+      readsOrganization ? Promise.resolve().then(() => connection.api.sessionRecordList()).catch(() => null) : NO_ORGANIZATION_RECORDS,
     ])
     if (generation !== this.generation || (!items && !organization)) return
     const answered = new Set<string>()

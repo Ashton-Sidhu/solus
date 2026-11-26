@@ -4,15 +4,15 @@
     ChevronRight as CaretRightIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
-  import type { TaskLink } from "@solus/contracts/task-types";
+  import type { IssueLink } from "@solus/contracts/task-types";
   import { PR_NOT_FOUND_BADGE, prStatusBadge } from "../../prs/lib/pr-utils";
   import type { TaskPrRow } from "./lib/task-prs";
 
   interface Props {
     rows: TaskPrRow[];
-    onOpen: (link: TaskLink) => void;
+    onOpen: (link: IssueLink) => void;
     onOpenExternal: (url: string) => void;
-    onUnlink: (link: TaskLink) => void;
+    onUnlink: (link: IssueLink) => void;
     /** Null on a client that cannot reach a machine's index (the cloud console). */
     onAdd: (() => void) | null;
     /** True on the phone rung, where a row has no width for a title, a state

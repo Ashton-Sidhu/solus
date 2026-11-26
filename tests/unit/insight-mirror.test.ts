@@ -21,6 +21,18 @@ let spanTable: typeof import('@solus/server/data/insights/span-table')
 let metricsDb: typeof import('@solus/server/data/insights/metrics-db')
 let registries: typeof import('@solus/server/data/insights/registries')
 let dbModule: typeof import('@solus/server/db')
+let policy: typeof import('@solus/server/host/policy/host-policy-store')
+
+/** The policies of the organizations as this host knows them; null when it has received none. */
+function organizationPolicies(limitsByOrganization: Record<'org1' | 'org2' | 'org-setup', { sessionCloudSync?: boolean }> | null): void {
+  policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => limitsByOrganization && {
+    hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+    organizations: Object.entries(limitsByOrganization).map(([organizationId, limits]) => ({
+      organizationId, name: organizationId, shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
+      policy: { schemaVersion: 1 as const, organization: { name: organizationId }, sessions: { limits } }, hostPolicy: null,
+    })),
+  } }))
+}
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -35,9 +47,12 @@ beforeAll(async () => {
   metricsDb = await import('@solus/server/data/insights/metrics-db')
   registries = await import('@solus/server/data/insights/registries')
   dbModule = await import('@solus/server/db')
+  policy = await import('@solus/server/host/policy/host-policy-store')
+  organizationPolicies({ org1: {}, org2: {}, 'org-setup': {} })
 })
 
 afterAll(async () => {
+  organizationPolicies(null)
   insightMirror.useInsightsPolicy({ syncAllInsights: () => null, optedIn: () => false, attached: () => false })
   metricsDb.closeMetricsDb()
   await resetTestDatabase()
@@ -131,6 +146,30 @@ describe('insight mirror', () => {
         { span: { ...root, attrs: { costUsd: 1 }, texts: { prompt: 'fix it', response: 'Done.', systemPrompt: 'You are Solus.' } }, events: [] },
       ],
     })
+  })
+
+  test('a turn of an organization that does not save its sessions goes with its numbers and without its texts', async () => {
+    // WHY: the texts of a turn (prompt, system prompt, response, thought) are its
+    // conversation. An organization that keeps its sessions on their hosts still gets
+    // its usage numbers, and must not find the conversation in the trace view.
+    insightMirror.useInsightsPolicy({ syncAllInsights: () => true, optedIn: () => false, attached: () => false })
+    organizationPolicies({ org1: {}, org2: { sessionCloudSync: false }, 'org-setup': {} })
+    try {
+      await sessionIn('session-kept', 'org2')
+      const root = { ...turnSpan('trace-kept', 'session-kept', 'org2'), attrs: { costUsd: 1, prompt: 'the secret plan', response: 'Done.', systemPrompt: 'You are Solus.' } }
+      const thought = { ...root, spanId: 'think-kept', parentSpanId: 'trace-kept', kind: registries.SPAN_KINDS.thinking, name: 'thinking', attrs: { thought: 'Reading.' } }
+      await insightMirror.mirrorInsightSpan(thought, [], [])
+      expect(await insightMirror.mirrorInsightSpan(root, [], [])).toBe(1)
+      const item = queue.listDelivery(bobIn('org2'), 10).at(-1)
+      expect(item?.payload).toEqual({
+        spans: [
+          { span: { ...thought, attrs: {} }, events: [] },
+          { span: { ...root, attrs: { costUsd: 1 } }, events: [] },
+        ],
+      })
+    } finally {
+      organizationPolicies({ org1: {}, org2: {}, 'org-setup': {} })
+    }
   })
 })
 

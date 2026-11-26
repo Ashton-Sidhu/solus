@@ -27,8 +27,8 @@ const entry = (sessionId: string, fields: Partial<ListMySessionsResponse['items'
   sessionId, title: `cloud ${sessionId}`, provider: 'claude-code', model: 'claude-opus-5-5', repositoryKey: 'github.com/solus-sh/solus', branch: 'main', lastActivityAt: 9, ...facts(), ...fields,
 })
 
-/** Homes, the cloud list of the Solus API, and which account hosts are saved or connected here. */
-function fakeHomes(opts: { homes: Record<string, SessionRecord[]>; cloud: ListMySessionsResponse['items']; saved?: Record<string, string>; connected?: Record<string, string> }) {
+/** Homes, the cloud list of the Solus API, which account hosts are saved or connected here, and whether the organization keeps its sessions on their hosts. */
+function fakeHomes(opts: { homes: Record<string, SessionRecord[]>; cloud: ListMySessionsResponse['items']; saved?: Record<string, string>; connected?: Record<string, string>; keepsSessionsOnHosts?: boolean }) {
   const events = new Map<string, HostEventSubscriber>()
   const cloudReads: string[] = []
   const serverIds = [...Object.keys(opts.homes), API]
@@ -47,6 +47,7 @@ function fakeHomes(opts: { homes: Record<string, SessionRecord[]>; cloud: ListMy
     knownRunnerFor: (hostId) => opts.saved?.[hostId] ?? connected[hostId] ?? null,
     serverIds: () => serverIds,
     isCloudHost: (serverId) => !isSolusApiId(serverId) && false,
+    savesSessionsToCloud: () => !opts.keepsSessionsOnHosts,
   }, 0, async () => null)
   const headChanged = (sessionId: string, next: SessionRepositoryFacts) =>
     events.get(API)!.receive({ type: 'session.headChanged', payload: { sessionId, ...next }, occurredAt: 1 })
@@ -108,6 +109,26 @@ test('an organization session whose machine is saved here and not connected name
     expect(store.listed('saved-machine')).toMatchObject({ serverId: API, runnerOffline: true, awayRunnerServerId: 'studio' })
     expect(store.listed('other-machine')).toMatchObject({ serverId: API, runnerOffline: true })
     expect(store.listed('other-machine')?.awayRunnerServerId).toBeUndefined()
+  } finally { restore() }
+})
+
+test('the Solus API of an organization that does not save its sessions still gives the cloud entries of this person, and no row or fact of its records', async () => {
+  // WHY: a cloud entry is the person's own session that continues on another
+  // machine. The setting of the organization removes its records as a source of
+  // sessions; it must not also remove these entries.
+  const { store, cloudReads, restore } = fakeHomes({
+    homes: { [API]: [record('org-row', { organizationId: 'org-1', publication: 'published', runnerHostId: 'account-elsewhere', syncedTurn: 2, head: HEAD })] },
+    cloud: [entry('away')],
+    saved: { 'account-studio': 'studio' },
+    keepsSessionsOnHosts: true,
+  })
+  try {
+    await store.load()
+    await settle()
+    expect(cloudReads).toContain(API)
+    expect(store.listed('away')).toMatchObject({ cloudOnly: true, serverId: 'studio', homeServerId: API })
+    expect(store.listed('org-row')).toBeUndefined()
+    expect(store.cloud.factsFor('org-row')).toBeUndefined()
   } finally { restore() }
 })
 

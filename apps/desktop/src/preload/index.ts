@@ -6,7 +6,7 @@ import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
 import type { ShareDialogLog } from '@solus/contracts/sharing'
 import type { AccountSettingsPatchRequest } from '@solus/contracts/settings'
-import type { HostPolicyAssignRequest, HostPolicyCreateRequest, PolicyWriteRequest } from '@solus/contracts/policy-api'
+import type { HostPolicyAssignRequest, HostPolicyCreateRequest, OrganizationSettingsPatchRequest, PolicyWriteRequest } from '@solus/contracts/policy-api'
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
 import type { AccountDocumentRequest } from '@solus/contracts/account-documents'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
@@ -21,6 +21,7 @@ import type { LocalConnectionInfo } from '@solus/contracts/host-api'
 export type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
 import type { NativeServerForwardRequest } from '@solus/contracts/running-servers'
+import type { AppShortcutRequest, AppShortcutTarget, AppWindowRequest } from '@solus/contracts/app-shortcuts'
 
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
@@ -144,6 +145,9 @@ const nativeApi: NativeSolusAPI = {
   hostPolicyAssign: (organizationId: string, hostId: string, request: HostPolicyAssignRequest) =>
     ipcRenderer.invoke('solus:host-policy-assign', organizationId, hostId, request),
   hostPolicyUnassign: (organizationId: string, hostId: string) => ipcRenderer.invoke('solus:host-policy-unassign', organizationId, hostId),
+  organizationSettingsGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-settings-get', organizationId),
+  organizationSettingsPatch: (organizationId: string, request: OrganizationSettingsPatchRequest) =>
+    ipcRenderer.invoke('solus:organization-settings-patch', organizationId, request),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
   uplinkOrganizationDirectory: (organizationId: string) => ipcRenderer.invoke('solus:uplink-organization-directory', organizationId),
   updateStatus: () => ipcRenderer.invoke('solus:update-status'),
@@ -152,6 +156,10 @@ const nativeApi: NativeSolusAPI = {
   restartToUpdate: () => ipcRenderer.send('solus:update-restart'),
   setUpdateAutoDownload: (enabled: boolean) => ipcRenderer.invoke('solus:update-set-auto-download', enabled),
   onUpdateStatusChange: subscribeUpdateStatusChange,
+  appShortcuts: () => ipcRenderer.invoke('solus:app-shortcuts'),
+  addAppShortcut: (request: AppShortcutRequest) => ipcRenderer.invoke('solus:app-shortcut-add', request),
+  removeAppShortcut: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-shortcut-remove', target),
+  openAppWindow: (request: AppWindowRequest) => ipcRenderer.invoke('solus:app-window-open', request),
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

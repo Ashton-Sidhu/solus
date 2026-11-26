@@ -32,15 +32,15 @@
   import * as ContextMenu from "../ui/context-menu";
   import { sessionPinAction } from "./lib/session-actions";
   import { selectSessionRename } from "./lib/session-context-menu";
-  import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from "./lib/task-snooze";
+  import { SNOOZE_CHOICES, snoozeUntilFor } from "./lib/snooze";
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
   import PullRequestsMenu from "./PullRequestsMenu.svelte";
-  import { taskPrNavigation } from "./lib/pr-navigation";
-  import type { TaskPrChoice } from "./lib/task-list";
+  import { prNavigation } from "./lib/pr-navigation";
+  import type { PrChoice } from "./lib/sidebar-rows";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import { referenceSessionsInPrompt } from "../../lib/session-drag";
@@ -307,7 +307,7 @@
     try {
       await unlinkTabFromTask(session, targetTabId);
     } catch (error) {
-      toasts.error("Couldn't unlink the session from the task", {
+      toasts.error("Couldn't unlink the session from the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -323,13 +323,13 @@
       : [],
   );
 
-  function openPullRequest(choice: TaskPrChoice) {
+  function openPullRequest(choice: PrChoice) {
     onClose();
-    const { route, sourceUrl } = taskPrNavigation(choice);
+    const { route, sourceUrl } = prNavigation(choice);
     session.openRoute(route, { sourceUrl, via: "click" });
   }
 
-  function unlinkPullRequest(choice: TaskPrChoice): (() => void) | null {
+  function unlinkPullRequest(choice: PrChoice): (() => void) | null {
     const unlink = sidebarStore.pullRequestUnlink(pullRequestServerId, sess?.id ?? null, choice);
     if (!unlink) return null;
     return () =>
@@ -439,12 +439,12 @@
           Snooze
         </ContextMenu.SubTrigger>
         <ContextMenu.SubContent>
-          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+          {#each SNOOZE_CHOICES as choice (choice.preset)}
             <ContextMenu.Item
               onSelect={() => {
                 const action = rowActions?.onSnooze;
                 onClose();
-                action?.(taskSnoozeUntil(choice.preset));
+                action?.(snoozeUntilFor(choice.preset));
               }}
             >
               {choice.label}
@@ -526,18 +526,18 @@
       {#if linkedTask}
         <ContextMenu.Item onSelect={openTask}>
           <TaskIcon />
-          Open Task
+          Open issue
         </ContextMenu.Item>
         {#if canDrive}
           <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
             <UnlinkIcon />
-            Unlink from Task
+            Unlink from issue
           </ContextMenu.Item>
         {/if}
       {:else}
         <ContextMenu.Item onSelect={linkToTask}>
           <LinkIcon />
-          Link to Task…
+          Link to issue…
         </ContextMenu.Item>
       {/if}
       {#if canDrive && sess?.agentSessionId}

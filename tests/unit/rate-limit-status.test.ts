@@ -8,8 +8,8 @@ import {
   sessionLimitResetsAt,
 } from '@solus/workspace-ui/lib/sessionUtils'
 import { SidebarSessionStatusFeed } from '@solus/workspace-ui/components/session/lib/sidebar-session-status'
-import { resolveSidebarRowMark, taskStatusFor } from '@solus/workspace-ui/components/session/lib/task-list'
-import { limitResetSnoozeUntil } from '@solus/workspace-ui/components/session/lib/task-snooze'
+import { resolveSidebarRowMark, sidebarStatusFor } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
+import { limitResetSnoozeUntil } from '@solus/workspace-ui/components/session/lib/snooze'
 
 const NOW = Date.parse('2026-10-03T12:00:00')
 const RESET_MS = Date.parse('2026-10-03T15:40:00')
@@ -39,7 +39,7 @@ describe('rate-limited attention', () => {
     const session = limitedSession(RESET_MS / 1000)
     expect(getAttentionState(session, tab)).toBe('limited')
     expect(getStatusGroupKey(session, tab)).toBe('rate-limited')
-    expect(taskStatusFor('limited')).toBe('limit')
+    expect(sidebarStatusFor('limited')).toBe('limit')
   })
 
   test('a session with no tab reads limited from the host status feed', () => {
@@ -60,7 +60,7 @@ describe('rate-limited attention', () => {
   test('the working clock does not count while the session is limited', () => {
     // WHY: a limited turn does no work, so the row must not report elapsed time.
     const mark = resolveSidebarRowMark({
-      status: taskStatusFor('limited'),
+      status: sidebarStatusFor('limited'),
       unread: false,
       woke: false,
       reviewGuide: null,

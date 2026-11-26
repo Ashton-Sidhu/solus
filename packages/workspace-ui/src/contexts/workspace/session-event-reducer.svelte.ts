@@ -10,7 +10,7 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import { agentWorkHost } from '../works/agent-work-host'
-import type { TasksStore } from '../tasks/tasks.store.svelte'
+import type { IssuesStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
@@ -27,7 +27,7 @@ import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
-import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, startsWorktree, workingPlace } from './run-location'
 import { mcpAppLiveToolName } from '@solus/contracts/mcp-apps'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
@@ -38,7 +38,7 @@ export interface SessionEventReducerDeps {
   settings: SettingsContext
   planStore: PlanStore
   worksStore: WorksStore
-  tasksStore: TasksStore
+  issuesStore: IssuesStore
   automationsStore: AutomationsStore
   workStreamTracker: WorkStreamTracker
   /** Is this conversation on screen anywhere — the active tab, or a chat pinned
@@ -427,13 +427,13 @@ export class SessionEventReducer {
           && runHost(session.run) !== taskServerId
           && canDriveSession(runHost(session.run), session.id)
         ) {
-          this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId, taskServerId)
+          this.deps.issuesStore.get(pendingTaskId).trackSessionStart(taskSessionId, taskServerId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own
           // checkout is a path on the borrowed machine.
           const branch = checkoutGit(session.run)?.branch
-          void this.deps.tasksStore.get(pendingTaskId).linkSession(
+          void this.deps.issuesStore.get(pendingTaskId).linkSession(
             taskSessionId,
             {
               serverId: runHost(session.run),
@@ -446,13 +446,13 @@ export class SessionEventReducer {
             : undefined)
             .catch(() => null)
         }
-        void this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId)
+        void this.deps.issuesStore.refreshSessionBinding(taskSessionId, taskServerId)
           .then((task) => {
             if (!task) return
             // The durable relationship is now authoritative. Keep its task id
             // on the mounted session so later prompts never look taskless while
             // the sidebar reconciles its session links.
-            session.task = { kind: 'existing', taskId: task.id }
+            session.task = { kind: 'existing', issueId: task.id }
           })
           .catch(() => null)
         this.deps.onSessionInitialized?.(sessionId)
@@ -622,7 +622,10 @@ export class SessionEventReducer {
         }
         // The host names the task for the background row; an older host does not.
         if (event.kind && !session.backgroundTasks?.some((task) => task.taskId === event.taskId)) {
-          ;(session.backgroundTasks ??= []).push({ taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
+          // Two statements: on a `$state` proxy, `??=` gives the plain array,
+          // and a push to it never reaches the list the background row reads.
+          session.backgroundTasks ??= []
+          session.backgroundTasks.push({ taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
         }
         break
       }
@@ -868,6 +871,15 @@ export class SessionEventReducer {
         // location is the working place only. The host sends the session
         // folders before it sends a `git_context` for one of them.
         if (session.sessionFolders.some((folder) => sameHostPath(folder.path, event.cwd))) break
+        // That order is not enough: a client that has not read the folders yet
+        // takes a folder's checkout for the run's, and the run then works in
+        // the folder (`workingPlace` follows `worktreePath`). A run that
+        // already works in one repository moves to another only by a clone or
+        // a new worktree that it asked for: the checkout of another repository
+        // is a session folder's.
+        const known = checkoutGit(session.run)
+        if (known?.repoRoot && event.gitContext.repoRoot && !sameHostPath(known.repoRoot, event.gitContext.repoRoot)
+          && !pendingClone(session.run) && !startsWorktree(session.run)) break
         // The host made the clone Send asked for: the run works in it from now on.
         const clonedPath = pendingClone(session.run) ? event.gitContext.worktreePath ?? event.gitContext.repoRoot : undefined
         if (clonedPath) session.run.location = landClone(session.run.location, clonedPath)
@@ -888,7 +900,7 @@ export class SessionEventReducer {
           ) {
             void serverConnections.apiFor(taskServerId)
               .setSessionBranch(taskSessionId, event.gitContext.branch)
-              .then(() => this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId))
+              .then(() => this.deps.issuesStore.refreshSessionBinding(taskSessionId, taskServerId))
               .catch(() => null)
           }
         }
@@ -1176,7 +1188,7 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           taskRef: {
-            taskId: event.taskId,
+            issueId: event.issueId,
             title: event.title,
             url: event.url,
           },

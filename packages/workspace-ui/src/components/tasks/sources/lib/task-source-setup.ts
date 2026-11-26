@@ -4,10 +4,10 @@ export { parseManualTaskSource } from '@solus/client-core/task-source-input'
 // Shaping only: the save itself is a write of the personal settings, and the
 // task host reads the sources again after it (docs/tasks.md).
 import type { PersonalSettings } from '@solus/contracts/settings'
-import { MAX_TASK_SOURCES, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
-import type { TaskSourceHealth, TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import { MAX_ISSUE_SOURCES, issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
+import type { IssueSourceHealth, IssueSourceOptions, IssueSourceState } from '@solus/contracts/task-types'
 
-type TaskSourceConfig = Pick<PersonalSettings, 'taskSources'>
+type TaskSourceConfig = Pick<PersonalSettings, 'issueSources'>
 
 /** What each source kind is called. A board is a source that has columns. */
 export const SOURCE_KIND_NAMES = {
@@ -16,10 +16,10 @@ export const SOURCE_KIND_NAMES = {
   'jira-project': 'Jira project',
   'linear-team': 'Linear team',
   'jira-board': 'Jira board',
-} satisfies Record<TaskSource['kind'], string>
+} satisfies Record<IssueSource['kind'], string>
 
 /** A source in words, before a host has read it and can give its own label. */
-export function taskSourceLabel(source: TaskSource): string {
+export function taskSourceLabel(source: IssueSource): string {
   switch (source.kind) {
     case 'github-repo':
       return `${source.owner}/${source.repo}`
@@ -37,17 +37,17 @@ export function taskSourceLabel(source: TaskSource): string {
 
 /** Add a source. Null when the person has the source already or has the most
  *  sources a person can. */
-export function withTaskSource(config: TaskSourceConfig, source: TaskSource): TaskSourceConfig | null {
-  const sources = config.taskSources
-  const sourceKey = taskSourceKey(source)
-  if (sources.length >= MAX_TASK_SOURCES) return null
-  if (sources.some((held) => taskSourceKey(held) === sourceKey)) return null
-  return { taskSources: [...sources, source] }
+export function withTaskSource(config: TaskSourceConfig, source: IssueSource): TaskSourceConfig | null {
+  const sources = config.issueSources
+  const sourceKey = issueSourceKey(source)
+  if (sources.length >= MAX_ISSUE_SOURCES) return null
+  if (sources.some((held) => issueSourceKey(held) === sourceKey)) return null
+  return { issueSources: [...sources, source] }
 }
 
 /** Add several sources in one write, in their order, up to the limit. Null
  *  when none of them is new. */
-export function withTaskSources(config: TaskSourceConfig, sources: readonly TaskSource[]): TaskSourceConfig | null {
+export function withTaskSources(config: TaskSourceConfig, sources: readonly IssueSource[]): TaskSourceConfig | null {
   let next = config
   for (const source of sources) next = withTaskSource(next, source) ?? next
   return next === config ? null : next
@@ -55,7 +55,7 @@ export function withTaskSources(config: TaskSourceConfig, sources: readonly Task
 
 /** Remove a source. A person with no source has no tasks. */
 export function withoutTaskSource(config: TaskSourceConfig, sourceKey: string): TaskSourceConfig {
-  return { taskSources: config.taskSources.filter((held) => taskSourceKey(held) !== sourceKey) }
+  return { issueSources: config.issueSources.filter((held) => issueSourceKey(held) !== sourceKey) }
 }
 
 // ── Health ──
@@ -75,14 +75,14 @@ const HEALTH_NOTES = {
   reconnect: { label: 'Needs sign-in', tone: 'failure', message: 'The connection lacks a permission this source needs.' },
   no_access: { label: 'No access', tone: 'failure', message: 'Your provider account cannot read this source.' },
   error: { label: 'Read failed', tone: 'failure', message: 'The provider did not answer the last read.' },
-} satisfies Record<Exclude<TaskSourceHealth, 'ok'>, SourceHealthNote>
+} satisfies Record<Exclude<IssueSourceHealth, 'ok'>, SourceHealthNote>
 
 /**
  * What a source row says about its last read, or null when there is nothing to
  * say. A source that cannot be read outranks one that is only truncated: the
  * tasks on screen are then an old copy, or none.
  */
-export function sourceHealthNote(state: Pick<TaskSourceState, 'health' | 'message' | 'truncated'>): SourceHealthNote | null {
+export function sourceHealthNote(state: Pick<IssueSourceState, 'health' | 'message' | 'truncated'>): SourceHealthNote | null {
   if (state.health !== 'ok') {
     const note = HEALTH_NOTES[state.health]
     return state.message ? { ...note, message: state.message } : note
@@ -91,7 +91,7 @@ export function sourceHealthNote(state: Pick<TaskSourceState, 'health' | 'messag
     return {
       label: 'Truncated',
       tone: 'warning',
-      message: 'This source holds more tasks than Solus read. Search reaches the rest.',
+      message: 'This source holds more issues than Solus read. Search reaches the rest.',
     }
   }
   return null
@@ -103,18 +103,18 @@ export function sourceHealthNote(state: Pick<TaskSourceState, 'health' | 'messag
  *  the task host last read it. */
 export interface SourceStripRow {
   sourceKey: string
-  source: TaskSource
+  source: IssueSource
   /** The host's label, or the source in words before the host reads it. */
   label: string
   /** The host's last read. Null for a source that the host has not read yet. */
-  state: TaskSourceState | null
+  state: IssueSourceState | null
 }
 
 /** The person's sources, in the order they added them. A source that the host
  *  has not read yet is on the strip at once, with its own label. */
-export function sourceStripRows(config: TaskSourceConfig, states: readonly TaskSourceState[]): SourceStripRow[] {
-  return config.taskSources.map((source) => {
-    const sourceKey = taskSourceKey(source)
+export function sourceStripRows(config: TaskSourceConfig, states: readonly IssueSourceState[]): SourceStripRow[] {
+  return config.issueSources.map((source) => {
+    const sourceKey = issueSourceKey(source)
     const state = states.find((candidate) => candidate.sourceKey === sourceKey) ?? null
     return { sourceKey, source, label: state?.label ?? taskSourceLabel(source), state }
   })
@@ -123,7 +123,7 @@ export function sourceStripRows(config: TaskSourceConfig, states: readonly TaskS
 // ── What can be added ──
 
 export interface SourceChoice {
-  source: TaskSource
+  source: IssueSource
   sourceKey: string
   label: string
   /** A second, quieter part: a project's name beside its key. */
@@ -133,7 +133,7 @@ export interface SourceChoice {
 }
 
 export interface SourceChoiceGroup {
-  kind: TaskSource['kind']
+  kind: IssueSource['kind']
   choices: SourceChoice[]
 }
 
@@ -144,7 +144,7 @@ export const SOURCE_KIND_SHORT_NAMES = {
   'jira-project': 'Jira project',
   'linear-team': 'Linear team',
   'jira-board': 'Jira board',
-} satisfies Record<TaskSource['kind'], string>
+} satisfies Record<IssueSource['kind'], string>
 
 /**
  * The sources a person can add, by kind, without the sources the person has
@@ -152,16 +152,16 @@ export const SOURCE_KIND_SHORT_NAMES = {
  * needs no heading for each kind.
  */
 export function sourceChoiceGroups(
-  options: TaskSourceOptions,
-  configured: readonly TaskSource[],
+  options: IssueSourceOptions,
+  configured: readonly IssueSource[],
 ): SourceChoiceGroup[] {
-  const held = new Set(configured.map(taskSourceKey))
-  const group = (kind: TaskSource['kind'], sources: Array<{ source: TaskSource; label: string; detail?: string }>): SourceChoiceGroup => ({
+  const held = new Set(configured.map(issueSourceKey))
+  const group = (kind: IssueSource['kind'], sources: Array<{ source: IssueSource; label: string; detail?: string }>): SourceChoiceGroup => ({
     kind,
     choices: sources
       .map(({ source, label, detail }) => ({
         source,
-        sourceKey: taskSourceKey(source),
+        sourceKey: issueSourceKey(source),
         label,
         detail: detail ? `${SOURCE_KIND_SHORT_NAMES[kind]} · ${detail}` : SOURCE_KIND_SHORT_NAMES[kind],
         searchText: `${SOURCE_KIND_NAMES[kind]} ${label} ${detail ?? ''}`.toLowerCase(),
@@ -221,7 +221,7 @@ export interface SourceConnectionNote {
  * a missing choice reads as "Solus cannot do this", when the truth is one
  * connection away.
  */
-export function sourceConnectionNotes(options: TaskSourceOptions): SourceConnectionNote[] {
+export function sourceConnectionNotes(options: IssueSourceOptions): SourceConnectionNote[] {
   const { github, jira, linear } = options
   const notes: SourceConnectionNote[] = []
   if (!github.connected) notes.push({ provider: 'github', text: 'Connect GitHub to add repositories and Projects.' })
@@ -254,13 +254,13 @@ export function matchingChoices(group: SourceChoiceGroup, query: string): Source
  */
 export function manualSourceChoice(
   query: string,
-  configured: readonly TaskSource[],
+  configured: readonly IssueSource[],
   groups: readonly SourceChoiceGroup[],
 ): SourceChoice | null {
   const source = parseManualTaskSource(query)
   if (!source) return null
-  const sourceKey = taskSourceKey(source)
-  if (configured.some((held) => taskSourceKey(held) === sourceKey)) return null
+  const sourceKey = issueSourceKey(source)
+  if (configured.some((held) => issueSourceKey(held) === sourceKey)) return null
   for (const group of groups) {
     const offered = group.choices.find((choice) => choice.sourceKey === sourceKey)
     if (offered) return offered
@@ -277,14 +277,14 @@ export function manualSourceChoice(
 /** The source key of a typed or pasted source, or null when the text names none. */
 export function manualSourceKey(query: string): string | null {
   const source = parseManualTaskSource(query)
-  return source ? taskSourceKey(source) : null
+  return source ? issueSourceKey(source) : null
 }
 
 // ── The first-source setup ──
 
 /** A repository of one of the person's projects, on the first-source setup. */
 export interface ProjectSourceRow {
-  source: TaskSource
+  source: IssueSource
   sourceKey: string
   label: string
   isFork: boolean
@@ -309,14 +309,14 @@ export const MAX_SETUP_PROJECT_ROWS = 6
  * recently first, once each. A repository stays listed once added, marked as
  * added, so a person adds several and can take one back.
  */
-export function projectSourceRows(projects: readonly SetupProject[], configured: readonly TaskSource[]): ProjectSourceRow[] {
-  const held = new Set(configured.map(taskSourceKey))
+export function projectSourceRows(projects: readonly SetupProject[], configured: readonly IssueSource[]): ProjectSourceRow[] {
+  const held = new Set(configured.map(issueSourceKey))
   const rows: ProjectSourceRow[] = []
   for (const project of [...projects].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))) {
     const [host, owner, repo, ...rest] = (project.repositoryKey ?? '').split('/')
     if (host !== 'github.com' || !owner || !repo || rest.length > 0) continue
-    const source: TaskSource = { kind: 'github-repo', owner, repo }
-    const sourceKey = taskSourceKey(source)
+    const source: IssueSource = { kind: 'github-repo', owner, repo }
+    const sourceKey = issueSourceKey(source)
     // Two checkouts of one repository, or two spellings of it: the key ignores case.
     if (rows.some((row) => row.sourceKey === sourceKey)) continue
     const isFork = project.originKey !== null && project.originKey !== project.repositoryKey

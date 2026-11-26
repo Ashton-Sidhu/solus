@@ -190,7 +190,7 @@ export async function createAgentWork(
   if (foreignTaskId) {
     const workId = randomUUID()
     const payload: WorkCreateOpPayload = {
-      taskId: foreignTaskId,
+      issueId: foreignTaskId,
       title,
       docType,
       content,
@@ -377,7 +377,7 @@ export async function executeWorkTool(
           if (args.markdown_path && foreign.workType === 'artifact') return markdownPathOnArtifact(foreign.title)
           if (foreign.contentVersion !== expectedContentVersion) return staleWrite(foreign.title, expectedContentVersion)
           const payload: WorkUpdateOpPayload = {
-            taskId: foreignTaskId,
+            issueId: foreignTaskId,
             content,
             expectedContentVersion,
           }

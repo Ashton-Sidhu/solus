@@ -6,8 +6,8 @@
  * chips, which verbs. Everything about how a row is *drawn* lives in
  * `components/ui/list-page`.
  */
-import type { Task } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { Issue } from '@solus/contracts/task-types'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import {
   absoluteTime,
   compactRelativeTime,
@@ -19,37 +19,20 @@ import {
   type ListRowSource,
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
-import { formatWakeIn } from '../../session/lib/task-list'
 import { PROVIDER_NAMES, taskRef, type BoardColumn } from './tasks-api'
-
-/** A snoozed task is out of the task lists until it wakes. The snooze is
- *  independent of the status: any task can sleep, and its agents keep working. */
-export function isTaskSnoozed(task: Pick<Task, 'snoozedUntil'>, now: number): boolean {
-  return !!task.snoozedUntil && task.snoozedUntil > now
-}
-
-/** The earliest wake time still ahead, so a list can bring the task back on
- *  time. Null when nothing is snoozed. */
-export function nextTaskWake(tasks: readonly Pick<Task, 'snoozedUntil'>[], now: number): number | null {
-  let next: number | null = null
-  for (const { snoozedUntil } of tasks) {
-    if (snoozedUntil && snoozedUntil > now && (next === null || snoozedUntil < next)) next = snoozedUntil
-  }
-  return next
-}
 
 /**
  * What a list opens on: the columns of work that is not done. Finished work
  * is history — reachable in one click, but never in the way of what is still
  * moving. The column of a board's items that have no column yet is open work.
  */
-export function openColumnIds(columns: readonly Pick<BoardColumn<Task>, 'id' | 'category'>[]): string[] {
+export function openColumnIds(columns: readonly Pick<BoardColumn<Issue>, 'id' | 'category'>[]): string[] {
   return columns.filter((column) => column.category !== 'done').map((column) => column.id)
 }
 
 /** Whether the column filter is the one a list opens on, so it counts as no filter. */
 export function isOpenColumnFilter(
-  columns: readonly Pick<BoardColumn<Task>, 'id' | 'category'>[],
+  columns: readonly Pick<BoardColumn<Issue>, 'id' | 'category'>[],
   selected: readonly string[],
 ): boolean {
   const open = openColumnIds(columns)
@@ -58,7 +41,7 @@ export function isOpenColumnFilter(
 
 /** Slot 2a — the provider that owns the task, shown as its brand logo before
  *  the reference. The title names the whole reference, which the cell shortens. */
-function sourceFor(task: Task): ListRowSource {
+function sourceFor(task: Issue): ListRowSource {
   const provider = PROVIDER_NAMES[task.providerId]
   return {
     id: task.providerId,
@@ -78,7 +61,7 @@ export type TaskHomeLabel = (taskId: string) => string | null
  *  so every row of one list either has the cell or does not. */
 export type TaskPlaceFor = (taskId: string) => ListRowPlace | undefined
 
-function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpec[] {
+function chipsFor(task: Issue, now: number, homeFor?: TaskHomeLabel): ListChipSpec[] {
   const chips: ListChipSpec[] = []
   const home = homeFor?.(task.id)
   if (home) chips.push({ label: home })
@@ -89,11 +72,7 @@ function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpe
     task.dueDate && task.category !== 'done'
       ? Date.parse(`${task.dueDate}T23:59:59`) < now
       : false
-  // Only the Snoozed filter shows a sleeping task, so its return time is the
-  // state that matters most there.
-  const wakeAt = task.snoozedUntil ?? 0
-  if (wakeAt > now) chips.push({ label: `wakes in ${formatWakeIn(wakeAt, now)}`, tint: 'info' })
-  else if (overdue) chips.push({ label: 'overdue', tint: 'failure' })
+  if (overdue) chips.push({ label: 'overdue', tint: 'failure' })
   else if (task.priority === 'urgent') chips.push({ label: 'urgent', tint: 'failure' })
   else if (task.priority === 'high') chips.push({ label: 'high', tint: 'warning' })
 
@@ -106,7 +85,7 @@ function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpe
  * the whole middle line of the card. Open work is deliberately silent — nothing
  * has happened to it yet, and "—" reads worse than nothing.
  */
-function metaFor(task: Task, activeSessions: number): string {
+function metaFor(task: Issue, activeSessions: number): string {
   if (activeSessions > 0) return `agent · ${activeSessions} session${activeSessions === 1 ? '' : 's'}`
   if (task.category === 'done') return task.pr ? `closed · #${task.pr.number}` : 'closed'
   if (task.pr) return `PR #${task.pr.number}`
@@ -115,7 +94,7 @@ function metaFor(task: Task, activeSessions: number): string {
 
 /** A list row names where the task lives in its own column, so its chips keep
  *  only the label and the state that needs colour. */
-export function taskRow(task: Task, activeSessions: number, now: number, placeFor?: TaskPlaceFor): ListRowSpec {
+export function taskRow(task: Issue, activeSessions: number, now: number, placeFor?: TaskPlaceFor): ListRowSpec {
   return {
     key: task.id,
     ident: taskRef(task),
@@ -144,7 +123,7 @@ export interface BoardCardSpec {
   /** Drives the card's status glyph. The column already says this, but the card
    *  travels — under the cursor mid-drag, and in a column you may have scrolled
    *  past the head of — so it carries its own mark. */
-  category: TaskStatusCategory
+  category: IssueStatusCategory
   title: string
   /** The Done column's titles step back — they are history, not work. */
   dimmed: boolean
@@ -158,7 +137,7 @@ export interface BoardCardSpec {
   timeTitle?: string
 }
 
-export function taskBoardCard(task: Task, activeSessions: number, now: number, homeFor?: TaskHomeLabel): BoardCardSpec {
+export function taskBoardCard(task: Issue, activeSessions: number, now: number, homeFor?: TaskHomeLabel): BoardCardSpec {
   return {
     key: task.id,
     ident: taskRef(task),
@@ -179,7 +158,7 @@ export function taskBoardCard(task: Task, activeSessions: number, now: number, h
  *  order, so the list and the board group the same way. Empty sections are
  *  dropped rather than shown at zero. */
 export function taskGroups(
-  columns: readonly BoardColumn<Task>[],
+  columns: readonly BoardColumn<Issue>[],
   runningSessionsFor: (taskId: string) => number,
   now: number,
   placeFor?: TaskPlaceFor,
@@ -193,6 +172,6 @@ export function taskGroups(
     }))
 }
 
-export function isDone(task: Pick<Task, 'category'>): boolean {
+export function isDone(task: Pick<Issue, 'category'>): boolean {
   return task.category === 'done'
 }

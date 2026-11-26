@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Task as StoredTask } from '../../../contexts/tasks/task.svelte';
-  import type { Task, TaskComment } from '@solus/contracts/task-types';
+  import type { Issue as StoredTask } from '../../../contexts/tasks/task.svelte';
+  import type { Issue, IssueComment } from '@solus/contracts/task-types';
   import type { TaskProviderData, TaskProviderMetadata, TaskReactionContent } from '@solus/contracts/task-data';
-  import { parseTaskKey } from '@solus/contracts/task-sources';
+  import { parseIssueKey } from '@solus/contracts/task-sources';
   import { toasts } from '../../../lib/toasts';
   let {
     task,
@@ -13,9 +13,9 @@
     readOnly = false,
     onOpenExternal,
   }: {
-    task: Task;
+    task: Issue;
     taskData?: StoredTask['data'];
-    comments: TaskComment[];
+    comments: IssueComment[];
     value?: TaskProviderData;
     metadata?: TaskProviderMetadata;
     readOnly?: boolean;
@@ -32,7 +32,7 @@
     { content: 'ROCKET', label: '🚀' },
     { content: 'EYES', label: '👀' },
   ];
-  const issueId = $derived(parseTaskKey(task.id)?.id ?? '');
+  const issueId = $derived(parseIssueKey(task.id)?.id ?? '');
   let targetId = $state('');
   const selectedTarget = $derived(targetId || issueId);
   const provider = $derived(value ?? metadata);

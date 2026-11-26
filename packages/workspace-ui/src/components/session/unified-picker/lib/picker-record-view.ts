@@ -76,7 +76,7 @@ export function recordOpenLabel(record: PickerRecord): string {
 /** What ⏎ does to the row the cursor is on. */
 export function entryOpenLabel(entry: PickerEntry): string {
   if (entry.kind === 'record') return recordOpenLabel(entry.record)
-  return entry.kind === 'task' ? 'Open task' : 'Resume'
+  return entry.kind === 'task' ? 'Open issue' : 'Resume'
 }
 
 /**

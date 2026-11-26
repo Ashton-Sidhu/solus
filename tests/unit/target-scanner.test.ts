@@ -5,6 +5,26 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { ServerDiscovery } = await import('@solus/server/host/running-servers/discovery')
 const { windowsListeners, parseLsofListeners, procSocketListeners } = await import('@solus/server/host/running-servers/listeners')
 const { parseProcessFacts, parseWindowsProcesses } = await import('@solus/server/host/running-servers/processes')
+const { withHostScope } = await import('@solus/server/execution/seats/acting-identity')
+
+test.skipIf(process.platform === 'win32')('discovery reports a launch provider even without a session tag', async () => {
+  const launcher = Bun.spawn([process.execPath, '-e', 'setTimeout(() => {}, 30_000)'], {
+    env: { SOLUS_SERVER_PROVIDER: 'claude-code' },
+  })
+  const scanner = new ServerDiscovery({
+    listeners: async () => [{ pid: launcher.pid, port: 3000, command: 'node' }],
+    processes: async () => new Map([[launcher.pid, processFact(launcher.pid, { sessionId: null })]]),
+    directories: async () => new Map(), configured: async () => [], locate: async () => {},
+  })
+  try {
+    const [server] = await withHostScope(() => scanner.discover())
+    expect(server?.startedBy).toEqual({ kind: 'agent', sessionId: null, provider: 'claude-code' })
+    expect(server.actions.canStop).toBe(false)
+  } finally {
+    launcher.kill()
+    await launcher.exited
+  }
+})
 
 describe('listener address filtering', () => {
   test('Windows keeps local addresses and names IPv6 without relying on translated state', () => {
@@ -66,6 +86,36 @@ test('discovery lists an owned API before HTTP starts and sends zero probes to a
   expect(s.probe).not.toHaveBeenCalled()
 })
 
+test('discovery records the launch source before resolving metadata and keeps it for that process', async () => {
+  let fact = processFact(100, { provider: 'codex' })
+  let listening = true
+  const locate = mock(async (): Promise<void> => { throw new Error('Cannot resolve checkout') })
+  const scanner = new ServerDiscovery({
+    listeners: async () => listening ? [{ pid: 100, port: 3000, command: 'node' }] : [],
+    processes: async () => new Map([[100, fact]]),
+    directories: async () => new Map([[100, '/project/api']]),
+    tags: async () => {}, configured: async () => [], locate,
+  })
+  await expect(scanner.discover()).rejects.toThrow('Cannot resolve checkout')
+
+  locate.mockResolvedValue(undefined)
+  fact = processFact(100, { sessionId: null })
+  const [server] = await scanner.discover()
+  expect(server?.startedBy).toEqual({ kind: 'agent', sessionId: 'session', provider: 'codex' })
+  expect(server.actions.canStop).toBe(false)
+
+  listening = false
+  expect(await scanner.discover()).toEqual([])
+  listening = true
+  fact = processFact(100, { provider: 'claude-code' })
+  const [sameServer] = await scanner.discover()
+  expect(sameServer.serverId).toBe(server.serverId)
+  expect(sameServer.startedBy).toEqual(server.startedBy)
+
+  fact = processFact(100, { identity: 'new-start', sessionId: null })
+  expect(await scanner.discover()).toEqual([])
+})
+
 test('an explicit HTTPS API URL retains path, query and fragment, and a failed startup retries', async () => {
   const s = scannerSetup()
   const url = 'https://localhost:3000/admin?api=v1#health'
@@ -99,5 +149,7 @@ test('Windows attributes only descendants of a provider owned by this host', () 
   ]))
   expect(facts.get(100)?.protected).toBe(true)
   expect(facts.get(101)?.agentOwned).toBe(true)
+  expect(facts.get(101)?.provider).toBe('codex')
   expect(facts.get(201)?.agentOwned).not.toBe(true)
+  expect(facts.get(201)?.provider).toBeUndefined()
 })

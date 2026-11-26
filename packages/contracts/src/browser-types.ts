@@ -802,7 +802,7 @@ export interface BrowserSnapshotRef {
  * a capture ends up on the wrong repository.
  */
 export type BrowserEvidenceTarget =
-  | { kind: 'task'; taskId: string }
+  | { kind: 'task'; issueId: string }
   | { kind: 'pr'; number: number; cwd: string }
 
 /** What a capture became. */

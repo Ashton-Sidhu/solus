@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { IssueRef, IssueSource, IssueStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueUpdatePatch } from '@solus/contracts/task-types'
 import type { TaskInvolvement } from '@solus/contracts/task-data'
 import { assetReferencesIn } from '../task-assets'
 import {
@@ -26,7 +26,7 @@ import {
   type TaskSourceAdapter
 } from './types'
 
-type LinearSource = Extract<TaskSource, { kind: 'linear-team' }>
+type LinearSource = Extract<IssueSource, { kind: 'linear-team' }>
 type LinearHome = Extract<TaskHome, { provider: 'linear' }>
 const pageInfo = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() })
 const commentSchema = z.object({
@@ -38,7 +38,7 @@ const commentSchema = z.object({
 const organizationSchema = z.object({ id: z.string() })
 const priorities = ['urgent', 'high', 'medium', 'low'] as const
 
-function sourceOf(source: TaskSource): LinearSource {
+function sourceOf(source: IssueSource): LinearSource {
   if (source.kind !== 'linear-team') throw new Error('This source is not a Linear team.')
   return source
 }
@@ -95,7 +95,7 @@ async function choices(teamId: string) {
   answer.team.states.nodes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
   return answer
 }
-function requestedAssignees(patch: TaskUpdatePatch): string[] | undefined {
+function requestedAssignees(patch: IssueUpdatePatch): string[] | undefined {
   const assignees =
     patch.assignees ??
     (patch.assignee === undefined ? undefined : patch.assignee ? [patch.assignee] : [])
@@ -104,7 +104,7 @@ function requestedAssignees(patch: TaskUpdatePatch): string[] | undefined {
 }
 async function writeInput(
   home: Pick<LinearHome, 'teamId' | 'workspaceId'>,
-  patch: TaskUpdatePatch
+  patch: IssueUpdatePatch
 ): Promise<LinearInput> {
   if (assetReferencesIn(patch.body ?? '').length)
     throw new Error('Add local attachments on Linear before using them here.')
@@ -134,7 +134,7 @@ async function writeInput(
   return input
 }
 async function readIssue(
-  ref: Extract<TaskRef, { provider: 'linear' }>
+  ref: Extract<IssueRef, { provider: 'linear' }>
 ): Promise<ProviderTaskDetails> {
   const answer = await linearRequest(
     `query($id: String!) { organization { id } issue(id: $id) { ${LINEAR_ISSUE_FIELDS} comments(first: 100) { nodes { id body createdAt user { name } } pageInfo { hasNextPage endCursor } } } }`,
@@ -175,15 +175,15 @@ async function updateIssue(home: LinearHome, input: LinearInput): Promise<Provid
 
 export class LinearTaskProvider implements TaskProviderAdapter {
   readonly id = 'linear' as const
-  async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
+  async fetch(ref: IssueRef): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'linear') throw new Error('This task is not from Linear.')
     return readIssue(ref)
   }
-  async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  async update(home: TaskHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
     const target = homeOf(home)
     return updateIssue(target, await writeInput(target, patch))
   }
-  async setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
+  async setState(home: TaskHome, category: IssueStatusCategory): Promise<ProviderTask> {
     const target = homeOf(home)
     const account = await choices(target.teamId)
     checkWorkspace(account.organization.id, target.workspaceId)
@@ -213,7 +213,7 @@ export class LinearTaskProvider implements TaskProviderAdapter {
       createdAt: Date.parse(comment.createdAt)
     }
   }
-  async assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]> {
+  async assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]> {
     const target = homeOf(home),
       account = await choices(target.teamId)
     checkWorkspace(account.organization.id, target.workspaceId)
@@ -238,7 +238,7 @@ export class LinearTaskProvider implements TaskProviderAdapter {
 
 export class LinearTeamSource implements TaskSourceAdapter {
   readonly kind = 'linear-team' as const
-  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
     const team = sourceOf(source),
       account = await choices(team.teamId)
     checkWorkspace(account.organization.id, team.workspaceId)
@@ -269,7 +269,7 @@ export class LinearTeamSource implements TaskSourceAdapter {
     }
   }
   async search(
-    source: TaskSource,
+    source: IssueSource,
     query: string,
     involvement: TaskInvolvement = 'all'
   ): Promise<ProviderTask[]> {
@@ -292,7 +292,7 @@ export class LinearTeamSource implements TaskSourceAdapter {
     source,
     draft
   }: {
-    source: TaskSource
+    source: IssueSource
     writeState: SourceWriteState | null
     draft: TaskDraft
   }) {
@@ -332,7 +332,7 @@ export class LinearTeamSource implements TaskSourceAdapter {
       throw new Error('This state does not belong to the Linear team.')
     return updateIssue(target, { stateId: input.columnId })
   }
-  async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {
+  async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {
     const team = sourceOf(source),
       account = await choices(team.teamId)
     checkWorkspace(account.organization.id, team.workspaceId)

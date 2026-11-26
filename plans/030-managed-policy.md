@@ -155,6 +155,8 @@ export const policyDocumentSchema = z.object({
       }).strict().optional(),
       /** By provider: the only model ids that may run. A provider not named is not limited. */
       models: z.record(agentIdSchema, z.array(z.string().min(1)).nonempty()).optional(),
+      /** false: no conversation of a session leaves its host (docs/session-cloud-copy.md). */
+      sessionCloudSync: z.boolean().optional(),
       /** On: every organization session sends its Insights. Off or absent: the host's opt-in decides. */
       insights: z.object({ syncAll: z.boolean() }).strict().optional(),
       /** false: a webhook with verification `none` cannot start work. */

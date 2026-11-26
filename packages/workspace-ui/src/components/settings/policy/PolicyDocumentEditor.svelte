@@ -1,10 +1,12 @@
 <script lang="ts">
-  /** One `policy.json` document: its text, its check against the one validator,
-   *  what the edit changes, Export in the three formats, and Import JSON with a
-   *  confirmation that lists the changes, and the Outside apps limit as a
-   *  control. Read-only shows the text, the limit, and Export. */
+  /** One `policy.json` document: its building blocks, its text, its check
+   *  against the one validator, what the edit changes, Export in the three
+   *  formats, Import JSON with a confirmation that lists the changes, and the
+   *  Outside apps limit as a control. An editable document opens on its
+   *  blocks, with the JSON one click away. Read-only shows the text, the
+   *  limit, and Export. */
   import type { Snippet } from "svelte";
-  import { Download as DownloadIcon, Upload as UploadIcon } from "@lucide/svelte";
+  import { Code as CodeIcon, Download as DownloadIcon, Upload as UploadIcon } from "@lucide/svelte";
   import type { PolicyDocument, PolicyKind } from "@solus/contracts/policy";
   import { POLICY_EXPORT_FORMATS, type PolicyExportFormat } from "@solus/client-core/policy-export";
   import { downloadText } from "../../insights/lib/trace-export";
@@ -12,9 +14,11 @@
   import { Button } from "../../ui/button";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { Textarea } from "../../ui/textarea";
+  import PolicyBlocksEditor from "./PolicyBlocksEditor.svelte";
   import PolicyOutsideApps from "./PolicyOutsideApps.svelte";
   import { checkPolicyText, differenceLine, policyText } from "./lib/policy-editor";
   import { editDifferences, exportChoice, readImport, type PendingImport } from "./lib/policy-document-editor";
+  import { blockDocument } from "./lib/policy-blocks";
 
   interface Props {
     /** Names the text field for a screen reader. */
@@ -36,6 +40,9 @@
   let pendingImport = $state<PendingImport | null>(null);
   let exportError = $state<string | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let isJsonOpen = $state(false);
+  // The JSON shows by itself when the blocks cannot read the text, so it can be fixed.
+  const showsJson = $derived(readOnly || !onChange || isJsonOpen || blockDocument(text) === null);
 
   function exportAs(format: PolicyExportFormat) {
     const choice = exportChoice(check, format);
@@ -62,14 +69,19 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  <Textarea
-    aria-label={label}
-    value={text}
-    readonly={readOnly}
-    spellcheck={false}
-    oninput={(event) => onChange?.((event.currentTarget as HTMLTextAreaElement).value)}
-    class="min-h-48 font-mono text-xs leading-relaxed"
-  />
+  {#if !readOnly && onChange}
+    <PolicyBlocksEditor {kind} {text} {onChange} />
+  {/if}
+  {#if showsJson}
+    <Textarea
+      aria-label={label}
+      value={text}
+      readonly={readOnly}
+      spellcheck={false}
+      oninput={(event) => onChange?.((event.currentTarget as HTMLTextAreaElement).value)}
+      class="min-h-48 font-mono text-xs leading-relaxed"
+    />
+  {/if}
 
   <div class="flex flex-col gap-1 text-xs" aria-live="polite">
     {#if check.ok}
@@ -135,6 +147,19 @@
 
   <div class="flex flex-wrap items-center justify-between gap-2">
     <div class="flex flex-wrap gap-2">
+      {#if !readOnly && onChange}
+        <Button variant="outline" size="sm" aria-expanded={isJsonOpen} onclick={() => (isJsonOpen = !isJsonOpen)}>
+          <CodeIcon size={16} />
+          {isJsonOpen ? "Hide JSON" : "Show JSON"}
+        </Button>
+      {/if}
+      {#if !readOnly}
+        <Button variant="outline" size="sm" onclick={() => fileInput?.click()}>
+          <UploadIcon size={16} />
+          Import JSON
+        </Button>
+        <input bind:this={fileInput} type="file" accept="application/json,.json" class="hidden" onchange={(event) => void importFile(event.currentTarget)} />
+      {/if}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
@@ -155,13 +180,6 @@
           {/each}
         </DropdownMenu.Content>
       </DropdownMenu.Root>
-      {#if !readOnly}
-        <Button variant="outline" size="sm" onclick={() => fileInput?.click()}>
-          <UploadIcon size={16} />
-          Import JSON
-        </Button>
-        <input bind:this={fileInput} type="file" accept="application/json,.json" class="hidden" onchange={(event) => void importFile(event.currentTarget)} />
-      {/if}
     </div>
     {#if actions}
       <div class="flex flex-wrap gap-2">{@render actions()}</div>

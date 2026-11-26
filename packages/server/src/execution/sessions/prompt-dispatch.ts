@@ -6,6 +6,7 @@ import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
+import { updateAutomationAgentTool } from '../agents/tools/automation-tools'
 import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '../agents/run-input'
 import { actingPreferences } from '../person-settings'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
@@ -214,6 +215,9 @@ export class PromptDispatch {
     let lifecycle: SessionRunLifecycle
     try {
       await this.attachNamedFolders(sessionId, input, options, origin?.actor)
+      // A message instead of an answer declines the open cards it does not
+      // answer, so the turn goes on and the message steers it; a queued one leaves them.
+      if (isWrittenByAPerson(options) && options.delivery !== 'queue') await this.rt.inputRequests.declineForMessage(sessionId, origin?.actor ?? HOST_ACTOR)
       lifecycle = await this.rt.runTurn({
         input,
         target,
@@ -233,6 +237,9 @@ export class PromptDispatch {
           solusToolbox.automations,
           solusToolbox.webhooks,
           solusToolbox.connections,
+          solusToolbox.hosts,
+          solusToolbox.organization,
+          solusToolbox.sharing,
           solusToolbox.insights,
           solusToolbox.browser,
           solusToolbox.devices,
@@ -360,6 +367,9 @@ export class PromptDispatch {
         solusToolbox.automations,
         solusToolbox.webhooks,
         solusToolbox.connections,
+        solusToolbox.hosts,
+        solusToolbox.organization,
+        solusToolbox.sharing,
         solusToolbox.insights,
         solusToolbox.browser,
         solusToolbox.devices,
@@ -455,6 +465,9 @@ export class PromptDispatch {
         solusToolbox.automations,
         solusToolbox.webhooks,
         solusToolbox.connections,
+        solusToolbox.hosts,
+        solusToolbox.organization,
+        solusToolbox.sharing,
         solusToolbox.insights,
         solusToolbox.browser,
         solusToolbox.devices,
@@ -522,7 +535,6 @@ export class PromptDispatch {
       executionPreferences: lockedPreferences,
     }
     const sessionId = crypto.randomUUID()
-    const { list, read, update } = solusToolbox.automations
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
@@ -534,6 +546,9 @@ export class PromptDispatch {
         solusToolbox.artifact,
         solusToolbox.apps,
         solusToolbox.connections,
+        solusToolbox.hosts,
+        solusToolbox.organization,
+        solusToolbox.sharing,
         solusToolbox.insights,
         solusToolbox.browser,
         solusToolbox.devices,
@@ -541,7 +556,7 @@ export class PromptDispatch {
         solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
-        req.startedBy.kind === 'automation' ? { list, read, update } : {},
+        req.startedBy.kind === 'automation' ? { read: solusToolbox.automations.read, update: updateAutomationAgentTool } : {},
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
       options: req.startedBy.kind === 'automation'
@@ -602,6 +617,9 @@ export class PromptDispatch {
       solusToolbox.automations,
       solusToolbox.webhooks,
       solusToolbox.connections,
+      solusToolbox.hosts,
+      solusToolbox.organization,
+      solusToolbox.sharing,
       solusToolbox.insights,
       solusToolbox.browser,
       solusToolbox.devices,

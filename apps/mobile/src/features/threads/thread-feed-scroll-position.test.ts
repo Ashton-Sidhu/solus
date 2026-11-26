@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   resolveThreadFeedSubmissionAnchor,
+  threadOpeningBottomInset,
   resolveThreadWorkGroupInitialScroll,
 } from "./thread-feed-scroll-position";
+
+it("keeps opening rows above the composer as the keyboard closes", () => {
+  const viewportEnd = 800;
+  const composerInset = 64;
+  const visibleEnd = (composerKeyboardTranslation: number) =>
+    viewportEnd - threadOpeningBottomInset(composerInset, composerKeyboardTranslation);
+  expect(visibleEnd(-266)).toBe(470);
+  expect(visibleEnd(-133)).toBe(603);
+  expect(visibleEnd(0)).toBe(736);
+  expect(visibleEnd(7)).toBe(736);
+});
 
 describe("tool-group scroll restoration", () => {
   const position = {

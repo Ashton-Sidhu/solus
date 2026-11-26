@@ -326,6 +326,19 @@
   </div>
 {/snippet}
 
+{#snippet queuedControls()}
+  {#if onEditSubmit}
+    <button
+      type="button"
+      onclick={startEdit}
+      class="cursor-pointer text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+    >
+      Edit
+    </button>
+  {/if}
+  {@render actions?.()}
+{/snippet}
+
 {#snippet bubbleBody()}
   {#if sentMarks.length > 0}
     <!-- Above the prose with the other attachments, never inside it: the marks
@@ -358,7 +371,7 @@
          loads; several share one rounded collage split by hairlines. -->
     <div
       class="grid max-w-[85%] {layout.images === 'collage'
- ? `w-80 gap-px overflow-hidden rounded-2xl bg-black/9 outline-[0.5px] -outline-offset-1 outline-black/20 dark:bg-white/12 dark:outline-white/20 ${imageAttachments.length === 2 ? 'auto-rows-[12rem] grid-cols-2' : imageAttachments.length === 3 ? 'auto-rows-[calc(6rem-0.5px)] grid-cols-[3fr_2fr]' : 'auto-rows-[6rem] grid-cols-2'}`
+ ? `w-80 gap-px overflow-hidden rounded-2xl bg-black/9 outline-1 -outline-offset-1 outline-border/60 shadow-xs dark:bg-white/12 ${imageAttachments.length === 2 ? 'auto-rows-[12rem] grid-cols-2' : imageAttachments.length === 3 ? 'auto-rows-[calc(6rem-0.5px)] grid-cols-[3fr_2fr]' : 'auto-rows-[6rem] grid-cols-2'}`
  : ''}"
     >
       {#each imageAttachments as a, i (i)}
@@ -366,7 +379,7 @@
         {@const cell = collageCell(imageAttachments.length, i)}
         <div
           class="overflow-hidden bg-(--solus-surface-primary) {cell.spansRows ? 'row-span-2' : ''} {cell.spansColumns ? 'col-span-2' : ''} {layout.images === 'lone'
- ? 'rounded-2xl outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20'
+ ? 'rounded-2xl outline-1 -outline-offset-1 outline-border/60 shadow-xs'
  : ''}"
         >
           {#if src}
@@ -480,6 +493,14 @@
          card folded to one line means an agent or automation sent it, and a
          fill plus an outline means it exists but hasn't gone out yet. -->
     <div class="flex w-full items-center justify-end gap-2">
+      <!-- Owns hover and focus for the bubble and the controls that hang beside
+           it, so the pointer can travel from one to the other. A held prompt's
+           bubble leaves room on its left for those controls. -->
+      <div
+        class="group/bubble relative max-w-[41.25rem] {isEditing ? 'w-full' : ''} {hasControls
+ ? 'pointer-fine:max-w-[min(41.25rem,calc(100%-8rem))]'
+ : ''}"
+      >
       <!-- A held prompt is its own focusable region: its controls only paint on
            hover, so focus is what keeps them reachable from the keyboard. The
            tabindex is the point of the pattern, not an oversight. -->
@@ -490,7 +511,7 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
+        class="relative overflow-hidden outline-none {hasControls
  ? actions ? 'min-w-[10rem]' : 'min-w-[8.5rem]'
  : 'min-w-0'} {layout.bubbleMeetsMedia ? 'rounded-tr-md' : ''} {isPending
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
@@ -565,33 +586,28 @@
           {/if}
         {/if}
         {#if hasControls && !isEditing}
-          <!-- Collapsed to nothing until reached for: the bubble is only as tall
-               as its words, and grows into the controls on hover or focus. The
-               0fr→1fr row is what makes that a movement rather than a jump, so
-               the prompts below it slide instead of snapping. The bubble's
-               min-width stops the controls clipping under a short prompt. -->
+          <!-- A hand has no hover, so on touch the controls are always in the
+               bubble: it is that tall from the start and never moves. The
+               bubble's min-width stops them clipping under a short prompt. -->
           <div
-            class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr] pointer-coarse:grid-rows-[1fr]"
+            class="mt-2 hidden items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 pointer-coarse:flex"
           >
-            <div class="overflow-hidden">
-              <div
-                class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 pointer-coarse:opacity-100"
-              >
-                {#if onEditSubmit}
-                  <button
-                    type="button"
-                    onclick={startEdit}
-                    class="cursor-pointer text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
-                  >
-                    Edit
-                  </button>
-                {/if}
-                {@render actions?.()}
-              </div>
-            </div>
+            {@render queuedControls()}
           </div>
         {/if}
         {/if}
+      </div>
+      {#if hasControls && !isEditing}
+        <!-- With a pointer, the controls hang in the empty space on the
+             bubble's left and paint on hover or focus. They take no room, so
+             reaching for them does not move the bubble or what is under it.
+             The right padding bridges the gap, so hover holds on the way over. -->
+        <div
+          class="pointer-events-none absolute right-full bottom-0 flex items-center gap-2.5 py-1.5 pr-2.5 whitespace-nowrap opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 group-focus-within/bubble:pointer-events-auto group-focus-within/bubble:opacity-100 pointer-coarse:hidden"
+        >
+          {@render queuedControls()}
+        </div>
+      {/if}
       </div>
     </div>
     {#if waitedLabel}
@@ -610,13 +626,13 @@
       use:portal={document.body}
       onclick={() => (browserSrc = null)}
       transition:fly={{ duration: 150 }}
-      style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out"
+      style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;cursor:zoom-out"
     >
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <img
         src={browserSrc}
         onclick={(e) => e.stopPropagation()}
-        style="max-width:90vw;max-height:90vh;border-radius:1rem;object-fit:contain;cursor:default"
+        style="max-width:90vw;max-height:90vh;border-radius:1rem;object-fit:contain;cursor:default;box-shadow:0 0.5rem 2.5rem rgba(0,0,0,0.6)"
         alt="browser"
       />
     </div>

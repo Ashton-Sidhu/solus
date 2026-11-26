@@ -35,6 +35,7 @@ import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplin
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { untrack } from 'svelte'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { savesSessionsToCloud } from '../../lib/organization-filter'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
 import { accountDocuments } from '../account/account-sync.store.svelte'
@@ -59,7 +60,9 @@ const NEARBY_SHOWN_DISCOVERY_MS = 30_000
 const BACKGROUND_DISCOVERY_MS = 5 * 60_000
 
 /** What the add-host dialog shows: a pairing link, an address and code, SSH, or the add of a WSL distro chosen in the nearby list. */
-export type AddHostMode = 'link' | 'manual' | 'ssh' | 'wsl'
+/** The ways the Add host dialog adds a machine; `approve` is an approval request to a machine this client found (`approvalRequestStore`). */
+/** A tab of the Add host dialog: an address or pairing link, SSH, a WSL distro, or an approval request. */
+export type AddHostMode = 'address' | 'ssh' | 'wsl' | 'approve'
 
 export interface ServerItem {
   id: string
@@ -125,7 +128,9 @@ class ServersStore {
   activeServerId = $state(serverConnections.defaultServerId() ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
-  addServerMode = $state<AddHostMode>('link')
+  addServerMode = $state<AddHostMode>('address')
+  /** The one tab the dialog opened on, when its opener chose it; the other tabs wait behind Other ways. Null shows them all. */
+  addServerFocusedTab = $state<AddHostMode | null>(null)
   /** Which Run-on picker opened the add-server dialog, so a host paired from
    *  there is handed back to that picker and not to another one. A correlation
    *  breadcrumb between two UI moments — any stable id will do, and a session
@@ -284,6 +289,12 @@ class ServersStore {
       hostRules: workspace.hostRules,
       isActive: workspace.organizationId === this.activeOrganizationId,
     }))
+  }
+
+  /** Whether the organization saves its sessions in Solus Cloud (`savesSessionsToCloud`); follows `workspaces`. */
+  savesSessionsToCloud(organizationId: string): boolean {
+    void this.workspaces
+    return savesSessionsToCloud(organizationId)
   }
 
   /** The name of the organization this window works in; null with none. */
@@ -631,9 +642,14 @@ class ServersStore {
     return serverId
   }
 
-  openAddServer(prefillUrl = '', mode: AddHostMode = 'link'): void {
+  /**
+   * Opens the Add host dialog. An opener that names `tab` focuses the dialog on
+   * it, as does an address to pair again; with neither, every tab shows.
+   */
+  openAddServer(prefillUrl = '', tab?: AddHostMode): void {
     this.addServerUrl = prefillUrl
-    this.addServerMode = mode
+    this.addServerMode = tab ?? 'address'
+    this.addServerFocusedTab = tab ?? (prefillUrl ? 'address' : null)
     this.addServerOpen = true
     settingsSyncStore.startAdd()
   }
@@ -641,7 +657,8 @@ class ServersStore {
   closeAddServer(): void {
     this.addServerOpen = false
     this.addServerUrl = ''
-    this.addServerMode = 'link'
+    this.addServerMode = 'address'
+    this.addServerFocusedTab = null
     requestInputFocus()
   }
 

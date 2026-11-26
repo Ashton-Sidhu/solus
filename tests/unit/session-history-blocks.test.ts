@@ -50,3 +50,13 @@ test('the host reuses a manifest only for the exact source, activity window and 
   manifests.remember(changed, full, [{...page.messages[0], agentConversationResults: [{messageId: 'exchange'}]}])
   expect(manifests.resume(changed, hashes)).toBeNull()
 })
+
+test('the page revision survives a host restart and changes when either the boundary or a row changes', () => {
+  const page = { before: 'older', messages: turn('a', 'first') }
+  const saved = resumeHistoryPage(page, [])
+  expect(saved.historyRevision).toMatch(/^[a-f0-9]{64}$/)
+  const known = saved.historyBlocks!.map(block => block.hash)
+  expect(resumeHistoryPage(JSON.parse(JSON.stringify(page)), known).historyRevision).toBe(saved.historyRevision)
+  expect(resumeHistoryPage({ ...page, before: null }, known).historyRevision).not.toBe(saved.historyRevision)
+  expect(resumeHistoryPage({ ...page, messages: turn('a', 'edited') }, known).historyRevision).not.toBe(saved.historyRevision)
+})

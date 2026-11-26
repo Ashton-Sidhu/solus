@@ -4,7 +4,7 @@
     Plus as PlusIcon,
     Square as StopIcon,
   } from "@lucide/svelte";
-  import type { TaskSessionLink } from "@solus/contracts/task-types";
+  import type { IssueSessionLink } from "@solus/contracts/task-types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import * as TooltipUI from "../../ui/tooltip";
   import {
@@ -32,7 +32,7 @@
   import { runHost } from "../../../contexts/workspace/run-location";
 
   interface Props {
-    sessions: TaskSessionLink[];
+    sessions: IssueSessionLink[];
     taskTitle: string;
     onOpen: (sessionId: string) => void;
     /** Open beside the conversation. Null on a client with no companion pane. */
@@ -86,8 +86,8 @@
   // that owns the task's conversation — is pinned first, above the workers.
   const rows = $derived(
     sessions.map((link) => {
-      const taskServerId = link.taskId
-        ? session.tasksStore.get(link.taskId).serverId
+      const taskServerId = link.issueId
+        ? session.issuesStore.get(link.issueId).serverId
         : null;
       const linkServerId = attemptServerId({ link, taskServerId });
       const open = session.sessionForHostSession(link.sessionId, linkServerId ?? undefined);
@@ -102,7 +102,7 @@
         : [];
       const running = open
         ? isAgentRunningStatus(open.status)
-        : session.tasksStore.isSessionRunning(serverId, link.sessionId);
+        : session.issuesStore.isSessionRunning(serverId, link.sessionId);
       // Stop is an execution RPC: it goes to the host running the session. A
       // cloud task's home runs nothing, so with no connected machine to ask
       // the row offers no Stop rather than one that fails.
@@ -192,7 +192,7 @@
   <div class="flex flex-col gap-3 pt-3.5">
     {#if !rows.length}
       <div class="px-1 py-3.5 text-muted-foreground">
-        No session has worked on this task yet. Start one to run an agent against this task
+        No session has worked on this issue yet. Start one to run an agent against this issue
         with the work linked back here.
       </div>
     {:else}
@@ -323,10 +323,10 @@
   {#if !rows.length}
     <div class="px-1 py-3.5 text-muted-foreground">
       {#if onNewSession}
-        No session has worked on this task yet. Start one to run an agent against this task
+        No session has worked on this issue yet. Start one to run an agent against this issue
         with the work linked back here.
       {:else}
-        No session has worked on this task yet. One run on a machine linked to this
+        No session has worked on this issue yet. One run on a machine linked to this
         organization is recorded here.
       {/if}
     </div>

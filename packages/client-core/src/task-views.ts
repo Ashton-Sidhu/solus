@@ -1,7 +1,7 @@
-import type { TaskSummary } from '@solus/contracts/task-types'
+import type { IssueSummary } from '@solus/contracts/task-types'
 import type { TaskViewFilters } from '@solus/contracts/task-views'
 
-function matchesPlacement(task: TaskSummary, filters: TaskViewFilters): boolean {
+function matchesPlacement(task: IssueSummary, filters: TaskViewFilters): boolean {
   if (!filters.sourceKey) return !filters.columnIds || filters.columnIds.includes(task.category)
   const placement = task.placements.find((place) => place.sourceKey === filters.sourceKey)
   if (!placement) return false
@@ -9,7 +9,7 @@ function matchesPlacement(task: TaskSummary, filters: TaskViewFilters): boolean 
 }
 
 function matchesTaskState(
-  task: TaskSummary,
+  task: IssueSummary,
   filters: TaskViewFilters,
   now: number,
   runningTaskIds: ReadonlySet<string>
@@ -20,18 +20,17 @@ function matchesTaskState(
     (!task.dueDate || task.category === 'done' || Date.parse(`${task.dueDate}T23:59:59`) >= now)
   )
     return false
-  if (filters.assignedOnly && !task.assignee && !task.assignees?.length) return false
-  return (task.snoozedUntil !== undefined && task.snoozedUntil > now) === filters.snoozedOnly
+  return !(filters.assignedOnly && !task.assignee && !task.assignees?.length)
 }
 
-function matchesQuery(task: TaskSummary, query: string): boolean {
+function matchesQuery(task: IssueSummary, query: string): boolean {
   return `${task.title} ${task.reference ?? ''} ${task.labels.join(' ')} ${task.assignees?.map((person) => person.login).join(' ') ?? task.assignee ?? ''}`
     .toLowerCase()
     .includes(query)
 }
 
 /** Saved filters have the same meaning on every client. Board layout is a presentation choice. */
-export function tasksForSavedView<T extends TaskSummary>(
+export function tasksForSavedView<T extends IssueSummary>(
   tasks: readonly T[],
   filters: TaskViewFilters,
   now: number,

@@ -134,6 +134,7 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
   }
   if (event.kind) request.kind = event.kind
   if (event.hostLink) request.hostLink = event.hostLink
+  if (event.cloudMachine) request.cloudMachine = event.cloudMachine
   if (event.responseMode) request.responseMode = event.responseMode
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
   return request

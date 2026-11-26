@@ -370,7 +370,7 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
     if (isForeignCommentTarget(deps.ctx?.sessionId, targetId)) {
       return {
         ok: false,
-        text: `"${targetId}" is a read-only copy shipped from the task's host (this session was dispatched); its comment threads live there and cannot be written from here. Put the feedback in a comment_task instead.`,
+        text: `"${targetId}" is a read-only copy shipped from the issue's host (this session was dispatched); its comment threads live there and cannot be written from here. Put the feedback in a comment_issue instead.`,
       }
     }
     return { ok: false, text: `No plan or work found with id "${targetId}".` }

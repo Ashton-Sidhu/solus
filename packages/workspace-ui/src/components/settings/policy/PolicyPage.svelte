@@ -1,12 +1,12 @@
 <script lang="ts">
   import { policySearchWords as searchWords } from "../lib/settings-search-data";
-  /** Settings → Policy (plans/030 §7): the MDM policy of this host, read-only;
-   *  the organization policy and the host policies, which owners edit and
-   *  assign; and a document anyone can build and export for MDM. Each save is
-   *  sent against the revision that was read. */
+  /** Settings → Policy (plans/030 §7). First, what applies on this host: each
+   *  policy, in the order it wins, with its rules in words. Then, for a signed-in
+   *  member, the organization's policies, which owners edit and assign to hosts.
+   *  Last, a policy file to download for an MDM tool. Each save is sent against
+   *  the revision that was read. */
   import { untrack } from "svelte";
   import { Copy as CopyIcon, Plus as PlusIcon } from "@lucide/svelte";
-  import type { PolicyKind } from "@solus/contracts/policy";
   import { accountStore, hosts, serversStore } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { Button } from "../../ui/button";
@@ -16,16 +16,12 @@
   import SettingsSelect from "../SettingsSelect.svelte";
   import PolicyDocumentEditor from "./PolicyDocumentEditor.svelte";
   import PolicyHostAssignments from "./PolicyHostAssignments.svelte";
-  import { copyAsNew, hostOwnerName, mdmDescription, newPolicyDocument, policyText } from "./lib/policy-editor";
+  import PolicyRuleList from "./PolicyRuleList.svelte";
+  import { copyAsNew, newPolicyDocument, policyText } from "./lib/policy-editor";
+  import { appliedPolicies, storedPolicyRules } from "./lib/policy-rules";
   import { policyStore as store, type PolicyEditorTarget } from "./policy.store.svelte";
 
   let { searchQuery = "", serverId = null }: { searchQuery?: string; serverId?: string | null } = $props();
-
-  const KINDS: { value: PolicyKind; label: string }[] = [
-    { value: "mdm", label: "MDM policy" },
-    { value: "host", label: "Host policy" },
-    { value: "organization", label: "Organization policy" },
-  ];
 
   const account = $derived(accountStore.state);
   const origin = $derived(account.kind === "signed-in" ? account.consoleUrl : null);
@@ -42,19 +38,20 @@
   const canManage = $derived(!!ready?.organization.canManage);
   const policySet = $derived(serverId ? hosts.get(serverId).policies?.set : undefined);
   const mdm = $derived(policySet?.mdm ?? null);
-  const ownerName = $derived(hostOwnerName(policySet, organizations));
+  const applied = $derived(appliedPolicies(policySet, organizations));
 
   const ORGANIZATION: PolicyEditorTarget = { kind: "organization" };
-  let selectedPolicyId = $state<string | null>(null);
   const hostPolicies = $derived(ready?.hostPolicies?.policies ?? []);
-  const editedPolicy = $derived(hostPolicies.find((policy) => policy.policyId === selectedPolicyId) ?? hostPolicies[0] ?? null);
-  const hostTarget = $derived<PolicyEditorTarget | null>(editedPolicy ? { kind: "host", policyId: editedPolicy.policyId } : null);
+  /** The one policy whose editor is open: "organization", a host policy id, or null. */
+  let openPolicyKey = $state<string | null>(null);
+  let isCreatingHostPolicy = $state(false);
   let newPolicyName = $state("");
   let createError = $state<string | null>(null);
   let creating = $state(false);
-  let confirmingDelete = $state(false);
+  let confirmingDeleteId = $state<string | null>(null);
   let deleteError = $state<string | null>(null);
-  let builderSection = $state<HTMLElement | null>(null);
+  let isFileOpen = $state(false);
+  let fileSection = $state<HTMLElement | null>(null);
 
   $effect(() => {
     const target = origin;
@@ -62,18 +59,30 @@
     if (target && id) untrack(() => void store.load(target, id));
   });
 
-  function draft(target: PolicyEditorTarget | null) {
-    return origin && organizationId && target ? store.draftFor(origin, organizationId, target) : undefined;
+  function draft(target: PolicyEditorTarget) {
+    return origin && organizationId ? store.draftFor(origin, organizationId, target) : undefined;
+  }
+
+  function hostTarget(policyId: string): PolicyEditorTarget {
+    return { kind: "host", policyId };
+  }
+
+  function toggleEditor(key: string) {
+    openPolicyKey = openPolicyKey === key ? null : key;
+    confirmingDeleteId = null;
+    deleteError = null;
   }
 
   async function save(target: PolicyEditorTarget) {
     if (!origin || !organizationId) return;
     await store.save(origin, organizationId, target);
+    if (!draft(target)?.error && !draft(target)?.conflict) openPolicyKey = null;
     requestInputFocus();
   }
 
   function cancel(target: PolicyEditorTarget) {
     if (origin && organizationId) store.cancel(origin, organizationId, target);
+    openPolicyKey = null;
     requestInputFocus();
   }
 
@@ -88,36 +97,39 @@
     }
     createError = null;
     newPolicyName = "";
-    selectedPolicyId = result.policyId;
+    isCreatingHostPolicy = false;
+    openPolicyKey = result.policyId;
   }
 
   async function deleteHostPolicy(policyId: string) {
     if (!origin || !organizationId) return;
     deleteError = await store.deleteHostPolicy(origin, organizationId, policyId);
-    confirmingDelete = false;
-    if (!deleteError) selectedPolicyId = null;
+    confirmingDeleteId = null;
+    if (!deleteError) openPolicyKey = null;
     requestInputFocus();
   }
 
   function copyMdmAsNew() {
     if (!mdm) return;
-    store.setBuilder({ kind: "mdm", text: policyText(copyAsNew(mdm.document)) });
-    builderSection?.scrollIntoView({ block: "start" });
-    builderSection?.querySelector("textarea")?.focus();
-  }
-
-  function newBuilderDocument(kind: PolicyKind) {
-    store.setBuilder({ kind, text: policyText(newPolicyDocument(kind, organizationName || "My organization")) });
+    store.builderText = policyText(copyAsNew(mdm.document));
+    isFileOpen = true;
+    fileSection?.scrollIntoView({ block: "start" });
   }
 
   const matches = $derived(!searchQuery || searchWords.some((word) => word.includes(searchQuery.toLowerCase())));
 </script>
 
+{#snippet editorButton(key: string)}
+  <Button variant="outline" size="sm" aria-expanded={openPolicyKey === key} onclick={() => toggleEditor(key)}>
+    {openPolicyKey === key ? "Close" : canManage ? "Edit" : "View JSON"}
+  </Button>
+{/snippet}
+
 {#snippet draftActions(target: PolicyEditorTarget)}
   {@const current = draft(target)}
   {#if current && canManage}
     {@const dirty = current.text !== current.saved.text}
-    <Button variant="ghost" size="sm" disabled={!dirty || current.saving} onclick={() => cancel(target)}>Cancel</Button>
+    <Button variant="ghost" size="sm" disabled={current.saving} onclick={() => cancel(target)}>Cancel</Button>
     <Button size="sm" disabled={!dirty || current.saving || !!current.conflict} onclick={() => void save(target)}>
       {current.saving ? "Saving…" : "Save"}
     </Button>
@@ -143,64 +155,70 @@
 {#if matches}
   {#if serverId}
     <SettingsSection
-      label="This host"
-      description={mdmDescription(policySet)}
+      label="On this host"
+      description={applied.length > 1 ? "When two policies set the same rule, the one higher in this list wins." : undefined}
     >
-      {#if ownerName}
-        <SettingsRow label="Host settings" description={`${ownerName} manages this host's settings.`} />
+      {#if applied.length === 0}
+        <SettingsRow
+          label="No policy applies"
+          description="You choose every setting on this host. An MDM policy from your IT team, or a policy of your organization, can lock settings here."
+        />
       {/if}
-      {#if mdm}
-        <SettingsRow label="MDM policy" description="Read-only. Launch pins and the update feed are not shown.">
-          {#snippet body()}
-            <PolicyDocumentEditor label="MDM policy" kind="mdm" text={policyText(mdm.document)} readOnly>
-              {#snippet actions()}
-                <Button variant="outline" size="sm" onclick={copyMdmAsNew}>
-                  <CopyIcon size={16} />
-                  Copy as new
-                </Button>
-              {/snippet}
-            </PolicyDocumentEditor>
+      {#each applied as policy (policy.key)}
+        <SettingsRow label={policy.title} description={policy.detail}>
+          {#snippet control()}
+            {#if policy.isMdm}
+              <Button variant="outline" size="sm" onclick={copyMdmAsNew}>
+                <CopyIcon size={16} />
+                Copy as new
+              </Button>
+            {/if}
           {/snippet}
+          {#snippet body()}<PolicyRuleList rules={policy.rules} />{/snippet}
         </SettingsRow>
-      {/if}
+      {/each}
     </SettingsSection>
   {/if}
 
   {#if account.kind === "signed-in" && organizations.length > 0}
-    <SettingsSection label="Organization">
-      <SettingsRow
-        label="Policies of"
-        description={ready ? (canManage ? "You are an owner: you can change these." : "Members can read these. Only owners change them.") : "Choose an organization."}
-      >
-        {#snippet control()}
+    <SettingsSection
+      label={organizations.length > 1 ? "Organization policies" : `${organizationName} policies`}
+      description={ready
+        ? canManage
+          ? "You are an owner, so you can change these policies and choose the hosts they apply to."
+          : "You can read these policies. Only owners can change them."
+        : undefined}
+    >
+      {#snippet action()}
+        {#if organizations.length > 1}
           <SettingsSelect
             options={organizations.map((organization) => ({ value: organization.organizationId, label: organization.name }))}
             value={organizationId ?? ""}
-            onSelect={(id) => { store.selectedOrganizationId = id; selectedPolicyId = null; }}
+            onSelect={(id) => { store.selectedOrganizationId = id; openPolicyKey = null; }}
             ariaLabel="Organization"
           />
-        {/snippet}
-      </SettingsRow>
-    </SettingsSection>
+        {/if}
+      {/snippet}
 
-    {#if !view || view.status === "loading"}
-      <p class="text-workspace-chrome text-muted-foreground" role="status">Loading policies…</p>
-    {:else if view.status === "forbidden"}
-      <p class="text-workspace-chrome text-muted-foreground" role="alert">You do not have access to this organization's policies. It may be gone, or you may no longer be a member.</p>
-    {:else if view.status === "signed-out"}
-      <p class="text-workspace-chrome text-muted-foreground" role="alert">Sign in to Solus again to read policies.</p>
-    {:else if view.status === "offline" || view.status === "error"}
-      <div class="flex items-center gap-3 text-workspace-chrome" role="alert">
-        <span class="text-destructive">{view.status === "offline" ? "Solus could not reach your account." : view.message}</span>
-        <Button variant="outline" size="sm" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
-      </div>
-    {:else if ready}
-      {@const organizationDraft = draft(ORGANIZATION)}
-      <SettingsSection label="Organization policy" description="Applies to this organization's work on every host, after the MDM policy and the host policy. It cannot hold host settings.">
-        {#if organizationDraft}
-          <SettingsRow label={`Revision ${organizationDraft.saved.revision}`}>
-            {#snippet body()}
-              <div class="flex flex-col gap-2">
+      {#if !view || view.status === "loading"}
+        <p class="px-4 py-3 text-workspace-chrome text-muted-foreground" role="status">Loading policies…</p>
+      {:else if view.status === "forbidden"}
+        <p class="px-4 py-3 text-workspace-chrome text-muted-foreground" role="alert">You do not have access to this organization's policies. It may be gone, or you may no longer be a member.</p>
+      {:else if view.status === "signed-out"}
+        <p class="px-4 py-3 text-workspace-chrome text-muted-foreground" role="alert">Sign in to Solus again to read policies.</p>
+      {:else if view.status === "offline" || view.status === "error"}
+        <div class="flex items-center gap-3 px-4 py-3 text-workspace-chrome" role="alert">
+          <span class="text-destructive">{view.status === "offline" ? "Solus could not reach your account." : view.message}</span>
+          <Button variant="outline" size="sm" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
+        </div>
+      {:else if ready}
+        {@const organizationDraft = draft(ORGANIZATION)}
+        <SettingsRow label="Organization policy" description={`Applies to ${organizationName}'s work on every host. It cannot hold host settings.`}>
+          {#snippet control()}{#if organizationDraft}{@render editorButton("organization")}{/if}{/snippet}
+          {#snippet body()}
+            <div class="flex flex-col gap-3">
+              {#if openPolicyKey !== "organization"}<PolicyRuleList rules={storedPolicyRules(organizationDraft?.saved.document ?? null)} />{/if}
+              {#if organizationDraft && openPolicyKey === "organization"}
                 <PolicyDocumentEditor
                   label="Organization policy"
                   kind="organization"
@@ -212,106 +230,115 @@
                   {#snippet actions()}{@render draftActions(ORGANIZATION)}{/snippet}
                 </PolicyDocumentEditor>
                 {@render draftNotices(ORGANIZATION)}
-              </div>
-            {/snippet}
-          </SettingsRow>
-        {/if}
-      </SettingsSection>
+              {/if}
+            </div>
+          {/snippet}
+        </SettingsRow>
 
-      <SettingsSection label="Host policies" description="A host policy applies to this organization's work on the hosts it is assigned to. Its host settings apply to the whole machine.">
         {#if ready.hostPoliciesError}
           <p class="px-4 py-3 text-xs text-destructive" role="alert">{ready.hostPoliciesError}</p>
         {/if}
-        {#if hostPolicies.length > 0 && editedPolicy && hostTarget}
-          {@const hostDraft = draft(hostTarget)}
-          <SettingsRow label="Edit" description={`Assigned to ${editedPolicy.hostIds.length === 1 ? "1 host" : `${editedPolicy.hostIds.length} hosts`}.`}>
-            {#snippet control()}
-              <SettingsSelect
-                options={hostPolicies.map((policy) => ({ value: policy.policyId, label: policy.name }))}
-                value={editedPolicy.policyId}
-                onSelect={(id) => { selectedPolicyId = id; confirmingDelete = false; }}
-                ariaLabel="Host policy"
-              />
-            {/snippet}
+        {#each hostPolicies as policy (policy.policyId)}
+          {@const target = hostTarget(policy.policyId)}
+          {@const hostDraft = draft(target)}
+          <SettingsRow
+            label={policy.name}
+            description={`Host policy, on ${policy.hostIds.length === 1 ? "1 host" : `${policy.hostIds.length} hosts`}. Its host settings apply to the whole machine.`}
+          >
+            {#snippet control()}{#if hostDraft}{@render editorButton(policy.policyId)}{/if}{/snippet}
             {#snippet body()}
-              {#if hostDraft}
-                <div class="flex flex-col gap-2">
+              <div class="flex flex-col gap-3">
+                {#if openPolicyKey !== policy.policyId}<PolicyRuleList rules={storedPolicyRules(hostDraft?.saved.document ?? null)} />{/if}
+                {#if hostDraft && openPolicyKey === policy.policyId}
                   <PolicyDocumentEditor
-                    label={`Host policy ${editedPolicy.name}`}
+                    label={`Host policy ${policy.name}`}
                     kind="host"
                     text={hostDraft.text}
                     base={hostDraft.saved.document}
                     readOnly={!canManage || hostDraft.saving || !!hostDraft.conflict}
-                    onChange={(text) => origin && organizationId && store.edit(origin, organizationId, hostTarget, text)}
+                    onChange={(text) => origin && organizationId && store.edit(origin, organizationId, target, text)}
                   >
                     {#snippet actions()}
                       {#if canManage}
-                        {#if confirmingDelete}
-                          <Button variant="destructive" size="sm" onclick={() => void deleteHostPolicy(editedPolicy.policyId)}>Delete {editedPolicy.name}</Button>
-                          <Button variant="ghost" size="sm" onclick={() => (confirmingDelete = false)}>Keep</Button>
+                        {#if confirmingDeleteId === policy.policyId}
+                          <Button variant="destructive" size="sm" onclick={() => void deleteHostPolicy(policy.policyId)}>Delete {policy.name}</Button>
+                          <Button variant="ghost" size="sm" onclick={() => (confirmingDeleteId = null)}>Keep</Button>
                         {:else}
-                          <Button variant="ghost" size="sm" onclick={() => (confirmingDelete = true)}>Delete…</Button>
+                          <Button variant="ghost" size="sm" onclick={() => (confirmingDeleteId = policy.policyId)}>Delete…</Button>
                         {/if}
                       {/if}
-                      {@render draftActions(hostTarget)}
+                      {@render draftActions(target)}
                     {/snippet}
                   </PolicyDocumentEditor>
-                  {@render draftNotices(hostTarget)}
+                  {@render draftNotices(target)}
                   {#if deleteError}
                     <p class="text-xs text-destructive" role="alert">{deleteError}</p>
                   {/if}
-                </div>
+                {/if}
+              </div>
+            {/snippet}
+          </SettingsRow>
+        {/each}
+
+        {#if canManage}
+          <SettingsRow
+            label="New host policy"
+            description={createError ?? "A host policy applies to the hosts you assign it to, for example “Engineering laptops” or “CI runners”."}
+          >
+            {#snippet control()}
+              {#if isCreatingHostPolicy}
+                <form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void createHostPolicy(); }}>
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <Input bind:value={newPolicyName} placeholder="Name" aria-label="New host policy name" class="h-8 w-44" maxlength={120} autofocus />
+                  <Button type="button" size="sm" variant="ghost" onclick={() => { isCreatingHostPolicy = false; newPolicyName = ""; createError = null; }}>Cancel</Button>
+                  <Button type="submit" size="sm" disabled={creating || !newPolicyName.trim()}>{creating ? "Creating…" : "Create"}</Button>
+                </form>
+              {:else}
+                <Button variant="outline" size="sm" onclick={() => (isCreatingHostPolicy = true)}>
+                  <PlusIcon size={16} />
+                  New host policy
+                </Button>
               {/if}
             {/snippet}
           </SettingsRow>
-        {:else if !ready.hostPoliciesError}
-          <p class="px-4 py-3 text-workspace-chrome text-muted-foreground">This organization has no host policies.</p>
         {/if}
-        {#if canManage}
-          <SettingsRow label="New host policy" description={createError ?? "For example “Engineering laptops” or “CI runners”."}>
-            {#snippet control()}
-              <form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void createHostPolicy(); }}>
-                <Input bind:value={newPolicyName} placeholder="Name" aria-label="New host policy name" class="h-8 w-44" maxlength={120} />
-                <Button type="submit" size="sm" variant="outline" disabled={creating || !newPolicyName.trim()}>
-                  <PlusIcon size={16} />
-                  Create
-                </Button>
-              </form>
-            {/snippet}
-          </SettingsRow>
+      {/if}
+    </SettingsSection>
+
+    {#if ready?.hostPolicies && hostPolicies.length > 0}
+      <SettingsSection label="Host assignments" description="The host policy that each host follows for this organization's work. A host follows one host policy of each organization.">
+        <PolicyHostAssignments
+          organizationId={ready.organization.organizationId}
+          hosts={ready.hostPolicies.hosts}
+          policies={hostPolicies}
+          {canManage}
+          assigning={ready.assigning}
+          onAssign={(hostId, policyId) => origin && organizationId && void store.assign(origin, organizationId, hostId, policyId)}
+        />
+        {#if ready.assignmentError}
+          <p class="px-4 py-3 text-xs text-destructive" role="alert">{ready.assignmentError}</p>
         {/if}
       </SettingsSection>
-
-      {#if ready.hostPolicies}
-        <SettingsSection label="Hosts" description="Each organization can assign one of its host policies to a host shared with it.">
-          <PolicyHostAssignments
-            organizationId={ready.organization.organizationId}
-            hosts={ready.hostPolicies.hosts}
-            policies={hostPolicies}
-            {canManage}
-            assigning={ready.assigning}
-            onAssign={(hostId, policyId) => origin && organizationId && void store.assign(origin, organizationId, hostId, policyId)}
-          />
-          {#if ready.assignmentError}
-            <p class="px-4 py-3 text-xs text-destructive" role="alert">{ready.assignmentError}</p>
-          {/if}
-        </SettingsSection>
-      {/if}
     {/if}
   {/if}
 
-  <section bind:this={builderSection} class="flex flex-col gap-3">
-    <SettingsSection label="Build a policy" description="Write a policy and export it, for example as the MDM policy of your machines. Nothing here is saved to Solus Cloud.">
-      <SettingsRow label="Kind" description="An organization policy cannot hold host settings.">
+  <section bind:this={fileSection} class="flex flex-col gap-3">
+    <SettingsSection label="MDM policy file">
+      <SettingsRow
+        label="Create a policy file"
+        description="Write a policy and download it for your MDM tool, to lock settings on the machines it manages. Nothing here is saved to Solus Cloud."
+      >
         {#snippet control()}
-          <SettingsSelect options={KINDS} value={store.builder.kind} onSelect={(kind) => store.setBuilder({ kind })} ariaLabel="Policy kind" />
+          <Button variant="outline" size="sm" aria-expanded={isFileOpen} onclick={() => (isFileOpen = !isFileOpen)}>{isFileOpen ? "Close" : "Create"}</Button>
         {/snippet}
         {#snippet body()}
-          <PolicyDocumentEditor label="Policy to build" kind={store.builder.kind} text={store.builder.text} onChange={(text) => store.setBuilder({ text })}>
-            {#snippet actions()}
-              <Button variant="ghost" size="sm" onclick={() => newBuilderDocument(store.builder.kind)}>Start again</Button>
-            {/snippet}
-          </PolicyDocumentEditor>
+          {#if isFileOpen}
+            <PolicyDocumentEditor label="MDM policy file" kind="mdm" text={store.builderText} onChange={(text) => (store.builderText = text)}>
+              {#snippet actions()}
+                <Button variant="outline" size="sm" onclick={() => (store.builderText = policyText(newPolicyDocument("mdm", organizationName)))}>Start again</Button>
+              {/snippet}
+            </PolicyDocumentEditor>
+          {/if}
         {/snippet}
       </SettingsRow>
     </SettingsSection>

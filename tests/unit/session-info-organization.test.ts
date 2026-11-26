@@ -70,3 +70,46 @@ test('a host names the organization of a session\'s record beside its provider m
   // A session the host keeps no record of names no organization.
   expect(unrecorded?.organizationId).toBeUndefined()
 })
+
+test('a restarted host joins a watch only for a current settled page and the requesting reader', async () => {
+  const ctx = { clientId: 'phone-a', principal: LOCAL_OWNER }
+  const request = { sessionId: 'saved', provider: 'codex' as const, turnLimit: 2, knownHistoryBlocks: [] }
+  const source = { before: null, messages: [{ role: 'assistant', content: 'saved reply', timestamp: 1 }] }
+  const watch = mock(() => ({ runtime: null }))
+  const activeSessions = new Set<string>()
+  const start = () => {
+    const server = new serverModule.SolusServer()
+    historyHandlers.registerHistoryHandlers(server, {
+      // This fixture supplies the provider page and the host's active-session lookup.
+      sessionRuntime: { activeSessions, activeRunRequests: new Set(), launcher: { pendingSetupControllers: new Set() }, history: { loadSessionPage: async () => source, describeSession: async () => ({ lineage: null, meta: null }) } } as never as SessionRuntime,
+      events: {} as HostEventPublisher,
+      agentIdFromContext: () => 'codex',
+      exchangeProgress: () => undefined,
+    })
+    server.register('watchSession', ([input], caller) => {
+      expect(caller.clientId).toBe(ctx.clientId)
+      expect(input).toEqual({ sessionId: 'saved', attachRuntime: true })
+      return watch()
+    })
+    return server
+  }
+  const saved = await start().handle('loadSessionPage', [request], ctx)
+  const resume = { ...request, watchIfHistoryRevision: saved.historyRevision, knownHistoryBlocks: saved.historyBlocks!.map(block => block.hash) }
+  const restarted = start()
+  const cold = { ...request, openSession: true }
+  expect(await restarted.handle('loadSessionPage', [cold], ctx)).toMatchObject({
+    openingDescription: { meta: null, lineage: null }, messages: source.messages, resumedWatch: { runtime: null },
+  })
+  expect(await restarted.handle('loadSessionPage', [resume], ctx)).toMatchObject({ messages: [], resumedWatch: { runtime: null } })
+  activeSessions.add(request.sessionId)
+  expect((await restarted.handle('loadSessionPage', [resume], ctx)).resumedWatch).toBeUndefined()
+  const running = await restarted.handle('loadSessionPage', [cold], ctx)
+  expect(running.openingDescription).toEqual({ meta: null, lineage: null })
+  expect(running.resumedWatch).toBeUndefined()
+  activeSessions.clear()
+  source.messages[0]!.content = 'edited reply'
+  const changed = await restarted.handle('loadSessionPage', [resume], ctx)
+  expect(changed.messages[0]?.content).toBe('edited reply')
+  expect(changed.resumedWatch).toBeUndefined()
+  expect(watch).toHaveBeenCalledTimes(2)
+})

@@ -11,7 +11,7 @@ import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/r
 import { hostHasManagedCompute, hostIsCloud } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import { isSolusApiId } from '@solus/contracts/uplink'
-import { type Task } from '@solus/contracts/task-types'
+import { type Issue } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
 import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath, sessionProjectRoot } from '@solus/contracts/types'
@@ -79,7 +79,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'chatSurfaceTabId'
   | 'tabOrder'
   | 'tabs'
-  | 'tasksStore'
+  | 'issuesStore'
   | 'ui'
 > & SurfaceContext & SessionEnvironmentWorkspace
 
@@ -253,9 +253,9 @@ export class SessionOpening {
       : sourceSession.messages.slice(0, inFlightFrom)
     const copiedMessages: Message[] = settledMessages.map((m) => ({ ...m, id: uuid() }))
 
-    const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
+    const taskId = ownedTaskId(this.workspace.issuesStore, sourceSession)
     const forkTask: Session['task'] = taskId
-      ? { kind: 'existing', taskId }
+      ? { kind: 'existing', issueId: taskId }
       : { ...sourceSession.task }
     const forkedSession = makeSession(this.workspace.settings, {
       agentSessionId: sourceSession.agentSessionId,
@@ -305,10 +305,10 @@ export class SessionOpening {
     if (this.workspace.chatSurfaceTabId === sourceTabId) this.workspace.moveChatSurfaceToMain()
     else if (sourceTabId !== this.workspace.activeTabId) this.workspace.selectTab(sourceTabId)
 
-    const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
+    const taskId = ownedTaskId(this.workspace.issuesStore, sourceSession)
     const forkTabId = await this.forkTab(sourceTabId, {
       activate: false,
-      task: taskId ? { kind: 'existing', taskId } : { ...sourceSession.task },
+      task: taskId ? { kind: 'existing', issueId: taskId } : { ...sourceSession.task },
     })
     if (!forkTabId) return
     const forked = this.workspace.sessionFor(forkTabId)!
@@ -411,6 +411,7 @@ export class SessionOpening {
       provider: meta.provider ?? this.workspace.settings.activeAgent,
       turnLimit: INITIAL_HISTORY_TURNS,
       deferArtifactHtml: true,
+      replyLayout: true,
     }
   }
 
@@ -647,7 +648,7 @@ export class SessionOpening {
       // The page travels while the description answers. It takes the click's prefetch.
       const history = requestSessionHistoryPage(api, firstPage)
       history.catch(() => {})
-      void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
+      void this.workspace.issuesStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
       // The host sends the folders of a session when the list changes, at a
       // turn start. A session that is opened between turns reads them.
       void api.sessionFolders(resumedSessionId).then((folders) => {
@@ -856,9 +857,9 @@ export class SessionOpening {
    * the project on the draft before Send. With no guess, the draft opens with
    * no folder.
    */
-  async openTaskSession(task: Task): Promise<void> {
+  async openTaskSession(task: Issue): Promise<void> {
     this.taskOpenCount++
-    const model = this.workspace.tasksStore.get(task.id)
+    const model = this.workspace.issuesStore.get(task.id)
     const taskServerId = model.serverId ?? undefined
     const inputBar = this.workspace.activeCheckout
     const inputBarProjectKey = inputBar ? projectsStore.projectKeyFor(inputBar.serverId, inputBar.projectRoot) : null
@@ -956,17 +957,17 @@ export class SessionOpening {
   /** Jump back to the work happening on a task: the most-recently-linked
    *  session — focused if it's open, else resumed from history. The back-link
    *  counterpart to openTaskSession; a task nothing has run on gets a draft. */
-  async openTaskLinkedSession(task: Task): Promise<void> {
+  async openTaskLinkedSession(task: Issue): Promise<void> {
     const opening = ++this.taskOpenCount
     const stillWanted = () => opening === this.taskOpenCount
-    const links = this.workspace.tasksStore.get(task.id).sessions
+    const links = this.workspace.issuesStore.get(task.id).sessions
     const link = links?.[links.length - 1]
     if (!link?.sessionId) {
       await this.openTaskSession(task)
       return
     }
 
-    const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
+    const ownerServerId = await this.workspace.issuesStore.get(task.id).ownerHost()
     if (!ownerServerId || !stillWanted()) return
     const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
     const openTab = findOpenTabForSession(

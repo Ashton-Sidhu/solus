@@ -3,6 +3,7 @@
   import { Play as StartIcon } from "@lucide/svelte";
   import { getSettingsContext, getWorkspaceContext, personHistoryStore, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
+  import { appShortcutsStore } from "../../contexts/apps/app-shortcuts.store.svelte";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { appPinOf, isAppPinned, withAppPinned } from "../../lib/sidebar-places";
@@ -60,6 +61,14 @@
   // The app's place in the sidebar's places column (docs/plans/sidebar-places-and-sky.md).
   const pin = $derived(serverId && app ? appPinOf(serverId, app.id, serversStore.hostFor(serverId)) : null);
   const isPinned = $derived(pin ? isAppPinned(settings.sidebarApps, pin) : false);
+  // The app's own window and its shortcut on this computer (docs/app-shortcuts.md). The pin names the app as they do.
+  const hasShortcut = $derived(pin ? appShortcutsStore.has(pin) : false);
+  appShortcutsStore.start();
+  $effect(() => {
+    const target = pin;
+    const current = app;
+    if (target && current && hasShortcut) untrack(() => void appShortcutsStore.followName(target, current).catch(() => {}));
+  });
 
   $effect(() => {
     const hostId = serverId;
@@ -171,6 +180,30 @@
     requestInputFocus();
   }
 
+  function openWindow() {
+    const target = pin;
+    const current = app;
+    if (target && current) void run(() => appShortcutsStore.openWindow(target, current.name), "The app window did not open");
+  }
+
+  function toggleShortcut() {
+    const target = pin;
+    const current = app;
+    if (!target || !current) return;
+    void run(
+      async () => {
+        if (hasShortcut) {
+          await appShortcutsStore.remove(target);
+          toasts.info(`The shortcut of ${current.name} was removed from this computer.`);
+        } else {
+          await appShortcutsStore.add(target, current);
+          toasts.info(`${current.name} has a shortcut on this computer.`);
+        }
+      },
+      hasShortcut ? "The shortcut was not removed" : "The shortcut was not added",
+    ).then(() => requestInputFocus());
+  }
+
   function remove() {
     const hostId = serverId;
     const current = app;
@@ -179,6 +212,8 @@
     void run(async () => {
       await appsStore.remove(hostId, current.id);
       if (currentPin) settings.setPersonal("sidebarApps", withAppPinned(settings.sidebarApps, currentPin, false));
+      // A shortcut of a deleted app opens nothing.
+      if (currentPin && appShortcutsStore.has(currentPin)) await appShortcutsStore.remove(currentPin).catch(() => {});
       pane.close();
     }, "The app was not deleted");
   }
@@ -229,7 +264,15 @@
       {#if app.hasUi}
         <AppManageToggle {view} problemCount={problems.length} problemTone={problemsTone(problems)} onSelect={selectView} />
       {/if}
-      <AppMenu stopped={app.stopped} pinned={isPinned} disabled={isBusy} onToggleStopped={toggleStopped} onTogglePinned={togglePinned} onDelete={remove} />
+      <AppMenu
+        stopped={app.stopped}
+        pinned={isPinned}
+        disabled={isBusy}
+        onToggleStopped={toggleStopped}
+        onTogglePinned={togglePinned}
+        onDelete={remove}
+        desktop={appShortcutsStore.isAvailable && app.hasUi && pin ? { hasShortcut, onOpenWindow: openWindow, onToggleShortcut: toggleShortcut } : undefined}
+      />
     {/if}
   </div>
 

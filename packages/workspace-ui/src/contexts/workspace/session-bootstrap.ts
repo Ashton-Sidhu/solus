@@ -494,7 +494,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const history = snapTab.agentSessionId
     ? requestSessionHistoryPage(api, {
         sessionId: session.id, projectPath: loadPath, provider: snapshotProvider,
-        turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true,
+        turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true,
       })
     : undefined
   // Observe an early rejection while lineage is pending; awaiting history below
@@ -581,7 +581,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
     const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, level: 'details', force: false }).catch(() => null)
-    const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, projectHome(snapTab).serverId).catch(() => null)
+    const taskHydration = ctx.issuesStore.ensureSessionBinding(session.id, projectHome(snapTab).serverId).catch(() => null)
     await Promise.all([environmentRefresh, taskHydration])
   })
 

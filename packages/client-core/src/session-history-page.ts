@@ -28,8 +28,25 @@ export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryP
   return left === right || (left.messages.length === right.messages.length && sameHistoryManifest(left, right))
 }
 
-export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0): Promise<SessionHistoryPage> {
-  if (!readCache) return api.loadSessionPage(request)
+interface HistoryResumeOptions {
+  cachedTurnLimit?(page: SessionHistoryPage): number
+  /** The connection-scoped answer of an `openSession` request: the description, and the watch the host joined. */
+  onOpened?(opened: Pick<SessionHistoryPage, 'openingDescription' | 'resumedWatch'>): void
+}
+
+export async function loadSessionHistoryPage(
+  api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0,
+  options?: HistoryResumeOptions,
+): Promise<SessionHistoryPage> {
+  // The opening facts belong to this connection: they never stay on the page.
+  const read = async (pageRequest: SessionHistoryPageRequest): Promise<SessionHistoryPage> => {
+    const answer = await api.loadSessionPage(pageRequest)
+    if (!pageRequest.openSession) return answer
+    const { resumedWatch, openingDescription, ...page } = answer
+    options?.onOpened?.({ resumedWatch, openingDescription })
+    return page
+  }
+  if (!readCache) return read(request)
   // Bound how long block negotiation can delay the network. A saved page can
   // still paint independently if the disk misses the deadline.
   let deadline: ReturnType<typeof setTimeout> | undefined
@@ -45,10 +62,13 @@ export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHi
     savedRows += block.count
   }
   if (savedRows !== cached?.messages.length) offsets.clear()
-  const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
+  const window = cached && options?.cachedTurnLimit ? { ...request, turnLimit: options.cachedTurnLimit(cached) } : request
+  const page = await read({ ...window, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
   if (cached && savedRows === cached.messages.length && !page.messages.length &&
-      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) return cached
-  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(request)
+      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) {
+    return page.historyRevision && page.historyRevision !== cached.historyRevision ? { ...cached, historyRevision: page.historyRevision } : cached
+  }
+  return restoreHistoryBlocks(page, cached, offsets) ?? read(window)
 }
 
 /** A missing or invalid block means the host must send the complete page. */

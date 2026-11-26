@@ -20,7 +20,7 @@
   // fields (due date, priority, status). Prompt those users to reconnect.
   const needsProjectScope = $derived(isConnected && !connections.providerStatus?.scopes?.includes("project"));
   const description = $derived.by(() => {
-    if (needsProjectScope) return "Reconnect to use due date, priority, and status on GitHub tasks.";
+    if (needsProjectScope) return "Reconnect to use due date, priority, and status on GitHub issues.";
     if (!isConnected) return "Pull requests, project boards, and comments as you.";
     const login = connections.providerStatus?.login;
     return login ? `Connected as @${login}` : "Connected";

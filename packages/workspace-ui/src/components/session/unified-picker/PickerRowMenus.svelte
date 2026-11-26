@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Task } from "@solus/contracts/task-types";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { Issue } from "@solus/contracts/task-types";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import type { SessionMeta } from "@solus/contracts/types";
   import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
@@ -21,22 +21,22 @@
    */
   interface Props {
     menu: PickerRowMenu | null;
-    sessionsFor: (task: Task) => SidebarSessionChild[];
+    sessionsFor: (task: Issue) => SidebarSessionChild[];
     /** Where the menus portal, so they paint above the search's scrim. */
     portalTarget: HTMLElement | null;
-    onStart: (task: Task) => void;
-    onResume: (task: Task) => void;
-    onOpenTask: (task: Task) => void;
-    onOpenSource: (task: Task) => void;
+    onStart: (task: Issue) => void;
+    onResume: (task: Issue) => void;
+    onOpenTask: (task: Issue) => void;
+    onOpenSource: (task: Issue) => void;
   }
   let { menu = $bindable(), sessionsFor, portalTarget, onStart, onResume, onOpenTask, onOpenSource }: Props = $props();
 
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
 
-  async function moveTask(task: Task, category: TaskStatusCategory): Promise<void> {
+  async function moveTask(task: Issue, category: IssueStatusCategory): Promise<void> {
     try {
-      await session.tasksStore.get(task.id).move({ category });
+      await session.issuesStore.get(task.id).move({ category });
     } catch (error) {
       toasts.error("Couldn't update status", {
         description: error instanceof Error ? error.message : String(error),
@@ -45,13 +45,13 @@
   }
 
   /** Only a draft can be deleted (`Task.canDelete`). */
-  function deleteTask(task: Task): void {
-    const pending = session.tasksStore.softRemove([task.id]);
+  function deleteTask(task: Issue): void {
+    const pending = session.issuesStore.softRemove([task.id]);
     if (!pending.length) return;
-    toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
+    toasts.undo("Issue deleted", () => session.issuesStore.restorePending(pending), {
       onDismiss: () =>
-        session.tasksStore.commitPending(pending).catch((error) =>
-          toasts.error("Couldn't delete task", {
+        session.issuesStore.commitPending(pending).catch((error) =>
+          toasts.error("Couldn't delete issue", {
             description: error instanceof Error ? error.message : String(error),
           })),
     });
@@ -88,7 +88,7 @@
     onOpenTask={() => onOpenTask(menuTask)}
     onOpenSource={menuTask.url ? () => onOpenSource(menuTask) : undefined}
     onSetStatus={(category) => void moveTask(menuTask, category)}
-    onDelete={session.tasksStore.get(menuTask.id).canDelete ? () => deleteTask(menuTask) : undefined}
+    onDelete={session.issuesStore.get(menuTask.id).canDelete ? () => deleteTask(menuTask) : undefined}
     {portalTarget}
     onClose={() => (menu = null)}
   />

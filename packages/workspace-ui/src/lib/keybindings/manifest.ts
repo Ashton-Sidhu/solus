@@ -8,12 +8,12 @@ export const KEYBINDINGS = {
   // A session has no task unless it joins one. `global.new-session` starts a
   // session on its own; `global.new-task` opens the composer of the Tasks page.
   // It has no default key.
-  'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
-  'global.new-session-without-task': { combo: { mod: true, alt: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
+  'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Sessions' },
+  'global.new-session-without-task': { combo: { mod: true, alt: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without issue', group: 'Sessions' },
   // Browsers reserve the desktop combo for a private window.
-  'global.new-chat':          { combo: { mod: true, shift: true, code: 'KeyN' }, web: { mod: true, alt: true, code: 'KeyN' }, scope: 'global', label: 'New chat', group: 'Tasks' },
-  'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in task',      group: 'Tasks' },
-  'global.new-task':          { combo: null,                                             scope: 'global',             label: 'New task',                 group: 'Tasks' },
+  'global.new-chat':          { combo: { mod: true, shift: true, code: 'KeyN' }, web: { mod: true, alt: true, code: 'KeyN' }, scope: 'global', label: 'New chat', group: 'Sessions' },
+  'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in issue',     group: 'Sessions' },
+  'global.new-task':          { combo: null,                                             scope: 'global',             label: 'New issue',                group: 'Issues' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
@@ -46,7 +46,7 @@ export const KEYBINDINGS = {
   'global.toggle-project-panel': { combo: { alt: true, code: 'KeyM' },                   scope: 'global',             label: 'Toggle project panel',     group: 'View' },
   'global.toggle-workspace':     { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open workspace',           group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
-  'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
+  'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open issues',               group: 'View' },
   'global.toggle-notifications': { combo: { alt: true, shift: true, code: 'KeyK' },        scope: 'global',             label: 'Open notifications',       group: 'View' },
   'global.toggle-insights':    { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Open insights',            group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' }, web: { alt: true, shift: true, code: 'BracketLeft' }, scope: 'global', label: 'Toggle sidebar',           group: 'View' },
@@ -60,7 +60,7 @@ export const KEYBINDINGS = {
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Search',                   group: 'Navigation' },
   'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Search (alt)',             group: 'Navigation' },
   'global.task-picker':       { combo: { alt: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Task picker',              group: 'Navigation' },
-  'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' }, nonMac: { mod: true, shift: true, code: 'Slash' }, scope: 'global',             label: 'Focus sidebar task search', group: 'Tasks' },
+  'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' }, nonMac: { mod: true, shift: true, code: 'Slash' }, scope: 'global',             label: 'Focus sidebar search', group: 'Sessions' },
   'global.cycle-perm-mode':   { combo: { alt: true, shift: true, code: 'Tab' },           scope: 'global',             label: 'Cycle permission mode',    group: 'Agent' },
   'global.cycle-model':       { combo: { alt: true, shift: true, code: 'KeyM' },          scope: 'global',             label: 'Cycle model',              group: 'Agent' },
   'global.cycle-agent':       { combo: { alt: true, shift: true, code: 'KeyG' },          scope: 'global',             label: 'Cycle agent',              group: 'Agent' },
@@ -199,7 +199,7 @@ export const KEYBINDINGS = {
   'insights.schema':              { combo: { alt: true, code: 'KeyS' },                    scope: 'insights',           label: 'What you can query',       group: 'Insights' },
 
   // ── Tasks ───────────────────────────────────────────────────────────────────
-  'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Tasks' },
+  'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Issues' },
 
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
@@ -268,7 +268,7 @@ export const KEYBINDINGS = {
   'global.open-plan':             { combo: null,                                           scope: 'global',             label: 'Open plan…',               group: 'Navigation' },
   'global.open-document':         { combo: null,                                           scope: 'global',             label: 'Open document…',           group: 'Navigation' },
   'global.open-automation':       { combo: null,                                           scope: 'global',             label: 'Open automation…',         group: 'Navigation' },
-  'global.open-task':             { combo: null,                                           scope: 'global',             label: 'Open task…',               group: 'Navigation' },
+  'global.open-task':             { combo: null,                                           scope: 'global',             label: 'Open issue…',               group: 'Navigation' },
   'global.permission-menu':       { combo: null,                                           scope: 'global',             label: 'Open permission mode menu', group: 'Agent' },
   'global.add-server':            { combo: null,                                           scope: 'global',             label: 'Add server',               group: 'General' },
   'global.find-hosts':            { combo: null,                                           scope: 'global',             label: 'Find hosts nearby',        group: 'General' },

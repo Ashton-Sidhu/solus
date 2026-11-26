@@ -260,7 +260,7 @@
   </TranscriptCardAction>
   {#if taskId}
     <TranscriptCardAction kind="item" onclick={() => session.goToTask(taskId, "click")}>
-      Open its task
+      Open its issue
     </TranscriptCardAction>
   {/if}
   <TranscriptCardAction kind="item" onclick={() => void copySessionId()}>

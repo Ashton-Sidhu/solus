@@ -31,8 +31,9 @@ export type GroupedItem =
   | { kind: 'browser-recording'; message: Message }
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
-  /** The saved HTML works of a turn that wrote two or more of them: one card,
-   *  one tab per work. `messages` are every write, in the order they happened. */
+  /** The saved HTML works of a turn: one card at the first write. `messages`
+   *  are every write, in the order they happened. One work renders flush at
+   *  its newest write; two or more get one tab each. */
   | { kind: 'artifact-group'; messages: Message[] }
   | { kind: 'review-guide'; message: Message }
   | { kind: 'mcp-app'; message: Message }
@@ -59,9 +60,6 @@ interface OpenCard {
   index: number
   messages: Message[]
   shared: boolean
-  /** An artifact card that holds one work so far: where each of its writes
-   *  stands as its own row. Undefined once a second work made it a group. */
-  placed?: number[]
 }
 
 export function emptyGrouping(): Grouping {
@@ -88,7 +86,7 @@ export function finishGrouping(grouping: Grouping): GroupedItem[] {
 }
 
 // A turn's cards of one kind are one act — delegating to sub-agents, talking
-// to other sessions, looking at pages, writing documents — so each kind is one
+// to other sessions, looking at pages, writing documents or artifacts — so each kind is one
 // card at the position of its FIRST member, in the order they happened. Tool
 // rows, prose, and other cards between two members still render in place,
 // below the card, and do NOT close it — only a new turn does. An open card's
@@ -111,44 +109,6 @@ function openOrGrowCard(grouping: Grouping, kind: CardGroupKind, msg: Message): 
     : -1
   if (existing >= 0) card.messages[existing] = msg
   else card.messages.push(msg)
-}
-
-// A turn's saved HTML works are one card once it writes a second work, at the
-// position of the first write, like the other cards. Until then each write is
-// its own row, as a single artifact always was. When the second work arrives,
-// the first row becomes the card and the later rows of the first work leave:
-// the card holds them.
-function placeArtifact(grouping: Grouping, msg: Message): void {
-  const { items } = grouping
-  const card = grouping.cards.get('artifact-group')
-  if (!card) {
-    grouping.cards.set('artifact-group', { index: items.length, messages: [msg], shared: false, placed: [items.length] })
-    items.push({ kind: 'artifact', message: msg })
-    return
-  }
-  if (card.shared) {
-    card.messages = card.messages.slice()
-    card.placed = card.placed?.slice()
-    card.shared = false
-    if (!card.placed) items[card.index] = { kind: 'artifact-group', messages: card.messages }
-  }
-  const isNewWork = !card.messages.some((message) => message.workRef?.workId === msg.workRef?.workId)
-  card.messages.push(msg)
-  if (!card.placed) return
-  if (!isNewWork) {
-    card.placed.push(items.length)
-    items.push({ kind: 'artifact', message: msg })
-    return
-  }
-  items[card.index] = { kind: 'artifact-group', messages: card.messages }
-  for (let i = card.placed.length - 1; i > 0; i--) removeItem(grouping, card.placed[i])
-  card.placed = undefined
-}
-
-/** Take one row out, and move every open card after it up one. */
-function removeItem(grouping: Grouping, index: number): void {
-  grouping.items.splice(index, 1)
-  for (const card of grouping.cards.values()) if (card.index > index) card.index--
 }
 
 // Everything between two prose blocks is one activity row: the tool calls,
@@ -211,7 +171,7 @@ export function groupInto(grouping: Grouping, messages: Message[], start: number
         continue
       }
       if (isSavedHtmlArtifact(msg)) {
-        placeArtifact(grouping, msg)
+        openOrGrowCard(grouping, 'artifact-group', msg)
         continue
       }
       // The SDK writes its interrupt notice back as a user turn to keep the

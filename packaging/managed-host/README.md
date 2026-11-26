@@ -15,11 +15,12 @@ The control plane creates the Sprite with a public URL and writes two files into
   `solus-server-linux-x64.tar.gz` and `SHA256SUMS` for the pinned release,
   verifies the checksum, and installs the release read-only under
   `/opt/solus/releases/<version>`.
-- `/home/sprite/solus-managed/link.json`, only when it has a new link: the
-  `EnrollHostResponse` for this host, with **no connector token**. The bootstrap reads
-  it into `SOLUS_HOST_LINK` and deletes the file before anything else runs.
-  The control plane's bootstrap and this release's `sprite-boot.sh` name the same
-  variable: release the server, then deploy the control plane that pins it.
+- The link code of the machine, for the boot that joins it
+  (plans/034-one-cloud-machine-kind.md §3). The bootstrap puts it in
+  `SOLUS_LINK_CODE`. The server enrolls with it before it listens, and removes
+  it from its environment. The control plane's bootstrap and this release's
+  `sprite-boot.sh` name the same variable: release the server, then deploy the
+  control plane that pins it.
 
 It registers one Sprite service, `solus`, with `--http-port 34118`, running the
 bootstrap. The bootstrap then execs this release's own

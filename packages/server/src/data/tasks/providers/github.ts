@@ -1,5 +1,5 @@
-import type { TaskRef, TaskStatusCategory } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskPriority, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { IssueRef, IssueStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssuePriority, IssueUpdatePatch } from '@solus/contracts/task-types'
 import type { GitHubClient } from '../../../providers/github/octokit'
 import {
   GITHUB_UPLOADABLE_ASSETS,
@@ -133,7 +133,7 @@ export async function githubUserId(graphql: Graphql, login: string): Promise<str
 export function listRepoAssignees(
   run: GithubRun,
   repository: { owner: string; repo: string },
-): Promise<TaskAssigneeCandidate[]> {
+): Promise<IssueAssigneeCandidate[]> {
   return run('list_github_task_assignees', async ({ rest }) => {
     const { data } = await rest.issues.listAssignees({ owner: repository.owner, repo: repository.repo, per_page: 100 })
     return data.map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
@@ -141,7 +141,7 @@ export function listRepoAssignees(
 }
 
 /** Put the fields of a write that succeeded on the task that a read gave. */
-function withWrittenFields(task: ProviderTask, patch: TaskUpdatePatch, onBoard: boolean): ProviderTask {
+function withWrittenFields(task: ProviderTask, patch: IssueUpdatePatch, onBoard: boolean): ProviderTask {
   if (patch.title !== undefined) task.title = patch.title
   if (patch.body !== undefined) task.body = patch.body
   if (patch.labels !== undefined) {
@@ -242,7 +242,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
 
   constructor(private readonly run: GithubRun) {}
 
-  async fetch(ref: TaskRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails> {
+  async fetch(ref: IssueRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
     return this.run('get_github_task', async ({ graphql }) => {
       const { node } = await readGithubIssues((queries) => graphql<TaskNodeResponse>(
@@ -274,12 +274,12 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
    * priority and due date are fields of a Project it is on. A draft item takes
    * a title, a body and an assignee.
    */
-  async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  async update(home: TaskHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
     const target = githubHome(home)
     return target.kind === 'issue' ? this.updateIssue(target, patch) : this.updateDraft(target, patch)
   }
 
-  private updateIssue(home: IssueHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  private updateIssue(home: IssueHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
     return this.run('update_github_task', async ({ rest, graphql }) => {
       // Only a board field write needs the board items before the write.
       if (patch.dueDate !== undefined || patch.priority !== undefined) {
@@ -313,7 +313,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     })
   }
 
-  private async updateDraft(home: DraftHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  private async updateDraft(home: DraftHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
     if (patch.labels !== undefined || patch.priority !== undefined || patch.dueDate !== undefined) {
       throw new Error('A draft item of a GitHub Project takes a title, a body and an assignee only.')
     }
@@ -363,7 +363,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     graphql: Graphql,
     home: IssueHome,
     items: IssueProjectItemNode[],
-    priority: TaskPriority | null,
+    priority: IssuePriority | null,
   ): Promise<void> {
     for (const item of items) {
       const fields = await this.resolveProjectFields(graphql, item.project.id)
@@ -413,7 +413,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     await graphql(CLEAR_PROJECT_FIELD_MUTATION, { projectId: item.project.id, itemId: item.id, fieldId })
   }
 
-  setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
+  setState(home: TaskHome, category: IssueStatusCategory): Promise<ProviderTask> {
     return this.moveIssue(home, { category })
   }
 
@@ -421,7 +421,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     return this.moveIssue(home, { statusId })
   }
 
-  private async moveIssue(home: TaskHome, target: { category: TaskStatusCategory } | { statusId: string }): Promise<ProviderTask> {
+  private async moveIssue(home: TaskHome, target: { category: IssueStatusCategory } | { statusId: string }): Promise<ProviderTask> {
     const issue = githubHome(home)
     if (issue.kind === 'draft') {
       throw new Error('A draft item has no state of its own. Move it on its GitHub Project.')
@@ -480,7 +480,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     })
   }
 
-  async assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]> {
+  async assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]> {
     const target = githubHome(home)
     // GitHub cannot list the people a draft can be assigned to.
     if (target.kind === 'draft') return []

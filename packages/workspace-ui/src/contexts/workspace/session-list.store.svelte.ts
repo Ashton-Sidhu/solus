@@ -1,16 +1,17 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { z } from 'zod'
 import { EMPTY_SESSION_VIEW, settleFor, type SessionState, type SessionView } from '@solus/contracts/session-state'
-import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
+import type { SessionMeta, SessionRecord, SessionRecordList, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { connectedRunnerFor, knownRunnerFor } from '@solus/client-core/session-runner'
-import { sessionHomeId } from '@solus/client-core/session-home'
+import { readsSessionsFromSolusApi, sessionHomeId } from '@solus/client-core/session-home'
 import { onSessionMetaRead, readSessionMeta } from '@solus/client-core/session-meta'
 import { SessionHostTurns, SessionHostTurnsBook } from '@solus/client-core/session-heads'
 import { sessionCloudState, type SessionCloudState } from '@solus/client-core/session-cloud-state'
-import { isSolusApiId } from '@solus/contracts/uplink'
+import { isSolusApiId, organizationIdOfSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
+import { savesSessionsToCloud } from '../../lib/organization-filter'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
@@ -116,6 +117,8 @@ export interface SessionListHosts {
   serverIds(): string[]
   /** A cloud machine of an organization; any other is personal (plans/031). Absent: every machine is personal. */
   isCloudHost?(serverId: string): boolean
+  /** Whether the organization saves its sessions in Solus Cloud (`SessionHomeConnections`). Absent: it does. */
+  savesSessionsToCloud?(organizationId: string): boolean
 }
 
 const registryHosts: SessionListHosts = {
@@ -123,8 +126,11 @@ const registryHosts: SessionListHosts = {
   knownRunnerFor: (hostId) => knownRunnerFor(hostId),
   serverIds: () => serverConnections.serverIds(),
   isCloudHost: (serverId) => hostCatalog.cloudHostIds().has(serverId),
+  savesSessionsToCloud,
 }
 
+/** The answer of a home that is not asked for its sessions. */
+const NO_RECORDS: Pick<SessionRecordList, 'records'> = { records: [] }
 
 const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedAt: null, snoozedUntil: null, snoozeNote: null }
 
@@ -145,6 +151,10 @@ const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedA
  * does not stand for a published organization session while its Solus API is
  * connected. An unpublished one never reaches the Solus API, so its machine
  * keeps it.
+ *
+ * An organization that does not save its sessions in Solus Cloud is the
+ * exception: its Solus API is not a source of sessions, and each machine, a
+ * cloud machine included, is the home of its own (`isSessionSource`).
  */
 export class SessionListStore {
   /** The sessions in this person's list, by stable session id. */
@@ -155,6 +165,8 @@ export class SessionListStore {
   private viewsBySession = new SvelteMap<string, SessionView>()
   private archivedHomes = new Map<string, string>()
   private watchedServerIds = new Set<string>()
+  /** Whether each Solus API was a source of sessions when its list was last read (`isSessionSource`). */
+  private sessionSources = new Map<string, boolean>()
   /** Per home, the latest grant this client told the reader about. */
   private grantsSeenUntil = new Map<string, number>()
   private shareListeners = new Set<(granted: ListedSession[]) => void>()
@@ -197,8 +209,13 @@ export class SessionListStore {
   private async loadHost(serverId: string): Promise<void> {
     this.watchHost(serverId)
     const api = serverConnections.apiFor(serverId)
-    const answer = await api.sessionRecordList().catch(() => null)
+    const isSource = this.isSessionSource(serverId)
+    if (isSolusApiId(serverId)) this.sessionSources.set(serverId, isSource)
+    // A Solus API that is not a source is not asked: the rows that it gave before go.
+    const answer = isSource ? await api.sessionRecordList().catch(() => null) : NO_RECORDS
     if (!answer || serverConnections.apiFor(serverId) !== api) return
+    // The directory changed the answer during the read. The read that follows the change is the correct one (`readChangedSources`).
+    if (this.isSessionSource(serverId) !== isSource) return
     if (isSolusApiId(serverId)) {
       for (const record of answer.records) this.cloud.writeRecord(serverId, record)
       void this.cloud.load(serverId)
@@ -229,9 +246,37 @@ export class SessionListStore {
     await Promise.all(homes.map((id) => this.loadHost(id)))
   }
 
+  /**
+   * Whether this home is asked for its sessions. The Solus API of an
+   * organization that keeps its sessions on their hosts is not: Solus Cloud has
+   * no conversation of them, so each machine lists its own
+   * (`readsSessionsFromSolusApi`).
+   */
+  private isSessionSource(serverId: string): boolean {
+    const organizationId = organizationIdOfSolusApiId(serverId)
+    return organizationId === null || readsSessionsFromSolusApi(organizationId, this.hosts)
+  }
+
+  /**
+   * The directory answered again. When an organization started or stopped
+   * saving its sessions in Solus Cloud, every home is read again, so that each
+   * row moves to its new source. An answer that changes nothing reads no list.
+   */
+  readChangedSources(): void {
+    let hasChanged = false
+    for (const [serverId, wasSource] of this.sessionSources) {
+      const isSource = this.isSessionSource(serverId)
+      if (isSource === wasSource) continue
+      this.sessionSources.set(serverId, isSource)
+      hasChanged = true
+    }
+    if (hasChanged) void this.load()
+  }
+
   /** Read one session again: a share or a return changed its place in the
    *  list, and nothing else in this home's list. */
   private async loadSession(serverId: string, sessionId: string): Promise<void> {
+    if (!this.isSessionSource(serverId)) return
     const api = serverConnections.apiFor(serverId)
     const previousView = this.viewsBySession.get(sessionId)
     const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
@@ -387,6 +432,7 @@ export class SessionListStore {
   forgetHost(serverId: string): void {
     // A Solus API that goes (sign-out) takes the cloud facts and cloud-only rows it gave.
     this.cloud.forget(serverId)
+    this.sessionSources.delete(serverId)
     const homes = new Set<string>()
     for (const [sessionId, listed] of this.listedBySession) {
       if (listed.homeServerId === serverId) {

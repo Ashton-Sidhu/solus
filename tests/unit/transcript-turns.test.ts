@@ -91,7 +91,7 @@ function varietyTranscript(): Message[] {
     msg({ role: 'system', content: '', activity: divider({ kind: 'agent_switched', provider: 'codex' }) }),
     msg({ role: 'user', content: 'now the docs' }),
     msg({ role: 'assistant', content: '', workRef: { workId: 'w1', title: 'Plan', workType: 'doc' } }),
-    msg({ role: 'system', content: '', taskRef: { taskId: 't1', title: 'Follow up', url: null } }),
+    msg({ role: 'system', content: '', taskRef: { issueId: 't1', title: 'Follow up', url: null } }),
     msg({ role: 'assistant', content: 'Filed it.' }),
     msg({ role: 'user', content: 'and again' }),
     tool('Read'),

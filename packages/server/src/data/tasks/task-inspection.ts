@@ -1,6 +1,6 @@
 import { connectedSite } from '../../atlassian/api'
 import { linearConnection } from './providers/linear-api'
-import { taskKey } from '@solus/contracts/task-sources'
+import { issueKey } from '@solus/contracts/task-sources'
 import { withTaskProviderMetadata } from '@solus/contracts/task-data'
 import { serializeTaskWrite } from './task-writes'
 import {
@@ -9,7 +9,7 @@ import {
   linearTemplates
 } from './providers/linear-inspection'
 import { z } from 'zod'
-import { parseTaskKey, type TaskSource } from '@solus/contracts/task-sources'
+import { parseIssueKey, type IssueSource } from '@solus/contracts/task-sources'
 import type {
   TaskExternalIssue,
   TaskProviderData,
@@ -40,7 +40,7 @@ const emptyInspection = (reason: string): TaskProviderData => ({
 })
 
 export async function inspectTask(taskId: string, cursor?: string, timelineOnly = false): Promise<TaskProviderData> {
-  const ref = parseTaskKey(taskId)
+  const ref = parseIssueKey(taskId)
   if (!ref) throw new Error('Invalid task key.')
   if (cursor && cursor.length > 4096) throw new Error('Invalid history cursor.')
   if (ref.provider === 'linear') return inspectLinearIssue(ref.workspaceId, ref.id, cursor)
@@ -134,7 +134,7 @@ async function reactToTaskNow(
   content: TaskReactionContent,
   add: boolean
 ): Promise<void> {
-  const ref = parseTaskKey(taskId)
+  const ref = parseIssueKey(taskId)
   z.string().min(1).max(256).parse(targetId)
   z.boolean().parse(add)
   if (ref?.provider === 'linear') {
@@ -179,7 +179,7 @@ async function reactToTaskNow(
   emitChanged(taskId)
 }
 
-export async function taskTemplates(source: TaskSource): Promise<TaskTemplate[]> {
+export async function taskTemplates(source: IssueSource): Promise<TaskTemplate[]> {
   if (source.kind === 'linear-team')
     return linearTemplates(source.workspaceId, source.teamId, source.teamKey)
   if (source.kind !== 'github-repo') return []
@@ -289,7 +289,7 @@ export async function resolveTaskUrl(
       .provider('jira')
       .fetch({ provider: 'jira', cloudId: site.cloudId, id: match[1] })
   }
-  const taskId = taskKey(resolved.task.ref)
+  const taskId = issueKey(resolved.task.ref)
   const details = await getTask(scope, taskId, personKey, { resolved })
   if (detailsOnly) return { details, readOnly: true }
   const metadata = details.providerMetadata

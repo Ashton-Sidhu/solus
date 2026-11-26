@@ -2,16 +2,16 @@ import { describe, expect, it } from 'bun:test'
 import { SidebarReturnOrder } from '@solus/workspace-ui/components/session/lib/sidebar-return-order'
 import {
   sortRowsByReturn,
-  type SidebarTask,
-  type TaskStatus,
-} from '@solus/workspace-ui/components/session/lib/task-list'
+  type SidebarSession,
+  type SidebarStatus,
+} from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 
-function row(id: string, status: TaskStatus, createdAt: number): SidebarTask {
+function row(id: string, status: SidebarStatus, createdAt: number): SidebarSession {
   // SAFETY: the return order reads only a row's identity, status, and creation time.
-  return { id, key: id, status, createdAt } as SidebarTask
+  return { id, key: id, status, createdAt } as SidebarSession
 }
 
-function order(returnOrder: SidebarReturnOrder, rows: SidebarTask[]): string[] {
+function order(returnOrder: SidebarReturnOrder, rows: SidebarSession[]): string[] {
   return sortRowsByReturn(rows, (candidate) => returnOrder.returnedAt(candidate)).map((candidate) => candidate.id)
 }
 

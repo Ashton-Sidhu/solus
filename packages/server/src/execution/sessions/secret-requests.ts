@@ -26,7 +26,9 @@ const log = createLogger('SessionRuntime', 'secret-requests.ts')
  *
  * One card asks for one or more secrets, and the person saves or declines each one.
  * The card is a `question_request` of kind `secret`, so it shows and closes like
- * any request a run waits on. Its answer does not use `respondQuestion`: that
+ * any request a run waits on. A message the person sends while it is open
+ * declines it (`declineSecretRequests`), unless they queue the message.
+ * Its answer does not use `respondQuestion`: that
  * path reports answers to the run's orchestrator. It comes through
  * `secretRequestAnswer`, which only this module reads.
  */
@@ -88,8 +90,11 @@ export async function requestSecrets(context: AgentToolContext, asks: SecretAsk[
   const identity = asks.some((ask) => ask.delivery === 'file') ? currentIdentity('a secret file') : null
   const questionId = `secret-${randomBytes(12).toString('hex')}`
   const values = await new Promise<(string | null)[] | null>((resolve) => {
+    // The card closes at once, in the call that answers it: a prompt that
+    // declines it (`declineSecretRequests`) finds the turn running again.
     const finish = (answer: (string | null)[] | null) => {
-      waiting.delete(questionId)
+      if (!waiting.delete(questionId)) return
+      context.emit({ type: 'permission_resolved', questionId })
       resolve(answer)
     }
     waiting.set(questionId, { sessionId, count: asks.length, resolve: finish })
@@ -108,7 +113,6 @@ export async function requestSecrets(context: AgentToolContext, asks: SecretAsk[
       }),
     })
   })
-  context.emit({ type: 'permission_resolved', questionId })
   if (values === null) {
     log.info('secret_request_cancelled', { sessionId, questionId })
     return { status: 'cancelled' }
@@ -143,6 +147,19 @@ export function answerSecretRequest(sessionId: string, questionId: string, value
   if (!values.every((value) => value === null || value.length > 0)) return false
   request.resolve(values)
   return true
+}
+
+/**
+ * Declines every secret on each card `sessionId` waits on: the person sent a
+ * message instead of an answer. Each card closes as declined, the turn goes on,
+ * and the message reaches the agent.
+ */
+export function declineSecretRequests(sessionId: string): void {
+  for (const [questionId, request] of [...waiting]) {
+    if (request.sessionId !== sessionId) continue
+    request.resolve(Array.from({ length: request.count }, () => null))
+    log.info('secret_request_declined_by_prompt', { sessionId, questionId })
+  }
 }
 
 /** Writes one value to a new owner-only file and keeps it until it expires. */

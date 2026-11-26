@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { sql } from 'drizzle-orm'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
+import { issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
 import { BOARD, boardRead, githubIssue, REPO, repoRead } from './helpers/task-fixtures'
 import { openTaskTestHost } from './helpers/task-test-host'
 
@@ -15,7 +15,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const ALICE = 'user:alice'
 const BOB = 'user:bob'
-const REPO_KEY = taskSourceKey(REPO)
+const REPO_KEY = issueSourceKey(REPO)
 
 let host: Awaited<ReturnType<typeof openTaskTestHost>>
 let sources: typeof import('@solus/server/data/tasks/task-sources')
@@ -50,8 +50,8 @@ async function titlesFor(personKey: string): Promise<string[]> {
 }
 
 /** Ask for task sources as a person, and wait for the reads that the call started. */
-async function ask(which: TaskSource[], personKey: string, options: { refresh?: 'stale' | 'force'; now?: number } = {}) {
-  const answer = await sources.tasksSources(which, personKey, options)
+async function ask(which: IssueSource[], personKey: string, options: { refresh?: 'stale' | 'force'; now?: number } = {}) {
+  const answer = await sources.issuesSources(which, personKey, options)
   await sources.taskSourceReadsEnd()
   return answer
 }
@@ -62,14 +62,14 @@ describe('reading task sources', () => {
     const changed: string[][] = []
     const stop = sources.onTaskSourcesChanged((sourceKeys) => changed.push(sourceKeys))
 
-    const first = await sources.tasksSources([REPO], ALICE)
+    const first = await sources.issuesSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     // Never read for Alice: no columns, no time of a read, and the read is in flight.
     expect(first).toEqual([{ sourceKey: REPO_KEY, source: REPO, label: 'acme/app', columns: [], health: 'ok', refreshing: true }])
 
     stop()
     expect(changed).toEqual([[REPO_KEY]])
-    const [after] = await sources.tasksSources([REPO], ALICE)
+    const [after] = await sources.issuesSources([REPO], ALICE)
     expect(after.columns.map((column) => column.name)).toEqual(['Open', 'Closed'])
     expect(after.fetchedAt).toBeGreaterThan(0)
     expect(after.refreshing).toBeUndefined()
@@ -108,8 +108,8 @@ describe('reading task sources', () => {
     host.providers.readGate = new Promise((resolve) => { open = resolve })
     host.providers.answer(BOARD, boardRead([]))
 
-    await sources.tasksSources([REPO], ALICE, { refresh: 'force' })
-    await sources.tasksSources([REPO, BOARD], ALICE, { refresh: 'force' })
+    await sources.issuesSources([REPO], ALICE, { refresh: 'force' })
+    await sources.issuesSources([REPO, BOARD], ALICE, { refresh: 'force' })
     open()
     await sources.taskSourceReadsEnd()
     expect(host.providers.callsOf(`read:${REPO_KEY}`)).toHaveLength(1)
@@ -126,12 +126,12 @@ describe('reading task sources', () => {
     host.providers.failure = Object.assign(new Error('Not Found'), { status: 404 })
     await ask([REPO], BOB)
     host.providers.failure = null
-    const [refused] = await sources.tasksSources([REPO], BOB)
+    const [refused] = await sources.issuesSources([REPO], BOB)
     expect(refused).toMatchObject({ health: 'no_access', columns: [] })
     expect(refused.fetchedAt).toBeUndefined()
     expect(await titlesFor(BOB)).toEqual([])
     // Bob's refusal says nothing about Alice's connection.
-    expect((await sources.tasksSources([REPO], ALICE))[0].health).toBe('ok')
+    expect((await sources.issuesSources([REPO], ALICE))[0].health).toBe('ok')
     expect(await titlesFor(ALICE)).toEqual(['Issue 1'])
   })
 
@@ -139,8 +139,8 @@ describe('reading task sources', () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
     let open!: () => void
     host.providers.readGate = new Promise((resolve) => { open = resolve })
-    await sources.tasksSources([REPO], ALICE)
-    await sources.tasksSources([REPO], BOB)
+    await sources.issuesSources([REPO], ALICE)
+    await sources.issuesSources([REPO], BOB)
     host.providers.readGate = null
     open()
     // Alice's read gave Bob nothing: only his own connection gives him access.
@@ -155,7 +155,7 @@ describe('reading task sources', () => {
 
     host.providers.failure = new Error('GitHub is not connected')
     await ask([REPO], ALICE, { refresh: 'force' })
-    const [failed] = await sources.tasksSources([REPO], ALICE)
+    const [failed] = await sources.issuesSources([REPO], ALICE)
     expect(failed).toMatchObject({ health: 'not_connected', message: 'Connect GitHub to read these tasks.' })
     // Offline, or signed out: the last copy still shows, with its columns.
     expect(failed.columns).toHaveLength(2)
@@ -180,11 +180,11 @@ describe('reading task sources', () => {
   test('a truncated source says so', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)], true))
     await ask([REPO], ALICE)
-    expect((await sources.tasksSources([REPO], ALICE))[0].truncated).toBe(true)
+    expect((await sources.issuesSources([REPO], ALICE))[0].truncated).toBe(true)
   })
 
   test('a person with no task source asks nothing of a provider', async () => {
-    expect(await sources.tasksSources([], ALICE)).toEqual([])
+    expect(await sources.issuesSources([], ALICE)).toEqual([])
     expect(host.providers.calls).toEqual([])
   })
 
@@ -193,7 +193,7 @@ describe('reading task sources', () => {
     host.providers.answer(REPO, repoRead([]))
     host.providers.answer(BOARD, boardRead([]))
     const answer = await ask([BOARD, REPO, { kind: 'github-repo', owner: 'ACME', repo: 'App' }], ALICE)
-    expect(answer.map((source) => source.sourceKey)).toEqual([taskSourceKey(BOARD), REPO_KEY])
+    expect(answer.map((source) => source.sourceKey)).toEqual([issueSourceKey(BOARD), REPO_KEY])
   })
 
   test('the timer reads a wanted source again, and forgets a source nobody asked for in 15 minutes', async () => {
@@ -276,7 +276,7 @@ describe('a task that only a search found', () => {
     // Issue 52 was read again later, so it is not old.
     await cache.storeProviderTask(githubIssue(52, { title: 'Old flaky run' }))
     const laterRead = Date.now() + day + 60_000
-    await database.getDatabase().run(sql`UPDATE tasks SET fetched_at = ${laterRead - 1_000} WHERE id = 'github:I_52'`)
+    await database.getDatabase().run(sql`UPDATE issues SET fetched_at = ${laterRead - 1_000} WHERE id = 'github:I_52'`)
     await cache.storeSourceRead(REPO, repoRead([githubIssue(1)]), laterRead)
     expect(await store.loadTask('github:I_50')).toBeNull()
     // A session holds issue 51, and issue 1 is in its source.
@@ -315,14 +315,14 @@ describe('a task that became yours', () => {
     await assignment.notifyTaskAssignments([mine], BOB, async () => 'hubot')
     // A connection with no stored login (`gh`) cannot say "this is you".
     await assignment.notifyTaskAssignments([mine], BOB, async () => null)
-    expect(await notificationsOf(ALICE)).toEqual([['task.assigned', 'task:github:I_2']])
+    expect(await notificationsOf(ALICE)).toEqual([['issue.assigned', 'issue:github:I_2']])
     expect(await notificationsOf(BOB)).toEqual([])
   })
 
   test('the notifications of a deleted draft go with it', async () => {
     const { githubDraft, BOARD, boardRead } = await import('./helpers/task-fixtures')
     host.providers.answer(BOARD, boardRead([{ task: githubDraft('DI_1'), columnId: null }]))
-    await sources.tasksSources([BOARD], ALICE)
+    await sources.issuesSources([BOARD], ALICE)
     await sources.taskSourceReadsEnd()
     await assignment.notifyTaskAssignments([{ taskId: 'github:DI_1', title: 'Draft', provider: 'github', assignee: 'octocat', updatedAt: 1 }], ALICE, async () => 'octocat')
     expect(await notificationsOf(ALICE)).toHaveLength(1)
@@ -338,7 +338,7 @@ describe('explicit source continuation', () => {
     host.providers.answer(REPO, { ...repoRead([githubIssue(2)]), nextCursor: null })
     await sources.loadMoreTaskSource(REPO, ALICE)
     expect(await titlesFor(ALICE)).toEqual(['Issue 1', 'Issue 2'])
-    const [state] = await sources.tasksSources([REPO], ALICE)
+    const [state] = await sources.issuesSources([REPO], ALICE)
     expect(state.nextCursor).toBeUndefined()
     expect(state.truncated).toBeUndefined()
   })
@@ -355,7 +355,7 @@ test('a failed source page retains its cursor and rows for retry', async () => {
   await ask([REPO], ALICE)
   host.providers.failure = new Error('rate limited')
   await expect(sources.loadMoreTaskSource(REPO, ALICE)).rejects.toThrow('rate limited')
-  const [failed] = await sources.tasksSources([REPO], ALICE)
+  const [failed] = await sources.issuesSources([REPO], ALICE)
   expect(failed.nextCursor).toBe('page2')
   expect(await titlesFor(ALICE)).toEqual(['Issue 1'])
   host.providers.failure = null

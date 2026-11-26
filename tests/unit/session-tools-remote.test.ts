@@ -21,6 +21,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // looks on the person's other hosts, then on their organizations' Solus APIs.
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
+let hostTools: typeof import('@solus/server/execution/agents/tools/host-tools')
 let startTool: typeof import('@solus/server/execution/agents/tools/start-sessions-tool')['startSessionsAgentTool']
 let hostDisplayName: typeof import('@solus/server/platform/host-display-name')['hostDisplayName']
 let closeDb: typeof import('@solus/server/db')['closeDb']
@@ -97,6 +98,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-tools-remote-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
+  hostTools = await import('@solus/server/execution/agents/tools/host-tools')
   startTool = (await import('@solus/server/execution/agents/tools/start-sessions-tool')).startSessionsAgentTool
   ;({ hostDisplayName } = await import('@solus/server/platform/host-display-name'))
   ;({ closeDb } = await import('@solus/server/db'))
@@ -352,7 +354,7 @@ describe('an outside app on another host (plans/035 §0.6)', () => {
   test('the owner\'s app lists hosts and starts a session on one, with no session origin and no report', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     lookups.length = 0
-    const listed = await asApp(OWNER_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    const listed = await asApp(OWNER_APP, () => hostTools.listHostsAgentTool.execute({}, appContext))
     expect(listed.ok).toBe(true)
     expect(JSON.parse(listed.text).hosts.map((host: { name: string }) => host.name)).toEqual(['Host B'])
 
@@ -372,7 +374,7 @@ describe('an outside app on another host (plans/035 §0.6)', () => {
   test('a member\'s app reaches only through its organization', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     lookups.length = 0
-    await asApp(MEMBER_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    await asApp(MEMBER_APP, () => hostTools.listHostsAgentTool.execute({}, appContext))
     await asApp(MEMBER_APP, () => startTool.execute({ sessions: [{ prompt: 'Org work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
     const memberReach = { account: { userId: 'bob', scope: { organizationId: 'org-1' } }, isOwner: false }
     expect(lookups).toEqual([memberReach, memberReach])
@@ -381,7 +383,7 @@ describe('an outside app on another host (plans/035 §0.6)', () => {
   test('an app whose person reaches no other host is refused, and nothing starts', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     const before = spawned.length
-    const listed = await asApp(GUEST_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    const listed = await asApp(GUEST_APP, () => hostTools.listHostsAgentTool.execute({}, appContext))
     expect(listed).toEqual({ ok: false, text: 'Only a person with host access can list their other hosts.' })
     const started = await asApp(GUEST_APP, () => startTool.execute({ sessions: [{ prompt: 'Work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
     expect(started).toEqual({ ok: false, text: 'sessions[0]: Only a person with access to this host can reach their other hosts from it. No session was started.' })
@@ -390,7 +392,7 @@ describe('an outside app on another host (plans/035 §0.6)', () => {
 
   test('an app with read access lists hosts, but cannot start, message, or stop a session there', async () => {
     const { appToolRefusal } = await import('@solus/server/execution/agents/tools/tool-access')
-    expect(appToolRefusal(sessionTools.listHostsAgentTool, 'read')).toBeNull()
+    expect(appToolRefusal(hostTools.listHostsAgentTool, 'read')).toBeNull()
     for (const tool of [startTool, sessionTools.sendSessionAgentTool, sessionTools.stopSessionAgentTool]) {
       expect(appToolRefusal(tool, 'read')).toContain('approved to read only')
       expect(appToolRefusal(tool, 'write')).toBeNull()

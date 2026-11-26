@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import type { SessionMeta } from '@solus/contracts/types'
-import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Issue, IssueSessionLink } from '@solus/contracts/task-types'
 import { createTasksWorld, disposeTasksWorlds, issueRecord } from './helpers/tasks-world'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
@@ -34,11 +34,11 @@ mock.module(`${workspaceUi}/contexts/workspace/session-draft.svelte`, () => ({ o
 
 const { SessionOpening } = await import(`${workspaceUi}/contexts/workspace/session-opening`)
 
-function attemptLink(sessionId: string): TaskSessionLink {
-  return { sessionId, role: 'working', sessionTitle: null, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 } as TaskSessionLink
+function attemptLink(sessionId: string): IssueSessionLink {
+  return { sessionId, role: 'working', sessionTitle: null, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 } as IssueSessionLink
 }
 
-function taskRecord(id: string): Task {
+function taskRecord(id: string): Issue {
   return issueRecord(id, { title: id, category: 'active' })
 }
 
@@ -55,7 +55,7 @@ function harness(openSessions: Record<string, string> = {}) {
     tabs: Object.fromEntries(Object.entries(openSessions).map(([sessionId, tabId]) => [tabId, { id: tabId, sessionId }])),
     sessions: { byId: Object.fromEntries(Object.entries(openSessions).map(([sessionId]) => [sessionId, { id: sessionId, agentSessionId: sessionId, run: { location: folderLocation({ serverId: 'local', path: '/repo' }) } }])) },
     tabOrder: Object.values(openSessions),
-    tasksStore: {
+    issuesStore: {
       get: (taskId: string) => ({ sessions: [attemptLink(`${taskId}-session`)], ownerHost: async () => 'local' }),
     },
     selectTab: (tabId: string) => selectedTabs.push(tabId),
@@ -115,7 +115,7 @@ async function repairHarness(titleAnswers: Map<string, string | null | Error>) {
   const calls: string[] = []
   const world = await createTasksWorld()
   world.connections.registerPrimary('local', {
-    tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+    issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
     ensureBackgroundSessionTitle: async (sessionId: string) => {
       calls.push(`ensure:${sessionId}`)
       const answer = titleAnswers.get(sessionId) ?? null
@@ -123,15 +123,15 @@ async function repairHarness(titleAnswers: Map<string, string | null | Error>) {
       return answer
     },
     setSessionTitle: async (sessionId: string) => { calls.push(`copy:${sessionId}`) },
-    tasksForSession: async (sessionId: string) => { calls.push(`refresh:${sessionId}`); return null },
+    issuesForSession: async (sessionId: string) => { calls.push(`refresh:${sessionId}`); return null },
   })
-  const store = new world.TasksStore()
+  const store = new world.IssuesStore()
   await store.ensureLoaded()
   store.get(TASK).hydrate(issueRecord(TASK), 'local')
   return { store, calls }
 }
 
-function worker(sessionId: string, sessionTitle: string | null): TaskSessionLink {
+function worker(sessionId: string, sessionTitle: string | null): IssueSessionLink {
   return { sessionId, sessionTitle, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 }
 }
 

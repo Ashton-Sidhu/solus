@@ -2,9 +2,9 @@
   /** A settings row's single-choice control: the current value on a quiet
    *  bordered trigger, the choices in a radio menu beneath it. One shape for
    *  every pick-one setting, so a row with three options and a row with eight
-   *  read as the same control. The trigger is deliberately lighter than the
-   *  outline button — normal weight, a whisper of shadow, a muted chevron — so
-   *  it sits in the row rather than standing out from it. */
+   *  read as the same control. The trigger is the same field as a settings
+   *  input — height, border, fill, and radius — so a row with a choice and a
+   *  row with text read as one form. It is as wide as its choice, not wider. */
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
@@ -44,7 +44,7 @@
         variant="outline"
         size={compact ? "xs" : "sm"}
         aria-label={ariaLabel}
-        class="{compact ? 'text-xs' : 'min-w-36 text-sm'} justify-between gap-1.5 border-input bg-white font-normal text-foreground shadow-xs/5 hover:bg-white hover:text-foreground aria-expanded:bg-white dark:bg-input/30 dark:hover:bg-input/30 dark:aria-expanded:bg-input/30"
+        class="{compact ? 'text-xs' : 'h-8 min-w-24 rounded-lg px-2.5 text-[length:inherit]'} justify-between gap-1.5 border-input bg-white font-normal text-foreground shadow-xs/5 hover:bg-white hover:text-foreground aria-expanded:border-(--solus-accent) aria-expanded:bg-white dark:bg-input/30 dark:hover:bg-input/30 dark:aria-expanded:bg-input/30"
         {disabled}
       >
         <span class="truncate">{selectedLabel}</span>

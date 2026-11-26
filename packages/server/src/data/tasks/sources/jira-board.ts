@@ -1,7 +1,7 @@
 import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { z } from 'zod'
-import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
+import type { IssueSource } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '../../../atlassian/api'
 import { jiraStatusCategory } from '../status-category'
 import { createJiraTask, readJiraTask, transitionJiraIssue } from '../providers/jira'
@@ -29,12 +29,12 @@ import {
   type TaskSourceAdapter,
 } from '../providers/types'
 
-type JiraBoard = Extract<TaskSource, { kind: 'jira-board' }>
+type JiraBoard = Extract<IssueSource, { kind: 'jira-board' }>
 type BoardWriteState = Extract<SourceWriteState, { kind: 'jira-board' }>
 
 const PAGE_SIZE = 50
 
-function jiraBoard(source: TaskSource): JiraBoard {
+function jiraBoard(source: IssueSource): JiraBoard {
   if (source.kind !== 'jira-board') throw new Error(`The Jira board source cannot read a ${source.kind} source.`)
   return source
 }
@@ -113,7 +113,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
     )
   }
 
-  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
     const board = jiraBoard(source)
     const boardPath = `/rest/agile/1.0/board/${board.boardId}`
     const [details, configuration, siteStatuses] = await Promise.all([
@@ -123,7 +123,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
     ])
 
     const categoryKeyByStatusId = new Map(siteStatuses.map((status) => [status.id, status.statusCategory.key]))
-    const columns: TaskColumn[] = []
+    const columns: IssueColumn[] = []
     const writeState: BoardWriteState = {
       kind: 'jira-board',
       projectKey: details.location?.projectKey ?? null,
@@ -168,7 +168,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
   }
 
   /** The text goes to Jira, which searches each issue of the board, not only the list Solus holds. */
-  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+  async search(source: IssueSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     if (involvement === 'mentioned') throw new Error('Jira does not expose a reliable mentioned-by-me issue search. Open Jira to use its mention notifications.')
     const board = jiraBoard(source)
     const { issues } = await this.issuesPage(board, [query.trim() ? textClause(query) : '', involvement === 'authored' ? 'reporter = currentUser()' : involvement === 'assigned' ? 'assignee = currentUser()' : ''].filter(Boolean).join(' AND ') || 'created IS NOT EMPTY', 0)
@@ -177,7 +177,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
   }
 
   async create(input: {
-    source: TaskSource
+    source: IssueSource
     writeState: SourceWriteState | null
     draft: TaskDraft
   }): Promise<SourceItem> {
@@ -207,7 +207,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */
-  async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {
+  async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {
     jiraBoard(source)
     return []
   }

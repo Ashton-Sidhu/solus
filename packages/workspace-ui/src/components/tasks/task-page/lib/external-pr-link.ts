@@ -1,8 +1,8 @@
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import type { TaskLinkInput } from '@solus/contracts/task-types'
+import type { IssueLinkInput } from '@solus/contracts/task-types'
 
 export interface ExternalPrLinkCandidate {
-  input: TaskLinkInput
+  input: IssueLinkInput
   label: string
   meta: string
 }

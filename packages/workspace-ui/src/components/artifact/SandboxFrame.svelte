@@ -19,6 +19,8 @@
     rememberReportedHeight,
     holdFrameHeight,
     renderKeyOf,
+    storedHeightAt,
+    type StoredFrameSizes,
   } from "./lib/artifact-view";
   import { getHtmlBlockOrigin } from "../conversation/lib/html-block-origin";
   import { getTranscriptDisclosure } from "../conversation/lib/transcript-disclosure.svelte";
@@ -96,6 +98,10 @@
     /** Rises when the app's data changed on the host. The frame tells the UI,
      *  so its queries run again. */
     dataVersion?: number;
+    /** Heights a host stored for this render by frame width: the frame starts
+     *  at the one for its width, so an opening conversation does not wait for
+     *  the render. A height it measures is sent back through `report`. */
+    storedSizes?: StoredFrameSizes;
   }
 
   let {
@@ -116,6 +122,7 @@
     isolated = false,
     app,
     dataVersion = 0,
+    storedSizes,
   }: Props = $props();
 
   // The caller decides: a frame that shows an app is an app frame. An app is
@@ -171,8 +178,13 @@
   // A frame with no remembered height grows when it reports one. Until then a
   // conversation that opens waits for it, if it is in view.
   let hasHeight = $state(rememberedHeight !== undefined);
+  // Read by a resize observer once the frame is laid out, before it paints:
+  // the stored height for this width is the one the first frame shows.
+  let frameWidth = $state(0);
+  const storedHeight = $derived(hasHeight ? undefined : storedHeightAt(storedSizes?.heights, frameWidth));
+  const frameHeight = $derived(storedHeight ?? contentHeight);
   $effect(() => {
-    if (!hasHeight && !isApp && html !== undefined && frameEl) return holdFrameHeight(frameEl);
+    if (!hasHeight && storedHeight === undefined && !isApp && html !== undefined && frameEl) return holdFrameHeight(frameEl);
   });
   let expanded = $state(false);
 
@@ -252,6 +264,8 @@
       hasHeight = true;
       const key = heightKey ?? html;
       if (key !== undefined) rememberReportedHeight(key, contentHeight);
+      // An expanded or widened frame is not at the reply column's width.
+      if (!expanded && !isWide && frameWidth > 0) storedSizes?.report?.(frameWidth, contentHeight);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -343,7 +357,7 @@
   });
 
   const scale = $derived(
-    expanded ? expandScale(nativeWidth, contentHeight, avail) : 1,
+    expanded ? expandScale(nativeWidth, frameHeight, avail) : 1,
   );
 
   $effect(() => {
@@ -362,7 +376,7 @@
   // A render is as tall as its content, and zooms when expanded. An app's
   // window is sized by the stylesheet alone.
   const frameSize = $derived(
-    isApp ? "" : expanded ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})` : `height:${contentHeight}px`,
+    isApp ? "" : expanded ? `width:${nativeWidth}px;height:${frameHeight}px;transform:scale(${scale})` : `height:${frameHeight}px`,
   );
 </script>
 
@@ -464,6 +478,7 @@
   style:margin-inline={isWide ? `-${sideRoom}px` : undefined}
   data-testid="artifact-view"
   bind:this={frameEl}
+  bind:clientWidth={frameWidth}
 >
   {#if children}
     {@render children()}
@@ -510,7 +525,7 @@
   {:else if html !== undefined}
     <!-- Reserves the frame's resting height so a scroll past an unmounted
          render does not jump when the iframe lands. -->
-    <div class="artifact-placeholder" style={isApp ? undefined : `height:${contentHeight}px`}></div>
+    <div class="artifact-placeholder" style={isApp ? undefined : `height:${frameHeight}px`}></div>
   {/if}
 
   <!-- With a header, the controls are in its row. An expanded frame covers

@@ -1,23 +1,18 @@
 import { z } from 'zod'
 
-export const prSortSchema = z.enum([
-  'ready',
-  'blocked',
-  'updated',
-  'created',
-  'oldest',
-  'smallest',
-  'largest'
-])
+/** The sorts T3 Code offers: time only. A sort an older build saved
+ *  (`ready`, `blocked`, `smallest`, `largest`) reads as the default, so a
+ *  saved view or a device preference that used it keeps its other choices. */
+const REMOVED_PR_SORTS = new Set(['ready', 'blocked', 'smallest', 'largest'])
+export const prSortSchema = z.preprocess(
+  (value) => (typeof value === 'string' && REMOVED_PR_SORTS.has(value) ? 'updated' : value),
+  z.enum(['updated', 'created', 'oldest'])
+)
 export type PrSort = z.infer<typeof prSortSchema>
 export const PR_SORT_OPTIONS: Array<{ value: PrSort; label: string }> = [
-  { value: 'ready', label: 'Merge readiness' },
-  { value: 'blocked', label: 'Blocked on me' },
   { value: 'updated', label: 'Recently updated' },
   { value: 'created', label: 'Newest created' },
-  { value: 'oldest', label: 'Oldest updated' },
-  { value: 'smallest', label: 'Smallest diff' },
-  { value: 'largest', label: 'Largest diff' }
+  { value: 'oldest', label: 'Oldest updated' }
 ]
 const label = z.string().min(1).max(256)
 export const prViewFiltersSchema = z

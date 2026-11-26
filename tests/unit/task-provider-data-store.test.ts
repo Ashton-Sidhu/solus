@@ -24,10 +24,10 @@ describe('provider task data', () => {
   test('loads older GitHub comments and keeps local attribution on duplicate comments', async () => {
     const comment = (id: string) => ({ id, providerCommentId: id, taskId: 'github:I1', body: id, createdAt: 1 })
     const store = new TaskDataStore('github:I1', () => ({
-      tasksGet: async (_id, read) => read?.cursor
+      issuesGet: async (_id, read) => read?.cursor
         ? { ...inspection(null, []), comments: [comment('old'), comment('new')] }
         : { ...inspection('older:1', []), comments: [comment('new')] },
-      tasksReact: async () => {}
+      issuesReact: async () => {}
     }))
     await store.loadProvider()
     await store.loadOlderHistory()
@@ -40,12 +40,12 @@ describe('provider task data', () => {
   test('a failed continuation retains rows and cursor, so retry can finish the same page', async () => {
     let fail = true
     const store = new TaskDataStore('github:I1', () => ({
-      tasksGet: async (_id, read) => {
+      issuesGet: async (_id, read) => {
         if (!read?.cursor) return inspection('older', ['new'])
         if (fail) throw new Error('rate limited')
         return inspection(null, ['old', 'new'])
       },
-      tasksReact: async () => {}
+      issuesReact: async () => {}
     }))
     await store.loadProvider()
     await store.loadOlderHistory()
@@ -63,9 +63,9 @@ describe('provider task data', () => {
     const older = deferred<TaskProviderData>()
     let reads = 0
     const store = new TaskDataStore('github:I1', () => ({
-      tasksGet: async (_id, read) =>
+      issuesGet: async (_id, read) =>
         read?.cursor ? older.promise : inspection('older', [++reads === 1 ? 'first' : 'fresh']),
-      tasksReact: async () => {}
+      issuesReact: async () => {}
     }))
     await store.loadProvider()
     const page = store.loadOlderHistory()
@@ -112,14 +112,14 @@ test('an account change discards an in-flight inspection and permits a new read'
   const old = deferred<TaskProviderData>()
   let first = true
   const store = new TaskDataStore('github:I1', () => ({
-    tasksGet: async () => {
+    issuesGet: async () => {
       if (first) {
         first = false
         return old.promise
       }
       return inspection(null, ['new account'])
     },
-    tasksReact: async () => {}
+    issuesReact: async () => {}
   }))
   const reading = store.loadProvider()
   await Promise.resolve()
@@ -139,7 +139,7 @@ test('templates from a previous source cannot replace the current source choices
     >()
   const store = new TaskTemplateStore()
   const api = {
-    tasksTemplates: async (source: import('@solus/contracts/task-sources').TaskSource) =>
+    issuesTemplates: async (source: import('@solus/contracts/task-sources').IssueSource) =>
       source.kind === 'github-repo' && source.repo === 'old'
         ? slow.promise
         : [{ id: 'new', name: 'New template', description: '', title: '', body: '' }]
@@ -158,8 +158,8 @@ test('a reaction waits for an older read, then reads the provider after the acce
     accepted = deferred<void>()
   let reads = 0
   const store = new TaskDataStore('github:I1', () => ({
-    tasksGet: async () => (++reads === 1 ? old.promise : inspection(null, ['after write'])),
-    tasksReact: async () => {
+    issuesGet: async () => (++reads === 1 ? old.promise : inspection(null, ['after write'])),
+    issuesReact: async () => {
       accepted.resolve()
     }
   }))

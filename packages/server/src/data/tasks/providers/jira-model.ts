@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TaskEpic, TaskPriority } from '@solus/contracts/task-types'
+import type { IssueEpic, IssuePriority } from '@solus/contracts/task-types'
 import { adfBodySchema, adfToMarkdown, type markdownToAdf } from '../../../atlassian/adf'
 import { jiraStatusCategory } from '../status-category'
 import type { ProviderComment, ProviderTask } from './types'
@@ -12,9 +12,9 @@ export const PRIORITY_TO_JIRA = {
   high: 'High',
   medium: 'Medium',
   low: 'Low',
-} satisfies Record<TaskPriority, string>
+} satisfies Record<IssuePriority, string>
 
-export function priorityFromJira(name: string | undefined): TaskPriority | undefined {
+export function priorityFromJira(name: string | undefined): IssuePriority | undefined {
   if (!name) return undefined
   if (/highest|blocker/i.test(name)) return 'urgent'
   if (/high|critical/i.test(name)) return 'high'
@@ -164,7 +164,7 @@ export function browseUrl(siteUrl: string | null, key: string): string | null {
 }
 
 /** The parent as the epic, without its description: that is one more read. */
-export function parentEpic(issue: JiraIssue, siteUrl: string | null): TaskEpic | undefined {
+export function parentEpic(issue: JiraIssue, siteUrl: string | null): IssueEpic | undefined {
   const parent = issue.fields.parent
   if (!parent) return undefined
   return {

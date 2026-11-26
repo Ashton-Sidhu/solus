@@ -14,9 +14,11 @@ const host = vi.hoisted(() => ({
     },
   },
   controller: {
+    run: { provider: "claude-code" },
     historySource: { sessionId: "parent", provider: "claude-code", projectPath: "/repo" },
   },
 }));
+vi.mock("../../solus/agent-child-host", () => ({ remoteAgentChild: () => () => undefined }));
 vi.mock("../../solus/use-session-controller", () => ({
   useSessionController: () => host.controller,
 }));
@@ -40,11 +42,12 @@ vi.mock("./LinkedThreadSheet", () => ({
     <>
       {view.feed.map((row) => (row.type === "message" ? row.message.text : ""))}
       {view.hasOlder && <button onClick={view.loadEarlier}>Earlier</button>}
+      {view.historyFailed && <span role="alert">Earlier page failed</span>}
     </>
   ),
 }));
 
-it("reads the tapped call, pages its history and drops a late page after a scope change", async () => {
+it("retries a failed page and drops a late page after a scope change", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const page = (content: string, before: string | null): SessionHistoryPage => ({
     messages: [{ role: "assistant", content, timestamp: 100 }],
@@ -53,6 +56,7 @@ it("reads the tapped call, pages its history and drops a late page after a scope
   let finish!: (page: SessionHistoryPage) => void;
   host.connection.api.loadSessionSubagent
     .mockResolvedValueOnce(page("First account", "cursor"))
+    .mockRejectedValueOnce(new Error("The connection dropped."))
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -81,6 +85,10 @@ it("reads the tapped call, pages its history and drops a late page after a scope
     await render();
     expect(dom.textContent).toContain("First account");
     await act(async () => dom.querySelector("button")!.click());
+    expect(dom.querySelector('[role="alert"]')?.textContent).toBe("Earlier page failed");
+    expect(dom.textContent).toContain("First account");
+    await act(async () => dom.querySelector("button")!.click());
+    expect(dom.querySelector('[role="alert"]')).toBeNull();
     expect(host.connection.api.loadSessionSubagent).toHaveBeenLastCalledWith({
       sessionId: "parent",
       toolId: "provider-call",

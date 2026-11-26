@@ -103,7 +103,7 @@ describe('desktop main as the client of its own host', () => {
     await w.settle()
     await w.settle()
     expect(w.cloudCalls).toEqual(['/v1/enrollment-tickets'])
-    expect(w.registrations).toEqual([{ ticket: 'set_desktop', directoryUrl: 'https://account.test' }])
+    expect(w.registrations).toEqual([{ ticket: 'set_desktop', directoryUrl: 'https://account.test', link: false }])
     expect(w.asked).toEqual([{ kind: 'host', hostId: 'host-new' }])
     expect(w.presented).toEqual(['token-for-host-new'])
   })

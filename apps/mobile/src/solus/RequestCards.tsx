@@ -6,6 +6,7 @@ import { AppText } from "../components/ui/AppText";
 import { Alert, Pressable, View } from "react-native";
 import { ApprovalCardView } from "../features/threads/PendingApprovalCard";
 import { LinkRequestCard } from "../features/threads/LinkRequestCard";
+import { CloudMachineCard } from "../features/threads/CloudMachineCard";
 import { requestExpiryText } from "@solus/contracts/types";
 import { PendingSecretCard } from "@solus-mobile/features/threads/PendingSecretCard";
 import { ThreadMcpPipDock } from "@solus-mobile/features/threads/ThreadMcpPipDock";
@@ -13,6 +14,7 @@ import type {
   ConversationMeta,
   ConversationStore,
 } from "@solus-mobile/features/conversation/conversation-store";
+import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { PlanCard } from "./PlanCard";
 
 export function RequestCards({
@@ -136,33 +138,15 @@ export function RequestPanels({
           }))}
         />
       ) : null}
-      {question?.kind === "secret" && (
-        <PendingSecretCard
+      {question ? (
+        <OwnQuestionCard
           key={question.questionId}
-          request={question}
-          responding={responding !== null}
-          mayDrive={store.controller.mayApprove}
-          onSubmit={(values) =>
-            submit(question.questionId, () =>
-              store.controller.answerSecretRequest(question.questionId, values),
-            )
-          }
-        />
-      )}
-      {question?.kind === "host-link" && (
-        <LinkRequestCard
-          key={question.questionId}
+          store={store}
           question={question}
-          sessionHostId={store.controller.hostId}
           responding={responding !== null}
-          mayDrive={store.controller.mayApprove}
-          onAnswer={(answers) =>
-            submit(question.questionId, () =>
-              store.controller.answerQuestion(question.questionId, answers),
-            )
-          }
+          submit={submit}
         />
-      )}
+      ) : null}
       {meta.pendingPlan && (
         <PlanCard key={meta.pendingPlan.id} store={store} plan={meta.pendingPlan} />
       )}
@@ -173,6 +157,62 @@ export function RequestPanels({
           plan={plan}
         />
       ))}
+    </>
+  );
+}
+
+/** The question cards that have their own card above the composer (`hasOwnCard`). */
+function OwnQuestionCard({
+  store,
+  question,
+  responding,
+  submit,
+}: {
+  store: ConversationStore;
+  question: PendingQuestion;
+  responding: boolean;
+  submit: (id: string, answer: () => Promise<boolean>) => Promise<void>;
+}) {
+  return (
+    <>
+      {question.kind === "secret" && (
+        <PendingSecretCard
+          request={question}
+          responding={responding}
+          mayDrive={store.controller.mayApprove}
+          onSubmit={(values) =>
+            submit(question.questionId, () =>
+              store.controller.answerSecretRequest(question.questionId, values),
+            )
+          }
+        />
+      )}
+      {question.kind === "host-link" && (
+        <LinkRequestCard
+          question={question}
+          sessionHostId={store.controller.hostId}
+          responding={responding}
+          mayDrive={store.controller.mayApprove}
+          onAnswer={(answers) =>
+            submit(question.questionId, () =>
+              store.controller.answerQuestion(question.questionId, answers),
+            )
+          }
+        />
+      )}
+      {question.kind === "cloud-machine" && question.cloudMachine && (
+        <CloudMachineCard
+          question={question}
+          ask={question.cloudMachine}
+          responding={responding}
+          mayDrive={store.controller.mayApprove}
+          onAnswer={(answers) =>
+            submit(question.questionId, () =>
+              store.controller.answerQuestion(question.questionId, answers),
+            )
+          }
+        />
+      )}
     </>
   );
 }

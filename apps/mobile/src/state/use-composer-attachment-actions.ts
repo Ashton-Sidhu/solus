@@ -107,13 +107,14 @@ export function useComposerAttachmentActions(props: {
       );
     });
   };
-  const onNativePasteImages = async (uris: ReadonlyArray<string>) => {
+  const onNativePasteImages = async (uris: ReadonlyArray<string>, onPreviewReady: () => void) => {
     const key = props.draftKey;
     if (!key || props.locked || !uris.length) return false;
     const insertion = captureComposerDraftInsertion(key);
     return withDraftOperation(key, async (signal) => {
       try {
         const result = await convertPastedImagesToAttachments({ uris });
+        onPreviewReady();
         const rejected = await append(key, signal, result.attachments, insertion);
         report(m(msg("Could not paste images")), result.error, rejected);
         if (signal.aborted) return false;

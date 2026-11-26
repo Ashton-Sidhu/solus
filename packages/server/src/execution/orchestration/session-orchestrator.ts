@@ -974,7 +974,7 @@ export class SessionOrchestrator {
       const report: SessionReport = {
         messageId: draft.exchangeId,
         sessionId: draft.targetSessionId,
-        taskId,
+        issueId: taskId,
         provider: draft.provider,
         model: run?.model,
         executedModel: run?.executedModel,
@@ -1063,7 +1063,7 @@ export class SessionOrchestrator {
     this.openNotices.add(openKey)
     const item: Promise<OrchestrationItem> = this.runtime.taskIdFor(exchange.targetSessionId)
       .catch(() => undefined)
-      .then((taskId) => ({ type: 'notice', notice: taskId ? { ...notice, taskId } : notice }))
+      .then((taskId) => ({ type: 'notice', notice: taskId ? { ...notice, issueId: taskId } : notice }))
     this.delivery.deliver(exchange.senderSessionId, item.then((resolved) => ({
       item: resolved,
       exchangeId: exchange.exchangeId,

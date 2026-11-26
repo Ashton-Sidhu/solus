@@ -7,18 +7,18 @@
 
 import { z } from 'zod'
 import { mcpAppReferenceSchema, type McpAppReference } from './mcp-apps'
-import type { TaskEventKind, TaskLinkKind } from './task-types'
+import type { IssueEventKind, IssueLinkKind } from './task-types'
 import type { AgentId, PermissionDecision, RateLimitDecisionAction } from './types'
 import { attributionSchema, userIdSchema, userSchema, type Attribution, type User, type UserId } from './user'
 
 export interface ActivitySubject {
-  kind: 'session' | 'task' | 'work'
+  kind: 'session' | 'issue' | 'work'
   id: string
 }
 
 /** What a task change points at: a linked item or a started session. */
 export interface TaskEventTarget {
-  kind: TaskLinkKind | 'session'
+  kind: IssueLinkKind | 'session'
   scope?: string
   key?: string
   title?: string
@@ -64,7 +64,7 @@ export type ActivityKind =
   | { kind: 'mentioned'; userId: UserId; threadId?: string }
   // tasks: a field change, a link or a started session; `from`/`to` are the
   // values already stringified (`labels_changed` holds JSON).
-  | { kind: 'task_changed'; change: TaskEventKind; from?: string | null; to?: string | null; target?: TaskEventTarget }
+  | { kind: 'task_changed'; change: IssueEventKind; from?: string | null; to?: string | null; target?: TaskEventTarget }
 
 /** What became of an offer to move the session into the agent's worktree. */
 export type WorktreeOfferResolution =
@@ -133,7 +133,7 @@ export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion(
 export const activitySchema: z.ZodType<Activity> = z.intersection(
   z.object({
     id: z.string(),
-    subject: z.object({ kind: z.enum(['session', 'task', 'work']), id: z.string() }),
+    subject: z.object({ kind: z.enum(['session', 'issue', 'work']), id: z.string() }),
     at: z.number(),
     by: attributionSchema,
     turnId: z.string().optional(),

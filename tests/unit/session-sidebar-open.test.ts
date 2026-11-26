@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, jest, mock, test } from 'bun:test'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import type { SessionExecution } from '@solus/contracts/session-execution'
 import type { OpeningPrefetchLife } from '@solus/workspace-ui/contexts/workspace/session-opening'
 
@@ -63,11 +63,11 @@ function harness(resume: (meta: SessionMeta) => Promise<string> = async () => 't
       sessions: { executionFor: (_serverId: string, sessionId: string) => executions.get(sessionId) },
     },
   })
-  const open = (row: SidebarTask) => (store as unknown as { openListedSession(row: SidebarTask): Promise<void> }).openListedSession(row)
+  const open = (row: SidebarSession) => (store as unknown as { openListedSession(row: SidebarSession): Promise<void> }).openListedSession(row)
   return { store, open, resumed, prefetched, lives, executions }
 }
 
-const row = (sessionId: string) => ({ key: sessionId, sessionId, serverId: 'remote', tabIds: [] }) as unknown as SidebarTask
+const row = (sessionId: string) => ({ key: sessionId, sessionId, serverId: 'remote', tabIds: [] }) as unknown as SidebarSession
 
 beforeEach(() => {
   metaReads = 0

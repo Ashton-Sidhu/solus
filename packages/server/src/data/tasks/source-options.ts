@@ -1,6 +1,6 @@
 import { linearConnection } from './providers/linear-api'
 import { z } from 'zod'
-import type { TaskSourceOptions } from '@solus/contracts/task-types'
+import type { IssueSourceOptions } from '@solus/contracts/task-types'
 import type { AuthStatus } from '@solus/contracts/types'
 import { connectedSite } from '../../atlassian/api'
 import { createLogger } from '../../logger'
@@ -99,8 +99,8 @@ export const defaultTaskSourceOptionsDeps: TaskSourceOptionsDeps = {
   linear: linearConnection,
 }
 
-type GithubOptions = TaskSourceOptions['github']
-type JiraOptions = TaskSourceOptions['jira']
+type GithubOptions = IssueSourceOptions['github']
+type JiraOptions = IssueSourceOptions['jira']
 
 /** The repositories the person pushed to most recently, the newest first. */
 async function githubRepositories(github: GithubRun): Promise<GithubOptions['repositories']> {
@@ -210,8 +210,8 @@ async function jiraOptions(deps: TaskSourceOptionsDeps): Promise<JiraOptions> {
   return options
 }
 
-async function linearOptions(read: typeof linearConnection): Promise<NonNullable<TaskSourceOptions['linear']>> {
-  let options: NonNullable<TaskSourceOptions['linear']>
+async function linearOptions(read: typeof linearConnection): Promise<NonNullable<IssueSourceOptions['linear']>> {
+  let options: NonNullable<IssueSourceOptions['linear']>
   try {
     const account = await read()
     options = { connected: true, account: account.viewer.name, workspaceId: account.organization.id, teams: account.teams.nodes }
@@ -224,11 +224,11 @@ async function linearOptions(read: typeof linearConnection): Promise<NonNullable
 }
 
 /** What the caller can choose as a task source. One provider does not hold the others. */
-export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultTaskSourceOptionsDeps): Promise<TaskSourceOptions> {
+export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultTaskSourceOptionsDeps): Promise<IssueSourceOptions> {
   const [github, jira, linear] = await Promise.all([
     githubOptions(deps), jiraOptions(deps), deps.linear ? linearOptions(deps.linear) : undefined,
   ])
-  const options: TaskSourceOptions = { github, jira }
+  const options: IssueSourceOptions = { github, jira }
   if (linear) options.linear = linear
   return options
 }

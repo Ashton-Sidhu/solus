@@ -8,7 +8,7 @@ import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activit
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
 import type { SessionFolder } from '@solus/contracts/codebases'
 import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
-import type { BackgroundTask, BackgroundTaskKind, ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
+import type { BackgroundTask, BackgroundTaskKind, ContextCompaction, PermissionOption, PromptSender, PromptVia, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
 import { settleSetupCard } from '@solus/contracts/setup-card'
@@ -37,7 +37,7 @@ export const savedTurnItems = new WeakMap<TranscriptItem, NonNullable<WireSessio
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
-  | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
+  | { kind: 'user'; id: string; text: string; sender?: PromptSender; via?: PromptVia; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
   | { kind: 'assistant'; id: string; text: string; replyHtmlLayout?: import('@solus/contracts/session-history').ReplyHtmlLayout[]; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
@@ -296,11 +296,11 @@ export class TranscriptModel {
       if (!row.attachedFilePaths && !backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
       if (backgroundCommand) {
-        this.items.set(id, { kind: 'user', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+        this.items.set(id, { kind: 'user', id, sender: row.sender, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
         return id
       }
       const { text, files } = splitAttachedFiles(row.attachedFilePaths ? row.content : stripSessionReferenceContext(row.content), row.attachedFilePaths)
-      this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
+      this.items.set(id, { kind: 'user', id, sender: row.sender, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
@@ -456,6 +456,9 @@ export class TranscriptModel {
           secretOutcomes: event.secretOutcomes ?? tool.secretOutcomes,
         }))
         return true
+      case 'subagent_running':
+        this.patchToolById(event.toolUseId, false, tool => ({ ...tool, status: 'running', completedAt: undefined, report: null }))
+        return true
       case 'subagent_report':
         this.patchToolById(event.toolUseId, false, (tool) => ({
           ...tool,
@@ -520,6 +523,13 @@ export class TranscriptModel {
         return true
       }
       case 'background_task_settled':
+        if (event.toolUseId) {
+          const id = this.toolRows.find(this, event.toolUseId, true)
+          const tool = id ? this.items.get(id) : undefined
+          if (tool?.kind === 'tool' && tool.subagent) {
+            this.replace({ ...tool, status: event.status === 'completed' ? 'completed' : 'error', completedAt: Date.now() })
+          }
+        }
         this.backgroundTasks = this.backgroundTasks.filter(task => task.taskId !== event.taskId)
         this.metaChanged = true
         return true
@@ -592,7 +602,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }) }]
+        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }), ...(event.cloudMachine && { cloudMachine: event.cloudMachine }) }]
         this.metaChanged = true
         return true
       case 'question_answered':
@@ -953,7 +963,9 @@ export class TranscriptModel {
         if (existing.waitsForTurn) {
           this.order = [...this.order.filter(id => id !== existing.id), existing.id]
           this.orderChanged = true
-          this.replace({ ...existing, text: splitAttachedFiles(event.text).text, waitsForTurn: false })
+          this.replace({ ...existing, sender: event.sender, via: event.via, text: splitAttachedFiles(event.text).text, waitsForTurn: false })
+        } else if (event.sender || event.via) {
+          this.replace({ ...existing, sender: event.sender, via: event.via })
         }
         this.markDelivery(event.clientPromptId, 'sent')
         return
@@ -961,12 +973,12 @@ export class TranscriptModel {
     }
     const backgroundCommand = event.via === 'background-command' ? backgroundCommandWake(event.text) : null
     if (backgroundCommand) {
-      this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+      this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
       return
     }
     const { text, files } = splitAttachedFiles(event.text)
     const attachments = [...promptImageAttachments(event.imageAttachments, event.imageAttachmentRefs), ...files]
-    this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
+    this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
   }
 
   private addPlanItem(id: string, plan: Omit<Extract<TranscriptItem, { kind: 'plan' }>, 'kind' | 'id' | 'planId'>, append: boolean): string {

@@ -1,5 +1,5 @@
 import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
-import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
+import { RUNNING_SERVER_PROVIDER_ENV, RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { readFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { homedir } from 'os'
@@ -125,7 +125,7 @@ export const UI_TO_SDK_PERMISSION_MODE = {
 } satisfies Record<PermissionMode, SdkPermissionMode>
 
 // Harness built-ins that schedule work as cloud agents. Solus owns durable
-// recurring work through its own automation domain (`create_automation`), which
+// recurring work through its own automation domain (`manage_automations`), which
 // runs on this host with the session's project and provider. Leaving these
 // reachable only offers a wrong way to answer "remind me every morning", so the
 // tools are withheld rather than argued against in the system prompt.
@@ -395,7 +395,7 @@ export class ClaudeAgent {
         }],
       },
       ...claudeLaunch(opts.seat, abortController.signal),
-      env: { ...claudeEnv(opts.seat), [RUNNING_SERVER_SESSION_ENV]: opts.solusSessionId ?? '' },
+      env: { ...claudeEnv(opts.seat), [RUNNING_SERVER_SESSION_ENV]: opts.solusSessionId ?? '', [RUNNING_SERVER_PROVIDER_ENV]: 'claude-code' },
     }
     if (opts.seat?.idleCompaction) {
       claudeOptions.supportedDialogKinds = ['resume_return']

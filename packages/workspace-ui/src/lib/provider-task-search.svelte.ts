@@ -1,6 +1,6 @@
 // A task picker lists the tasks its host already holds. A task source that
 // holds more tasks than the host read is truncated, so a query also goes to
-// the provider (`TasksStore.search`), and the picker shows what only the
+// the provider (`IssuesStore.search`), and the picker shows what only the
 // provider found (docs/plans/provider-owned-tasks.md §5).
 
 const SEARCH_DEBOUNCE_MS = 250

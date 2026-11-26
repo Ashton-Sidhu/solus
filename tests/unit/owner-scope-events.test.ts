@@ -29,6 +29,8 @@ test('a local connection on a cloud machine hears only what it may read; on a pe
   expect(presenceAccessFor(PAIRED)).toBe('member')
 
   // A personal machine, also one that is shared with an organization: nothing but the registration changes this.
+  // (Another process: a cloud machine never becomes a personal one.)
+  resetMachineKindForTests()
   adoptRegistration({})
   expect(readsWholeDisk(PAIRED)).toBe(true)
   expect(await eventVisibleTo(PAIRED, event('org-session'), shares)).toBe(true)

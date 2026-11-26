@@ -19,7 +19,7 @@ import type { PrMenuQualifiers } from '@solus/client-core/pr-host-query'
 import type { PrFilterChoice, PrFilterField, PullRequest } from '@solus/contracts/providers'
 import type { ListIcon } from '../../ui/list-page'
 import { labelChipColor } from '../../ui/labels/label-color'
-import { OPEN_PR_STATUS_KEYS, PR_STATUS_OPTIONS, type PrListView } from './prs-list-view'
+import { OPEN_PR_STATUS_KEYS, PR_STATUS_OPTIONS, prStatusGlyph, type PrListView } from './prs-list-view'
 
 export interface PrFilterOption {
   value: string
@@ -27,6 +27,8 @@ export interface PrFilterOption {
   icon?: ListIcon
   avatarUrl?: string
   color?: string
+  /** Text-colour classes for the icon, when the mark has a tone of its own. */
+  toneClass?: string
   count?: number
 }
 
@@ -45,6 +47,12 @@ export interface PrFilterGroup {
   search?: (query: string) => void
   options: PrFilterOption[]
   select: (value: string) => void
+}
+
+/** Whether any choice of a menu carries a mark. A menu of words alone keeps
+ *  no empty leading slot, so its labels start at the menu's edge. */
+export function prFilterHasMarks(group: Pick<PrFilterGroup, 'key' | 'options'>): boolean {
+  return group.options.some((option) => option.icon || option.color || option.avatarUrl || (group.key === 'author' && option.value === ''))
 }
 
 /** The state crumb's value: the open queue, one landed state, or everything. */
@@ -166,8 +174,11 @@ export function prFilterGroups(
       value: stateValue, valueLabel: stateValue === 'all' ? 'All' : `${stateValue[0].toUpperCase()}${stateValue.slice(1)}`,
       active: stateValue !== 'open',
       options: [
-        { value: 'open', label: 'Open' }, { value: 'merged', label: 'Merged' },
-        { value: 'closed', label: 'Closed' }, { value: 'all', label: 'All' },
+        ...(['open', 'merged', 'closed'] as const).map((status): PrFilterOption => {
+          const glyph = prStatusGlyph(status)
+          return { value: status, label: glyph.label, icon: glyph.icon, toneClass: glyph.toneClass }
+        }),
+        { value: 'all', label: 'All', icon: AllIcon },
       ],
       select: (value) => onStatusChange(prStatusKeysFor(value)),
     },
@@ -197,7 +208,7 @@ export function prFilterGroups(
       const selected = key === 'labels' ? listView.labelGroups?.flat() ?? listView.labels ?? (listView.label ? [listView.label] : []) : listView.excludedLabels ?? []
       return { key, label: key === 'labels' ? 'Include labels' : 'Exclude labels', icon: TagIcon,
         value: '', valueLabel: selected.length ? `${selected.length} selected` : 'Any', active: selected.length > 0,
-        multiple: true, selected, searchable: true, options: [...options.labels, ...selected.filter((label) => !options.labels.some((option) => option.value.toLowerCase() === label.toLowerCase())).map((label) => ({ value: label, label }))], search: (query) => options.search('label', query),
+        multiple: true, selected, searchable: true, options: [...options.labels, ...selected.filter((label) => !options.labels.some((option) => option.value.toLowerCase() === label.toLowerCase())).map((label) => ({ value: label, label, color: labelChipColor('') }))], search: (query) => options.search('label', query),
         select: (value) => {
           const next = !value ? [] : selected.includes(value) ? selected.filter((label) => label !== value) : [...selected, value]
           if (key === 'labels') {

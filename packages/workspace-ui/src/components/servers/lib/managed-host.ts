@@ -18,6 +18,11 @@ const LIFECYCLE_LABELS = {
   deleting: 'Deleting',
 } satisfies Record<ManagedHostLifecycle, string>
 
+/** The word for a state of managed compute: "Ready", "Stopped". */
+export function managedHostLifecycleLabel(state: ManagedHostLifecycle): string {
+  return LIFECYCLE_LABELS[state]
+}
+
 /** A cloud machine of an organization: its mark is the cloud, whatever it runs on. */
 export function isCloudHost(uplink: KnownHostUplink | undefined): boolean {
   return uplink?.kind === 'cloud'
@@ -44,7 +49,7 @@ export function hostHasManagedCompute(host: { uplink?: KnownHostUplink } | { unk
  */
 export function managedHostStateLabel(uplink: KnownHostUplink | undefined): string | null {
   const state = uplink?.managedState
-  return awaitsManagedCompute(uplink) && state ? LIFECYCLE_LABELS[state] : null
+  return awaitsManagedCompute(uplink) && state ? managedHostLifecycleLabel(state) : null
 }
 
 /** A machine with managed compute takes work only when the compute is ready; it stays listed the rest of the time so its state is visible. */

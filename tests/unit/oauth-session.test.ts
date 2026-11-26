@@ -103,6 +103,15 @@ describe('OAuthSession sign-in', () => {
     expect(closed.memory.current()).toBeNull()
   })
 
+  test('the authorize request names the machine only when the client gives its name, so the sign-in page can show it', async () => {
+    const plane = fakeAccountPlane({})
+    const named = new OAuthSession({ cloudOrigin: ISSUER, clientId: plane.clientId, store: memoryStore().store, machineName: 'Ada’s MacBook', fetch: plane.fetch, now: plane.now })
+    const { authorizeUrl } = await named.beginSignIn('http://127.0.0.1:50000/callback')
+    expect(authorizeUrl.searchParams.get('machine_name')).toBe('Ada’s MacBook')
+    const { authorizeUrl: unnamed } = await world().session.beginSignIn('http://127.0.0.1:50000/callback')
+    expect(unnamed.searchParams.has('machine_name')).toBe(false)
+  })
+
   test('a callback with another state is refused, so a forged redirect cannot sign a client in', async () => {
     const w = world()
     const { authorizeUrl, pending } = await w.session.beginSignIn('http://127.0.0.1:50000/callback')

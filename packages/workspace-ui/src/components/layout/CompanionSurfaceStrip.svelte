@@ -78,7 +78,7 @@
 
   const titles: SurfaceTitleSources = {
     sessionTitle: (sessionId) => session.sessions.byId[sessionId]?.title,
-    taskTitle: (taskId) => session.tasksStore.peek(taskId)?.title,
+    taskTitle: (taskId) => session.issuesStore.peek(taskId)?.title,
     workTitle: (workId) => session.worksStore.get(workId)?.title,
     planTitle: (planId) => session.planStore.get(planId)?.title,
     automationName: (automationId) => session.automationsStore.get(automationId)?.name,

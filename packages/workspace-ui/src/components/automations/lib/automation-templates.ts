@@ -22,7 +22,7 @@ export interface AutomationTemplate {
 }
 
 /** The prompt that hands a one-line description off to an agent session, which
- *  authors the automation with its `create_automation` tool. The agent has to be
+ *  authors the automation with its `manage_automations` tool. The agent has to be
  *  told where to run it — a headless run has no ambient working directory. */
 export function draftAutomationPrompt(description: string, cwd: string): string {
   return [
@@ -30,7 +30,7 @@ export function draftAutomationPrompt(description: string, cwd: string): string 
     '',
     description.trim(),
     '',
-    `Create it with the create_automation tool, with its working directory set to ${cwd}. Write the instructions out in full — they are all the agent running it will see, so they have to stand alone without this conversation.`,
+    `Create it with the manage_automations tool (action create), with its working directory set to ${cwd}. Write the instructions out in full — they are all the agent running it will see, so they have to stand alone without this conversation.`,
     'Pick the schedule the description implies, and leave it manual if none is implied. Ask me before saving if the cadence or the scope is ambiguous.',
   ].join('\n')
 }

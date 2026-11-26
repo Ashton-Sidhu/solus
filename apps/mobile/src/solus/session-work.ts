@@ -1,64 +1,24 @@
 import {
-  NodeId,
   RunId,
-  ThreadId,
-  ProviderDriverKind,
-  ProviderInstanceId,
-  type OrchestrationV2Subagent,
   type OrchestrationV2PendingBackgroundTask,
 } from "@t3tools/contracts";
 import { deriveThreadTurnSubagents } from "@t3tools/client-runtime/state/thread-subagents";
-import { DateTime } from "effect";
 import { atomFromConversation } from "./session-detail";
-import { agentCardStatus } from "@solus-mobile/features/conversation/lib/agent-cards";
 import type { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
 import type { AgentId } from "@solus/contracts/types";
-import { subagentTitle } from "@solus/contracts/subagent-input";
+import { remoteAgentChild } from "./agent-child-host";
+import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
 
-function providerReportPreview(report: string | null): string | null {
-  if (!report?.startsWith("[Subagent hand-back] The text below is the final report")) return report;
-  return report.replace(/^[\s\S]*?(?:\r?\n[ \t]*\r?\n|$)/, "").trim() || null;
-}
-
-export function sessionAgents(model: TranscriptModel, id: string, provider: AgentId) {
-  const subagents = model.agentRows.map((item): OrchestrationV2Subagent => {
-    const agent = item.kind === "agent";
-    const time = DateTime.makeUnsafe(agent ? item.startedAt : (item.timestamp ?? 0));
-    const driver =
-      (agent ? (item.provider ?? provider) : provider) === "claude-code" ? "claudeAgent" : "codex";
-    const status = agent ? agentCardStatus(item) : item.status;
-    const promptId = model.agentTurnIds.get(item.id);
-    const completedAt = agent ? item.settledAt : item.completedAt;
-    return {
-      id: NodeId.make(item.id),
-      parentNodeId: NodeId.make(id),
-      threadId: ThreadId.make(id),
-      runId: promptId ? RunId.make(promptId) : null,
-      driver: ProviderDriverKind.make(driver),
-      providerInstanceId: ProviderInstanceId.make(driver),
-      origin: agent ? "app_owned" : "provider_native",
-      childThreadId: agent ? ThreadId.make(item.sessionId) : null,
-      createdBy: "agent",
-      providerThreadId: null,
-      nativeTaskRef: agent
-        ? null
-        : { driver: ProviderDriverKind.make(driver), nativeId: item.toolId, strength: "strong" },
-      title: agent ? item.title : subagentTitle(item.input ?? undefined),
-      prompt: agent ? item.prompt : "",
-      model: agent ? item.model : null,
-      status:
-        status === "done" || status === "completed"
-          ? "completed"
-          : status === "error" || status === "failed"
-            ? "failed"
-            : status === "lost" || status === "interrupted"
-              ? "interrupted"
-              : "running",
-      result: agent ? item.reply : providerReportPreview(item.report),
-      startedAt: time,
-      updatedAt: time,
-      completedAt: completedAt == null ? null : DateTime.makeUnsafe(completedAt),
-    };
+export function sessionAgents(
+  model: TranscriptModel,
+  id: string,
+  provider: AgentId,
+  remoteChild?: AgentFeedContext["child"],
+) {
+  const subagents = model.agentRows.map((item) => {
+    const prompt = model.agentTurnIds.get(item.id);
+    return sessionSubagent(item, id, prompt ? RunId.make(prompt) : null, provider,
+      item.kind === "agent" ? remoteChild?.(item) : undefined);
   });
   const result = deriveThreadTurnSubagents({ runs: [], subagents });
   if (!result) return null;
@@ -84,7 +44,7 @@ export const sessionAgentsAtom = atomFromConversation((store) => {
       status = model.status;
       promptId = model.latestPromptId;
       previous = model.agentRows;
-      result = sessionAgents(model, run.sessionId, run.provider);
+      result = sessionAgents(model, run.sessionId, run.provider, remoteAgentChild(store.controller.hostId));
     }
     return result;
   };

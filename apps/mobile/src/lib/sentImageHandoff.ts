@@ -1,6 +1,7 @@
 export interface SentImageHandoff {
   readonly uri: string;
-  readonly aspectRatio: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 // A sent image's local pixels and shape, so the pending bubble and then the delivered copy open at
@@ -10,7 +11,7 @@ const MAX_ENTRIES = 64;
 const images = new Map<string, SentImageHandoff>();
 
 function remember(key: string, image: SentImageHandoff) {
-  if (!Number.isFinite(image.aspectRatio) || image.aspectRatio <= 0) return;
+  if (!Number.isFinite(image.width) || image.width <= 0 || !Number.isFinite(image.height) || image.height <= 0) return;
   images.delete(key);
   images.set(key, image);
   if (images.size > MAX_ENTRIES) images.delete(images.keys().next().value!);

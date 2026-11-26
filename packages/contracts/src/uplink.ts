@@ -460,6 +460,13 @@ export const directoryWorkspaceSchema = z.object({
   isActive: z.boolean(),
   /** The organization's host rules, so a client can show them beside its content. */
   hostRules: hostRulesSchema,
+  /**
+   * `false`: the organization's policy keeps the conversations of its sessions
+   * on their hosts (`sessions.limits.sessionCloudSync`). A client then reads
+   * these sessions from their hosts, and not from this service
+   * (`client-core/src/session-home.ts`). Absent means `true`.
+   */
+  sessionCloudSync: z.boolean().optional(),
 })
 export type DirectoryWorkspace = z.infer<typeof directoryWorkspaceSchema>
 
@@ -468,6 +475,12 @@ export type DirectoryWorkspace = z.infer<typeof directoryWorkspaceSchema>
 export const directoryResponseSchema = z.object({
   hosts: z.array(directoryHostSchema),
   workspaces: z.array(directoryWorkspaceSchema),
+  /**
+   * The sizes a new cloud machine may have: only in the answer to a host that reads the
+   * directory for a person with its delegated token, so the cloud machine tools know
+   * them without `GET /v1/account` (plans/035-cloud-machine-tools.md §4).
+   */
+  managedHostCatalog: z.lazy(() => managedHostCatalogSchema).optional().catch(undefined),
 })
 export type DirectoryResponse = z.infer<typeof directoryResponseSchema>
 
@@ -490,6 +503,19 @@ export const enrollmentTicketResponseSchema = z.object({
   organizationId: z.string().min(1).optional(),
 })
 export type EnrollmentTicketResponse = z.infer<typeof enrollmentTicketResponseSchema>
+
+/**
+ * The prefix of a ticket that registers a cloud machine of one organization. A personal
+ * ticket starts with `set_`. The host reads the kind from the code, so it can refuse
+ * an organization code on a server that holds work before it spends the one-use ticket.
+ * The control plane decides by its own record of the ticket, never by the prefix.
+ */
+export const ORGANIZATION_TICKET_PREFIX = 'org_'
+export const PERSONAL_TICKET_PREFIX = 'set_'
+
+export function isOrganizationTicket(ticket: string): boolean {
+  return ticket.startsWith(ORGANIZATION_TICKET_PREFIX)
+}
 
 /**
  * The code a person copies to link a host: the ticket and the account plane that
@@ -522,9 +548,10 @@ export const enrollHostRequestSchema = z.object({
   label: z.string().min(1).max(120),
   os: hostOperatingSystemSchema.optional(),
   /**
-   * A cloud machine's own HTTPS address, as its operator gave it (`solus setup --address`).
-   * Necessary with an organization ticket: a cloud machine has no tunnel. Refused with a
-   * personal ticket.
+   * The machine's own HTTPS address, as its operator gave it (`solus setup --address`):
+   * the internet reaches the host there, and it gets no tunnel. Absent, the host is
+   * reached through a tunnel. Absent also for a machine with managed compute, whose
+   * address the control plane has from its provider.
    */
   address: z.string().min(1).optional(),
   /** The public half of the host credential the host made for this registration (ADR 0001 §3.4). Each registration has a new one. */
@@ -536,8 +563,8 @@ export type EnrollHostRequest = z.infer<typeof enrollHostRequestSchema>
  * `POST /v1/hosts/enroll` answers the registration (ADR 0001 §2.2 rule 8). It makes no
  * tunnel: a personal host is reached on its local network, by pairing, or after its
  * owner links it (`POST /v1/hosts/:hostId/link`). An organization ticket answers a
- * registration that names the organization, and the same link call then answers the
- * machine's own address.
+ * registration that names the organization. The link call then answers the machine's
+ * own address when it has one, and a tunnel when it has none.
  */
 export const enrollHostResponseSchema = z.object({
   registration: hostRegistrationSchema,
@@ -614,6 +641,18 @@ export const managedHostSpecChangeResponseSchema = z.object({
   changed: z.boolean(),
 })
 
+/**
+ * `GET /v1/hosts/<hostId>/spec`: an organization owner reads a managed host's spec, for
+ * the edit card of `update_host` (plans/035-cloud-machine-tools.md §4). `size`
+ * is the catalog id; null when the machine has none recorded.
+ */
+export const managedHostSpecResponseSchema = z.object({
+  size: z.string().min(1).nullable(),
+  packages: z.array(z.string()),
+  setupScript: z.string(),
+})
+export type ManagedHostSpecResponse = z.infer<typeof managedHostSpecResponseSchema>
+
 /** One size a managed host may have. CPU and memory are absent when the machine grows on its own. */
 export const managedHostSizeSchema = z.object({
   id: z.string().min(1),
@@ -660,6 +699,10 @@ export const accountOrganizationSchema = z.object({
   mayCreateManagedHost: z.boolean(),
   /** The organization's host rules (§3.1). */
   hostRules: hostRulesSchema,
+  /** As `DirectoryWorkspace.sessionCloudSync`: `false` when the organization's policy keeps its sessions on their hosts. */
+  sessionCloudSync: z.boolean().optional(),
+  /** Sign-up named it for the person; the app header offers to rename it (docs/plans/one-page-onboarding.md decision 2). Absent from an older control plane. */
+  namePending: z.boolean().optional().catch(undefined),
 })
 export type AccountOrganization = z.infer<typeof accountOrganizationSchema>
 
@@ -933,7 +976,7 @@ export const hostLinkResponseSchema = z.object({
   tunnel: hostTunnelSchema.nullable(),
   /**
    * The webhook forwarder secret of the current link (see `linkHostResponseSchema`), only
-   * while linked. A managed host gets it only here: the control plane links it.
+   * while linked.
    */
   forwarderSecret: z.string().min(1).optional(),
   /**
@@ -945,12 +988,15 @@ export const hostLinkResponseSchema = z.object({
 export type HostLinkResponse = z.infer<typeof hostLinkResponseSchema>
 
 /**
- * `POST /v1/hosts/:id/link` with the host's control token: turn the tunnel on (ADR 0001
- * §2.2 rule 9). The answer is the tunnel and its connector token; nothing else changes.
- * `DELETE` on the same path turns it off and removes only the tunnel.
+ * `POST /v1/hosts/:id/link` with the host's control token: turn the link on (ADR 0001
+ * §2.2 rule 9). A host with an address is reached there; any other host gets a tunnel
+ * and its connector token. Nothing else changes. `DELETE` on the same path turns the
+ * link off, removes the tunnel, and forgets the address of a personal host.
  */
 export const linkHostRequestSchema = z.object({
   proxiedPort: z.number().int().min(1).max(65535),
+  /** Sets or changes the address of a personal host; absent keeps what the host has. */
+  address: z.string().min(1).optional(),
 })
 export type LinkHostRequest = z.infer<typeof linkHostRequestSchema>
 
@@ -958,8 +1004,8 @@ export const linkHostResponseSchema = z.object({
   tunnel: hostTunnelSchema,
   /**
    * `cloudflared` credential; tunnel only, never an API credential. Absent when the
-   * host is reached directly: a managed host's platform proxy forwards its URL to the
-   * proxied listener, so there is no tunnel to run.
+   * host is reached at its own address: that address forwards to the proxied listener,
+   * so there is no tunnel to run.
    */
   connectorToken: z.string().min(1).optional(),
   /**
@@ -1001,42 +1047,18 @@ export const hookDrainResponseSchema = z.object({
 })
 export type HookDrainResponse = z.infer<typeof hookDrainResponseSchema>
 
-// ── Provisioned host link ────────────────────────────────────────────────────
+// ── A machine that enrolls at boot ──────────────────────────────────────────
 
 /**
- * How a host the control plane provisioned gets its registration and link
- * (docs/plans/managed-hosts.md §2): the control plane hands the registration record,
- * the machine's address, and a one-time credential ticket to the host's boot, which
- * puts them in the server's environment as JSON (`SOLUS_HOST_LINK`). At its first boot
- * of that registration the host makes its own key pair and registers the public half
- * with the ticket (`POST /v1/hosts/:hostId/credential`). The private key never leaves
- * the machine, and the ticket works once, so nothing that passes through the
- * provisioner proves the host after its first boot (ADR 0001 §3.4). Such a link has no
- * connector token: the machine is reached through its platform URL, not a tunnel.
+ * A machine that no person sets up gets its link code in its environment
+ * (plans/034-one-cloud-machine-kind.md §3): the control plane made it through a compute
+ * provider, or a script starts it. The server reads the code once, removes it from the
+ * environment before any child process starts, and enrolls with it before it opens a
+ * listener, as `solus setup --link CODE` does for a person. `SOLUS_MACHINE_ADDRESS` is
+ * the machine's own HTTPS address, when the control plane does not know it already.
  */
-export const hostLinkEnvSchema = z.object({
-  registration: hostRegistrationSchema,
-  tunnel: hostTunnelSchema,
-  credentialTicket: z.string().min(1),
-})
-export type HostLinkEnv = z.infer<typeof hostLinkEnvSchema>
-export const HOST_LINK_ENV = 'SOLUS_HOST_LINK'
-
-/**
- * `POST /v1/hosts/:hostId/credential`: a provisioned host registers the public half of
- * its key with the ticket its link carries. The ticket works once. The same key sent
- * again is accepted, so a host whose answer was lost can ask again.
- */
-export const hostCredentialRequestSchema = z.object({
-  credentialTicket: z.string().min(1),
-  publicJwk: hostPublicJwkSchema,
-})
-export type HostCredentialRequest = z.infer<typeof hostCredentialRequestSchema>
-
-export const hostCredentialResponseSchema = z.object({
-  oauthClient: z.object({ clientId: z.string().min(1) }),
-})
-export type HostCredentialResponse = z.infer<typeof hostCredentialResponseSchema>
+export const LINK_CODE_ENV = 'SOLUS_LINK_CODE'
+export const MACHINE_ADDRESS_ENV = 'SOLUS_MACHINE_ADDRESS'
 
 // ── Host delegations ─────────────────────────────────────────────────────────
 
@@ -1124,7 +1146,7 @@ export const uplinkErrorCodeSchema = z.enum([
   'tunnel_account_limit',
   'managed_hosts_not_configured',
   'managed_provisioning_failed',
-  /** An organization ticket was redeemed with no address, or a personal one with an address. */
+  /** The address a host gave is not an `https:` origin with no path, query, or credentials. */
   'machine_address_invalid',
   'refused_by_host_policy',
   'workspace_not_configured',
@@ -1143,6 +1165,10 @@ export const uplinkErrorCodeSchema = z.enum([
   'push_not_configured',
   /** APNs did not accept a Live Activity update; the host must retry it. */
   'push_delivery_failed',
+  /** A host that acts for a person asked to change, stop, restart, or delete itself (plans/035-cloud-machine-tools.md §4). */
+  'acting_host_is_target',
+  /** A host that acts for a person in one organization asked for another organization's host or record (plans/035 §4). */
+  'outside_delegation',
 ])
 export type UplinkErrorCode = z.infer<typeof uplinkErrorCodeSchema>
 
@@ -1156,14 +1182,18 @@ export const uplinkErrorBodySchema = z.object({
 
 /**
  * The owner's client hands the host a ticket and tells it where the directory is
- * (`uplinkRegister`). A host that is registered already ignores the ticket.
+ * (`uplinkRegister`). A host that is registered already ignores a personal ticket and
+ * refuses an organization ticket.
  */
 export interface HostRegistrationRequest {
   ticket: string
   /** The account origin that issued the ticket, e.g. `https://app.solus.sh`. */
   directoryUrl: string
-  /** The machine's own HTTPS address, for an organization ticket (`enrollHostRequestSchema`). */
+  /** The machine's own HTTPS address (`enrollHostRequestSchema`); absent, the host gets a tunnel. */
   address?: string
+  /** `false` registers without turning the link on: the desktop's own host stays off the
+   *  internet until its owner turns Link on (docs/plans/one-page-onboarding.md decision 4). */
+  link?: boolean
 }
 
 /** Whether the host is registered to an account (rule 8), and whose. */
@@ -1178,13 +1208,15 @@ export const hostRegistrationStatusSchema = z.discriminatedUnion('registered', [
 ])
 export type HostRegistrationStatus = z.infer<typeof hostRegistrationStatusSchema>
 
-/** Whether the internet reaches the host through its tunnel (rule 9). */
+/** Whether the internet reaches the host, at its own address or through its tunnel (rule 9). */
 export const hostLinkStatusSchema = z.discriminatedUnion('linked', [
   /** `error`: the stored link Solus cloud no longer accepts, and why. Linking again replaces it. */
   z.object({ linked: z.literal(false), error: z.string().optional() }),
   z.object({
     linked: z.literal(true),
     tunnel: hostTunnelSchema,
+    /** `direct`: the host is reached at its own address, with no tunnel. Absent is a tunnel. */
+    reach: z.enum(['tunnel', 'direct']).optional(),
     state: uplinkLinkStateSchema,
   }),
 ])

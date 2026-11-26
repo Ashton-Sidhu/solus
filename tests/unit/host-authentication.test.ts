@@ -10,11 +10,12 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/034-one-cloud-machine-kind.md §2, §3: a server that registers with an
 // organization code is a cloud machine of that organization. The registration names
-// the organization, and nothing else makes a cloud machine. The code is refused on a
+// the organization, and nothing else makes a cloud machine: not the address of the
+// machine, which only says how the internet reaches it. The code is refused on a
 // server that is registered already or that holds sessions, before its one-use ticket
-// is sent: a cloud machine starts with new data. Only the end of the registration
-// makes the server personal again — the link plays no part
-// (docs/adr/0001-standard-authentication.md §2.2 rule 9).
+// is sent: a cloud machine starts with new data. A cloud machine stays one: the link
+// plays no part (docs/adr/0001-standard-authentication.md §2.2 rule 9), and the end
+// of its registration leaves the record of its organization in the data directory.
 //
 // plans/010-standard-oauth.md: the host acts for a person with its own OAuth client
 // and its key (docs/adr/0001-standard-authentication.md §3.4) — one token exchange
@@ -28,7 +29,7 @@ const DIRECTORY = 'https://app.example.test'
 const hostKey = await generateHostKey()
 const API = 'https://api.example.test'
 const HOST_ID = 'abcdefghijklmnop'
-/** The machine's own HTTPS address, as its operator gave it with the organization code. */
+/** The machine's own HTTPS address, as its operator gave it with the code. */
 const ADDRESS = 'https://vm.example.test'
 
 interface Call { method: string; url: string; body: unknown; authorization: string | null }
@@ -98,13 +99,13 @@ describe('the registration of a cloud machine', () => {
   })
   const enrollCalls = (plane: ReturnType<typeof controlPlane>) => plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))
 
-  test('an organization code registers a cloud machine: the ticket goes with the machine\'s address, the server is a cloud machine at once, a restart reads it, unlinking leaves it, and only the end of the registration makes it personal again', async () => {
+  test('an organization code registers a cloud machine: the ticket goes with the machine\'s address, the server is a cloud machine at once, a restart reads it, and neither an unlink nor the end of the registration makes it personal again', async () => {
     const plane = controlPlane({ enroll: () => enrolled('org_a') })
     const first = registrar(plane.fetchImpl)
     expect(machine.machineKind()).toBe('personal')
-    await first.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })
+    await first.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY, address: ADDRESS })
     expect(enrollCalls(plane)).toHaveLength(1)
-    expect(enrollCalls(plane)[0]).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`, body: { ticket: 'set_org', address: ADDRESS, installationId: 'install-1' } })
+    expect(enrollCalls(plane)[0]).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`, body: { ticket: 'org_ticket', address: ADDRESS, installationId: 'install-1' } })
     // The server does not say what it is: the control plane decides the kind from the ticket.
     expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('category')
     // WHY: the pairing door and the trusted network position must close with no restart.
@@ -122,15 +123,34 @@ describe('the registration of a cloud machine', () => {
     await tunnel.unlink()
     expect(first.current()?.organizationId).toBe('org_a')
     expect(machine.machineKind()).toBe('cloud')
-    // The machine was deleted in Solus cloud: the registration ends at the next check, and the kind with it.
+    // The machine was deleted in Solus cloud: the registration ends at the next check. The kind does not.
+    // WHY: the sessions on this disk are the organization's. A personal machine has a pairing door and a local owner.
     const deleted = registrar(controlPlane({ check: () => Response.json({ error: 'invalid_host_credential' }, { status: 401 }) }).fetchImpl)
     await deleted.resume()
     expect(deleted.current()).toBeNull()
     expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
-    expect(machine.machineKind()).toBe('personal')
+    expect(machine.machineKind()).toBe('cloud')
+    expect(machine.cloudOrganizationId()).toBe('org_a')
+    // The next boot has no registration to read. It adopts what the data directory remembers, as `adoptStartupRegistration` does.
+    machine.resetMachineKindForTests()
+    machine.adoptRegistration(registrationModule.readStoredCloudMachine())
+    machine.adoptRegistration(registrationModule.readStoredRegistration())
+    expect(machine.machineKind()).toBe('cloud')
+    expect(machine.cloudOrganizationId()).toBe('org_a')
+    expect(machine.hasManagedCompute()).toBe(false)
   })
 
-  test('a personal code sends no address and registers a personal machine, also for a standalone server', async () => {
+  test('an organization code with no address registers a cloud machine all the same: the ticket decides, not the address', async () => {
+    const plane = controlPlane({ enroll: () => enrolled('org_a') })
+    const instance = registrar(plane.fetchImpl)
+    await instance.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY })
+    expect(enrollCalls(plane)[0]!.body).toMatchObject({ ticket: 'org_ticket' })
+    expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('address')
+    expect(machine.machineKind()).toBe('cloud')
+    expect(machine.cloudOrganizationId()).toBe('org_a')
+  })
+
+  test('a personal code registers a personal machine, also for a standalone server, with its address or with none', async () => {
     // WHY: a standalone server is not a machine kind. Nothing but an organization in the registration makes a cloud machine.
     const plane = controlPlane()
     const instance = registrar(plane.fetchImpl)
@@ -140,6 +160,17 @@ describe('the registration of a cloud machine', () => {
     expect(enrollCalls(plane)[0]!.body).not.toHaveProperty('category')
     expect(instance.current()).not.toHaveProperty('organizationId')
     expect(machine.machineKind()).toBe('personal')
+    expect(registrationModule.readStoredCloudMachine()).toBeNull()
+  })
+
+  test('a personal code with an address registers a personal machine: the address says how it is reached, not what it is', async () => {
+    const plane = controlPlane()
+    const instance = registrar(plane.fetchImpl)
+    await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY, address: ADDRESS })
+    expect(enrollCalls(plane)[0]!.body).toMatchObject({ ticket: 'set_ticket', address: ADDRESS })
+    expect(instance.current()).not.toHaveProperty('organizationId')
+    expect(machine.machineKind()).toBe('personal')
+    expect(registrationModule.readStoredCloudMachine()).toBeNull()
   })
 
   test('an organization code is refused on a server that is registered already, before its ticket is sent', async () => {
@@ -149,7 +180,7 @@ describe('the registration of a cloud machine', () => {
     const instance = registrar(plane.fetchImpl, async () => { asked++; return false })
     await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
     const before = plane.calls.length
-    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/registered already.*new data directory/) })
+    await expect(instance.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/registered already.*new data directory/) })
     expect(plane.calls).toHaveLength(before)
     expect(enrollCalls(plane)).toHaveLength(1)
     expect(instance.current()).toEqual(enrolled().registration)
@@ -158,33 +189,48 @@ describe('the registration of a cloud machine', () => {
     expect(asked).toBe(0)
   })
 
+  test('the server of the desktop app takes no organization code, before any request; it takes a personal code', async () => {
+    // WHY: the desktop app's computer is a person's own always. Only a standalone server becomes a cloud machine.
+    const plane = controlPlane({ enroll: () => enrolled() })
+    const desktop = new registrationModule.HostRegistrar({
+      installationId: () => 'install-1', hostLabel: () => 'Laptop', os: () => 'macos', owner: () => null, fetchImpl: plane.fetchImpl, isDesktopApp: () => true,
+    })
+    await expect(desktop.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/desktop app is a personal computer/) })
+    expect(plane.calls).toEqual([])
+    await desktop.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    expect(desktop.current()).toEqual(enrolled().registration)
+  })
+
   test('an organization code is refused on a server that holds sessions, before any request', async () => {
     const plane = controlPlane({ enroll: () => enrolled('org_a') })
     const holding = registrar(plane.fetchImpl, async () => true)
-    await expect(holding.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/holds sessions already.*new data directory/) })
+    await expect(holding.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toMatchObject({ code: 'register-rejected', message: expect.stringMatching(/holds sessions already.*new data directory/) })
     // A server that cannot answer yet (its history is still being read) is refused the same way.
     const reading = registrar(plane.fetchImpl, async () => { throw new registrationModule.HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.') })
-    await expect(reading.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toThrow(/still reading its session history/)
+    await expect(reading.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/still reading its session history/)
     expect(plane.calls).toEqual([])
     expect(holding.current()).toBeNull()
     expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
     expect(machine.machineKind()).toBe('personal')
     // The same server with no sessions registers.
     const empty = registrar(plane.fetchImpl, async () => false)
-    await empty.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })
+    await empty.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY, address: ADDRESS })
     expect(empty.current()?.organizationId).toBe('org_a')
   })
 
   test.each([
     ['not_a_member', 403, /no longer a member/],
-    ['machine_address_invalid', 400, /needs the HTTPS address of this machine/],
+    ['machine_address_invalid', 400, /address of this machine is not valid.*https:\/\//],
     ['refused_by_host_policy', 403, /does not allow cloud machines/],
+    // A Solus cloud with no tunnels cannot reach a machine that gave no address.
+    ['tunnel_not_configured', 409, /has no tunnels.*`--address`/],
   ] as const)('a code the control plane refuses with %s says why and registers nothing', async (error, status, message) => {
     const plane = controlPlane({ enroll: () => Response.json({ error }, { status }) })
     const instance = registrar(plane.fetchImpl)
-    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toThrow(message)
+    await expect(instance.register({ ticket: 'org_ticket', directoryUrl: DIRECTORY, address: ADDRESS })).rejects.toThrow(message)
     expect(instance.current()).toBeNull()
     expect(machine.machineKind()).toBe('personal')
+    expect(registrationModule.readStoredCloudMachine()).toBeNull()
   })
 
   test('a registration that names an insecure Solus API is not stored', async () => {

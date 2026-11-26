@@ -27,9 +27,11 @@
 # Flags:
 #   -Setup            run `solus setup` after the install
 #   -Link CODE        run `solus setup --link CODE`: start the logon task and
-#                     link this host to Solus Cloud with a code from onboarding
-#   -Address URL      the HTTPS address of this machine, with an organization code:
-#                     the machine becomes a cloud host, which has no tunnel
+#                     link this host to Solus Cloud with a code from onboarding.
+#                     The code decides the kind: a personal host, or a cloud host
+#                     of an organization
+#   -Address URL      optional: the HTTPS address of this machine. The internet
+#                     reaches the host there. Without it the host gets a tunnel
 #   -CloudUrl URL     the Solus Cloud origin that issued the code
 
 param(

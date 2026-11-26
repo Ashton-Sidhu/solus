@@ -60,7 +60,7 @@ export const restartRunSchema = z.object({
   state: z.enum(['starting', 'running', 'background', 'awaiting_input', 'delivering']),
   author: userSchema.nullable(),
   authority: z.enum(['owner', 'host']),
-  taskId: z.string().optional(),
+  issueId: z.string().optional(),
   queueId: z.string().optional(),
   clientPromptId: z.string().optional(),
   prompt: z.string(),

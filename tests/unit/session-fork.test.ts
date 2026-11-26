@@ -40,7 +40,7 @@ return { Opening, Metadata }
 
 function fixture() {
   const original = makeSession(settings, {
-    id: 'source', agentSessionId: 'source-provider', task: { kind: 'existing', taskId: 'old-task' },
+    id: 'source', agentSessionId: 'source-provider', task: { kind: 'existing', issueId: 'old-task' },
     messages: [{ id: 'answer', role: 'assistant', content: 'Settled answer', timestamp: 1 }],
     run: { location: folderLocation({ serverId: 'run-host', path: '/repo' }, { project: { serverId: 'task-host', path: '/repo' } }) },
   })
@@ -52,7 +52,7 @@ function fixture() {
   context.sessions = { byId: { source: original } }
   context.tabs = { sourceTab: makeTab(original.id, { id: 'sourceTab' }) }
   context.sessionFor = (tabId: string) => context.sessions.byId[context.tabs[tabId]?.sessionId]
-  context.tasksStore = { taskForSession: (sessionId: string) => sessionId === 'source' ? { id: 'same-task' } : null }
+  context.issuesStore = { taskForSession: (sessionId: string) => sessionId === 'source' ? { id: 'same-task' } : null }
   context.pluginCommands = { global: [], project: [] }
   context.addTabToOrder = () => {}
   context.setActiveTab = () => {}
@@ -121,7 +121,7 @@ describe('fork session ownership and identity', () => {
     const tabId = await context.opening.forkTab('sourceTab')
     const fork = context.sessionFor(tabId) as Session
     expect(fork.title).toBe('Fork: Source name')
-    expect(fork.task).toEqual({ kind: 'existing', taskId: 'same-task' })
+    expect(fork.task).toEqual({ kind: 'existing', issueId: 'same-task' })
     expect(fork.id).not.toBe(original.id)
     expect(runHost(fork.run)).toBe('run-host')
     expect(projectHome(fork.run).serverId).toBe('task-host')

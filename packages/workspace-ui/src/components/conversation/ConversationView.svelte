@@ -36,6 +36,7 @@
   import QuestionCard from "./QuestionCard.svelte";
   import SecretRequestCard from "./SecretRequestCard.svelte";
   import AddMachineCard from "./AddMachineCard.svelte";
+  import CloudMachineCard from "./CloudMachineCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import SeatConnectCard from "../seats/SeatConnectCard.svelte";
@@ -189,8 +190,8 @@
   // belongs to — the one-click target. Resolved once here, not per card.
   const conversationTaskId = $derived(
     sess
-      ? (session.tasksStore.taskForSession(sess.id)?.id ??
-        session.tasksStore.taskForSession(sess.agentSessionId)?.id ??
+      ? (session.issuesStore.taskForSession(sess.id)?.id ??
+        session.issuesStore.taskForSession(sess.agentSessionId)?.id ??
         null)
       : null,
   );
@@ -902,6 +903,12 @@
                    Keyed so the next card starts with empty fields. -->
               {#key sess.questionQueue[0].questionId}
                 <AddMachineCard tabId={tab.id} request={sess.questionQueue[0]} />
+              {/key}
+            {:else if sess.questionQueue[0].kind === "cloud-machine" && sess.questionQueue[0].cloudMachine}
+              <!-- A cloud machine tool's card: it collects the choice and answers with respondQuestion.
+                   Keyed so the next card starts with its own fields. -->
+              {#key sess.questionQueue[0].questionId}
+                <CloudMachineCard tabId={tab.id} request={sess.questionQueue[0]} ask={sess.questionQueue[0].cloudMachine} />
               {/key}
             {:else}
               <QuestionCard

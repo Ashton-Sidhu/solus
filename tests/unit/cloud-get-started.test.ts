@@ -12,11 +12,11 @@ describe('the Get started list', () => {
     expect(getStartedItems(DONE)).toEqual([])
   })
 
-  test('everything skipped reads in onboarding order, and each row reopens the stage that answers it', () => {
+  test('everything skipped reads in onboarding order, and each row reopens the step that answers it', () => {
     const items = getStartedItems({ hasMachine: false, hasSignedInAgent: null, githubConnected: false, hasProject: false })
-    expect(items.map((item) => [item.id, item.stage])).toEqual([
-      ['machine', 'compute'],
-      ['github', 'github'],
+    expect(items.map((item) => [item.id, item.step])).toEqual([
+      ['machine', 'machine'],
+      ['github', 'code'],
     ])
   })
 
@@ -25,7 +25,7 @@ describe('the Get started list', () => {
     expect(ids({ hasSignedInAgent: false })).toEqual(['agents'])
   })
 
-  test('a project waits for GitHub, since the project stage lists GitHub repositories', () => {
+  test('a project waits for GitHub, since the code step lists GitHub repositories', () => {
     expect(ids({ githubConnected: false, hasProject: false })).toEqual(['github'])
     expect(ids({ hasProject: false })).toEqual(['project'])
   })

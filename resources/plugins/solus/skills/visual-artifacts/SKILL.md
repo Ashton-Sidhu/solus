@@ -1,148 +1,119 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. For an app that lives in Solus (a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook), use the create-app skill. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
+description: Read before any chart, diagram, table, comparison, or other visual in a reply or a saved work. Holds the design rules of a Solus render (theme tokens, colour meaning, layout, diagrams, charts), how to check it, and the React, TypeScript, and Tailwind path for an interactive tool or a saved work with state. Covers revisions, document embeds, sandbox limits, and sharing. For an app that lives in Solus (a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook), use the create-app skill. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
 ---
 
 # Visual artifacts
 
 Build a useful visual result, not a website around an answer. Start with what the user must inspect, compare, change, or copy. Use normal chat for short, linear answers.
 
-**One authoring path: initialize React → develop → compile one HTML file → render a Solus work.** Use it for small charts and complex interactive tools alike. Complexity changes the components, not the pipeline. Sharing is an explicit action on the same work, not a second deployment.
-
-The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
-
 **An app is not an artifact.** When the user asks for something they keep and use, such as a tracker, a tool, a browser for their data, or a job that runs on a schedule or a webhook, load the create-app skill and build an app. It is a program on the host with a backend, its own data, and a UI in its own window, and it starts from that skill's starter app. The rules of this file do not apply to it.
 
-## Quick start
+## Choose the path
 
-Resolve this skill's directory from the path used to load it. Do not assume it lives inside the user's project. Node.js 22 or later and npm are required. Scripts install only in the new artifact directory; no global installs or changes to the user's app dependencies.
+- **Inline HTML** is the default for a visual in a reply: a chart, a diagram, a table, a comparison, a mock-up. Write one self-contained page with an inline `<style>` and, when it needs one, an inline `<script>`. No project, no npm.
+- **React** is for an interactive tool or a saved work with several controls and state, or one that needs a library from npm. Follow "React path" below.
 
-### 1. Initialize
+Both paths end the same way: check the page with `render_artifact` and `preview: true`, then show it in a fence or save it as a work ("Show and save").
 
-Choose a new directory outside the app source unless the user asked to keep artifact source in the project. Its parent must exist. For temporary source, create a temporary parent and give the initializer a new child path.
-
-```sh
-node "<skill-dir>/scripts/init-artifact.mjs" "<new-artifact-directory>"
-```
-
-The initializer refuses to replace an existing directory. It creates React + TypeScript source, Tailwind v4, an `@/` source alias, pinned dependencies, a lockfile through npm, a theme-aware starter, and the local bundling script. It does not launch a server or build the Solus app.
-
-### 2. Develop
-
-Edit `src/App.tsx`, sibling components, and `src/styles.css`. Set a meaningful title in `index.html`. Keep its mount and two artifact markers intact. Replace the example content and sample values with the requested visual and evidence.
-
-Use React state as the source of truth for controls, preview, and copy-back output. Add only the components and dependencies the task needs. Small artifacts still use React; do not switch to a hand-authored inline JavaScript path. Native controls work well; add shadcn/Radix components only when they improve the result. Bundle added dependencies rather than loading a UI kit from a CDN.
-
-Read [implementation guidance](references/implementation.md) for assets, data safety, state, and bundle limits. Read only a relevant playground template when the task needs it.
-
-### 3. Compile
-
-Run inside the artifact directory:
-
-```sh
-npm run bundle
-```
-
-This typechecks, compiles Tailwind, bundles React and browser dependencies with esbuild, inlines CSS and local assets, escapes HTML-closing sequences, and atomically writes `bundle.html`. It rejects separate chunks, external bundle dependencies, invalid shells, and payloads over 8 MiB. A failed build leaves the last successful bundle intact; do not deliver that stale file as the new result.
-
-No development server, global package install, or application build is required. If setup fails, fix the artifact directory or report the missing prerequisite. Do not silently fall back to another authoring path.
-
-### 4. Verify and render
-
-Check the final payload. Do not read `bundle.html` into your output: the tools read the file on this host.
-
-For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html_path` set to the `bundle.html` path and a short `title` matching the document title. Do not open the bundle in a browser instead; that saves no work. The returned work ID is its durable identity. The saved artifact keeps its originating session. Use `link` to attach an existing work to the calling session. Do not also emit the same HTML in a fence.
-
-Use the same compiled output in a rendered fence only when it is small enough to write in your reply and the result is a one-time inline explanation with no durable identity need, or the user explicitly does not want a saved work. This is a delivery option, not another build path. Use `html render artifact=<stable-name>`; names use letters, digits, hyphens, or underscores, up to 80 characters. Reuse the name for revisions of that inline visual. Emit one completed revision per identity per reply. `html source` shows code instead.
-
-Explain the result briefly. State material limits such as sample data, network requirements, or inputs that reset on reload. Do not claim checks that were not run.
-
-## Revise the same work
-
-1. Use `list_works` if the work ID is unknown, then `read_work`. Read the current content and `content_version`, even if source files remain from the previous turn.
-2. Reuse artifact source if it is still available, but account for changes made directly to the saved work. If source is missing, initialize a new source directory and reconstruct the requested view from the saved content and evidence. Do not pretend minified HTML is the original TSX or overwrite edits from an old source copy.
-3. Develop and compile through the same pipeline.
-4. Call `update_work` with the same `work_id`, `html_path` set to the new `bundle.html` path, and `expected_content_version` from the read. Do not call `render_artifact` again.
-5. On a conflict, read again and reapply the change to the latest content. If edits overlap in meaning or conflicts repeat, stop and ask which change to keep.
-
-Preserve the existing design unless redesign is requested. Source directories are build inputs, not a second work or a promised permanent archive. The saved HTML is the portable deliverable. Keep source files when the user asks for them; otherwise do not promise cross-host source availability.
-
-To retain chosen settings, the user can copy them into chat and ask to make them new defaults. Recompile and update the same work. Saving HTML does not automatically persist page interaction state.
-
-## Solus Cloud sharing
-
-Keep new works private unless the user asks to share. Do not invent a URL or upload to another host.
-
-Use the saved work's existing **Share** controls. A Local work may need explicit publication into the selected organization before it can be shared. Select the requested people or access scope; for a link intended for anyone holding it, use **Anyone with the link**, normally **Viewer** unless edit access was requested. Copy the actual returned link.
-
-Agent work tools do not currently expose the share-link operation. If an authorized sharing tool becomes available, use its declared contract. Otherwise tell the user to open Share on the saved work, select access, and copy the link. Do not use private tokens, internal RPC calls, or database edits to bypass that boundary. Do not claim a link was created unless it was.
-
-Sharing refers to the same work. Updates keep that identity; access changes and link regeneration can invalidate earlier links. Explain the audience before widening access. Revocation uses the same Share controls. Do not confuse Solus Cloud sharing with `publish_work`, which publishes to Google Docs or Confluence.
-
-## Patterns and templates
-
-- **Walkthrough:** put evidence next to annotations; separate facts from conclusions.
-- **Comparison:** use the same inputs and scale; make tradeoffs visible.
-- **Dashboard:** show units, denominators, source dates, and useful summaries rather than every row.
-- **Simulation:** expose meaningful bounded inputs; provide pause and reset when time is part of the model.
-- **Copy-back tool:** make output a complete instruction, JSON object, or summary that works without the preview.
-- **Tracker:** label snapshot versus live status; update the same work instead of creating new copies.
-
-For controls → preview → selectable output, adapt one template:
-[design playground](templates/design-playground.md), [data explorer](templates/data-explorer.md), [concept map](templates/concept-map.md), [document critique](templates/document-critique.md), [diff review](templates/diff-review.md), or [code map](templates/code-map.md).
-Translate template examples into React components; this file's pipeline and runtime rules take precedence.
-
-Include reset and meaningful presets where useful. Derive preview and output from the same state; preserve focus during updates. Prompt output must be a natural instruction, not a value dump. Say when no changes are selected. Provide a visible readonly `<textarea>` or selectable `<pre>`; clipboard buttons need a failure state and are not the only way to copy.
-
-## Sandbox contract
-
-- One complete HTML document, no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
-- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app's UI is the one exception: it has its backend's operations, storage, and integrations through `@solus/app` (the create-app skill), and no network but the hosts it names.
-- Inline scripts and styles work. The build includes local assets and dependencies. Ordinary renders permit absolute HTTPS resources, but isolated review renders can block all network access.
-- HTTPS fetch/XHR still needs target CORS support for an opaque origin. Prefer session data inlined at build time; live data needs loading, error, source, and refresh states. Do not disguise a snapshot as live.
-- Never embed credentials or send private data to external services. Artifact creation is not permission for uploads or external writes.
-- The host measures content height and supplies theme variables. Use normal flow and content-driven height, not `100vh`, fixed page shells, or custom resize loops. Stack panels in narrow containers. Use bounded overflow only for content such as wide tables.
-- Local controls and copy-back text do not execute agent commands, update project files, or provide a persistence bridge. When the user needs persistence, files, a database, or live data from their integrations, build an app instead of explaining the limit.
+A visual that you add without a request gets the same care as one the user asked for. A quick diagram that is wrong or hard to read is worse than none.
 
 ## Design
 
-This section is for an artifact: a visual in a reply or a saved work. An artifact matches the theme of Solus, so that it reads as a part of the conversation or the document it is in. An app is different: there you have creative liberty with the design, and the create-app skill has its rules.
+An artifact matches the theme of Solus, so that it reads as a part of the conversation or the document it is in. An app is different: the create-app skill has its rules.
 
-Follow the user's direction, then the target product's real design system, then Solus integration. Read real tokens and components before showing a product's current UI. Scope product-specific styles to the preview.
+Follow the user's direction, then the target product's real design system, then Solus integration. Read real tokens and components before showing a product's current UI. Scope product-specific styles to the preview. For Solus-native visuals, keep the outer body transparent, use clear spacing and thin borders, and avoid a marketing-page shell, gradients, glow, and heavy shadows.
 
-For Solus-native visuals, keep the outer body transparent, use clear spacing and thin borders, and avoid a generic marketing-page shell, gradients, glow, and heavy shadows. Product mockups can reproduce their actual surface treatment.
+### Tokens and what each one means
 
-Use the injected theme tokens. They follow the user's light or dark mode live:
-- Page and text: `--background` (the conversation around the frame), `--foreground`, `--muted-foreground`.
-- Panels and lines: `--card`, `--muted`, `--secondary`, `--popover`, each with a `-foreground`; `--border`, `--input`, `--ring`.
-- Actions and single-series data: `--primary` and `--primary-foreground` for solid buttons; `--accent` and `--accent-foreground` for the brand accent; `--muted` for a hover fill.
-- Solus's own UI: `--brand` and `--brand-foreground` are the app's accent. In a mock-up of a Solus screen, use them for solid buttons instead of `--primary`, which is the calmer render accent.
-- Status: `--destructive`, `--warning`, `--success`, `--info`, each with a `-foreground` for text; `--destructive-surface` and `--warning-surface` for tinted backgrounds. Mark a warning or an error box with a 3px bar and an icon in its colour, and keep its title in body text: a tint alone reads as a plain box.
-- Selection: `--accent-surface` is the selected or current fill, a tint of the day blue of `--chart-1`. It is not a category colour.
-- Categories: `--chart-1` through `--chart-6`. Code: `--code-background`, `--code-foreground`.
+The frame supplies these tokens. They follow the user's light or dark mode live. Never use fixed colours, never override a token, and never force light mode.
+
+- Page and text: `--background` (the conversation around the frame), `--foreground` for body text and titles, `--muted-foreground` for descriptions and secondary text.
+- Surfaces: `--card` is the page itself, so a card shows by its border. `--muted`, `--secondary`, and `--code-background` are one neutral wash: chips, code, table heads, and the hover fill. `--popover` is for menus.
+- Lines: `--border` for hairlines and card edges, `--input` for field edges and stronger lines.
+- Selection: `--accent-surface` is the selected or current fill, a tint of the day blue of `--chart-1`. Hover is `--muted`, so a hovered row never looks selected.
+- Actions: `--primary` and `--primary-foreground` for solid buttons, `--accent` for the brand accent, `--ring` for focus. In a mock-up of a Solus screen, use `--brand` and `--brand-foreground` for solid buttons.
+- Status: `--destructive`, `--warning`, `--success`, `--info`, each with a `-foreground` for coloured text; `--destructive-surface` and `--warning-surface` for tinted boxes. Mark a warning or an error box with a 3px bar and an icon in its colour, and keep its title in body text: a tint alone reads as a plain box.
+- Categories: `--chart-1` to `--chart-6` (day blue, teal, dawn gold, night violet, dusk rose, terracotta). Use them for chart series, diagram zones, and legends, in that order. Tint a fill with `color-mix(in oklab, var(--chart-N) 8%, transparent)` and draw its edge at about 45%.
 - Shape and type: `--radius`, `--font-sans`, `--font-mono`.
 
-The base stylesheet sets the html background, color, and a 14px font from these, body margin to 0, monospace for code, and hides the page's scrollbar. Use `--font-sans` with a system fallback. Use readable sentence-case labels and regular/medium weights for native views; no text below 11px. Use inline SVG for icons and accessible names for icon-only buttons. Do not override host theme variables or force light mode. The starter provides standalone fallback colors.
+Hue carries meaning: blue is selection, amber is a warning, red is an error, and a chart colour is a category. Keep everything else neutral, so that the meaning stays clear.
 
-The frame is the page: it is as wide as the conversation, the side pane, or the share view. Follow the layout rules in the `render_artifact` description: they apply to a fence and to a saved work. Lay out to the full container width. Do not put the root in a fixed or maximum-width column. Limit only the line length of prose (for example `max-width: 70ch` on a paragraph) and the width of an SVG diagram: give it a `max-width` equal to its `viewBox` width, because an SVG with `width: 100%` scales its text with the frame. Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Provide labels, visible keyboard focus, keyboard alternatives for dragging, and chart summaries or tables. Pair color with labels or shapes. Include the instructions, units, and assumptions needed to understand a saved visual.
+### Type
 
-For plots, graphs, and charts, show data details on hover. Include the series, exact value with units, and the date or category. Show the same details on keyboard focus and touch selection. Do not require a click to inspect a value with a pointer or rely only on the browser's native tooltip. Keep the details within the frame and retain a chart summary or data table.
+The base stylesheet sets a 14px font. Use sentence-case labels and regular or medium weights; no text below 11px. A chart colour is too light for small text, so write labels in `--foreground` or `--muted-foreground`; a zone label can use its colour only at 11px semibold or larger. Use inline SVG for icons and give icon-only buttons an accessible name.
 
-Use finite transitions only when they clarify change; respect reduced motion. No continuous decorative animation or repeated entrance effects on input changes.
+### Layout
 
-## Verification
+The frame is the page: it is as wide as the conversation, the side pane, or the share view, often 736 to 1088px. Lay out to the full width; do not put the root in a fixed or maximum-width column. Limit only two things:
+- the line length of prose, for example `max-width: 70ch` on a paragraph
+- an SVG diagram: give it a `max-width` equal to its `viewBox` width. An SVG with `width: 100%` scales its text with the frame, so in a wide column its text grows far larger than the page text.
 
-The bundle command checks types and packaging, not visual correctness or safety of authored code. Use the smallest additional proof:
-- First load, a representative control, reset, boundary values, empty selections, and invalid input.
-- Copy-back output matches the preview and remains selectable without clipboard permission.
-- Narrow and desktop layouts, keyboard focus, light and dark legibility.
-- Chart details on hover, keyboard focus, and touch selection; values and units match the plotted data, and details stay within the frame.
-- No fake live status, hidden runtime failures, secrets, unsupported persistence claims, or missing assets.
+The frame is borderless and aligned with the text around it: give `html`, `body`, and the outermost element no background colour (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title.
 
-Use authorized browser tools when available; do not start a server without agreement. Inspect the final compiled payload, not only source. An ordinary browser preview does not prove Solus sandbox behavior. State any unverified runtime behavior. Do not create duplicate saved works for testing.
+A box with its own background gets at least 16px padding and `var(--radius)` corners. Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Stack panels in a narrow frame. Provide labels, visible keyboard focus, and keyboard alternatives for dragging. Pair colour with labels or shapes.
 
-## Documents and other media
+### Diagrams
 
-For a document containing a reusable interactive visual, render the artifact first and copy its returned embed token onto its own line in the document. Use `create_work` for a new document or slides; read and version-check updates to existing works. Revise the embedded artifact by its own work ID.
+Show the real mechanism with real names: the components, the domains, the stores. Abstract slots make a weak diagram.
+- Draw each trust boundary or layer as a zone: a tint of one chart colour with white cards (`--card`) inside it.
+- Draw connectors in inline SVG with arrow markers. Do not use text arrows between boxes.
+- Number each connection with a small filled circle, and explain each number in a list under the diagram.
+- Route lines so that they do not cross where you can avoid it, and keep each number on its line.
 
-Preserve live `work://embed` links and rendered HTML fences. Use image generation for raster images and Markdown links for public web images. Google-linked works are read-only in Solus; edit upstream and pull rather than making duplicates.
+### Charts
+
+Give a chart a fixed pixel height. Show the details of a data point on hover: the series, the exact value with units, and the date or category. Show the same details on keyboard focus and touch selection. Do not rely on the browser's native tooltip. Keep the details inside the frame, and keep a summary or a data table.
+
+### Motion
+
+Use finite transitions only when they make a change clear, and respect reduced motion. No continuous decoration and no entrance effects on each input change.
+
+## Check
+
+Check each page with `render_artifact` and `preview: true` before you show it:
+- at the default width (736px, the narrowest usual column) and at `preview_width: 1088` for a wide layout
+- in `light` and `dark` with `preview_appearance`
+- in the console output: no errors and no missing images
+
+After every change, preview again. Do not show a page that you changed after its last preview. Also check what applies: a representative control, reset, empty and boundary values, keyboard focus, chart details on hover, focus and touch, and values that match the data. Do not claim checks that you did not run. Do not create duplicate saved works for testing.
+
+## Show and save
+
+- **A fence** for a visual the user reads once: write the checked page in a ` ```html render artifact=<stable-name>` fence. Reuse the name to revise that visual, and emit one completed revision per name in a reply.
+- **A saved work** for a visual the user will keep, revise, embed, or share: call `render_artifact` without `preview`. Its work ID is its identity. Do not also put the same HTML in a fence.
+
+The reader sees the page as part of your reply: do not announce it or restate it. Explain the result briefly, and state limits such as sample data or inputs that reset on reload.
+
+**Revise a saved work:** read it with `read_work` (use `list_works` if the ID is unknown) for its current content and `content_version`. Change it, then call `update_work` with the same `work_id` and that `expected_content_version`. On a conflict, read it again and apply the change to the latest content; if edits overlap in meaning, ask which to keep. Keep the existing design unless the user asks for a new one.
+
+**Documents:** to put an interactive visual in a document, save the artifact first and put its embed token on its own line in the document. Keep live `work://embed` links and rendered fences in a document. Use image generation for raster images. Google-linked works are read-only in Solus.
+
+**Sharing:** keep new works private unless the user asks to share. Agent tools cannot make a share link: tell the user to open **Share** on the saved work, choose the access, and copy the link. Do not invent a URL, and do not confuse sharing with `publish_work`, which publishes to Google Docs or Confluence.
+
+## React path
+
+Resolve this skill's directory from the path used to load it. Node.js 22 or later and npm are required. Scripts install only in the new artifact directory.
+
+1. **Initialize** in a new directory outside the app source, unless the user asked to keep the source in the project. The initializer refuses to replace a directory. It creates React, TypeScript, Tailwind v4, pinned dependencies, a theme-aware starter, and the bundling script.
+
+   ```sh
+   node "<skill-dir>/scripts/init-artifact.mjs" "<new-artifact-directory>"
+   ```
+
+2. **Develop** in `src/App.tsx`, sibling components, and `src/styles.css`. Set a meaningful title in `index.html`, and keep its mount and two artifact markers. Use React state as the one source for controls, preview, and copy-back output. Add only the dependencies the task needs, and bundle them; do not load a UI kit from a CDN. Read [implementation guidance](references/implementation.md) for assets, data safety, state, and bundle limits.
+3. **Compile** inside the artifact directory with `npm run bundle`. It typechecks, compiles Tailwind, bundles with esbuild, inlines CSS and local assets, and writes `bundle.html`. It rejects separate chunks, external dependencies, and payloads over 8 MiB. A failed build keeps the last good bundle: do not deliver that stale file.
+4. **Check and show** the bundle with `render_artifact` and `html_path` set to `bundle.html`. Do not read the bundle into your output. To revise, compile again and call `update_work` with the new `bundle.html`.
+
+For a tool of controls, a preview, and selectable output, adapt one template: [design playground](templates/design-playground.md), [data explorer](templates/data-explorer.md), [concept map](templates/concept-map.md), [document critique](templates/document-critique.md), [diff review](templates/diff-review.md), or [code map](templates/code-map.md). Include reset and useful presets. Derive the preview and the output from the same state. Copy-back output must be a complete instruction or object, in a visible read-only `<textarea>` or selectable `<pre>`; a clipboard button needs a failure state.
+
+Source directories are build inputs. The saved HTML is the deliverable; do not promise that the source stays available.
+
+## Sandbox contract
+
+- One complete HTML document: no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
+- The frame has an opaque origin: no workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app's UI is the one exception (the create-app skill).
+- Inline scripts and styles work. Ordinary renders can load absolute HTTPS resources, but isolated review renders can block all network access. A fetch needs CORS support for an opaque origin. Prefer data inlined at build time; live data needs loading, error, source, and refresh states. Do not show a snapshot as live.
+- Never embed credentials or send private data to external services.
+- The host measures the content height. Use normal flow, not `100vh`, fixed page shells, or resize loops. Use bounded overflow only for wide content such as a table.
+- Controls and copy-back text cannot run agent commands, change project files, or save state. When the user needs persistence, files, a database, or live data, build an app.

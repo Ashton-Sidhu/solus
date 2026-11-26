@@ -68,6 +68,11 @@ export const sessionSettings = [
     keywords: ["queue", "throttle"],
   },
   {
+    id: "completed-retention",
+    ...settingsDefinitions["sessions.completed-retention"],
+    keywords: ["done", "retention", "history", "shelf", "sidebar", "settled"],
+  },
+  {
     id: "model-routing",
     ...settingsDefinitions["sessions.section-model-routing"],
     keywords: ["auto", "jev", "interface", "exploration", "task", "general"],
@@ -222,21 +227,6 @@ export const appearanceSettings: SettingItem[] = [
 
 /** Search words, read by the settings page to find this page from any other. */
 
-export const taskSettings: SettingItem[] = [
-  {
-    id: "task-lifecycle",
-    ...settingsDefinitions["tasks.task-lifecycle"],
-    keywords: ["agent", "ticket", "status"],
-  },
-  {
-    id: "completed-retention",
-    ...settingsDefinitions["tasks.completed-retention"],
-    keywords: ["done", "retention"],
-  },
-];
-
-/** Search words, read by the settings page to find this page from any other. */
-
 export const reviewSettings: SettingItem[] = [
   { id: "review-generate-on-open", ...settingsDefinitions["review.review-generate-on-open"], keywords: ["automatic"] },
   { id: "review-warming", ...settingsDefinitions["review.review-warming"], keywords: ["background", "prefetch"] },
@@ -277,7 +267,7 @@ export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign
 export const agentProfileSearchWords = ["agent profile", "profile", "instructions", "extra", "system prompt", "custom", "subagents", "commands", "prompts", "skills", "mcp", "servers", "conflict"];
 
 /** Search words, read by the settings page to find this page from any other. */
-export const organizationSearchWords = ["organization", "owner", "member", "projects", "repositories"];
+export const organizationSearchWords = ["organization", "owner", "member", "members", "invite", "role", "rename", "cloud hosts", "personal hosts", "packages", "setup script", "leave", "projects", "repositories"];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const mcpSearchWords = ["mcp", "server", "catalog", "integrations.sh", "remote tools", "connector"];
@@ -307,6 +297,7 @@ export const sourceControlSettings: SettingItem[] = [
   { id: "templates", ...settingsDefinitions["source-control.follow-pull-request-templates"], keywords: [] },
   { id: "writer-model", ...settingsDefinitions["source-control.source-control-writer-model"], keywords: [] },
   { id: "branch-names", ...settingsDefinitions["source-control.branch-names"], keywords: ["worktree", "branch naming"] },
+  { id: "managed-worktrees", ...settingsDefinitions["source-control.managed-worktrees"], keywords: ["worktree", "delete", "clean up", "disk space"] },
   { id: "project-branch-names", ...settingsDefinitions["source-control.override-branch-names"], keywords: ["worktree"] },
   { id: "project-codebase-names", ...settingsDefinitions["source-control.override-codebase-names"], keywords: ["codebase", "naming"] },
   { id: "copied-files", ...settingsDefinitions["source-control.files-copied-to-other-hosts"], keywords: [] },
@@ -319,7 +310,6 @@ export const settingsByPage = {
   sessions: sessionSettings,
   general: generalSettings,
   appearance: appearanceSettings,
-  tasks: taskSettings,
   review: reviewSettings,
   tools: toolSettings,
   experimental: experimentalSettings,

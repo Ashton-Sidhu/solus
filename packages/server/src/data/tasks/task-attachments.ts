@@ -2,10 +2,10 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import type {
-  TaskAttachments,
-  TaskLinkInput,
-  TaskLinkKind,
-  TaskSessionRole,
+  IssueAttachments,
+  IssueLinkInput,
+  IssueLinkKind,
+  IssueSessionRole,
 } from '@solus/contracts/task-types'
 import type { Attribution } from '@solus/contracts/user'
 import type { RecordScope } from '../../admission/principal'
@@ -42,7 +42,7 @@ const existingPrLinkRowSchema = z.object({
   title: z.string(),
   origin_session_id: z.string().nullable(),
 })
-const workingOwnerRowSchema = z.object({ task_id: z.string(), session_id: z.string(), organization_id: z.string() })
+const workingOwnerRowSchema = z.object({ issue_id: z.string(), session_id: z.string(), organization_id: z.string() })
 
 interface PrLinkIdentity {
   title: string
@@ -87,12 +87,12 @@ export interface TaskPullRequestInput {
 }
 
 /** The links and the activity of a task in `scope`. Needs no copy of the task. */
-export async function taskAttachments(scope: RecordScope, taskId: string): Promise<TaskAttachments> {
+export async function taskAttachments(scope: RecordScope, taskId: string): Promise<IssueAttachments> {
   assertTaskKey(taskId)
   const db = database()
   return {
     links: await readTaskLinks(db, scope, taskId),
-    activity: await activityFor(scope, { kind: 'task', id: taskId }, { limit: TASK_ACTIVITY_LIMIT, db }),
+    activity: await activityFor(scope, { kind: 'issue', id: taskId }, { limit: TASK_ACTIVITY_LIMIT, db }),
   }
 }
 
@@ -101,7 +101,7 @@ export async function taskAttachments(scope: RecordScope, taskId: string): Promi
  * `organizationId` is where a new link is made; `by` is who linked it: the
  * admitted actor, or the agent that asked.
  */
-export async function linkTask(organizationId: string, taskId: string, input: TaskLinkInput, by: Attribution): Promise<void> {
+export async function linkTask(organizationId: string, taskId: string, input: IssueLinkInput, by: Attribution): Promise<void> {
   if (input.kind === 'pr') {
     await linkTaskPullRequest(organizationId, taskId, {
       number: Number(input.targetKey),
@@ -113,7 +113,7 @@ export async function linkTask(organizationId: string, taskId: string, input: Ta
     }, by)
     return
   }
-  // A deliberate link: `TaskLinkInput` cannot name a session's output.
+  // A deliberate link: `IssueLinkInput` cannot name a session's output.
   await linkWorkspaceObject(organizationId, taskId, input, by)
 }
 
@@ -129,7 +129,7 @@ async function linkWorkspaceObject(organizationId: string, taskId: string, input
     const existing = await db.get(sql`
       SELECT 1 AS present FROM ${resourceLinks}
       WHERE resource_links.organization_id = ${organizationId}
-        AND resource_links.source_kind = 'task' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = ${target.kind}
+        AND resource_links.source_kind = 'issue' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = ${target.kind}
         AND resource_links.target_scope = ${target.targetScope} AND resource_links.target_key = ${target.targetKey}
     `)
     // Already linked: the only thing left to say is which artifact the page
@@ -191,7 +191,7 @@ export async function linkTaskPullRequest(
       SELECT resource_links.target_scope, resource_links.url, resource_links.title, resource_links.origin_session_id
       FROM ${resourceLinks}
       WHERE resource_links.organization_id = ${organizationId}
-        AND resource_links.source_kind = 'task' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = 'pr'
+        AND resource_links.source_kind = 'issue' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = 'pr'
         AND resource_links.target_key = ${targetKey}
         AND (LOWER(resource_links.target_scope) = LOWER(${targetScope}) OR LOWER(resource_links.url) = LOWER(${url}))
       LIMIT 1
@@ -212,7 +212,7 @@ export async function linkTaskPullRequest(
           SET target_scope = ${targetScope}, url = ${url}, title = ${title}, origin_session_id = ${nextOriginSessionId},
             repository = ${targetScope}, number = ${input.number}
           WHERE resource_links.organization_id = ${organizationId}
-            AND resource_links.source_kind = 'task' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = 'pr'
+            AND resource_links.source_kind = 'issue' AND resource_links.source_id = ${taskId} AND resource_links.target_kind = 'pr'
             AND resource_links.target_scope = ${existingLink.target_scope} AND resource_links.target_key = ${targetKey}
         `)
       }
@@ -242,7 +242,7 @@ export async function linkTaskPullRequest(
 export async function unlinkTask(
   scope: RecordScope,
   taskId: string,
-  kind: TaskLinkKind,
+  kind: IssueLinkKind,
   targetKey: string,
   targetScope: string,
   by: Attribution,
@@ -270,7 +270,7 @@ export async function linkTaskSession(
   organizationId: string,
   taskId: string,
   sessionId: string,
-  role: TaskSessionRole = 'working',
+  role: IssueSessionRole = 'working',
   details: SessionLinkDetails = {},
 ): Promise<void> {
   const isNewLink = await database().transaction((db) => writeSessionLink(db, organizationId, taskId, sessionId, role, details, Date.now()))
@@ -315,13 +315,13 @@ export async function unlinkTaskSession(scope: RecordScope, taskId: string, sess
 export async function linkSessionOutput(
   scope: RecordScope,
   sessionId: string,
-  input: Omit<TaskLinkInput, 'automatic' | 'originSessionId'>,
+  input: Omit<IssueLinkInput, 'automatic' | 'originSessionId'>,
 ): Promise<string | null> {
   const owner = workingOwnerRowSchema.nullish().parse(await database().get(sql`
-    SELECT resource_links.source_id AS task_id, resource_links.target_key AS session_id, resource_links.organization_id
+    SELECT resource_links.source_id AS issue_id, resource_links.target_key AS session_id, resource_links.organization_id
     FROM ${resourceLinks}
     WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
-      AND resource_links.source_kind = 'task' AND resource_links.target_kind = 'session'
+      AND resource_links.source_kind = 'issue' AND resource_links.target_kind = 'session'
       AND resource_links.target_key = ${sessionId}
       AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
     ORDER BY resource_links.created_at DESC
@@ -335,11 +335,11 @@ export async function linkSessionOutput(
   }
   await linkWorkspaceObject(
     owner.organization_id,
-    owner.task_id,
+    owner.issue_id,
     { ...input, originSessionId: sessionId, outputOfSessionId: owner.session_id },
     agentAttribution(sessionId),
   )
-  return owner.task_id
+  return owner.issue_id
 }
 
 /**

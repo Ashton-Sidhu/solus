@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { PinnedSession, Session } from '@solus/contracts/types'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { makePrompt } from '@solus/workspace-ui/contexts/workspace/session.factories'
 import type { SessionSidebarStore as SidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
@@ -45,7 +45,7 @@ function sidebar() {
   const selected: string[] = []
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
   Object.assign(store, {
-    activeTasks: [
+    activeRows: [
       { tabIds: ['first'] },
       { tabIds: ['second'] },
     ],
@@ -94,7 +94,7 @@ describe('unsent prompts in open sidebar sessions', () => {
     sessions.get('first')!.prompt.attachments.push({ id: 'file' } as Session['prompt']['attachments'][number])
     expect([...store.parkedSessionTabIds]).toEqual(['first'])
     Object.assign(store, {
-      activeTasks: [{ tabIds: ['first'], linkedTask: { taskId: 'task', title: 'Task' } } satisfies Partial<SidebarTask>],
+      activeRows: [{ tabIds: ['first'], linkedTask: { taskId: 'task', title: 'Task' } } satisfies Partial<SidebarSession>],
     })
     expect([...store.parkedSessionTabIds]).toEqual(['first'])
   })

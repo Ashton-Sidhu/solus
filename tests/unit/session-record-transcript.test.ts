@@ -23,7 +23,7 @@ describe('what a record draws', () => {
       message('plan', '', { planId: 'p1' }),
       message('assistant', '', { artifact: { kind: 'html', html: '<p>hi</p>' } }),
       message('assistant', '', { workRef: { workId: 'w1', title: 'Spec', workType: 'doc' } }),
-      message('assistant', '', { taskRef: { taskId: 't1', title: 'Task', url: null } }),
+      message('assistant', '', { taskRef: { issueId: 't1', title: 'Task', url: null } }),
     ])
     const kinds = rows.flatMap((row) => (row.kind === 'item' ? [row.item.kind] : []))
     expect(kinds).toEqual(['user', 'plan', 'artifact', 'document'])

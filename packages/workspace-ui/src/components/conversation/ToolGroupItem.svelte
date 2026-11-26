@@ -219,7 +219,7 @@
          top padding is the row's, so it sits as far below text as a row does,
          and it keeps the same space above the row below it. -->
     <button type="button" aria-expanded="false" onclick={toggleExpanded}
-      class="flex w-full items-start gap-2.5 rounded-sm border-0 bg-transparent p-0 pt-1.75 pb-1 text-left text-activity-label text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)">
+      class="flex w-full items-start gap-2.5 rounded-sm border-0 bg-transparent p-0 pt-1.75 pb-1.5 text-left text-activity-label text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)">
       <span class="inline-flex h-lh min-w-5.5 shrink-0 items-center"><BrainIcon class="size-(--text-activity-label)" /></span>
       <span class="line-clamp-4 min-w-0">{thought}</span>
     </button>

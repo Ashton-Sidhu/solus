@@ -4,7 +4,6 @@ export const settingsSectionLoaders = {
   'general': () => import('../SettingsTabGeneral.svelte'),
   'chat': () => import('../SettingsTabChat.svelte'),
   'sessions': () => import('../SettingsTabSessions.svelte'),
-  'tasks': () => import('../SettingsTabTasks.svelte'),
   'account': () => import('../SettingsTabAccount.svelte'),
   'agent-profile': () => import('../SettingsTabAgentProfile.svelte'),
   'organization': () => import('../SettingsTabOrganization.svelte'),

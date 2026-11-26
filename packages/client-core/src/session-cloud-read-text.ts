@@ -15,7 +15,7 @@ export interface SessionCloudReadText {
 export function sessionCloudReadText(view: SessionCloudReadView, hostLabel: string): SessionCloudReadText {
   switch (view.kind) {
     case 'not-signed-in': return { message: `${hostLabel} is offline.`, detail: 'Sign in to read this session from Solus Cloud.', action: null }
-    case 'sync-off': return { message: 'Solus Cloud has no copy of this session.', detail: 'Cloud sync was off on the machine that ran it.', action: null }
+    case 'sync-off': return { message: 'Solus Cloud has no copy of this session.', detail: 'It is stored only on the machine that ran it.', action: null }
     case 'not-in-cloud': return { message: 'Solus Cloud has no copy of this session.', detail: 'The machine that ran it has cloud sync off, or has not sent it yet.', action: null }
     case 'loading': return { message: 'Reading the conversation from Solus Cloud', detail: null, action: null }
     case 'error': return { message: view.message, detail: null, action: 'retry' }

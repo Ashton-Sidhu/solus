@@ -96,7 +96,7 @@ describe('project config in the repository', () => {
     writeFileSync(join(repo, '.solus', 'config.json'), JSON.stringify({
       version: 1,
       taskDoneOnMerge: false,
-      taskSources: [{ kind: 'jira-board', cloudId: 'site', boardId: 12 }],
+      issueSources: [{ kind: 'jira-board', cloudId: 'site', boardId: 12 }],
       defaultTaskSource: 'jira-board:site/12',
     }))
 

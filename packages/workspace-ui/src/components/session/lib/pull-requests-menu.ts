@@ -1,11 +1,11 @@
 import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE, type PrStatusBadge } from '../../prs/lib/pr-utils'
-import { taskPrMenuTitle } from './task-pr-menu'
-import type { TaskPrChoice } from './task-list'
+import { prMenuTitle } from './pr-menu'
+import type { PrChoice } from './sidebar-rows'
 
 /** One pull request in a session's pull request menu. */
 export interface PullRequestMenuRow {
   key: string
-  choice: TaskPrChoice
+  choice: PrChoice
   title: string
   /** `#412`, or `site#52` when the session's pull requests span repositories. */
   reference: string
@@ -24,7 +24,7 @@ export interface PullRequestMenuRow {
  * inside one repository, so once the session has two repositories every row
  * names its repository.
  */
-export function pullRequestMenuRows(choices: readonly TaskPrChoice[]): PullRequestMenuRow[] {
+export function pullRequestMenuRows(choices: readonly PrChoice[]): PullRequestMenuRow[] {
   const repositories = new Set(choices.map((choice) => choice.targetScope.toLowerCase()))
   const rows = choices.map((choice): PullRequestMenuRow => {
     const pullRequest = choice.pullRequest
@@ -34,7 +34,7 @@ export function pullRequestMenuRows(choices: readonly TaskPrChoice[]): PullReque
     return {
       key: `${choice.targetScope}:${choice.number}`,
       choice,
-      title: taskPrMenuTitle(choice),
+      title: prMenuTitle(choice),
       reference: `${repositories.size > 1 ? (choice.targetScope.split('/').pop() ?? '') : ''}#${choice.number}`,
       stateLabel: badge?.label ?? 'Status unavailable',
       badge,

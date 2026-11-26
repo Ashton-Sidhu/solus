@@ -1,9 +1,8 @@
 import type { DeviceCodeGrant } from '@solus/client-core/device-authorization'
-import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import type { AccountOrganization, MachineKind, UplinkStatus } from '@solus/contracts/uplink'
+import { isOrganizationTicket, LINK_CODE_ENV, parseLinkCode, type AccountOrganization, type MachineKind, type UplinkStatus } from '@solus/contracts/uplink'
 import { connectionStageLine } from '@solus/contracts/host-connection'
-import type { CloudMachineRecord } from './cloud-machine'
-import { ADDRESS_NEEDED, type ConnectChoice, type ConnectOptions, type ConnectReporter, type ConnectSelfTest } from './connect'
+import { describeReach, type CloudMachineRecord } from './cloud-machine'
+import { DEFAULT_CLOUD_ORIGIN, type ConnectChoice, type ConnectionStatus, type ConnectOptions, type ConnectReporter, type ConnectSelfTest } from './connect'
 import type { Prompter } from './prompts'
 
 /**
@@ -11,10 +10,11 @@ import type { Prompter } from './prompts'
  * repeats (plans/034-one-cloud-machine-kind.md). A link code decides everything by
  * itself. Without one, a terminal asks: pair a client directly, link to the person's
  * account for discovery and remote access, or make the server a cloud host of an
- * organization. A cloud host needs its own HTTPS address (`--address`), works for that
- * one organization, and starts with new data, so a server that is registered already
- * is not offered that choice. Without a terminal, nothing is asked and nothing waits:
- * the pairing details are printed, with how to link.
+ * organization. A cloud host works for that one organization and starts with new
+ * data, so a server that is registered already is not offered that choice. An address
+ * (`--address`) is for both kinds: the internet reaches the server there, and without
+ * one the server gets a Cloudflare tunnel. Without a terminal, nothing is asked and
+ * nothing waits: the pairing details are printed, with how to link.
  */
 
 export type Provider = 'claude-code' | 'codex'
@@ -24,7 +24,7 @@ export interface OnboardingOptions {
   cloudUrl?: string
   /** A link code: connects without a question. */
   link?: string
-  /** This machine's own HTTPS address: the server becomes a cloud host of an organization. */
+  /** This machine's own HTTPS address: the internet reaches the server there, with no tunnel. */
   address?: string
   /** `connect` asks only how to link; `setup` also offers direct pairing and provider sign-in. */
   mode: 'setup' | 'connect'
@@ -39,7 +39,7 @@ export interface OnboardingDeps {
   prompter: Prompter | null
   log(line: string): void
   connect(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus>
-  status(dataDir: string): Promise<{ uplink: UplinkStatus; standing: HostOrganizationsStatus }>
+  status(dataDir: string): Promise<ConnectionStatus>
   /** The records of a server that is a cloud host already; null for any other. Such a server answers no local call. */
   cloudMachine(dataDir: string): CloudMachineRecord | null
   pairLines(): Promise<string[]>
@@ -49,25 +49,36 @@ export interface OnboardingDeps {
 
 type Path = 'pair' | 'account' | 'organization' | 'later'
 
+/** The server of the desktop app is a personal computer always; an organization code would make a cloud host of it. */
+const DESKTOP_IS_PERSONAL = 'This is an organization code: it makes a standalone Solus server a cloud host. The server of the desktop app is a personal computer always. Link it with a code from Settings → Link a machine, or run `solus connect` with no code.'
+
 /**
- * An address makes a cloud host, and only a code or the person's choice names the
- * organization. Without a terminal there is no choice, so the address needs a code.
- * `solus setup` asks this before it installs the service.
+ * The link code of `solus setup`: `--link CODE`, else `SOLUS_LINK_CODE`. A code in the
+ * environment is never in the arguments, where `ps` shows it to every user of the
+ * machine; `join_cloud_machine` sends it this way over SSH (plans/035-cloud-machine-tools.md §5).
+ * The variable is removed in each case, so no process that setup starts inherits it.
  */
-export function assertAddressHasOrganization(options: Pick<OnboardingOptions, 'address' | 'link'>, hasTerminal: boolean): void {
-  if (options.address && !options.link && !hasTerminal) {
-    throw new Error('`--address` makes this server a cloud host of an organization, and without a terminal a link code names the organization. Run `solus setup --link CODE --address URL` with a code from Solus: Organization settings → Add your own VM.')
-  }
+export function takeSetupLinkCode(flag: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
+  const fromEnvironment = env[LINK_CODE_ENV]?.trim()
+  delete env[LINK_CODE_ENV]
+  return flag || fromEnvironment || undefined
 }
 
 export async function onboard(options: OnboardingOptions, deps: OnboardingDeps): Promise<void> {
   const { prompter } = deps
-  assertAddressHasOrganization(options, prompter !== null)
   const cloudMachine = deps.cloudMachine(options.dataDir)
   if (cloudMachine) return reportCloudHostUnchanged(options, deps, cloudMachine)
-  if (options.link) return connectWithCode(options, deps, options.link)
+  if (options.link) {
+    if (options.isDesktopApp && isOrganizationTicket(parseLinkCode(options.link, DEFAULT_CLOUD_ORIGIN).ticket)) throw new Error(DESKTOP_IS_PERSONAL)
+    return connectWithNoQuestion(options, deps)
+  }
+  // With no address and no terminal there is nothing to ask the server.
+  if (!options.address && !prompter) return printHowToConnect(options, deps)
+  const current = await deps.status(options.dataDir)
+  // A registered server with an address: the address is the whole request.
+  if (options.address && current.uplink.registration.registered) return connectWithNoQuestion(options, deps)
   if (!prompter) return printHowToConnect(options, deps)
-  return askAndConnect(options, deps, prompter)
+  return askAndConnect(options, deps, prompter, current.uplink)
 }
 
 /** A server that is a cloud host already: nothing here links, pairs, or changes it. */
@@ -81,28 +92,31 @@ async function reportCloudHostUnchanged(options: OnboardingOptions, deps: Onboar
   if (deps.prompter && options.mode === 'setup') await offerProviders(deps)
 }
 
-async function connectWithCode(options: OnboardingOptions, deps: OnboardingDeps, code: string): Promise<void> {
-  const connected = await deps.connect({ dataDir: options.dataDir, cloudUrl: options.cloudUrl, noOpen: true, code, address: options.address }, reporter(deps, 'organization'))
+/** A link code, or a new address for a registered server: the request says everything. */
+async function connectWithNoQuestion(options: OnboardingOptions, deps: OnboardingDeps): Promise<void> {
+  const connected = await deps.connect({ dataDir: options.dataDir, cloudUrl: options.cloudUrl, noOpen: true, code: options.link, address: options.address }, reporter(deps, 'organization'))
   deps.log('')
   for (const line of await connectionLines(options, deps, connected)) deps.log(line)
   if (deps.prompter && options.mode === 'setup') await offerProviders(deps)
 }
 
+const ADDRESS_HINT = 'When this machine has its own HTTPS address, add `--address URL`: the internet reaches the server there. Without it the server gets a Cloudflare tunnel.'
+
 /** No code and no terminal: nothing is asked, and nothing waits. */
 async function printHowToConnect(options: OnboardingOptions, deps: OnboardingDeps): Promise<void> {
   const { log } = deps
-  if (options.mode === 'connect') throw new Error('Linking without a terminal needs a link code: run `solus connect --code CODE` with a code from Solus (Settings → Link a machine). For a cloud host of an organization, run `solus connect --code CODE --address URL` with a code from Organization settings → Add your own VM.')
+  if (options.mode === 'connect') throw new Error(`Linking without a terminal needs a link code: run \`solus connect --code CODE\` with a code from Solus (Settings → Link a machine). For a cloud host of an organization, use a code from Organization settings → Add your own VM. ${ADDRESS_HINT}`)
   for (const line of await deps.pairLines()) log(line)
   log('')
+  if (options.address) log('`--address` was not used: this server is not registered, and without a terminal it registers with a link code.')
   log('To link this server to your Solus account, run `solus setup --link CODE` with a code from Solus: Settings → Link a machine.')
-  log('To make it a cloud host of an organization, run `solus setup --link CODE --address URL` with a code from Organization settings → Add your own VM. URL is the HTTPS address of this machine.')
+  log('To make it a cloud host of an organization, run `solus setup --link CODE` with a code from Organization settings → Add your own VM.')
+  log(ADDRESS_HINT)
 }
 
-async function askAndConnect(options: OnboardingOptions, deps: OnboardingDeps, prompter: Prompter): Promise<void> {
+async function askAndConnect(options: OnboardingOptions, deps: OnboardingDeps, prompter: Prompter, uplink: UplinkStatus): Promise<void> {
   const { log } = deps
-  const current = await deps.status(options.dataDir)
-  // An address names the use by itself: a cloud host of an organization.
-  const path = options.address ? 'organization' : await askPath(options, deps, prompter, current.uplink)
+  const path = await askPath(options, deps, prompter, uplink)
   let connected: UplinkStatus | null = null
   if (path === 'pair') {
     for (const line of await deps.pairLines()) log(line)
@@ -114,31 +128,30 @@ async function askAndConnect(options: OnboardingOptions, deps: OnboardingDeps, p
   if (options.mode === 'setup') await offerProviders(deps)
 }
 
-/** Asks how the server will be used. No address was given, so an organization answer stops here, before the sign-in. */
-async function askPath(options: OnboardingOptions, deps: OnboardingDeps, prompter: Prompter, uplink: UplinkStatus): Promise<Exclude<Path, 'organization'>> {
+/** Asks how the server will be used. */
+async function askPath(options: OnboardingOptions, deps: OnboardingDeps, prompter: Prompter, uplink: UplinkStatus): Promise<Path> {
   const isRegistered = uplink.registration.registered
   if (isRegistered && !options.isDesktopApp) deps.log('This server is registered to a Solus account, so it cannot become a cloud host of an organization. A cloud host starts with new data: use a new data directory (`--data-dir PATH`).')
   const choices = pathChoices(uplink)
     .filter((choice) => options.mode === 'setup' || choice.value !== 'pair')
     .filter((choice) => !options.isDesktopApp || choice.value !== 'organization')
-  const path = await prompter.choose<Path>('How will you use this server?', choices, isRegistered || options.mode === 'connect' ? choices[0]!.value : 'pair')
-  if (path === 'organization') throw new Error(ADDRESS_NEEDED)
-  return path
+  return prompter.choose<Path>('How will you use this server?', choices, isRegistered || options.mode === 'connect' ? choices[0]!.value : 'pair')
 }
 
 function pathChoices({ registration, link }: UplinkStatus) {
   return [
     { value: 'pair' as const, label: 'Connect a client directly', hint: 'Pair a Solus app with this server. No Solus account needed.' },
     ...(registration.registered && link.linked ? [] : [{ value: 'account' as const, label: 'Connect to your Solus account', hint: 'Registers this server and makes it reachable from the internet, so your Solus apps find it. Work here stays on this server.' }]),
-    ...(registration.registered ? [] : [{ value: 'organization' as const, label: 'Make this a cloud host of an organization', hint: 'The server works for one organization, and its members reach it through Solus at its own HTTPS address (`--address URL`). It starts with new data and has no pairing code.' }]),
+    ...(registration.registered ? [] : [{ value: 'organization' as const, label: 'Make this a cloud host of an organization', hint: 'The server works for one organization, and its members reach it through Solus. It starts with new data and has no pairing code.' }]),
     { value: 'later' as const, label: registration.registered ? 'Keep the current connection' : 'Skip for now', hint: 'Run `solus connect` later.' },
   ]
 }
 
 /**
  * What to print after a connect. A server that became a cloud host answers no local
- * call from now on, so its lines come from the answer of the call that made it. Any
- * other server reads its live status.
+ * call from now on, so its lines come from the answer of the call that made it, and
+ * its reach from the request: an address when one was given, else a tunnel. Any other
+ * server reads its live status.
  */
 async function connectionLines(options: OnboardingOptions, deps: OnboardingDeps, connected: UplinkStatus | null): Promise<string[]> {
   const registration = connected?.registration.registered ? connected.registration.registration : null
@@ -148,7 +161,7 @@ async function connectionLines(options: OnboardingOptions, deps: OnboardingDeps,
   return [
     'This server is now a cloud host. It works for one organization, and members of that organization reach it through Solus.',
     '',
-    ...describeCloudMachine({ registration: { ...registration, organizationId }, tunnel: link.linked ? link.tunnel : null }, link.linked ? undefined : link.error),
+    ...describeCloudMachine({ registration: { ...registration, organizationId }, tunnel: link.linked ? link.tunnel : null, reach: options.address ? 'direct' : 'tunnel' }, link.linked ? undefined : link.error),
   ]
 }
 
@@ -204,14 +217,14 @@ async function offerProviders(deps: OnboardingDeps): Promise<void> {
  * the control plane and the Solus API it names, how it is reached, and what waits for
  * delivery. Never a credential.
  */
-export function describeConnection({ uplink, standing }: { uplink: UplinkStatus; standing: HostOrganizationsStatus }): string[] {
+export function describeConnection({ uplink, standing, reach }: ConnectionStatus): string[] {
   const { registration, link } = uplink
   if (!registration.registered) {
     return ['Solus: not registered. Clients connect to this server directly; its work stays here.']
   }
-  const tunnel = !link.linked
-    ? 'local network only (not linked)'
-    : `${link.tunnel.hostname} — ${link.state.observed === 'error' && link.state.error ? `error — ${link.state.error}` : link.state.observed}`
+  const reachLine = !link.linked
+    ? 'Reachable from the internet: local network only (not linked)'
+    : `${describeReach(link.tunnel, reach)} — ${link.state.observed === 'error' && link.state.error ? `error — ${link.state.error}` : link.state.observed}`
   const owner = registration.owner?.email ?? registration.owner?.name
   const lines = [
     `Solus: registered${owner ? ` to ${owner}` : ''}`,
@@ -219,7 +232,7 @@ export function describeConnection({ uplink, standing }: { uplink: UplinkStatus;
     `  Control plane: ${registration.registration.directoryUrl}`,
   ]
   if (standing.apiUrl) lines.push(`  Solus API: ${standing.apiUrl}`)
-  lines.push(`  Reachable from the internet: ${tunnel}`)
+  lines.push(`  ${reachLine}`)
   const waiting = standing.delivery.filter((entry) => entry.pending > 0 || entry.failed > 0)
   for (const entry of waiting) {
     const name = standing.organizations.find((organization) => organization.organizationId === entry.organizationId)?.name ?? entry.organizationId
@@ -231,21 +244,22 @@ export function describeConnection({ uplink, standing }: { uplink: UplinkStatus;
 
 /**
  * A cloud host, for setup and `solus connect status`: its organization, the control
- * plane and the Solus API it names, and the address members reach it at. These come
- * from its records, not from the running server: a cloud host trusts no local
- * connection, so it has no live status for the command line. `linkError` is why Solus
- * cloud did not record the address, when the call that made the cloud host said so.
+ * plane and the Solus API it names, and how members reach it: its own address, or the
+ * host name of its tunnel. These come from its records, not from the running server:
+ * a cloud host trusts no local connection, so it has no live status for the command
+ * line. `linkError` is why Solus cloud did not make the link, when the call that made
+ * the cloud host said so.
  */
-export function describeCloudMachine({ registration, tunnel }: CloudMachineRecord, linkError?: string): string[] {
-  const address = tunnel
-    ? `https://${tunnel.hostname}${registration.hasManagedCompute ? '' : ` (it must forward to port ${tunnel.proxiedPort} on this machine)`}`
-    : `Solus cloud did not record it yet${linkError ? ` (${linkError})` : ''}. Restart the server so that it asks again.`
+export function describeCloudMachine({ registration, tunnel, reach }: CloudMachineRecord, linkError?: string): string[] {
+  const reachLine = tunnel
+    ? describeReach(tunnel, reach, registration.hasManagedCompute === true)
+    : `Reachable from the internet: not yet${linkError ? ` (${linkError})` : ''}. Restart the server so that it asks Solus cloud again.`
   return [
     `Solus: cloud host of organization ${registration.organizationId}`,
     `  Server: ${registration.hostId} (${kindLabel('cloud')})`,
     `  Control plane: ${registration.directoryUrl}`,
     ...(registration.apiUrl ? [`  Solus API: ${registration.apiUrl}`] : []),
-    `  Address: ${address}`,
+    `  ${reachLine}`,
     '  Members of the organization reach this server through Solus. It has no pairing code.',
     '  Live status is not available from the command line: a cloud host trusts no local connection. See the machine in the Solus console.',
   ]

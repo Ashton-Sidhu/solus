@@ -3,7 +3,7 @@ import { policySourceLabel, type ManagedHostKey } from '@solus/contracts/policy'
 import type { ManagedSettingNote } from './managed-setting-note'
 
 /** How each machine-wide key reads in "<Label> is managed by <source>." */
-const HOST_KEY_LABELS = {
+export const HOST_KEY_LABELS = {
   remoteAccess: 'Remote access',
   trustLocalNetwork: 'Local network trust',
   cloudTunnel: 'The Solus Cloud link',

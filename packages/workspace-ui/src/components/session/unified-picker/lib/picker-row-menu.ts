@@ -1,4 +1,4 @@
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
 import type { PickerEntry } from './picker-rows'
@@ -6,7 +6,7 @@ import type { PickerEntry } from './picker-rows'
 /** The menu of a row's own actions: a task's, or a session's. A record has
  *  none: its preview's action bar holds what can be done to it. */
 export type PickerRowMenu =
-  | { kind: 'task'; task: Task; x: number; y: number }
+  | { kind: 'task'; task: Issue; x: number; y: number }
   | {
       kind: 'session'
       session: Pick<SidebarSessionChild, 'tabId' | 'sessionId' | 'serverId' | 'attention'>

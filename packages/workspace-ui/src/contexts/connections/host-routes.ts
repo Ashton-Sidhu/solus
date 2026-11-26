@@ -20,13 +20,15 @@ export function registrationDescription(status: UplinkStatus | undefined): strin
   return `Registered to ${account}. Your devices reach it on your local network or by pairing.`
 }
 
-/** The line under "Reachable from the internet" (rule 9): the tunnel's state, and what turning it on does. */
+/** The line under "Reachable from the internet" (rule 9): the state of the tunnel or the address, and what turning it on does. */
 export function linkDescription(status: UplinkStatus | undefined): string {
   const offMessage = 'Turn on to expose this host to the internet through a Cloudflare tunnel. Nothing else changes.'
   if (!status) return offMessage
   const { link } = status
   if (!link.linked) return link.error ? `${link.error} ${offMessage}` : offMessage
   const { hostname } = link.tunnel
+  // A host with its own address has no tunnel to be offline.
+  if (link.reach === 'direct') return `Reachable at ${hostname}, its own address. It has no tunnel.`
   switch (link.state.observed) {
     case 'online': return `Reachable at ${hostname} through a Cloudflare tunnel.`
     case 'offline': return `${hostname} · tunnel offline. You can continue to use Solus locally.`

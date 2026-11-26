@@ -5,12 +5,11 @@ import { linkTaskSession } from '../../data/tasks/task-attachments'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { loadTask } from '../../data/tasks/task-store'
 import { formatTaskContext } from '../../data/tasks/task-context'
-import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { hostAttribution } from '../../data/stored-attribution'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
-import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueSnapshot } from '@solus/contracts/task-types'
 import type { AgentId, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { solusDir } from '../../platform/paths'
 import type { SessionRunRequest } from '../session-runtime'
@@ -49,8 +48,8 @@ export async function taskOfTurn(
     const task = options.taskSnapshot.details.task
     return { id: task.id, title: task.title }
   }
-  if (options.taskId) {
-    return titledTask(options.taskId)
+  if (options.issueId) {
+    return titledTask(options.issueId)
   }
   try {
     const taskId = await taskIdForSession(ANY_ORGANIZATION, run.sessionId)
@@ -67,7 +66,7 @@ async function titledTask(taskId: string): Promise<{ id: string; title?: string 
 }
 
 export async function linkPreparedTask(run: SessionRunRequest, sessionId: string): Promise<void> {
-  const taskId = run.options.taskId
+  const taskId = run.options.issueId
   if (!taskId) return
   // A shipped snapshot marks the task as foreign: another host holds its
   // attachments, and the dispatching client writes this link there itself.
@@ -85,33 +84,31 @@ export async function linkPreparedTask(run: SessionRunRequest, sessionId: string
 
 /**
  * The packet appended to the run's system prompt: the task's id and title and
- * the work contract. The agent reads the task itself with `read_task`. When
+ * the instruction to read it. The agent reads the task itself with `read_issue`. When
  * the task is foreign, the snapshot the dispatching client shipped is held
- * for the session so `read_task` (and op overlays) answer from it.
+ * for the session so `read_issue` (and op overlays) answer from it.
 
  */
 export async function taskSystemContext(
   taskId: string,
-  shipped: TaskSnapshot | null,
+  shipped: IssueSnapshot | null,
   sessionId: string,
-  preferences: ExecutionPreferences | undefined,
 ): Promise<string> {
-  const lifecyclePolicy = preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
   if (shipped && shipped.details.task.id === taskId) {
     setForeignTaskSnapshot(sessionId, shipped)
-    return formatTaskContext(shipped.details.task, lifecyclePolicy)
+    return formatTaskContext(shipped.details.task)
   }
   setForeignTaskSnapshot(sessionId, null)
   try {
     const task = await loadTask(taskId)
     if (!task) throw new Error('this host has no copy of the task')
-    return formatTaskContext(task, lifecyclePolicy)
+    return formatTaskContext(task)
   } catch (err) {
     // The host has no copy when the provider did not answer the read at the
-    // bind. The id and the contract still reach the agent; read_task asks the
+    // bind. The id still reaches the agent; read_issue asks the
     // provider again and says what failed.
     log.warn('task_context_injection_failed', { taskId, sessionId, shippedSnapshot: !!shipped, error: String(err) })
-    return formatTaskContext({ id: taskId }, lifecyclePolicy)
+    return formatTaskContext({ id: taskId })
   }
 }
 

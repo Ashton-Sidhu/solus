@@ -9,7 +9,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatResetClock } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
-  import { limitResetSnoozeUntil } from "../session/lib/task-snooze";
+  import { limitResetSnoozeUntil } from "../session/lib/snooze";
   import {
     sendRateLimitedNow,
     cancelRateLimitedMessages,
@@ -59,7 +59,7 @@
 
   const sidebarStore = getSessionSidebarStore();
   // Only a session's own row can be snoozed; a task's session never is alone.
-  const sessionRow = $derived(sidebarStore.allTasks.find((row) => row.key === tabId));
+  const sessionRow = $derived(sidebarStore.allRows.find((row) => row.key === tabId));
   // Offered only when the provider said when the window reopens.
   const snoozeUntil = $derived(
     sessionRow && sidebarStore.canShelve(sessionRow) && resetsAt

@@ -30,10 +30,21 @@ function isCodexImageGenerationTool(name: string | undefined): boolean {
   return name === 'ImageGeneration'
 }
 
-/** Matches create_automation/update_automation for both Claude (mcp__solus__*)
- *  and Codex (bare name). */
-function isAutomationSaveTool(name: string | undefined): boolean {
-  return !!name && (name.endsWith('create_automation') || name.endsWith('update_automation'))
+const automationActionSchema = z.object({ action: z.string().optional() })
+
+/** Matches a call that saved an automation, for both Claude (mcp__solus__*) and
+ *  Codex (bare name): manage_automations create or update, or the create_automation
+ *  and update_automation tools of an older transcript. */
+function isAutomationSaveTool(name: string | undefined, toolInput: string | undefined): boolean {
+  if (!name) return false
+  if (name.endsWith('create_automation') || name.endsWith('update_automation')) return true
+  if (!name.endsWith('manage_automations')) return false
+  try {
+    const { action } = automationActionSchema.parse(JSON.parse(toolInput || '{}'))
+    return action === 'create' || action === 'update'
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -141,7 +152,7 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
         sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
-        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true,
+        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true, replyLayout: true,
       })
     : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
         { deferToolInputs: true })))
@@ -172,7 +183,7 @@ export function readTranscriptDependencies(
   history: WireSessionLoadMessage[],
   sessionServerId: string,
 ) {
-  const namesAutomation = history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName))
+  const namesAutomation = history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName, message.toolInput))
   return {
     automations: namesAutomation && !ctx.automationsStore.hasLoadedHost(sessionServerId)
       ? ctx.automationsStore.loadAll(sessionServerId)
@@ -348,6 +359,8 @@ export function materializeSessionTranscript(
       }
     }
     if (m.role === 'user' && m.sender) msg.sender = m.sender
+    // The reply's content is kept as read, so the frame offsets stay valid.
+    if (m.role === 'assistant' && m.replyHtmlLayout) msg.replyHtmlLayout = m.replyHtmlLayout
     if (m.role === 'user' && m.imageAttachmentRefs?.length) {
       msg.attachments = [...(msg.attachments ?? []), ...(imageRefAttachments(m.imageAttachmentRefs) ?? [])]
     }
@@ -428,8 +441,8 @@ export function materializeSessionTranscript(
         timestamp: m.timestamp ?? Date.now(),
       })
       continue
-    } else if (m.role === 'tool' && isAutomationSaveTool(m.toolName)) {
-      // A create/update_automation call replays as a tool row (debug visibility)
+    } else if (m.role === 'tool' && isAutomationSaveTool(m.toolName, m.toolInput)) {
+      // An automation create or update call replays as a tool row (debug visibility)
       // followed by its automation card. The id lived in the dropped tool result,
       // so resolve against the store by id (update) or name (create).
       messages.push(msg)

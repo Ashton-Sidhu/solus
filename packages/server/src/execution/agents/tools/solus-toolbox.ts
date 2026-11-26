@@ -1,4 +1,8 @@
 import { addHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
+import { createHostAgentTool, deleteHostAgentTool, restartHostAgentTool, startHostAgentTool, stopHostAgentTool } from './cloud-machine-tools'
+import { checkHostAgentTool, listHostsAgentTool, shareHostAgentTool, unshareHostAgentTool, updateHostAgentTool } from './host-tools'
+import { createShareLinkAgentTool, readSharingAgentTool, removeShareLinkAgentTool, shareAgentTool } from './sharing-tools'
+import { listOrganizationMembersAgentTool, readOrganizationPolicyAgentTool, updateOrganizationPolicyAgentTool } from './organization-tools'
 import { startSessionsAgentTool } from './start-sessions-tool'
 import { queueSessionAgentTool } from './session-queue-tool'
 import { listSessionsAgentTool } from './session-list-tool'
@@ -15,17 +19,11 @@ import { renderArtifactAgentTool } from './artifact-tools'
 import { checkoutAppAgentTool, deployAppAgentTool, inspectAppAgentTool, listAppsAgentTool, previewAppAgentTool, publishAppAgentTool, exportAppAgentTool, retryAppRunAgentTool, saveAppAgentTool, setAppSignalActionAgentTool, unpublishAppAgentTool } from './app-tools'
 import { requestWorkReviewAgentTool } from './work-review-tools'
 import {
-  createAutomationAgentTool,
-  deleteAutomationAgentTool,
-  listAutomationRunsAgentTool,
-  listAutomationsAgentTool,
-  readAutomationAgentTool,
-  runAutomationAgentTool,
-  updateAutomationAgentTool,
+  manageAutomationsAgentTool,
+  readAutomationsAgentTool,
 } from './automation-tools'
 import {
   listAgentTargetsAgentTool,
-  listHostsAgentTool,
   readSessionAgentTool,
   readSessionExchangeAgentTool,
   searchSessionsAgentTool,
@@ -85,13 +83,8 @@ import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
 import { requestSecretAgentTool } from './secret-request-tool'
 import {
-  createWebhookAgentTool,
-  deleteWebhookAgentTool,
-  dryRunWebhookAgentTool,
-  listWebhooksAgentTool,
-  readWebhookDeliveryAgentTool,
-  rotateWebhookAgentTool,
-  updateWebhookAgentTool,
+  manageWebhooksAgentTool,
+  readWebhooksAgentTool,
 } from './webhook-tools'
 
 export const solusToolbox = {
@@ -125,30 +118,47 @@ export const solusToolbox = {
     setSignalAction: setAppSignalActionAgentTool,
   },
   automations: {
-    create: createAutomationAgentTool,
-    list: listAutomationsAgentTool,
-    read: readAutomationAgentTool,
-    update: updateAutomationAgentTool,
-    delete: deleteAutomationAgentTool,
-    run: runAutomationAgentTool,
-    listRuns: listAutomationRunsAgentTool,
+    read: readAutomationsAgentTool,
+    manage: manageAutomationsAgentTool,
   },
   webhooks: {
-    create: createWebhookAgentTool,
-    update: updateWebhookAgentTool,
-    delete: deleteWebhookAgentTool,
-    rotate: rotateWebhookAgentTool,
-    list: listWebhooksAgentTool,
-    readDelivery: readWebhookDeliveryAgentTool,
-    dryRun: dryRunWebhookAgentTool,
+    read: readWebhooksAgentTool,
+    manage: manageWebhooksAgentTool,
+  },
+  /**
+   * Every host the person reaches (plans/036-host-tools.md). A tool that acts through
+   * Solus Cloud is offered only to a person this host holds a delegation for (035 §7).
+   */
+  hosts: {
+    list: listHostsAgentTool,
+    add: addHostAgentTool,
+    create: createHostAgentTool,
+    start: startHostAgentTool,
+    stop: stopHostAgentTool,
+    restart: restartHostAgentTool,
+    update: updateHostAgentTool,
+    check: checkHostAgentTool,
+    share: shareHostAgentTool,
+    unshare: unshareHostAgentTool,
+    remove: removeHostAgentTool,
+    delete: deleteHostAgentTool,
   },
   connections: {
-    listHosts: listHostsAgentTool,
-    addHost: addHostAgentTool,
-    removeHost: removeHostAgentTool,
     status: connectionStatusAgentTool,
     connectIntegration: connectIntegrationAgentTool,
     addMcpServer: addMcpServerAgentTool,
+  },
+  /** Offered only to a person this host holds a delegation for (plans/035-cloud-machine-tools.md §7). */
+  organization: {
+    listMembers: listOrganizationMembersAgentTool,
+    readPolicy: readOrganizationPolicyAgentTool,
+    updatePolicy: updateOrganizationPolicyAgentTool,
+  },
+  sharing: {
+    read: readSharingAgentTool,
+    share: shareAgentTool,
+    createLink: createShareLinkAgentTool,
+    removeLink: removeShareLinkAgentTool,
   },
   insights: {
     query: queryInsightsAgentTool,

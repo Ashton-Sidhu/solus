@@ -221,7 +221,7 @@ export class SessionApiOperations {
       if (item.kind === 'automation') return [{ target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }]
       return [{ target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }]
     })
-    for (const id of taskIds.sort()) links.push({ target: { kind: 'task', id }, title: '' })
+    for (const id of taskIds.sort()) links.push({ target: { kind: 'issue', id }, title: '' })
     return { items: links }
   }
 
@@ -305,6 +305,7 @@ export class SessionApiOperations {
     // unless they ask for every session they may read (docs/plans/session-archive.md).
     const reader = this.reader(context)
     filters.push(query.parentSessionId ? sql`session_records.parent_session_id = ${query.parentSessionId}` : sql`session_records.parent_session_id IS NULL`)
+    if (query.scope === 'pinned') filters.push(sql`reader_view.pinned_at IS NOT NULL AND reader_view.archived_at IS NULL`)
     const where = sql.join(filters, sql` AND `)
     const records = query.scope === 'list' && !query.parentSessionId
       ? await readSessionListPage(where, query.limit + 1, time, reader)

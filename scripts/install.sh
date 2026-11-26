@@ -26,9 +26,11 @@
 # Flags, for one-line setup (`curl -fsSL <url> | sh -s -- --link CODE`):
 #   --setup                 run `solus setup` after installing
 #   --link CODE             run `solus setup --link CODE`: start the service and
-#                           link this host to Solus Cloud with a code from onboarding
-#   --address URL           the HTTPS address of this machine, with an organization code:
-#                           the machine becomes a cloud host, which has no tunnel
+#                           link this host to Solus Cloud with a code from onboarding.
+#                           The code decides the kind: a personal host, or a cloud
+#                           host of an organization
+#   --address URL           optional: the HTTPS address of this machine. The internet
+#                           reaches the host there. Without it the host gets a tunnel
 #   --cloud-url URL         the Solus Cloud origin that issued the code
 
 set -eu

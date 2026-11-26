@@ -24,7 +24,7 @@ export const NAV_PAGES: readonly NavPageSpec[] = [
   { id: 'automations', label: 'Automations' },
   { id: 'insights', label: 'Insights' },
   { id: 'prs', label: 'Pull requests' },
-  { id: 'tasks', label: 'Tasks' },
+  { id: 'tasks', label: 'Issues' },
   { id: 'notifications', label: 'Notifications' },
 ]
 

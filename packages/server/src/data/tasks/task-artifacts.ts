@@ -1,5 +1,5 @@
 import type { Attribution } from '@solus/contracts/user'
-import type { TaskDetails } from '@solus/contracts/task-types'
+import type { IssueDetails } from '@solus/contracts/task-types'
 import { renderArtifactPreview } from '../works/artifact-preview'
 import { loadWork } from '../works/works'
 import { createLogger } from '../../logger'
@@ -56,7 +56,7 @@ export async function attachArtifactToTask(
   workId: string,
   /** Who attached it: the comment is theirs. */
   by: Attribution,
-): Promise<TaskDetails> {
+): Promise<IssueDetails> {
   await cachedTask(taskId)
   const home = await taskHomeOf(taskId)
   // The work is read in the caller's scope: a task never shows a file its reader cannot open.

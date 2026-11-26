@@ -523,14 +523,14 @@ describe('host socket transport', () => {
     const client = createClient(harness.url)
     const taskEvents: unknown[] = []
     let resets = 0
-    client.events.subscribe('tasks.invalidated', (payload) => taskEvents.push(payload))
+    client.events.subscribe('issues.invalidated', (payload) => taskEvents.push(payload))
     client.onReset(() => { resets++ })
 
     client.start()
     await waitForStatus(client, 'connected')
     closeClientEngine(client)
     await waitForStatus(client, 'reconnecting')
-    harness.events.broadcast('tasks.invalidated', {})
+    harness.events.broadcast('issues.invalidated', {})
     await waitForStatus(client, 'connected')
     await waitFor(() => taskEvents.length === 1)
 
@@ -556,7 +556,7 @@ describe('host socket transport', () => {
     client.start()
     await waitForStatus(client, 'connected')
 
-    const stream = setInterval(() => harness.events.broadcast('tasks.invalidated', {}), 200)
+    const stream = setInterval(() => harness.events.broadcast('issues.invalidated', {}), 200)
     try {
       await client.probe()
     } finally {

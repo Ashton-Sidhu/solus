@@ -95,6 +95,8 @@ const PERMISSION_OF_METHOD = {
   configUpdate: 'host.admin',
   setProjectsBaseDirectory: 'host.admin',
   deleteProject: 'host.admin',
+  // Names folders across the host owner's whole home, from their Claude Code and Codex history.
+  agentHistoryProjects: 'host.admin',
   hostCheckForUpdates: 'host.admin',
   hostInstallUpdate: 'host.admin',
   hostCancelUpdate: 'host.admin',
@@ -170,8 +172,7 @@ const PERMISSION_OF_METHOD = {
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',
   pinnedSessionsList: 'host.sessions.read',
-  tasksSidebarSnapshot: 'host.sessions.read',
-  tasksSnoozes: 'host.sessions.read',
+  issuesSidebarSnapshot: 'host.sessions.read',
   createHeadlessSession: 'host.sessions.start',
   listProjects: 'host.projects.read',
   listRecentProjects: 'host.projects.read',
@@ -181,6 +182,9 @@ const PERMISSION_OF_METHOD = {
   gitRepositoryStatus: 'host.git.read',
   checkoutSnapshot: 'host.git.read',
   worktreeListProject: 'host.git.read',
+  managedWorktreesList: 'host.git.read',
+  managedWorktreeRemove: 'host.git.write',
+  managedWorktreeSizes: 'host.git.read',
   worktreeBranches: 'host.git.read',
   gitRunAction: 'host.git.write',
   gitDiscard: 'host.git.write',
@@ -255,7 +259,7 @@ const PERMISSION_OF_METHOD = {
   codeIntelDocs: HOST_USE, codeIntelStatus: HOST_USE, codeIntelReindex: HOST_USE, workspaceProjectList: HOST_USE,
   workspaceProjectAdd: HOST_USE, generateSessionMetadata: HOST_USE, trackRecentProject: HOST_USE,
   // A codebase is a record of the host (docs/plans/codebases.md decision 6): each person who uses the host reads and changes it.
-  codebaseList: HOST_USE, codebaseSave: HOST_USE, codebaseMembers: HOST_USE,
+  sessionDirectoryOpen: HOST_USE, codebaseList: HOST_USE, codebaseSave: HOST_USE, codebaseMembers: HOST_USE,
   listPlans: HOST_USE, detectEditors: HOST_USE, openInEditor: HOST_USE, getPluginCommands: HOST_USE,
   continueInWorktree: HOST_USE, decideWorktreeOffer: HOST_USE, projectConfigLoad: HOST_USE,
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
@@ -302,14 +306,14 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
-  tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
-  tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
-  tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
-  tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,
-  tasksListAssigneeCandidates: HOST_USE, tasksSessions: HOST_USE, tasksSnapshot: HOST_USE,
-  tasksLink: HOST_USE, tasksUnlink: HOST_USE, tasksAttachArtifact: HOST_USE,
-  tasksSearchComments: HOST_USE, tasksPrepareForSession: HOST_USE, tasksLinkedTo: HOST_USE, outboxList: HOST_USE,
+  issuesLoadMore: HOST_USE, issuesSources: HOST_USE, issuesSourceOptions: HOST_USE, issuesSearch: HOST_USE, issuesGet: HOST_USE,
+  issuesReact: HOST_USE, issuesTemplates: HOST_USE, issuesResolve: HOST_USE,
+  issuesAttachments: HOST_USE, issuesCreate: HOST_USE, issuesUpdate: HOST_USE, issuesMove: HOST_USE,
+  issuesDelete: HOST_USE, issuesMarkRead: HOST_USE,
+  issuesComment: HOST_USE, issuesRetryComment: HOST_USE, issuesDeleteComment: HOST_USE,
+  issuesListAssigneeCandidates: HOST_USE, issuesSnapshot: HOST_USE,
+  issuesLink: HOST_USE, issuesUnlink: HOST_USE, issuesAttachArtifact: HOST_USE,
+  issuesSearchComments: HOST_USE, issuesPrepareForSession: HOST_USE, issuesLinkedTo: HOST_USE, outboxList: HOST_USE,
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
   hostWebhookSettingsRead: HOST_USE,
@@ -437,11 +441,11 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — reading: the transcript, its cards and plans; every custom role holds it
   watchSession: 'read.transcript', unwatchSession: 'read.transcript', bindRuntimeSession: 'read.transcript',
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
-  loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
+  loadSessionToolInputs: 'read.transcript', artifactFrameHeightReport: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
   getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript', integrationResourceWatchList: 'read.transcript',
   sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
-  tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
+  issuesForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
   togglePinnedSession: 'read.transcript', sessionSuggestions: 'read.transcript',
   // Sessions — reading the changes the agent made
   listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs', diffStatsBatch: 'read.diffs',
@@ -473,7 +477,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // A new worktree in the task folder of a session changes where its agent works.
   sessionAddRepositoryWorktree: 'drive.prompt', sessionWorktreeCandidates: 'drive.prompt',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
-  pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
+  pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', issuesLinkSession: 'edit', issuesUnlinkSession: 'edit',
   // An app's linked session: the app is its host owner's, and the edge is the session's.
   appSessionLink: 'edit', appSessionUnlink: 'edit',
   // Works — reading

@@ -172,6 +172,19 @@ describe('work on a cloud machine', () => {
     expect(await records.sessionIsOrganizationWork('s-new')).toBe(true)
   })
 
+  test('a session whose row was made in the organization before its first turn is admitted the same: published, with its admission', async () => {
+    // WHY (found by a Lab run): a member's client can make the row before the first prompt, in the
+    // member's organization and not published. The admission must still mark it, or the agent's
+    // tools treat the session as work of this machine and save its works here, not on the Solus API.
+    const authorities = new FakeDelegations()
+    await identity.claimSessionOwner('s-early-row', { ownerKey: 'bob', organizationId: 'A' })
+    expect(await identity.sessionIdentityOf('s-early-row')).toMatchObject({ organizationId: 'A', publication: 'local', admittedAt: null })
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-early-row', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-early-row', userId: 'bob', organizationId: 'A', admit: true }])
+    expect(await identity.sessionIdentityOf('s-early-row')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'bob', admittedAt: expect.any(Number) })
+    expect(await records.sessionIsOrganizationWork('s-early-row')).toBe(true)
+  })
+
   test('a window that names no organization starts in the member\'s own', async () => {
     const authorities = new FakeDelegations()
     expect(await turnOrganization.admitTurnOrganization(ctx('s-unnamed'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
@@ -494,7 +507,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     // The task source is the person's own, from the preferences the run carries.
     const settings = await import('@solus/server/execution/sessions/session-settings')
     const recorded = settings.sessionSettings('s-new')
-    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, taskSources: [REPO] } })
+    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, issueSources: [REPO] } })
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
     try {

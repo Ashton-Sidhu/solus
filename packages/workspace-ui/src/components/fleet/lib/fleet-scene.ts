@@ -52,11 +52,6 @@ export function fleetScene(input: {
   return { map, wires, reachPaths: paths }
 }
 
-/** A point of the map in px, as the map's percent units. */
-export function scenePercent(point: Point, scene: { w: number; h: number }): Point {
-  return { x: (point.x / scene.w) * 100, y: (point.y / scene.h) * 100 }
-}
-
 /** Where a host's card sits on the map, in px; null for a host without a card. */
 export function cardCenter(map: MapLayout, serverId: string, scene: { w: number; h: number }): Point | null {
   for (const zone of map.zones) {

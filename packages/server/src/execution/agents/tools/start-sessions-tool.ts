@@ -307,7 +307,7 @@ function appModeThere(requested: PermissionMode | undefined): Checked<{ mode: Pe
 /** Another of the person's hosts, as if they started the sessions there
  *  (docs/plans/cross-host-sessions.md). The caller is a session, or an outside app with its person. */
 async function remotePlace(hostRef: string, deps: SessionToolDeps): Promise<Checked<Place>> {
-  const caller = reachCallerOf(deps)
+  const caller = reachCallerOf(deps.ctx)
   if (!caller) return { error: 'start_sessions on another host is unavailable before the calling session is initialized.' }
   const target = await remoteTarget(hostRef, caller)
   if ('error' in target) return target

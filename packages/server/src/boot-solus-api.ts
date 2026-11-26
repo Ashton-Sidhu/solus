@@ -212,7 +212,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const unsubscribeTasks = onTasksChanged(taskId => {
     // A task's links reach sessions and works: room members are checked again.
     events.forgetRoomAdmissions()
-    void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
+    void events.broadcast('issues.invalidated', taskId ? { issueId: taskId } : {})
   })
   const unsubscribeWorks = onWorksChanged(change => { void events.broadcast('works.changed', change) })
   const unsubscribeWorkDeletes = onWorkDeleted(change => events.prepareBroadcast('works.changed', change))

@@ -1,3 +1,4 @@
+import { routeClaudeTaskReplies } from './claude-subagent-protocol'
 import { createReadStream } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
@@ -54,8 +55,9 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
       const { bytesRead } = await file.read(block, 0, block.length, start)
       if (bytesRead !== block.length) throw new Error('Session history changed during loading.')
       let end = block.length
-      for (let index = block.length - 1; index >= 0; index--) {
-        if (block[index] !== 10) continue
+      while (end > 0) {
+        const index = block.lastIndexOf(10, end - 1)
+        if (index < 0) break
         const head = block.subarray(index + 1, end)
         const line = fragments.length ? Buffer.concat([head, ...fragments.reverse()]) : head
         fragments = []
@@ -70,7 +72,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
         const pageEnds = rows.some(startsHistoryTurn) && (++turns >= turnLimit || historyPageIsFull(messages.length, bytes))
         if (pageEnds || historyPageMustCut(messages.length, bytes) || lineBytes >= TURN_READ_BYTES) {
           return {
-            messages: messages.reverse(),
+            messages: routeClaudeTaskReplies(messages.reverse()),
             before: JSON.stringify({
               offset: start + index + 1, inode: String(stat.ino), anchorBytes: line.length,
               anchorHash: createHash('sha256').update(line).digest('hex'),
@@ -83,7 +85,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
     }
     const first = claudeHistoryRows(Buffer.concat(fragments.reverse()).toString('utf8'))
     for (const row of first.reverse()) messages.push(row)
-    return { messages: messages.reverse(), before: null }
+    return { messages: routeClaudeTaskReplies(messages.reverse()), before: null }
   } finally {
     await file.close()
   }
@@ -110,5 +112,5 @@ export async function loadClaudeFirstTurn(filePath: string): Promise<SessionLoad
     lines.close()
     input.destroy()
   }
-  return messages
+  return routeClaudeTaskReplies(messages)
 }

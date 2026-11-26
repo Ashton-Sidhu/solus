@@ -17,6 +17,7 @@ import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import { SymbolView } from "../../../components/ui/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../../components/ui/AppText";
 import { cn } from "../../../lib/cn";
+import { useHostQueryScope } from "../../../state/host-query-scope";
 import { type GitRepositoryRouteParams } from "../../../state/thread-git-target";
 
 type GitCommitSheetProps = StaticScreenProps<
@@ -25,6 +26,12 @@ type GitCommitSheetProps = StaticScreenProps<
     readonly threadId: string;
   } & GitRepositoryRouteParams
 >;
+
+// The sheet closes on submit. Retain the file choice for a retry in the same checkout.
+const retainedExclusions = new Map<
+  string,
+  { readonly branch: string | null; readonly excluded: ReadonlySet<string> }
+>();
 
 export function GitCommitSheet(props: GitCommitSheetProps) {
   const controller = useSessionController(props.route.params);
@@ -48,6 +55,8 @@ function Commit({
   // The commit of the thread's own folder, or of the repository that the route names.
   const target = useCheckoutGitTarget(controller, params);
   const { git, files } = useCheckoutCommit(controller, target);
+  const scope = useHostQueryScope(controller.hostId);
+  const selectionKey = JSON.stringify([scope, controller.hostId, target.cwd]);
   const error = files.error ?? git.error;
   if (error)
     return (
@@ -64,6 +73,8 @@ function Commit({
   if (!files.data || !git.status) return <FilePreviewLoading message="Loading changed files…" />;
   return (
     <GitCommitForm
+      key={selectionKey}
+      selectionKey={selectionKey}
       allFiles={files.data}
       branch={git.status.refName}
       busy={git.busy}
@@ -72,10 +83,13 @@ function Commit({
       isDefaultRef={git.status.isDefaultRef}
       repositoryName={target.repository?.name}
       onCommit={(input) =>
-        git.perform({
-          ...input,
-          filePaths: input.filePaths ?? files.data?.map((file) => file.path),
-        })
+        git.perform(
+          {
+            ...input,
+            filePaths: input.filePaths ?? files.data?.map((file) => file.path),
+          },
+          git.status?.refName ?? undefined,
+        )
       }
     />
   );
@@ -87,7 +101,8 @@ export function GitCommitForm({
   busy,
   canWriteSourceControl,
   canCreateFeatureBranch,
-  branch,
+  branch = null,
+  selectionKey,
   repositoryName,
   onCommit,
 }: {
@@ -97,13 +112,22 @@ export function GitCommitForm({
   canWriteSourceControl: boolean;
   canCreateFeatureBranch: boolean;
   branch?: string | null;
+  selectionKey: string;
   repositoryName?: string;
-  onCommit: (input: GitActionRequestInput) => Promise<unknown>;
+  onCommit: (input: GitActionRequestInput) => Promise<boolean>;
 }) {
   const gt = useGT();
   const navigation = useNavigation();
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
-  const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
+  const retained = retainedExclusions.get(selectionKey);
+  const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(
+    retained?.branch === branch ? retained.excluded : new Set(),
+  );
+  const [selectionBranch, setSelectionBranch] = useState(branch);
+  if (selectionBranch !== branch) {
+    setSelectionBranch(branch);
+    setExcludedFiles(new Set());
+  }
 
   const selectedFiles = allFiles.filter((file) => !excludedFiles.has(file.path));
   const allSelected = excludedFiles.size === 0;
@@ -114,13 +138,17 @@ export function GitCommitForm({
   const runCommitAction = async (featureBranch: boolean) => {
     if (!canWriteSourceControl || (featureBranch && !canCreateFeatureBranch)) return;
     const commitMessage = dialogCommitMessage.trim();
+    retainedExclusions.set(selectionKey, { branch, excluded: excludedFiles });
     navigation.goBack();
-    await onCommit({
+    const committed = await onCommit({
       action: "commit",
       featureBranch,
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
     });
+    if (committed && retainedExclusions.get(selectionKey)?.excluded === excludedFiles) {
+      retainedExclusions.delete(selectionKey);
+    }
   };
 
   return (

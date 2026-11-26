@@ -12,7 +12,7 @@
 // (plans/018). Device choices stay on the device.
 
 import { z } from 'zod'
-import { solusToolSwitchesSchema, type SolusToolPreferences } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agent-tools'
 import type { OtelSettings } from './types'
 
 export interface HostConfig {
@@ -100,11 +100,11 @@ export const HOST_CONFIG_FIELDS = {
   sessionCloudSync: field(z.boolean().catch(true), true),
   previewTunnelEnabled: field(z.boolean().describe("Allow connected desktop clients to forward this host’s loopback preview ports."), true),
   agentAutoUpdates: field(z.boolean().describe('Automatically download, verify, and select new native agent releases installed through Solus on this host. Active agent processes keep their current version. Other installations remain under their existing package manager.'), true),
-  solusTools: field(solusToolSwitchesSchema.describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
+  solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}).describe('By project path on this host: when true, the host writes review guides before they are asked for, for open pull requests that are not drafts, when their head has not changed for a minute.'), {}),
   archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30),
-  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650).describe('Browser recordings that are not filed on a task or a pull request, or sent to an agent, are deleted after this number of days.'), 30),
+  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650).describe('Browser recordings that are not filed on an issue or a pull request, or sent to an agent, are deleted after this number of days.'), 30),
   otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS),
   analyticsEnabled: field(z.boolean().catch(true), true),
 } satisfies HostConfigFieldTable

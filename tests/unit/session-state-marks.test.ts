@@ -7,7 +7,7 @@ import {
   isHostUnreachable,
   liveDotMark,
 } from '@solus/workspace-ui/lib/sessionUtils'
-import { glyphWord } from '@solus/workspace-ui/components/session/lib/task-list'
+import { glyphWord } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { needsAttention } from '@solus/workspace-ui/components/session/lib/sidebar-project-folders'
 
 // The state marks of docs/plans/session-state-marks.md, as an open tab derives

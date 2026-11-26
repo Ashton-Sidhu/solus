@@ -26,6 +26,20 @@ describe('session result projection', () => {
     expect(nested).toBe(child)
   })
 
+  test('keeps agent and automation attribution when a client loads saved prompts', () => {
+    const row = { role: 'user', content: 'continue', timestamp: 1 }
+    const messages = withTurnItemBodies([
+      { ...row, sender: { kind: 'agent', sessionId: 'source' } },
+      { ...row, sender: { kind: 'automation', automationId: 'daily' } },
+      row,
+    ])
+    expect(messages.map(message => message.turnItem)).toMatchObject([
+      { createdBy: 'agent', senderThreadId: 'source' },
+      { createdBy: 'agent', scheduledTaskId: 'daily' },
+      { createdBy: 'user' },
+    ])
+  })
+
   test('keeps a subagent report whole', () => {
     const text = '# Findings\n\nThe complete answer.'
     expect(projectSessionEvent({

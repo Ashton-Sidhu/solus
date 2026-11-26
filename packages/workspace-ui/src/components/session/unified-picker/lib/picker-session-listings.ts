@@ -1,4 +1,4 @@
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchHit, SessionSearchResult } from '@solus/contracts/types'
 import { snippetWindow } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
@@ -16,7 +16,7 @@ import type { ConversationHit } from './picker-rows'
  */
 
 export interface TaskSession {
-  task: Task
+  task: Issue
   session: SidebarSessionChild
 }
 
@@ -26,7 +26,7 @@ export interface TaskSession {
 export type SessionListing =
   | {
       kind: 'session'
-      task: Task
+      task: Issue
       session: SidebarSessionChild
       hit?: ConversationHit
       additionalMatches?: ConversationHit[]

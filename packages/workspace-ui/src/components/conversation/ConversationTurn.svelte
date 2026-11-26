@@ -292,10 +292,11 @@
   }
   /* An activity row (a thought, a tool group, or an answered question) already
      pads 7px above and below its label. Beside text or another activity row,
-     that padding is the whole space: the item gap would double it. */
+     that padding is most of the space: the item gap would double it, so the
+     gap shrinks to 2px of breathing room. */
   .turn-item:is([data-body-kind="assistant"], [data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):has(+ .turn-item:is([data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):not([hidden])),
   .turn-item:is([data-body-kind="thought"], [data-body-kind="tool-group"], [data-body-kind="question"]):has(+ .turn-item[data-body-kind="assistant"]:not([hidden])) {
-    --turn-item-gap: 0;
+    --turn-item-gap: 0.125rem;
   }
 
   /* The open body's rail: each item draws its own edge, and an item followed

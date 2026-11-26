@@ -20,7 +20,7 @@
     inlineCodeParts,
     optionLabelParts,
   } from "./lib/interrupt";
-  import { formatAnswer, previewMarkdown, questionKey } from "@solus/contracts/question-answer";
+  import { formatAnswer, previewMarkdown, questionKey, questionTakesAttachments } from "@solus/contracts/question-answer";
   import { requestExpiryText, type AgentId, type QuestionRequest, type QuestionItem } from "@solus/contracts/types";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
@@ -60,7 +60,7 @@
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
   const serverId = $derived(runHost(sess?.run) ?? LOCAL_SERVER_ID);
   const canAttach = $derived(
-    request.responseMode === "message" && !respond &&
+    questionTakesAttachments(request) && !respond &&
     hosts.get(serverId)?.capabilityRecord?.attachUpload === true &&
     canDriveSession(serverId, sess?.id, "drive.prompt"),
   );

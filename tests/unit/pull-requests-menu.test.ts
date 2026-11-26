@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
-import type { TaskPrChoice } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { PrChoice } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { pullRequestMenuRows } from '@solus/workspace-ui/components/session/lib/pull-requests-menu'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 
-function choice(targetScope: string, number: number, overrides: Partial<PullRequest> = {}, requiredChecksFail = false): TaskPrChoice {
+function choice(targetScope: string, number: number, overrides: Partial<PullRequest> = {}, requiredChecksFail = false): PrChoice {
   return {
     number,
     targetScope,

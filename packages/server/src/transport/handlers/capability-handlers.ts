@@ -35,6 +35,7 @@ export function registerCapabilityHandlers(
       // derive at pairing time; this is the host correcting that record.
       name: hostDisplayName(),
       sessionListControls: true,
+      sessionDirectoryOpen: server.hasHandler('sessionDirectoryOpen') && server.hasHandler('solusApiRequest'),
       sessionComposer: { providerSwitch: server.hasHandler('switchSessionAgent'), sideChatCommands: false },
       attachUpload: server.hasHandler('attachUpload'),
       attachStreamUpload: server.hasHandler('attachUploadToken'),

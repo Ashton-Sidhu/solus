@@ -8,7 +8,7 @@ import { AppState } from "react-native";
 import { useSyncExternalStore } from "react";
 import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import type { SessionRowChange } from "@solus-mobile/features/threads/thread-directory";
+import type { PresumedHost, SessionRowChange } from "@solus-mobile/features/threads/thread-directory";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { expoPlatform, watchAppLifecycle } from "@solus-mobile/platform/expo";
 import type { WorkspaceEnvironment } from "../state/workspaceModel";
@@ -74,6 +74,23 @@ export function startSolus() {
   let stopAgentAwareness: (() => void) | undefined;
   let scope = "";
   const hosts = new Map<string, () => void>();
+  function restoreShellCache(hostId: string, presumed?: PresumedHost) {
+    if (shellCacheRestores.has(hostId)) return;
+    // `hasHistoryKey` then answers true or false when a session opens.
+    void solus.sessionCache.forHost(hostId).readKeys();
+    const pending = solus.threads.restore(hostId, presumed);
+    shellCacheRestores.set(hostId, pending);
+    void pending.finally(() => {
+      if (!active || shellCacheRestores.get(hostId) !== pending) return;
+      shellCacheRestores.set(hostId, null);
+      shellCachesRead = [...shellCacheRestores.values()].every(read => read === null);
+      changed();
+    });
+  }
+  // The saved lists of the last start show before the account and the hosts are read.
+  const presumedHosts = solus.presumeLastSessionList();
+  let presumedScope: string | null = presumedHosts.length ? solus.sessionCache.scope() : null;
+  for (const host of presumedHosts) restoreShellCache(host.id, host);
   function refresh() {
     if (loaded) void nearby.scan();
     for (const host of solus.registry.hosts()) {
@@ -83,10 +100,13 @@ export function startSolus() {
   function reconcile() {
     if (!active || !localReady) return;
     const nextScope = solus.sessionCache.scope();
+    solus.confirmLastSessionList();
     if (scope !== nextScope) {
       hosts.forEach(stop => stop());
       hosts.clear();
-      shellCacheRestores.clear();
+      // The restores of the last start stay when the account kept its scope.
+      if (nextScope !== presumedScope) shellCacheRestores.clear();
+      presumedScope = null;
       rowActions.clear();
       scope = nextScope;
       appAtomRegistry.set(fileAccountScope, { key: scope, organizationId: solus.account.organizationId });
@@ -100,19 +120,10 @@ export function startSolus() {
       }
     }
     for (const id of shellCacheRestores.keys()) {
-      if (!saved.some(host => host.id === id)) shellCacheRestores.delete(id);
+      if (!saved.some(host => host.id === id) && !solus.threads.presumes(id)) shellCacheRestores.delete(id);
     }
     for (const host of saved) {
-      if (!shellCacheRestores.has(host.id)) {
-        const pending = solus.threads.restore(host.id);
-        shellCacheRestores.set(host.id, pending);
-        void pending.finally(() => {
-          if (!active || shellCacheRestores.get(host.id) !== pending) return;
-          shellCacheRestores.set(host.id, null);
-          shellCachesRead = [...shellCacheRestores.values()].every(read => read === null);
-          changed();
-        });
-      }
+      restoreShellCache(host.id);
       if (hosts.has(host.id)) continue;
       const connection = solus.connections.connection(host.id);
       if (!connection) continue;
@@ -157,20 +168,23 @@ export function startSolus() {
         scheduleRecords();
       };
       rowReaders.set(host.id, recordChanged);
+      const receiveAutomationNames = (automations: readonly { id: string; name: string }[]) => {
+        automationRevision++;
+        automationNames.set(host.id, new Map(automations.map(({ id, name }) => [id, name])));
+        changed();
+      };
       const refreshAutomationNames = () => {
         if (solus.connections.state(host.id)?.readiness !== "ready") return;
         const request = ++automationRequest;
         void connection.api.automationList().then((automations) => {
           if (request !== automationRequest) return;
-          automationRevision++;
-          automationNames.set(host.id, new Map(automations.map(({ id, name }) => [id, name])));
-          changed();
+          receiveAutomationNames(automations);
         }, () => {
           // Older hosts can still list sessions without answering automation reads.
         });
       };
       const readAutomationNames = () => {
-        if (automationRequest > 0 || connection.state.readiness !== "ready") return;
+        if (generation === undefined || automationRequest > 0 || connection.state.readiness !== "ready") return;
         const rows = solus.threads.threads();
         if (rows === lastAutomationRows) return;
         const positions = lastAutomationRows && solus.threads.changedPositions(lastAutomationRows, []);
@@ -183,15 +197,34 @@ export function startSolus() {
         const state = solus.connections.state(host.id);
         if (state?.readiness === "ready" && state.sessionGeneration !== generation) {
           generation = state.sessionGeneration;
-          if (automationRequest > 0) refreshAutomationNames();
+          const opening = solus.openingDirectory(host.id, "sessions");
+          let directoryPage = opening;
+          if (opening) {
+            const request = ++automationRequest;
+            void opening.then(page => {
+              if (request !== automationRequest || disposed) return;
+              if (page) {
+                receiveAutomationNames(page.automations);
+              } else {
+                automationRequest = 0;
+                readAutomationNames();
+              }
+            }, () => {});
+            const pins = solus.threadList.loadPins(host.id, opening.then(page => page?.pins));
+            directoryPage = Promise.all([opening, pins]).then(([page]) => page);
+          } else if (automationRequest > 0) refreshAutomationNames();
           else readAutomationNames();
-          solus.threadList.follow(host.id);
+          solus.threadList.follow(host.id, opening?.then(page => page?.attention));
           nearby.onHostReady();
           clearTimeout(timer);
           timer = undefined;
           pendingRecords.clear();
           deltas.clear();
-          void solus.threads.load(host.id);
+          // The first pages of the rows at the top are read once the list is in.
+          const listGeneration = generation;
+          void solus.threads.load(host.id, 0, "all", directoryPage).then(() => {
+            if (!disposed && generation === listGeneration) solus.warmHistory(host.id);
+          });
         }
       };
       const stops = [
@@ -227,6 +260,7 @@ export function startSolus() {
       ];
       hosts.set(host.id, () => {
         disposed = true;
+        solus.historyPrefetch.cancel(host.id);
         automationRequest++;
         rowReaders.delete(host.id);
         if (automationNames.delete(host.id)) automationRevision++;
@@ -292,7 +326,11 @@ export function startSolus() {
   };
 }
 
-const projectThreads = createSessionListProjection((codebaseId) => solus.codebases.codebaseOf(codebaseId));
+const projectThreads = createSessionListProjection(
+  (codebaseId, hostId) => solus.codebases.codebaseOf(codebaseId) ??
+    (solus.codebases.isDeleted(codebaseId) ? undefined : solus.threads.openingCodebase(hostId, codebaseId)),
+  (hostId, automationId) => solus.threads.openingAutomation(hostId, automationId),
+);
 
 function readHosts() {
   const environments = solus.registry.hosts().map((host): WorkspaceEnvironment & {supportsListControls: boolean} => {

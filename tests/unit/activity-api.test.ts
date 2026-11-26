@@ -54,7 +54,7 @@ afterAll(async () => {
 const member = (userId: string, displayName: string): WorkspaceRequestContext => ({
   principal: { kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
   home: { kind: 'organization', organizationId: 'org1', serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 })
 const alice = member('alice', 'Alice')
 const bob = member('bob', 'Bob')
@@ -176,6 +176,6 @@ describe('activity on the Solus API', () => {
     // `since` leaves out what came before it.
     expect((await operations.listMyActivity(bob, { since: new Date(Date.now() + 60_000).toISOString() })).items).toEqual([])
     // A credential that may not read works reads no work mentions.
-    expect((await operations.listMyActivity({ ...bob, scopes: ['tasks:read'] }, {})).items).toEqual([])
+    expect((await operations.listMyActivity({ ...bob, scopes: ['issues:read'] }, {})).items).toEqual([])
   })
 })

@@ -48,7 +48,7 @@ export type SessionActivityState = 'idle' | 'running' | 'waiting'
 export interface SessionActivity {
   sessionId: string
   title: string | null
-  taskId: string | null
+  issueId: string | null
   state: SessionActivityState
   activeTurn: SessionActiveTurn | null
 }

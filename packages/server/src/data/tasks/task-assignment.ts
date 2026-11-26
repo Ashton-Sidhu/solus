@@ -1,4 +1,4 @@
-import type { TaskProviderId } from '@solus/contracts/task-types'
+import type { IssueProviderId } from '@solus/contracts/task-types'
 import { getDatabase } from '../../db/database'
 import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { githubCredentials } from '../../providers/github/credentials'
@@ -8,7 +8,7 @@ import { recordNotification } from '../notifications/store'
 export interface TaskAssignment {
   taskId: string
   title: string
-  provider: TaskProviderId
+  provider: IssueProviderId
   /** The new assignee, in the provider's words: a GitHub login. */
   assignee: string
   /** The provider's time of the change that the read saw. */
@@ -49,11 +49,11 @@ export async function notifyTaskAssignments(
       await recordNotification(tx, {
         organizationId: LOCAL_ORGANIZATION_ID,
         // Named by the provider's change, so two reads of one change record one notification.
-        eventId: `task.assigned:${assignment.taskId}:${login}:${assignment.updatedAt}`,
+        eventId: `issue.assigned:${assignment.taskId}:${login}:${assignment.updatedAt}`,
         recipients: [personKey],
-        resource: { kind: 'task', taskId: assignment.taskId },
+        resource: { kind: 'issue', issueId: assignment.taskId },
         by: { kind: 'upstream', provider: 'github' },
-        facts: { kind: 'task.assigned' },
+        facts: { kind: 'issue.assigned' },
         summary: { title: assignment.title.slice(0, 300) },
       })
     }

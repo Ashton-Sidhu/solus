@@ -61,6 +61,7 @@ type NativeSelectionEvent = NativeSyntheticEvent<{
 }>;
 
 type NativePasteImagesEvent = NativeSyntheticEvent<{
+  readonly reservedCount?: number;
   readonly uris: ReadonlyArray<string>;
 }>;
 
@@ -397,7 +398,7 @@ export function ComposerEditor({
         setMostRecentEventCount(acknowledgedEventCount);
         forceNativeEventRender((sequence) => sequence + 1);
       }}
-      onComposerPasteImages={(event) => onPasteImages?.(event.nativeEvent.uris)}
+      onComposerPasteImages={(event) => onPasteImages?.(event.nativeEvent.uris, event.nativeEvent.reservedCount)}
       onComposerPasteImagesPending={(event) => onPasteImagesPending?.(event.nativeEvent.delta)}
       onComposerContextPress={(event) => props.onContextPress?.(event.nativeEvent)}
       onComposerPasteContext={(event) => {

@@ -24,7 +24,7 @@ test.each([
     eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
     planStore: { hydrateAnnotations() {} }, applyPendingQuestions() {}, refreshThreadGoal() {},
     environment: { refreshEnvironment: async () => {} },
-    tasksStore: { ensureSessionBinding: async () => {} },
+    issuesStore: { ensureSessionBinding: async () => {} },
   }
   const hydrate = new Function('afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
     'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',

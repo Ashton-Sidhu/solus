@@ -157,7 +157,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
   let resourceShares: import('@solus/server/sharing/share-manager').ShareManager
   const authority = (principal: Principal): WorkspaceRequestContext => {
     if (principal.kind !== 'org-member') throw new Error('Member required')
-    return { principal, home: { kind: 'organization', organizationId: principal.organizationId, serviceId: 'workspace' }, scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'] }
+    return { principal, home: { kind: 'organization', organizationId: principal.organizationId, serviceId: 'workspace' }, scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'] }
   }
   const alice = member('alice', 'org1', 'owner')
   const bob = member('bob', 'org2')
@@ -208,12 +208,12 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     const alicesColleague = member('carol', 'org1')
 
     // The task is GitHub's, and both organizations can name it. The link is the organization's.
-    const taskKey = 'github:I_1'
-    await server.handle('tasksLink', [taskKey, { kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }], ctx(alice))
-    expect((await server.handle('tasksAttachments', [taskKey], ctx(alicesColleague))).links.map(link => link.targetKey)).toEqual(['auto-1'])
-    expect(await server.handle('tasksAttachments', [taskKey], ctx(bob))).toEqual({ links: [], activity: [] })
+    const issueKey = 'github:I_1'
+    await server.handle('issuesLink', [issueKey, { kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }], ctx(alice))
+    expect((await server.handle('issuesAttachments', [issueKey], ctx(alicesColleague))).links.map(link => link.targetKey)).toEqual(['auto-1'])
+    expect(await server.handle('issuesAttachments', [issueKey], ctx(bob))).toEqual({ links: [], activity: [] })
     // The API holds no task: it has no method that reads or writes one.
-    await expect(server.handle('tasksGet', [taskKey], ctx(alice))).rejects.toThrow()
+    await expect(server.handle('issuesGet', [issueKey], ctx(alice))).rejects.toThrow()
     const work = await api.createWork(authority(alice), { title: 'Spec', type: 'doc', content: '# Spec', projectKey: '/repo' }, 'org-work-create-key-01')
     expect((await api.listWorks(authority(alice), { limit: 50 })).items.map(row => row.id)).toEqual([work.id])
     expect((await api.listWorks(authority(bob), { limit: 50 })).items).toEqual([])
@@ -225,7 +225,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     await expect(server.handle('shareGet', [{ resource: { kind: 'work', id: work.id } }], ctx(bob))).rejects.toBeInstanceOf(accessPolicy.RpcAccessError)
     // A task is not a share resource: a request that names one is refused as malformed.
     // SAFETY: the test sends a kind that the contract no longer has.
-    await expect(server.handle('shareGet', [{ resource: { kind: 'task', id: taskKey } as never }], ctx(alice))).rejects.toThrow()
+    await expect(server.handle('shareGet', [{ resource: { kind: 'task', id: issueKey } as never }], ctx(alice))).rejects.toThrow()
 
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org1', provider: 'claude-code', projectPath: '-repo', title: 'Ours', lastActivityAt: 1 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org2', provider: 'codex', projectPath: '-repo', title: 'Theirs', lastActivityAt: 2 }], ctx(runner2))
@@ -400,7 +400,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
   test('a runner reaches the system-only writes of its organization and nothing else; no person writes a record', async () => {
     const server = await bootServer()
     await expect(server.handle('sessionRecordUpsert', [{ sessionId: 's-x', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }], ctx(alice))).rejects.toThrow(/only available to the host itself/)
-    await expect(server.handle('tasksSidebarSnapshot', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
+    await expect(server.handle('issuesSidebarSnapshot', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
     await expect(server.handle('connectionsGetServerInfo', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
     // The record a runner writes is stamped with the runner, whatever the body claimed.
     const record = await server.handle('sessionRecordUpsert', [{ sessionId: 's-stamped', provider: 'claude-code', projectPath: '-p', runnerHostId: 'someone-else', lastActivityAt: 1 }], ctx(runner1))

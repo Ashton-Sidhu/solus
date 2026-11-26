@@ -324,6 +324,19 @@ describe('ClaudeTurnNormalizer', () => {
     ])
   })
 
+  test('a resumed agent keeps its launch call as the parent of its live work', async () => {
+    const { normalizer } = await normalizeClaudeFixture('claude-async-subagent.jsonl')
+    const started = normalizer.push({ type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'task-async-1', tool_use_id: 'follow-up' })
+    expect(started).toMatchObject([
+      { type: 'subagent_running', toolUseId: 'agent-async-1' },
+      { type: 'background_task_started', toolUseId: 'agent-async-1' },
+    ])
+    const child = normalizer.push({ type: 'assistant', parent_tool_use_id: 'follow-up', message: { content: [{ type: 'text', text: 'Follow-up answer' }] } })
+    expect(child).toContainEqual({ type: 'assistant_message', text: 'Follow-up answer', parentToolUseId: 'agent-async-1' })
+    const ack = normalizer.push({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'follow-up', content: 'Message sent' }] } })
+    expect(ack[0]).toMatchObject({ type: 'tool_result', toolUseId: 'follow-up' })
+  })
+
   // TaskStop is the only account a killed task ever gets: the SDK sends no
   // task_updated patch and no task_notification afterwards. Without a settle here
   // the task stays in the SessionRuntime's in-flight set, task_complete takes the

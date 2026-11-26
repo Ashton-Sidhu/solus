@@ -8,7 +8,7 @@
 <div
   class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
   role="status"
-  aria-label="Loading task"
+  aria-label="Loading issue"
 >
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-2 pr-3.5 pl-[max(1.125rem,var(--solus-chrome-lead-inset,0px))]"

@@ -25,7 +25,7 @@ test('messages display while git identity and task binding are still pending', a
     // A session that is opened between turns reads its folders from the host (docs/plans/codebases.md §9).
     apiFor: () => ({ gitIdentity: () => identity, sessionFolders: async () => [] }),
     ctxFor: () => ({}), runFor: () => first.run,
-    tasksStore: { ensureSessionBinding: () => new Promise(() => {}) },
+    issuesStore: { ensureSessionBinding: () => new Promise(() => {}) },
     eventReducer: { rebuildAgentConversations() {} },
     environment: {
       async registerEnvironment() { registered = true },

@@ -32,6 +32,7 @@ const tolerantBoolean = z.boolean().optional().catch(undefined)
 const hostCapabilitiesSchema = z.object({
   version: z.string().optional().catch(undefined),
   name: z.string().optional().catch(undefined),
+  sessionDirectoryOpen: tolerantBoolean,
   attachUpload: tolerantBoolean,
   attachStreamUpload: tolerantBoolean,
   browserRecording: tolerantBoolean,

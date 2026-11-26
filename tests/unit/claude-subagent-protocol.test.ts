@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   claudeToolResultText,
   parseClaudeTaskNotification,
+  routeClaudeTaskReplies,
 } from '@solus/server/execution/agents/claude/claude-subagent-protocol'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
 
@@ -47,4 +48,19 @@ describe('Claude subagent protocol', () => {
     })
     expect(parseJsonlLine(launch)).toBeNull()
   })
+})
+
+test('routes resumed task output to the original agent and keeps the follow-up call in the parent', () => {
+  const notification = (task: string, tool: string) => parseJsonlLine(JSON.stringify({
+    type: 'user', message: { content: '<task-notification><task-id>' + task + '</task-id><tool-use-id>' + tool + '</tool-use-id><result>Finished</result></task-notification>' },
+  }))!
+  const rows = routeClaudeTaskReplies([
+    { role: 'tool', toolName: 'Agent', toolId: 'launch', content: '', timestamp: 1 },
+    notification('agent-a', 'launch'),
+    { role: 'tool', toolName: 'SendMessage', toolId: 'resume', content: '', timestamp: 2 },
+    notification('agent-b', 'other'),
+    { role: 'assistant', parentToolUseId: 'resume', content: 'Working', timestamp: 3 },
+    notification('agent-a', 'resume'),
+  ])
+  expect(rows.map(row => row.parentToolUseId)).toEqual([undefined, 'launch', undefined, 'other', 'launch', 'launch'])
 })

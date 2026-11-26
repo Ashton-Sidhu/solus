@@ -25,7 +25,7 @@ export const VIEW_SCALE = {
 }
 
 /** The frame's height: as tall as the map, between these bounds, in px. */
-export const FRAME_HEIGHT = { min: 416, max: 736 }
+export const FRAME_HEIGHT = { min: 576, max: 880 }
 
 export const IDENTITY_VIEW: FleetView = { scale: 1, x: 0, y: 0 }
 

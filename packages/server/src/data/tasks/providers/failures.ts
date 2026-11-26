@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { TASKS_AUTH_ERROR_PREFIX, type TaskSourceHealth } from '@solus/contracts/task-types'
+import { ISSUES_AUTH_ERROR_PREFIX, type IssueSourceHealth } from '@solus/contracts/task-types'
 import { GitHubReauthRequiredError } from '../../../providers/github/octokit'
 import { JiraRequestError, TaskProviderError } from './types'
 
 /** What a failed provider call means for the person's connection. */
 export interface ProviderFailure {
-  health: Exclude<TaskSourceHealth, 'ok'>
+  health: Exclude<IssueSourceHealth, 'ok'>
   /** Why, in words a person can read. */
   message: string
 }
@@ -51,5 +51,5 @@ export function classifyProviderFailure<Failure>(error: Failure): ProviderFailur
 export function taskWriteError<Failure>(error: Failure): Error {
   const { health, message } = classifyProviderFailure(error)
   if (health !== 'not_connected' && health !== 'reconnect') return error instanceof Error ? error : new Error(message)
-  return new Error(message.startsWith(TASKS_AUTH_ERROR_PREFIX) ? message : `${TASKS_AUTH_ERROR_PREFIX}${message}`)
+  return new Error(message.startsWith(ISSUES_AUTH_ERROR_PREFIX) ? message : `${ISSUES_AUTH_ERROR_PREFIX}${message}`)
 }

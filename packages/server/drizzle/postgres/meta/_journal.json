@@ -71,6 +71,13 @@
       "when": 1795542655183,
       "tag": "0009_codebase_badge",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795703445613,
+      "tag": "0010_issues",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { pullRequestNumber } from '@solus/server/browser/pull-request-link'
 import { attachableTasks, evidenceChoices } from '@solus/workspace-ui/components/browser/lib/evidence-menu'
 import type { BrowserEvidenceOptions } from '@solus/contracts/browser-types'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 
 /**
  * The evidence loop's rules.
@@ -13,7 +13,7 @@ import type { Task } from '@solus/contracts/task-types'
  * bytes published first, as it is for a pull request.
  */
 
-function task(overrides: Partial<Task>): Task {
+function task(overrides: Partial<Issue>): Issue {
   return {
     id: 'github:I_1',
     providerId: 'github',
@@ -71,7 +71,7 @@ describe('browser evidence', () => {
     expect(first.id).toBe('store')
     expect(first.target).toBeUndefined()
     // A task row names the task and its state in the provider's words, and files by task key.
-    expect(choices.at(-1)).toMatchObject({ label: 'Fix the crash', detail: 'In review', target: { kind: 'task', taskId: 'github:I_1' } })
+    expect(choices.at(-1)).toMatchObject({ label: 'Fix the crash', detail: 'In review', target: { kind: 'task', issueId: 'github:I_1' } })
     // Every choice carries a glyph so the destination kind reads at a glance.
     expect(choices.every((choice) => choice.icon != null)).toBe(true)
   })

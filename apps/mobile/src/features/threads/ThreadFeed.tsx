@@ -188,7 +188,8 @@ import { inlineFilePreviewKind, isPdfFile } from "../../lib/filePreview";
 import { ThreadInlineFilePreview } from "./ThreadInlineFilePreview";
 import { flattenThemeColor, themeColorWithContrast } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/ui/NativePresentation";
-import Animated, { FadeIn, FadeInDown, type SharedValue } from "react-native-reanimated";
+import { ThreadOpeningColumn, ThreadOpeningViewport } from "./ThreadOpeningColumn";
+import Animated, { FadeIn, FadeInDown, useAnimatedRef, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { FONT_FAMILIES } from "../../lib/fontFamilies";
 import { scopedThreadKey } from "../../lib/scopedEntities";
@@ -277,8 +278,7 @@ import {
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
-import { OpeningHistoryPreview } from "../../solus/OpeningHistoryPreview";
-import { openingHistoryStart } from "../../solus/opening-history-window";
+import { useOpeningHistoryFill } from "../../solus/use-opening-history-fill";
 import { htmlRenderRowHeight, ThreadHtmlPreviewsReady, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
 import { useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
@@ -371,9 +371,12 @@ function isFreshTimestamp(input: string): boolean {
 }
 
 export interface ThreadFeedHistoryControls {
+  readonly historyCursor?: string | null;
   readonly hasMoreHistory: boolean;
   readonly loading: boolean;
   readonly error: string | null;
+  readonly hasOpeningPage?: boolean;
+  readonly fillOpeningHistory?: (beforeInsert: () => Promise<void>) => Promise<void>;
   readonly onLoadEarlier: () => void;
   /** Loads earlier history down to the entry, in one request. */
   readonly onLoadThrough: (entryId: string) => void;
@@ -393,7 +396,6 @@ export interface ThreadFeedProps {
   readonly threadTitle: string;
   readonly workspaceRoot?: string | null;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
-  readonly previewOpeningHistory?: boolean;
   readonly pendingHandoff?: HandoffEndpoints | null;
   /** Thread states that close the feed: background work, then snooze or settle. */
   readonly statusLines?: ReadonlyArray<ThreadStatusLineModel>;
@@ -410,6 +412,7 @@ export interface ThreadFeedProps {
   readonly onJumpedToMessage?: () => void;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
+  readonly composerKeyboardTranslation: SharedValue<number>;
   readonly sendingWithKeyboard?: boolean;
   readonly fitShortFeedToViewport?: boolean;
   readonly contentBottomInset?: number;
@@ -580,10 +583,7 @@ function MessageImage(props: {
 }) {
   const imageStyle = useResolveClassNames(props.className);
   const [loadedSize, setSize] = useState<{ width: number; height: number } | null>(null);
-  // Until it loads, assume a handed-off image is a photo larger than the bubble's caps.
-  const size =
-    loadedSize ??
-    (props.handoff ? { width: props.handoff.aspectRatio * 4096, height: 4096 } : null);
+  const size = props.handoff ?? loadedSize;
   const contentFit = props.maxWidth === undefined ? "cover" : "contain";
   const displaySize =
     props.maxWidth !== undefined && size !== null
@@ -619,7 +619,7 @@ function MessageImage(props: {
         placeholder={props.handoff ? { uri: props.handoff.uri } : undefined}
         placeholderContentFit={contentFit}
         onLoad={(event) => {
-          if (props.maxWidth !== undefined) setSize(event.source);
+          if (props.maxWidth !== undefined && !props.handoff) setSize(event.source);
           props.onLoad?.(event.source);
         }}
         onError={props.onError}
@@ -692,8 +692,7 @@ function MessageAttachmentImage(props: MessageAttachmentImageProps & { localUri?
         onPress={() => props.onPressPreview(withGallery({ ...previewSource, sourceIdentifier }))}
         onLoad={(size) => {
           retriedImage.current = false;
-          if (handoff)
-            props.onImageLoad?.({ uri: handoff.uri, aspectRatio: size.width / size.height });
+          if (handoff) props.onImageLoad?.(handoff);
         }}
         onError={() => {
           if (retriedImage.current) return;
@@ -1084,7 +1083,7 @@ function PendingMessageImage(props: {
       accessibilityLabel={gt("Open {name}", { name: attachment.name })}
       {...handoffProps(handoff)}
       onLoad={(size) => {
-        if (uri) props.onImageLoad?.({ uri, aspectRatio: size.width / size.height });
+        if (uri) props.onImageLoad?.(handoff ?? { uri, width: size.width, height: size.height });
       }}
       onPress={() => {
         const source = composerImageGallery([attachment])[0];
@@ -3162,7 +3161,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const [viewportHeight, setViewportHeight] = useState(() =>
     !splitLayout && lastCompactViewport?.windowWidth === windowWidth &&
       lastCompactViewport.windowHeight === windowHeight
-      ? lastCompactViewport.height : initialSplitViewport?.height ?? 0,
+      ? lastCompactViewport.height : initialSplitViewport?.height ?? (splitLayout ? 0 : windowHeight),
   );
   const [disclosureLayout, setDisclosureLayout] = useState<DisclosureLayout | null>(null);
   const disclosureMotionRef = useRef<DisclosureLayout | null>(null);
@@ -3815,7 +3814,29 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const [landedListKey, setLandedListKey] = useState<string | null>(null);
   // LegendList reports ready, and shows its rows, while rows measured during its initial scroll can
   // still leave it hundreds of points short of the end; isAtEnd stays true through that.
-  const settling = props.feed.length > 0 && landedListKey !== feedThreadKey;
+  // A newly submitted first prompt already has its position. Paint it on
+  // the first layout instead of waiting for saved history to settle.
+  const settling = props.anchorMessageId === null && props.feed.length > 0 && landedListKey !== feedThreadKey;
+  const openingViewport = useAnimatedRef<View>();
+  const openingScroll = useSharedValue(0);
+  const openingPlacement = useMemo(() => ({
+    viewport: openingViewport,
+    scrollOffset: openingScroll,
+    composerInset: props.contentInsetEndAdjustment,
+    composerKeyboardTranslation: props.composerKeyboardTranslation,
+  }), [openingViewport, openingScroll, props.contentInsetEndAdjustment, props.composerKeyboardTranslation]);
+  const openingScrollValues = useMemo(() => ({ scrollOffset: openingScroll }), [openingScroll]);
+  const canScrollBack = useCallback(() => {
+    const state = listRef.current?.getState();
+    return !!state && state.scrollLength > 0 && state.contentLength > state.scrollLength + 2;
+  }, [listRef]);
+  const openingGestures = useOpeningHistoryFill(
+    landedListKey === feedThreadKey && !props.jumpToMessageId ? props.historyControls?.fillOpeningHistory : undefined,
+    props.historyControls?.historyCursor,
+    props.historyControls?.hasOpeningPage === true,
+    feedThreadKey,
+    canScrollBack,
+  );
   const landingFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reportMetrics = (ready: boolean) => {
     const state = listRef.current?.getState();
@@ -4343,39 +4364,23 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
-  const openingPreviewStart =
-    Platform.OS === "ios" &&
-    props.previewOpeningHistory === true &&
-    settling &&
-    props.contentPresentation.kind === "ready" &&
-    !props.anchorMessageId &&
-    !props.pendingHandoff &&
-    !props.statusLines?.length &&
-    !props.queuedMessages.length &&
-    props.activeWorkStartedAt === null &&
-    !props.runlessWorkActive
-      ? openingHistoryStart(groupedFeed)
-      : groupedFeed.length;
+  const placeOpeningRows = settling && !props.jumpToMessageId && !anchoredEndSpace &&
+    !props.pendingHandoff && !props.statusLines?.length &&
+    !retainedMediaRowId && props.contentPresentation.kind === "ready";
   const content = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
-      <View className="flex-1" onLayout={handleViewportLayout}>
+      <Animated.View ref={openingViewport} collapsable={false} className="flex-1" onLayout={handleViewportLayout}>
         {/* In a split, rows only re-wrap in the render that hands the list its new width. A native
             column resize would re-wrap them first, and the list would place the taller or shorter
             rows at their old offsets until their measurements came back. */}
-        <OpeningHistoryPreview
-          style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
-          firstIndex={openingPreviewStart}
-          rows={groupedFeed}
-          renderRow={renderItem}
-          bottom={bottomContentInset}
-          left={contentHorizontalPadding + contentLeftInset}
-          right={contentHorizontalPadding + contentRightInset}
-        >
+        <View className="flex-1" style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}>
           {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
           <KeyboardAwareLegendList
             ref={attachList}
-            dataKey={feedThreadKey}
-            style={settling ? { flex: 1, opacity: 0 } : { flex: 1 }}
+            dataKey={groupedFeed.length ? feedThreadKey : `empty/${feedThreadKey}`}
+            initialEndLayout={{ active: placeOpeningRows, Container: ThreadOpeningColumn }}
+            sharedValues={openingScrollValues}
+            style={settling && !placeOpeningRows ? { flex: 1, opacity: 0 } : { flex: 1 }}
             // RN 0.81+ drops inset-area touches (facebook/react-native#54123), making blank post-send space unscrollable.
             applyWorkaroundForContentInsetHitTestBug
             {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
@@ -4412,7 +4417,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                 : `message:${entry.message.role}`;
             }}
             getFixedItemSize={getFixedItemSize}
-            drawDistance={openingPreviewStart < groupedFeed.length ? 120 : 500}
+            drawDistance={settling ? 120 : 500}
             {...(retainedMediaRowId ? { alwaysRender: { keys: [retainedMediaRowId] } } : {})}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
@@ -4429,6 +4434,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             alignItemsAtEnd
             initialScrollAtEnd
             onReady={() => {
+              if (!groupedFeed.length) return;
               setLoadedListKey(feedThreadKey);
               reportMetrics(true);
               // Never leave the feed hidden if end following stalls short of the end.
@@ -4436,6 +4442,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             }}
             onLayout={handleMetricsChange}
             onItemSizeChanged={handleItemSizeChanged}
+            {...openingGestures}
+            onUserScroll={placeOpeningRows ? () => setLandedListKey(feedThreadKey) : undefined}
             onScroll={handleScroll}
             scrollEventThrottle={16}
             ListHeaderComponent={
@@ -4481,7 +4489,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               paddingRight: contentHorizontalPadding + contentRightInset,
             }}
           />
-        </OpeningHistoryPreview>
+        </View>
         {presentedFeed.length === 0 &&
         !props.worktreeSetup &&
         props.activeWorkStartedAt === null &&
@@ -4509,10 +4517,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           />
         ) : null}
         <FilePreviewModal source={expandedFile} onRequestClose={closeFilePreview} />
-      </View>
+      </Animated.View>
     </PresentationSource>
   );
-  return <ThreadHtmlPreviewsReady value={!settling}>{content}</ThreadHtmlPreviewsReady>;
+  return (
+    <ThreadOpeningViewport.Provider value={openingPlacement}>
+      <ThreadHtmlPreviewsReady value={!settling}>{content}</ThreadHtmlPreviewsReady>
+    </ThreadOpeningViewport.Provider>
+  );
 });
 
 function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {

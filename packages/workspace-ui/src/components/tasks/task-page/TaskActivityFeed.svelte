@@ -12,9 +12,9 @@
   import type { Activity } from "@solus/contracts/activity";
   import type { TaskProviderEvent } from "@solus/contracts/task-data";
   import type {
-    TaskComment,
-    TaskLink,
-    TaskSessionLink,
+    IssueComment,
+    IssueLink,
+    IssueSessionLink,
   } from "@solus/contracts/task-types";
   import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
   import UserAvatar from "../../users/UserAvatar.svelte";
@@ -39,7 +39,7 @@
   } from "./lib/task-page";
 
   interface Props {
-    comments: TaskComment[];
+    comments: IssueComment[];
     /** The task's `task_changed` activity. */
     activity: Activity[];
     providerEvents?: TaskProviderEvent[];
@@ -51,11 +51,11 @@
     onOpenExternal?: (url: string) => void;
     /** The task's current links, so a `linked` change can show the artifact
      *  it brought, collapsed, at the point in the story where it arrived. */
-    links?: TaskLink[];
+    links?: IssueLink[];
     /** False while the feed is mounted but hidden, so an opened render holds
      *  no live frame nobody can see. */
     enabled?: boolean;
-    sessions: TaskSessionLink[];
+    sessions: IssueSessionLink[];
     onOpenSession?: (sessionId: string) => void;
     /** The reader on the task's host: their own comments and changes read "You". */
     currentUserId: UserId | null;
@@ -151,12 +151,12 @@
 
   /** An agent's comment is authored by a session, not a person, so it takes the
    *  accent wash and the Solus mark instead of a face. */
-  function isAgent(comment: TaskComment): boolean {
+  function isAgent(comment: IssueComment): boolean {
     return !!comment.author && comment.author.kind !== "user";
   }
 
   /** The person who wrote a comment in Solus, drawn with their face. */
-  function commentUser(comment: TaskComment): User | null {
+  function commentUser(comment: IssueComment): User | null {
     return comment.author?.kind === "user" ? comment.author.user : null;
   }
 </script>

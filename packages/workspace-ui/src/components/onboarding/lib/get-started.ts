@@ -1,11 +1,11 @@
-import type { OnboardingStage } from './onboarding-model'
+import type { OnboardingStep } from './onboarding-model'
 
 /**
  * The "Get started" list on the new-tab home for a Solus Cloud account
  * (docs/plans/cloud-onboarding.md §3.7): what cloud onboarding asked and the
  * person skipped. Every item is a live fact read from the stores that own it,
  * never a stored copy, so an item goes away the moment its fact becomes true —
- * wherever it was made true. Each item reopens the onboarding stage that sets it.
+ * wherever it was made true. Each item reopens the onboarding step that sets it.
  */
 
 export type GetStartedItemId = 'machine' | 'agents' | 'github' | 'project'
@@ -14,8 +14,8 @@ export interface GetStartedItem {
   id: GetStartedItemId
   label: string
   detail: string
-  /** The onboarding stage that sets this fact. */
-  stage: OnboardingStage
+  /** The onboarding step that sets this fact. */
+  step: OnboardingStep
 }
 
 export interface GetStartedFacts {
@@ -39,16 +39,16 @@ export interface GetStartedFacts {
 export function getStartedItems(facts: GetStartedFacts): GetStartedItem[] {
   const items: GetStartedItem[] = []
   if (!facts.hasMachine) {
-    items.push({ id: 'machine', label: 'Choose a computer', detail: 'The cloud host or your own computer', stage: 'compute' })
+    items.push({ id: 'machine', label: 'Choose a computer', detail: 'The cloud host or your own computer', step: 'machine' })
   } else if (facts.hasSignedInAgent === false) {
-    items.push({ id: 'agents', label: 'Connect an agent', detail: 'On the machine your agents run on', stage: 'agents' })
+    items.push({ id: 'agents', label: 'Connect an agent', detail: 'On the machine your agents run on', step: 'agents' })
   }
   if (facts.githubConnected === false) {
-    items.push({ id: 'github', label: 'Connect GitHub', detail: 'Repositories and pull requests', stage: 'github' })
+    items.push({ id: 'github', label: 'Connect GitHub', detail: 'Repositories and pull requests', step: 'code' })
   }
-  // The project stage lists GitHub repositories; without GitHub it has nothing to offer.
+  // The code step lists GitHub repositories; without GitHub it has nothing to offer.
   if (facts.githubConnected === true && facts.hasProject === false) {
-    items.push({ id: 'project', label: 'Add a project', detail: 'A repository your team shares', stage: 'project' })
+    items.push({ id: 'project', label: 'Add a project', detail: 'A repository your team shares', step: 'code' })
   }
   return items
 }

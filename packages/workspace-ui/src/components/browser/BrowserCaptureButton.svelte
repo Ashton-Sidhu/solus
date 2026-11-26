@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Camera } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import type {
     BrowserEvidenceOptions,
     BrowserEvidenceTarget,
@@ -25,7 +25,7 @@
 
   interface Props {
     options: BrowserEvidenceOptions | null;
-    tasks: Task[];
+    tasks: Issue[];
     cwd: string | undefined;
     busy: boolean;
     onOpen: () => void;
@@ -74,7 +74,7 @@
   </TooltipUI.Trigger>
   <TooltipUI.Content
     side="bottom"
-    value="Capture this page — attach it to a task or pull request"
+    value="Capture this page — attach it to an issue or pull request"
   />
 </TooltipUI.Root>
 

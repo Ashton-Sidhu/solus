@@ -258,7 +258,6 @@ export interface ThreadDetailScreenProps {
   readonly selectedThread: EnvironmentThreadShell;
   /** Use this for detail reads; it stays null until queued creation reaches the server. */
   readonly selectedThreadDetailRef: ScopedThreadRef | null;
-  readonly previewOpeningHistory?: boolean;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
@@ -323,7 +322,7 @@ export interface ThreadDetailScreenProps {
   readonly hostMedia?: readonly import("../../lib/composerImages").DraftComposerAttachment[];
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
-  readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
+  readonly onNativePasteImages: (uris: ReadonlyArray<string>, onPreviewReady: () => void) => Promise<boolean>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly onRemoveDraftImage: (imageId: string) => void;
@@ -338,7 +337,7 @@ export interface ThreadDetailScreenProps {
       text: string,
       hasAttachmentsOrContext: boolean,
     ) => Promise<boolean | "responded">,
-    onWillEnqueue?: () => void,
+    onWillEnqueue?: (messageId: MessageId) => void,
   ) => Promise<MessageId | null>;
   /** Queues a standalone text command, such as `/goal clear`, without touching the draft. */
   readonly onSendCommand: (text: string) => Promise<MessageId | null>;
@@ -805,12 +804,8 @@ function ThreadDetailBody(
     };
   })();
   const lifecycleLine = ((): ThreadStatusLineModel | null => {
-    if (contentPresentationKind !== "ready" || !(lifecycleSnoozed || settled || woke)) return null;
-    const actionLabel = lifecycleSnoozed
-      ? gt("Wake now")
-      : settled
-        ? gt("Un-settle", { $context: "verb, thread action" })
-        : gt("Dismiss");
+    if (contentPresentationKind !== "ready" || !(lifecycleSnoozed || woke)) return null;
+    const actionLabel = lifecycleSnoozed ? gt("Wake now") : gt("Dismiss");
     const wake =
       lifecycleSnoozed &&
       snoozedUntil !== null &&
@@ -819,26 +814,21 @@ function ThreadDetailBody(
         : null;
     return {
       key: "lifecycle",
-      icon: settled && !lifecycleSnoozed ? "checkmark.circle" : "alarm",
+      icon: "alarm",
       label: lifecycleSnoozed
         ? wake === null
           ? gt("Snoozed", { $context: "thread state" })
           : gt("Snoozed, {time} left", { time: wake })
-        : settled
-          ? gt("Settled", { $context: "thread state" })
-          : gt("Woke from snooze"),
+        : gt("Woke from snooze"),
       action: {
         label: statusPending
           ? lifecycleSnoozed
             ? gt("Waking...")
-            : settled
-              ? gt("Un-settling...")
-              : gt("Dismissing...")
+            : gt("Dismissing...")
           : actionLabel,
         accessibilityLabel: actionLabel,
         disabled: !props.canOperateThread || statusPending,
-        onPress: () =>
-          void runStatusAction(lifecycleSnoozed ? "wake" : settled ? "unsettle" : "dismiss"),
+        onPress: () => void runStatusAction(lifecycleSnoozed ? "wake" : "dismiss"),
       },
     };
   })();
@@ -908,6 +898,19 @@ function ThreadDetailBody(
         onPress: () => {
           Keyboard.dismiss();
           openLinkedThread({ environmentId: childInput.environmentId, threadId: childInput.id });
+        },
+      };
+    }
+    if (settled && !lifecycleSnoozed && contentPresentationKind === "ready") {
+      const actionLabel = gt("Reopen", { $context: "verb, thread action" });
+      return {
+        kind: "settled",
+        label: gt("Completed", { $context: "thread state" }),
+        action: {
+          label: statusPending ? gt("Reopening…") : actionLabel,
+          accessibilityLabel: actionLabel,
+          disabled: !props.canOperateThread || statusPending,
+          onPress: () => void runStatusAction("unsettle"),
         },
       };
     }
@@ -1112,15 +1115,17 @@ function ThreadDetailBody(
   const { height: keyboardTranslation, progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const hasDraft = draftContent !== null;
   const composerControlBottomInset = controlInsets.bottom;
+  const composerKeyboardTranslation = useDerivedValue(() =>
+    keyboardStickyEnabled
+      ? keyboardTranslation.value + keyboardProgress.value * composerKeyboardOffset
+      : 0,
+  );
   const draftBottomInsetStyle = useAnimatedStyle(() => {
     if (!hasDraft) return {};
     // Match KeyboardStickyView's translation so the scroll area ends at
     // the measured composer, even while the keyboard or attachments move.
-    const composerTranslation = keyboardStickyEnabled
-      ? keyboardTranslation.value + keyboardProgress.value * composerKeyboardOffset
-      : 0;
     return {
-      bottom: contentInsetEndAdjustment.value + composerControlBottomInset - composerTranslation,
+      bottom: contentInsetEndAdjustment.value + composerControlBottomInset - composerKeyboardTranslation.value,
     };
   });
   // The question card reads the keyboard frame on the UI thread, in the same frame the sticky
@@ -1395,39 +1400,47 @@ function ThreadDetailBody(
           }
         : undefined;
     let dismissingKeyboard = false;
-    const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
-      if (
-        scope.aborted ||
-        Platform.OS !== "ios" ||
-        !hasUserMessage ||
-        !KeyboardController.isVisible()
-      )
-        return;
+    let firstPromptAnchor: MessageId | null = null;
+    const discardFailedAnchor = () => {
+      if (firstPromptAnchor !== null && !scope.aborted) {
+        setAnchorMessageId((current) => current === firstPromptAnchor ? null : current);
+      }
+    };
+    const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, (submittedMessageId) => {
+      if (scope.aborted) return;
+      if (anchorMessageId === null) {
+        firstPromptAnchor = resolveThreadFeedSubmissionAnchor({
+          currentAnchorMessageId: null,
+          submittedMessageId,
+          hasStartedTurn: props.selectedThread.latestRun !== null,
+          hasUserMessage,
+          queuedMessageCount: props.selectedThreadQueueCount,
+          deliveryDeferred: props.connectionStateLabel !== "connected",
+        });
+        if (firstPromptAnchor !== null) setAnchorMessageId(firstPromptAnchor);
+      }
+      if (Platform.OS !== "ios") return;
+      if (props.draftMode && !KeyboardController.isVisible()) composerEditorRef.current?.blur();
+      if (!hasUserMessage || !KeyboardController.isVisible()) return;
       setSendingWithKeyboard(true);
       dismissingKeyboard = true;
+    }).catch((error) => {
+      discardFailedAnchor();
+      if (!scope.aborted) setSendingWithKeyboard(false);
+      throw error;
     });
     if (messageId === null || scope.aborted) {
-      if (!scope.aborted) {
-        setSendingWithKeyboard(false);
-      }
+      discardFailedAnchor();
+      if (!scope.aborted) setSendingWithKeyboard(false);
       return messageId;
     }
 
     clearUsageLimitsFor(targetThreadKey);
 
-    const nextAnchorMessageId = resolveThreadFeedSubmissionAnchor({
-      currentAnchorMessageId: anchorMessageId,
-      submittedMessageId: messageId,
-      hasStartedTurn: props.selectedThread.latestRun !== null,
-      hasUserMessage,
-      queuedMessageCount: props.selectedThreadQueueCount,
-      deliveryDeferred: props.connectionStateLabel !== "connected",
-    });
-    setAnchorMessageId(nextAnchorMessageId);
-    if (!dismissingKeyboard) composerEditorRef.current?.blur();
+    if (!dismissingKeyboard && !(props.draftMode && Platform.OS === "ios")) composerEditorRef.current?.blur();
     const followSubmission =
       contentPresentationKind === "ready" &&
-      (dismissingKeyboard || nextAnchorMessageId === messageId);
+      (dismissingKeyboard || (Platform.OS !== "ios" && firstPromptAnchor === messageId));
     if (dismissingKeyboard || followSubmission) {
       // Commit the optimistic row before UIKit chooses the closing scroll offset.
       requestAnimationFrame(() => {
@@ -1558,22 +1571,6 @@ function ThreadDetailBody(
   };
 
   const showThreadFeed = showContent && !props.draftMode;
-  const deferComposer = Platform.OS === "ios" && props.previewOpeningHistory === true &&
-    showThreadFeed && contentPresentationKind === "ready" && selectedThreadFeed.length > 0 &&
-    jumpMessageId === null && !props.activeThreadBusy && !props.activePendingApproval &&
-    !props.activePendingUserInput && !props.requestPanels && !props.queuedMessages.length;
-  const [composerReady, setComposerReady] = useState(!deferComposer);
-  // Keep the collapsed inset while the first reply paints. Native editor setup can
-  // otherwise occupy the same frame as the first text layout after app launch.
-  const screenLaidOut = screenHeight !== null;
-  useEffect(() => {
-    if (composerReady || !screenLaidOut) return;
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => setComposerReady(true));
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [composerReady, screenLaidOut]);
-
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
@@ -1631,7 +1628,6 @@ function ThreadDetailBody(
                       : handleEditPendingMessage
                   }
                   contentPresentation={props.contentPresentation}
-                  previewOpeningHistory={props.previewOpeningHistory === true && jumpMessageId === null}
                   threadTitle={props.selectedThread.title}
                   latestRun={props.activityRun}
                   activeWorkStartedAt={props.activeWorkStartedAt}
@@ -1644,6 +1640,7 @@ function ThreadDetailBody(
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
+                  composerKeyboardTranslation={composerKeyboardTranslation}
                   sendingWithKeyboard={sendingWithKeyboard}
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={
@@ -1688,7 +1685,7 @@ function ThreadDetailBody(
         />
       ) : null}
 
-      {showContent && (composerReady || !deferComposer) ? (
+      {showContent ? (
         <KeyboardStickyView
           enabled={keyboardStickyEnabled}
           pointerEvents="box-none"

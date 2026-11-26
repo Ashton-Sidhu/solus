@@ -1,6 +1,7 @@
 import { splitSpanTexts, type LogEventRow, type SpanRow } from '../../data/insights/span-table'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { machineKind } from '../../host/machine-kind'
+import { sessionCloudCopyRefusal } from '../../host/policy/host-policy-store'
 import { appendDelivery } from '../delivery-queue'
 import type { InsightsMirrorPayload } from '../runner-protocol'
 
@@ -74,10 +75,14 @@ type WireSpan = TurnSpans[number]['span']
  * prompt, and response; a thought) as `texts`, beside an `attrs` without them —
  * the split the host's own table makes (plans/029 §6), so the service stores
  * them as `insight_span_texts` and the cross-host trace view shows every one.
+ * The texts are the conversation of the turn. While that conversation stays on
+ * this host (`sessionCloudCopyRefusal`), the span goes with its numbers and
+ * without its texts.
  */
-function mirroredSpan(span: SpanRow): WireSpan {
+function mirroredSpan(span: SpanRow, organizationId: string): WireSpan {
   const stored = splitSpanTexts(span.attrs)
   if (stored.texts.length === 0) return span
+  if (sessionCloudCopyRefusal(organizationId)) return { ...span, attrs: stored.attrs }
   return { ...span, attrs: stored.attrs, texts: Object.fromEntries(stored.texts.map(({ name, text }) => [name, text])) }
 }
 
@@ -91,7 +96,7 @@ export async function mirrorInsightSpan(span: SpanRow, events: LogEventRow[], ev
   const organizationId = span.organizationId
   if (!span.sessionId || !organizationId || !insightsEligible(organizationId)) return 0
   const entry = {
-    span: mirroredSpan(span),
+    span: mirroredSpan(span, organizationId),
     events: events.map((event, index) => ({ ...event, eventId: eventIds[index] })),
   }
   const turn = openTurns.get(span.traceId) ?? { organizationId, actorUserId: span.userId ?? '', spans: [] }

@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { decodeJwtClaims } from '@solus/client-core/oauth-session'
-import { ACCESS_TOKEN_TYPE, HOST_LINK_ENV, hostAudience, TOKEN_EXCHANGE_GRANT_TYPE, hostLinkEnvSchema, uplinkStatusSchema } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, ACCESS_TOKEN_TYPE, LINK_CODE_ENV, hostAudience, hostRegistrationSchema, isOrganizationTicket, parseLinkCode, TOKEN_EXCHANGE_GRANT_TYPE, uplinkStatusSchema } from '@solus/contracts/uplink'
 import { cloudModeScenario } from '../../src/cloud-mode'
 import { accountApi, directory, hostKeyOf, type DirectoryEntry } from '../../src/cloud-fixtures'
 import { hostClient, type SignedIn } from '../../src/cloud-sign-in'
@@ -10,13 +11,14 @@ import { accountCall } from '../../src/local-cloud'
 
 /**
  * A cloud machine with managed compute, in cloud mode (docs/adr/0001-standard-authentication.md
- * §5 stage 5 "Managed hosts"; docs/plans/managed-hosts.md §2): bob, a member of a new
- * organization of alice's, creates a machine through the cloud's own route. The cloud's
- * development provider (in memory) prints the link it gives the machine
- * (`SOLUS_HOST_LINK`), as the console mailer prints mail; the Lab boots a host with it,
- * as the machine's boot would. The host registers its own key with the one-time
- * ticket. Members get five-minute host tokens that list the organization and pass
- * its ticket door as members; a person of another organization gets no token.
+ * §5 stage 5 "Managed hosts"; plans/034-one-cloud-machine-kind.md §3): bob, a member of a
+ * new organization of alice's, creates a machine through the cloud's own route. The
+ * cloud's development provider (in memory) prints the link code it gives the machine
+ * (`SOLUS_LINK_CODE`), as the console mailer prints mail; the Lab boots a host with the
+ * code in its environment, as the machine's boot would. The host enrolls with the code
+ * before it listens, as every machine joins, and then links itself. Members get
+ * host tokens of the standard lifetime that list the organization and pass its ticket door as
+ * members; a person of another organization gets no token.
  */
 
 const hostTokenClaimsSchema = z.object({
@@ -29,12 +31,25 @@ const hostTokenClaimsSchema = z.object({
 const serverInfoSchema = z.object({ principal: z.string() })
 const tokenErrorSchema = z.object({ error: z.string(), solus_refusal: z.string().optional() })
 
-/** The link the development provider printed for this machine's first boot. */
-function provisionedLink(cloudLog: string, hostId: string): string | null {
+const registrationRecordSchema = z.object({ registration: hostRegistrationSchema })
+const linkRecordSchema = z.object({ desired: z.string(), reach: z.string().optional() })
+
+/**
+ * The link code the development provider printed for this machine's first boot: the
+ * line `[memory hosts] service solus booted on machine <name>`, then
+ * `{ SOLUS_LINK_CODE: '<code>' }`. The provider names the machine with its host id.
+ */
+function bootLinkCode(cloudLog: string, hostId: string): string | null {
   const log = readFileSync(cloudLog, 'utf8')
-  const start = log.lastIndexOf(`booted on sprite solus-h-${hostId}`)
+  const start = log.lastIndexOf(`[memory hosts] service solus booted on machine solus-h-${hostId}`)
   if (start < 0) return null
-  return /SOLUS_HOST_LINK: '([^']+)'/.exec(log.slice(start))?.[1] ?? null
+  return /SOLUS_LINK_CODE: '([^']+)'/.exec(log.slice(start))?.[1] ?? null
+}
+
+/** A record of the machine's data directory, or null when it is absent or not of this shape. */
+function recordOf<T>(dataDir: string, file: string, schema: z.ZodType<T>): T | null {
+  const path = join(dataDir, file)
+  return existsSync(path) ? schema.safeParse(JSON.parse(readFileSync(path, 'utf8'))).data ?? null : null
 }
 
 /** How the directory lists a machine the cloud made for an organization: a cloud machine of it, whose compute the cloud operates. */
@@ -65,17 +80,23 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
   const hostId = z.object({ hostId: z.string() }).safeParse(madeBody).data?.hostId
   if (!hostId) return
 
-  ctx.step('the Lab boots the machine with the link its provider was given')
-  const linkJson = await ctx.until(async () => provisionedLink(cloudLog, hostId), (value) => value !== null, 20_000)
-  ctx.check('the development provider gave the machine a link', linkJson !== null)
-  if (!linkJson) return
-  const link = hostLinkEnvSchema.parse(JSON.parse(linkJson))
-  ctx.check('the link names the machine, its organization, and a one-time ticket', link.registration.hostId === hostId && link.registration.organizationId === organizationId && link.credentialTicket.startsWith('hct_'), JSON.stringify({ ...link.registration, ticket: link.credentialTicket.slice(0, 4) }))
-  ctx.check('the registration says the cloud operates the machine\'s compute', link.registration.hasManagedCompute === true, JSON.stringify(link.registration.hasManagedCompute))
-  const machine = await ctx.bootHost({ flavor: 'cloud', environment: { [HOST_LINK_ENV]: linkJson } })
-  const adopted = await ctx.until(() => machine.log().some((entry) => entry.msg === 'provisioned_registration_adopted' && entry.hostId === hostId), (yes) => yes, 15_000)
-  ctx.check('the machine registered its own key with the ticket', adopted)
+  ctx.step('the Lab boots the machine with the link code its provider was given')
+  const code = await ctx.until(async () => bootLinkCode(cloudLog, hostId), (value) => value !== null, 20_000)
+  ctx.check('the development provider gave the machine a link code', code !== null)
+  if (!code) return
+  // The code names its Solus cloud: a machine that enrolls at boot has no other way to know it.
+  const parsed = code.includes('@') ? parseLinkCode(code, ctx.stack.origin) : null
+  ctx.check('the code is an organization ticket and names this Solus cloud', parsed !== null && isOrganizationTicket(parsed.ticket) && parsed.directoryUrl === new URL(ctx.stack.origin).origin, JSON.stringify(parsed && { ticket: parsed.ticket.slice(0, 4), directoryUrl: parsed.directoryUrl }))
+  const machine = await ctx.bootHost({ flavor: 'cloud', environment: { [LINK_CODE_ENV]: code } })
+  const enrolled = await ctx.until(() => machine.log().some((entry) => entry.msg === 'host_enrolled_at_boot' && entry.hostId === hostId), (yes) => yes, 15_000)
+  ctx.check('the machine enrolled at boot with the ticket and its own key', enrolled)
   ctx.check('it keeps the key for its client', hostKeyOf(machine)?.clientId === `host_${hostId}`, hostKeyOf(machine)?.clientId)
+  const registration = recordOf(machine.dataDir, 'host-registration.json', registrationRecordSchema)?.registration
+  ctx.check('the registration names the machine and its organization', registration?.hostId === hostId && registration.organizationId === organizationId, JSON.stringify(registration && { hostId: registration.hostId, organizationId: registration.organizationId }))
+  ctx.check('the registration says the cloud operates the machine\'s compute', registration?.hasManagedCompute === true, JSON.stringify(registration?.hasManagedCompute))
+  // Nobody turns the link of a cloud machine on: it asks by itself, and the cloud has its address from the provider.
+  const link = await ctx.until(() => recordOf(machine.dataDir, 'host-link.json', linkRecordSchema), (record) => record !== null, 15_000)
+  ctx.check('the machine linked itself at the address the cloud has: no tunnel', link?.desired === 'linked' && link.reach === 'direct', JSON.stringify(link))
 
   ctx.step('the directory lists the machine for its members')
   for (const member of [alice, bob]) {
@@ -90,7 +111,7 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
     const claims = token ? decodeJwtClaims(token, hostTokenClaimsSchema) : null
     const audiences = claims ? (Array.isArray(claims.aud) ? claims.aud : [claims.aud]) : []
     ctx.check(`${member.persona.name} gets a token for the machine`, audiences.includes(hostAudience(hostId)), JSON.stringify(audiences))
-    ctx.check(`${member.persona.name}'s token lives 300 s`, claims !== null && claims.exp - claims.iat === 300, claims ? String(claims.exp - claims.iat) : 'none')
+    ctx.check(`${member.persona.name}'s token lives ${ACCESS_TOKEN_TTL_SECONDS} s`, claims !== null && claims.exp - claims.iat === ACCESS_TOKEN_TTL_SECONDS, claims ? String(claims.exp - claims.iat) : 'none')
     ctx.check(`${member.persona.name}'s token lists the organization as a member`, claims?.access === 'org-member' && claims.organizations?.some((entry) => entry.id === organizationId && entry.role === role) === true, JSON.stringify(claims?.organizations))
     const client = hostClient(machine, member, hostId, { asOwner: false, organizationId, organizationRole: role })
     ctx.defer(`${member.persona.name} closes the machine socket`, async () => client.close())

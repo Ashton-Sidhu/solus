@@ -102,7 +102,7 @@ import Icon from "@iconify/svelte";
 
   <SettingsRow
     label="Project access"
-    description="Reconnect to grant project access and enable due date, priority & status on GitHub tasks."
+    description="Reconnect to grant project access and enable due date, priority & status on GitHub issues."
     visible={needsProjectScope}
   >
     {#snippet control()}

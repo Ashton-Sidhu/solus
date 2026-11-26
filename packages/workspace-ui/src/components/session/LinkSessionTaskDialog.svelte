@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { onMount } from "svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
   import { linkTabToTask } from "../../contexts/workspace/session-task-link";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -36,14 +36,14 @@
   const session = getWorkspaceContext();
   let query = $state("");
   const matchingTasks = $derived(
-    session.tasksStore.tasks.filter(
+    session.issuesStore.tasks.filter(
       (task) => task.category !== "done" && matchesSearch(`${task.title} ${task.reference ?? ""} ${task.id}`, query),
     ),
   );
   const sections = $derived(taskPickerSections(matchingTasks));
   // The host lists at most a part of a large task source. A query also asks
   // the provider, and the tasks only it found show below the listed ones.
-  const providerSearch = new ProviderTaskSearch((text) => session.tasksStore.search(text));
+  const providerSearch = new ProviderTaskSearch((text) => session.issuesStore.search(text));
   const foundTasks = $derived(tasksOnlyFound(providerSearch.results, matchingTasks));
 
   /** The task whose link is in flight. */
@@ -52,7 +52,7 @@
   let dialogEl = $state<HTMLDivElement | null>(null);
 
   onMount(() => {
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
     dialogEl?.querySelector<HTMLInputElement>("input")?.focus();
   });
 
@@ -61,14 +61,14 @@
     requestInputFocus({ tabId });
   }
 
-  async function pick(task: Task): Promise<void> {
+  async function pick(task: Issue): Promise<void> {
     if (linkingTaskId) return;
     linkingTaskId = task.id;
     try {
       await linkTabToTask(session, tabId, task);
       close();
     } catch (error) {
-      toasts.error("Couldn't link the session to the task", {
+      toasts.error("Couldn't link the session to the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -87,12 +87,12 @@
 
 {#snippet taskList()}
     <div class="px-3.5 pt-3 pb-1">
-      <span class="font-medium">Link to task</span>
+      <span class="font-medium">Link to issue</span>
     </div>
     <!-- The rows filter themselves (`matchesSearch`): the command's own filter
          moves row DOM nodes behind the keyed lists. -->
     <Command.Root shouldFilter={false}>
-      <MenuSearch bind:value={query} placeholder="Search tasks" />
+      <MenuSearch bind:value={query} placeholder="Search issues" />
       <Command.List class="max-h-[18rem] overflow-y-auto p-1.5">
         {#if !providerSearch.searching && foundTasks.length === 0}
           <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
@@ -153,7 +153,7 @@
       align="end"
       sideOffset={8}
       collisionPadding={8}
-      aria-label="Link session to task"
+      aria-label="Link session to issue"
       onEscapeKeydown={(event) => event.stopPropagation()}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
@@ -185,7 +185,7 @@
     bind:this={dialogEl}
     class="menu-surface flex w-[min(24rem,calc(100vw-2rem))] flex-col rounded-2xl bg-(--solus-menu-bg) text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)]"
     role="dialog"
-    aria-label="Link session to task"
+    aria-label="Link session to issue"
     aria-modal="true"
   >
     {@render taskList()}

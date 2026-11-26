@@ -20,8 +20,8 @@ export function notificationDestination(notification: HubNotification, serverId:
   switch (resource.kind) {
     case 'work':
       return { label: 'Open work', route: { kind: 'work', workId: resource.workId, title: notification.summary.title, serverId } }
-    case 'task':
-      return { label: 'Open task', route: { kind: 'task', taskId: resource.taskId, serverId } }
+    case 'issue':
+      return { label: 'Open issue', route: { kind: 'task', taskId: resource.issueId, serverId } }
     case 'session':
       // A removed share opens too: the host refuses, and the reader sees who
       // owns the session (docs/plans/shared-with-you.md §4.5).

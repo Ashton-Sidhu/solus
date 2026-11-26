@@ -3,6 +3,7 @@ import { registerHostPairingHandlers } from './transport/handlers/host-pairing-h
 import { registerPairApprovalHandlers } from './transport/handlers/pair-approval-handlers'
 import { PairApprovals } from './admission/pair-approvals'
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
+import { setCloudMachineTools } from './execution/agents/tools/cloud-machine-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved, readHostList } from './host/host-list'
@@ -47,7 +48,7 @@ import { AccessTokenVerifier, type TokenVerdict } from './admission/access-token
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { createHostSelfTest } from './transport/uplink/self-test'
 import { readStoredTunnel, registerAndLink, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
-import { HostRegistrar, HostRegistrationError, readStoredRegistration } from './host/host-registration'
+import { HostRegistrar, HostRegistrationError, enrollAtBoot, readStoredCloudMachine, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
 import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
@@ -184,7 +185,7 @@ import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { remoteAddressAdmission } from './transport/private-network-access'
 import type { RemoteAccessMode } from '@solus/contracts/host-api'
-import { readHostLinkEnv } from './host/host-link-env'
+import { readBootLinkCode } from './host/boot-link-code'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
@@ -251,7 +252,6 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
-import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { PersonConnections } from './transport/events/person-connections'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { StreamedProse } from './transport/events/streamed-prose'
@@ -297,6 +297,8 @@ import { publishPersonHistoryChanges } from './transport/events/person-history-e
 import { publishPersonalDocumentChanges } from './transport/events/personal-document-events'
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
+import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
+import { HistoryPrewarm } from './execution/sessions/history-prewarm'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
@@ -407,10 +409,23 @@ export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PO
 
 const systemErrorSchema = z.object({ code: z.string().optional() })
 
-/** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
-function adoptStartupRegistration(): void {
-  const provisioned = readHostLinkEnv()
-  adoptRegistration(provisioned ? provisioned.registration : readStoredRegistration())
+/**
+ * The registration this machine starts with: the one it makes now with the link code in
+ * its environment, else the one stored on disk. Answers a registration only when this
+ * boot made it.
+ */
+async function adoptStartupRegistration(): Promise<HostRegistration | null> {
+  // The link code leaves the environment first, whatever happens next.
+  const code = readBootLinkCode()
+  // The Solus API service is no machine: it registers nowhere.
+  if (isApiMode()) return null
+  // A data directory that was a cloud machine's stays one, also with no registration.
+  adoptRegistration(readStoredCloudMachine())
+  const enrolled = code
+    ? await enrollAtBoot({ code, machine: { installationId: getInstallationId(), label: hostDisplayName(), os: hostOperatingSystem() }, holdsWork: hasSessionRecords })
+    : null
+  adoptRegistration(enrolled ?? readStoredRegistration())
+  return enrolled
 }
 
 /** What this process is to its clients: a person's machine, a cloud machine of an organization, or the Solus API service. */
@@ -523,11 +538,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const phaseDone = (phase: 'db_opened' | 'host_handlers_registered' | 'domain_handlers_registered' | 'update_services_ready'): void => {
     log.info('server_boot_phase', { phase, elapsedMs: Math.round(performance.now() - bootStartedAt) })
   }
-  // Before the database, the listeners, or any child process: a provisioned
-  // machine's link leaves the environment first (managed-hosts.md §1, §2), and the
-  // registration — that one, or the one stored since — says whether this is a cloud
-  // machine, which decides that no credential-free door opens on it.
-  adoptStartupRegistration()
+  // Before the listeners or any child process: a machine with a link
+  // code in its environment enrolls with it (plans/034-one-cloud-machine-kind.md §3),
+  // and the registration — that one, or the one stored before — says whether this is
+  // a cloud machine, which decides that no credential-free door opens on it.
+  const enrolledAtBoot = await adoptStartupRegistration()
   // And the workspace service refuses to start half-configured (cloud-service-model.md §15).
   applyApiMode()
   const apiMode = isApiMode()
@@ -750,7 +765,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
     publishPersonHistoryChanges(events, personConnections),
     publishPersonalDocumentChanges(events, personConnections),
@@ -765,10 +779,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onTasksChanged((taskId) => {
       // A task's links reach sessions and works: room members are checked again.
       events.forgetRoomAdmissions()
-      void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
+      void events.broadcast('issues.invalidated', taskId ? { issueId: taskId } : {})
     }),
     // The end of a source read: a client reads the state of its sources again.
-    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('tasks.sourcesChanged', { sourceKeys }) }),
+    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('issues.sourcesChanged', { sourceKeys }) }),
     // `registerTasksHandlers` starts the timer that keeps the wanted sources fresh.
     stopTaskSourcePolling,
     // A task reads the pull requests of its sessions, so a session's change is
@@ -1317,6 +1331,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
+  // The cloud machine and organization tools act as the person of the turn, with the token this host holds for them (plans/035 §5).
+  setCloudMachineTools({
+    reads: accountReadsOfServer,
+    holders: () => apiMode ? [] : delegations?.holders() ?? [],
+    thisHost: () => ({ hostId: registrar.current()?.hostId ?? null, installationId: getInstallationId() }),
+    ssh,
+    accountOrigin: () => hostOrganizationsDeps.registration()?.directoryUrl ?? null,
+  })
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
   // This host introduces the machines it holds to each other, so a machine that no
   // device reaches still joins the person's other machines (host-reach.md §4.4).
@@ -1455,6 +1477,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
+  const historyPrewarm = new HistoryPrewarm(opts.sessionRuntime)
+  registerSessionDirectoryHandler(server, historyPrewarm)
+  // A turn changes the provider file: read the session's first page again before it is next opened.
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
+    if (event.status === 'completed' || event.status === 'failed' || event.status === 'interrupted') historyPrewarm.afterTurn(event.sessionId)
+  })
   registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -1620,7 +1648,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
     },
-    // The project and codebase tools send the RPC of a person's client, through its gate.
+    // The project, codebase, sharing, and host tools send the RPC of a person's client, through its gate.
     rpc: {
       listProjects: (args, caller) => server.handle('listProjects', args, caller),
       projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
@@ -1630,6 +1658,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       codebaseSave: (args, caller) => server.handle('codebaseSave', args, caller),
       codebaseMembers: (args, caller) => server.handle('codebaseMembers', args, caller),
       codebaseScanFolder: (args, caller) => server.handle('codebaseScanFolder', args, caller),
+      shareGet: (args, caller) => server.handle('shareGet', args, caller),
+      shareSet: (args, caller) => server.handle('shareSet', args, caller),
+      shareSetLink: (args, caller) => server.handle('shareSetLink', args, caller),
+      shareLinkOrigin: (args, caller) => server.handle('shareLinkOrigin', args, caller),
+      hostSelfTest: (args, caller) => server.handle('hostSelfTest', args, caller),
+      hostResources: (args, caller) => server.handle('hostResources', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
@@ -1846,7 +1880,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     owner: () => hostOrganizations.owner(),
     onRegistrationChanged: followRegistration,
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
+    isDesktopApp: () => detectInstallKind() === 'desktop',
     holdsWork: async () => {
       // The index may still find sessions on this disk; an answer now could be wrong.
       if (sessionRecordsIndexing()) throw new HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.')
@@ -1865,7 +1899,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // The connector registers after `uplinkLink` has answered: the Access tab's
     // status line follows this instead of waiting for a reload.
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
     onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
@@ -1915,6 +1948,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         void integrationGateway.close()
         if (scope === 'personal') {
           sessionPusher?.signedOut()
+          githubCredentials().forgetOwnerAccountCopy()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }
@@ -2389,7 +2423,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
     // A policy that turns the tunnel off keeps a stored link from resuming (plans/030 §6.7).
-    void registrar.resumeUntilAnswered((remote, isRetrying) => hostPolicies().hostSetting('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
+    void registrar.resumeUntilAnswered(async (remote, isRetrying) => {
+      // A policy that turns the tunnel off does not stop a link at the host's own address, which has no tunnel.
+      if (hostPolicies().hostSetting('cloudTunnel')?.value === false && !uplinkManager.isReachedDirectly()) return
+      await uplinkManager.resume(remote, isRetrying)
+      // A personal host that enrolled at this boot is linked as one that a person registers is: at its first registration.
+      // A cloud machine with no link asks by itself (`UplinkLinkManager.resume`).
+      if (enrolledAtBoot && !enrolledAtBoot.organizationId && !uplinkManager.currentTunnel()) {
+        await uplinkManager.link().catch((error) => uplinkManager.noteLinkFailure(error instanceof Error ? error.message : String(error)))
+      }
+    }).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -2558,7 +2601,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     selfTest: createHostSelfTest({
       installationId: getInstallationId,
       status: uplinkStatus,
-      isReachedDirectly: () => readHostLinkEnv() !== null,
+      isReachedDirectly: () => uplinkManager.isReachedDirectly(),
       isTunnelTurnedOffByPolicy: () => hostPolicies().hostSetting('cloudTunnel')?.value === false,
       boundPort: () => tunnelPort,
       connector: () => uplinkConnector.inspect(),

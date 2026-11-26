@@ -8,7 +8,6 @@ import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 import { matchesPrText } from './pr-search-query'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
-/** `ready` is merge readiness — the default review queue. */
 export type PrSortMode = PrSort
 export type PrChecksState = 'passing' | 'pending' | 'failing'
 
@@ -138,31 +137,8 @@ export function filterPrs(
   })
 }
 
-/**
- * The default review queue, in merge-readiness order: green and approved,
- * then green and still waiting on a verdict, then everything else still open —
- * drafts included, because their author has not made them mergeable yet — then
- * finished work. A known conflict is never ready, whatever else is true, so it
- * sinks to the bottom. Inside a tier the smaller measured diff comes first (an
- * unknown size after every known one), then the most recently updated.
- *
- * Checks come from the checks store, not the row, so they are asked for; a
- * summary for an older head is not this head's answer and counts as unknown.
- */
-export function rankPrsByMergeReadiness(
-  items: readonly PullRequest[],
-  checksState: (pr: PullRequest) => PrChecksState | null,
-): PullRequest[] {
-  return items.toSorted((a, b) => comparePrs(a, b, 'ready', (pr) => ({ viewerLogin: null, checks: checksState(pr) })))
-}
-
-export function sortPrs(
-  items: PullRequest[],
-  mode: PrSortMode,
-  checksState: (pr: PullRequest) => PrChecksState | null = () => null,
-  viewerLogin: (pr: PullRequest) => string | null = () => null,
-): PullRequest[] {
-  return items.toSorted((a, b) => comparePrs(a, b, mode, (pr) => ({ viewerLogin: viewerLogin(pr), checks: checksState(pr) })))
+export function sortPrs(items: PullRequest[], mode: PrSortMode): PullRequest[] {
+  return items.toSorted((a, b) => comparePrs(a, b, mode))
 }
 
 export interface PrInboxFacts {

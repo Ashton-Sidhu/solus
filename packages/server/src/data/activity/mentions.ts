@@ -36,7 +36,7 @@ export async function recordNewMentions(
     if (subject.kind === 'session') continue
     await recordNotification(db, {
       organizationId, eventId: `mention:${activity.id}`, activityId: activity.id, recipients: [mention.userId],
-      resource: subject.kind === 'work' ? { kind: 'work', workId: subject.id } : { kind: 'task', taskId: subject.id },
+      resource: subject.kind === 'work' ? { kind: 'work', workId: subject.id } : { kind: 'issue', issueId: subject.id },
       by, facts: threadId ? { kind: 'mention', threadId } : { kind: 'mention' },
       summary: { title: subject.title?.slice(0, 300) || (threadId ? 'Mentioned you in a comment' : 'Mentioned you') },
     })

@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { taskKey, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
-import type { Task } from '@solus/contracts/task-types'
+import { issueKey, issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
+import type { Issue } from '@solus/contracts/task-types'
 import type { Db } from '../../db/database'
-import { taskSourceItems, taskSources, tasks } from './schema'
+import { issueSourceItems, issueSources, issues } from './schema'
 import { loadTaskSources, sourceItemsOf, sourceItemsOfTask, type StoredTaskSource } from './task-source-store'
 import { database, loadTask, pruneUnheldTasks, UNHELD_TASK_MAX_AGE_MS, refreshTaskCategories, storedTaskIds, upsertProviderTask, type TaskCategoryChange } from './task-store'
 import type { TaskAssignment } from './task-assignment'
@@ -45,7 +45,7 @@ export function stateColumnOf(source: StoredTaskSource, task: ProviderTask): str
 
 /** Put a task in the columns its new state gives, in each source that lists it. */
 async function followState(db: Db, task: ProviderTask): Promise<void> {
-  const taskId = taskKey(task.ref)
+  const taskId = issueKey(task.ref)
   const items = await sourceItemsOfTask(taskId, db)
   const sources = await loadTaskSources(items.map((item) => item.sourceKey), db)
   for (const item of items) {
@@ -53,7 +53,7 @@ async function followState(db: Db, task: ProviderTask): Promise<void> {
     const columnId = source ? stateColumnOf(source, task) : undefined
     if (columnId === undefined || columnId === item.columnId) continue
     await db.run(sql`
-      UPDATE ${taskSourceItems} SET column_id = ${columnId} WHERE source_key = ${item.sourceKey} AND task_id = ${taskId}
+      UPDATE ${issueSourceItems} SET column_id = ${columnId} WHERE source_key = ${item.sourceKey} AND issue_id = ${taskId}
     `)
   }
 }
@@ -66,21 +66,21 @@ export interface StoreTaskOptions {
 }
 
 /** Write the provider's answer for one task over the host's copy, and answer the copy. */
-export async function storeProviderTask(task: ProviderTask, options: StoreTaskOptions = {}): Promise<Task> {
-  const taskId = taskKey(task.ref)
+export async function storeProviderTask(task: ProviderTask, options: StoreTaskOptions = {}): Promise<Issue> {
+  const taskId = issueKey(task.ref)
   const now = Date.now()
   const changes = await database().transaction(async (db) => {
     const created = !(await storedTaskIds(db, [taskId])).has(taskId)
     await upsertProviderTask(db, task, now)
-    if (options.detail) await db.run(sql`UPDATE ${tasks} SET detail_fetched_at = ${now} WHERE id = ${taskId}`)
+    if (options.detail) await db.run(sql`UPDATE ${issues} SET detail_fetched_at = ${now} WHERE id = ${taskId}`)
     await followState(db, task)
     if (options.place) {
       const { sourceKey, columnId, itemId } = options.place
       await db.run(sql`
-        INSERT INTO ${taskSourceItems}(source_key, task_id, column_id, item_id, position)
+        INSERT INTO ${issueSourceItems}(source_key, issue_id, column_id, item_id, position)
         VALUES (${sourceKey}, ${taskId}, ${columnId}, ${itemId},
-          COALESCE((SELECT MIN(position) FROM ${taskSourceItems} WHERE source_key = ${sourceKey}), 0) - 1)
-        ON CONFLICT(source_key, task_id) DO UPDATE SET column_id = excluded.column_id, item_id = COALESCE(excluded.item_id, task_source_items.item_id)
+          COALESCE((SELECT MIN(position) FROM ${issueSourceItems} WHERE source_key = ${sourceKey}), 0) - 1)
+        ON CONFLICT(source_key, issue_id) DO UPDATE SET column_id = excluded.column_id, item_id = COALESCE(excluded.item_id, issue_source_items.item_id)
       `)
     }
     return refreshTaskCategories(db, [taskId], created ? new Set([taskId]) : undefined)
@@ -106,20 +106,20 @@ export interface StoredSourceRead {
  * nothing else holds it, and so is each old copy that nothing holds, such as a
  * task that only a search found (`pruneUnheldTasks`).
  */
-export async function storeSourceRead(source: TaskSource, read: SourceRead, now = Date.now(), append = false): Promise<StoredSourceRead> {
-  const sourceKey = taskSourceKey(source)
+export async function storeSourceRead(source: IssueSource, read: SourceRead, now = Date.now(), append = false): Promise<StoredSourceRead> {
+  const sourceKey = issueSourceKey(source)
   const changed = new Set<string>()
   const assigned: TaskAssignment[] = []
   let categoryChanges: TaskCategoryChange[] = []
   await database().transaction(async (db) => {
     const before = new Map((await sourceItemsOf(sourceKey, db)).map((item) => [item.taskId, item.columnId]))
-    const taskIds = read.items.map((item) => taskKey(item.task.ref))
+    const taskIds = read.items.map((item) => issueKey(item.task.ref))
     const stored = await storedTaskIds(db, taskIds)
     const created = new Set(taskIds.filter((taskId) => !stored.has(taskId)))
-    if (!append) await db.run(sql`DELETE FROM ${taskSourceItems} WHERE source_key = ${sourceKey}`)
+    if (!append) await db.run(sql`DELETE FROM ${issueSourceItems} WHERE source_key = ${sourceKey}`)
     const placed = new Set<string>()
     for (const [position, item] of read.items.entries()) {
-      const taskId = taskKey(item.task.ref)
+      const taskId = issueKey(item.task.ref)
       // A provider can list one task two times; the first place stands.
       if (placed.has(taskId)) continue
       placed.add(taskId)
@@ -130,14 +130,14 @@ export async function storeSourceRead(source: TaskSource, read: SourceRead, now 
       }
       if (!before.has(taskId) || before.get(taskId) !== item.columnId) changed.add(taskId)
       await db.run(sql`
-        INSERT INTO ${taskSourceItems}(source_key, task_id, column_id, item_id, position)
+        INSERT INTO ${issueSourceItems}(source_key, issue_id, column_id, item_id, position)
         VALUES (${sourceKey}, ${taskId}, ${item.columnId}, ${item.itemId}, ${append ? before.size + position : position})
-        ON CONFLICT(source_key, task_id) DO UPDATE SET column_id = excluded.column_id, item_id = excluded.item_id
+        ON CONFLICT(source_key, issue_id) DO UPDATE SET column_id = excluded.column_id, item_id = excluded.item_id
       `)
     }
     if (!append) for (const taskId of before.keys()) if (!placed.has(taskId)) changed.add(taskId)
     await db.run(sql`
-      INSERT INTO ${taskSources}(source_key, source, label, columns, write_state, fetched_at, truncated, next_cursor)
+      INSERT INTO ${issueSources}(source_key, source, label, columns, write_state, fetched_at, truncated, next_cursor)
       VALUES (${sourceKey}, ${JSON.stringify(source)}, ${read.label}, ${JSON.stringify(read.columns)},
         ${read.writeState ? JSON.stringify(read.writeState) : null}, ${now}, ${read.truncated ? 1 : 0}, ${read.nextCursor ?? null})
       ON CONFLICT(source_key) DO UPDATE SET
@@ -162,12 +162,12 @@ export async function storeSourceRead(source: TaskSource, read: SourceRead, now 
 export async function storeTaskColumn(taskId: string, sourceKey: string, columnId: string): Promise<void> {
   const changes = await database().transaction(async (db) => {
     await db.run(sql`
-      UPDATE ${taskSourceItems} SET column_id = ${columnId} WHERE source_key = ${sourceKey} AND task_id = ${taskId}
+      UPDATE ${issueSourceItems} SET column_id = ${columnId} WHERE source_key = ${sourceKey} AND issue_id = ${taskId}
     `)
     const column = (await loadTaskSources([sourceKey], db)).get(sourceKey)?.columns.find((candidate) => candidate.id === columnId)
     if (column) {
       await db.run(sql`
-        UPDATE ${tasks} SET state_name = ${column.name}, state_category = ${column.category} WHERE id = ${taskId} AND kind = 'draft'
+        UPDATE ${issues} SET state_name = ${column.name}, state_category = ${column.category} WHERE id = ${taskId} AND kind = 'draft'
       `)
     }
     return refreshTaskCategories(db, [taskId])

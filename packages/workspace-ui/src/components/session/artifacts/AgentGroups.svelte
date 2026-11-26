@@ -6,8 +6,8 @@
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { toasts } from "../../../lib/toasts";
   import { sessionListStore } from "../../../contexts/workspace/session-list.store.svelte";
-  import type { SidebarTask } from "../lib/task-list";
-  import { taskSnoozeToastLabel } from "../lib/task-snooze";
+  import type { SidebarSession } from "../lib/sidebar-rows";
+  import { snoozeToastLabel } from "../lib/snooze";
   import type { RailAgentRow } from "../../project-panel/lib/rail-agents";
   import SessionContextMenu from "../SessionContextMenu.svelte";
   import SnoozeTaskMenu from "../SnoozeTaskMenu.svelte";
@@ -61,7 +61,7 @@
     else void serverConnections.apiFor(rowServerId).stopSession(row.id);
   }
 
-  async function completeRow(sessionRow: SidebarTask) {
+  async function completeRow(sessionRow: SidebarSession) {
     try {
       await sidebarStore.completeTask(sessionRow);
     } catch (error) {
@@ -77,7 +77,7 @@
   function snooze(row: RailAgentRow, rowServerId: string, until: number, note = "") {
     const target = { serverId: rowServerId, sessionId: row.id };
     void sessionListStore.snooze(target, until, note).catch(() => toasts.error("Couldn't snooze it"));
-    toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: !!note, keepsRunning: row.standing === "live" }), () => wake(row, rowServerId));
+    toasts.undo(snoozeToastLabel({ count: 1, hasNote: !!note, keepsRunning: row.standing === "live" }), () => wake(row, rowServerId));
     requestInputFocus();
   }
 
@@ -89,7 +89,7 @@
   /** The custom time: the sidebar's snooze popover, hung from the point the menu opened at. */
   let customSnooze = $state<{ row: RailAgentRow; serverId: string; x: number; y: number } | null>(null);
 
-  function archiveRow(sessionRow: SidebarTask) {
+  function archiveRow(sessionRow: SidebarSession) {
     sidebarStore.removeRow(sessionRow);
     requestInputFocus();
   }
@@ -129,7 +129,7 @@
 {#if menu}
   {@const target = menu}
   <!-- Done and Archive belong to the session's own sidebar row, so they show only while it has one. -->
-  {@const sessionRow = target.tabId ? sidebarStore.taskForTab(target.tabId) : null}
+  {@const sessionRow = target.tabId ? sidebarStore.rowForTab(target.tabId) : null}
   <SessionContextMenu
     x={target.x}
     y={target.y}

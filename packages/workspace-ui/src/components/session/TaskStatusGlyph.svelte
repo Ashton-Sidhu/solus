@@ -9,7 +9,7 @@
     CircleCheck as CheckCircleIcon,
   } from "@lucide/svelte";
   import { formatResetClock } from "../../lib/sessionUtils";
-  import { glyphWord, isGlyphStatus, type GlyphStatus, type TaskStatus } from "./lib/task-list";
+  import { glyphWord, isGlyphStatus, type GlyphStatus, type SidebarStatus } from "./lib/sidebar-rows";
 
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -17,7 +17,7 @@
 
   interface Props {
     /** A status with no line glyph (running, idle, done) draws nothing. */
-    status: TaskStatus | GlyphStatus;
+    status: SidebarStatus | GlyphStatus;
     label: string;
     /** 16px everywhere a row shows a state: the circle is 13px across, as T3 Code's. */
     size?: number;

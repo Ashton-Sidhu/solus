@@ -97,6 +97,7 @@ import IconMessagePlus from "@tabler/icons-react-native/IconMessagePlus";
 import IconMinus from "@tabler/icons-react-native/IconMinus";
 import IconMoon from "@tabler/icons-react-native/IconMoon";
 import IconNetwork from "@tabler/icons-react-native/IconNetwork";
+import IconPaperclip from "@tabler/icons-react-native/IconPaperclip";
 import IconPalette from "@tabler/icons-react-native/IconPalette";
 import IconPencil from "@tabler/icons-react-native/IconPencil";
 import IconPlug from "@tabler/icons-react-native/IconPlug";
@@ -253,6 +254,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
   pause: IconPlayerPause,
+  paperclip: IconPaperclip,
   plus: IconPlus,
   minus: IconMinus,
   "slash.circle": IconBan,

@@ -6051,7 +6051,8 @@
               "type": "string",
               "enum": [
                 "list",
-                "all"
+                "all",
+                "pinned"
               ]
             }
           },

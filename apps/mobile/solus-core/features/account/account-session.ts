@@ -286,6 +286,17 @@ export class AccountSession implements HostDirectoryReader {
     return this.deps.registry.workspaces().find((workspace) => workspace.organizationId === organizationId)?.routes ?? []
   }
 
+  /**
+   * Whether an organization saves the conversations of its sessions in Solus
+   * Cloud, as the directory last said (`DirectoryWorkspace.sessionCloudSync`).
+   * True when the directory does not list the organization or does not say:
+   * only a known `false` makes the machines the one source of these sessions
+   * (client-core `session-home.ts`).
+   */
+  savesSessionsToCloud(organizationId: string): boolean {
+    return this.deps.registry.workspaces().find((workspace) => workspace.organizationId === organizationId)?.sessionCloudSync !== false
+  }
+
   /** True when the phone holds no sign-in: it ended or was never made. */
   isSignedOut(): boolean {
     return !this.identity

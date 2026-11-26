@@ -2,7 +2,7 @@ import { expect, mock, test } from 'bun:test'
 import type { PinnedSession, Session } from '@solus/contracts/types'
 import type { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import type { SessionListState } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { commandsShown } from '@solus/workspace-ui/components/command-palette/lib/commands'
 
@@ -19,7 +19,7 @@ const { currentSessionCommands } = await import('@solus/workspace-ui/components/
 function fixture() {
   sessionState = null
   const target = { id: 'split-session', agentSessionId: 'thread' } as Session
-  const row = { key: 'session:split-session', lifecycle: 'active', tabIds: ['split-tab'], title: 'Split session' } as SidebarTask
+  const row = { key: 'session:split-session', lifecycle: 'active', tabIds: ['split-tab'], title: 'Split session' } as SidebarSession
   const workspace = {
     activeTabId: 'leading-tab',
     focusedChatTabId: 'split-tab' as string | null,
@@ -28,7 +28,7 @@ function fixture() {
     serverIdFor: () => 'remote',
   }
   const sidebar = {
-    taskForTab: (tabId: string) => tabId === 'split-tab' ? row : null,
+    rowForTab: (tabId: string) => tabId === 'split-tab' ? row : null,
     canShelve: () => true,
     canArchive: () => true,
     canPinSession: () => true,
@@ -42,7 +42,7 @@ function fixture() {
     sessionRows: [row],
     sharedRows: [],
     workingRows: [],
-    allTasks: [row],
+    allRows: [row],
   }
   const openCustomSnooze = mock<(snooze: import('@solus/workspace-ui/components/command-palette/lib/session-commands').CustomSessionSnooze) => void>(() => {})
   const commands = () => currentSessionCommands(workspace as WorkspaceContext, sidebar as SessionSidebarStore, openCustomSnooze)

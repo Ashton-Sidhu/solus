@@ -637,7 +637,7 @@ describe.serial('SessionRuntime observability hooks', () => {
     const lifecycle = await plane.runTurn({
       target: { kind: 'new-session' }, sessionId: 'solus-task',
       input: { ...input(forked ? 'source-thread' : null), forked }, tools: [],
-      options: { prompt: 'start', clientPromptId: 'first-send', promptSource: 'typed', taskId: record.id },
+      options: { prompt: 'start', clientPromptId: 'first-send', promptSource: 'typed', issueId: record.id },
     })
     expect(await lifecycle.agentSessionId).toMatchObject({ agentSessionId: 'thread-1' })
 
@@ -665,7 +665,7 @@ describe.serial('SessionRuntime observability hooks', () => {
     })
     await lifecycle.agentSessionId
 
-    expect(await taskSessions.tasksForSession('local', 'solus-no-task')).toBeNull()
+    expect(await taskSessions.issuesForSession('local', 'solus-no-task')).toBeNull()
 
     backend.complete('thread-1', 0)
     await lifecycle.done

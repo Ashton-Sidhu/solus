@@ -127,14 +127,14 @@ async function toolSession(admission: AdmittedToolSession, input: { repository?:
 
 const nonEmpty = z.string().trim().min(1)
 const number = z.number().int().positive()
-const environmentId = nonEmpty.optional().describe('The calling Solus host. Omit to use its checkout.')
+const environmentId = nonEmpty.optional().describe('Omit for this host.')
 const environmentFields = { environmentId }
 const project = nonEmpty.optional().describe('Only for an outside app, which must pass it: the project on this host, as list_projects gives it. A session uses its checkout.')
 const targetFields = {
   ...environmentFields,
   project,
-  number: number.optional().describe("Default: this checkout's branch PR."),
-  repository: nonEmpty.optional().describe('Repository as owner/name. Use with number for an explicitly linked PR.'),
+  number: number.optional().describe("Default: this branch's PR."),
+  repository: nonEmpty.optional().describe('A linked PR: owner/name, with number.'),
 }
 const names = z.array(nonEmpty).min(1).max(25)
 const cursor = nonEmpty.max(4096).optional()

@@ -2,6 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { backgroundTasks, sessionAgents } from "./session-work";
 
+vi.mock("./agent-child-host", () => ({ remoteAgentChild: () => () => undefined }));
 vi.mock("./session-detail", () => ({ atomFromConversation: vi.fn() }));
 
 it("retains task names on reconnect and clears completed background work", () => {

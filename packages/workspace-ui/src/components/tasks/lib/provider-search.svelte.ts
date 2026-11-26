@@ -1,6 +1,6 @@
 import type { TaskInvolvement } from '@solus/contracts/task-data'
-import type { Task } from '../../../contexts/tasks/task.svelte'
-import type { TasksStore } from '../../../contexts/tasks/tasks.store.svelte'
+import type { Issue } from '../../../contexts/tasks/task.svelte'
+import type { IssuesStore } from '../../../contexts/tasks/tasks.store.svelte'
 
 const PROVIDER_SEARCH_DEBOUNCE_MS = 350
 
@@ -15,7 +15,7 @@ const PROVIDER_SEARCH_DEBOUNCE_MS = 350
  */
 export class ProviderTaskSearch {
   /** The tasks the provider found for `query`. */
-  results = $state<Task[]>([])
+  results = $state<Issue[]>([])
   /** The search text that `results` answer. Empty = no search answered. */
   query = $state('')
   involvement = $state<TaskInvolvement>('all')
@@ -27,7 +27,7 @@ export class ProviderTaskSearch {
   #generation = 0
   #scope = ''
 
-  constructor(private readonly store: TasksStore) {}
+  constructor(private readonly store: IssuesStore) {}
 
   /** Ask the provider for the tasks of the person's sources that match, after a pause in typing. */
   request(query: string, involvement: TaskInvolvement = 'all', scope = ''): void {
@@ -55,7 +55,7 @@ export class ProviderTaskSearch {
   }
 
   async #search(query: string, generation: number, involvement: TaskInvolvement): Promise<void> {
-    let results: Task[] = []
+    let results: Issue[] = []
     let failure: string | null = null
     try {
       results = await this.store.search(query, involvement)

@@ -60,7 +60,7 @@ async function claim(db: Db, receipt: ReceiptClaim, now: number): Promise<boolea
 
 // ─── API create ───
 
-export type ApiCreateKind = 'task' | 'work' | 'comment'
+export type ApiCreateKind = 'issue' | 'work' | 'comment'
 
 export const API_CREATE_TTL_MS = 24 * 60 * 60 * 1000
 

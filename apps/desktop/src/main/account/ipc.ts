@@ -9,7 +9,7 @@ import { accountSettingsPatchRequestSchema } from '@solus/contracts/settings'
 import { createManagedHostRequestSchema, managedHostSpecChangeRequestSchema } from '@solus/contracts/uplink'
 import type { CreateManagedHostOutcome } from '@solus/contracts/account-types'
 import type { CloudAddressChange, CloudAddressState } from '@solus/contracts/cloud-address'
-import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
+import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, organizationSettingsPatchRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
 import { desktopAgentProfileRequests } from './agent-profile-client'
 import { accountDocumentCall } from '@solus/client-core/account-documents'
 import { parseAccountDocumentRequest } from '@solus/contracts/account-documents'
@@ -17,6 +17,7 @@ import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { DeviceCloudAddress } from './cloud-address'
+import { hostDisplayName } from '@solus/server/platform/host-display-name'
 import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
 import {
@@ -74,6 +75,8 @@ export const ACCOUNT_CHANNELS = {
   hostPolicyDelete: 'solus:host-policy-delete',
   hostPolicyAssign: 'solus:host-policy-assign',
   hostPolicyUnassign: 'solus:host-policy-unassign',
+  organizationSettingsGet: 'solus:organization-settings-get',
+  organizationSettingsPatch: 'solus:organization-settings-patch',
 } as const
 
 /** A renderer request that fails its schema never reaches the website. */
@@ -107,6 +110,7 @@ export function registerAccountIpc(broadcast: (channel: string, payload: Account
     now: () => Date.now(),
     store: new AccountStore(join(app.getPath('userData'), 'account.bin'), secureStorage(safeStorage)),
     authorizer: loopbackAuthorizer({ openExternal: (url) => shell.openExternal(url) }),
+    machineName: hostDisplayName(),
     onStateChange: (state) => broadcast(ACCOUNT_CHANNELS.stateChanged, state),
   })
 
@@ -256,6 +260,15 @@ export function registerAccountIpc(broadcast: (channel: string, payload: Account
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
     const hostId = hostIdSchema.safeParse(rawHostId)
     return organizationId.success && hostId.success ? settings.hostPolicyUnassign(organizationId.data, hostId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    return organizationId.success ? settings.organizationSettingsGet(organizationId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsPatch, (_event, rawOrganizationId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const request = organizationSettingsPatchRequestSchema.safeParse(rawRequest)
+    return organizationId.success && request.success ? settings.organizationSettingsPatch(organizationId.data, request.data) : INVALID_REQUEST
   })
 
   // The keychain is not reliably readable before `ready`, and this module is

@@ -1,3 +1,5 @@
+import type { AgentId } from './types'
+
 /** Live facts from one host. None of this state is persisted. */
 export interface RunningServer {
   /** Opaque process identity, scoped to this host. */
@@ -5,7 +7,7 @@ export interface RunningServer {
   process: { pid: number; name: string; workingDirectory: string | null }
   location: { projectRoot: string | null; worktreePath: string | null; branch: string | null }
   /** Attribution is separate from location and does not grant permission to stop. */
-  startedBy: { kind: 'agent'; sessionId: string | null } | { kind: 'terminal'; terminalId: string; sessionId: string | null } | { kind: 'configured' } | { kind: 'unknown' }
+  startedBy: { kind: 'agent'; sessionId: string | null; provider?: AgentId } | { kind: 'terminal'; terminalId: string; sessionId: string | null } | { kind: 'configured' } | { kind: 'unknown' }
   endpoints: ServerEndpoint[]
   actions: { canStop: boolean }
 }
@@ -43,6 +45,7 @@ export function stopRefusalText(reason: StopRefusalReason): string {
 
 /** The tag children inherit, including detached commands. Never an authorization token. */
 export const RUNNING_SERVER_SESSION_ENV = 'SOLUS_SESSION_ID'
+export const RUNNING_SERVER_PROVIDER_ENV = 'SOLUS_SERVER_PROVIDER'
 export const RUNNING_SERVER_TERMINAL_ENV = 'SOLUS_TERMINAL_ID'
 
 export function serverUrlsFromText(text: string): string[] { return [...new Set(text.split('\n').map((line) => line.trim()).filter(Boolean))] }

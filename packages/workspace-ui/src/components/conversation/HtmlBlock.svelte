@@ -11,7 +11,8 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import ArtifactRail from "../artifact/ArtifactRail.svelte";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
-  import { lastReportedHeight } from "../artifact/lib/artifact-view";
+  import { frameHeightReporter, lastReportedHeight } from "../artifact/lib/artifact-view";
+  import { getReplyFrameMessage, replyFrameLayoutOf } from "./lib/reply-frame-layout";
   import { downloadPayload } from "../work/lib/work-export";
   import { htmlBlockFileName } from "./lib/html-block";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
@@ -50,6 +51,21 @@
       return serverId ? { serverId, ctx: images?.ctx() } : null;
     },
   );
+
+  // The heights the host stored for this frame, and where to send one this
+  // client measures: any later open, on any client, then sizes it before it loads.
+  const replyMessage = getReplyFrameMessage();
+  const storedSizes = $derived.by(() => {
+    const layout = replyFrameLayoutOf(replyMessage?.(), html);
+    if (!layout) return undefined;
+    const heights = layout.heights ?? [];
+    const report = frameHeightReporter(heights, async (width, height) => {
+      const tabId = origin?.().tabId;
+      const sessionId = tabId ? session?.sessionFor(tabId)?.id : undefined;
+      if (tabId && sessionId) await session!.apiFor(tabId).artifactFrameHeightReport({ sessionId, attachmentId: layout.attachmentId, width, height });
+    });
+    return { heights, report };
+  });
 
   let saving = $state(false);
   let saved = $state<{ workId: string; title: string } | null>(null);
@@ -133,7 +149,7 @@
     <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{lastReportedHeight(html) ?? 120}px"></div>
   {:else}
     <!-- Once saved, the rail is the frame's header, with these actions in its row. -->
-    <SandboxFrame html={page.html} heightKey={html} expandable={false} header={saved ? rail : undefined}>
+    <SandboxFrame html={page.html} heightKey={html} {storedSizes} expandable={false} header={saved ? rail : undefined}>
       {#snippet actions()}
         {#if onShowSource}
           {@render action("Show source", "html-block-source", onShowSource, CodeIcon)}

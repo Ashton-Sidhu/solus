@@ -4,6 +4,15 @@ export interface ThreadWorkGroupScrollPosition {
   readonly scrollOffset: number;
 }
 
+export function threadOpeningBottomInset(
+  composerInset: number,
+  composerKeyboardTranslation: number,
+): number {
+  "worklet";
+  // Match KeyboardAwareLegendList's visible inset during the handoff.
+  return composerInset + Math.max(0, -composerKeyboardTranslation);
+}
+
 export function resolveThreadWorkGroupInitialScroll(
   rows: ReadonlyArray<{ readonly id: string }>,
   position: ThreadWorkGroupScrollPosition | undefined,

@@ -1,6 +1,6 @@
 import type { Message } from '@solus/contracts/types'
 import { sameUser } from '@solus/contracts/user'
-import { hostNoticeKind } from './host-notice'
+import { hostNoticeKind } from '@solus/client-core/host-notice'
 import type { Turn } from './turns'
 
 /**

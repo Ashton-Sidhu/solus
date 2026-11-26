@@ -2,7 +2,6 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     GitBranch as GitBranchIcon,
-    Folder as WorktreeIcon,
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
@@ -30,7 +29,6 @@
     /** The task this session belongs to, when the row names one. */
     taskTitle?: string;
     branchName?: string | null;
-    worktreePath?: string | null;
     serverId?: string | null;
     provider?: AgentId | null;
     modelId?: string | null;
@@ -51,7 +49,6 @@
     projectLabel,
     taskTitle,
     branchName,
-    worktreePath,
     serverId,
     provider,
     modelId,
@@ -133,12 +130,6 @@
         <div class="flex min-w-0 items-center gap-2">
           <GitBranchIcon class="size-3.5 shrink-0" />
           <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
-        </div>
-      {/if}
-      {#if worktreePath}
-        <div class="flex min-w-0 items-center gap-2" title={worktreePath}>
-          <WorktreeIcon class="size-3.5 shrink-0" />
-          <MiddleTruncate value={worktreePath} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
       {#if attention}

@@ -151,10 +151,10 @@ export const APP_NEEDS_SESSION_ID = 'Pass session_id: this app is not running in
 export type ReachCaller = { sessionId: string } | { principal: Principal }
 
 /** The caller that reaches other hosts; null before a session is initialized and for a call that has no person. */
-export function reachCallerOf(deps: SessionToolDeps): ReachCaller | null {
-  if (deps.ctx?.sessionId) return { sessionId: deps.ctx.sessionId }
+export function reachCallerOf(call: { sessionId?: string; requesterKey?: string } | undefined): ReachCaller | null {
+  if (call?.sessionId) return { sessionId: call.sessionId }
   // An outside app's call runs with its person's authority, set where it was admitted, never from its arguments.
-  const principal = deps.ctx?.requesterKey ? workspaceToolAuthority() : undefined
+  const principal = call?.requesterKey ? workspaceToolAuthority() : undefined
   return principal ? { principal } : null
 }
 
@@ -445,7 +445,7 @@ function validatedSessionTool<Args>(
 
 async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTargetsFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (args.host) {
-    const remote = await connectRemoteHost(args.host, reachCallerOf(deps))
+    const remote = await connectRemoteHost(args.host, reachCallerOf(deps.ctx))
     if ('error' in remote) return { ok: false, text: remote.error }
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
@@ -471,7 +471,7 @@ function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
 const NO_HOST_REACH = 'Only a person with access to this host can reach their other hosts from it.'
 
 async function listHostsTool(_args: Record<string, never>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const caller = reachCallerOf(deps)
+  const caller = reachCallerOf(deps.ctx)
   const hosts = caller ? await listedRemoteHosts(caller) : null
   if (!hosts) return { ok: false, text: 'Only a person with host access can list their other hosts.' }
   return { ok: true, text: JSON.stringify({ hosts }, null, 2) }
@@ -485,7 +485,7 @@ export async function listedRemoteHosts(caller: ReachCaller): Promise<ListedRemo
 }
 
 /** The connection to one of the person's other hosts, by id or name. */
-async function connectRemoteHost(ref: string, caller: ReachCaller | null): Promise<RemoteHost | { error: string }> {
+export async function connectRemoteHost(ref: string, caller: ReachCaller | null): Promise<RemoteHost | { error: string }> {
   if (!remoteHosts) return { error: 'This host cannot reach other hosts.' }
   const request = caller ? reachRequestOf(caller) : null
   if (!request) return { error: NO_HOST_REACH }
@@ -533,7 +533,7 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
   if (!(await toolMayRead({ kind: 'session', id: requestedId }))) return { ok: false, text: `No session ${requestedId} that this turn may read.` }
   const meta = await findSession(requestedId)
   if (!meta) {
-    const remote = await findOffHost(requestedId, reachCallerOf(deps))
+    const remote = await findOffHost(requestedId, reachCallerOf(deps.ctx))
     // Its task and pending input stay on the host that holds it.
     if (remote) return readResult({ meta: remote.meta, status: remote.meta.status ?? 'idle', foundOn: remote.source }, await remote.load(), request)
     const remoteHost = remoteHostOf(deps, requestedId)
@@ -788,7 +788,7 @@ async function sendRecipient(sessionId: string, deps: SessionToolDeps): Promise<
   const remoteHost = remoteHostOf(deps, sessionId)
   if (remoteHost) {
     // The other host is reached for the caller's person, as for start_sessions.
-    const target = await remoteTarget(remoteHost, reachCallerOf(deps))
+    const target = await remoteTarget(remoteHost, reachCallerOf(deps.ctx))
     return 'error' in target ? target : { sessionId, target }
   }
   const meta = await findSession(sessionId)
@@ -907,7 +907,6 @@ function sessionAgentTool(
 }
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
-export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines on your host list and account, with ids, routes, and connection status (not-paired: use add_host). Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session (or this app) sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)

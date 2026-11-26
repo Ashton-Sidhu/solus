@@ -9,10 +9,10 @@ import {
   SidebarFolderState,
 } from '@solus/workspace-ui/components/session/lib/sidebar-folder-state.svelte'
 import type { DraftRow } from '@solus/workspace-ui/components/session/lib/draft-list'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import type { ListProjectOption } from '@solus/workspace-ui/components/ui/list-page/list-page'
 
-function row(id: string, groupKey: string, overrides: Partial<SidebarTask> = {}): SidebarTask {
+function row(id: string, groupKey: string, overrides: Partial<SidebarSession> = {}): SidebarSession {
   // SAFETY: the project view reads only identity, project, start, and attention from a row.
   return {
     id,
@@ -24,7 +24,7 @@ function row(id: string, groupKey: string, overrides: Partial<SidebarTask> = {})
     unread: false,
     lifecycle: 'active',
     ...overrides,
-  } as SidebarTask
+  } as SidebarSession
 }
 
 function draft(draftId: string, groupKey: string): DraftRow {
@@ -47,7 +47,7 @@ function list(overrides: Partial<ProjectListInput> = {}) {
     isSharedOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
-    shelfRevealTaskId: null,
+    shelfRevealRowId: null,
     projects: [],
     isFolderOpen: () => true,
     sentAt: () => 0,
@@ -118,7 +118,7 @@ describe('the sidebar project view', () => {
       projects: [project('alpha')],
       isFolderOpen: () => true,
       sentAt: (task) => sentAt.get(task.id) ?? 0,
-      shelfRevealTaskId: null,
+      shelfRevealRowId: null,
     })
     expect(alpha.rows.map((task) => task.id)).toEqual(['old', 'new'])
   })
@@ -135,7 +135,7 @@ describe('the sidebar project view', () => {
       projects: [project('alpha')],
       isFolderOpen: () => true,
       sentAt: () => 0,
-      shelfRevealTaskId: null,
+      shelfRevealRowId: null,
     })
     expect(alpha.rows.map((task) => task.id)).toEqual(['quiet', 'busy'])
   })
@@ -146,14 +146,14 @@ describe('the sidebar project view', () => {
       row('asks', 'alpha', { status: 'question' }),
       row('idle', 'alpha'),
     ]
-    const closed = (shelfRevealTaskId: string | null, rows = sessions) =>
+    const closed = (shelfRevealRowId: string | null, rows = sessions) =>
       buildProjectFolders({
         drafts: [],
         sessions: rows,
         projects: [project('alpha')],
         isFolderOpen: () => false,
         sentAt: () => 0,
-        shelfRevealTaskId,
+        shelfRevealRowId,
       })[0]
     const folder = closed('reading')
     expect(folder.folder).toMatchObject({ isOpen: false, count: 3, hasHiddenAttention: true })
@@ -195,7 +195,7 @@ describe('the sidebar project view', () => {
       projects: [project('alpha')],
       isFolderOpen: () => false,
       sentAt: () => 0,
-      shelfRevealTaskId: null,
+      shelfRevealRowId: null,
     })
     expect(folder.folder.count).toBe(2)
     expect(folder.drafts).toEqual([])
@@ -208,7 +208,7 @@ describe('the sidebar project view', () => {
       projects: [],
       isFolderOpen: () => true,
       sentAt: () => 0,
-      shelfRevealTaskId: null,
+      shelfRevealRowId: null,
     })
     expect(folder.folder).toMatchObject({ key: 'repo-key', label: 'scratch', project: null })
   })

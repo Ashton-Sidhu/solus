@@ -1,4 +1,7 @@
+import { remainingDirectoryRows, directoryOpeningRows } from './directory-opening'
+import type { SessionDirectoryPage } from '@solus/contracts/host-api'
 import type { MobileSessionCache } from './session-cache'
+import { isLiveCodebase } from '@solus/client-core/codebases'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
@@ -54,6 +57,7 @@ export interface SessionRowChange {
 }
 
 export interface HostThreads {
+  readonly opening?: Pick<SessionDirectoryPage, 'pins' | 'codebases' | 'automations'>
   readonly revision?: string
   readonly threads: readonly SolusThreadShell[]
   /** The most recently active sessions out of this person's list (archived,
@@ -76,6 +80,16 @@ export function threadKey(hostId: string, sessionId: string): string {
   return `${hostId}\u0000${sessionId}`
 }
 
+function projectRows(hostId: string, hostLabel: string, projects: ProjectEntry[], previous?: readonly SolusProjectShell[]) {
+  const held = new Map(previous?.map(row => [row.project.path, row]))
+  const rows = projects.map(project => {
+    const row = { key: threadKey(hostId, project.path), hostId, hostLabel, project }
+    const prior = held.get(project.path)
+    return prior ? keepEqual(row, prior) : row
+  })
+  return previous && sameItems(previous, rows) ? previous : rows
+}
+
 /** How many sessions out of the list a host is asked for. The list itself
  *  has no limit: the host bounds it to this person's recent and waiting
  *  sessions (docs/plans/session-archive.md). */
@@ -87,12 +101,36 @@ const RATE_LIMIT_RETRIES = 3
 
 const IDLE = { kind: 'idle' } as const
 
+/** A host of the last start, as this device saved it: the start shows its saved list before the registry reads its hosts. */
+export interface PresumedHost {
+  readonly id: string
+  readonly installationId: string
+  readonly identityKey?: string
+}
+
 /** How a cloud-only row names where it comes from when this phone keeps no host that ran it. */
 const CLOUD_LABEL = 'Solus Cloud'
 
 export class ThreadDirectory {
   readonly changes = new Listeners()
   private readonly hosts = new Map<string, HostThreadsState>()
+  private readonly openingByHost = new Map<string, {
+    codebases: Map<string, NonNullable<SessionDirectoryPage['codebases']>[number]>
+    automations: Map<string, string>
+  }>()
+
+  openingCodebase(hostId: string, codebaseId: string) {
+    const copy = this.openingByHost.get(hostId)?.codebases.get(codebaseId)
+    return copy && isLiveCodebase(copy) ? copy : undefined
+  }
+
+  openingAutomation(hostId: string, automationId: string) {
+    return this.openingByHost.get(hostId)?.automations.get(automationId)
+  }
+
+  private readonly restores = new Map<string, Promise<void>>()
+  /** The hosts restored before the registry knew them: each stays until the registry confirms or leaves it out. */
+  private readonly presumed = new Map<string, PresumedHost>()
   private readonly requests = new Map<string, number>()
   private readonly directoryWrites = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
@@ -134,18 +172,66 @@ export class ThreadDirectory {
      * reads `projects()`, so they agree.
      */
     private readonly isContainerRoot: (hostId: string, path: string) => boolean = () => false,
+    private readonly restorePins?: (hostId: string, pins: readonly PinnedSession[]) => void,
   ) {
     runHosts?.changes.subscribe(() => this.remerge())
     cloud?.changes.subscribe(() => this.remerge())
   }
 
-  async restore(hostId: string): Promise<void> {
-    const host = this.registry.host(hostId)
-    const cached = await this.cache?.forHost(hostId).directory()
-    if (!cached || !host || this.denied.has(hostId) || this.registry.host(hostId) !== host) return
-    const current = this.stateOf(hostId)
-    if (current.kind === 'loaded' || (current.kind !== 'idle' && current.previous)) return
-    this.set(hostId, current.kind === 'error' ? { ...current, previous: cached } : { kind: 'loading', previous: cached })
+  /** Shows the saved list of a host. `presumed` is the host of the last start, for a restore before the registry is read. */
+  restore(hostId: string, presumed?: PresumedHost): Promise<void> {
+    const held = this.restores.get(hostId)
+    if (held) return held
+    const host = this.registry.host(hostId) ?? presumed
+    if (!host || !this.cache) return Promise.resolve()
+    if (host === presumed) this.presumed.set(hostId, presumed)
+    const pending = this.cache.forHost(hostId).directory().then(cached => {
+      // The catalog rebuilds its host objects when a route or label changes. Forgetting
+      // the host or switching accounts cancels this read even if the same id returns.
+      const currentHost = this.registry.host(hostId) ?? this.presumed.get(hostId)
+      if (!cached || this.restores.get(hostId) !== pending || this.denied.has(hostId) ||
+          !currentHost || currentHost.installationId !== host.installationId ||
+          (host.identityKey && currentHost.identityKey !== host.identityKey)) return
+      const current = this.stateOf(hostId)
+      if (current.kind === 'loaded' || (current.kind !== 'idle' && current.previous)) return
+      if (cached.opening) this.restorePins?.(hostId, cached.opening.pins)
+      this.set(hostId, current.kind === 'error' ? { ...current, previous: cached } : { kind: 'loading', previous: cached })
+    }).finally(() => {
+      if (this.restores.get(hostId) === pending) this.restores.delete(hostId)
+    })
+    this.restores.set(hostId, pending)
+    return pending
+  }
+
+  /** True while the list of the host shows from the last start and the registry has not confirmed the host. */
+  presumes(hostId: string): boolean {
+    return this.presumed.has(hostId)
+  }
+
+  /**
+   * The registry read its hosts: a presumed host that it knows as the same
+   * installation stays. One it knows as another installation, or one that it
+   * still leaves out after the host list and the directory answered, loses
+   * the rows the start showed. Answers the hosts it dropped.
+   */
+  confirmPresumedHosts(): string[] {
+    const listsAnswered = this.registry.listState() !== 'loading' && this.registry.directoryState() !== 'loading'
+    const dropped: string[] = []
+    for (const [hostId, presumed] of this.presumed) {
+      const host = this.registry.host(hostId)
+      if (host && host.installationId === presumed.installationId &&
+          (!presumed.identityKey || !host.identityKey || host.identityKey === presumed.identityKey)) this.presumed.delete(hostId)
+      else if (host || listsAnswered) {
+        this.forgetHost(hostId)
+        dropped.push(hostId)
+      }
+    }
+    return dropped
+  }
+
+  /** Every host this directory holds a list or a pending restore for. */
+  hostIds(): string[] {
+    return [...new Set([...this.hosts.keys(), ...this.restores.keys()])]
   }
 
   /** Change the list filter without changing a record or closing an open thread. */
@@ -236,7 +322,7 @@ export class ThreadDirectory {
    * a session's status or title changes neither (`projects.changed` asks for
    * a whole read).
    */
-  async load(hostId: string, attempt = 0, scope: 'all' | 'sessions' = 'all'): Promise<void> {
+  async load(hostId: string, attempt = 0, scope: 'all' | 'sessions' = 'all', opening?: Promise<SessionDirectoryPage | null>): Promise<void> {
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     const host = this.registry.host(hostId)
@@ -261,52 +347,81 @@ export class ThreadDirectory {
       && connection.state.sessionGeneration === generation
     try {
       const knownRevision = previous?.revision && (!previous.threads.length || previous.threads[0]?.hostLabel === host.label) ? previous.revision : undefined
-      const listRead = connection.api.sessionRecordList({ includeWorktrees: true, ...(knownRevision && { knownRevision }) })
+      let rowSource = previous
+      let positions = this.positions.get(hostId)
+      const shell = (record: SessionRecord): SolusThreadShell => {
+        const position = positions?.get(record.sessionId)
+        const row = position === undefined ? undefined : rowSource?.threads[position]
+        if (row?.hostLabel === host.label && keepEqual(record, row.record) === row.record) return row
+        return { key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record }
+      }
+      const showFirstRows = (threads: readonly SolusThreadShell[], indexing: boolean) => {
+        if (!threads.length || !isCurrent()) return
+        const current = this.stateOf(hostId)
+        if (current.kind !== 'loading' || current.previous?.threads.length) return
+        rowSource = { opening: current.previous?.opening, threads, projects: current.previous?.projects ?? [], unlisted: current.previous?.unlisted ?? [], indexing }
+        this.set(hostId, { kind: 'loading', previous: rowSource })
+        positions = this.positions.get(hostId)
+      }
+      const page = opening ? await opening : null
+      if (!isCurrent()) return
+      let openingFacts = previous?.opening
+      if (page) {
+        openingFacts = { pins: page.pins, codebases: page.codebases, automations: page.automations }
+        const present = directoryOpeningRows(page)
+        const value: HostThreads = {
+          opening: openingFacts, indexing: page.indexing, threads: present.map(shell),
+          unlisted: page.pinnedRecords.filter(row => row.listed === false).map(shell),
+          projects: projectRows(hostId, host.label, page.projects, previous?.projects),
+        }
+        // Keep a warm, longer list in place until its continuation has arrived.
+        const showing = this.stateOf(hostId)
+        if (!page.nextCursor || showing.kind !== 'loading' || !showing.previous?.threads.length) {
+          this.set(hostId, { kind: 'loading', previous: value })
+          this.scheduleDirectorySave(hostId)
+          rowSource = value
+          positions = this.positions.get(hostId)
+        }
+      }
+      const listRead = page ? remainingDirectoryRows(connection.api, page) : connection.api.sessionRecordList(
+        { includeWorktrees: true, ...(knownRevision && { knownRevision }) },
+        previous?.threads.length ? undefined : page => showFirstRows(page.records.map(shell), page.indexing),
+      )
       const details = Promise.all([
         connection.api.sessionRecordList({ includeWorktrees: true, scope: 'all', limit: UNLISTED_LIMIT }),
-        this.readProjectsAndPins(hostId, connection, scope === 'sessions' && previous !== null),
+        page ? { projects: page.projects, pins: page.pins, readPins: page.pins } : this.readProjectsAndPins(hostId, connection, scope === 'sessions' && previous !== null),
       ])
       void details.catch(() => {}) // The list and its secondary reads can fail independently.
       const list = await listRead
       if (!isCurrent()) return
-      const previousPositions = this.positions.get(hostId)
-      const shell = (record: SessionRecord): SolusThreadShell => {
-        const position = previousPositions?.get(record.sessionId)
-        const held = position === undefined ? undefined : previous?.threads[position]
-        if (held?.hostLabel === host.label && keepEqual(record, held.record) === held.record) return held
-        return { key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record }
+      const pendingState = this.stateOf(hostId)
+      if (pendingState.kind === 'loading') {
+        rowSource = pendingState.previous
+        positions = this.positions.get(hostId)
       }
       const confirmed = list.unchanged && previous && knownRevision && list.revision === knownRevision
       const shells = confirmed ? previous.threads : list.records.map(shell)
       const indexing = confirmed ? previous.indexing : list.indexing
       // On a cold open the visible rows can paint while projects, archived rows and pins arrive.
-      if (shells.length && !previous?.threads.length) {
-        this.set(hostId, { kind: 'loading', previous: {
-          threads: shells, projects: previous?.projects ?? [], unlisted: previous?.unlisted ?? [], indexing: list.indexing,
-        } })
-      }
+      showFirstRows(shells, indexing)
       const [unlisted, listed] = await details
       const { projects, pins } = listed
       readPins = listed.readPins
-      const knownSessions = pins.length ? new Set([...shells.map(thread => thread.record.sessionId), ...unlisted.records.map(record => record.sessionId)]) : null
+      if (!page && openingFacts && readPins) openingFacts = { ...openingFacts, pins: [...readPins] }
+      const knownSessions = new Set([...shells.map(thread => thread.record.sessionId), ...unlisted.records.map(record => record.sessionId)])
       // A pin must remain available even after its record leaves recent history.
-      const missingPins = await Promise.all(pins.filter((pin) => !knownSessions?.has(pin.sessionId))
+      const missingPins = page ? page.pinnedRecords.filter(row => !knownSessions.has(row.sessionId)) : await Promise.all(pins.filter((pin) => !knownSessions.has(pin.sessionId))
         .map((pin) => connection.api.sessionRecordGet(pin.sessionId).catch(() => null)))
       const pinnedRecords = missingPins.filter((record): record is SessionRecord => record !== null)
       // An unchanged project keeps its object, so a reader of projects alone sees no change.
-      const held = new Map(previous?.projects.map((project) => [project.key, project]))
-      const projectShells = projects === null ? previous?.projects ?? [] : projects.map((project): SolusProjectShell => {
-        const key = `${hostId}\u0000${project.path}`
-        const answered = { key, hostId, hostLabel: host.label, project }
-        const kept = held.get(key)
-        return kept ? keepEqual(answered, kept) : answered
-      })
+      const projectShells = projects === null ? previous?.projects ?? [] : projectRows(hostId, host.label, projects, rowSource?.projects)
       next = {
         kind: 'loaded',
         value: {
+          opening: openingFacts,
           threads: shells,
           unlisted: [...unlisted.records.filter((record) => record.listed === false), ...pinnedRecords].map(shell),
-          projects: previous && sameItems(projectShells, previous.projects) ? previous.projects : projectShells,
+          projects: projectShells,
           indexing,
           revision: list.revision,
         },
@@ -327,12 +442,16 @@ export class ThreadDirectory {
       if (next.kind === 'error') next = { ...next, previous: null }
     } else if (next.kind === 'loaded') this.denied.delete(hostId)
     if (readPins) this.pins.set(hostId, readPins)
-    if (!this.denied.has(hostId) && next.kind === 'error' && !next.previous) {
+    if (!this.denied.has(hostId) && (next.kind === 'error' || next.kind === 'loading')) {
       const pending = this.stateOf(hostId)
-      if (pending.kind === 'loading') next = { ...next, previous: pending.previous }
+      if (pending.kind === 'loading' && pending.previous) next = { ...next, previous: pending.previous }
     }
     this.set(hostId, next)
-    if (next.kind === 'loaded' && (!next.value.indexing || next.value.threads.length)) void disk?.saveDirectory(next.value)
+    if (next.kind === 'loaded' && (!next.value.indexing || next.value.threads.length)) {
+      clearTimeout(this.directoryWrites.get(hostId))
+      this.directoryWrites.delete(hostId)
+      void disk?.saveDirectory(next.value)
+    }
     if (next.kind === 'loaded') {
       const threads = next.value.threads
       const shared = this.shareArrivals.take(hostId, threads.map((thread) => thread.record))
@@ -490,17 +609,21 @@ export class ThreadDirectory {
     this.directoryWrites.set(hostId, setTimeout(() => {
       this.directoryWrites.delete(hostId)
       const state = this.stateOf(hostId)
-      if (state.kind === 'loaded') void disk.saveDirectory(state.value)
+      const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
+      if (value && (!value.indexing || value.threads.length)) void disk.saveDirectory(value)
     }, 500))
   }
 
   forgetHost(hostId: string): void {
+    this.restores.delete(hostId)
+    this.presumed.delete(hostId)
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     this.denied.delete(hostId)
     this.requests.delete(hostId)
     clearTimeout(this.directoryWrites.get(hostId))
     this.directoryWrites.delete(hostId)
+    this.openingByHost.delete(hostId)
     this.hosts.delete(hostId)
     this.positions.delete(hostId)
     this.pins.delete(hostId)
@@ -514,6 +637,14 @@ export class ThreadDirectory {
     const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
     const prior = this.stateOf(hostId)
     const previous = prior.kind === 'loaded' ? prior.value : prior.kind === 'idle' ? null : prior.previous
+    if (previous?.opening !== value?.opening) {
+      const facts = value?.opening
+      if (facts) this.openingByHost.set(hostId, {
+        codebases: new Map(facts.codebases?.map(row => [row.id, row])),
+        automations: new Map(facts.automations.map(row => [row.id, row.name])),
+      })
+      else this.openingByHost.delete(hostId)
+    }
     this.hosts.set(hostId, state)
     if (previous === value) {
       this.changes.notify()

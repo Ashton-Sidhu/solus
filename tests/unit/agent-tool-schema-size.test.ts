@@ -57,12 +57,24 @@ describe('compactToolSchema', () => {
     })
   })
 
+  // WHY: `minLength: 1` is on about a hundred fields and tells the model
+  // nothing it would do wrong; the parse still refuses an empty string.
+  test('drops minLength 1 and nothing else of a string', () => {
+    const fields = { name: z.string().trim().min(1), code: z.string().min(2) }
+    expect(compactToolSchema(fields)).toEqual({
+      type: 'object',
+      properties: { name: { type: 'string' }, code: { type: 'string', minLength: 2 } },
+      required: ['name', 'code'],
+    })
+    expect(z.object(fields).safeParse({ name: '  ', code: 'ab' }).success).toBe(false)
+  })
+
   test('keeps descriptions, enums, required lists, and real bounds', () => {
     expect(compactToolSchema({
       mode: z.enum(['a', 'b']).describe('Which mode.'),
       size: z.number().int().min(1).max(600),
       every: z.number().int().positive().optional(),
-      name: z.string().min(1).max(80).regex(/^[a-z]+$/).optional(),
+      name: z.string().min(3).max(80).regex(/^[a-z]+$/).optional(),
       keys: z.record(z.enum(['x']), z.boolean()).optional(),
       strict: z.strictObject({ on: z.boolean().optional() }).optional(),
     })).toEqual({
@@ -71,7 +83,7 @@ describe('compactToolSchema', () => {
         mode: { type: 'string', enum: ['a', 'b'], description: 'Which mode.' },
         size: { type: 'integer', minimum: 1, maximum: 600 },
         every: { type: 'integer', exclusiveMinimum: 0 },
-        name: { type: 'string', minLength: 1, maxLength: 80, pattern: '^[a-z]+$' },
+        name: { type: 'string', minLength: 3, maxLength: 80, pattern: '^[a-z]+$' },
         keys: { type: 'object', propertyNames: { type: 'string', enum: ['x'] }, additionalProperties: { type: 'boolean' }, required: ['x'] },
         strict: { type: 'object', properties: { on: { type: 'boolean' } }, additionalProperties: false },
       },
@@ -110,7 +122,7 @@ describe('the schemas the model reads for every Solus tool', () => {
       const advertised = advertisedInputSchema(agentTool)
       expect(Object.keys(advertised.properties ?? {}), agentTool.name).toEqual(Object.keys(full.properties ?? {}))
       expect(advertised.required, agentTool.name).toEqual(full.required)
-      for (const keyword of ['"description":', '"enum":', '"minLength":', '"pattern":']) {
+      for (const keyword of ['"description":', '"enum":', '"pattern":']) {
         expect(JSON.stringify(advertised).split(keyword).length, `${agentTool.name} ${keyword}`).toBe(JSON.stringify(full).split(keyword).length)
       }
     }
@@ -118,8 +130,10 @@ describe('the schemas the model reads for every Solus tool', () => {
 
   test('every harness gets the compact schema, and the list is smaller than the full one', async () => {
     const { client, tools } = await endpointListing(toolbox)
-    for (const [index, tool] of tools.entries()) {
-      expect(JSON.parse(JSON.stringify(tool.inputSchema)), tool.name).toEqual({ ...advertisedInputSchema(toolbox[index]!), type: 'object' })
+    // A tool that is not offered to the person of the call (a cloud tool, signed out) is not listed.
+    const byName = new Map(toolbox.map((agentTool) => [agentTool.name, agentTool]))
+    for (const tool of tools) {
+      expect(JSON.parse(JSON.stringify(tool.inputSchema)), tool.name).toEqual({ ...advertisedInputSchema(byName.get(tool.name)!), type: 'object' })
     }
     const full = toolListBytes(toolbox.map((agentTool) => ({ ...agentTool, inputSchema: fullSchema(agentTool) })))
     expect(toolListBytes(tools)).toBeLessThan(full)
@@ -161,10 +175,10 @@ describe('the schemas the model reads for every Solus tool', () => {
 
   test('sample calls to real tools still parse against their full fields', () => {
     const samples: Array<[string, object]> = [
-      ['create_automation', { name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
+      ['manage_automations', { action: 'create', name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
       ['start_sessions', { sessions: [{ prompt: 'Go', model_id: 'claude-opus-5' }, { prompt: 'Also go', agent_provider: 'codex', isolation: 'worktree' }] }],
       ['query_insights', { sql: 'select 1' }],
-      ['list_tasks', {}],
+      ['list_issues', {}],
     ]
     for (const [name, input] of samples) {
       const agentTool = toolbox.find((candidate) => candidate.name === name)

@@ -14,7 +14,8 @@
   /** The pull request list's narrowing row, the same in every shape the list
    *  takes: the full page, the navigation column beside an open detail, and a
    *  phone-width pane. One search field, then two menus — Sort, and Filters
-   *  holding the same facet groups in every scope —
+   *  holding the same facet groups in every scope, and the project and
+   *  saved views groups on the full page —
    *  so the row never has to fit five chips and can never push one off the
    *  pane with no scrollbar to say so.
    *
@@ -37,6 +38,8 @@
     filterGroups: PrFilterGroup[];
     /** The project scope group, after the facet groups. */
     projectFilter?: Snippet;
+    /** The saved views group, after the project group. */
+    savedViews?: Snippet;
     /** Counts the project scope into the active filters. */
     projectFilterActive?: boolean;
     /** Offered in the Filters menu while a filter is active. */
@@ -54,6 +57,7 @@
     sortOptions,
     filterGroups,
     projectFilter,
+    savedViews,
     projectFilterActive = false,
     onClearFilters,
     onSearchFocusChange,
@@ -166,6 +170,10 @@
       {#if projectFilter}
         <DropdownMenu.Separator />
         {@render projectFilter()}
+      {/if}
+      {#if savedViews}
+        <DropdownMenu.Separator />
+        {@render savedViews()}
       {/if}
       {#if onClearFilters && activeFilterCount > 0}
         <DropdownMenu.Separator />

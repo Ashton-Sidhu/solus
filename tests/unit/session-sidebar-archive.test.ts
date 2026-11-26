@@ -3,7 +3,7 @@ import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 const undos: Array<{ message: string; onUndo: () => void }> = []
@@ -17,19 +17,19 @@ mock.module('@solus/workspace-ui/lib/toasts', () => ({
 
 type Harness = Pick<SessionSidebarStore, 'removeRow'> & {
   session: unknown
-  closeTask(row: SidebarTask): void
+  closeRow(row: SidebarSession): void
 }
 
 /** A store with no reactive fields: the rows the list holds are given. */
-function harness<T extends Harness>(rows: SidebarTask[] = []): T {
+function harness<T extends Harness>(rows: SidebarSession[] = []): T {
   const store = Object.create(SessionSidebarStore.prototype) as T
-  Object.defineProperty(store, 'catalogTasks', { value: rows })
+  Object.defineProperty(store, 'catalogRows', { value: rows })
   Object.defineProperty(store, 'pinnedSessions', { value: [] })
   return store
 }
 
-function row(fields: Partial<SidebarTask>): SidebarTask {
-  return { key: 'row', id: 'row', tabIds: [], title: 'Row', ...fields } as SidebarTask
+function row(fields: Partial<SidebarSession>): SidebarSession {
+  return { key: 'row', id: 'row', tabIds: [], title: 'Row', ...fields } as SidebarSession
 }
 
 test('the X archives a started session on its host and closes its tab', async () => {
@@ -43,13 +43,13 @@ test('the X archives a started session on its host and closes its tab', async ()
   const events = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
   const store = harness()
   const closed: string[] = []
-  store.closeTask = (closing) => closed.push(closing.key)
+  store.closeRow = (closing) => closed.push(closing.key)
   store.session = {
     sessionFor: (tabId: string) => tabId === 'started-tab'
       ? { id: 'started', agentSessionId: 'provider-thread' }
       : { id: 'draft', agentSessionId: null },
     serverIdFor: () => 'host',
-    tasksStore: { peek: () => undefined },
+    issuesStore: { peek: () => undefined },
   }
   try {
     store.removeRow(row({ key: 'started-row', tabIds: ['started-tab'] }))
@@ -75,12 +75,12 @@ test('the check settles a session and its Undo makes the session active again', 
   const events = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
   undos.length = 0
   const store = harness<Harness & {
-    canShelve(row: SidebarTask): boolean
-    completeTask(row: SidebarTask): Promise<void>
+    canShelve(row: SidebarSession): boolean
+    completeTask(row: SidebarSession): Promise<void>
   }>()
   store.canShelve = () => true
-  store.closeTask = () => {}
-  store.session = { tasksStore: { peek: () => undefined } }
+  store.closeRow = () => {}
+  store.session = { issuesStore: { peek: () => undefined } }
   try {
     await store.completeTask(row({ key: 'listed-row', sessionId: 'listed', serverId: 'host', lifecycle: 'active' }))
     expect(settled).toEqual([['listed', true]])
@@ -115,18 +115,18 @@ test('the check and the X apply to every session the row delegated, and Undo ret
     'unrelated-tab': { id: 'unrelated', agentSessionId: 'thread' },
   }
   const store = harness<Harness & {
-    canShelve(row: SidebarTask): boolean
-    canArchive(row: SidebarTask): boolean
-    completeTask(row: SidebarTask): Promise<void>
+    canShelve(row: SidebarSession): boolean
+    canArchive(row: SidebarSession): boolean
+    completeTask(row: SidebarSession): Promise<void>
   }>([parent, unrelated, child, grandchild])
   const closed: string[] = []
   store.canShelve = () => true
   store.canArchive = () => true
-  store.closeTask = (closing) => closed.push(closing.key)
+  store.closeRow = (closing) => closed.push(closing.key)
   store.session = {
     sessionFor: (tabId: string) => sessions[tabId],
     serverIdFor: () => 'host',
-    tasksStore: { peek: () => undefined },
+    issuesStore: { peek: () => undefined },
   }
   try {
     await store.completeTask(parent)

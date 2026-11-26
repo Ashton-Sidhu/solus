@@ -2,13 +2,14 @@ import type { ProviderStartup } from './provider-startup'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
-import type { WireSessionLoadMessage } from './session-history'
+import type { ReplyHtmlLayout, WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { AddMachineAsk } from './add-machine'
+import type { CloudMachineAsk } from './cloud-machine-card'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
-import type { TaskSnapshot } from './task-types'
+import type { IssueSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
@@ -32,7 +33,6 @@ import { z } from 'zod'
 /** `replay` is the development-only provider that replays recorded turns (docs/replay-provider.md). */
 export type AgentId = 'claude-code' | 'codex' | 'opencode' | 'replay'
 
-export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
 
 /** The binary each provider runs. `replay` runs in the server process and has none. */
 export type AgentBinaries = { readonly [agent in AgentId]?: string }
@@ -69,6 +69,7 @@ export interface HostCapabilities {
   name?: string
   /** The sessions API accepts personal list order and shared auto-settle changes. */
   sessionListControls?: boolean
+  sessionDirectoryOpen?: boolean
   /** Session commands this host can admit through its prompt and provider APIs. */
   sessionComposer?: { providerSwitch: boolean; sideChatCommands: boolean }
   attachUpload?: boolean
@@ -804,10 +805,13 @@ export interface QuestionRequest {
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
   /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
-   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md). */
-  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'
+   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md).
+   *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'
   /** `host-link` only: what the agent asks to add. */
   hostLink?: AddMachineAsk
+  /** `cloud-machine` only: the choices the card collects. */
+  cloudMachine?: CloudMachineAsk
   message?: string
   url?: string
   serverName?: string
@@ -1067,7 +1071,7 @@ export type CloneStart =
  * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
-  | { kind: 'existing'; taskId: string }
+  | { kind: 'existing'; issueId: string }
   | { kind: 'none' }
 
 /**
@@ -1451,6 +1455,9 @@ export interface ToolProgress {
 export interface Message {
   /** Provider thread identity retained through a handoff's combined history. */
   sourceSessionId?: string
+  /** A reply's HTML frames as the history page read them: where each sits in
+   *  `content`, its id, and the heights stored for it by frame width. */
+  replyHtmlLayout?: ReplyHtmlLayout[]
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
   /** A system row that marks a context compaction. Live from the
@@ -1553,7 +1560,7 @@ export interface Message {
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
-  taskRef?: { taskId: string; title: string; url: string | null }
+  taskRef?: { issueId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
@@ -1972,7 +1979,7 @@ export interface AgentExchange {
    *  changed files, a pull request, sessions it started. */
   outputs?: SessionOutput[]
   /** The child's task, from the report. */
-  taskId?: string
+  issueId?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
@@ -2039,7 +2046,7 @@ export type AgentConversationUpdate =
   /** The target's turn is parked on a provider limit and resumes on its own at
    *  `resetsAt`; `accepted` with `running` follows when it does. */
   | { phase: 'rate_limited'; sessionId: string; messageId: string; resetsAt?: number; limitType?: string }
-  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; issueId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; sessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -2141,7 +2148,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'; hostLink?: AddMachineAsk; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'; hostLink?: AddMachineAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */
@@ -2183,7 +2190,7 @@ export type NormalizedEvent =
    *  `contentVersion` and `layout` name the saved version and its measured frame. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null; contentVersion?: number; layout?: import('./artifact-page').ArtifactLayout }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
-  | { type: 'task_created'; taskId: string; title: string; url: string | null }
+  | { type: 'task_created'; issueId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
@@ -2261,13 +2268,13 @@ export interface PromptOptions {
   /** Set when a prompt is dispatched on a task-bound session. The main process
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
-  taskId?: string
+  issueId?: string
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
-   *  `read_task` from the same shape; without it a foreign `taskId` is
+   *  `read_issue` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
-  taskSnapshot?: TaskSnapshot
+  taskSnapshot?: IssueSnapshot
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -2906,6 +2913,8 @@ export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessio
  *  host encodes it as the provider does, and `includeWorktrees` adds the
  *  project's worktree folders beneath it. */
 export interface SessionRecordListFilter {
+  /** Continue after a directory opening page. */
+  cursor?: string
   /** The last complete page this reader still holds. */
   knownRevision?: string
   provider?: AgentId

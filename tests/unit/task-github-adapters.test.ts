@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { Octokit } from '@octokit/rest'
-import { taskKey } from '@solus/contracts/task-sources'
-import type { TaskSource } from '@solus/contracts/task-sources'
+import { issueKey } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import type { GithubRun, SourceWriteState, TaskHome } from '@solus/server/data/tasks/providers/types'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -135,8 +135,8 @@ function projectAnswer(nodes: unknown[], pageInfo = { hasNextPage: false, endCur
   }
 }
 
-const REPO_SOURCE: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
-const PROJECT_SOURCE: TaskSource = { kind: 'github-project', owner: 'acme', number: 4 }
+const REPO_SOURCE: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
+const PROJECT_SOURCE: IssueSource = { kind: 'github-project', owner: 'acme', number: 4 }
 const PROJECT_WRITE_STATE: SourceWriteState = { kind: 'github-project', projectId: 'PVT_1', statusFieldId: 'FIELD_status' }
 const ISSUE_HOME: TaskHome = { provider: 'github', kind: 'issue', owner: 'acme', repo: 'app', number: 7 }
 const DRAFT_HOME: TaskHome = { provider: 'github', kind: 'draft', projectId: 'PVT_1', itemId: 'PVTI_draft' }
@@ -151,7 +151,7 @@ describe('the identity of a GitHub task', () => {
 
     const { task } = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'I_node7' })
 
-    expect(taskKey(task.ref)).toBe('github:I_node7')
+    expect(issueKey(task.ref)).toBe('github:I_node7')
     expect(task.reference).toBe('acme/platform#7')
     expect(task.home).toEqual({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'platform', number: 7 })
     expect(task.state).toEqual({ name: 'Open', category: 'open' })
@@ -171,7 +171,7 @@ describe('the identity of a GitHub task', () => {
 
     const details = await new GitHubTaskProvider(run).fetch({ provider: 'github', id: 'DI_draft1' })
 
-    expect(taskKey(details.task.ref)).toBe('github:DI_draft1')
+    expect(issueKey(details.task.ref)).toBe('github:DI_draft1')
     expect(details.task.kind).toBe('draft')
     expect(details.task.reference).toBeUndefined()
     expect(details.task.url).toBeNull()
@@ -630,7 +630,7 @@ describe('a GitHub repository source', () => {
     })
 
     expect(restCalls[0]?.params).toEqual({ owner: 'acme', repo: 'app', title: 'New work', body: 'Why', labels: ['bug'], assignees: ['ada'] })
-    expect(taskKey(item.task.ref)).toBe('github:I_new')
+    expect(issueKey(item.task.ref)).toBe('github:I_new')
     expect(item.task.reference).toBe('acme/app#12')
     expect(item.columnId).toBe('open')
     expect(graphqlCalls).toHaveLength(0)
@@ -701,7 +701,7 @@ describe('a GitHub Project source', () => {
       { id: 'opt_done', name: 'Done', category: 'done' },
     ])
     expect(read.writeState).toEqual(PROJECT_WRITE_STATE)
-    expect(read.items.map((item) => [taskKey(item.task.ref), item.task.kind, item.columnId, item.itemId])).toEqual([
+    expect(read.items.map((item) => [issueKey(item.task.ref), item.task.kind, item.columnId, item.itemId])).toEqual([
       ['github:I_node7', 'issue', 'opt_doing', 'PVTI_issue'],
       ['github:DI_draft1', 'draft', null, 'PVTI_draft'],
     ])
@@ -806,7 +806,7 @@ describe('a GitHub Project source', () => {
     })
     expect(item.itemId).toBe('PVTI_draft')
     expect(item.columnId).toBe('opt_doing')
-    expect(taskKey(item.task.ref)).toBe('github:DI_draft1')
+    expect(issueKey(item.task.ref)).toBe('github:DI_draft1')
     expect(item.task.state).toEqual({ name: 'In progress', category: 'active' })
   })
 

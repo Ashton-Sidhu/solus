@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { Issue } from '@solus/contracts/task-types'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import { buildBoard, NO_COLUMN_ID, type BoardView } from '@solus/workspace-ui/components/tasks/lib/tasks-api'
 import {
   isDone,
   isOpenColumnFilter,
-  isTaskSnoozed,
-  nextTaskWake,
   openColumnIds,
   taskBoardCard,
   taskGroups,
@@ -16,7 +14,7 @@ import {
 const NOW = Date.parse('2026-08-04T13:00:00Z')
 const BOARD = 'github-project:acme/7'
 
-function issue(number: number, category: TaskStatusCategory = 'open', overrides: Partial<Task> = {}): Task {
+function issue(number: number, category: IssueStatusCategory = 'open', overrides: Partial<Issue> = {}): Issue {
   return {
     id: `github:I_${number}`,
     providerId: 'github',
@@ -36,7 +34,7 @@ function issue(number: number, category: TaskStatusCategory = 'open', overrides:
   }
 }
 
-function draft(id: string, columnId: string | null): Task {
+function draft(id: string, columnId: string | null): Issue {
   return issue(0, 'open', {
     id: `github:${id}`,
     kind: 'draft',
@@ -48,7 +46,7 @@ function draft(id: string, columnId: string | null): Task {
   })
 }
 
-function jiraIssue(key: string): Task {
+function jiraIssue(key: string): Issue {
   return issue(0, 'active', {
     id: 'jira:cloud-1:10128',
     providerId: 'jira',
@@ -244,35 +242,3 @@ describe('the chips', () => {
   })
 })
 
-describe('snoozed tasks', () => {
-  test('a snooze holds until its wake time, whatever the status category', () => {
-    // WHY: snooze is independent of the provider's state. A task returns to
-    // the list at its wake time without anyone having to unsnooze it.
-    for (const category of ['active', 'done'] as const) {
-      const sleeping = { ...issue(1, category), snoozedUntil: NOW + 60_000 }
-      expect(isTaskSnoozed(sleeping, NOW)).toBe(true)
-      expect(isTaskSnoozed(sleeping, NOW + 60_000)).toBe(false)
-    }
-    expect(isTaskSnoozed(issue(1), NOW)).toBe(false)
-  })
-
-  test('the list wakes at the earliest wake time still ahead', () => {
-    // WHY: the list sets one timer for the next task to return.
-    const tasks = [
-      { ...issue(1), snoozedUntil: NOW + 7_200_000 },
-      { ...issue(2), snoozedUntil: NOW + 60_000 },
-      { ...issue(3), snoozedUntil: NOW - 60_000 },
-      issue(4),
-    ]
-    expect(nextTaskWake(tasks, NOW)).toBe(NOW + 60_000)
-    expect(nextTaskWake([issue(4)], NOW)).toBeNull()
-  })
-
-  test('a snoozed row says when it comes back', () => {
-    // WHY: the Snoozed filter is the way back to a hidden task, so each row
-    // must show its return time.
-    const row = taskRow({ ...issue(1), snoozedUntil: NOW + 3 * 3_600_000, priority: 'urgent' }, 0, NOW)
-    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'wakes in 3h' }))
-    expect(row.chips.some((chip) => chip.label === 'urgent')).toBe(false)
-  })
-})

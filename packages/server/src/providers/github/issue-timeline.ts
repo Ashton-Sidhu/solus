@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TaskProviderEvent, TaskProviderPullRequest } from '@solus/contracts/task-data'
-import type { TaskComment } from '@solus/contracts/task-types'
+import type { IssueComment } from '@solus/contracts/task-types'
 import type { GitHubClient } from './octokit'
 
 const login = z.object({ login: z.string().optional() }).nullish().catch(undefined)
@@ -79,7 +79,7 @@ export async function readGithubIssueTimeline(
   cursor?: string
 ): Promise<{
   events: TaskProviderEvent[]
-  comments: TaskComment[]
+  comments: IssueComment[]
   pullRequests: TaskProviderPullRequest[]
   historyCursor: string | null
 }> {
@@ -101,7 +101,7 @@ export async function readGithubIssueTimeline(
     ? page > 1 ? `older:${page - 1}` : null
     : next ? `newer:${next}` : null
   const events: TaskProviderEvent[] = []
-  const comments: TaskComment[] = []
+  const comments: IssueComment[] = []
   const pullRequests = new Map<string, TaskProviderPullRequest>()
   for (const [index, value] of response.data.entries()) {
     const parsed = timelineEntry.safeParse(value)
@@ -112,7 +112,7 @@ export async function readGithubIssueTimeline(
     const id = item.node_id ?? String(item.id ?? `${item.event}:${page}:${index}`)
     const actor = item.actor?.login ?? item.user?.login ?? null
     if (item.event === 'commented' && item.body != null) {
-      comments.push({ id, providerCommentId: id, taskId, body: item.body, externalAuthor: actor, createdAt: at })
+      comments.push({ id, providerCommentId: id, issueId: taskId, body: item.body, externalAuthor: actor, createdAt: at })
       continue
     }
     const source = item.source?.issue

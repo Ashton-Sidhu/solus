@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { taskSourceKey } from '@solus/contracts/task-sources'
-import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
+import { issueSourceKey } from '@solus/contracts/task-sources'
+import { ISSUES_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 import { BOARD, boardRead, githubDraft, githubIssue, JIRA, jiraIssue, jiraRead, REPO, repoRead } from './helpers/task-fixtures'
 import { openTaskTestHost } from './helpers/task-test-host'
 
@@ -14,8 +14,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 const ALICE = 'user:alice'
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice' } }
 const ISSUE = 'github:I_1'
-const REPO_KEY = taskSourceKey(REPO)
-const BOARD_KEY = taskSourceKey(BOARD)
+const REPO_KEY = issueSourceKey(REPO)
+const BOARD_KEY = issueSourceKey(BOARD)
 
 let host: Awaited<ReturnType<typeof openTaskTestHost>>
 let tasks: typeof import('@solus/server/data/tasks/task')
@@ -41,7 +41,7 @@ afterAll(() => host.close())
 
 /** Read these sources into the host's copy as Alice. */
 async function readSources(...which: Array<typeof REPO>): Promise<void> {
-  await sources.tasksSources(which, ALICE)
+  await sources.issuesSources(which, ALICE)
   await sources.taskSourceReadsEnd()
 }
 
@@ -77,7 +77,7 @@ describe('a task write goes to the provider first', () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
     await readSources(REPO)
     host.providers.failure = new Error('GitHub is not connected')
-    await expect(tasks.updateTask(ISSUE, { title: 'New title' })).rejects.toThrow(TASKS_AUTH_ERROR_PREFIX)
+    await expect(tasks.updateTask(ISSUE, { title: 'New title' })).rejects.toThrow(ISSUES_AUTH_ERROR_PREFIX)
   })
 
   test('a field the provider does not take for this task is refused before any provider call', async () => {
@@ -185,7 +185,7 @@ describe('moving a task', () => {
     await readSources(JIRA)
     const moved = await tasks.moveTask('jira:site:10001', { category: 'active' })
     expect(moved).toMatchObject({ category: 'active', state: { name: 'In Progress', category: 'active' } })
-    expect(moved.placements).toEqual([{ sourceKey: taskSourceKey(JIRA), columnId: '3' }])
+    expect(moved.placements).toEqual([{ sourceKey: issueSourceKey(JIRA), columnId: '3' }])
   })
 
   test('a status in words is a category or the name of a column, and another word is refused with the choices', async () => {
@@ -255,7 +255,7 @@ describe('reading one task', () => {
     expect(details.comments[0].unsent).toBeUndefined()
 
     const hits = await search.searchTaskComments({ personKey: ALICE, scope: 'local' }, { query: 'quarantined' })
-    expect(hits.map((hit) => hit.taskId)).toEqual([ISSUE])
+    expect(hits.map((hit) => hit.issueId)).toEqual([ISSUE])
     // A person whose connection never read the source does not find the task by its comments.
     expect(await search.searchTaskComments({ personKey: 'user:bob', scope: 'local' }, { query: 'quarantined' })).toEqual([])
 
@@ -363,7 +363,7 @@ describe('a finished task ends the work of its sessions', () => {
 
     // Somebody closed the issue on GitHub.
     host.providers.answer(REPO, repoRead([githubIssue(1, { state: { name: 'Closed', category: 'done' }, updatedAt: 3_000 })]))
-    await sources.tasksSources([REPO], ALICE, { refresh: 'force' })
+    await sources.issuesSources([REPO], ALICE, { refresh: 'force' })
     await sources.taskSourceReadsEnd()
     expect(await settledAt('session-1')).not.toBeNull()
   })
@@ -383,7 +383,7 @@ describe('a session that starts on a task', () => {
     const issue = jiraIssue(1)
     host.providers.answer(JIRA, jiraRead([issue]))
     await readSources(JIRA)
-    const task = await sessionTask.prepareSessionTask('local', { taskId: 'jira:site:10001', sessionId: 'session-1' })
+    const task = await sessionTask.prepareSessionTask('local', { issueId: 'jira:site:10001', sessionId: 'session-1' })
     expect(task).toMatchObject({ category: 'active', state: { name: 'In Progress' } })
     expect(host.providers.callsOf('setState:')).toEqual(['setState:jira:site:10001:active'])
     expect((await attachments.taskAttachments('local', 'jira:site:10001')).activity).toMatchObject([
@@ -395,20 +395,20 @@ describe('a session that starts on a task', () => {
     host.providers.answer(JIRA, jiraRead([jiraIssue(1)]))
     await readSources(JIRA)
     host.providers.failure = new Error("No Jira transition from SOL-1's current status reaches active.")
-    const task = await sessionTask.prepareSessionTask('local', { taskId: 'jira:site:10001', sessionId: 'session-1' })
+    const task = await sessionTask.prepareSessionTask('local', { issueId: 'jira:site:10001', sessionId: 'session-1' })
     expect(task?.category).toBe('open')
   })
 
   test('a task the host cannot read is still bound: the link needs no copy', async () => {
     host.providers.failure = new Error('GitHub is not connected')
-    const task = await sessionTask.prepareSessionTask('local', { taskId: 'github:I_77', sessionId: 'session-1' })
+    const task = await sessionTask.prepareSessionTask('local', { issueId: 'github:I_77', sessionId: 'session-1' })
     expect(task).toBeNull()
     const { taskSessions } = await import('@solus/server/data/tasks/task-sessions')
     expect((await taskSessions('local', 'github:I_77'))['github:I_77'].map((link) => link.sessionId)).toEqual(['session-1'])
   })
 
   test('a resumed provider session is bound already: nothing is read or written', async () => {
-    expect(await sessionTask.prepareSessionTask('local', { taskId: ISSUE, sessionId: 'session-1', existingAgentSessionId: 'thread-1' })).toBeNull()
+    expect(await sessionTask.prepareSessionTask('local', { issueId: ISSUE, sessionId: 'session-1', existingAgentSessionId: 'thread-1' })).toBeNull()
     expect(host.providers.calls).toEqual([])
   })
 })

@@ -137,8 +137,8 @@ export async function main(argv: string[]): Promise<number> {
     for (const flavor of flavors) {
       // The personal host is alice's own, shared with the organization: members reach it,
       // and it holds its key, so it can act for them (ADR 0001 stage 4). The cloud
-      // machine is nobody's: it registers its key from the environment link, which names
-      // the organization.
+      // machine is nobody's: it enrolls at boot with the link code in its environment,
+      // whose ticket is the organization's.
       const host = await bootLabHost({ flavor, issuer, sharedWith: flavor === 'personal' ? ORGANIZATION_ID : undefined })
       console.log(`\n== ${flavor} host ${host.hostId} · data ${host.dataDir} · tunnel ${host.tunnelUrl} · local ${host.localUrl}`)
       try {

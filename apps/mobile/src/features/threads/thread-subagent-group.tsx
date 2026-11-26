@@ -207,23 +207,31 @@ export function ThreadSubagentGroup(props: {
               reach.ownConnection,
               reach.isLinked,
             );
+            const toolId = target === null && agent.origin === "provider_native"
+              ? agent.nativeItemRef?.nativeId : undefined;
+            const canOpen = target !== null || !!toolId;
             return (
               <Pressable
                 key={agent.item.id}
                 accessible
-                accessibilityRole={target === null ? undefined : "link"}
+                accessibilityRole={canOpen ? "link" : undefined}
                 accessibilityHint={
                   target === null
-                    ? gt("Provider-managed agent")
+                    ? toolId ? gt("Opens this agent’s transcript") : gt("Provider-managed agent")
                     : target.linked === undefined
                       ? gt("Opens this agent's thread")
                       : gt("Opens a read-only view of this agent's thread on {label}", {
                           label: target.linked.label,
                         })
                 }
-                disabled={target === null}
+                disabled={!canOpen}
                 onPress={() => {
-                  if (target === null) return;
+                  if (target === null) {
+                    if (toolId) navigation.navigate("ProviderAgentTranscript", {
+                      environmentId: props.environmentId, threadId: agent.threadId, toolId, title: agent.title,
+                    });
+                    return;
+                  }
                   if (target.linked !== undefined) {
                     openLinkedRead(target, target.linked, agent.title, {
                       source: {
@@ -257,6 +265,7 @@ export function ThreadSubagentGroup(props: {
                   environmentId={props.environmentId}
                   subagent={agent}
                   canOpenRemote={target !== null}
+                  canReadTranscript={!!toolId}
                   elapsed={<SubagentElapsed agents={[agent]} />}
                 />
               </Pressable>

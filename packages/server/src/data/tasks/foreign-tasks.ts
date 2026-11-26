@@ -6,12 +6,12 @@ import type {
   WorkCreateOpPayload,
   WorkUpdateOpPayload,
 } from '@solus/contracts/outbox-types'
-import type { TaskLink, TaskLinkedItemSnapshot, TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueLink, IssueLinkedItemSnapshot, IssueSnapshot } from '@solus/contracts/task-types'
 import { z } from 'zod'
 import { attributionSchema } from '@solus/contracts/user'
 
 const workCreatePayloadSchema = z.object({
-  taskId: z.string(),
+  issueId: z.string(),
   title: z.string(),
   docType: z.enum(['doc', 'slides', 'artifact']),
   content: z.string(),
@@ -21,7 +21,7 @@ const workCreatePayloadSchema = z.object({
 })
 
 const workUpdatePayloadSchema = z.object({
-  taskId: z.string(),
+  issueId: z.string(),
   content: z.string(),
   title: z.string().optional(),
   expectedContentVersion: z.number(),
@@ -33,20 +33,20 @@ const taskCommentPayloadSchema = z.object({
   originSessionId: z.string().optional(),
 })
 
-/** `status` is a status category or the name of a column, as `update_task_status` takes it. */
+/** `status` is a status category or the name of a column, as `update_issue_status` takes it. */
 const taskStatusPayloadSchema = z.object({
   status: z.string(),
   actor: attributionSchema.optional(),
 })
 const statusCategorySchema = z.enum(['open', 'active', 'done'])
 
-const taskIdPayloadSchema = z.object({ taskId: z.string() })
+const issueIdPayloadSchema = z.object({ issueId: z.string() })
 
 /**
  * Foreign tasks on the execution host: the per-session snapshot a dispatched
  * prompt shipped (see docs/plans/dispatch-parity.md). The snapshot is the only
  * task state this host has — the host that reads the task is another machine — so the packet
- * renders from it and `read_task` answers from it.
+ * renders from it and `read_issue` answers from it.
  *
  * Reads see the agent's own undelivered writes: a recorded op is applied to the
  * held snapshot immediately, and a fresh snapshot (re-shipped with every
@@ -54,12 +54,12 @@ const taskIdPayloadSchema = z.object({ taskId: z.string() })
  * view converges no matter which of delivery or re-shipment happens first.
  */
 
-const snapshotsBySession = new Map<string, TaskSnapshot>()
+const snapshotsBySession = new Map<string, IssueSnapshot>()
 
 /** Hold (or replace) a session's shipped snapshot, overlaid with its still-
  *  pending outbox ops. Null clears — a prompt that shipped no snapshot must not
  *  leave a previous task's state answering reads. */
-export function setForeignTaskSnapshot(sessionId: string, snapshot: TaskSnapshot | null): void {
+export function setForeignTaskSnapshot(sessionId: string, snapshot: IssueSnapshot | null): void {
   if (!snapshot) {
     snapshotsBySession.delete(sessionId)
     return
@@ -72,8 +72,8 @@ export function setForeignTaskSnapshot(sessionId: string, snapshot: TaskSnapshot
   // a still-pending create/update must stay visible on the fresh snapshot the
   // owner host rendered before the op drained.
   for (const op of pendingOutboxOpsForDomain('works')) {
-    const payload = taskIdPayloadSchema.safeParse(op.payload)
-    if (payload.success && payload.data.taskId === snapshot.details.task.id) applyWorkOpToSnapshot(overlaid, op)
+    const payload = issueIdPayloadSchema.safeParse(op.payload)
+    if (payload.success && payload.data.issueId === snapshot.details.task.id) applyWorkOpToSnapshot(overlaid, op)
   }
   snapshotsBySession.set(sessionId, overlaid)
 }
@@ -81,7 +81,7 @@ export function setForeignTaskSnapshot(sessionId: string, snapshot: TaskSnapshot
 /** The session's foreign task, when `taskId` names it. A non-matching id is not
  *  this session's task and answers nothing — foreign reads are scoped to the
  *  one task the dispatch carried. */
-export function foreignTaskFor(sessionId: string | undefined, taskId: string): TaskSnapshot | null {
+export function foreignTaskFor(sessionId: string | undefined, taskId: string): IssueSnapshot | null {
   if (!sessionId) return null
   const snapshot = snapshotsBySession.get(sessionId)
   return snapshot && snapshot.details.task.id === taskId ? snapshot : null
@@ -90,27 +90,27 @@ export function foreignTaskFor(sessionId: string | undefined, taskId: string): T
 /** The content-bearing linked items the session's snapshot shipped — the only
  *  copies of those works and plans this host has. Read-only: the rows live on
  *  the task's host. */
-export function foreignLinkedItemsFor(sessionId: string | undefined): TaskLinkedItemSnapshot[] {
+export function foreignLinkedItemsFor(sessionId: string | undefined): IssueLinkedItemSnapshot[] {
   if (!sessionId) return []
   return snapshotsBySession.get(sessionId)?.linked ?? []
 }
 
 /** One shipped item by kind and key, when the session's snapshot carries it.
  *  `scope` narrows plans to their owning session; works pass none. */
-export function foreignLinkedItemFor<K extends TaskLinkedItemSnapshot['kind']>(
+export function foreignLinkedItemFor<K extends IssueLinkedItemSnapshot['kind']>(
   sessionId: string | undefined,
   kind: K,
   key: string,
   scope?: string,
-): Extract<TaskLinkedItemSnapshot, { kind: K }> | null {
+): Extract<IssueLinkedItemSnapshot, { kind: K }> | null {
   return foreignLinkedItemsFor(sessionId).find(
-    (item): item is Extract<TaskLinkedItemSnapshot, { kind: K }> => item.kind === kind && item.key === key && (scope === undefined || item.scope === scope),
+    (item): item is Extract<IssueLinkedItemSnapshot, { kind: K }> => item.kind === kind && item.key === key && (scope === undefined || item.scope === scope),
   ) ?? null
 }
 
 /** Every link the session's foreign task carries (all kinds) — how PR and
  *  automation tools answer for targets whose rows live on the task's host. */
-export function foreignTaskLinksFor(sessionId: string | undefined): TaskLink[] {
+export function foreignTaskLinksFor(sessionId: string | undefined): IssueLink[] {
   if (!sessionId) return []
   return snapshotsBySession.get(sessionId)?.details.links ?? []
 }
@@ -131,9 +131,9 @@ export function applyWorkOpToForeignTask(sessionId: string | undefined, op: Outb
   applyWorkOpToSnapshot(snapshot, op)
 }
 
-function applyWorkOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
+function applyWorkOpToSnapshot(snapshot: IssueSnapshot, op: OutboxOp): void {
   snapshot.linked ??= []
-  const existing = snapshot.linked.find((item): item is Extract<TaskLinkedItemSnapshot, { kind: 'work' }> => item.kind === 'work' && item.key === op.resourceId)
+  const existing = snapshot.linked.find((item): item is Extract<IssueLinkedItemSnapshot, { kind: 'work' }> => item.kind === 'work' && item.key === op.resourceId)
   if (op.name === 'create') {
     const parsed = workCreatePayloadSchema.safeParse(op.payload)
     if (!parsed.success) return
@@ -179,14 +179,14 @@ export function applyOpToForeignTask(sessionId: string | undefined, op: OutboxOp
   applyOpToSnapshot(snapshot, op)
 }
 
-function applyOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
+function applyOpToSnapshot(snapshot: IssueSnapshot, op: OutboxOp): void {
   if (op.name === 'comment') {
     const parsed = taskCommentPayloadSchema.safeParse(op.payload)
     if (!parsed.success) return
     const payload: TaskCommentOpPayload = parsed.data
     snapshot.details.comments.push({
       id: op.id,
-      taskId: snapshot.details.task.id,
+      issueId: snapshot.details.task.id,
       author: payload.author,
       originSessionId: payload.originSessionId ?? op.sessionId ?? null,
       body: payload.body,

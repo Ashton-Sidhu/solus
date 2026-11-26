@@ -4,7 +4,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, requestPairApproval, urlHost, type PairServerResult } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
+import { replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
@@ -16,12 +16,16 @@ import { conversationOutboxPrefix, type ConversationTarget } from '../features/c
 import type { AttachmentIo } from '../features/conversation/lib/attachments'
 import { ConversationStore } from '../features/conversation/conversation-store'
 import type { RunSettings } from '../features/conversation/lib/ipc-context'
-import { HostConnections, type HostTransport } from '../features/hosts/host-connections'
+import type { SessionDirectoryPage } from '@solus/contracts/host-api'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
+import { HostConnections, type HostConnection, type HostTransport } from '../features/hosts/host-connections'
 import { KeyboardCommands } from '../features/keyboard/keyboard-commands'
 import { HostRegistry } from '../features/hosts/host-registry'
 import type { PairOutcome } from '@solus/client-core/host-catalog'
 import { previewHost, type HostPreview, type PreviewResult } from '../features/hosts/lib/pair-input'
-import { ThreadDirectory } from '../features/threads/thread-directory'
+import { ThreadDirectory, type PresumedHost } from '../features/threads/thread-directory'
+import { HistoryPrefetch } from '../features/threads/history-prefetch'
+import { noteSessionPress } from '../features/conversation/lib/open-timing'
 import { SessionRunHosts } from '../features/threads/session-run-hosts'
 import { CloudSessions } from '../features/threads/cloud-sessions'
 import { CloudHistory } from '../features/threads/cloud-history'
@@ -65,6 +69,7 @@ import { removeKeysWithPrefix, type KeyValueStore, type SecretStore } from '../p
  */
 
 export interface PlatformAdapters {
+  isIOS?: boolean
   storage: KeyValueStore
   secrets: SecretStore
   fetch: typeof fetch
@@ -104,6 +109,12 @@ export interface LastRoute {
 }
 
 const LAST_ROUTE_KEY = 'solus.mobile.lastRoute'
+/** The account scope and the hosts of the last start: the next start shows their saved lists before the account and the hosts are read. */
+const LAST_SESSION_LIST_KEY = 'solus.mobile.lastSessionList'
+const lastSessionListSchema = z.object({
+  scope: z.string(),
+  hosts: z.array(z.object({ id: z.string().min(1), installationId: z.string().min(1), identityKey: z.string().optional() })),
+})
 /** How long a start waits for the host list and the directory before it chooses the first screen. */
 const HOST_READ_WAIT_MS = 4_000
 const draftKey = (hostId: string, conversationKey: string) => `solus.mobile.draft.${hostId}/${conversationKey}`
@@ -123,17 +134,60 @@ const lastRouteSchema = z.object({
     // A session in a task folder names its project and its codebase only here (docs/plans/codebases.md §7).
     projectRoot: z.string().nullable().optional(),
     codebaseId: z.string().nullable().optional(),
+    size: z.number().nonnegative().optional(),
   }).optional(),
 })
 
 export class SolusApp {
+  private directoryOpens = new WeakMap<HostConnection, {
+    scope: string
+    generation: number
+    reader: 'sessions' | 'codebases'
+    page: Promise<SessionDirectoryPage | null>
+  }>()
+
+  /** The directory and codebase subscriptions share the opening read of this connection. */
+  openingDirectory(hostId: string, reader: 'sessions' | 'codebases'): Promise<SessionDirectoryPage | null> | undefined {
+    const connection = this.connections.connection(hostId)
+    if (!connection || !this.connections.may(hostId, 'host.use')) return
+    const scope = this.sessionCache.scope()
+    const generation = connection.state.sessionGeneration
+    const held = this.directoryOpens.get(connection)
+    if (held?.scope === scope && held.generation === generation && held.reader !== reader) {
+      this.directoryOpens.delete(connection)
+      return held.page
+    }
+    const capabilities = connection.facts.value('capabilities')
+    if (capabilities && !capabilities.sessionDirectoryOpen) return
+    const page = connection.api.sessionDirectoryOpen().then(result => {
+      if ('error' in result) {
+        const { status, code, message, retryAfter } = result.error
+        throw new WorkspaceRequestError(status, code, message, retryAfter)
+      }
+      return result
+    }, error => {
+      // Hosts older than this RPC still support the individual directory reads.
+      if (error instanceof Error && /unknown method|no handler for/i.test(error.message)) return null
+      throw error
+    })
+    this.directoryOpens.set(connection, { scope, generation, reader, page })
+    return page
+  }
+
   readonly registry: HostRegistry
   readonly connections: HostConnections
   readonly account: AccountSession
   /** Every session on every host, as T3 Code's home list reads it. */
   readonly sessionCache: MobileSessionCache
   private sessionCacheScope: string | undefined
+  /** The scope of the last start, used until the account is read; null when there is none or the account is read. */
+  private presumedScope: string | null = null
+  private lastSessionList: string | null = null
+  /** True once `load` read the account: only then is its scope kept for the next start. */
+  private accountRead = false
   readonly threads: ThreadDirectory
+  /** The first history pages read before a session opens: on a press on its row, and for the top rows when a host's list loads. */
+  readonly historyPrefetch: HistoryPrefetch
   /** What each host holds of each session, and where the next turn syncs from (docs/plans/portable-sessions.md §10). */
   readonly runHosts: SessionRunHosts
   /** What the cloud knows of this person's sessions, from the Solus API (docs/plans/portable-sessions-cloud.md §5.5). */
@@ -244,7 +298,10 @@ export class SolusApp {
       savedHostFor: (accountHostId) => this.registry.hosts().find((host) => host.uplink?.hostId === accountHostId)?.id ?? null,
       isReady: (hostId) => this.connections.state(hostId)?.readiness === 'ready',
       hostIds: () => this.registry.hosts().map((host) => host.id),
+      savesSessionsToCloud: (organizationId) => this.account.savesSessionsToCloud(organizationId),
     })
+    // The directory says whether an organization saves its sessions to Solus Cloud: a new answer changes what the cloud lists.
+    this.registry.changes.subscribe(() => this.cloudSessions.followSessionSource())
     this.cloudHistory = new CloudHistory(this.cloudSessions)
     // A host that connects or drops changes which cloud rows show and who runs a turn.
     this.connections.changes.subscribe(() => { if (this.cloudSessions.recordCount > 0) this.cloudSessions.changes.notify() })
@@ -253,9 +310,14 @@ export class SolusApp {
       cloudHeadFor: this.cloudSessions.headFor,
     })
     this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
-    this.sessionCache = new MobileSessionCache(this.pullRequestCache, () => JSON.stringify([this.account.syncAccount, this.account.organizationId]))
-    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path))
+    this.sessionCache = new MobileSessionCache(this.pullRequestCache, () => this.presumedScope ?? JSON.stringify([this.account.syncAccount, this.account.organizationId]))
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path), (hostId, pins) => this.threadList.restorePins(hostId, pins))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
+    this.historyPrefetch = new HistoryPrefetch({
+      cache: this.sessionCache,
+      connection: (hostId) => this.connections.connection(hostId),
+      inForeground: () => this.connections.inForeground,
+    })
     this.liveActivity = new LiveActivityPreference(storage)
     this.diffFilter = new DiffFilterPreference(storage)
     this.personal = new PersonalSettingsStore(storage)
@@ -324,6 +386,7 @@ export class SolusApp {
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
     this.codebases = new Codebases({
+      opening: hostId => this.openingDirectory(hostId, 'codebases')?.then(page => page?.codebases ?? null, () => null),
       scope: () => this.sessionCache.scope(),
       machines: () => this.registry.hosts().map((host) => {
         const state = this.connections.state(host.id)
@@ -397,8 +460,12 @@ export class SolusApp {
    */
   async load(onLocalReady?: () => void): Promise<void> {
     this.appearance.applySaved()
-    await Promise.all([this.registry.load(), this.account.load()])
+    await Promise.all([this.registry.load(), this.account.load()]).finally(() => {
+      this.presumedScope = null
+      this.accountRead = true
+    })
     this.followAccount()
+    this.registry.changes.subscribe(() => this.rememberSessionList())
     onLocalReady?.()
     const reads: Promise<void>[] = [this.account.hostListRead]
     if (this.account.isSignedIn) {
@@ -407,6 +474,46 @@ export class SolusApp {
       reads.push(this.account.refreshDirectory())
     }
     await settledWithin(Promise.all(reads), HOST_READ_WAIT_MS)
+  }
+
+  /**
+   * The hosts of the last start, whose saved lists can show before `load`
+   * reads the account and the hosts. Until the account is read, the session
+   * cache uses the scope of the last start. When the account names another
+   * scope, `followAccount` forgets every list read in that scope.
+   */
+  presumeLastSessionList(): readonly PresumedHost[] {
+    const raw = this.platform.storage.getItem(LAST_SESSION_LIST_KEY)
+    if (!raw || this.sessionCacheScope !== undefined) return []
+    let saved: z.infer<typeof lastSessionListSchema> | null = null
+    try {
+      const decoded = lastSessionListSchema.safeParse(JSON.parse(raw))
+      if (decoded.success) saved = decoded.data
+    } catch {
+      saved = null
+    }
+    if (!saved) return []
+    this.presumedScope = saved.scope
+    this.sessionCacheScope = saved.scope
+    this.lastSessionList = raw
+    return saved.hosts
+  }
+
+  /** Drops the saved list and pins of each host of the last start that the registry does not confirm. */
+  confirmLastSessionList(): void {
+    for (const hostId of this.threads.confirmPresumedHosts()) this.threadList.forgetHost(hostId)
+  }
+
+  /** Keeps the scope and the hosts for the next start; written only when they change. */
+  private rememberSessionList(): void {
+    if (!this.accountRead) return
+    const value = JSON.stringify({
+      scope: this.sessionCache.scope(),
+      hosts: this.registry.hosts().map(({ id, installationId, identityKey }) => ({ id, installationId, ...(identityKey && { identityKey }) })),
+    })
+    if (value === this.lastSessionList) return
+    this.lastSessionList = value
+    this.platform.storage.setItem(LAST_SESSION_LIST_KEY, value)
   }
 
   /** The route to restore, when its host is still known. A host that left
@@ -526,9 +633,28 @@ export class SolusApp {
     return outcome
   }
 
+  /**
+   * A press on the row of a session, before its open: its first history page
+   * is read now, and the open takes that read. A session that is open already
+   * reads nothing.
+   */
+  pressSession(hostId: string, sessionId: string): void {
+    noteSessionPress(hostId, sessionId)
+    if (this.conversations.has(conversationKey(hostId, sessionId))) return
+    const thread = this.threads.thread(hostId, sessionId)
+    if (thread && !thread.cloudOnly) void this.historyPrefetch.prefetch(hostId, thread.record)
+  }
+
+  /** The list of a host loaded: the first pages of its rows are read, top down. */
+  warmHistory(hostId: string): void {
+    const records = this.threads.threads()
+      .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
+    void this.historyPrefetch.warm(hostId, records)
+  }
+
   /** The open conversation for a saved session or a new one. One store per
    *  conversation, so a remount keeps the transcript, scroll, and watch. */
-  conversation(hostId: string, target: Omit<ConversationTarget, 'hostId' | 'record'> & { record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle'> }): ConversationStore | null {
+  conversation(hostId: string, target: Omit<ConversationTarget, 'hostId'>): ConversationStore | null {
     const key = conversationKey(hostId, target.record?.sessionId ?? target.newSession?.sessionId ?? '')
     const existing = this.conversations.get(key)
     if (existing) return existing
@@ -536,6 +662,8 @@ export class SolusApp {
     if (!connection) return null
     const store = new ConversationStore({ hostId, ...target }, {
       sessionCache: this.sessionCache.forHost(hostId),
+      isIOS: this.platform.isIOS,
+      hasReplacement: () => this.conversations.has(key),
       connection,
       taskApi: (taskHostId) => {
         const taskConnection = this.connections.connection(taskHostId)
@@ -695,11 +823,16 @@ export class SolusApp {
   private followAccount(): void {
     const scope = this.sessionCache.scope()
     if (this.sessionCacheScope !== undefined && this.sessionCacheScope !== scope) {
+      this.directoryOpens = new WeakMap()
       for (const store of this.conversations.values()) this.closeConversation(store)
       this.conversations.clear()
-      for (const host of this.registry.hosts()) this.threads.forgetHost(host.id)
+      for (const hostId of new Set([...this.registry.hosts().map((host) => host.id), ...this.threads.hostIds()])) {
+        this.threads.forgetHost(hostId)
+        this.threadList.forgetHost(hostId)
+      }
     }
     this.sessionCacheScope = scope
+    this.rememberSessionList()
     this.threads.selectOrganization(this.account.organizationId)
     const account = this.account.syncAccount
     this.accountSync.followAccount(account)
@@ -738,6 +871,7 @@ export class SolusApp {
       this.closeConversation(store)
     }
     this.threads.forgetHost(hostId)
+    this.historyPrefetch.cancel(hostId)
     this.runHosts.forgetHost(hostId)
     this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)

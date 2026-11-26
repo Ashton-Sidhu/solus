@@ -1,21 +1,24 @@
 /** Used by solus-cloud's isolated OAuth browser proof. Synthetic accounts and an isolated mock host only. */
 import { createHash, randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { dialHostSocket, type DialedHostSocket } from '@solus/client-core/host-socket'
 import { z } from 'zod'
 import { bootLabHost } from '../packages/lab/src/host'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
 import type { RpcMethod } from '@solus/contracts/rpc'
-import { hostAudience } from '@solus/contracts/uplink'
+import { LINK_CODE_ENV, hostAudience, hostRegistrationSchema } from '@solus/contracts/uplink'
 
 interface ProofOptions {
   origin: string
   /** The person's website session as a `cookie` header; it approves the desktop's sign-in. */
   sessionCookie: string
-  hostId: string
-  /** The one-time ticket (`hct_`) the control plane keeps for this host's link; the host registers its own key with it. */
-  credentialTicket: string
+  /** A personal link code of the person's account (`<ticket>@<control plane host>`); the host enrolls with it at boot. */
+  linkCode: string
   entry: string
 }
+
+const registrationRecordSchema = z.object({ registration: hostRegistrationSchema })
 
 const tokenSchema = z.object({ access_token: z.string().optional(), refresh_token: z.string().optional(), error: z.string().optional(), error_description: z.string().optional() })
 const authorizeSchema = z.object({ url: z.string() })
@@ -28,7 +31,7 @@ const DESKTOP_REDIRECT = 'http://127.0.0.1:53123/callback'
  * (docs/adr/0001-standard-authentication.md §2.2 rule 1): authorization code + PKCE
  * approved by the website session, then a refresh that names the host's resource.
  */
-async function personAccessToken(options: ProofOptions): Promise<string> {
+async function personAccessToken(options: ProofOptions, hostId: string): Promise<string> {
   const token = async (form: Record<string, string>) => {
     const response = await fetch(`${options.origin}/api/auth/oauth2/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form) })
     return tokenSchema.parse(await response.json())
@@ -44,30 +47,23 @@ async function personAccessToken(options: ProofOptions): Promise<string> {
   const code = redirect ? new URL(redirect, options.origin).searchParams.get('code') ?? '' : ''
   const signedIn = await token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: DESKTOP_REDIRECT, client_id: SOLUS_CLIENT_IDS.desktop })
   if (!signedIn.refresh_token) throw new Error(`Desktop sign-in failed: ${signedIn.error}: ${signedIn.error_description}`)
-  const forHost = await token({ grant_type: 'refresh_token', refresh_token: signedIn.refresh_token, client_id: SOLUS_CLIENT_IDS.desktop, resource: hostAudience(options.hostId) })
+  const forHost = await token({ grant_type: 'refresh_token', refresh_token: signedIn.refresh_token, client_id: SOLUS_CLIENT_IDS.desktop, resource: hostAudience(hostId) })
   if (!forHost.access_token) throw new Error(`No access token for the host: ${forHost.error}: ${forHost.error_description}`)
   return forHost.access_token
 }
 
 export async function accountIntegrationHostProof(options: ProofOptions) {
-  // Booted from an environment link, as a provisioned machine is: the host makes its own
-  // key and registers it at the real control plane with the ticket, so it can trade the
-  // person's token for a delegation. The link names no organization: Alice's own host.
-  const host = await bootLabHost({
-    flavor: 'personal', managedLink: 'env', hostId: options.hostId, entry: options.entry,
-    issuer: {
-      issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`,
-      issueManagedLink: (hostId, proxiedPort) => ({
-        registration: { hostId, issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`, directoryUrl: options.origin, generation: 1 },
-        tunnel: { hostname: 'proof.invalid', proxiedPort },
-        credentialTicket: options.credentialTicket,
-      }),
-    },
-  })
+  // Booted with a link code in its environment, as a machine that enrolls at boot is
+  // (plans/034-one-cloud-machine-kind.md §3): the host makes its own key and enrolls at
+  // the real control plane with the ticket before it listens, so it can trade the
+  // person's token for a delegation. The ticket is a personal one: Alice's own host.
+  const host = await bootLabHost({ flavor: 'personal', unregistered: true, entry: options.entry, environment: { [LINK_CODE_ENV]: options.linkCode } })
   let socket: DialedHostSocket | null = null
   try {
+    // The control plane named the host when it enrolled.
+    const { hostId } = registrationRecordSchema.parse(JSON.parse(readFileSync(join(host.dataDir, 'host-registration.json'), 'utf8'))).registration
     // The person's access token is the socket's one credential (plan §3 rule 4).
-    const accessToken = await personAccessToken(options)
+    const accessToken = await personAccessToken(options, hostId)
     const dialed = await dialHostSocket(host.tunnelUrl, { credential: { kind: 'access-token', token: accessToken }, clientInstanceId: `account-proof-${crypto.randomUUID()}` })
     if (!dialed.ok) throw new Error(`The host refused the socket: ${dialed.code ?? dialed.message}`)
     const client = dialed.socket

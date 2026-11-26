@@ -302,6 +302,26 @@ describe('session transcript rehydration', () => {
     expect(transcript.messages.filter((message) => message.artifact).map((message) => message.artifact?.html)).toEqual(['<body>Final</body>'])
   })
 
+  test('an automation card replays for a save, old tool name or new, and never for a run', () => {
+    // WHY: manage_automations also deletes and starts automations. Only a
+    // create or an update showed a card when it ran, so only they show one
+    // after a reload; transcripts from before the tools were grouped still do.
+    connections.registerPrimary('transcript-host', {})
+    const saved = { id: 'auto-1', name: 'Nightly', trigger: { type: 'manual' }, enabled: true }
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined }, automationsStore: { items: [saved] } } as unknown as WorkspaceContext
+    const call = (toolName: string, toolId: string, input: object) => ({ role: 'tool' as const, content: '', toolName, toolId, toolInput: JSON.stringify(input), timestamp: 1 })
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, [
+      call('mcp__solus__create_automation', 'old', { name: 'Nightly' }),
+      call('mcp__solus__manage_automations', 'update', { action: 'update', automation_id: 'auto-1' }),
+      call('manage_automations', 'run', { action: 'run', automation_id: 'auto-1' }),
+    ])
+    expect(transcript.messages.filter((message) => message.role === 'tool')).toHaveLength(3)
+    expect(transcript.messages.filter((message) => message.automationRef).map((message) => message.automationRef?.automationId)).toEqual(['auto-1', 'auto-1'])
+  })
+
   test('rebuilds an html_path render from the revision it saved', async () => {
     // WHY: the stored input of an html_path call is only a path on the host.
     // The full transcript load must fetch the body that call wrote, or the

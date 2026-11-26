@@ -108,13 +108,13 @@ test('a session links the task it works on, and unlinks it, through the link too
   // on a task with link, and the task page reads that link as a working session.
   const { linkAgentTool, unlinkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   const { taskIdForSession } = await import('@solus/server/data/tasks/task-sessions')
-  const linked = await linkAgentTool.execute({ kind: 'task', target_id: 'github:I_linked' }, tools)
-  expect(linked).toEqual({ ok: true, text: 'Linked this session to task github:I_linked.' })
+  const linked = await linkAgentTool.execute({ kind: 'issue', target_id: 'github:I_linked' }, tools)
+  expect(linked).toEqual({ ok: true, text: 'Linked this session to issue github:I_linked.' })
   expect(await taskIdForSession('local', 'session-1')).toBe('github:I_linked')
-  expect((await unlinkAgentTool.execute({ kind: 'task', target_id: 'github:I_linked' }, tools)).ok).toBe(true)
+  expect((await unlinkAgentTool.execute({ kind: 'issue', target_id: 'github:I_linked' }, tools)).ok).toBe(true)
   expect(await taskIdForSession('local', 'session-1')).toBeNull()
   // A key that names no task source is refused, and links nothing.
-  expect((await linkAgentTool.execute({ kind: 'task', target_id: 'not-a-task-key' }, tools)).ok).toBe(false)
+  expect((await linkAgentTool.execute({ kind: 'issue', target_id: 'not-a-task-key' }, tools)).ok).toBe(false)
   expect(await taskIdForSession('local', 'session-1')).toBeNull()
 })
 
@@ -163,13 +163,13 @@ test('list_links includes all link types, filters by kind, and unlink keeps the 
     { kind: 'automation', target_id: automation.id },
     { kind: 'file', path },
     { kind: 'pr', target_id: url },
-    { kind: 'task', target_id: taskId },
+    { kind: 'issue', target_id: taskId },
   ]
   for (const input of inputs) expect((await linkAgentTool.execute(input, tools)).ok).toBe(true)
   const listed = await listLinksAgentTool.execute({}, tools)
   expect(listed.ok).toBe(true)
   for (const identifier of [work.id, automation.id, path, url, taskId]) expect(listed.text).toContain(identifier)
-  const tasks = await listLinksAgentTool.execute({ kind: 'task' }, tools)
+  const tasks = await listLinksAgentTool.execute({ kind: 'issue' }, tools)
   expect(tasks.ok).toBe(true)
   expect(tasks.text).toContain(taskId)
   expect(tasks.text).not.toContain(url)

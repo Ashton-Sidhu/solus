@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mcpTaskWake, mcpTaskWakeHeader, type McpTask } from '@solus/contracts/integrations/mcp-task'
 import { shownBackgroundRecords } from '@solus/client-core/background-item'
 import { mcpTaskItem, MCP_TASKS } from '@solus/client-core/mcp-task-row'
-import { hostNoticeKind } from '../../packages/workspace-ui/src/components/conversation/lib/host-notice'
+import { hostNoticeKind } from '@solus/client-core/host-notice'
 
 /**
  * An MCP task as the background work row that desktop, web, and mobile share

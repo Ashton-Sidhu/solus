@@ -17,6 +17,8 @@ import type { AgentTool } from './agent-tool'
 export type ToolAccess =
   | { permission: Permission }
   | { action: ResourceActionPath; resource: ToolResource }
+  /** A grouped tool (`read_automations`): the rule of the action its call names. */
+  | { byAction: (action: string | undefined) => ToolAccess }
 
 /** A tool call's arguments: as MCP carries them, or after the tool's fields parsed them. */
 type ToolCallInput = CallToolRequest['params']['arguments'] | Parameters<AgentTool['execute']>[0]
@@ -52,6 +54,15 @@ const automation = (action: ResourceActionPath): ToolAccess => ({ action, resour
 const webhook = (action: ResourceActionPath): ToolAccess => ({ action, resource: inputId('webhook', 'webhook_id') })
 const ownSession = (action: ResourceActionPath): ToolAccess => ({ action, resource: callerSession })
 
+const actionSchema = z.object({ action: z.string() })
+
+/** The rule a call meets: a grouped tool's comes from the action the call names. */
+function ruleOfCall(access: ToolAccess, input: ToolCallInput): ToolAccess {
+  if (!('byAction' in access)) return access
+  const parsed = actionSchema.safeParse(input)
+  return ruleOfCall(access.byAction(parsed.success ? parsed.data.action : undefined), input)
+}
+
 /** Every Solus tool's rule. A tool missing here fails the type check, as an RPC method missing from the access tables does. */
 export const TOOL_ACCESS = {
   // Works
@@ -68,13 +79,9 @@ export const TOOL_ACCESS = {
   pull_work_upstream: work('edit'),
   request_work_review: work('edit'),
   // Automations: listing and creating are host-wide; a list is filtered to what its person reaches.
-  create_automation: hostUse,
-  list_automations: hostUse,
-  read_automation: automation('read'),
-  update_automation: automation('edit'),
-  delete_automation: automation('edit'),
-  run_automation: automation('drive'),
-  list_automation_runs: automation('read'),
+  // The rule of each action, as the RPC method for it has: a list or a new one needs host use; one automation, its verb.
+  read_automations: { byAction: (action) => action === 'list' ? hostUse : automation('read') },
+  manage_automations: { byAction: (action) => action === 'create' ? hostUse : automation(action === 'run' ? 'drive' : 'edit') },
   // Apps
   save_app: hostUse,
   deploy_app: hostUse,
@@ -88,17 +95,31 @@ export const TOOL_ACCESS = {
   retry_app_run: hostUse,
   set_app_signal_action: hostUse,
   // Webhooks
-  create_webhook: hostUse,
-  update_webhook: webhook('edit'),
-  delete_webhook: webhook('edit'),
-  rotate_webhook: webhook('edit'),
-  list_webhooks: hostUse,
-  read_webhook_delivery: webhook('read'),
-  dry_run_webhook: webhook('read'),
+  read_webhooks: { byAction: (action) => action === 'list' ? hostUse : webhook('read') },
+  manage_webhooks: { byAction: (action) => action === 'create' ? hostUse : webhook('edit') },
   // Connections: pairing changes how the host is reached, as the pairing RPCs do.
   list_hosts: { permission: 'host.connect' },
   add_host: { permission: 'host.local.reach' },
   remove_host: { permission: 'host.local.reach' },
+  // These act on another host, or through Solus Cloud, as the person: the gate of that call applies too.
+  create_host: hostUse,
+  start_host: hostUse,
+  stop_host: hostUse,
+  restart_host: hostUse,
+  update_host: hostUse,
+  check_host: hostUse,
+  share_host: hostUse,
+  unshare_host: hostUse,
+  delete_host: hostUse,
+  // Through the organization's Solus API, as the person: their role there decides.
+  list_organization_members: hostUse,
+  read_organization_policy: hostUse,
+  update_organization_policy: hostUse,
+  // As the person, through the client's gate (`asPerson`).
+  read_sharing: hostUse,
+  share: hostUse,
+  create_share_link: hostUse,
+  remove_share_link: hostUse,
   connection_status: { permission: 'host.connect' },
   connect_integration: hostUse,
   add_mcp_server: hostUse,
@@ -184,11 +205,11 @@ export const TOOL_ACCESS = {
   update_codebase: hostUse,
   delete_codebase: hostUse,
   // Tasks: the host's copy of each task, as the task RPCs.
-  list_tasks: hostUse,
-  read_task: hostUse,
-  update_task_status: hostUse,
-  create_task: hostUse,
-  comment_task: hostUse,
+  list_issues: hostUse,
+  read_issue: hostUse,
+  update_issue_status: hostUse,
+  create_issue: hostUse,
+  comment_issue: hostUse,
   // The review run's own output.
   submit_review_guide: hostUse,
 } as const satisfies Record<SolusAgentToolName, ToolAccess>
@@ -211,16 +232,12 @@ export const APP_TOOLS = {
   read_project: 'read',
   list_codebases: 'read',
   read_codebase: 'read',
-  list_tasks: 'read',
-  read_task: 'read',
-  update_task_status: 'write',
-  comment_task: 'write',
-  list_automations: 'read',
-  read_automation: 'read',
-  list_automation_runs: 'read',
-  update_automation: 'write',
-  delete_automation: 'write',
-  run_automation: 'write',
+  list_issues: 'read',
+  read_issue: 'read',
+  update_issue_status: 'write',
+  comment_issue: 'write',
+  read_automations: 'read',
+  manage_automations: 'write',
   // The person's other hosts: start_sessions with `host` starts work there (§0.6).
   list_hosts: 'read',
   list_agent_targets: 'read',
@@ -264,8 +281,10 @@ export function toolAccessOf(tool: Pick<AgentTool, 'name' | 'access'>): ToolAcce
 
 /** Why `principal` may not make this call. Null when it may. A tool with no rule is refused. */
 export async function toolAccessRefusal(tool: Pick<AgentTool, 'name' | 'access'>, input: ToolCallInput, callerSessionId: string | undefined, principal: Principal): Promise<string | null> {
-  const access = toolAccessOf(tool)
-  if (!access) return `${tool.name} has no access rule.`
+  const rule = toolAccessOf(tool)
+  if (!rule) return `${tool.name} has no access rule.`
+  const access = ruleOfCall(rule, input)
+  if ('byAction' in access) return `${tool.name} has no access rule.`
   return 'permission' in access
     ? toolActionRefusal(tool.name, principal, access.permission, null)
     : toolActionRefusal(tool.name, principal, access.action, access.resource(input, callerSessionId))
