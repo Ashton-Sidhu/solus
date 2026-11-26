@@ -4,22 +4,48 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
 
 ## Connect an app
 
-1. Open the host's **Access** tab (on mobile, the host page) and find **Use Solus in other apps**. The command palette command **Use Solus in other apps** opens it too. Every person who uses the host sees it: the owner, and each member of an organization the host works for.
-2. Choose the app: Claude, ChatGPT, Grok Bot, Poke, Cursor, Claude Code, or Codex. Solus shows how to set it up, with one action that opens the app with the address, copies the address or a message and opens the app, or gives the commands to run. To set up another app, copy the MCP address.
-   - An app on the same computer as the host uses `http://localhost:<port>/mcp`.
-   - An app on another computer, or a cloud app such as claude.ai, uses the public address. Only a host with a public tunnel has one.
-3. Or add the address to the app yourself. For Claude Code:
+Every person who uses the host can connect an app: the owner, and each member of an organization the host works for.
 
-   ```sh
-   claude mcp add --transport http solus <address>
-   claude mcp login solus
-   ```
+1. Open **Use Solus in other apps**:
+   - from the command palette (search for "mcp", "connector", or an app name);
+   - with **Connect an app** on the host's **Access** tab;
+   - from the host's menu on the fleet map;
+   - on mobile, from the host page.
+2. **Which app?** Choose Claude, ChatGPT, Grok Bot, Poke, Muse, Instinct, Cursor, Claude Code, Codex, OpenClaw, or Hermes Agent. For another app, choose **Something else…**. An app that your organization does not allow is marked and cannot be chosen. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
+3. **What can the app do?** Choose Read, Read and write (the default), or Full. See [Access](#access).
+4. **Connect.**
+   - The main button opens the app with the address filled in, or copies the address or a message and then opens the app. For an app that runs on a computer, Solus shows the commands to run.
+   - For an app that opens a link, a QR code opens the same link on your phone.
+   - **Get code** makes a pairing code for the access you chose. It shows "Expires m:ss · one use" and counts down. When it expires, get a new code. Solus does not copy the code for you.
+   - **Set up another way** shows the address, the message, the steps for that app, a note about the app, and a link to the app's help.
+5. The app opens a sign-in page on the host. The page names the app, and the place where its access goes. When the app is on the computer that opened the page, the page says so. Approve the app in one of two ways:
+   - **Pairing code.** Type the code from step 4. The code gives the access that was chosen when it was made.
+   - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page. The access is the one chosen on the sign-in page.
 
-4. The app opens a sign-in page. Choose the access, then approve the app in one of two ways:
-   - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
-   - **Use a pairing code.** Make one with **Make pairing code**. A code works once and lasts ten minutes.
+   **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
 Through the public address, and on a cloud machine, only a pairing code approves an app.
+
+### Before the steps
+
+Apps that run in the cloud need the host's public address. Before the steps, Solus checks that the host has one and that the host answers on it:
+
+- **Not registered.** The host is not linked to a Solus account. Link it first.
+- **Public address off.** The owner turns it on with **Turn on**, on the host's own computer. Solus waits up to 90 seconds for the address. Other people see where to turn it on.
+- **Offline.** The host's connection test failed. Solus shows the reason and **Check again**.
+
+An app on the host's own computer, such as Claude Code or Codex next to the desktop app, uses `http://localhost:<port>/mcp` and needs no public address.
+
+### Copy the address
+
+**Copy MCP address** in the host's menu copies the address. To add it by hand, for example to Claude Code:
+
+```sh
+claude mcp add --transport http solus <address>
+claude mcp login solus
+```
+
+When the clipboard is not available, Solus shows the value in a dialog, with a QR code for an address that another device can open.
 
 ## Who the app acts as
 
@@ -49,9 +75,10 @@ Tools that act as the calling session (for example the browser, devices, checkou
 
 ## Revoke an app
 
-Connected apps are listed with their access: on desktop and web with the paired devices on the host's **Access** tab, on mobile under **Connected apps**. **Revoke** ends the app's access at once. An app that is not used for thirty days must sign in again.
+Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices on the host's **Access** tab, on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
 
 ## Limits
 
 - An organization can choose which apps its members may connect: in its policy, **Outside apps** under the session limits. With no choice, every app may connect. An app the policy does not allow cannot sign in, and an app approved before stops working.
-- Solus knows an app by where its sign-in returns. An app on your own computer, such as Claude Code or Codex, is one of **Apps on your computer**. An app Solus does not know is one of **Other apps**.
+- Solus knows an app by where its sign-in returns. An app on your own computer, such as Claude Code, Codex, OpenClaw, or Hermes Agent, is one of **Apps on your computer**. An app Solus does not know is one of **Other apps**. Solus does not know yet where Muse and Instinct sign-ins return, so a policy counts them as **Other apps**.
+- An app can register only a sign-in return address that uses `https`, `localhost`, or the app's own scheme (such as `cursor:`).
