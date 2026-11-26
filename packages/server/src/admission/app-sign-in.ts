@@ -4,6 +4,7 @@ import { formatCheckCode, normalizeCheckCode } from '@solus/contracts/add-machin
 import type { AppAccess } from '@solus/contracts/host-api'
 import { outsideAppOf, type OutsideAppId } from '@solus/contracts/outside-apps'
 import { hostKindSchema, organizationRoleSchema } from '@solus/contracts/uplink'
+import { isHostOwner, type Principal } from './principal'
 import { getAssetSigningSecret, readSignedToken, signToken } from './signed-token'
 
 /**
@@ -50,6 +51,13 @@ export const appApproverSchema = z.discriminatedUnion('kind', [
   }).strict(),
 ])
 export type AppApprover = z.infer<typeof appApproverSchema>
+
+/** The approver a principal is: the host owner, or an organization member; null for anyone else, who cannot connect an app. */
+export function appApproverOf(principal: Principal): AppApprover | null {
+  if (isHostOwner(principal)) return { kind: 'owner' }
+  if (principal.kind !== 'org-member') return null
+  return { kind: 'member', userId: principal.userId, organizationId: principal.organizationId, organizationRole: principal.organizationRole, teamIds: principal.teamIds, hostKind: principal.hostKind, displayName: principal.displayName }
+}
 
 /**
  * A pairing code lives ten minutes and works once, for the person who made it.

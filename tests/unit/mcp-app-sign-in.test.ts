@@ -16,6 +16,8 @@ const { OUTSIDE_APP_GUIDES, outsideAppOf } = await import('@solus/contracts/outs
 const { PairApprovals } = await import('@solus/server/admission/pair-approvals')
 const { serveMcpOAuth } = await import('@solus/server/transport/mcp-oauth')
 const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
+const { createDoors } = await import('@solus/server/admission/doors')
+type Doors = ReturnType<typeof createDoors>
 
 // WHY: an outside app (Claude Desktop, Cursor, a person's own CLI) reaches this
 // host's tools only after the owner approves it, and only with the access the
@@ -48,12 +50,13 @@ const REDIRECT = 'http://127.0.0.1:33418/callback'
 const verifier = randomBytes(32).toString('base64url')
 const challenge = createHash('sha256').update(verifier).digest('base64url')
 
-function oauth(path: string, init: RequestInit & { json?: object; form?: Record<string, string> } = {}, options: { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals> } = {}) {
+type OAuthOptions = { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals>; doors?: Doors }
+function oauth(path: string, init: RequestInit & { json?: object; form?: Record<string, string> } = {}, options: OAuthOptions = {}) {
   const headers = new Headers(init.headers)
   let requestBody = init.body
   if (init.json) { headers.set('content-type', 'application/json'); requestBody = JSON.stringify(init.json) }
   if (init.form) { headers.set('content-type', 'application/x-www-form-urlencoded'); requestBody = new URLSearchParams(init.form).toString() }
-  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals })
+  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals, doors: options.doors })
 }
 
 async function register(redirect = REDIRECT): Promise<string> {
@@ -66,7 +69,7 @@ function authorizeParams(clientId: string, redirect = REDIRECT) {
   return { response_type: 'code', client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'st-1' }
 }
 
-async function consentHtml(clientId: string, redirect = REDIRECT, options: { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals> } = {}): Promise<string> {
+async function consentHtml(clientId: string, redirect = REDIRECT, options: OAuthOptions = {}): Promise<string> {
   const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId, redirect))}`, {}, options)
   expect(page.status).toBe(200)
   return page.text()
@@ -80,9 +83,10 @@ function deniedAddress(html: string): string {
 }
 
 /** The consent page in a browser, with its script running, framed in another page when `framed`. */
-function consentInBrowser(html: string, framed = false) {
+function consentInBrowser(html: string, framed = false, prepare?: (window: Window) => void) {
   const browser = new JSDOM('<!doctype html><iframe></iframe>', { url: `${ORIGIN}/oauth/mcp/authorize`, runScripts: 'outside-only' })
   const window = framed ? browser.window.document.querySelector('iframe')!.contentWindow! : browser.window
+  prepare?.(window)
   const page = new JSDOM(html).window.document
   // Markup set this way runs no script; the page's script runs once, below.
   window.document.body.innerHTML = page.body.innerHTML
@@ -243,7 +247,7 @@ describe('the consent page', () => {
     const clientId = await register()
     const inApp = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() })
     expect(inApp).toContain('name="access"')
-    expect(inApp).toContain('the choice above applies only to approval in the Solus app')
+    expect(inApp).toContain('so the choice above does not apply to it')
     const tunnel = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals(), viaTunnel: true })
     expect(tunnel).not.toContain('name="access"')
     expect(tunnel).toContain('The code gives the access chosen when it was made.')
@@ -390,5 +394,108 @@ describe('which apps may connect, and as whom', () => {
     installAppAccessChecks({ ...allowEverything, memberHasAccess: async () => false })
     const call = await serveMcp(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), { appsSignIn: true })
     expect(call.status).toBe(403)
+  })
+})
+
+// WHY: a person already signed in to this host in this browser approves an app
+// with one click, as themselves, with the access they pick; nobody else may,
+// and the organization's app list still applies (plans/035 §10).
+describe('approving as the person signed in to this host', () => {
+  const doors = () => createDoors({ place: 'host' })
+  const approveAs = (clientId: string, bearer: string, access: 'read' | 'write' | 'full', useDoors: Doors = doors()) =>
+    oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access }, headers: { authorization: `Bearer ${bearer}` } }, { doors: useDoors })
+  const nameFor = (bearer: string, useDoors: Doors = doors()) =>
+    oauth('/oauth/mcp/approver', { method: 'POST', json: {}, headers: { authorization: `Bearer ${bearer}` } }, { doors: useDoors })
+  const grantOf = async (clientId: string, approved: Response) => {
+    const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
+    const token = z.object({ access_token: z.string(), scope: z.string() }).parse(await (await tokenFor(clientId, redirect)).json())
+    return { scope: token.scope, approver: auth.verifyAppToken(token.access_token)?.approver }
+  }
+
+  test("a paired device's token approves as the owner, with the access picked on the page", async () => {
+    const device = auth.issueSessionToken('Chrome on Studio Mac')
+    expect(await (await nameFor(device.token)).json()).toEqual({ name: 'the host owner' })
+    const clientId = await register()
+    const approved = await approveAs(clientId, device.token, 'full')
+    expect(approved.status).toBe(200)
+    expect(await grantOf(clientId, approved)).toEqual({ scope: 'full', approver: { kind: 'owner' } })
+  })
+
+  test("an organization member's token approves as that member", async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const claims = { iss: 'https://cloud.test', aud: 'host:h1', sub: 'alice', jti: 'j1', iat: now, exp: now + 600, access: 'org-member' as const, hostKind: 'personal' as const, displayName: 'Alice', grant_id: 'grant-alice', organizations: [{ id: 'org-a', role: 'member' as const, teamIds: ['t1'] }] }
+    const memberDoors = createDoors({ place: 'host', verifyAccessToken: async (token) => token === 'alice.jwt.token' ? { ok: true, claims } : { ok: false, reason: 'invalid' } })
+    const asMember = (path: string, json: object) => oauth(path, { method: 'POST', json, headers: { authorization: 'Bearer alice.jwt.token', 'solus-organization': 'org-a' } }, { doors: memberDoors })
+    expect(await (await asMember('/oauth/mcp/approver', {})).json()).toEqual({ name: 'Alice' })
+    const clientId = await register()
+    const approved = await asMember('/oauth/mcp/approve', { ...authorizeParams(clientId), access: 'read' })
+    expect(await grantOf(clientId, approved)).toEqual({ scope: 'read', approver: { kind: 'member', userId: 'alice', organizationId: 'org-a', organizationRole: 'member', teamIds: ['t1'], hostKind: 'personal', displayName: 'Alice' } })
+  })
+
+  test('a revoked or unknown token, or a host acting for a person, approves nothing', async () => {
+    const device = auth.issueSessionToken('Old phone')
+    auth.revokeDevice(device.deviceId)
+    const clientId = await register()
+    for (const bearer of [device.token, 'not-a-token']) {
+      expect((await nameFor(bearer)).status).toBe(403)
+      const refused = await approveAs(clientId, bearer, 'write')
+      expect(refused.status).toBe(403)
+      // A refused credential never falls back to another way of approving.
+      expect(z.object({ error: z.string() }).parse(await refused.json()).error).toContain('Use a pairing code')
+    }
+    const owner = { kind: 'owner' as const, via: 'grant' as const, userId: 'u1', deviceId: 'host-2', expiresAt: Date.now() + 60_000, deviceLabel: 'Solus account' }
+    const actingHost: Doors = { admitCredential: async () => ({ ok: false, reason: 'not-accepted' }), admitBearer: async () => ({ ok: true, principal: owner, actingHostId: 'host-2' }) }
+    expect((await approveAs(clientId, 'delegated.jwt.token', 'write', actingHost)).status).toBe(403)
+    // Without the doors (the Solus API server), a credential is not taken at all.
+    expect((await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write' }, headers: { authorization: `Bearer ${auth.issueSessionToken('Laptop').token}` } })).status).toBe(403)
+  })
+
+  test('a credential that may not make app pairing codes (host.use) approves nothing', async () => {
+    const guest = { kind: 'guest' as const, organizationId: null, guestId: 'g1', displayName: 'Guest', deviceId: 'g1', expiresAt: Date.now() + 60_000, deviceLabel: 'Shared link', share: { resource: { kind: 'session' as const, id: 's1' }, role: 'viewer' as const, sharedByUserId: 'u1', linkSecretHash: 'h' } }
+    const guestDoors: Doors = { admitCredential: async () => ({ ok: false, reason: 'not-accepted' }), admitBearer: async () => ({ ok: true, principal: guest }) }
+    const clientId = await register()
+    expect((await nameFor('guest-token', guestDoors)).status).toBe(403)
+    expect((await approveAs(clientId, 'guest-token', 'read', guestDoors)).status).toBe(403)
+  })
+
+  test("the organization's app list refuses an app it does not allow", async () => {
+    installAppAccessChecks({ ...allowEverything, appDenial: (app) => app === 'local' ? 'This host does not allow Apps on your computer to use Solus.' : null })
+    const refused = await approveAs(await register(), auth.issueSessionToken('Chrome').token, 'write')
+    expect(refused.status).toBe(403)
+    expect(z.object({ error: z.string() }).parse(await refused.json()).error).toContain('does not allow')
+  })
+
+  test('another site cannot approve with the credential', async () => {
+    const token = auth.issueSessionToken('Chrome').token
+    const crossSite = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(await register()), access: 'full' }, headers: { authorization: `Bearer ${token}`, origin: 'https://evil.example' } }, { doors: doors() })
+    expect(crossSite.status).toBe(403)
+    expect((await oauth('/oauth/mcp/approver', { method: 'POST', json: {}, headers: { authorization: `Bearer ${token}`, origin: 'https://evil.example' } }, { doors: doors() })).status).toBe(403)
+  })
+
+  test("the page shows Approve as {name} only for a browser that holds this host's credential, and approves with it", async () => {
+    const useDoors = doors()
+    const clientId = await register()
+    const html = await consentHtml(clientId, REDIRECT, { doors: useDoors, viaTunnel: true })
+    const open = (credentials: object[]) => consentInBrowser(html, false, (window) => {
+      window.localStorage.setItem('solus.hostCredentials', JSON.stringify(credentials))
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: true, remoteAddress, hostName: 'Studio Mac', doors: useDoors }) })
+    })
+    const button = (window: Window) => window.document.querySelector<HTMLButtonElement>('#approveAs')!
+    // Another host's credential is not this host's.
+    const other = open([{ hostId: 'another-host', token: auth.issueSessionToken('Chrome').token, routes: [] }])
+    await Bun.sleep(50)
+    expect(button(other.window).hidden).toBe(true)
+    expect(other.document.querySelector<HTMLElement>('#accessChoice')!.hidden).toBe(true)
+    other.close()
+    const signedIn = open([{ hostId: auth.getInstallationId(), token: auth.issueSessionToken('Chrome').token, routes: [] }])
+    await Bun.sleep(800)
+    expect(button(signedIn.window).hidden).toBe(false)
+    expect(button(signedIn.window).textContent).toBe('Approve as the host owner')
+    expect(signedIn.document.querySelector<HTMLElement>('#accessChoice')!.hidden).toBe(false)
+    signedIn.document.querySelector<HTMLInputElement>('input[name=access][value=read]')!.checked = true
+    button(signedIn.window).click()
+    await Bun.sleep(50)
+    expect(signedIn.document.querySelector('#status')!.textContent).toBe('Approved. Returning to the app…')
+    signedIn.close()
   })
 })

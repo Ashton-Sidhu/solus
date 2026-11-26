@@ -337,7 +337,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.get('/.well-known/oauth-protected-resource', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-protected-resource/mcp', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-authorization-server', appSignIn, (c) => authorizationServerMetadata(c.req.raw))
-  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName() }))
+  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName(), doors }))
 
   // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
   const appService = opts.appService
