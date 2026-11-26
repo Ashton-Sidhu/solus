@@ -2177,10 +2177,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sweepExpiredReceipts(Date.now()).catch((err) => log.warn('operation_receipts_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 60 * 60 * 1000).unref()
 
+  /** The person's choice of Tailscale Funnel, read at each repair, so a mapping made again keeps it (plans/035 §0.8). */
+  const wantsFunnel = (): boolean => getServerSettings().tailscaleServe.funnel
+
   async function enableServe(port: number) {
     assertTailscaleServeAllowed(true, port)
     const previous = getServerSettings().tailscaleServe
-    const status = await tailscaleServe.enable(port, actualPort)
+    const status = await tailscaleServe.enable(port, actualPort, previous.enabled && previous.funnel)
     if (previous.enabled && previous.port !== port) {
       try { await tailscaleServe.disable(previous.port, actualPort) }
       catch (error) {
@@ -2188,8 +2191,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         throw error
       }
     }
-    setTailscaleServe(true, port)
-    tailscaleServe.startRepair(port, actualPort, (next) => { void events.broadcast('host.tailscaleServeChanged', next) })
+    // What Tailscale now has: Funnel stays on only where the new port allows it.
+    setTailscaleServe(true, port, status.funnel)
+    tailscaleServe.startRepair(port, actualPort, (next) => { void events.broadcast('host.tailscaleServeChanged', next) }, wantsFunnel)
+    void events.broadcast('host.tailscaleServeChanged', status)
+    return status
+  }
+
+  async function setServeFunnel(enabled: boolean) {
+    const setting = getServerSettings().tailscaleServe
+    if (enabled) assertTailscaleServeAllowed(true, setting.port)
+    if (!setting.enabled) throw new Error('Turn on Tailscale HTTPS for this host first.')
+    const status = await tailscaleServe.setFunnel(enabled, setting.port, actualPort)
+    setTailscaleServe(true, setting.port, status.funnel)
+    log.info('tailscale_funnel_changed', { funnel: status.funnel, port: setting.port })
     void events.broadcast('host.tailscaleServeChanged', status)
     return status
   }
@@ -2431,9 +2446,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
   const serveSetting = getServerSettings().tailscaleServe
   if (serveSetting.enabled && effectiveRemoteAccess() !== 'off') {
-    void tailscaleServe.enable(serveSetting.port, actualPort).then(async () => {
+    void tailscaleServe.enable(serveSetting.port, actualPort, serveSetting.funnel).then(async () => {
       if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(actualPort)
-      else tailscaleServe.startRepair(serveSetting.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) })
+      else tailscaleServe.startRepair(serveSetting.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) }, wantsFunnel)
     })
       .catch((error) => log.warn('tailscale_serve_start_failed', { error: error instanceof Error ? error.message : String(error) }))
   }
@@ -2521,10 +2536,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
     const serveSettingAfterBind = getServerSettings().tailscaleServe
     if (remoteAccess !== 'off' && serveSettingAfterBind.enabled) {
-      void tailscaleServe.enable(serveSettingAfterBind.port, actualPort)
+      void tailscaleServe.enable(serveSettingAfterBind.port, actualPort, serveSettingAfterBind.funnel)
         .then(async () => {
           if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(actualPort)
-          else tailscaleServe.startRepair(serveSettingAfterBind.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) })
+          else tailscaleServe.startRepair(serveSettingAfterBind.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) }, wantsFunnel)
         })
         .catch((error) => log.warn('tailscale_serve_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
     }
@@ -2614,6 +2629,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       return tailscaleServe.status(setting.enabled, setting.port, actualPort)
     },
     enableTailscaleServe: enableServe,
+    setTailscaleFunnel: setServeFunnel,
+    publicAddress: () => getHostConfig().config.publicAddress,
     disableTailscaleServe: async () => {
       const setting = getServerSettings().tailscaleServe
       assertTailscaleServeAllowed(false, setting.port)

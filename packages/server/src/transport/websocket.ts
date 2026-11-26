@@ -37,7 +37,7 @@ import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
 import type { z } from 'zod'
-import { couldBeForgedByWebPage, isServeRequest } from './web-page-requests'
+import { couldBeForgedByWebPage, isProxiedRequest } from './web-page-requests'
 
 const log = createLogger('main', 'ws-transport')
 /** How long a client's event stream and receipts outlive its last socket, so a short drop resumes without a reload. */
@@ -235,7 +235,7 @@ export function attachWebSocketTransport(
     if (isLoopbackAddress(request.socket.remoteAddress)) delete request.headers['sec-websocket-extensions']
     const facts: UpgradeFacts = {
       address: request.socket.remoteAddress,
-      viaTunnel: request.headers[VIA_TUNNEL_HEADER] === '1' || isServeRequest(request.socket.remoteAddress, request.headers),
+      viaTunnel: request.headers[VIA_TUNNEL_HEADER] === '1' || isProxiedRequest(request.socket.remoteAddress, request.headers),
       couldBeForgedByWebPage: couldBeForgedByWebPage(request.headers),
     }
     wss.handleUpgrade(request, socket, head, (ws) => accept(ws, facts))

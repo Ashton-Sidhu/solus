@@ -26,6 +26,7 @@ import {
 import { startAppSignInRequest, waitAppSignInRequest } from '../admission/app-sign-in-requests'
 import type { PairApprovals } from '../admission/pair-approvals'
 import { createTokenBucketRateLimiter } from './rate-limit'
+import { publicAddressNamedBy } from './web-page-requests'
 
 /**
  * The host's OAuth server for outside apps (plans/035 §10): metadata, client
@@ -34,8 +35,12 @@ import { createTokenBucketRateLimiter } from './rate-limit'
  */
 export interface McpOAuthOptions {
   pairApprovals?: PairApprovals
-  /** The request came through the public tunnel: only the owner's pairing code approves there. */
-  viaTunnel: boolean
+  /**
+   * The request came through a proxy: the Solus tunnel, Tailscale Serve or Funnel,
+   * or the person's own ingress (plans/035 §0.8). Its caller is not on the host's
+   * network, so the owner is not asked: approve in Solus, or with a pairing code.
+   */
+  proxied: boolean
   remoteAddress: string
   hostName: string
   /** The doors of this server: a browser signed in to this host approves with its own credential. Absent, it cannot. */
@@ -75,9 +80,16 @@ const tokenSchema = z.object({
   code_verifier: z.string().min(43).max(128),
 })
 
-/** The origin the app reached: the tunnel and Tailscale Serve name the public one. */
+/**
+ * The origin the app reached, so the metadata names the address the app used
+ * (plans/035 §0.8): the Solus tunnel, Tailscale Serve and Funnel name it in
+ * their headers; the person's own ingress is the `publicAddress` origin, https
+ * even when the ingress sends no `X-Forwarded-Proto`.
+ */
 export function publicOrigin(request: Request): string {
   const url = new URL(request.url)
+  const ingress = publicAddressNamedBy({ host: request.headers.get('host') ?? url.host, 'x-forwarded-host': request.headers.get('x-forwarded-host') ?? undefined })
+  if (ingress) return ingress
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? url.host
   const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '')
   return `${proto}://${host}`
@@ -178,7 +190,7 @@ function authorize(request: Request, options: McpOAuthOptions): Response {
   const params = authorizeSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams))
   const signIn = params.success ? signInOf(params.data) : null
   if (!params.success || !signIn) return consentError('This sign-in link is not valid. Start the connection again from the app.')
-  const html = consentPage(signIn, options.hostName, params.data, !options.viaTunnel && !!options.pairApprovals, options.doors ? getInstallationId() : null, options.servesWebClient ? getInstallationId() : null)
+  const html = consentPage(signIn, options.hostName, params.data, !options.proxied && !!options.pairApprovals, options.doors ? getInstallationId() : null, options.servesWebClient ? getInstallationId() : null)
   return new Response(html, { headers: PAGE_HEADERS })
 }
 
@@ -255,8 +267,8 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
     // The code names the access, chosen by the person who made it.
     return Response.json({ redirect: approvedRedirect({ ...signIn, access: spent.access }, spent.approver) })
   }
-  // Pairing is local authorization: through the public tunnel, only the owner's pairing code approves.
-  if (options.viaTunnel || !options.pairApprovals) return Response.json({ error: 'Use a pairing code from Solus.' }, { status: 403 })
+  // Pairing is local authorization: through a proxy, the owner is not asked.
+  if (options.proxied || !options.pairApprovals) return Response.json({ error: 'Use a pairing code from Solus.' }, { status: 403 })
   if (!parsed.access) return Response.json({ error: 'Choose the access to give.' }, { status: 400 })
   const access = parsed.access
   // Approval in the Solus app is the owner's.

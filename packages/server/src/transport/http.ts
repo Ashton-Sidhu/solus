@@ -53,7 +53,7 @@ import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts
 import type { WebhookReceiver } from '../execution/webhooks/receiver'
 import type { AppServiceApi } from '../apps/deployments/app-service-api'
 import { APP_SERVICE_PATH_PREFIX } from '@solus/contracts/app-deployments'
-import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-page-requests'
+import { couldBeForgedByWebPage, isProxiedRequest, requestOrigin } from './web-page-requests'
 import { serveMcp } from './mcp-endpoint'
 import { authorizationServerMetadata, protectedResourceMetadata, serveMcpOAuth } from './mcp-oauth'
 
@@ -226,7 +226,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
   const viaTunnel = (c: Ctx): boolean => opts.isTunnelRequest?.(c.env.incoming) ?? false
-  const viaServe = (c: Ctx): boolean => isServeRequest(c.env.incoming.socket.remoteAddress, c.env.incoming.headers)
+  /** Tailscale Serve or Funnel, or the person's own ingress (plans/035 §0.8): never a request from this machine. */
+  const viaProxy = (c: Ctx): boolean => isProxiedRequest(c.env.incoming.socket.remoteAddress, c.env.incoming.headers)
   // A cloud machine has no pairing door at all: a grant is the only credential, so
   // the routes answer as if they were never there.
   const pairingDisabled = (): boolean => opts.isApiMode === true || opts.pairingDisabled?.() === true
@@ -272,7 +273,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
    *  trusted requesters (loopback, the host's own tailnet). A tunnel caller is
    *  loopback on the wire and gets no relaxation of any kind. */
   const authRequiredFor = async (c: Ctx): Promise<boolean> => {
-    if (viaTunnel(c) || viaServe(c)) return true
+    if (viaTunnel(c) || viaProxy(c)) return true
     // A page on another site, or a DNS-rebound name, never acts without a credential.
     if (couldBeForgedByWebPage({ host: c.req.header('host'), origin: c.req.header('origin') })) return true
     if (!(opts.requireAuth?.() ?? true)) return false
@@ -339,7 +340,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.get('/.well-known/oauth-protected-resource', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-protected-resource/mcp', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-authorization-server', appSignIn, (c) => authorizationServerMetadata(c.req.raw))
-  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName(), doors, servesWebClient: servesWebClient && !viaTunnel(c) }))
+  // Any proxy, not only the Solus tunnel: "Ask the host owner" is for the host's own network (plans/035 §0.8).
+  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, proxied: viaTunnel(c) || viaProxy(c), remoteAddress: clientIp(c), hostName: currentName(), doors, servesWebClient: servesWebClient && !viaTunnel(c) }))
 
   // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
   const appService = opts.appService
@@ -412,9 +414,9 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       const body = await readJson(c, pairApprovalStartRequestSchema)
       const checkCode = body ? normalizeCheckCode(body.checkCode) : null
       if (!body || !checkCode) return c.json({ error: 'Send a device label of 1 to 64 characters and a check code as XXXX-XXXX.' }, 400)
-      // Behind Tailscale Serve the socket is loopback; the owner must not read that as this machine.
+      // Behind a proxy the socket is loopback; the owner must not read that as this machine.
       const forwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-      const fromAddress = viaServe(c) ? `${forwardedFor || 'unknown'} (Tailscale Serve)` : clientIp(c)
+      const fromAddress = viaProxy(c) ? `${forwardedFor || 'unknown'} (through a proxy)` : clientIp(c)
       const started = pairApprovals.start({ deviceLabel: body.deviceLabel, checkCode, fromAddress, replacesSessionToken: body.replacesSessionToken })
       if (!started) return c.json({ error: 'Too many open approval requests. Try again later.' }, 429)
       const { request, waitToken } = started

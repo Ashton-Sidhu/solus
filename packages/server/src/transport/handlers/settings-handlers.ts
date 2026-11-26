@@ -12,6 +12,7 @@ import {
   setHostConfig,
 } from '../../host/settings'
 import { hostConfigPatchSchema } from '@solus/contracts/host-config'
+import { namesThisMachine } from '../web-page-requests'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { configureOtel, otelActiveSignals, otelManagedByEnvironment } from '../../otel'
 import type { SolusServer } from '../server'
@@ -61,6 +62,11 @@ export function registerSettingsHandlers(
     const parsed = hostConfigPatchSchema.safeParse(update ?? {})
     if (!parsed.success) throw new Error(`Host config refused: ${z.prettifyError(parsed.error)}`)
     const patch = parsed.data
+    // A request that names the public address is read as proxied (plans/035 §0.8): a name of this
+    // machine there would take the trust of every local request, the desktop app's too.
+    if (patch.publicAddress && namesThisMachine(new URL(patch.publicAddress).hostname)) {
+      throw new Error('Enter the https address of your own proxy or tunnel. A name of this machine, such as localhost or an IP address, is not one.')
+    }
     const snapshot = Object.keys(patch).length ? setHostConfig(patch) : getHostConfig()
     // Publish and revoke any disabled access as soon as the setting is stored.
     deps.onHostConfigChanged(snapshot)

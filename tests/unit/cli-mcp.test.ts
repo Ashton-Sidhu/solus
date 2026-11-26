@@ -83,8 +83,28 @@ describe('solus mcp on the running server', () => {
       await runMcpCommand(['--data-dir', folder], (line) => output.push(line))
     } finally { await host.stop() }
     const text = output.join('\n')
-    expect(text).toContain('From anywhere:    none. Run `solus connect` to get a public address.')
+    expect(text).toContain('From anywhere:    none. Link the host with `solus connect`, turn on Tailscale Funnel, or set your own https address')
     expect(text).toContain('claude mcp add --transport http solus http://localhost:3000/mcp')
+  })
+
+  // WHY: a host needs no Solus account (plans/035 §0.8): the person sees each address and where it comes from.
+  test('lists every address with its source; the commands use the first internet one', async () => {
+    const folder = dataDir()
+    const host = server(folder, () => ({
+      localUrl: 'http://localhost:3000/mcp',
+      publicUrl: 'https://solus.example.com/mcp',
+      addresses: [
+        { source: 'custom', url: 'https://solus.example.com/mcp', reach: 'internet' },
+        { source: 'tailscale-serve', url: 'https://box.tail.ts.net/mcp', reach: 'tailnet' },
+      ],
+    }))
+    const output: string[] = []
+    try {
+      await runMcpCommand(['--data-dir', folder], (line) => output.push(line))
+    } finally { await host.stop() }
+    const text = output.join('\n')
+    expect(text).toContain('    https://solus.example.com/mcp (your own address)\n    https://box.tail.ts.net/mcp (Tailscale Serve, your tailnet only)')
+    expect(text).toContain('claude mcp add --transport http solus https://solus.example.com/mcp')
   })
 
   test('code makes a one-time pairing code for the owner with the chosen access, and says when it ends', async () => {

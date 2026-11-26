@@ -71,6 +71,8 @@ describe('host config', () => {
       'archivedAutomationRetentionDays',
       'continueSessionsAfterHostRestart',
       'otel',
+      'previewTunnelEnabled',
+      'publicAddress',
       'reviewWarmingByProject',
       'sessionCloudSync',
       'solusTools',
@@ -130,6 +132,51 @@ describe('the configUpdate RPC', () => {
     await expect(update({ themeMode: 'dark' })).rejects.toThrow('themeMode')
     expect(settings.getHostConfig().config).toEqual(before)
     expect(broadcasts).toHaveLength(0)
+  })
+})
+
+// WHY: `publicAddress` is where the person's own ingress serves this host to outside
+// apps with no Solus account (plans/035 §0.8). A request that names it loses the
+// trust of a local request, and the OAuth metadata names it, so it must be an https
+// origin, never a name of this machine, and only a host administrator sets it.
+describe('the public address', () => {
+  afterAll(() => { settings.setHostConfig({ publicAddress: '' }) })
+
+  test('is stored as an https origin, and every client hears the change', async () => {
+    const { update, broadcasts } = await configUpdateHandler()
+    expect((await update({ publicAddress: 'https://Solus.Example.com/some/path' })).config.publicAddress).toBe('https://solus.example.com')
+    expect(broadcasts.at(-1)?.config.publicAddress).toBe('https://solus.example.com')
+    expect((await update({ publicAddress: '' })).config.publicAddress).toBe('')
+  })
+
+  test('refuses plain http, which OAuth cannot use, and a name of this machine, which would make every local request proxied', async () => {
+    const { update, broadcasts } = await configUpdateHandler()
+    await expect(update({ publicAddress: 'http://solus.example.com' })).rejects.toThrow('Host config refused')
+    for (const address of ['https://localhost:3001', 'https://127.0.0.1', 'https://[::1]', 'https://192.168.1.20']) {
+      await expect(update({ publicAddress: address })).rejects.toThrow('A name of this machine')
+    }
+    expect(broadcasts).toHaveLength(0)
+    expect(settings.getHostConfig().config.publicAddress).toBe('')
+  })
+
+  test('only a host administrator sets it: a member without admin is refused at the gate', async () => {
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerSettingsHandlers } = await import('@solus/server/transport/handlers/settings-handlers')
+    const server = new SolusServer()
+    registerSettingsHandlers(server, { sessionRuntime: {} as never, onHostConfigChanged: () => {}, onProviderInstancesChanged: () => {} })
+    const member = { kind: 'org-member' as const, userId: 'alice', organizationId: 'org-a', organizationRole: 'member' as const, teamIds: [], hostKind: 'personal' as const, displayName: 'Alice', deviceId: 'd', deviceLabel: 'Phone', expiresAt: Number.MAX_SAFE_INTEGER }
+    await expect(server.handle('configUpdate', [{ publicAddress: 'https://solus.example.com' }], { clientId: 'ws:test', principal: member })).rejects.toThrow()
+    expect(settings.getHostConfig().config.publicAddress).toBe('')
+    const owner = { kind: 'owner' as const, via: 'local' as const, deviceId: 'phone', deviceLabel: 'Phone', expiresAt: null }
+    await server.handle('configUpdate', [{ publicAddress: 'https://solus.example.com' }], { clientId: 'ws:test', principal: owner })
+    expect(settings.getHostConfig().config.publicAddress).toBe('https://solus.example.com')
+  })
+
+  test('an agent cannot set it: how the machine is reached is host administration', async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    const result = await runTool(tools.updateConfigAgentTool, { host: { publicAddress: 'https://attacker.example.com' } }, context)
+    expect(result.ok).toBe(false)
+    expect(settings.getHostConfig().config.publicAddress).not.toBe('https://attacker.example.com')
   })
 })
 
@@ -371,6 +418,8 @@ describe('the agent write policy', () => {
       'analyticsEnabled',
       'archivedAutomationRetentionDays',
       'continueSessionsAfterHostRestart',
+      'previewTunnelEnabled',
+      'publicAddress',
       'reviewWarmingByProject',
       'sessionCloudSync',
       'solusTools',

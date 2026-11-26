@@ -1,5 +1,5 @@
 import { parseFlags } from '@solus/contracts/entrypoint'
-import type { AppAccess } from '@solus/contracts/host-api'
+import type { AppAccess, AppAddress, AppAddressSource } from '@solus/contracts/host-api'
 import { OUTSIDE_APP_GUIDES } from '@solus/contracts/outside-apps'
 import { readCloudMachineRecord } from './cloud-machine'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
@@ -16,11 +16,14 @@ export type McpCommand =
   | { kind: 'addresses'; dataDir: string }
   | { kind: 'code'; dataDir: string; access: AppAccess }
 
-interface AppEndpoint { localUrl: string; publicUrl: string | null }
+/** `addresses` is absent from an older server and from a cloud machine's records. */
+interface AppEndpoint { localUrl: string; publicUrl: string | null; addresses?: AppAddress[] }
 interface AppPairingCode { code: string; access: AppAccess; expiresAt: number }
 
 const USAGE = 'Usage: solus mcp [--data-dir PATH]\n       solus mcp code [--access read|write|full] [--data-dir PATH]'
 const ACCESS_LABELS: Record<AppAccess, string> = { read: 'Read', write: 'Read and write', full: 'Full' }
+const SOURCE_LABELS = { solus: 'Solus account', 'tailscale-funnel': 'Tailscale Funnel', custom: 'your own address', 'tailscale-serve': 'Tailscale Serve, your tailnet only' } as const satisfies Record<AppAddressSource, string>
+const NO_PUBLIC_ADDRESS = 'none. Link the host with `solus connect`, turn on Tailscale Funnel, or set your own https address (docs/outside-apps.md).'
 const CLOUD_CODE = 'A cloud host has no owner, so this command makes no pairing code here. A member of its organization makes one in their Solus client: Use Solus in other apps, then Make pairing code.'
 
 export function parseMcpCommand(args: string[]): McpCommand {
@@ -54,7 +57,9 @@ export function addressLines(endpoint: AppEndpoint, memberCodes = false): string
   return [
     'Use Solus in other apps (MCP)',
     ...(memberCodes ? [] : [`  On this computer: ${endpoint.localUrl}`]),
-    `  From anywhere:    ${endpoint.publicUrl ?? 'none. Run `solus connect` to get a public address.'}`,
+    `  From anywhere:    ${endpoint.publicUrl ?? NO_PUBLIC_ADDRESS}`,
+    // Every way an app reaches /mcp, with where it comes from (plans/035 §0.8).
+    ...(endpoint.addresses ?? []).map((address) => `    ${address.url} (${SOURCE_LABELS[address.source]})`),
     '',
     'Claude Code:',
     ...terminalCommands('claude-code', url).map((line) => `  ${line}`),

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { request as httpRequest } from 'node:http'
 import { z } from 'zod'
 import { JSDOM } from 'jsdom'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
@@ -23,6 +24,7 @@ const { registerConnectionsHandlers } = await import('@solus/server/transport/ha
 const { parseAppSignInLink } = await import('@solus/contracts/outside-apps')
 const { buildHttpServer } = await import('@solus/server/transport/http')
 const { ActingIdentities, useActingIdentities } = await import('@solus/server/execution/seats/acting-identity')
+const settings = await import('@solus/server/host/settings')
 type Doors = ReturnType<typeof createDoors>
 
 // WHY: an outside app (Claude Desktop, Cursor, a person's own CLI) reaches this
@@ -57,13 +59,13 @@ const REDIRECT = 'http://127.0.0.1:33418/callback'
 const verifier = randomBytes(32).toString('base64url')
 const challenge = createHash('sha256').update(verifier).digest('base64url')
 
-type OAuthOptions = { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals>; doors?: Doors; servesWebClient?: boolean }
+type OAuthOptions = { proxied?: boolean; pairApprovals?: InstanceType<typeof PairApprovals>; doors?: Doors; servesWebClient?: boolean }
 function oauth(path: string, init: RequestInit & { json?: object; form?: Record<string, string> } = {}, options: OAuthOptions = {}) {
   const headers = new Headers(init.headers)
   let requestBody = init.body
   if (init.json) { headers.set('content-type', 'application/json'); requestBody = JSON.stringify(init.json) }
   if (init.form) { headers.set('content-type', 'application/x-www-form-urlencoded'); requestBody = new URLSearchParams(init.form).toString() }
-  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals, doors: options.doors, servesWebClient: options.servesWebClient })
+  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { proxied: options.proxied ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals, doors: options.doors, servesWebClient: options.servesWebClient })
 }
 
 async function register(redirect = REDIRECT): Promise<string> {
@@ -194,7 +196,7 @@ describe('signing in an outside app', () => {
   test('through the public tunnel only a pairing code approves', async () => {
     const pairApprovals = new PairApprovals()
     const clientId = await register()
-    const asked = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write' } }, { pairApprovals, viaTunnel: true })
+    const asked = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write' } }, { pairApprovals, proxied: true })
     expect(asked.status).toBe(403)
     expect(pairApprovals.list()).toEqual([])
   })
@@ -264,7 +266,7 @@ describe('the consent page', () => {
 
   test('the access choice applies to approval in Solus on every path; a pairing code names its own', async () => {
     const clientId = await register()
-    for (const html of [await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() }), await consentHtml(clientId, REDIRECT, { viaTunnel: true })]) {
+    for (const html of [await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() }), await consentHtml(clientId, REDIRECT, { proxied: true })]) {
       expect(html).toContain('name="access"')
       expect(html).toContain('so the choice above does not apply to it')
     }
@@ -513,10 +515,10 @@ describe('approving as the person signed in to this host', () => {
   test("the page shows Approve as {name} only for a browser that holds this host's credential, and approves with it", async () => {
     const useDoors = doors()
     const clientId = await register()
-    const html = await consentHtml(clientId, REDIRECT, { doors: useDoors, viaTunnel: true })
+    const html = await consentHtml(clientId, REDIRECT, { doors: useDoors, proxied: true })
     const open = (credentials: object[]) => consentInBrowser(html, false, (window) => {
       window.localStorage.setItem('solus.hostCredentials', JSON.stringify(credentials))
-      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: true, remoteAddress, hostName: 'Studio Mac', doors: useDoors }) })
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { proxied: true, remoteAddress, hostName: 'Studio Mac', doors: useDoors }) })
     })
     const button = (window: Window) => window.document.querySelector<HTMLButtonElement>('#approveAs')!
     // Another host's credential is not this host's.
@@ -658,10 +660,10 @@ describe('approving in Solus', () => {
   })
 
   test('works through the public tunnel, where no other approval but a pairing code does', async () => {
-    const html = await consentHtml(await register(), REDIRECT, { viaTunnel: true })
+    const html = await consentHtml(await register(), REDIRECT, { proxied: true })
     expect(html).toContain('<button class="primary" id="inSolus" disabled>Approve in Solus</button>')
-    const started = await start('write', { viaTunnel: true })
-    const waiting = wait(started, { viaTunnel: true })
+    const started = await start('write', { proxied: true })
+    const waiting = wait(started, { proxied: true })
     await rpc().decide(started.requestId, 'approve', member('jill'))
     expect((await grantOf(started.clientId, await waiting)).scope).toBe('write')
   })
@@ -679,7 +681,7 @@ describe('approving in Solus', () => {
   test('the page shows the check code, a QR code of the link, and Open Solus, then returns to the app when approved', async () => {
     const clientId = await register()
     const browser = consentInBrowser(await consentHtml(clientId), false, (window) => {
-      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: false, remoteAddress, hostName: 'Studio Mac' }) })
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { proxied: false, remoteAddress, hostName: 'Studio Mac' }) })
     })
     const $ = (id: string) => browser.document.getElementById(id)!
     await Bun.sleep(800)
@@ -736,7 +738,7 @@ describe('Open Solus on the web', () => {
 
   test("links to this page's origin with the sign-in and this host", async () => {
     const browser = consentInBrowser(await consentHtml(await register(), REDIRECT, { servesWebClient: true }), false, (window) => {
-      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: false, remoteAddress, hostName: 'Studio Mac', servesWebClient: true }) })
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { proxied: false, remoteAddress, hostName: 'Studio Mac', servesWebClient: true }) })
     })
     await Bun.sleep(800)
     browser.document.getElementById('inSolus')!.click()
@@ -747,5 +749,64 @@ describe('Open Solus on the web', () => {
     expect(Object.fromEntries(link.searchParams)).toEqual({ approveApp: requestId, host: auth.getInstallationId() })
     expect(browser.document.getElementById('openWeb')!.textContent).toBe('Open Solus on the web')
     browser.close()
+  })
+})
+
+// WHY: "Ask the host owner" sends the request to the owner as if it came from the
+// host's own network, and the owner approves it by a code on a page they may not
+// see. A caller on the internet, or on the tailnet, must never get that door: it
+// is the trust of a local request (plans/035 §0.8). Each way a request comes
+// through a proxy is checked at the HTTP route, where the host decides it.
+describe('a sign-in through a proxy does not ask the host owner', () => {
+  /** A request with exactly these headers: `fetch` may not let a test set `Host`. */
+  function send(base: string, method: 'GET' | 'POST', path: string, headers: Record<string, string>, body?: object): Promise<{ status: number; text: string }> {
+    const url = new URL(path, base)
+    const payload = body ? JSON.stringify(body) : undefined
+    return new Promise((resolve, reject) => {
+      const outgoing = httpRequest({ host: url.hostname, port: url.port, path: `${url.pathname}${url.search}`, method, headers: { ...headers, ...(payload ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } : {}) } }, (incoming) => {
+        let text = ''
+        incoming.setEncoding('utf8')
+        incoming.on('data', (chunk: string) => { text += chunk })
+        incoming.on('end', () => resolve({ status: incoming.statusCode ?? 0, text }))
+      })
+      outgoing.on('error', reject)
+      outgoing.end(payload)
+    })
+  }
+
+  async function signInThrough(headers: Record<string, string>, viaTunnel = false) {
+    const pairApprovals = new PairApprovals()
+    const { server } = buildHttpServer({ host: '127.0.0.1', port: 0, getPort: () => 0, requireAuth: () => false, isTrustedRequester: async () => true, isTunnelRequest: () => viaTunnel, pairApprovals })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const base = `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`
+    try {
+      const registered = await send(base, 'POST', '/oauth/mcp/register', headers, { client_name: 'Claude Desktop', redirect_uris: [REDIRECT] })
+      const { client_id } = z.object({ client_id: z.string() }).parse(JSON.parse(registered.text))
+      const page = await send(base, 'GET', `/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(client_id))}`, headers)
+      const asked = await send(base, 'POST', '/oauth/mcp/approve', headers, { ...authorizeParams(client_id), access: 'write' })
+      return { offersAsk: page.text.includes('id="ask"'), askStatus: asked.status, waiting: pairApprovals.list().length }
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+
+  afterEach(() => { settings.setHostConfig({ publicAddress: '' }) })
+
+  test('a request from this machine may ask the owner', async () => {
+    expect(await signInThrough({})).toEqual({ offersAsk: true, askStatus: 200, waiting: 1 })
+  })
+
+  test('the Solus tunnel, Tailscale Serve, Tailscale Funnel, and the person’s own ingress may not', async () => {
+    settings.setHostConfig({ publicAddress: 'https://solus.example.com' })
+    const refused = { offersAsk: false, askStatus: 403, waiting: 0 }
+    expect(await signInThrough({}, true)).toEqual(refused)
+    // Tailscale Serve: tailscaled proxies on loopback with forwarded headers.
+    expect(await signInThrough({ 'x-forwarded-host': 'box.tail.ts.net', 'x-forwarded-proto': 'https' })).toEqual(refused)
+    // Tailscale Funnel: its header alone marks the request.
+    expect(await signInThrough({ 'tailscale-funnel-request': '?1' })).toEqual(refused)
+    // The person's ingress that sends no forwarded headers: only the Host names it.
+    expect(await signInThrough({ host: 'solus.example.com' })).toEqual(refused)
+    expect(await signInThrough({ host: 'SOLUS.example.com:443' })).toEqual(refused)
   })
 })

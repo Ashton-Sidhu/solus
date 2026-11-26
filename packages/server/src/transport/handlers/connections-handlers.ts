@@ -9,6 +9,7 @@ import { appAccessChecks, appApproverOf, approvedRedirect, createAppPairingCode,
 import { readAppSignInRequest, settleAppSignInRequest } from '../../admission/app-sign-in-requests'
 import { createTokenBucketRateLimiter } from '../rate-limit'
 import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
+import { appAddressesOf, probeAppAddress } from '../app-addresses'
 import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
 import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
@@ -38,6 +39,10 @@ export interface ConnectionsDeps {
   getTailscaleServe(): Promise<TailscaleServeStatus>
   enableTailscaleServe(port: number): Promise<TailscaleServeStatus>
   disableTailscaleServe(): Promise<TailscaleServeStatus>
+  /** Tailscale Funnel on or off for the mapping Serve made to this host (plans/035 §0.8). */
+  setTailscaleFunnel(enabled: boolean): Promise<TailscaleServeStatus>
+  /** The host setting `publicAddress`: the https origin of the person's own ingress, or empty. */
+  publicAddress(): string
   setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
   /** The hosts this host was introduced to (docs/plans/host-reach.md §4). */
   introducedHosts: Pick<IntroducedHosts, 'list' | 'issue' | 'accept' | 'forget' | 'allow'>
@@ -182,9 +187,25 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsListDevices', () => listPairedDevices())
 
-  server.register('connectionsAppEndpoint', () => {
-    const tunnel = deps.tunnelUrl()
-    return { localUrl: `http://localhost:${deps.getServerInfo().port}/mcp`, publicUrl: tunnel ? `${tunnel}/mcp` : null }
+  const appAddresses = async () => appAddressesOf({ tunnel: deps.tunnelUrl(), serve: await deps.getTailscaleServe(), publicAddress: deps.publicAddress() })
+
+  server.register('connectionsAppEndpoint', async () => {
+    const addresses = await appAddresses()
+    return {
+      localUrl: `http://localhost:${deps.getServerInfo().port}/mcp`,
+      publicUrl: addresses.find((address) => address.reach === 'internet')?.url ?? null,
+      addresses,
+    }
+  })
+
+  // The caller names only a source: the host asks the address it lists for it, never a URL from the wire (no SSRF).
+  server.register('connectionsTestAppAddress', async (args) => {
+    const { source } = testAddressSchema.parse(args[0])
+    const address = (await appAddresses()).find((candidate) => candidate.source === source)
+    if (!address) return { reachable: false, reason: 'This host has no address from that source now.' }
+    const result = await probeAppAddress(address, { installationId: getInstallationId() })
+    log.info('app_address_tested', { source, reachable: result.reachable })
+    return result
   })
 
   server.register('connectionsCreateAppPairingCode', (args, ctx) => {
@@ -241,6 +262,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('connectionsGetTailscaleServe', () => deps.getTailscaleServe())
   server.register('connectionsEnableTailscaleServe', (args) => deps.enableTailscaleServe(args[0].port))
   server.register('connectionsDisableTailscaleServe', () => deps.disableTailscaleServe())
+  server.register('connectionsSetTailscaleFunnel', (args) => deps.setTailscaleFunnel(z.object({ enabled: z.boolean() }).parse(args[0]).enabled))
 
   server.register('connectionsSetTrustLocalNetwork', (args) => {
     const [{ trustLocalNetwork }] = args
@@ -278,6 +300,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   })
 }
 
+const testAddressSchema = z.object({ source: z.enum(['solus', 'tailscale-funnel', 'tailscale-serve', 'custom']) }).strict()
 const readSignInSchema = z.union([z.object({ requestId: z.string().min(1).max(128) }).strict(), z.object({ checkCode: z.string().min(1).max(16) }).strict()])
 const decideSignInSchema = z.object({ requestId: z.string().min(1).max(128), decision: z.enum(['approve', 'deny']) }).strict()
 /** Unknown, expired, and decided read the same, so a check code tells nothing about other sign-ins. */

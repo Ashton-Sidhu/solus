@@ -132,12 +132,42 @@ describe.serial('the stored host config heals one key at a time', () => {
     expect(settings.getHostConfig().config).toEqual(DEFAULT_HOST_CONFIG)
   })
 
+  // WHY: the own ingress address names who is proxied (plans/035 §0.8). A stored value
+  // that is not an https origin must give none, not a broken address, and cost no other key.
+  test('a stored public address that is not https falls back to none; an https one is read as its origin', async () => {
+    const bad = await loadSettings('public-address-bad', { hostConfig: { publicAddress: 'ftp://solus.example.com', archivedAutomationRetentionDays: 21 } })
+    expect(bad.getHostConfig().config.publicAddress).toBe('')
+    expect(bad.getHostConfig().config.archivedAutomationRetentionDays).toBe(21)
+    const good = await loadSettings('public-address-good', { hostConfig: { publicAddress: 'https://solus.example.com' } })
+    expect(good.getHostConfig().config.publicAddress).toBe('https://solus.example.com')
+  })
+
   test('host config survives a restart', async () => {
     const first = await loadSettings('restart-write')
     first.setHostConfig({ archivedAutomationRetentionDays: 9, analyticsEnabled: false })
     const second = await import(`../../packages/server/src/host/settings.ts?restart-read`)
     expect(second.getHostConfig().config.archivedAutomationRetentionDays).toBe(9)
     expect(second.getHostConfig().config.analyticsEnabled).toBe(false)
+  })
+})
+
+// WHY: Funnel is the person's choice for the Serve mapping (plans/035 §0.8). Solus
+// makes the mapping again after a restart or a repair, and it must come back with
+// Funnel, or a cloud app loses the host without a sign. Turning Serve off ends it.
+describe.serial('the Tailscale Funnel choice', () => {
+  test('is stored with Serve, read back, and ends when Serve is turned off', async () => {
+    const settings = await loadSettings('funnel-choice', { remoteAccess: 'any' })
+    expect(settings.getServerSettings().tailscaleServe).toEqual({ enabled: false, port: 443, funnel: false })
+    settings.setTailscaleServe(true, 443, true)
+    const reread = await import(`../../packages/server/src/host/settings.ts?funnel-choice-reread`)
+    expect(reread.getServerSettings().tailscaleServe).toEqual({ enabled: true, port: 443, funnel: true })
+    reread.setTailscaleServe(false, 443, true)
+    expect(reread.getServerSettings().tailscaleServe.funnel).toBe(false)
+  })
+
+  test('a file from before Funnel reads as Funnel off', async () => {
+    const settings = await loadSettings('funnel-absent', { remoteAccess: 'any', tailscaleServe: { enabled: true, port: 8443 } })
+    expect(settings.getServerSettings().tailscaleServe).toEqual({ enabled: true, port: 8443, funnel: false })
   })
 })
 

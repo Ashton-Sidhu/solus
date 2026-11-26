@@ -143,8 +143,8 @@ export const DEFAULT_HOST_CONFIG: HostConfig = column('default')
  */
 export const HOST_CONFIG_AGENT_HIDDEN_KEYS: readonly HostConfigKey[] = ['otel']
 
-/** Host access controls and collector credentials are writable only through host administration. */
-export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true, previewTunnelEnabled: true })
+/** Host access controls (how the machine is reached) and collector credentials are writable only through host administration. */
+export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true, previewTunnelEnabled: true, publicAddress: true })
 
 /**
  * The host config keys that do not name this machine: a signed-out person's Sync
@@ -163,7 +163,7 @@ export const SHARED_HOST_CONFIG_KEYS = [
 ] as const satisfies readonly HostConfigKey[]
 
 /** Network access to this machine's ports, the agent binaries installed on it, and paths on its disk. */
-export const MACHINE_HOST_CONFIG_KEYS = ['previewTunnelEnabled', 'agentAutoUpdates', 'reviewWarmingByProject'] as const satisfies readonly HostConfigKey[]
+export const MACHINE_HOST_CONFIG_KEYS = ['previewTunnelEnabled', 'publicAddress', 'agentAutoUpdates', 'reviewWarmingByProject'] as const satisfies readonly HostConfigKey[]
 
 export type SharedHostConfigKey = (typeof SHARED_HOST_CONFIG_KEYS)[number]
 

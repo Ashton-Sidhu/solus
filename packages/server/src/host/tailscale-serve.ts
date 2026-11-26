@@ -17,7 +17,25 @@ const serveConfigSchema = z.object({
 const serveStatusSchema = serveConfigSchema.extend({
   Services: z.record(z.string(), serveConfigSchema).optional(),
   Foreground: z.record(z.string(), serveConfigSchema).optional(),
+  /** Funnel is on for each `name:port` here that is true. */
+  AllowFunnel: z.record(z.string(), z.boolean()).optional(),
 }).nullable()
+
+/** Tailscale Funnel listens only on these HTTPS ports. */
+export const FUNNEL_PORTS: readonly number[] = [443, 8443, 10000]
+
+const FUNNEL_PORT_RULE = 'Tailscale Funnel uses only HTTPS port 443, 8443, or 10000.'
+
+/** Why Funnel cannot use this HTTPS port; null when it can. */
+export function funnelPortError(port: number): string | null {
+  return FUNNEL_PORTS.includes(port) ? null : `${FUNNEL_PORT_RULE} Change the Tailscale HTTPS port from ${port}, then turn on Funnel.`
+}
+
+/** Whether Funnel is on for the address `name:port` in `tailscale serve status --json`. */
+export function funnelAllowed(raw: string, name: string, port: number): boolean {
+  const parsed = serveStatusSchema.safeParse(JSON.parse(raw))
+  return parsed.success && parsed.data?.AllowFunnel?.[`${name.replace(/\.$/, '')}:${port}`] === true
+}
 
 function targetsThisPort(proxy: string | undefined, localPort: number): boolean {
   if (!proxy) return false
@@ -76,6 +94,11 @@ function mappingsToPort(raw: string, localPort: number): ServeMapping[] {
 }
 
 export function serveError(error: string, platform = process.platform): string {
+  // Funnel's own refusals come first: their text also names https addresses.
+  if (/not allowed for funnel|funnel.*allowed ports/i.test(error)) return `${FUNNEL_PORT_RULE} Change the Tailscale HTTPS port, then turn on Funnel.`
+  const enableFunnel = /https:\/\/login\.tailscale\.com\/f\/funnel\S*/.exec(error)?.[0]
+  if (enableFunnel) return `Funnel is off for your tailnet. Turn it on at ${enableFunnel.replace(/[.,;]+$/, '')}, then try again.`
+  if (/funnel/i.test(error) && /node attribute|nodeattr|no-funnel|not available|not allowed|not permitted/i.test(error)) return 'Your tailnet policy does not allow Funnel on this device. Add the `funnel` node attribute for it in the tailnet policy file (https://tailscale.com/s/no-funnel), then try again.'
   if (/not logged in|logged out|needs? login/i.test(error)) return 'Sign in to Tailscale, then try again.'
   if (/not running|stopped|failed to connect to local tailscale|connection refused/i.test(error)) return 'Start Tailscale, then try again.'
   if (/https|certificate/i.test(error) && /disabled|enable|not enabled/i.test(error)) return 'Enable HTTPS certificates at https://login.tailscale.com/admin/dns, then try again.'
@@ -135,36 +158,74 @@ export class TailscaleServe {
 
   async status(enabled: boolean, port: number, localPort: number): Promise<TailscaleServeStatus> {
     const status = await this.readStatus()
-    if (!enabled) return { enabled, port, state: 'off', url: status?.Self?.DNSName ? serveUrl(status.Self.DNSName, port) : null, error: null }
-    if (!status || (status.BackendState && status.BackendState !== 'Running')) return { enabled, port, state: 'error', url: null, error: 'Start and sign in to Tailscale, then try again.' }
+    if (!enabled) return { enabled, funnel: false, port, state: 'off', url: status?.Self?.DNSName ? serveUrl(status.Self.DNSName, port) : null, error: null }
+    if (!status || (status.BackendState && status.BackendState !== 'Running')) return { enabled, funnel: false, port, state: 'error', url: null, error: 'Start and sign in to Tailscale, then try again.' }
     const name = status.Self?.DNSName?.replace(/\.$/, '')
-    if (!name) return { enabled, port, state: 'error', url: null, error: 'Enable MagicDNS in Tailscale, then try again.' }
+    if (!name) return { enabled, funnel: false, port, state: 'error', url: null, error: 'Enable MagicDNS in Tailscale, then try again.' }
     setOwnMagicDnsName(name)
-    if (status.Self?.CapMap && !Object.hasOwn(status.Self.CapMap, 'https')) return { enabled, port, state: 'error', url: null, error: serveError('HTTPS certificates disabled') }
+    if (status.Self?.CapMap && !Object.hasOwn(status.Self.CapMap, 'https')) return { enabled, funnel: false, port, state: 'error', url: null, error: serveError('HTTPS certificates disabled') }
     const url = serveUrl(name, port)
     try {
       const raw = await this.command(['serve', 'status', '--json'])
-      let owner = serveOwnership(raw, port, localPort)
-      if (owner === 'other') {
-        const target = otherRootLoopbackTarget(raw, port)
-        if (target && !(await this.listenerExists(target.host, target.port))) owner = 'none'
-      }
-      return { enabled, port, state: owner === 'ours' ? 'active' : owner === 'other' ? 'other' : 'ready', url, error: owner === 'other' ? 'Another service uses this HTTPS port.' : null }
+      const owner = await this.ownerOf(raw, port, localPort)
+      // Funnel counts only on the mapping to this host: another owner's Funnel is not this host's address.
+      const funnel = owner === 'ours' && funnelAllowed(raw, name, port)
+      return { enabled, funnel, port, state: owner === 'ours' ? 'active' : owner === 'other' ? 'other' : 'ready', url, error: owner === 'other' ? 'Another service uses this HTTPS port.' : null }
     } catch (error) {
-      return { enabled, port, state: 'error', url, error: error instanceof Error ? error.message : String(error) }
+      return { enabled, funnel: false, port, state: 'error', url, error: error instanceof Error ? error.message : String(error) }
     }
   }
 
-  async enable(port: number, localPort: number): Promise<TailscaleServeStatus> {
+  /** Who owns the root mapping of `port`. A loopback mapping whose target no longer listens is free to take. */
+  private async ownerOf(raw: string, port: number, localPort: number): Promise<'none' | 'ours' | 'other'> {
+    const owner = serveOwnership(raw, port, localPort)
+    if (owner !== 'other') return owner
+    const target = otherRootLoopbackTarget(raw, port)
+    return target && !(await this.listenerExists(target.host, target.port)) ? 'none' : 'other'
+  }
+
+  /**
+   * Serve this host at `port`. A mapping that this call makes has Funnel on when
+   * `funnel` is true (the person's saved choice); a mapping that is already there
+   * keeps its Funnel as it is.
+   */
+  async enable(port: number, localPort: number, funnel = false): Promise<TailscaleServeStatus> {
     const current = await this.status(true, port, localPort)
     if (current.state === 'error' || current.state === 'other') throw new Error(current.error ?? 'Tailscale Serve is unavailable.')
     if (current.state !== 'active') {
-      await this.command(['serve', '--bg', `--https=${port}`, `http://127.0.0.1:${localPort}`])
+      const withFunnel = funnel && funnelPortError(port) === null
+      await this.command([withFunnel ? 'funnel' : 'serve', '--bg', `--https=${port}`, `http://127.0.0.1:${localPort}`])
       this.madePort = port
     }
     const next = await this.status(true, port, localPort)
     if (next.state !== 'active') throw new Error(next.error ?? 'Tailscale Serve did not start.')
     this.madePort = port
+    return next
+  }
+
+  /**
+   * Funnel on or off for the mapping to this host, at the same HTTPS port and
+   * target, so the address stays the same. Only the mapping to this host is
+   * changed: Serve must be on and the mapping this host's own. Off sets the
+   * mapping again with `tailscale serve`, which removes only its Funnel.
+   */
+  async setFunnel(enabled: boolean, port: number, localPort: number): Promise<TailscaleServeStatus> {
+    if (enabled) {
+      const portError = funnelPortError(port)
+      if (portError) throw new Error(portError)
+    }
+    const current = await this.status(true, port, localPort)
+    if (current.state === 'error' || current.state === 'other') throw new Error(current.error ?? 'Tailscale Serve is unavailable.')
+    if (current.state !== 'active') throw new Error('Turn on Tailscale HTTPS for this host first.')
+    if (current.funnel === enabled) return current
+    try {
+      await this.command([enabled ? 'funnel' : 'serve', '--bg', `--https=${port}`, `http://127.0.0.1:${localPort}`])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(message === serveError('') ? 'Tailscale Funnel did not change. Check `tailscale funnel status` and try again.' : message)
+    }
+    const next = await this.status(true, port, localPort)
+    if (next.state !== 'active' || next.funnel !== enabled) throw new Error(next.error ?? `Tailscale Funnel did not turn ${enabled ? 'on' : 'off'}. Check \`tailscale funnel status\` and try again.`)
     return next
   }
 
@@ -184,7 +245,8 @@ export class TailscaleServe {
     } catch { return false }
   }
 
-  startRepair(port: number, localPort: number, onChanged?: (status: TailscaleServeStatus) => void): void {
+  /** Every 30 seconds, makes the mapping again when it is gone, with Funnel when `wantsFunnel` says the person chose it. */
+  startRepair(port: number, localPort: number, onChanged?: (status: TailscaleServeStatus) => void, wantsFunnel: () => boolean = () => false): void {
     this.stopRepair()
     let lastState: TailscaleServeStatus['state'] = 'active'
     let lastError: string | null = null
@@ -192,7 +254,7 @@ export class TailscaleServe {
       void (async () => {
         let status = await this.status(true, port, localPort)
         if (status.state === 'ready') {
-          try { status = await this.enable(port, localPort) }
+          try { status = await this.enable(port, localPort, wantsFunnel()) }
           catch { status = await this.status(true, port, localPort) }
         }
         if (status.state !== lastState || status.error !== lastError) onChanged?.(status)
