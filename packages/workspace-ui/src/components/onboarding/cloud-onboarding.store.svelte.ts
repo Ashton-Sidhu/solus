@@ -20,7 +20,7 @@ import {
 import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/known-host'
 import type { ServerItem } from '../../contexts/connections/servers.store.svelte'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
-import type { OnboardingStage } from './lib/onboarding-model'
+import type { OnboardingStep } from './lib/onboarding-model'
 import type { GetStartedFacts } from './lib/get-started'
 import { cloudAgentSeatsStore } from '../../contexts/seats/cloud-agent-seats.store.svelte'
 import { ensureRepositoryCheckout, type CheckoutStep } from '../../contexts/workspace/repository-checkout'
@@ -64,8 +64,12 @@ class CloudOnboardingStore {
   /** Why the last Start could not prepare the repository; Start tries again. */
   repositoryPreparationError = $state<string | null>(null)
 
-  /** A "Get started" item reopened the flow at this stage; null when it is not reopened. */
-  reopenedAt = $state<OnboardingStage | null>(null)
+  /** Start makes the chosen repository a project on its machine; this is the
+   *  checkout it made, which the draft opens in. */
+  preparedCheckout = $state<{ serverId: string; path: string } | null>(null)
+
+  /** A "Get started" item reopened the flow at this step; null when it is not reopened. */
+  reopenedAt = $state<OnboardingStep | null>(null)
 
   /** Only the web client at a signed-in Solus Cloud origin has an account. */
   get isCloud(): boolean {
@@ -83,17 +87,39 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Opens the flow again at the stage that sets one "Get started" item.
+   * Opens the flow again at the step that sets one "Get started" item.
    * Agent connections can be checked before a machine is chosen.
    */
-  reopenAt(stage: OnboardingStage): void {
-    this.reopenedAt = stage
+  reopenAt(step: OnboardingStep): void {
+    this.reopenedAt = step
   }
 
   get organization(): AccountOrganization | null {
     const account = this.account
     if (!account) return null
     return account.organizations.find((entry) => entry.organizationId === account.activeOrganizationId) ?? null
+  }
+
+  /**
+   * Renames the active organization, which ends the name sign-up gave it
+   * (docs/plans/one-page-onboarding.md decision 2). The header shows the new
+   * name at once and puts the old one back when Solus Cloud does not confirm.
+   */
+  async renameOrganization(name: string): Promise<boolean> {
+    const organization = this.organization
+    const account = cloudAccount()
+    const next = name.trim()
+    if (!organization || !account || !next) return false
+    if (next === organization.name && !organization.namePending) return true
+    const previous = { name: organization.name, namePending: organization.namePending }
+    organization.name = next
+    organization.namePending = false
+    const saved = await account.renameOrganization(organization.organizationId, next).catch(() => false)
+    if (!saved) {
+      organization.name = previous.name
+      organization.namePending = previous.namePending
+    }
+    return saved
   }
 
   /** What "Runs on" and "Size" offer for a new cloud host; absent from an older Solus Cloud. */
@@ -336,41 +362,48 @@ class CloudOnboardingStore {
   }
 
   /**
-   * Start, with a repository chosen: makes it a project on the machine it will
-   * run on — the chosen machine, else the run-on rule's — and only then opens
-   * a draft in that checkout, so the composer the person lands in can send at
-   * once. A checkout an online machine already holds opens without a clone.
-   * False keeps onboarding open: the stage shows why, and Start tries again.
-   * With no machine at all, the draft opens unbound and the run picker says why.
+   * Clone and start, with a repository chosen: makes it a project on the
+   * machine it will run on — the chosen machine, else the run-on rule's — so
+   * the draft the person lands in can send at once. A checkout an online
+   * machine already holds is used without a clone. False keeps onboarding
+   * open on the code step, which shows why; the action tries again. With no
+   * machine at all, nothing is prepared and the draft opens unbound.
    */
-  async openChosenRepository(workspace: Pick<WorkspaceContext, 'opening' | 'drafts' | 'router'>): Promise<boolean> {
+  async prepareChosenRepository(workspace: Pick<WorkspaceContext, 'opening'>): Promise<boolean> {
     const repositoryKey = this.chosenRepositoryKey
     if (!repositoryKey || this.repositoryPreparation) return false
-    const preferredServerId = this.chosenServerId ?? undefined
-    const choice = workspace.opening.repositoryRunOn(repositoryKey, preferredServerId)
-    if (!choice) {
-      workspace.opening.openRepositoryDraft(repositoryKey, undefined, preferredServerId)
+    this.preparedCheckout = null
+    const choice = workspace.opening.repositoryRunOn(repositoryKey, this.chosenServerId ?? undefined)
+    if (!choice) return true
+    this.repositoryPreparationError = null
+    if (choice.path) {
+      this.preparedCheckout = { serverId: choice.serverId, path: choice.path }
       return true
     }
-    this.repositoryPreparationError = null
-    let path = choice.path
-    if (!path) {
-      this.repositoryPreparation = { serverId: choice.serverId, step: 'reaching' }
-      try {
-        path = await ensureRepositoryCheckout(choice.serverId, repositoryKey, (step) => {
-          if (this.repositoryPreparation) this.repositoryPreparation.step = step
-        })
-      } catch (error) {
-        this.repositoryPreparationError = error instanceof Error ? error.message : String(error)
-        return false
-      } finally {
-        this.repositoryPreparation = null
-      }
+    this.repositoryPreparation = { serverId: choice.serverId, step: 'reaching' }
+    try {
+      const path = await ensureRepositoryCheckout(choice.serverId, repositoryKey, (step) => {
+        if (this.repositoryPreparation) this.repositoryPreparation.step = step
+      })
       // Skipped while it cloned: the person is already working elsewhere.
       if (!this.isOpen) return false
+      this.preparedCheckout = { serverId: choice.serverId, path }
+      return true
+    } catch (error) {
+      this.repositoryPreparationError = error instanceof Error ? error.message : String(error)
+      return false
+    } finally {
+      this.repositoryPreparation = null
     }
-    workspace.drafts.openSessionDraft({ serverId: choice.serverId, target: 'leading' }, path)
-    return true
+  }
+
+  /** Start in the repository: a draft in the prepared checkout, else an unbound draft whose run picker says why. */
+  openChosenRepository(workspace: Pick<WorkspaceContext, 'opening' | 'drafts'>): void {
+    const repositoryKey = this.chosenRepositoryKey
+    if (!repositoryKey) return
+    const prepared = this.preparedCheckout
+    if (prepared) workspace.drafts.openSessionDraft({ serverId: prepared.serverId, target: 'leading' }, prepared.path)
+    else workspace.opening.openRepositoryDraft(repositoryKey, undefined, this.chosenServerId ?? undefined)
   }
 
   /**

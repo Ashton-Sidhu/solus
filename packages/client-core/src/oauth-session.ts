@@ -93,6 +93,8 @@ export interface OAuthSessionDeps {
   store: TokenStore
   /** Absent where the client has no browser step (the CLI's device grant). */
   authorizer?: BrowserAuthorizer
+  /** Sent as `machine_name` with the authorize request, so the sign-in page can name this machine. */
+  machineName?: string
   fetch: FetchLike
   now: () => number
   log?: OAuthSessionLog
@@ -363,6 +365,7 @@ export class OAuthSession {
     query.set('nonce', pending.nonce)
     query.set('code_challenge', challenge)
     query.set('code_challenge_method', 'S256')
+    if (this.deps.machineName) query.set('machine_name', this.deps.machineName)
     query.append('resource', ACCOUNT_AUDIENCE)
     query.append('resource', SOLUS_API_AUDIENCE)
     this.setState({ kind: 'signing-in', authorizeUrl: authorizeUrl.toString() })

@@ -10,7 +10,7 @@ import { credentialLocationOf, isMachineOwner, usesAccountIntegration, vault, ty
 import type { ProviderAuth } from '../types'
 import { authorizeWithDeviceFlow } from './auth'
 import { GITHUB_CLIENT_ID } from './client-id'
-import { clearDelegation, loadDelegation, saveDelegation } from './delegation-store'
+import { clearDelegation, clearOwnerAccountToken, loadDelegation, loadOwnerAccountToken, saveDelegation, saveOwnerAccountToken } from './delegation-store'
 import { clientFor, type GitHubClient } from './octokit'
 
 /**
@@ -70,6 +70,8 @@ export interface GitHubCredentialsDeps {
   /** What `gh config get http_unix_socket` prints for `host`; empty when it is not set. */
   ghUnixSocket: (host: string) => Promise<string>
   delegations: GithubDelegations
+  /** The copy of the signed-in machine owner's account login that `solus git-credential` serves. */
+  ownerAccountCopy: { load(): string | null; save(accessToken: string): void; clear(): void }
   /** The paired device whose dispatch checkout `cwd` is, or null. */
   checkoutOwnerOf: (cwd: string) => Promise<string | null>
 }
@@ -108,6 +110,8 @@ export class GitHubCredentials implements ProviderAuth {
   /** One device flow per person: on the workspace service several people may be connecting at once (cloud-service-model.md §22). */
   private readonly connecting = new Map<string, AbortController>()
   private readonly ghCredentialByHost = new Map<string, { credential: Promise<GithubCredential | null>; readAt: number }>()
+  /** The token last written to the owner's account copy, so an unchanged read writes nothing. */
+  private ownerCopyToken: string | null = null
 
   constructor(private readonly deps: GitHubCredentialsDeps) {}
 
@@ -193,6 +197,37 @@ export class GitHubCredentials implements ProviderAuth {
     this.deps.delegations.save(deviceId, credential)
   }
 
+  /**
+   * The signed-in machine owner's account login, for `solus git-credential`: a
+   * push in a checkout that Solus cloned with that login must find it too.
+   * GitHub OAuth App tokens neither expire nor rotate, so a copy cannot sign
+   * the account out (unlike an agent login). Null when the owner is signed out.
+   */
+  ownerAccountCopy(): string | null {
+    try {
+      return this.deps.ownerAccountCopy.load()
+    } catch {
+      return null
+    }
+  }
+
+  /** The owner signed out: the copy goes with the delegation that brought it (ADR 0001 rule 5). */
+  forgetOwnerAccountCopy(): void {
+    this.ownerCopyToken = null
+    this.deps.ownerAccountCopy.clear()
+  }
+
+  private keepOwnerAccountCopy(token: string): void {
+    if (token === this.ownerCopyToken) return
+    try {
+      this.deps.ownerAccountCopy.save(token)
+      this.ownerCopyToken = token
+    } catch (error) {
+      // The API still has the account's login; only a push must find another.
+      log.warn('github_owner_account_copy_failed', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
   /** Forgets a revoked device's credential. */
   revokeDelegation(deviceId: string): void {
     this.deps.delegations.clear(deviceId)
@@ -248,10 +283,13 @@ export class GitHubCredentials implements ProviderAuth {
       }
       case 'host':
         return signedWith((await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken)
-      case 'account':
+      case 'account': {
         // The account holds a github.com login only.
         if (host !== 'github.com') return null
-        return signedWith((await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken)
+        const token = (await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken
+        if (token && isMachineOwner(personKey)) this.keepOwnerAccountCopy(token)
+        return signedWith(token)
+      }
       case 'gh-cli':
         return this.ghCredential(host)
     }
@@ -290,6 +328,7 @@ const HOST_DEPS: GitHubCredentialsDeps = {
   ghToken: (host) => runAsync('gh', ['auth', 'token', '--hostname', host], ANY_DIRECTORY, { timeout: GH_TIMEOUT_MS }),
   ghUnixSocket: (host) => runAsync('gh', ['config', 'get', 'http_unix_socket', '--host', host], ANY_DIRECTORY, { timeout: GH_TIMEOUT_MS }),
   delegations: { load: loadDelegation, save: saveDelegation, clear: clearDelegation },
+  ownerAccountCopy: { load: loadOwnerAccountToken, save: saveOwnerAccountToken, clear: clearOwnerAccountToken },
   // The layout module is loaded on demand: it reaches the worktree manager and
   // the database, which a plain provider read has no business loading.
   checkoutOwnerOf: async (cwd) => {

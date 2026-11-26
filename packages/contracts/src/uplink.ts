@@ -660,6 +660,8 @@ export const accountOrganizationSchema = z.object({
   mayCreateManagedHost: z.boolean(),
   /** The organization's host rules (§3.1). */
   hostRules: hostRulesSchema,
+  /** Sign-up named it for the person; the app header offers to rename it (docs/plans/one-page-onboarding.md decision 2). Absent from an older control plane. */
+  namePending: z.boolean().optional().catch(undefined),
 })
 export type AccountOrganization = z.infer<typeof accountOrganizationSchema>
 
@@ -1164,6 +1166,9 @@ export interface HostRegistrationRequest {
   directoryUrl: string
   /** The machine's own HTTPS address, for an organization ticket (`enrollHostRequestSchema`). */
   address?: string
+  /** `false` registers without turning the link on: the desktop's own host stays off the
+   *  internet until its owner turns Link on (docs/plans/one-page-onboarding.md decision 4). */
+  link?: boolean
 }
 
 /** Whether the host is registered to an account (rule 8), and whose. */

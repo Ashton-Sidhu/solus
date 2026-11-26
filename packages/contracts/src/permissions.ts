@@ -90,6 +90,8 @@ const PERMISSION_OF_METHOD = {
   configUpdate: 'host.admin',
   setProjectsBaseDirectory: 'host.admin',
   deleteProject: 'host.admin',
+  // Names folders across the host owner's whole home, from their Claude Code and Codex history.
+  agentHistoryProjects: 'host.admin',
   hostCheckForUpdates: 'host.admin',
   hostInstallUpdate: 'host.admin',
   hostCancelUpdate: 'host.admin',

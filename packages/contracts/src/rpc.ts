@@ -282,6 +282,7 @@ export const RPC_INVOKE_METHODS = [
   'projectConfigSave',
   'listProjects',
   'listProjectIdentities',
+  'agentHistoryProjects',
   'resolveDispatchHistoryRoots',
   'deleteProject',
   'untrackProject',

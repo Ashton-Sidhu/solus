@@ -16,6 +16,8 @@ export interface AccountSessionDeps {
   store: AccountStore
   /** The loopback browser step (`loopback-authorizer.ts`). */
   authorizer: BrowserAuthorizer
+  /** This Mac's name, shown on the sign-in page. */
+  machineName: string
   fetch: typeof fetch
   now: () => number
   onStateChange: (state: AccountState) => void
@@ -42,6 +44,7 @@ export class AccountSession {
       clientId: SOLUS_CLIENT_IDS.desktop,
       store: deps.store,
       authorizer: deps.authorizer,
+      machineName: deps.machineName,
       fetch: deps.fetch,
       now: deps.now,
       log: { info: (event, data) => log.info(event, data ?? {}), warn: (event, data) => log.warn(event, data ?? {}) },
