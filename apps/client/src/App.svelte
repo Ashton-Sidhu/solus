@@ -4,9 +4,10 @@
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
-  import OutsideAppsDialogHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsDialogHost.svelte";
-  import { outsideAppsDialog } from "@solus/workspace-ui/components/connections/outside-apps/outside-apps-dialog.svelte";
+  import OutsideAppsCopyFallbackHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsCopyFallbackHost.svelte";
+  import { outsideApps } from "@solus/workspace-ui/components/connections/outside-apps/outside-apps.svelte";
   import { appSignInFromSearch, searchWithoutAppSignIn } from "@solus/workspace-ui/components/connections/lib/app-sign-in";
+  import { sharingAccessRoute } from "@solus/workspace-ui/components/connections/lib/sharing-access";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -225,7 +226,7 @@
     const target = appSignInFromSearch(location.search);
     if (!target) return;
     history.replaceState(history.state, "", `${location.pathname}${searchWithoutAppSignIn(location.search)}${location.hash}`);
-    outsideAppsDialog.openSignInLink(target);
+    outsideApps.openSignInLink(target, (serverId) => session.router.navigate(sharingAccessRoute(serverId), { replace: false }));
   });
 
   let commandPaletteOpen = $state(false);
@@ -763,7 +764,7 @@
 </LazyDialog>
 
 <SessionLinkPrompts />
-<OutsideAppsDialogHost />
+<OutsideAppsCopyFallbackHost />
 <BackgroundSessionAnnouncer />
 
 {#if isDraggingFile}

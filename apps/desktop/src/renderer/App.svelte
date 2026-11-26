@@ -22,7 +22,7 @@
 
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
-  import OutsideAppsDialogHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsDialogHost.svelte";
+  import OutsideAppsCopyFallbackHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsCopyFallbackHost.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
@@ -510,7 +510,7 @@
 
 
     <SessionLinkPrompts />
-    <OutsideAppsDialogHost />
+    <OutsideAppsCopyFallbackHost />
     <BackgroundSessionAnnouncer />
 
     {#if sessionRename && session.tabs[sessionRename.tabId]}

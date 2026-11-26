@@ -1,5 +1,6 @@
 import type { AppAddress, AppAddressSource, TailscaleServeStatus } from '@solus/contracts/host-api'
 import type { AppAddressTestState } from '../../../contexts/connections/connections.store.svelte'
+import { tailscaleServeStateText } from './tailscale-serve'
 
 /**
  * The addresses where an outside app reaches a host's `/mcp` (plans/035 §0.8):
@@ -22,7 +23,7 @@ export function preferredAppAddress(addresses: readonly AppAddress[], reach: App
   return null
 }
 
-/** The name of an address's source, as the dialog and Sharing & access show it. */
+/** The name of an address's source, as an open row of Sharing & access shows it. */
 export function appAddressSourceLabel(source: AppAddressSource): string {
   switch (source) {
     case 'solus': return 'Solus Cloud'
@@ -30,10 +31,6 @@ export function appAddressSourceLabel(source: AppAddressSource): string {
     case 'tailscale-serve': return 'Tailscale Serve'
     case 'custom': return 'Your own address'
   }
-}
-
-export function appAddressReachLabel(reach: AppAddress['reach']): string {
-  return reach === 'internet' ? 'Internet' : 'Your tailnet'
 }
 
 /** The host could not reach its own address from itself (a router without NAT loopback), which says nothing about other devices. */
@@ -90,29 +87,52 @@ export function publicAddressProblem(value: string): string | null {
   return url.protocol === 'https:' ? null : 'Use an https address. Apps sign in only over https.'
 }
 
-/** The port of the host's local address, which the person's own ingress proxies to; null when it has none. */
-export function localPortOf(localUrl: string): string | null {
-  try {
-    const url = new URL(localUrl)
-    return url.port || (url.protocol === 'https:' ? '443' : '80')
-  } catch {
-    return null
-  }
-}
-
-/** One address on Settings › Sharing & access. `source` is null for the local one, which needs no test. */
-export interface AppAddressRow {
-  source: AppAddressSource | null
+/** One row of "Where apps reach this host" on Settings › Sharing & access. */
+export interface ReachRow {
+  place: 'anywhere' | 'devices' | 'computer'
   label: string
-  url: string
-  reach: string
+  detail: string
+  /** Null when the host has no such address yet. */
+  url: string | null
+  /** The address the host tests; null for the local one, which needs no test, and for none. */
+  source: AppAddressSource | null
+  /** The reach its "Set up" gives; null for the local address, which is always there. */
+  setupReach: AppAddressReach | null
 }
 
-/** Every address of a host for outside apps: the one on its own computer first, then the others in the order an app takes them. */
-export function appAddressRows(endpoint: { localUrl: string; addresses: readonly AppAddress[] }): AppAddressRow[] {
-  const others = [...endpoint.addresses].sort((a, b) => ADDRESS_PREFERENCE.indexOf(a.source) - ADDRESS_PREFERENCE.indexOf(b.source))
+/** Anywhere (an internet address, for cloud apps), your devices (the tailnet), and this computer (the local address). */
+export function reachRows(endpoint: { localUrl: string; addresses: readonly AppAddress[] }, hostName: string): ReachRow[] {
+  const internet = preferredAppAddress(endpoint.addresses, 'internet')
+  const tailnet = endpoint.addresses.find((address) => address.reach === 'tailnet') ?? null
   return [
-    { source: null, label: "On the host's computer", url: endpoint.localUrl, reach: 'This computer' },
-    ...others.map((address) => ({ source: address.source, label: appAddressSourceLabel(address.source), url: address.url, reach: appAddressReachLabel(address.reach) })),
+    { place: 'anywhere', label: 'Anywhere', detail: 'Cloud apps', url: internet?.url ?? null, source: internet?.source ?? null, setupReach: 'internet' },
+    { place: 'devices', label: 'Your devices', detail: 'Over Tailscale', url: tailnet?.url ?? null, source: tailnet?.source ?? null, setupReach: 'internet-or-tailnet' },
+    { place: 'computer', label: 'This computer', detail: `Apps on ${hostName}`, url: endpoint.localUrl, source: null, setupReach: null },
   ]
+}
+
+/** The dot of an address: it answered the host's last test, it did not, or it was not tested. */
+export type AddressHealth = 'answers' | 'fails' | 'untested'
+
+export function addressHealth(test: AppAddressTestState | undefined, url: string): AddressHealth {
+  if (!test || test.url !== url || test.kind === 'running') return 'untested'
+  return test.kind === 'done' && test.reachable ? 'answers' : 'fails'
+}
+
+/** What the Tailscale card of the three ways says, and its one action. */
+export interface TailscaleCard {
+  summary: string
+  action: 'turn-on' | 'check' | null
+}
+
+export function tailscaleCard(way: TailscaleWay, status: TailscaleServeStatus | null, reach: AppAddressReach, hostName: string): TailscaleCard {
+  switch (way) {
+    case 'unknown': return { summary: `Install Tailscale on ${hostName} and sign in.`, action: 'check' }
+    case 'turn-on-serve': return { summary: 'Tailscale is on. No account needed.', action: 'turn-on' }
+    case 'turn-on-funnel': return reach === 'internet' ? { summary: 'Tailscale is on. No account needed.', action: 'turn-on' } : { summary: 'Tailscale Serve is on.', action: 'check' }
+    case 'serve-elsewhere':
+    case 'funnel-elsewhere': return { summary: `Turn it on from ${hostName} itself.`, action: 'check' }
+    case 'serve-waiting': return { summary: `Tailscale Serve: ${status ? tailscaleServeStateText(status.state) : 'starting'}.`, action: 'check' }
+    case 'funnel-on': return { summary: 'Funnel is on. The address comes in a moment.', action: 'check' }
+  }
 }

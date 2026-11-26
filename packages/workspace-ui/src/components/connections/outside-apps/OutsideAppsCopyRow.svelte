@@ -1,10 +1,10 @@
 <script lang="ts">
-  /** One value to copy in "Use Solus in other apps": its label, the value, and a
+  /** One value to copy in "Use Solus from your other apps": its label, the value, and a
    *  copy button whose icon is a check for 1.5 s after a copy. */
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { Button } from "../../ui/button";
   import type { CopiedValueKind } from "../lib/outside-apps-share";
-  import { outsideAppsDialog } from "./outside-apps-dialog.svelte";
+  import { outsideApps } from "./outside-apps.svelte";
 
   interface Props {
     label: string;
@@ -19,7 +19,7 @@
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function copy() {
-    if (!(await outsideAppsDialog.copy(kind, value))) return;
+    if (!(await outsideApps.copy(kind, value))) return;
     isCopied = true;
     if (resetTimer) clearTimeout(resetTimer);
     resetTimer = setTimeout(() => (isCopied = false), 1500);
@@ -32,7 +32,7 @@
 
 <div class="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-(--solus-surface-hover) py-1.5 pr-1.5 pl-3">
   <span class="shrink-0 text-chrome-dense text-(--solus-text-secondary)">{label}</span>
-  <code class="min-w-0 flex-1 truncate font-mono text-chrome-dense text-(--solus-text-primary) select-text">{value}</code>
+  <span class="min-w-0 flex-1 truncate text-chrome-dense text-(--solus-text-primary) select-text">{value}</span>
   <Button
     variant="ghost"
     size="icon-sm"

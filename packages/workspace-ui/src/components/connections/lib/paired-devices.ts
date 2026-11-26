@@ -1,5 +1,4 @@
 import type { AppAccess, PairedDevice } from '@solus/contracts/host-api'
-import { OUTSIDE_APP_NAMES } from '@solus/contracts/outside-apps'
 import { relativeTime } from '../../../lib/relative-time'
 
 const APP_ACCESS_LABELS = {
@@ -28,30 +27,21 @@ export function pairedDeviceDetail(device: PairedDevice, isConnected: boolean, n
  * it admits a token, at most once a minute, and the sign-in writes it as
  * `pairedAt`; so an app reads as not connected for its first minute.
  */
-function hasAppConnected(device: PairedDevice): boolean {
+export function hasAppConnected(device: PairedDevice): boolean {
   return device.lastSeenAt > device.pairedAt
 }
 
-/** How long after its last call an app shows as active. An app calls over HTTP and keeps no connection, so this is the nearest to "connected now". */
-export const APP_ACTIVE_MS = 5 * 60_000
-
-/** An app's status dot: green while it was used in the last five minutes. */
-export function isAppActive(device: PairedDevice, now = Date.now()): boolean {
-  return device.revokedAt === null && hasAppConnected(device) && now - device.lastSeenAt < APP_ACTIVE_MS
-}
-
-/** The apps "Revoke all apps" ends: every outside app that is not revoked. Devices stay. */
-export function revocableAppIds(devices: readonly PairedDevice[]): string[] {
-  return devices.filter((device) => device.app && device.revokedAt === null).map((device) => device.deviceId)
-}
-
-/** The confirmation of "Revoke all apps". */
+/** The confirmation of "Disconnect all apps". */
 export function revokeAllAppsQuestion(count: number, hostName: string): string {
-  return `Revoke ${count === 1 ? 'the connected app' : `all ${count} connected apps`}? ${count === 1 ? 'It loses' : 'They lose'} access to ${hostName} at once, and must sign in again.`
+  return `Disconnect ${count === 1 ? 'the connected app' : `all ${count} connected apps`}? ${count === 1 ? 'It loses' : 'They lose'} access to ${hostName} at once, and must sign in again.`
 }
 
-/** The app a paired row is, by name, beside its label: Claude, ChatGPT, Cursor. Null for a device, and for an app on the person's computer or one Solus cannot name, whose label already says what it is. */
-export function pairedDeviceAppName(device: PairedDevice): string | null {
-  const appId = device.app?.appId
-  return appId && appId !== 'local' && appId !== 'other' ? OUTSIDE_APP_NAMES[appId] : null
+/** The devices on Sharing & access: paired devices that are not outside apps and still have access. Apps are in the directory. */
+export function devicesWithAccess(devices: readonly PairedDevice[]): PairedDevice[] {
+  return devices.filter((device) => !device.app && device.revokedAt === null)
+}
+
+/** A device whose label names a phone or a tablet shows a phone icon; any other shows a computer. */
+export function isPhoneLabel(label: string): boolean {
+  return /\b(iphone|ipad|android|phone|pixel|galaxy|tablet)\b/i.test(label)
 }

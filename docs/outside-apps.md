@@ -6,40 +6,41 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
 
 Every person who uses the host can connect an app: the owner, and each member of an organization the host works for.
 
-1. Open **Settings → Sharing & access**, choose the host in the host picker, and select **Connect an app** under **Use Solus in other apps**. The picker starts on the host of the current session, else on the host of this device. A link names its host: `settings/sharing/<host id>`.
+1. Open **Settings → Sharing & access** and choose the host in the host picker. The picker starts on the host of the current session, else on the host of this device. A link names its host: `settings/sharing/<host id>`. The page starts with **Use Solus from your other apps**: a directory of every app, with a search field.
 
-   Other entry points open the same dialog or page:
-   - the command palette: **Use Solus in other apps** (search for "mcp", "connector", or an app name) and **Approve an app sign-in** open the dialog for this device's host; **Sharing & access** opens the page;
+   Other entry points open the same page:
+   - the command palette: **Use Solus in other apps** (search for "mcp", "connector", or an app name) opens it for this device's host, **Approve an app sign-in** opens it on **Approve a sign-in**, and **Sharing & access** opens it;
    - the host's menu on Settings → Hosts (right-click a host on the map or in the list, or press the menu key): **Use Solus in other apps…**, **Copy MCP address**, and **Sharing & access**;
    - on mobile, the host page.
-2. **Which app?** Choose Claude, ChatGPT, Grok Bot, Poke, Muse, Instinct, Cursor, Claude Code, Codex, OpenClaw, or Hermes Agent. For another app, choose **Something else…**. An app that your organization does not allow is marked and cannot be chosen. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
-3. **What can the app do?** Choose Read, Read and write (the default), or Full. See [Access](#access).
-4. **Connect.**
-   - The main button opens the app with the address filled in, or copies the address or a message and then opens the app. Cursor installs Solus from one link. For an app that runs on a command line, Solus shows the commands to run.
-   - For a cloud app that opens a link, a QR code opens the same link on your phone. For ChatGPT, which takes a pasted address, the QR code gives the address to your phone.
-   - **Get code** makes a pairing code for the access you chose. It shows "Expires m:ss · one use" and counts down. When it expires, get a new code. Solus does not copy the code for you.
-   - **Set up another way** shows the address, the message, the steps for that app, a note about the app, and a link to the app's help.
+2. **Choose the app.** The left column has the apps that run in the cloud: Claude, ChatGPT, Grok Bot, Poke, Muse, and Instinct. The right column has the apps that run on a computer: Cursor, Claude Code, Codex, OpenClaw, and Hermes Agent, and last **Another MCP app**. Each row shows **Connect**, or **✓ Connected** for an app that signed in. An app that your organization does not allow shows **Not allowed**. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
+3. **Connect.** Select a row. It opens in place, and its button becomes **Cancel** (or press Escape).
+   - A cloud app, and Cursor: choose what the app can do (Read, Read and write, the default, or Full; see [Access](#access)). The main button opens the app with the address filled in, or copies the address or a message and then opens the app. Cursor installs Solus from one link. The code card shows a pairing code for that access and its time left ("9:12 left"); a new access level gets a new code. Under it, Solus waits for the app to sign in. **Set up another way** shows the address, the message, the steps for that app, and a link to the app's help.
+   - An app that runs on a command line: Solus shows the commands to run where the app runs, with **Copy commands**. The app opens its sign-in page; approve it there.
+   - **Another MCP app**: the address, the steps, the access, and a pairing code.
+   - A connected app: when it connected, when it was last used, and its access, with **Connect again** and **Disconnect**. The host cannot change the access of a connected app: to change it, connect the app again at the new level, then disconnect the old connection.
+
+   Sign-ins that match no app of the directory are listed under it, each with **Disconnect**. **Disconnect all apps** ends every app's access at once. Only the host's owner sees which apps signed in.
 5. The app opens a sign-in page on the host. The page names the app, and the place where its access goes. When the app is on the computer that opened the page, the page says so. Approve the app in one of these ways:
    - **Approve in Solus.** Choose the access, then approve as yourself in a Solus client where you are signed in. This works for the owner and for members, also through the public address. The page shows a code and a QR code, and waits ten minutes:
      - On your phone, scan the QR code with the camera. The Solus app opens the sign-in.
-     - On desktop or web, open **Approve a sign-in** in **Use Solus in other apps** (or the command palette command **Approve an app sign-in**) and type the code.
+     - On desktop or web, select **Approve a sign-in** at the top of **Use Solus from your other apps** (or use the command palette command **Approve an app sign-in**) and type the code.
      - When the host serves its web client at the page's address, **Open Solus on the web** opens the sign-in there.
 
      Solus shows the app, where its access goes, the access, and the time left. **Approve** or **Deny**. Then go back to the app.
    - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page approves as you with one click, with the access chosen on the page.
-   - **Pairing code.** Type a code from step 4. The code gives the access that was chosen when it was made.
+   - **Pairing code.** Type the code from the code card. The code gives the access that was chosen when it was made.
    - **Ask the host owner.** On the host's own network, the owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
 
    **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
 Through an address that comes through a proxy (the Solus tunnel, Tailscale Serve or Funnel, or your own address), and on a cloud machine, the owner is not asked: approve in Solus, or use a pairing code. See [Security](#security).
 
-### Before the steps
+### When the host has no address
 
-Apps that run in the cloud need an address that the internet reaches. Before the steps, Solus checks that the host has one, and tests it.
+Apps that run in the cloud need an address that the internet reaches. Before an app's code shows, Solus checks that the host has one, and tests it.
 
-- **No address.** Solus shows one screen, **Give {host} an address apps can reach**, with three ways. See [Give the host an address](#give-the-host-an-address).
-- **The test.** Solus tests the chosen address before the steps: the host asks its own address, as an app does. When the test fails, Solus shows the reason and **Check again**. When the host cannot reach its own address (see [the test](#test-an-address)), Solus also shows **Go on anyway**.
+- **No address.** The page shows **Cloud apps can't reach {host} yet** above the directory, with three ways: **Tailscale Funnel** (**Turn on**, only for a local owner), **Solus Cloud** (**Sign in and link**), and **Your own address** (**Add address**, then **Save and test**). The cloud apps show **Needs address**, and a connected cloud app shows **Can't reach Solus**. See [Give the host an address](#give-the-host-an-address).
+- **The test.** Solus tests the chosen address before the code shows: the host asks its own address, as an app does. When the test fails, Solus shows the reason and **Check again**. When the host cannot reach its own address (see [the test](#test-an-address)), Solus also shows **Go on anyway**.
 
 An app on the host's own computer, such as Claude Code or Codex next to the desktop app, uses `http://localhost:<port>/mcp` and needs no other address. An app on another computer of yours can also use the Tailscale Serve address.
 
@@ -71,7 +72,7 @@ A host does not have to be linked to a Solus account for outside apps. The host 
 | Tailscale Serve | Only the devices on your tailnet | A local owner, on desktop or web (not on a phone) |
 | Your own https address | The internet, or what your proxy allows | A host administrator (`host.admin`), on desktop, web, or phone |
 
-**Settings → Sharing & access** lists each address with its source, who can reach it, a copy button, and its last test. The own address setting is on the same page.
+**Where apps reach this host** on **Settings → Sharing & access** lists three places: **Anywhere** (the internet address that cloud apps use), **Your devices** (the Tailscale Serve address), and **This computer** (the local address). Each has a copy button and a dot for its last test. **Set up** or **Change** opens the three ways. Under it, **Devices** lists the phones and computers that use the host, with **Revoke**, **Pair a device**, and the machines that ask to pair.
 
 ### The order of the addresses
 
@@ -107,7 +108,7 @@ Funnel has these rules:
 
 ### Your own address
 
-Use your own reverse proxy (Caddy, nginx, and others) or a tunnel of your own (for example Cloudflare Tunnel or ngrok). Then set the https origin in **Settings → Sharing & access → Your own address**, for example `https://solus.example.com`. Solus keeps only the origin: the scheme, the name, and the port.
+Use your own reverse proxy (Caddy, nginx, and others) or a tunnel of your own (for example Cloudflare Tunnel or ngrok). Then set the https origin in **Settings → Sharing & access**: **Your own address**, **Add address**, for example `https://solus.example.com`. Solus keeps only the origin: the scheme, the name, and the port.
 
 The rules:
 

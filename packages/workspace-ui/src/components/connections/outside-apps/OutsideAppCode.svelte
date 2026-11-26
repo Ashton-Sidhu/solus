@@ -1,62 +1,73 @@
 <script lang="ts">
-  /** The pairing code that approves an app on its sign-in page, for the access
-   *  chosen. It is made only when the person asks ("Get code"), it is never
-   *  copied by itself, and it counts down each second until it expires. The app
-   *  it approves acts as the person who made it (plans/035 §0.3). */
+  /** The code card of a cloud app's open row: the one-time code that approves
+   *  the app on its sign-in page, for the access chosen. The row makes it when
+   *  it opens and when the access changes; it counts down each second until it
+   *  expires. The app it approves acts as the person who made it (plans/035 §0.3). */
+  import { untrack } from "svelte";
   import type { AppAccess } from "@solus/contracts/host-api";
   import { connectionsStore } from "../../../contexts";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { Button } from "../../ui/button";
-  import { appAccessLabel } from "../lib/paired-devices";
   import { pairingCodeCountdown } from "../lib/outside-apps";
-  import OutsideAppsCopyRow from "./OutsideAppsCopyRow.svelte";
+  import { outsideApps } from "./outside-apps.svelte";
 
   interface Props {
     serverId: string;
     access: AppAccess;
+    appName: string;
   }
 
-  let { serverId, access }: Props = $props();
+  let { serverId, access, appName }: Props = $props();
 
   const connections = connectionsStore;
   let now = $state(Date.now());
-  // A code for another access level is not this one: the person gets a new code.
+  let isCopied = $state(false);
+  // A code for another access level is not this one: the row gets a new code.
   const hostCode = $derived(connections.appPairingCodeFor(serverId));
   const code = $derived(hostCode?.access === access ? hostCode : null);
   const codeError = $derived(connections.appPairingCodeErrorFor(serverId));
-  const countdown = $derived(code ? pairingCodeCountdown(code.expiresAt, now) : null);
+  const timeLeft = $derived(code ? pairingCodeCountdown(code.expiresAt, now) : null);
+
+  $effect(() => {
+    if (connections.appPairingCodeCreating || codeError || hostCode?.access === access) return;
+    untrack(() => void connections.createAppPairingCode(serverId, access));
+  });
 
   $effect(() => {
     if (!code) return;
     return liveActivityClock.subscribe((value) => { now = value; });
   });
+
+  async function copy() {
+    if (!code || !(await outsideApps.copy("code", code.code))) return;
+    isCopied = true;
+    setTimeout(() => (isCopied = false), 1500);
+  }
 </script>
 
-<div class="flex flex-col gap-1.5" aria-live="polite">
-  <div class="flex flex-wrap items-center justify-between gap-2">
-    <span class="text-workspace-chrome text-(--solus-text-primary)">
-      Code to approve <span class="font-medium">{appAccessLabel(access)}</span>
-    </span>
-    {#if !countdown}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={connections.appPairingCodeCreating}
-        onclick={() => void connections.createAppPairingCode(serverId, access)}
-      >
-        {connections.appPairingCodeCreating ? "Getting code…" : code ? "New code" : "Get code"}
+<div class="flex min-w-0 items-center justify-between gap-3 rounded-[0.625rem] bg-(--solus-code-bg) px-3.5 py-3 ring-1 ring-border" aria-live="polite">
+  <div class="flex min-w-0 flex-col gap-0.75">
+    <span class="text-chrome-dense text-(--solus-text-tertiary)">When {appName} asks for a code</span>
+    {#if code && timeLeft}
+      <span class="truncate text-[1.375rem] leading-7 font-semibold tracking-[0.06em] text-(--solus-text-primary) tabular-nums select-text">{code.code}</span>
+    {:else if codeError}
+      <span role="alert" class="text-chrome-dense text-(--solus-status-error)">{codeError}</span>
+    {:else if code}
+      <span class="text-workspace-chrome text-(--solus-text-secondary)">The code expired.</span>
+    {:else}
+      <span class="text-workspace-chrome text-(--solus-text-tertiary)">Getting a code…</span>
+    {/if}
+  </div>
+  <div class="flex shrink-0 flex-col items-end gap-0.75">
+    {#if code && timeLeft}
+      <Button variant="ghost" size="xs" class="-mr-2 text-[0.8125rem] text-primary hover:text-primary" onclick={() => void copy()}>
+        {isCopied ? "Copied" : "Copy"}
+      </Button>
+      <span class="text-chrome-dense text-(--solus-text-tertiary) tabular-nums">{timeLeft}</span>
+    {:else if code || codeError}
+      <Button variant="outline" size="sm" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>
+        {codeError ? "Try again" : "New code"}
       </Button>
     {/if}
   </div>
-  {#if code && countdown}
-    <OutsideAppsCopyRow label="Code" kind="code" value={code.code} />
-    <p class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{countdown}</p>
-  {:else if code}
-    <p class="text-chrome-dense text-(--solus-text-tertiary)">The code expired.</p>
-  {:else}
-    <p class="text-chrome-dense text-(--solus-text-tertiary)">Type it on the app's sign-in page. It works once, for 10 minutes.</p>
-  {/if}
-  {#if codeError}
-    <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{codeError}</p>
-  {/if}
 </div>

@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { claudeMcpAddCommand, copiedMcpAddress, OUTSIDE_APP_ACCESS_LEVELS, DEFAULT_OUTSIDE_APP_ACCESS, outsideAppsKeywords, pairingCodeCountdown } from '@solus/workspace-ui/components/connections/lib/outside-apps'
-import { isAppActive, pairedDeviceAppName, pairedDeviceDetail, revocableAppIds, revokeAllAppsQuestion } from '@solus/workspace-ui/components/connections/lib/paired-devices'
-import { appAddressRows, appAddressTestText, isHairpinReason, localPortOf, preferredAppAddress, publicAddressProblem, tailscaleWay } from '@solus/workspace-ui/components/connections/lib/app-addresses'
+import { devicesWithAccess, isPhoneLabel, pairedDeviceDetail, revokeAllAppsQuestion } from '@solus/workspace-ui/components/connections/lib/paired-devices'
+import { addressHealth, appAddressTestText, isHairpinReason, preferredAppAddress, publicAddressProblem, reachRows, tailscaleCard, tailscaleWay } from '@solus/workspace-ui/components/connections/lib/app-addresses'
 import type { AppAddress, TailscaleServeStatus } from '@solus/contracts/host-api'
 import { OUTSIDE_APP_GUIDES } from '@solus/contracts/outside-apps'
 
-// "Use Solus in other apps" (plans/035 §10). What a person would notice going
-// wrong: a copied address that does not work where they are, a code that looks
-// valid after it expired, an app that reads as a device or as connected when it
-// never called, "Revoke all apps" that also cuts off their devices, and a
+// "Use Solus from your other apps" (plans/035 §10). What a person would notice
+// going wrong: a copied address that does not work where they are, a code that
+// looks valid after it expired, an app listed among their devices or as used
+// when it never called, an address row that shows the wrong address, and a
 // palette search for an app that does not find the command.
 
 const SOLUS: AppAddress = { source: 'solus', url: 'https://box.solus.dev/mcp', reach: 'internet' }
@@ -19,18 +19,33 @@ const LOCAL_ONLY = { localUrl: 'http://localhost:4810/mcp', publicUrl: null, add
 const WITH_TUNNEL = { localUrl: 'http://localhost:4810/mcp', publicUrl: SOLUS.url, addresses: [SOLUS] }
 
 describe('the MCP address', () => {
-  test('a host with no other address shows only the address on its own computer', () => {
-    expect(appAddressRows(LOCAL_ONLY).map((row) => row.url)).toEqual(['http://localhost:4810/mcp'])
+  test('a host with no other address reaches only apps on its own computer', () => {
+    expect(reachRows(LOCAL_ONLY, 'Studio').map((row) => [row.label, row.url])).toEqual([
+      ['Anywhere', null],
+      ['Your devices', null],
+      ['This computer', 'http://localhost:4810/mcp'],
+    ])
   })
 
-  test('Sharing & access lists every address with its source and reach, in the order an app takes them', () => {
-    const rows = appAddressRows({ localUrl: 'http://localhost:4810/mcp', addresses: [SERVE, CUSTOM, SOLUS] })
-    expect(rows.map((row) => [row.label, row.reach])).toEqual([
-      ["On the host's computer", 'This computer'],
-      ['Solus Cloud', 'Internet'],
-      ['Your own address', 'Internet'],
-      ['Tailscale Serve', 'Your tailnet'],
+  test('Anywhere is the address a cloud app takes, and Your devices the tailnet one', () => {
+    // WHY: a cloud app must never be handed the tailnet address, and the row must show the address it will get.
+    const rows = reachRows({ localUrl: 'http://localhost:4810/mcp', addresses: [SERVE, CUSTOM, SOLUS] }, 'Studio')
+    expect(rows.map((row) => [row.place, row.url, row.source])).toEqual([
+      ['anywhere', SOLUS.url, 'solus'],
+      ['devices', SERVE.url, 'tailscale-serve'],
+      ['computer', 'http://localhost:4810/mcp', null],
     ])
+    expect(rows.map((row) => row.setupReach)).toEqual(['internet', 'internet-or-tailnet', null])
+    expect(rows[2]?.detail).toBe('Apps on Studio')
+  })
+
+  test('an address shows how its last test went, and a test of another url says nothing about it', () => {
+    expect(addressHealth(undefined, SOLUS.url)).toBe('untested')
+    expect(addressHealth({ kind: 'running', url: SOLUS.url }, SOLUS.url)).toBe('untested')
+    expect(addressHealth({ kind: 'done', url: SOLUS.url, reachable: true, reason: null, checkedAt: 1 }, SOLUS.url)).toBe('answers')
+    expect(addressHealth({ kind: 'done', url: SOLUS.url, reachable: false, reason: 'refused', checkedAt: 1 }, SOLUS.url)).toBe('fails')
+    expect(addressHealth({ kind: 'error', url: SOLUS.url, message: 'x' }, SOLUS.url)).toBe('fails')
+    expect(addressHealth({ kind: 'done', url: FUNNEL.url, reachable: true, reason: null, checkedAt: 1 }, SOLUS.url)).toBe('untested')
   })
 
   test('Copy MCP address gives the local address on the host computer, else one another computer reaches', () => {
@@ -73,12 +88,12 @@ describe('the palette command', () => {
 describe('the pairing code', () => {
   const now = 1_000_000
 
-  test('counts down to its expiry, and says it works once', () => {
-    expect(pairingCodeCountdown(now + 10 * 60_000, now)).toBe('Expires 10:00 · one use')
-    expect(pairingCodeCountdown(now + 61_500, now)).toBe('Expires 1:02 · one use')
+  test('counts down to its expiry', () => {
+    expect(pairingCodeCountdown(now + 10 * 60_000, now)).toBe('10:00 left')
+    expect(pairingCodeCountdown(now + 61_500, now)).toBe('1:02 left')
   })
 
-  test('has no countdown once its time is over, so the dialog says it expired', () => {
+  test('has no countdown once its time is over, so the code card says it expired', () => {
     expect(pairingCodeCountdown(now, now)).toBeNull()
     expect(pairingCodeCountdown(now - 1, now)).toBeNull()
   })
@@ -99,11 +114,16 @@ describe('an outside app in the paired devices list', () => {
     expect(pairedDeviceDetail(device, false, now)).toBe('Last seen 2h ago · paired 3d ago')
   })
 
-  test('a named app shows its name; a device, an app on the computer, and an unknown app do not', () => {
-    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'chatgpt' } })).toBe('ChatGPT')
-    expect(pairedDeviceAppName(device)).toBeNull()
-    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'local' } })).toBeNull()
-    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'other' } })).toBeNull()
+  test('Devices lists the devices that still have access; apps are in the directory', () => {
+    const app = { ...device, deviceId: 'a1', app: { access: 'read' as const, appId: 'chatgpt' as const } }
+    const revoked = { ...device, deviceId: 'd2', revokedAt: now }
+    expect(devicesWithAccess([device, app, revoked]).map((row) => row.deviceId)).toEqual(['d1'])
+  })
+
+  test('a phone or a tablet shows a phone icon, any other device a computer', () => {
+    expect(isPhoneLabel('Ashton’s iPhone')).toBe(true)
+    expect(isPhoneLabel('Pixel 9')).toBe(true)
+    expect(isPhoneLabel('Mac mini')).toBe(false)
   })
 })
 
@@ -114,24 +134,11 @@ describe('connected apps', () => {
   test('an app that has not called since its sign-in is not connected yet', () => {
     const fresh = { ...app, pairedAt: now - 30_000, lastSeenAt: now - 30_000 }
     expect(pairedDeviceDetail(fresh, false, now)).toBe('Read and write access · Not connected yet · paired just now')
-    expect(isAppActive(fresh, now)).toBe(false)
-  })
-
-  test('the dot is on while the app was used in the last five minutes, and off after', () => {
-    expect(isAppActive(app, now)).toBe(true)
-    expect(isAppActive({ ...app, lastSeenAt: now - 6 * 60_000 }, now)).toBe(false)
-    expect(isAppActive({ ...app, revokedAt: now }, now)).toBe(false)
-  })
-
-  test('Revoke all apps ends every app that is not revoked, and no device', () => {
-    const device = { deviceId: 'd1', deviceLabel: 'Phone', pairedAt: now, lastSeenAt: now, revokedAt: null }
-    const revoked = { ...app, deviceId: 'a2', revokedAt: now }
-    expect(revocableAppIds([app, device, revoked, { ...app, deviceId: 'a3' }])).toEqual(['a1', 'a3'])
   })
 
   test('the confirmation names how many apps lose access, and where', () => {
-    expect(revokeAllAppsQuestion(1, 'Studio')).toBe('Revoke the connected app? It loses access to Studio at once, and must sign in again.')
-    expect(revokeAllAppsQuestion(3, 'Studio')).toBe('Revoke all 3 connected apps? They lose access to Studio at once, and must sign in again.')
+    expect(revokeAllAppsQuestion(1, 'Studio')).toBe('Disconnect the connected app? It loses access to Studio at once, and must sign in again.')
+    expect(revokeAllAppsQuestion(3, 'Studio')).toBe('Disconnect all 3 connected apps? They lose access to Studio at once, and must sign in again.')
   })
 })
 
@@ -170,6 +177,15 @@ describe('the Tailscale choice', () => {
     expect(tailscaleWay(status({ state: 'ready' }), true)).toBe('serve-waiting')
     expect(tailscaleWay(null, true)).toBe('unknown')
   })
+
+  test('its card offers Turn on only to a local owner, and for a cloud app also when Serve is on', () => {
+    // WHY: Turn on for a cloud app turns on Serve and Funnel in one step; with Serve on, Funnel is still needed.
+    expect(tailscaleCard('turn-on-serve', null, 'internet', 'Studio').action).toBe('turn-on')
+    expect(tailscaleCard('turn-on-funnel', status({}), 'internet', 'Studio').action).toBe('turn-on')
+    expect(tailscaleCard('turn-on-funnel', status({}), 'internet-or-tailnet', 'Studio').action).toBe('check')
+    expect(tailscaleCard('serve-elsewhere', null, 'internet', 'Studio')).toEqual({ summary: 'Turn it on from Studio itself.', action: 'check' })
+    expect(tailscaleCard('unknown', null, 'internet', 'Studio').summary).toContain('Install Tailscale on Studio')
+  })
 })
 
 describe('Use your own address', () => {
@@ -178,10 +194,5 @@ describe('Use your own address', () => {
     expect(publicAddressProblem('  https://solus.example.com  ')).toBeNull()
     expect(publicAddressProblem('http://solus.example.com')).toContain('https')
     expect(publicAddressProblem('solus.example.com')).toContain('full address')
-  })
-
-  test('the hint names the local port the ingress proxies to', () => {
-    expect(localPortOf('http://localhost:4810/mcp')).toBe('4810')
-    expect(localPortOf('not a url')).toBeNull()
   })
 })

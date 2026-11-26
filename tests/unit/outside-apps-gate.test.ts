@@ -3,14 +3,14 @@ import type { AppAddress } from '@solus/contracts/host-api'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import type { AppAddressTests, AppEndpoint } from '@solus/workspace-ui/contexts/connections/connections.store.svelte'
 import {
-  gateAddressKind,
   registerWay,
   resolveOutsideAppGate,
+  solusCard,
   turnOnWay,
   type OutsideAppGateInput,
 } from '@solus/workspace-ui/components/connections/lib/outside-apps-gate'
 
-// The gate before the steps of "Use Solus in other apps" (after T3 Code's
+// The gate of an open row of "Use Solus from your other apps" (after T3 Code's
 // resolveMcpGate; plans/035 §0.8). What a person would notice going wrong: a
 // cloud app sent a tailnet address it cannot reach, or an address that does not
 // answer; a host with Tailscale or its own address stopped because it has no
@@ -153,25 +153,6 @@ describe('an app on the host computer', () => {
   })
 })
 
-describe('which address the gate checks', () => {
-  const cloud = { needsPublicUrl: true }
-  const onComputer = { needsPublicUrl: false }
-
-  test('on the host computer, the App step is open; a cloud app meets the gate only after it is chosen', () => {
-    expect(gateAddressKind(undefined, true)).toBe('local')
-    expect(gateAddressKind(cloud, true)).toBe('internet')
-    expect(gateAddressKind(onComputer, true)).toBe('local')
-    expect(gateAddressKind(null, true)).toBe('any-or-local')
-  })
-
-  test('on another computer, the App step needs an address of any reach, and a cloud app an internet one', () => {
-    expect(gateAddressKind(undefined, false)).toBe('internet-or-tailnet')
-    expect(gateAddressKind(onComputer, false)).toBe('internet-or-tailnet')
-    expect(gateAddressKind(null, false)).toBe('internet-or-tailnet')
-    expect(gateAddressKind(cloud, false)).toBe('internet')
-  })
-})
-
 describe('where the Solus Cloud address is turned on', () => {
   const base = { hostKind: 'personal' as const, control: 'manage' as const, mayReachLocally: true, locked: false }
 
@@ -197,5 +178,24 @@ describe('how the host is registered', () => {
     expect(registerWay({ control: 'manage', accountAvailable: true, canLink: false })).toBe('sign-in')
     expect(registerWay({ control: 'manage', accountAvailable: false, canLink: false })).toBe('elsewhere')
     expect(registerWay({ control: 'view', accountAvailable: true, canLink: true })).toBe('elsewhere')
+  })
+})
+
+describe('the Solus Cloud card of the three ways', () => {
+  test('one action for each state: sign in and link, link, or turn on', () => {
+    expect(solusCard({ kind: 'not-registered' }, 'sign-in', 'here', 'Studio').action).toBe('sign-in')
+    expect(solusCard({ kind: 'not-registered' }, 'register', 'here', 'Studio').action).toBe('link')
+    expect(solusCard({ kind: 'turn-on', turningOn: false, error: null }, 'register', 'here', 'Studio').action).toBe('turn-on')
+  })
+
+  test('a person who cannot change it here reads where to do it, and a policy says it keeps it off', () => {
+    expect(solusCard({ kind: 'not-registered' }, 'elsewhere', 'here', 'Studio')).toEqual({ summary: 'Link it from Studio itself, or from your Solus Cloud account.', action: 'check' })
+    expect(solusCard({ kind: 'turn-on', turningOn: false, error: null }, 'register', 'elsewhere', 'Studio').summary).toBe('Turn it on from Studio itself.')
+    expect(solusCard({ kind: 'turn-on', turningOn: false, error: null }, 'register', 'policy', 'Studio').action).toBe('policy')
+  })
+
+  test('a link that is down says why, and a card with nothing read yet offers nothing', () => {
+    expect(solusCard({ kind: 'down', reason: 'Tunnel offline' }, 'register', 'here', 'Studio')).toEqual({ summary: 'Tunnel offline', action: 'check' })
+    expect(solusCard(null, 'register', 'here', 'Studio')).toEqual({ summary: null, action: null })
   })
 })

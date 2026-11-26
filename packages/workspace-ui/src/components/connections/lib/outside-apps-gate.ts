@@ -2,13 +2,12 @@ import type { HostKind, UplinkStatus } from '@solus/contracts/uplink'
 import type { UplinkControl } from '@solus/client-core/uplink-control'
 import type { AppAddress, AppAddressSource } from '@solus/contracts/host-api'
 import type { AppAddressTests, AppEndpoint } from '../../../contexts/connections/connections.store.svelte'
-import type { OutsideAppGuide } from '@solus/contracts/outside-apps'
 import { isHairpinReason, type AppAddressReach } from './app-addresses'
-import { outsideAppAddress, outsideAppAddressKind, type OutsideAppAddressKind } from './outside-apps'
+import { outsideAppAddress, type OutsideAppAddressKind } from './outside-apps'
 
 /**
- * What stands between a person and the steps of "Use Solus in other apps"
- * (after T3 Code's `resolveMcpGate`). Only `open` lets them go on.
+ * What stands between a person and the steps of an open row of "Use Solus
+ * from your other apps" (after T3 Code's `resolveMcpGate`). Only `open` lets them go on.
  *
  * The rule (plans/035 §0.8): an app on the host's computer gets the local
  * address, which the host always serves, so it skips every other gate. Any
@@ -90,7 +89,8 @@ function noAddressGate(reach: AppAddressReach, { uplink, uplinkError, turningOn 
   return { kind: 'no-address', reach, solus: solusAddressState(uplink, turningOn) }
 }
 
-function solusAddressState(uplink: UplinkStatus, turningOn: boolean): SolusAddressState {
+/** Where the host's Solus Cloud address stands, for the gate and the Solus Cloud card. */
+export function solusAddressState(uplink: UplinkStatus, turningOn: boolean): SolusAddressState {
   if (!uplink.registration.registered) return { kind: 'not-registered' }
   if (!uplink.link.linked) return { kind: 'turn-on', turningOn, error: uplink.link.error ?? null }
   // Linked, and the address is not served yet: the tunnel is starting, or it is down.
@@ -131,13 +131,30 @@ export const TURN_ON_TIME_LIMIT_MS = 90_000
 export const TURN_ON_POLL_MS = 3_000
 
 /**
- * The address the gate checks. Before an app is chosen (the App step), it is
- * the address any app on this computer could use, so on the host's computer the
- * person picks an app first and meets an address gate only for an app that needs
- * it. On another computer, the App step needs an address of any reach; a cloud
- * app then needs an internet one. `guide`: undefined before a choice, null for "Something else…".
+ * What the Solus Cloud card of the three ways says, and its one action:
+ * `sign-in` ("Sign in and link"; the owner's client then registers the host by
+ * itself), `link` (register and turn on), `turn-on`, `check` (read again), or
+ * `policy` (a policy keeps it off). `summary` null keeps the card's own line.
  */
-export function gateAddressKind(guide: Pick<OutsideAppGuide, 'needsPublicUrl'> | null | undefined, onHostComputer: boolean): OutsideAppAddressKind {
-  if (guide === undefined) return onHostComputer ? 'local' : 'internet-or-tailnet'
-  return outsideAppAddressKind(guide, onHostComputer)
+export interface SolusCard {
+  summary: string | null
+  action: 'sign-in' | 'link' | 'turn-on' | 'check' | 'policy' | null
+}
+
+export function solusCard(state: SolusAddressState | null, register: RegisterWay, turnOn: TurnOnWay, hostName: string): SolusCard {
+  if (!state) return { summary: null, action: null }
+  switch (state.kind) {
+    case 'not-registered':
+      if (register === 'register') return { summary: null, action: 'link' }
+      if (register === 'sign-in') return { summary: null, action: 'sign-in' }
+      return { summary: `Link it from ${hostName} itself, or from your Solus Cloud account.`, action: 'check' }
+    case 'turn-on':
+      if (turnOn === 'here') return { summary: state.error, action: 'turn-on' }
+      if (turnOn === 'policy') return { summary: null, action: 'policy' }
+      if (turnOn === 'cloud') return { summary: `Solus Cloud gives ${hostName} its address while the machine runs.`, action: 'check' }
+      return { summary: `Turn it on from ${hostName} itself.`, action: 'check' }
+    case 'down':
+    case 'unreadable':
+      return { summary: state.reason, action: 'check' }
+  }
 }

@@ -2,7 +2,9 @@
   /** "Approve a sign-in" (plans/035 §0.5): an app's sign-in page waits with a
    *  check code. The person types that code (or pastes the page's
    *  `solus://approve-app` link), reads what the app asks for, and approves or
-   *  denies it as themself. A link opens this view with the sign-in shown. */
+   *  denies it as themself. A link opens this view with the sign-in shown.
+   *  Settings › Sharing & access shows it from its header action, the palette,
+   *  and a sign-in link. */
   import { onMount, tick } from "svelte";
   import { CircleCheck as ApprovedIcon, CircleX as DeniedIcon, TriangleAlert as WarningIcon } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -10,25 +12,29 @@
   import { Button } from "../../ui/button";
   import { Input } from "../../ui/input";
   import { appSignInAccess, appSignInDoneText, appSignInPlaceText, appSignInTimeLeft } from "../lib/app-sign-in";
+  import { serversStore } from "../../../contexts";
+  import { serverIdForAppSignIn } from "../lib/app-sign-in";
   import { AppSignInApproval } from "./app-sign-in-approval.svelte";
-  import { outsideAppsDialog } from "./outside-apps-dialog.svelte";
 
   interface Props {
     serverId: string;
     hostName: string;
     /** The sign-in a link named; null shows the code field. */
     signInRequestId: string | null;
+    /** Opens this view on another host, for a pasted link to a sign-in there. */
+    onOtherHost: (serverId: string, requestId: string) => void;
   }
 
-  let { serverId, hostName, signInRequestId }: Props = $props();
+  let { serverId, hostName, signInRequestId, onOtherHost }: Props = $props();
 
   const approval = new AppSignInApproval({
     // svelte-ignore state_referenced_locally
     serverId,
     // svelte-ignore state_referenced_locally
     api: serverConnections.apiFor(serverId),
-    serverIdFor: (hostId) => outsideAppsDialog.serverIdForSignIn(hostId),
-    onOtherHost: (otherServerId, requestId) => outsideAppsDialog.open(otherServerId, { view: "approve", signInRequestId: requestId }),
+    serverIdFor: (hostId) => serverIdForAppSignIn(hostId, serversStore.servers),
+    // svelte-ignore state_referenced_locally
+    onOtherHost,
   });
 
   let codeEl = $state<HTMLInputElement | null>(null);
@@ -98,7 +104,7 @@
           aria-invalid={approval.error ? true : undefined}
           aria-describedby={approval.error ? "outside-apps-approve-error" : undefined}
           disabled={phase.kind === "reading"}
-          class="font-mono tracking-wider"
+          class="tracking-wider"
         />
         <Button type="submit" size="sm" class="shrink-0" disabled={phase.kind === "reading" || approval.code.trim() === ""}>
           {phase.kind === "reading" ? "Reading…" : "Continue"}

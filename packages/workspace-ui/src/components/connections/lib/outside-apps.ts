@@ -10,14 +10,14 @@ export function claudeMcpAddCommand(address: string): string {
   return `claude mcp add --transport http solus ${address}`
 }
 
-/** The countdown of a pairing code: "Expires 9:41 · one use". Null once it expired. */
+/** The time left on a pairing code: "9:12 left". Null once it expired. */
 export function pairingCodeCountdown(expiresAt: number, now: number): string | null {
   const msLeft = expiresAt - now
   if (msLeft <= 0) return null
   const totalSeconds = Math.ceil(msLeft / 1000)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
-  return `Expires ${minutes}:${seconds.toString().padStart(2, '0')} · one use`
+  return `${minutes}:${seconds.toString().padStart(2, '0')} left`
 }
 
 /**
@@ -25,11 +25,11 @@ export function pairingCodeCountdown(expiresAt: number, now: number): string | n
  * - `internet`: a cloud app needs an address on the internet (Solus Cloud, Tailscale Funnel, or the person's own).
  * - `internet-or-tailnet`: an app on another computer than the host can also use Tailscale Serve on the tailnet.
  * - `local`: an app on the host's own computer uses the local address. It needs no other address, and there the owner can approve it in Solus.
- * - `any-or-local`: "Something else…" on the host's computer may be either kind, so it gets another address when there is one, else the local one.
+ * - `any-or-local`: "Another MCP app" on the host's computer may be either kind, so it gets another address when there is one, else the local one.
  */
 export type OutsideAppAddressKind = 'internet' | 'internet-or-tailnet' | 'local' | 'any-or-local'
 
-/** `guide` is null for "Something else…". `onHostComputer`: this client runs on the host's computer. */
+/** `guide` is null for "Another MCP app". `onHostComputer`: this client runs on the host's computer. */
 export function outsideAppAddressKind(guide: Pick<OutsideAppGuide, 'needsPublicUrl'> | null, onHostComputer: boolean): OutsideAppAddressKind {
   if (guide?.needsPublicUrl) return 'internet'
   if (!onHostComputer) return 'internet-or-tailnet'
@@ -72,7 +72,7 @@ export const OUTSIDE_APP_ACCESS_LEVELS: readonly OutsideAppAccessLevel[] = [
   { access: 'full', label: appAccessLabel('full'), effect: 'Also uses tools that ask for approval in Solus, such as running an automation or merging a pull request.' },
 ]
 
-/** The level the Access step starts at. */
+/** The level an open row starts at. */
 export const DEFAULT_OUTSIDE_APP_ACCESS: AppAccess = 'write'
 
 /** The primary action of an app's setup, from its handoff, with the address filled in. */
@@ -105,7 +105,7 @@ export function outsideAppAction(guide: Pick<OutsideAppGuide, 'name' | 'handoff'
   }
 }
 
-/** One app in the picker, and why the person's organization does not allow it (null when it does). */
+/** One app in the directory, and why the person's organization does not allow it (null when it does). */
 export interface OutsideAppChoice {
   guide: OutsideAppGuide
   denial: string | null
