@@ -1,6 +1,6 @@
 # Antigravity provider
 
-Status: phases 1 to 4 built on `solus/antigravity-provider`; phase 5 waits for `/mcp`. Reference: T3 Code at `pingdotgg/t3code` commit `b8ef0600` (`apps/server/src/provider/acp/Antigravity*.ts`, `apps/server/src/provider/antigravity*.ts`), MIT. Files that port T3 Code logic keep its notice.
+Status: phases 1 to 5 built on `solus/antigravity-provider`. The steps for the next provider are in `docs/adding-a-provider.md`. Reference: T3 Code at `pingdotgg/t3code` commit `b8ef0600` (`apps/server/src/provider/acp/Antigravity*.ts`, `apps/server/src/provider/antigravity*.ts`), MIT. Files that port T3 Code logic keep its notice.
 
 ## 1. Problem
 
@@ -28,7 +28,7 @@ Do not say "Gemini provider", "agy provider", or "ACP provider". The provider is
 3. **One connection per session, kept between turns.** `agy` unpacks about 1 GB at each start, so a connection stays open after a turn. It closes after 10 minutes with no turn, on Stop of a stuck turn, and on host shutdown. A later turn resumes the session with `session/resume`.
 4. **Steering with a second prompt.** `agy` 1.5.0 and later join a `session/prompt` sent during a turn to that turn. Solus sends a steered message that way, and the turn ends only when the newest prompt answers; an older prompt's answer, or failure, is ignored (T3 Code does the same). Once the newest prompt answers, the turn is closing, and a message that arrives then waits in the Solus queue. An older `agy`, or one whose version it does not report, gets no steering.
 5. **Solus keeps the history.** The backend writes kept history rows for each turn (§5.4). History, search, and handoffs read those rows. Solus does not parse `agy`'s SQLite and protobuf files.
-6. **Solus tools over MCP.** An ACP agent gets the Solus tools as an MCP server over HTTP in `session/new` (`mcpServers`). The backend takes a tool binder: a function that gives a URL and an `Authorization` header for a run's tools. The binder is the `/mcp` endpoint's `bindRunTools` (`docs/plans/external-mcp-server.md` §9, "Later harnesses"). Until that endpoint is on `main`, the host has no binder, and an Antigravity turn runs without Solus tools. Its runtime instructions say so.
+6. **Solus tools over MCP.** An ACP agent gets the Solus tools as an MCP server over HTTP (`mcpServers`, named `solus`) in `session/new` or the resume, from the host's `/mcp` endpoint (`bindRunTools`, `docs/plans/external-mcp-server.md` §9). ACP gives MCP servers only then, so each run binds its own tools with the Solus session id as the key: the session keeps one token, each turn's tools are reached with it, and between turns it reaches none. A connection that a run with no tools opened is opened again, with a resume, when a run brings tools. agy asks through `session/request_permission` before it calls a Solus tool, and Solus answers that from the permission mode.
 7. **Permissions come from Solus.** Solus starts `agy` in its `default` mode, where it asks before it acts, and answers each `session/request_permission` from the session's permission mode (§5.3). `agy` refuses its own `yolo` and `auto_edit` modes, so Solus never sends them.
 8. **Managed install uses the agent software installer.** Antigravity is a third `AgentSoftware`, with a release adapter that reads Google's manifest. The installer verifies SHA-512 because the manifest publishes SHA-512. Solus turns off `agy`'s own updater on every launch.
 9. **Seats use the relayed sign-in.** A seat's Google sign-in runs `agy acp --login` in the seat's profile, as the Claude and Codex seats run their CLI's login. Gemini Enterprise relays agy's own browser sign-in. A Gemini API key and a Vertex AI credential are pasted (§7).
@@ -144,14 +144,14 @@ agy reports an upstream failure (a 502, a quota) as an answer and `end_turn`. It
 2. The ACP client, the backend, the Antigravity agent, kept history, and the provider wiring on every client.
 3. The managed install.
 4. Sign-in and seats.
-5. Solus tools over `/mcp`, when that endpoint is on `main`.
+5. Solus tools over `/mcp`: Solus tools, MCP integrations and app tools in a turn, text generation, and the review agent.
 
 ## 9. Not in v1
 
 - **Work that outlives the prompt (t12, needs a real agy).** agy answers `session/prompt` while a command (kind `execute`, not `IsDaemon`) or a `schedule` call still runs, then replies by itself when it ends (T3 Code's `antigravityToolOutlivesPrompt`). Solus drops a session update that arrives outside a turn, so that reply is lost today. The design: such a call becomes a background task (`background_task_started`, `hasBackgroundTasks`), and an update that arrives for it after the turn opens an agent-started turn on the session. Codex wakes a session with a new prompt instead (`background-task-completed`), which would make agy answer twice. The order and timing of agy's own reply must be read on a real agy before the runtime gets an agent-started turn.
 - **A subagent's own steps (t8b, needs a real agy).** T3 Code reads each child's steps from its session database (`AntigravityChildWork.ts`, protobuf field numbers of agy's trajectory). Solus shows the subagent card with its role and prompt; the steps inside it wait for those field numbers to be confirmed on a real agy.
 
-- **Writing and reviews.** Text generation (titles, codebase and worktree names, commit and pull request text) and reviews read the model's answer from a Solus capture tool. Antigravity reaches Solus tools only through `/mcp`, so `SOLUS_TOOL_AGENT_IDS` (Claude, Codex) bounds those settings and pickers; Antigravity joins that list when `/mcp` lands. Worker sessions and automations need no Solus tool, so `SESSION_AGENT_IDS` includes Antigravity.
+- **Writing and reviews.** Text generation (titles, codebase and worktree names, commit and pull request text) and reviews read the model's answer from a Solus capture tool, so `SOLUS_TOOL_AGENT_IDS` bounds those settings and pickers; Antigravity is in it since it reaches Solus tools over `/mcp`. As a writing fallback it comes last (`DEFAULT_TEXT_GENERATION_MODELS`), since each agy launch is slow.
 
 What v1 leaves out, and why:
 

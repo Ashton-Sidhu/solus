@@ -12,6 +12,7 @@ import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { indexSessionMessages } from '../../../db/session-indexer'
 import { BaseAgentBackend } from '../base-backend'
+import { bindRunTools, type RunToolAccess } from '../tools/agent-tool-endpoint'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { KeptHistory, TurnHistory } from '../kept-history'
@@ -107,22 +108,12 @@ export interface AcpTurnFailure {
 /** Reads, after the turn, how it ended. Null: as its stop reason says. */
 export type AcpTurnOutcomeCheck = (stopReason: AcpStopReason) => AcpTurnFailure | null
 
-/** The Solus tools of one run, as an MCP server over HTTP (decision 6). */
-export interface AcpToolAccess {
-  url: string
-  authorization: string
-  release(): void
-}
-export type AcpToolBinder = (request: AgentRunRequest, sessionId: string | undefined) => AcpToolAccess | null
-
 export type SpawnAgent = (file: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess
 
 export interface AcpBackendOptions {
   agent: AcpAgent
   /** Where each ACP session keeps its history (§5.4). */
   historyDirectory: string
-  /** Absent until the host has its `/mcp` endpoint: the agent then runs without Solus tools. */
-  bindTools?: AcpToolBinder
   spawnAgent?: SpawnAgent
   idleCloseMs?: number
   /** Adds a session's new messages to the host's session search; the host's index by default. */
@@ -153,7 +144,8 @@ interface LiveSession {
   steersWithPrompt: boolean
   turn: ActiveTurn | null
   idleTimer: ReturnType<typeof setTimeout> | null
-  releaseTools: (() => void) | null
+  /** Whether a run with Solus tools opened it: only `session/new` or a resume can give the agent the Solus MCP server. */
+  openedWithTools: boolean
 }
 
 /** A request waiting on a person: a choice among the agent's options, or a form's answers by field. Null finishes it as cancelled. */
@@ -212,7 +204,6 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   private readonly history: KeptHistory
   private readonly spawnAgent: SpawnAgent
   private readonly idleCloseMs: number
-  private readonly bindTools: AcpToolBinder | null
   private readonly indexMessages: (threadId: string, messages: SessionLoadMessage[]) => void
   /** Live connections by provider thread id. */
   private readonly live = new Map<string, LiveSession>()
@@ -229,7 +220,6 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     this.report = new AcpAgentReport(options.agent.id, join(options.historyDirectory, `.${options.agent.id}-report.json`))
     this.spawnAgent = options.spawnAgent ?? defaultSpawn
     this.idleCloseMs = options.idleCloseMs ?? ACP_IDLE_CLOSE_MS
-    this.bindTools = options.bindTools ?? null
     this.indexMessages = options.indexMessages ?? indexSessionMessages
     this.permissions = {
       getPendingInfo: (questionId) => {
@@ -324,7 +314,9 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   private async run(handle: RunHandle, request: AgentRunRequest, sessionState?: AgentRunSessionState): Promise<void> {
-    const live = await this.connectionFor(handle, request, sessionState)
+    const tools = this.runTools(handle, request, sessionState?.sessionId)
+    handle.releaseTools = tools?.release
+    const live = await this.connectionFor(handle, request, tools, sessionState)
     const threadId = live.threadId!
     if (handle.abortController.signal.aborted) return this.endStopped(handle, live, threadId)
 
@@ -372,20 +364,43 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   /** The session's open connection, or a new one: a changed sign-in or binary starts a new process. */
-  private async connectionFor(handle: RunHandle, request: AgentRunRequest, sessionState?: AgentRunSessionState): Promise<LiveSession> {
+  /**
+   * The run's Solus tools on the host's MCP endpoint (plans/035 §3). A session
+   * keeps one token: agy keeps the MCP servers that `session/new` or the
+   * resume gave it, and each turn binds its own tools to that token.
+   */
+  private runTools(handle: RunHandle, request: AgentRunRequest, sessionId: string | undefined): RunToolAccess | null {
+    if (request.tools.length === 0) return null
+    return bindRunTools({
+      tools: request.tools,
+      context: {
+        provider: this.id,
+        cwd: resolveHomePath(request.cwd),
+        sessionId: () => handle.sessionId,
+        abortSignal: handle.abortController.signal,
+        emit: (event) => this.emit('normalized', handle.agentSessionId, event),
+      },
+      permissionMode: () => request.permissionMode,
+      // agy asks through `session/request_permission` before it calls an MCP tool, and Solus answers that from the mode.
+      approve: async () => true,
+    }, sessionId)
+  }
+
+  private async connectionFor(handle: RunHandle, request: AgentRunRequest, tools: RunToolAccess | null, sessionState?: AgentRunSessionState): Promise<LiveSession> {
     const conversation = request.conversation ?? { kind: 'start' }
     if (conversation.kind === 'fork') log.warn('acp_fork_started_fresh', { provider: this.id, sessionId: handle.sessionId ?? null })
     const resumeId = conversation.kind === 'resume' ? conversation.threadId : null
     const launch = this.agent.launch(request)
     let live = resumeId ? this.live.get(resumeId) : undefined
-    if (live && (live.key !== launch.connectionKey || live.connection.isClosed)) {
+    // A connection opened without the Solus tools cannot be given them: only a new session or a resume carries MCP servers.
+    if (live && (live.key !== launch.connectionKey || live.connection.isClosed || (tools && !live.openedWithTools))) {
       this.closeLive(live)
       live = undefined
     }
     if (live?.turn) throw new Error('This session already has a running turn.')
     if (!live) {
       sessionState?.reportStartupPhase?.(resumeId ? 'resuming' : 'starting')
-      live = await this.open(request, launch, resumeId, sessionState?.sessionId)
+      live = await this.open(request, launch, resumeId, sessionState?.sessionId, tools)
     }
     this.clearIdle(live)
     return live
@@ -495,16 +510,15 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     return blocks
   }
 
-  private async open(request: AgentRunRequest, launch: AcpAgentLaunch, resumeId: string | null, solusSessionId: string | undefined): Promise<LiveSession> {
+  private async open(request: AgentRunRequest, launch: AcpAgentLaunch, resumeId: string | null, solusSessionId: string | undefined, tools: RunToolAccess | null): Promise<LiveSession> {
     const cwd = resolveHomePath(request.cwd)
     const live = this.spawnLive(launch, cwd)
     try {
       const initialize = await this.handshake(live, launch)
-      const tools = this.bindTools?.(request, solusSessionId) ?? null
-      live.releaseTools = tools?.release ?? null
       const mcpServers: JsonValue[] = tools && initialize.parsed.agentCapabilities?.mcpCapabilities?.http
         ? [{ type: 'http', name: this.agent.mcpServerName, url: tools.url, headers: [{ name: 'Authorization', value: tools.authorization }] }]
         : []
+      live.openedWithTools = tools !== null
       const threadId = resumeId
         ? await this.resumeSession(live, initialize.parsed, resumeId, cwd, mcpServers)
         : await this.newSession(live, initialize.raw, cwd, mcpServers, request.systemPrompt)
@@ -540,7 +554,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
       child.once('exit', remove)
       child.once('error', remove)
     }
-    const live: LiveSession = { key: launch.connectionKey, threadId: null, child, connection: null!, configOptions: [], steersWithPrompt: false, turn: null, idleTimer: null, releaseTools: null }
+    const live: LiveSession = { key: launch.connectionKey, threadId: null, child, connection: null!, configOptions: [], steersWithPrompt: false, turn: null, idleTimer: null, openedWithTools: false }
     live.connection = new AcpConnection({ stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr }, {
       onNotification: (method, params) => this.onNotification(live, method, params),
       onRequest: (method, params) => this.onAgentRequest(live, method, params),
@@ -767,8 +781,6 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
 
   private onClosed(live: LiveSession): void {
     this.clearIdle(live)
-    live.releaseTools?.()
-    live.releaseTools = null
     if (live.threadId && this.live.get(live.threadId) === live) this.live.delete(live.threadId)
     if (live.threadId) this.permissions.clearPendingForSession(live.threadId)
   }

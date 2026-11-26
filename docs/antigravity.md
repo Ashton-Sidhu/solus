@@ -26,6 +26,7 @@ On a shared host, each member signs in with their own account in Settings → Pr
 ## In a session
 
 - Choose Antigravity and a model in the model picker. After the first Antigravity session on a host, the picker also lists models your Google account offers that Solus does not know yet.
+- An Antigravity turn has the Solus tools (such as starting other sessions), your MCP integrations, and app tools. Antigravity can write titles and commit text, review changes, be the worker model of child sessions, and run automations. Writing with Antigravity is slower than with Claude or Codex, because each start of `agy` takes a while.
 - Solus answers Antigravity's permission requests from the session's permission mode. Reads are always allowed. In Plan mode, edits and commands are refused.
 - A subagent or swarm worker that Antigravity starts shows as a subagent card with its role and prompt. The card does not yet show the subagent's own steps.
 - Antigravity's questions show as question cards. A form question shows as a form; you can answer or decline it.
@@ -38,7 +39,6 @@ On a shared host, each member signs in with their own account in Settings → Pr
 
 ## Limits
 
-- Solus tools (such as starting other sessions) are not available to Antigravity yet. For the same reason, Antigravity cannot be the model that writes titles and commit text, or the review agent: those answers come back through a Solus tool. Antigravity can be the worker model of child sessions and can run automations.
 - You cannot switch an open session to Antigravity, and the session cloud copy does not include Antigravity sessions.
 - Antigravity shows no usage meters. A limit shows only when a turn reaches it.
 - On mobile, Gemini Enterprise and Vertex AI must be set up once on desktop or web. After that, `/login` on mobile works.

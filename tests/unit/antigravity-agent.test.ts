@@ -231,8 +231,9 @@ describe('Antigravity in personal settings', () => {
     expect(PERSONAL_SETTING_SCHEMAS.workerModel.safeParse({ provider: 'antigravity', model: 'gemini-4-carbon' }).success).toBe(true)
   })
 
-  test('Antigravity cannot write titles or commit text yet: that answer comes through a Solus tool, which it reaches only with /mcp', () => {
-    expect(PERSONAL_SETTING_SCHEMAS.textGenerationModel.safeParse({ provider: 'antigravity', model: 'gemini-3.8-flash' }).success).toBe(false)
-    expect(PERSONAL_SETTING_SCHEMAS.textGenerationModel.safeParse({ provider: 'codex', model: 'gpt-6-luna' }).success).toBe(true)
+  test('Antigravity can write titles and commit text: it answers through the Solus tool it reaches over /mcp', () => {
+    expect(PERSONAL_SETTING_SCHEMAS.textGenerationModel.safeParse({ provider: 'antigravity', model: 'gemini-3.8-flash' }).success).toBe(true)
+    // A provider with no Solus tools still cannot.
+    expect(PERSONAL_SETTING_SCHEMAS.textGenerationModel.safeParse({ provider: 'replay', model: 'showcase' }).success).toBe(false)
   })
 })

@@ -1,6 +1,5 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { SeatProvider } from '@solus/contracts/seats'
 import type {
   DeviceCodePrompt,
   GitCommitIdentity,
@@ -16,6 +15,7 @@ import {
   type OnboardingStep,
   type OnboardingStepId,
   type ProviderSetupAction,
+  seatProviderFor,
 } from './lib/host-onboarding'
 import { hostProviderContext, messageFor } from './lib/setup-rpc'
 
@@ -376,9 +376,5 @@ class HostSetupStore {
   }
 }
 
-/** The wizard names agents by their setup id; the seat contract by provider id. */
-export function seatProviderFor(agent: SetupAgent): SeatProvider {
-  return agent === 'claude' ? 'claude-code' : 'codex'
-}
 
 export const hostSetupStore = new HostSetupStore()

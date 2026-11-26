@@ -8,8 +8,7 @@
   import { onMount } from "svelte";
   import { cloudAgentSeatsStore as seats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import { Button } from "../ui/button";
-  import { SETUP_PROVIDERS } from "../servers/lib/host-onboarding";
-  import { seatProviderFor } from "../servers/host-setup.store.svelte";
+  import { SETUP_PROVIDERS, seatProviderFor } from "../servers/lib/host-onboarding";
   import AgentRow from "./AgentRow.svelte";
 
   let opened = $state(false);

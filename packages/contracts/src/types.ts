@@ -46,10 +46,9 @@ export const SESSION_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as cons
 /**
  * The providers that can answer through a Solus capture tool in a run. Text
  * generation (titles, names, commit and pull request text) and reviews read the
- * answer from that tool. Antigravity reaches Solus tools only through the host's
- * `/mcp` endpoint, which it does not have yet (docs/plans/antigravity-provider.md §9).
+ * answer from that tool. Antigravity reaches it through the host's `/mcp` endpoint.
  */
-export const SOLUS_TOOL_AGENT_IDS = ['claude-code', 'codex'] as const satisfies readonly AgentId[]
+export const SOLUS_TOOL_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as const satisfies readonly AgentId[]
 
 /** The short name of each provider, as people read it in a sentence ("Claude agent"). */
 export const AGENT_LABELS = {

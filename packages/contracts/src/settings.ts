@@ -101,9 +101,11 @@ export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
 export const DEFAULT_REVIEW_MODEL = 'gpt-6-luna'
 export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
+/** Each writer's cheap model, in fallback order: Antigravity last, since each agy launch is slow. */
 export const DEFAULT_TEXT_GENERATION_MODELS = {
   codex: 'gpt-6-luna',
   'claude-code': 'claude-haiku-5-5',
+  antigravity: 'gemini-3.8-flash',
 } as const
 
 export interface ModelOptions {

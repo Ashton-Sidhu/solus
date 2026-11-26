@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,6 +9,9 @@ import type { NormalizedEvent, PermissionMode } from '@solus/contracts/types'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import { AcpBackend, type AcpAgent, type AcpTurnFailure } from '@solus/server/execution/agents/acp/acp-backend'
 import { AcpRequestError } from '@solus/server/execution/agents/acp/acp-connection'
+import { runToolBindingFor, setAgentToolEndpointUrl } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
+import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
+import { z } from 'zod'
 import { acpPermissionAnswer } from '@solus/server/execution/agents/acp/acp-permissions'
 
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
@@ -619,6 +622,50 @@ describe('AcpBackend reported models', () => {
     const legacy = await run('gemini-3.8-flash-high')
     expect(legacy.methods).toContain('session/set_model')
     expect(legacy.methods).toContain('session/prompt')
+  })
+})
+
+describe('AcpBackend Solus tools', () => {
+  // agy reaches a run's Solus tools on the host's /mcp endpoint. ACP gives MCP servers only at session/new or a resume,
+  // so the session keeps one token and each turn binds its own tools to it.
+  const echo: AgentTool = { name: 'echo', description: 'Echo the text.', inputFields: { text: z.string() }, requiresApproval: false, execute: async (input) => ({ ok: true, text: String(input.text) }) }
+  beforeAll(() => setAgentToolEndpointUrl('http://127.0.0.1:1/mcp'))
+
+  const mcpServersOf = (agent: FakeAgent, method: string) => {
+    const params = agent.received.find((message) => message.method === method)?.params as { mcpServers?: Array<{ name: string; url: string; headers: Array<{ name: string; value: string }> }> }
+    return params.mcpServers ?? []
+  }
+
+  test("a run's tools reach agy as the Solus MCP server, and each turn binds its own tools to the session's one token", async () => {
+    const seen: Array<string[] | undefined> = []
+    const tokenOf = (agent: FakeAgent) => mcpServersOf(agent, 'session/new')[0]!.headers.find((header) => header.name === 'Authorization')!.value.replace(/^Bearer /, '')
+    const { backend, agents } = setup({
+      // What agy reaches with the token it was given, while the turn runs.
+      'session/prompt': (_params, agent) => {
+        seen.push(runToolBindingFor(tokenOf(agent))?.tools.map((tool) => tool.name))
+        return { stopReason: 'end_turn' }
+      },
+    })
+    await backend.startRun(request({ tools: [echo] }), { sessionId: 'solus-session-1' }).runPromise
+    expect(mcpServersOf(agents[0]!, 'session/new')[0]).toMatchObject({ name: 'solus', url: 'http://127.0.0.1:1/mcp' })
+    const token = tokenOf(agents[0]!)
+    // Between turns the token reaches no tools.
+    expect(runToolBindingFor(token)).toBeUndefined()
+
+    const second = request({ tools: [{ ...echo, name: 'echo_again' }], conversation: { kind: 'resume', threadId: 'thread-1' } })
+    await backend.startRun(second, { sessionId: 'solus-session-1' }).runPromise
+    expect(agents).toHaveLength(1)
+    expect(seen).toEqual([['echo'], ['echo_again']])
+    backend.shutdown()
+  })
+
+  test('a connection opened with no tools is opened again when a run brings them, and resumes the session', async () => {
+    const { backend, agents } = setup({ 'session/resume': () => ({ configOptions: [] }), 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    await backend.startRun(request(), { sessionId: 'solus-session-2' }).runPromise
+    await backend.startRun(request({ tools: [echo], conversation: { kind: 'resume', threadId: 'thread-1' } }), { sessionId: 'solus-session-2' }).runPromise
+    expect(agents).toHaveLength(2)
+    expect(mcpServersOf(agents[1]!, 'session/resume').map((server) => server.name)).toEqual(['solus'])
+    backend.shutdown()
   })
 })
 

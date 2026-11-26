@@ -9,6 +9,7 @@ import {
   onboardingHeading,
   onboardingRailModel,
   providerSetupActions,
+  seatProviderFor,
 } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
 
 function readiness(overrides: Partial<HostReadiness> = {}): HostReadiness {
@@ -367,6 +368,11 @@ describe('provider choice rows', () => {
 })
 
 describe('host setup sessions', () => {
+  test("each agent's row signs in to that agent's own seat", () => {
+    // WHY: the Antigravity row once named the Codex seat, so its Sign in started a Codex sign-in.
+    expect([seatProviderFor('claude'), seatProviderFor('codex'), seatProviderFor('agy')]).toEqual(['claude-code', 'codex', 'antigravity'])
+  })
+
   test('every surface asking about a host gets the same session and the same readiness', async () => {
     // WHY: the onboarding rail and the host page in settings both run setup on
     // a host. Two copies of this state would let one of them offer "Connect

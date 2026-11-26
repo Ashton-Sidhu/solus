@@ -74,7 +74,7 @@ function manageFields(actions: readonly [AutomationToolAction, ...AutomationTool
     prompt: z.string().optional().describe('create: required. The instruction the agent gets at each run.'),
     cwd: z.string().optional().describe('Exact working directory for the run. create: defaults to the active project root.'),
     use_worktree: z.boolean().optional().describe('True: each run makes an isolated worktree from cwd. Defaults to false.'),
-    agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs it: 'claude-code' (default), 'codex', or 'antigravity'."),
+    agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs it. Defaults to 'claude-code'."),
     model_id: z.string().nullable().optional().describe('Omit or null for the default model.'),
     reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Defaults to 'medium'."),
     enabled: z.boolean().optional().describe('Defaults to true.'),

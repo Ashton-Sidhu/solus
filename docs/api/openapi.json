@@ -6876,7 +6876,7 @@
                                         "enum": [
                                           "person",
                                           "pull-request",
-                                          "task",
+                                          "issue",
                                           "idle"
                                         ]
                                       },
@@ -8617,7 +8617,7 @@
                                             "enum": [
                                               "person",
                                               "pull-request",
-                                              "task",
+                                              "issue",
                                               "idle"
                                             ]
                                           },
@@ -10280,7 +10280,7 @@
                                   "enum": [
                                     "person",
                                     "pull-request",
-                                    "task",
+                                    "issue",
                                     "idle"
                                   ]
                                 },
@@ -11144,7 +11144,7 @@
                               "enum": [
                                 "person",
                                 "pull-request",
-                                "task",
+                                "issue",
                                 "idle"
                               ]
                             },
@@ -11960,7 +11960,7 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task"
+                                    "const": "issue"
                                   },
                                   "id": {
                                     "type": "string",
@@ -12868,7 +12868,7 @@
                       "kind": {
                         "type": "string",
                         "enum": [
-                          "task",
+                          "issue",
                           "session"
                         ]
                       },
@@ -13199,7 +13199,7 @@
                       "kind": {
                         "type": "string",
                         "enum": [
-                          "task",
+                          "issue",
                           "session"
                         ]
                       },
@@ -13962,7 +13962,7 @@
               "enum": [
                 "work.review_requested",
                 "work.review_decided",
-                "task.assigned",
+                "issue.assigned",
                 "pr.assigned",
                 "pr.review_requested",
                 "automation.finished",
@@ -14073,7 +14073,7 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task.assigned"
+                                    "const": "issue.assigned"
                                   }
                                 },
                                 "required": [
@@ -14260,16 +14260,16 @@
                                 "properties": {
                                   "kind": {
                                     "type": "string",
-                                    "const": "task"
+                                    "const": "issue"
                                   },
-                                  "taskId": {
+                                  "issueId": {
                                     "type": "string",
                                     "minLength": 1
                                   }
                                 },
                                 "required": [
                                   "kind",
-                                  "taskId"
+                                  "issueId"
                                 ],
                                 "additionalProperties": false
                               },
@@ -16792,7 +16792,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -17259,7 +17259,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -17642,7 +17642,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18035,7 +18035,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18429,7 +18429,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -18819,7 +18819,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -19254,7 +19254,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -19645,7 +19645,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20055,7 +20055,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20453,7 +20453,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -20853,7 +20853,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -21240,7 +21240,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -21632,7 +21632,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22104,7 +22104,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22498,7 +22498,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -22885,7 +22885,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -23272,7 +23272,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -23721,7 +23721,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -24166,7 +24166,7 @@
                           "type": "string",
                           "enum": [
                             "session",
-                            "task",
+                            "issue",
                             "work"
                           ]
                         },
@@ -24692,7 +24692,7 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "task.assigned"
+                    "const": "issue.assigned"
                   }
                 },
                 "required": [
@@ -24879,16 +24879,16 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "task"
+                    "const": "issue"
                   },
-                  "taskId": {
+                  "issueId": {
                     "type": "string",
                     "minLength": 1
                   }
                 },
                 "required": [
                   "kind",
-                  "taskId"
+                  "issueId"
                 ],
                 "additionalProperties": false
               },
