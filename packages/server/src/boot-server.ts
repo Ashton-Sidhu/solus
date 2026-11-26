@@ -219,7 +219,7 @@ import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
 import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
-import { getSessionRecord, hasSessionRecords, sessionRecordsIndexing } from './data/sessions/session-records'
+import { getSessionRecord, hasSessionRecords, sessionIdsLastActiveBetween, sessionRecordsIndexing } from './data/sessions/session-records'
 import { readSessionStorage } from './data/sessions/session-storage'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
@@ -237,7 +237,7 @@ import { localGuideSource, prGuideSource } from './review/guide-sources'
 import { registerAutomationHandlers } from './transport/handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
-import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
+import { listRuns, nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
 import { setRemoteHosts, setSessionController, setSessionOrchestration, type ReachCaller } from './execution/agents/tools/session-tools'
 import { RemoteHosts, reachOfPrincipal } from './execution/orchestration/remote-hosts'
 import { organizationApisOf } from './execution/orchestration/remote-session-read'
@@ -300,12 +300,15 @@ import { publishPersonalDocumentChanges } from './transport/events/personal-docu
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
+import { registerSessionShellHandler, sessionShellReads } from './transport/handlers/session-shell-handler'
+import { SessionShell } from './transport/events/session-shell'
+import { onPinnedSessionChanged } from './data/sessions/pinned-sessions'
 import { HistoryPrewarm } from './execution/sessions/history-prewarm'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
-import { onProjectsChanged } from './project-config/projects-manifest'
+import { listProjects, onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
@@ -1483,6 +1486,29 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerProjectConfigHandlers(server)
   const historyPrewarm = new HistoryPrewarm(opts.sessionRuntime)
   registerSessionDirectoryHandler(server, historyPrewarm)
+  // The phone's session list as a snapshot and the changes after it (docs/plans/mobile-session-shell.md §5).
+  // Published host events and the personal changes that no connection may hear move its keys.
+  const sessionShell = new SessionShell({
+    reads: sessionShellReads(server),
+    publish: (clientId, changes) => { void events.publish(clientId, 'sessionShell.changed', changes) },
+    hostProjects: listProjects,
+    sessionsStartedBy: async (automationId) => (await listRuns(automationId)).flatMap(run => run.sessionId ? [run.sessionId] : []),
+    sessionsLastActiveBetween: sessionIdsLastActiveBetween,
+  })
+  // A session leaves the list 30 days after its last activity, with no event: check once an hour.
+  const sessionShellIdleCheck = setInterval(() => { void sessionShell.checkIdleSessions() }, 60 * 60_000)
+  sessionShellIdleCheck.unref?.()
+  sessionShell.attentionChanged(opts.sessionRuntime.attention.list())
+  domainEventUnsubscribes.push(
+    events.observe((event) => sessionShell.observe(event)),
+    onSessionRecordChanged((record) => sessionShell.sessionChanged(record.sessionId)),
+    onSessionRecordDeleted((sessionId) => sessionShell.sessionChanged(sessionId)),
+    onSessionViewChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    onSessionReadStateChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    onPinnedSessionChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    () => clearInterval(sessionShellIdleCheck),
+  )
+  registerSessionShellHandler(server, sessionShell)
   // A turn changes the provider file: read the session's first page again before it is next opened.
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
     if (event.status === 'completed' || event.status === 'failed' || event.status === 'interrupted') historyPrewarm.afterTurn(event.sessionId)
@@ -1746,6 +1772,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Filtering is async; the chain keeps each client's snapshots in the order the changes happened.
   let attentionDelivery = Promise.resolve()
   opts.sessionRuntime.attention.onChange((entries) => {
+    sessionShell.attentionChanged(entries)
     attentionDelivery = attentionDelivery.then(() => Promise.all(clientEvents.routableClientIds().map(async (clientId) => {
       const principal = ws?.principalOf(clientId)
       const visible = principal ? await attentionVisibleTo(principal, entries, shares) : entries
@@ -2315,6 +2342,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.sessionRuntime.requestSessionIndexRefresh()
     },
     onClientDisconnected: ({ clientId }) => {
+      sessionShell.disconnected(clientId)
       prSync.dropConnection(clientId)
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
@@ -2514,6 +2542,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         opts.sessionRuntime.requestSessionIndexRefresh()
       },
       onClientDisconnected: ({ clientId }) => {
+        sessionShell.disconnected(clientId)
         prSync.dropConnection(clientId)
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)

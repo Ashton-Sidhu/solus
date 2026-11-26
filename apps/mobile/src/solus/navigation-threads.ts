@@ -6,12 +6,41 @@ import {
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { sameItems } from "@solus/client-core/keep-equal";
+import type { SessionShellProgress } from "@solus-mobile/features/threads/session-shell";
 import type { SessionListThread } from "./session-list";
 
 type Rows = readonly SessionListThread[];
 const empty: Rows = [];
 
-/** Adapt Solus directory reads to T3's reconnect and release rules. */
+/** T3's input for a host that follows its session shell: the shell's own status, sequence, and generation. */
+function shellInput(
+  id: EnvironmentId,
+  progress: SessionShellProgress,
+  source: Rows,
+  prior: SteadyShellInput<Rows> | undefined,
+  connecting: boolean,
+  rowActions: number,
+): SteadyShellInput<Rows> {
+  const shown = source.length || progress.status === "live"
+    ? prior?.snapshot && sameItems(prior.snapshot, source) ? prior.snapshot : source
+    : null;
+  return {
+    environmentId: id,
+    snapshot: shown,
+    generation: progress.generation,
+    serverSequence: progress.sequence,
+    status: progress.status,
+    connecting,
+    rowActions,
+  };
+}
+
+/**
+ * Adapt Solus hosts to T3's reconnect and release rules. A host that follows
+ * its session shell gives the shell's own status, sequence, and generation, as
+ * T3's shell state does (docs/plans/mobile-session-shell.md §6); another host's
+ * directory reads are adapted to them.
+ */
 export function createNavigationThreads() {
   let state: SteadyShellsState<Rows> = EMPTY_STEADY_SHELLS_STATE;
   let previous = new Map<EnvironmentId, SteadyShellInput<Rows>>();
@@ -23,6 +52,7 @@ export function createNavigationThreads() {
     account: string,
     now: number,
     actions?: ReadonlyMap<string, number>,
+    shell?: (id: EnvironmentId) => SessionShellProgress | null,
   ) => {
     if (scope !== account) {
       state = EMPTY_STEADY_SHELLS_STATE;
@@ -42,6 +72,11 @@ export function createNavigationThreads() {
     const inputs = new Map<EnvironmentId, SteadyShellInput<Rows>>();
     const add = (id: EnvironmentId, source: Rows, connecting: boolean) => {
       const prior = previous.get(id);
+      const progress = shell?.(id) ?? null;
+      if (progress) {
+        inputs.set(id, shellInput(id, progress, source, prior, connecting, actions?.get(id) ?? 0));
+        return;
+      }
       const status = phase(id);
       const settled = status === "loaded";
       const snapshot =

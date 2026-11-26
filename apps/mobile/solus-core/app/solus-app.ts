@@ -30,6 +30,7 @@ import { SessionRunHosts } from '../features/threads/session-run-hosts'
 import { CloudSessions } from '../features/threads/cloud-sessions'
 import { CloudHistory } from '../features/threads/cloud-history'
 import { ThreadListState } from '../features/threads/thread-list-state'
+import { SessionShells, shellHostThreads, type SessionShellStore } from '../features/threads/session-shell'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { DiffFilterPreference } from '../features/review/diff-filter-preference'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
@@ -99,6 +100,8 @@ export interface PlatformAdapters {
   scanLocalNetwork?(): Promise<DiscoveredServer[]>
   /** Where the pull request cache is kept; absent keeps it in memory for this app run. */
   pullRequestCache?: PullRequestCacheDatabase
+  /** Where each host's session shell is kept (T3's `client_cache`, kind `shell`); absent keeps none. */
+  sessionShellStore?: SessionShellStore
 }
 
 /** Where the person was, restored on a returning launch once access is known. */
@@ -111,6 +114,8 @@ export interface LastRoute {
 const LAST_ROUTE_KEY = 'solus.mobile.lastRoute'
 /** The account scope and the hosts of the last start: the next start shows their saved lists before the account and the hosts are read. */
 const LAST_SESSION_LIST_KEY = 'solus.mobile.lastSessionList'
+/** How long a host's prefetch waits after its list loads (`warmHistory`). */
+export const WARM_DELAY_MS = 2_000
 const lastSessionListSchema = z.object({
   scope: z.string(),
   hosts: z.array(z.object({ id: z.string().min(1), installationId: z.string().min(1), identityKey: z.string().optional() })),
@@ -186,6 +191,12 @@ export class SolusApp {
   /** True once `load` read the account: only then is its scope kept for the next start. */
   private accountRead = false
   readonly threads: ThreadDirectory
+  /** The session list of each host that has the `sessionShell` capability: T3's shell model (docs/plans/mobile-session-shell.md §6). */
+  readonly shells: SessionShells
+  /** The hosts whose live shell warmed their top rows on the current connection, by server session. */
+  private readonly warmedShells = new Map<string, number>()
+  /** Each host's prefetch waits until the list it follows has painted. */
+  private readonly warmTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** The first history pages read before a session opens: on a press on its row, and for the top rows when a host's list loads. */
   readonly historyPrefetch: HistoryPrefetch
   /** What each host holds of each session, and where the next turn syncs from (docs/plans/portable-sessions.md §10). */
@@ -311,7 +322,23 @@ export class SolusApp {
     })
     this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
     this.sessionCache = new MobileSessionCache(this.pullRequestCache, () => this.presumedScope ?? JSON.stringify([this.account.syncAccount, this.account.organizationId]))
-    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path), (hostId, pins) => this.threadList.restorePins(hostId, pins))
+    this.shells = new SessionShells({
+      store: platform.sessionShellStore,
+      scope: () => this.sessionCache.scope(),
+      connectionFor: (hostId) => this.connections.connection(hostId),
+    })
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path), (hostId, pins) => this.threadList.restorePins(hostId, pins), {
+      restore: async (hostId) => {
+        const snapshot = await this.shells.restore(hostId, this.registry.host(hostId)?.label)
+        if (!snapshot) return null
+        // The saved facts (pins, attention) paint with the saved rows, not after the host answers.
+        this.threadList.receiveShell(hostId, snapshot.rows, false)
+        return shellHostThreads(hostId, this.shellLabel(hostId), snapshot, null)
+      },
+      follows: this.shells.follows,
+      reload: (hostId) => this.shells.reload(hostId),
+    })
+    this.shells.subscribeHosts((hostId) => this.showShell(hostId))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.historyPrefetch = new HistoryPrefetch({
       cache: this.sessionCache,
@@ -501,7 +528,32 @@ export class SolusApp {
 
   /** Drops the saved list and pins of each host of the last start that the registry does not confirm. */
   confirmLastSessionList(): void {
-    for (const hostId of this.threads.confirmPresumedHosts()) this.threadList.forgetHost(hostId)
+    for (const hostId of this.threads.confirmPresumedHosts()) {
+      this.threadList.forgetHost(hostId)
+      this.shells.forgetHost(hostId)
+    }
+  }
+
+  private shellLabel(hostId: string): string {
+    return this.registry.host(hostId)?.label ?? this.shells.savedLabelOf(hostId) ?? ''
+  }
+
+  /** A followed host's shell changed: the list and its facts take it, and a live shell warms its top rows once each connection. */
+  private showShell(hostId: string): void {
+    if (!this.shells.follows(hostId)) return
+    const snapshot = this.shells.snapshotOf(hostId)
+    const live = this.shells.statusOf(hostId) === 'live'
+    if (snapshot) {
+      this.threads.receiveShell(hostId, shellHostThreads(hostId, this.shellLabel(hostId), snapshot, this.threads.shownValue(hostId)), live)
+      this.threadList.receiveShell(hostId, snapshot.rows, live)
+    }
+    const error = this.shells.errorOf(hostId)
+    if (error && !live) this.threads.shellFailed(hostId, error)
+    const generation = this.connections.state(hostId)?.sessionGeneration
+    if (live && generation !== undefined && this.warmedShells.get(hostId) !== generation) {
+      this.warmedShells.set(hostId, generation)
+      this.warmHistory(hostId)
+    }
   }
 
   /** Keeps the scope and the hosts for the next start; written only when they change. */
@@ -645,11 +697,19 @@ export class SolusApp {
     if (thread && !thread.cloudOnly) void this.historyPrefetch.prefetch(hostId, thread.record)
   }
 
-  /** The list of a host loaded: the first pages of its rows are read, top down. */
+  /**
+   * The list of a host loaded: the first pages of its rows are read, top down,
+   * after `WARM_DELAY_MS`. Each read parses and saves a page on the JavaScript
+   * thread, so it must not compete with the list's first paint.
+   */
   warmHistory(hostId: string): void {
-    const records = this.threads.threads()
-      .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
-    void this.historyPrefetch.warm(hostId, records)
+    clearTimeout(this.warmTimers.get(hostId))
+    this.warmTimers.set(hostId, setTimeout(() => {
+      this.warmTimers.delete(hostId)
+      const records = this.threads.threads()
+        .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
+      void this.historyPrefetch.warm(hostId, records)
+    }, WARM_DELAY_MS))
   }
 
   /** The open conversation for a saved session or a new one. One store per
@@ -782,6 +842,8 @@ export class SolusApp {
 
   /** Ends this app object: its watches, sync, and host sockets. Saved state stays. */
   dispose(): void {
+    for (const timer of this.warmTimers.values()) clearTimeout(timer)
+    this.warmTimers.clear()
     for (const store of this.conversations.values()) this.closeConversation(store)
     this.conversations.clear()
     this.accountSync.dispose()
@@ -826,6 +888,8 @@ export class SolusApp {
       this.directoryOpens = new WeakMap()
       for (const store of this.conversations.values()) this.closeConversation(store)
       this.conversations.clear()
+      this.shells.reset()
+      this.warmedShells.clear()
       for (const hostId of new Set([...this.registry.hosts().map((host) => host.id), ...this.threads.hostIds()])) {
         this.threads.forgetHost(hostId)
         this.threadList.forgetHost(hostId)
@@ -870,6 +934,8 @@ export class SolusApp {
       if (store.controller.hostId !== hostId) continue
       this.closeConversation(store)
     }
+    this.shells.forgetHost(hostId)
+    this.warmedShells.delete(hostId)
     this.threads.forgetHost(hostId)
     this.historyPrefetch.cancel(hostId)
     this.runHosts.forgetHost(hostId)

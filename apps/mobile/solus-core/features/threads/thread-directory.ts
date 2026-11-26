@@ -15,6 +15,7 @@ import type { HostRegistry } from '../hosts/host-registry'
 import type { CloudSessions, CloudSessionRecord } from './cloud-sessions'
 import type { SessionRunHosts } from './session-run-hosts'
 import { ShareArrivals } from './shared-with-you'
+import { markStart } from '../../lib/start-trace'
 
 /**
  * Every session on every host this device knows, as one list: the Solus side
@@ -80,7 +81,7 @@ export function threadKey(hostId: string, sessionId: string): string {
   return `${hostId}\u0000${sessionId}`
 }
 
-function projectRows(hostId: string, hostLabel: string, projects: ProjectEntry[], previous?: readonly SolusProjectShell[]) {
+export function projectRows(hostId: string, hostLabel: string, projects: ProjectEntry[], previous?: readonly SolusProjectShell[]) {
   const held = new Map(previous?.map(row => [row.project.path, row]))
   const rows = projects.map(project => {
     const row = { key: threadKey(hostId, project.path), hostId, hostLabel, project }
@@ -106,6 +107,20 @@ export interface PresumedHost {
   readonly id: string
   readonly installationId: string
   readonly identityKey?: string
+}
+
+/**
+ * The session shell of the hosts that have the `sessionShell` capability
+ * (`SessionShells`, docs/plans/mobile-session-shell.md §6). For such a host the
+ * shell gives the rows, and the directory reads below do not run.
+ */
+export interface ThreadDirectoryShell {
+  /** The saved shell of the host as directory rows, or null when the device keeps none in this scope. */
+  restore(hostId: string): Promise<HostThreads | null>
+  /** True while the shell follows the host. */
+  follows(hostId: string): boolean
+  /** Opens the host's shell again when it is not live. */
+  reload(hostId: string): void
 }
 
 /** How a cloud-only row names where it comes from when this phone keeps no host that ran it. */
@@ -173,6 +188,7 @@ export class ThreadDirectory {
      */
     private readonly isContainerRoot: (hostId: string, path: string) => boolean = () => false,
     private readonly restorePins?: (hostId: string, pins: readonly PinnedSession[]) => void,
+    private readonly shell?: ThreadDirectoryShell,
   ) {
     runHosts?.changes.subscribe(() => this.remerge())
     cloud?.changes.subscribe(() => this.remerge())
@@ -183,9 +199,18 @@ export class ThreadDirectory {
     const held = this.restores.get(hostId)
     if (held) return held
     const host = this.registry.host(hostId) ?? presumed
-    if (!host || !this.cache) return Promise.resolve()
+    const cache = this.cache
+    if (!host || (!cache && !this.shell)) return Promise.resolve()
     if (host === presumed) this.presumed.set(hostId, presumed)
-    const pending = this.cache.forHost(hostId).directory().then(cached => {
+    // The saved shell of a host that has one comes first; the directory copy is the older path.
+    const savedShell = this.shell ? this.shell.restore(hostId).catch(() => null) : Promise.resolve(null)
+    const pending = savedShell.then(shell => {
+      markStart(`shell_read:${shell ? 'found' : 'none'}`)
+      return shell ?? cache?.forHost(hostId).directory().then(directory => {
+        markStart(`directory_read:${directory ? directory.threads.length : 'none'}`)
+        return directory
+      }) ?? null
+    }).then(cached => {
       // The catalog rebuilds its host objects when a route or label changes. Forgetting
       // the host or switching accounts cancels this read even if the same id returns.
       const currentHost = this.registry.host(hostId) ?? this.presumed.get(hostId)
@@ -323,6 +348,11 @@ export class ThreadDirectory {
    * a whole read).
    */
   async load(hostId: string, attempt = 0, scope: 'all' | 'sessions' = 'all', opening?: Promise<SessionDirectoryPage | null>): Promise<void> {
+    if (this.shell?.follows(hostId)) {
+      // The host sends each change of the list; only a shell that is not live opens again.
+      this.shell.reload(hostId)
+      return
+    }
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     const host = this.registry.host(hostId)
@@ -367,6 +397,7 @@ export class ThreadDirectory {
       if (!isCurrent()) return
       let openingFacts = previous?.opening
       if (page) {
+        markStart(`directory_answer:${page.records.length}`)
         openingFacts = { pins: page.pins, codebases: page.codebases, automations: page.automations }
         const present = directoryOpeningRows(page)
         const value: HostThreads = {
@@ -463,6 +494,42 @@ export class ThreadDirectory {
       this.retries.set(hostId, setTimeout(() => void this.load(hostId, 0, 'sessions'), 3000))
     }
     if (retryAfterMs !== null) this.retries.set(hostId, setTimeout(() => void this.load(hostId, attempt + 1, scope), retryAfterMs))
+  }
+
+  /** The list of a host as it shows now: its last read, or the rows it shows while it reads. */
+  shownValue(hostId: string): HostThreads | null {
+    const state = this.stateOf(hostId)
+    return state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
+  }
+
+  /**
+   * The host's session shell changed (`SessionShells`). A live shell is the
+   * host's loaded list; any other shell shows while the host connects or
+   * synchronizes. A value that did not change moves nothing.
+   */
+  receiveShell(hostId: string, value: HostThreads, live: boolean): void {
+    // A directory read in flight from before the shell no longer lands.
+    this.requests.set(hostId, ++this.nextRequest)
+    clearTimeout(this.retries.get(hostId))
+    this.retries.delete(hostId)
+    clearTimeout(this.directoryWrites.get(hostId))
+    this.directoryWrites.delete(hostId)
+    this.denied.delete(hostId)
+    const prior = this.stateOf(hostId)
+    if (prior.kind === (live ? 'loaded' : 'loading') && this.shownValue(hostId) === value) return
+    this.set(hostId, live ? { kind: 'loaded', value } : { kind: 'loading', previous: value })
+    if (!live) return
+    const threads = value.threads
+    const shared = this.shareArrivals.take(hostId, threads.map(thread => thread.record))
+      .map(record => threads.find(thread => thread.record === record)!)
+    if (shared.length) for (const listener of Array.from(this.shareListeners)) listener(shared)
+  }
+
+  /** The host's shell could not open: the list keeps its rows and shows the error. */
+  shellFailed(hostId: string, message: string): void {
+    const state = this.stateOf(hostId)
+    if (state.kind === 'error' && state.message === message) return
+    this.set(hostId, { kind: 'error', message, previous: this.shownValue(hostId) })
   }
 
   /** The host already sent the changed fields for listed sessions. A missing

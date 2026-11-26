@@ -9,6 +9,8 @@ import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
 import type { KeyValueStore } from "../../platform/ports";
+import type { SessionShellRow } from "@solus/contracts/session-shell";
+import { shellPins } from "./session-shell";
 import { threadKey, type SolusThreadShell } from "./thread-directory";
 import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV2";
 
@@ -132,6 +134,41 @@ export class ThreadListState {
       if (this.attentionReads.get(hostId) === read && this.connectionFor(hostId) === connection)
         this.receiveAttention(hostId, entries);
     }, () => {});
+  }
+
+  /**
+   * The host's session shell changed (docs/plans/mobile-session-shell.md §6):
+   * its rows carry the pins, the attention, and the agent activity. The
+   * host's events still follow the views, states, and executions, so a row
+   * action keeps its quick local change. The activity of a saved shell is old,
+   * so only a live shell gives it.
+   */
+  receiveShell(hostId: string, rows: readonly SessionShellRow[], live: boolean): void {
+    const connection = this.connectionFor(hostId);
+    if (connection) this.watch(hostId, connection);
+    const pins = shellPins(hostId, rows);
+    const prefix = threadKey(hostId, "");
+    const heldPins = [...this.pins].filter(([key]) => key.startsWith(prefix));
+    if (heldPins.length !== pins.length ||
+        pins.some((pin) => this.pins.get(threadKey(hostId, pin.sessionId))?.pinnedAt !== pin.pinnedAt)) {
+      this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+      this.restorePins(hostId, pins);
+    }
+    this.receiveAttention(hostId, rows.flatMap((row) => (row.attention ? [row.attention] : [])));
+    if (!live) return;
+    const keys: string[] = [];
+    for (const { record, agentActivity } of rows) {
+      const key = threadKey(hostId, record.sessionId);
+      const held = this.agentActivity.get(key);
+      if (agentActivity === null ? held === undefined : held !== undefined && JSON.stringify(held) === JSON.stringify(agentActivity)) continue;
+      if (agentActivity === null) this.agentActivity.delete(key);
+      else this.agentActivity.set(key, agentActivity);
+      keys.push(key);
+    }
+    if (!keys.length) return;
+    this.lastRowChange = { previous: this.snapshot, keys };
+    this.snapshot = { ...this.snapshot, agentActivity: new Map(this.agentActivity) };
+    this.changes.notify();
   }
 
   private receiveAttention(hostId: string, entries: readonly AttentionEntry[]): void {

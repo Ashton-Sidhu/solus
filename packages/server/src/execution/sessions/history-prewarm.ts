@@ -59,20 +59,14 @@ export class HistoryPrewarm {
 
   private async warmSession(sessionId: string): Promise<void> {
     const startedAt = performance.now()
-    if (this.hasRun(sessionId)) return
     // Only a session this host keeps: a record of another host's session has no provider file here.
     const meta = await this.rt.history.getSessionInfo(sessionId)
     if (!meta) return
+    // A running session is read ahead too: people open it the most. Its page stays
+    // cached until the run writes again (each write changes the file's revision).
     for (const turnLimit of FIRST_PAGE_TURN_LIMITS) {
-      // A run writes the file; the provider does not cache a page while it runs.
-      if (this.hasRun(sessionId)) return
       await this.rt.history.loadSessionPage({ sessionId, provider: meta.provider, projectPath: meta.cwd || undefined, turnLimit, knownHistoryBlocks: [] })
     }
     log.info('history_prewarmed', { sessionId, provider: meta.provider, durationMs: performance.now() - startedAt })
-  }
-
-  private hasRun(sessionId: string): boolean {
-    return this.rt.activeSessions.has(sessionId) || this.rt.activeRunRequests.has(sessionId) ||
-      this.rt.launcher.pendingSetupControllers.has(sessionId)
   }
 }

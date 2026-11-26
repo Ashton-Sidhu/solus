@@ -54,6 +54,15 @@ export async function readPinnedSessions(personKey: string): Promise<PinnedSessi
   })
 }
 
+type PinListener = (change: { personKey: string; sessionId: string }) => void
+const pinListeners = new Set<PinListener>()
+
+/** Hear each pin and unpin. Only that person's list changes. */
+export function onPinnedSessionChanged(listener: PinListener): () => void {
+  pinListeners.add(listener)
+  return () => pinListeners.delete(listener)
+}
+
 /** Pin the session for this person, or unpin it when it is pinned. An undo
  *  sends the pin's old time, so the row returns to its own place. */
 export async function togglePinnedSession(personKey: string, pin: Pick<PinnedSession, 'sessionId' | 'pinnedAt'>): Promise<PinnedSession[]> {
@@ -73,5 +82,6 @@ export async function togglePinnedSession(personKey: string, pin: Pick<PinnedSes
     `)).changes > 0
     if (!pinned) throw new Error('Return the session to the list before pinning it.')
   }
+  for (const listener of pinListeners) listener({ personKey, sessionId: pin.sessionId })
   return readPinnedSessions(personKey)
 }

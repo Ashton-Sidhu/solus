@@ -279,6 +279,8 @@ export interface SessionDirectoryPage {
 // in `src/client-core`; preload now exposes only the native shell residue below.
 export interface SolusAPI {
   sessionDirectoryOpen(): Promise<SessionDirectoryPage | { error: { status: number; code: string; message: string; retryAfter?: number } }>
+  /** The caller's session list as a snapshot or the changes after their cursor; later changes come as `sessionShell.changed` (docs/plans/mobile-session-shell.md). */
+  sessionShellOpen(request: import('./session-shell').SessionShellOpenRequest): Promise<import('./session-shell').SessionShellOpenResult>
   start(): Promise<StartInfo>
   serverGetCapabilities(): Promise<HostCapabilities>
   /** Subscribe to a session's events. Resolves identity: the answer may differ
