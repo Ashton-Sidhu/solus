@@ -107,7 +107,7 @@ const toolActionSchema = z.object({
   enabled: z.boolean(),
   filters: z.array(filterSchema),
   template: z.string(),
-  agentProvider: z.enum(['claude-code', 'codex']).optional(),
+  agentProvider: z.enum(['claude-code', 'codex', 'antigravity']).optional(),
   modelId: z.string().nullable().optional(),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).optional(),
   cwd: z.string().optional(),

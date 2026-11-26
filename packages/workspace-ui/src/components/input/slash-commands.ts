@@ -44,7 +44,8 @@ export interface SlashCommandRunContext {
 export interface CategorizedSlashCommands {
   solus: SlashCommand[];
   codex: SlashCommand[];
-  claudeCode: SlashCommand[];
+  /** The agent's own commands, as it reports them. */
+  agent: SlashCommand[];
   global: SlashCommand[];
   project: SlashCommand[];
 }

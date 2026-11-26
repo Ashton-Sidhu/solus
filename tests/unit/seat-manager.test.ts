@@ -301,7 +301,7 @@ describe('lifecycle', () => {
     await seats.markFailed(BOB_SEAT, 'codex', 'exited with code 1')
     expect(events.map((event) => event.state)).toEqual(['connecting', 'none'])
     expect(events[1]?.error).toBe('exited with code 1')
-    expect((await seats.list(BOB_SEAT)).map((status) => status.state)).toEqual(['none', 'none'])
+    expect((await seats.list(BOB_SEAT)).map((status) => status.state)).toEqual(['none', 'none', 'none'])
   })
 
   test('disconnect deletes the credential and keeps the directory; remove deletes the directory', async () => {

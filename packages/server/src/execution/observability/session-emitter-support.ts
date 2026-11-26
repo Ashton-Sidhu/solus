@@ -1,5 +1,6 @@
 import type { NormalizedEvent, UsageData } from '@solus/contracts/types'
 import type { SpanAttributes, SpanStatus } from '../../data/insights/registries'
+import { modelTokenCostUsd } from './model-pricing'
 
 export type TurnOutcome = 'completed' | 'interrupted' | 'failed'
 
@@ -91,12 +92,15 @@ export function setUsageAttrs(attrs: SpanAttributes, usage: UsageData): void {
 
 export function applyTaskCompleteAttrs(
   attrs: SpanAttributes,
-  provider: string,
+  dimensions: { provider: string; model: string },
   event: Extract<NormalizedEvent, { type: 'task_complete' }>,
 ): void {
-  if (provider !== 'codex') {
+  // Codex's usage arrives in its token count events, and the turn's end prices it.
+  if (dimensions.provider !== 'codex') {
     setUsageAttrs(attrs, event.usage)
-    attrs.costUsd = event.costUsd
+    // agy reports no cost: the price list prices its tokens, and a model with no price has no cost.
+    const costUsd = dimensions.provider === 'antigravity' ? modelTokenCostUsd(dimensions.model, event.usage) : event.costUsd
+    if (costUsd !== undefined) attrs.costUsd = costUsd
   }
   if (event.permissionDenials) attrs.permissionDenialCount = event.permissionDenials.length
 }

@@ -104,7 +104,7 @@ export const BASE_FIELDS: RegisteredField[] = [
     column('host_id', 'host_id', 'string', 'Host that ran the turn, for a turn pulled from another host; null when this host ran it'),
   ]),
   ...withGroup('dimension', [
-    column('provider', 'provider', 'string', "Agent backend: 'claude' or 'codex'"),
+    column('provider', 'provider', 'string', "Agent backend: 'claude-code', 'codex', or 'antigravity'"),
     column('model', 'model', 'string', "Executed model as the provider reported it (rerouting latched), e.g. claude-fable-5; one id per model whatever its context window, which a turn records in context_window"),
     column('project_root', 'project_root', 'string', 'Absolute project directory the work ran in'),
     column('origin', 'origin', 'string', "Prompt source: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),

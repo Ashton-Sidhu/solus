@@ -4,7 +4,7 @@
   import { reviewSettings as settingItems } from "./lib/settings-search-data";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
-  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "@solus/contracts/types";
+  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, SOLUS_TOOL_AGENT_IDS, projectScopeOf, type AgentId } from "@solus/contracts/types";
   import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
@@ -47,7 +47,8 @@
     reviewModels.find((m) => m.id === reviewModelId)?.label ?? reviewModelId,
   );
   const reviewAgentRows = $derived(
-    agentContext.agents.filter((a) => a.available !== false),
+    // A review answers through a Solus capture tool, which only these agents can call.
+    agentContext.agents.filter((a) => a.available !== false && SOLUS_TOOL_AGENT_IDS.some((id) => id === a.id)),
   );
 
   // Reasoning levels are model-specific (sourced from MODEL_PROFILES), so the

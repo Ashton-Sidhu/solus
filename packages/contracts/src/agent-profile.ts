@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 import { remoteIntegrationAuthSchema } from './integration-types'
-import { seatProviderSchema, type SeatProvider } from './seats'
+import { SEAT_PROVIDERS, seatProviderSchema, type SeatProvider } from './seats'
 
 /**
  * What each provider home contributes, as the first segment of a file path.
@@ -24,7 +24,12 @@ import { seatProviderSchema, type SeatProvider } from './seats'
 export const AGENT_PROFILE_ENTRIES = {
   'claude-code': ['skills', 'agents', 'commands'],
   codex: ['skills', 'prompts'],
+  // Inside the profile's `config` folder, where agy reads its global skills (docs/plans/antigravity-provider.md §7.1).
+  antigravity: ['skills'],
 } as const satisfies Record<SeatProvider, readonly string[]>
+
+/** The providers whose homes a profile copy reads and writes: each one with an entry. */
+export const PROFILE_PROVIDERS: readonly SeatProvider[] = SEAT_PROVIDERS.filter((provider) => AGENT_PROFILE_ENTRIES[provider].length > 0)
 
 /**
  * A profile path is relative, has no hidden or parent segment, and is a file

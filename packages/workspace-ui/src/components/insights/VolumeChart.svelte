@@ -124,6 +124,7 @@
   /** The legend and tooltip use the provider colours; bars use softer fills. */
   const CLAUDE_FILL = "var(--insights-provider-claude)";
   const CODEX_FILL = "var(--insights-provider-codex)";
+  const ANTIGRAVITY_FILL = "var(--insights-provider-antigravity)";
   const UNKNOWN_FILL =
     "color-mix(in oklch, var(--muted-foreground) 38%, var(--card))";
   /**
@@ -242,6 +243,19 @@
             >{providers.codex.toLocaleString()}</span
           >
         </li>
+        {#if providers.antigravity > 0}
+          <li class="flex items-center gap-1.5">
+            <span
+              class="h-2 w-2.5 rounded-[3px]"
+              style="background:{ANTIGRAVITY_FILL}"
+              aria-hidden="true"
+            ></span>
+            Antigravity
+            <span class="text-foreground tabular-nums"
+              >{providers.antigravity.toLocaleString()}</span
+            >
+          </li>
+        {/if}
         {#if providers.unknownProvider > 0}
           <li class="flex items-center gap-1.5">
             <span
@@ -280,6 +294,7 @@
       series={[
         { key: "claude", fill: "var(--insights-provider-claude-fill)", value: (bucket) => bucket.claudeCode },
         { key: "codex", fill: "var(--insights-provider-codex-fill)", value: (bucket) => bucket.codex },
+        { key: "antigravity", fill: "var(--insights-provider-antigravity-fill)", value: (bucket) => bucket.antigravity },
         { key: "unknown", fill: UNKNOWN_FILL, value: (bucket) => bucket.unknownProvider },
       ]}
       {ticks}
@@ -328,6 +343,19 @@
                 >{data.codex}</span
               >
               <span class="text-muted-foreground">Codex</span>
+            </span>
+          {/if}
+          {#if data.antigravity > 0}
+            <span class="flex items-center gap-1.5">
+              <span
+                class="h-1.5 w-2.5 rounded-sm"
+                style="background:{ANTIGRAVITY_FILL}"
+                aria-hidden="true"
+              ></span>
+              <span class="text-insights-summary font-medium tabular-nums"
+                >{data.antigravity}</span
+              >
+              <span class="text-muted-foreground">Antigravity</span>
             </span>
           {/if}
           {#if data.unknownProvider > 0}

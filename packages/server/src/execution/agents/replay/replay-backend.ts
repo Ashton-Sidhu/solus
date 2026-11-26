@@ -1,16 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { z } from 'zod'
 import { BaseAgentBackend } from '../base-backend'
 import { resolveHomePath } from '../../../platform/paths'
 import { createLogger } from '../../../logger'
-import { startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
-import { formatExchangeTag, formatSessionReport } from '@solus/contracts/session-exchange'
-import { attributionSchema } from '@solus/contracts/user'
-import type { AgentConversationUpdate, AgentId, AgentMetadata, NormalizedEvent, PermissionOption, PlanDescriptor, PluginCommandsResult } from '@solus/contracts/types'
+import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
+import type { AgentId, AgentMetadata, NormalizedEvent, PermissionOption, PlanDescriptor, PluginCommandsResult } from '@solus/contracts/types'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
+import { KeptHistory, TurnHistory } from '../kept-history'
 import { materializeEvent, streamChunks, type ReplayLive, type ReplayScenario, type ReplayStep } from './replay-scenario'
 
 const log = createLogger('ReplayBackend', 'replay-backend.ts')
@@ -72,24 +68,6 @@ function holdsTurn(event: NormalizedEvent): event is HeldRequest {
     || (event.type === 'plan' && event.options.length > 0)
 }
 
-const historySchema = z.array(z.object({
-  role: z.string(),
-  content: z.string(),
-  timestamp: z.number(),
-  toolName: z.string().optional(),
-  toolId: z.string().optional(),
-  toolInput: z.string().optional(),
-  toolStatus: z.enum(['running', 'completed', 'error']).optional(),
-  isSubagent: z.boolean().optional(),
-  subagentType: z.string().optional(),
-  parentToolUseId: z.string().optional(),
-  sender: attributionSchema.transform((sender) =>
-    sender.kind === 'agent' || sender.kind === 'automation' ? sender : undefined,
-  ).optional(),
-  planContent: z.string().optional(),
-  planToolUseId: z.string().optional(),
-}))
-
 /**
  * A free agent for development. It plays recorded turns through the real
  * session runtime, transcript, and clients, so a turn renders without a model.
@@ -101,7 +79,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
   readonly permissions: PermissionResponder
 
   private readonly scenarios: Map<string, ReplayScenario>
-  private readonly historyDirectory: string
+  private readonly history: KeptHistory
   private readonly clock: ReplayClock
   /** Per provider session: the scenario it plays and the turn it plays next. */
   private readonly sessions = new Map<string, { scenarioId: string; nextTurn: number }>()
@@ -111,7 +89,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     super()
     if (options.scenarios.length === 0) throw new Error('The replay backend needs at least one scenario')
     this.scenarios = new Map(options.scenarios.map((scenario) => [scenario.id, scenario]))
-    this.historyDirectory = options.historyDirectory
+    this.history = new KeptHistory(options.historyDirectory)
     this.clock = options.clock ?? realClock
     this.permissions = {
       getPendingInfo: (questionId) => {
@@ -213,7 +191,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     const history = new TurnHistory(request.prompt)
     const live: ReplayLive = { workspace: resolveHomePath(request.cwd), turnKey: randomUUID().slice(0, 8) }
     const end = await this.playTurn(handle, nativeSessionId, turn, live, history)
-    if (request.persistence === 'session') this.appendHistory(nativeSessionId, history.rows())
+    if (request.persistence === 'session') this.history.append(nativeSessionId, history.rows())
 
     this.finishRun(handle)
     handle._resolveRun()
@@ -340,53 +318,16 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     return null
   }
 
-  private historyFile(nativeSessionId: string): string {
-    return join(this.historyDirectory, `${nativeSessionId.replace(/[^\w-]/g, '_')}.json`)
-  }
-
-  private readHistory(nativeSessionId: string): SessionLoadMessage[] {
-    const file = this.historyFile(nativeSessionId)
-    if (!existsSync(file)) return []
-    try {
-      return historySchema.parse(JSON.parse(readFileSync(file, 'utf8')))
-    } catch (error) {
-      log.warn('replay_history_unreadable', { file, error: error instanceof Error ? error.message : String(error) })
-      return []
-    }
-  }
-
-  private appendHistory(nativeSessionId: string, rows: SessionLoadMessage[]): void {
-    try {
-      mkdirSync(this.historyDirectory, { recursive: true })
-      writeFileSync(this.historyFile(nativeSessionId), JSON.stringify([...this.readHistory(nativeSessionId), ...rows]))
-    } catch (error) {
-      log.warn('replay_history_write_failed', { error: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
   async loadSession(nativeSessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
-    const rows = this.readHistory(nativeSessionId)
-    return limit === undefined ? rows : rows.slice(-limit)
+    return this.history.load(nativeSessionId, limit)
   }
 
   async loadSessionFirstTurn(nativeSessionId: string): Promise<SessionLoadMessage[]> {
-    const rows = this.readHistory(nativeSessionId)
-    const first = rows.findIndex(startsHistoryTurn)
-    const second = first < 0 ? -1 : rows.findIndex((row, index) => index > first && startsHistoryTurn(row))
-    return second < 0 ? rows : rows.slice(0, second)
+    return this.history.firstTurn(nativeSessionId)
   }
 
-  /** `before` is the index of the first row of the page after this one. */
   async loadSessionPage(nativeSessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
-    const rows = this.readHistory(nativeSessionId)
-    const end = before === undefined ? rows.length : Math.max(0, Math.min(rows.length, Number(before)))
-    let start = end
-    let turns = 0
-    while (start > 0 && turns < turnLimit) {
-      start -= 1
-      if (startsHistoryTurn(rows[start]!)) turns += 1
-    }
-    return { messages: rows.slice(start, end), before: start > 0 ? String(start) : null }
+    return this.history.page(nativeSessionId, turnLimit, before)
   }
 
   async listPlans(): Promise<PlanDescriptor[]> {
@@ -405,119 +346,5 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
 
   protected override _errorMessage(): string {
     return 'The replay run failed'
-  }
-}
-
-/** The rows one played turn adds to its session's history. */
-class TurnHistory {
-  private readonly messages: SessionLoadMessage[] = []
-  private readonly tools = new Map<string, SessionLoadMessage>()
-  private readonly exchanges = new Map<string, SessionLoadMessage>()
-  private text: SessionLoadMessage | null = null
-  /** The turn's own prose, which is its result. */
-  resultText = ''
-
-  constructor(prompt: string) {
-    this.messages.push({ role: 'user', content: prompt, timestamp: Date.now() })
-  }
-
-  record(event: NormalizedEvent): void {
-    if (event.type === 'text_chunk') this.recordText(event)
-    else if (event.type === 'user_message') {
-      this.push({ role: 'user', content: event.text, sender: event.sender, timestamp: Date.now() })
-    } else if (event.type === 'agent_conversation_update') this.recordExchange(event.update)
-    else if (event.type === 'tool_call') this.recordToolCall(event)
-    else if (event.type === 'tool_call_update' || event.type === 'tool_call_complete' || event.type === 'tool_result') this.recordToolProgress(event)
-    else if (event.type === 'thinking' && event.state === 'stop' && event.text) this.push({ role: 'reasoning', content: event.text, timestamp: Date.now() })
-    else if (event.type === 'plan' && event.planContent.trim()) {
-      const row: SessionLoadMessage = { role: 'plan', content: '', planContent: event.planContent, timestamp: Date.now() }
-      if (event.planToolUseId) row.planToolUseId = event.planToolUseId
-      this.push(row)
-    }
-  }
-
-  /** Store the same tool receipt that the history projection uses to rebuild an agent card. */
-  private recordExchange(update: AgentConversationUpdate): void {
-    if (update.phase === 'dispatched') {
-      const started = update.origin === 'created'
-      const row: SessionLoadMessage = {
-        role: 'tool',
-        toolId: update.messageId,
-        toolName: started ? 'start_sessions' : 'send_session',
-        toolStatus: 'completed',
-        toolInput: JSON.stringify(started
-          ? { sessions: [{ title: update.title, prompt: update.prompt, agent_provider: update.provider }] }
-          : { session_id: update.sessionId, message: update.prompt }),
-        content: formatExchangeTag({
-          messageId: update.messageId,
-          sessionId: update.sessionId,
-          provider: update.provider,
-          serverId: update.serverId,
-          item: started ? 0 : undefined,
-        }),
-        timestamp: update.dispatchedAt,
-      }
-      this.exchanges.set(update.messageId, row)
-      this.push(row)
-    } else if (update.phase === 'settled') {
-      const row = this.exchanges.get(update.messageId)
-      if (!row) return
-      row.content += '\n\n' + formatSessionReport({
-        messageId: update.messageId,
-        sessionId: update.sessionId,
-        status: update.status,
-        durationMs: update.durationMs,
-        outputs: update.outputs ?? [],
-        reply: update.replyText,
-      })
-      this.exchanges.delete(update.messageId)
-    }
-  }
-
-  /** A row that is not prose: the prose after it starts a new row. */
-  private push(row: SessionLoadMessage): void {
-    this.text = null
-    this.messages.push(row)
-  }
-
-  private recordText(event: Extract<NormalizedEvent, { type: 'text_chunk' }>): void {
-    // A sub-agent's prose belongs to its own transcript, not this turn's answer.
-    if (event.parentToolUseId) return
-    this.resultText += event.text
-    if (!this.text) {
-      this.text = { role: 'assistant', content: '', timestamp: Date.now() }
-      this.messages.push(this.text)
-    }
-    this.text.content += event.text
-  }
-
-  private recordToolCall(event: Extract<NormalizedEvent, { type: 'tool_call' }>): void {
-    const row: SessionLoadMessage = { role: 'tool', content: event.content ?? '', toolName: event.toolName, toolId: event.toolId, toolStatus: 'running', timestamp: Date.now() }
-    if (event.toolInput !== undefined) row.toolInput = event.toolInput
-    if (event.parentToolUseId) row.parentToolUseId = event.parentToolUseId
-    if (event.isSubagent) row.isSubagent = true
-    if (event.subagentType) row.subagentType = event.subagentType
-    this.tools.set(event.toolId, row)
-    this.push(row)
-  }
-
-  private recordToolProgress(event: Extract<NormalizedEvent, { type: 'tool_call_update' | 'tool_call_complete' | 'tool_result' }>): void {
-    const toolId = event.type === 'tool_result' ? event.toolUseId : event.toolId
-    const row = toolId ? this.tools.get(toolId) : undefined
-    if (!row) return
-    if (event.type === 'tool_result') {
-      row.content = event.content
-      row.toolStatus = event.isError ? 'error' : 'completed'
-      return
-    }
-    if (event.toolInput !== undefined) row.toolInput = event.toolInput
-    if (event.type === 'tool_call_update' && event.content !== undefined) row.content += event.content
-    if (event.type === 'tool_call_complete' && event.outcome) row.toolStatus = event.outcome.status === 'failed' ? 'error' : 'completed'
-  }
-
-  rows(): SessionLoadMessage[] {
-    // A tool the turn never finished reads as finished once the turn is over.
-    for (const row of this.tools.values()) if (row.toolStatus === 'running') row.toolStatus = 'completed'
-    return this.messages
   }
 }

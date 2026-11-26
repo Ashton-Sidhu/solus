@@ -47,6 +47,7 @@ export class HostSetupSession {
   providerStages = $state<Record<SetupAgent, ProviderSetupAction | null>>({
     claude: null,
     codex: null,
+    agy: null,
   })
   stepError = $state<{ step: SetupActionId; message: string; provider?: SetupAgent } | null>(null)
   /** When readiness was last read off the host, so "Test" can say how fresh its answer is. */

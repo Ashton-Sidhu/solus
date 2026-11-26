@@ -36,6 +36,7 @@ function memberSkillHomes(ctx: HandlerCtx, seats: SeatStore): MemberSkillHomes |
   return {
     claudeHome: seats.homeFor(seat, 'claude-code'),
     codexHome: seats.homeFor(seat, 'codex'),
+    antigravityHome: seats.homeFor(seat, 'antigravity'),
   }
 }
 

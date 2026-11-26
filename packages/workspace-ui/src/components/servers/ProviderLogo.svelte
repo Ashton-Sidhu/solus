@@ -3,6 +3,7 @@
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import { ensureIconCollections } from "../../lib/iconify";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import type { ProviderLogoId } from "./lib/host-onboarding";
 
@@ -23,6 +24,8 @@
     <Icon icon={PROVIDER_LOGOS.github} width={18} height={18} />
   {:else if provider === "claude"}
     <span class="flex text-(--brand-claude)"><ClaudeIcon size={18} /></span>
+  {:else if provider === "agy"}
+    <ProviderMark mark="antigravity" size={18} transparent />
   {:else}
     <OpenAIBlossom size={17} fill="currentColor" />
   {/if}

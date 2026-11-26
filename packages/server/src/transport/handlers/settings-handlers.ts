@@ -15,7 +15,7 @@ import { hostConfigPatchSchema } from '@solus/contracts/host-config'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { configureOtel, otelActiveSignals, otelManagedByEnvironment } from '../../otel'
 import type { SolusServer } from '../server'
-import type { OtelSettingsSnapshot, TextGenerationSettingsSnapshot } from '@solus/contracts/types'
+import { SOLUS_TOOL_AGENT_IDS, type OtelSettingsSnapshot, type TextGenerationSettingsSnapshot } from '@solus/contracts/types'
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { enrichAgentMetadata } from './session-handlers'
@@ -73,6 +73,8 @@ export function registerSettingsHandlers(
     const agents = await Promise.all(
       deps.sessionRuntime
         .getBackendIds()
+        // Only an agent that answers through Solus's capture tools can write titles and commit text.
+        .filter((id) => SOLUS_TOOL_AGENT_IDS.some((agent) => agent === id))
         .map((id) => deps.sessionRuntime.getMetadataFor(id))
         .filter((metadata) => metadata !== undefined)
         .map(enrichAgentMetadata),

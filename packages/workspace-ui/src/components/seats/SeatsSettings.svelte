@@ -13,6 +13,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -33,6 +34,8 @@
   });
 
   const hasSeats = $derived(cloud || seatsStore.hasSeats.get(serverId) === true);
+  // A Solus Cloud account keeps Claude and Codex connections only; Antigravity signs in on the host.
+  const providers = $derived(cloud ? SEAT_PROVIDERS.filter((provider) => provider !== "antigravity") : SEAT_PROVIDERS);
 
   async function disconnect(provider: (typeof SEAT_PROVIDERS)[number]) {
     await seatsStore.disconnect(serverId, provider);
@@ -41,7 +44,7 @@
 </script>
 
 <SettingsSection label="Your seats" visible={hasSeats}>
-  {#each SEAT_PROVIDERS as provider (provider)}
+  {#each providers as provider (provider)}
     {@const status = seatsStore.statusFor(serverId, provider)}
     {@const action = seatAction(status)}
     <!-- Declared inside the loop: SettingsRow renders `body()` with no argument. -->
@@ -58,6 +61,8 @@
         <span class="ml-1.5 inline-flex size-[0.8125rem] items-center justify-center align-[-0.15em] text-(--solus-accent) {provider === 'codex' ? 'rounded-full bg-white' : ''}">
           {#if provider === "claude-code"}
             <ClaudeIcon size={13} />
+          {:else if provider === "antigravity"}
+            <ProviderMark mark="antigravity" size={13} transparent />
           {:else}
             <OpenAIBlossom size={11} />
           {/if}

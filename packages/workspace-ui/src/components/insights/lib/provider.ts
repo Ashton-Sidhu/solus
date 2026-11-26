@@ -18,13 +18,14 @@ import { modelLabelFor, type AgentId } from '@solus/contracts/types'
 
 /** The logo drawn beside a backend's name. Null where Solus has no mark to
  *  draw, which is not the same as a backend with no logo. */
-export type ProviderMarkId = 'claude' | 'codex' | null
+export type ProviderMarkId = 'claude' | 'codex' | 'antigravity' | null
 
 export function providerMark(provider: string | null | undefined): ProviderMarkId {
   // Both spellings are Claude Code: `claude` is what the session emitter has
   // always written, `claude-code` is what the volume query reads back.
   if (provider === 'claude' || provider === 'claude-code') return 'claude'
   if (provider === 'codex') return 'codex'
+  if (provider === 'antigravity') return 'antigravity'
   return null
 }
 
@@ -39,7 +40,7 @@ export function modelName(
   if (!model) return null
   const mark = providerMark(provider)
   const agents: AgentId[] =
-    mark === 'claude' ? ['claude-code'] : mark === 'codex' ? ['codex'] : ['claude-code', 'codex']
+    mark === 'claude' ? ['claude-code'] : mark === 'codex' ? ['codex'] : mark === 'antigravity' ? ['antigravity'] : ['claude-code', 'codex']
   for (const agent of agents) {
     const label = modelLabelFor(agent, model)
     if (label && label !== model) return label
@@ -53,6 +54,7 @@ export function providerName(provider: string | null | undefined): string | null
   const mark = providerMark(provider)
   if (mark === 'claude') return 'Claude Code'
   if (mark === 'codex') return 'Codex'
+  if (mark === 'antigravity') return 'Antigravity'
   // The development replay provider draws no brand mark, but it has a name.
   if (provider === 'replay') return 'Replay (dev)'
   return null

@@ -4,7 +4,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, requestPairApproval, urlHost, type PairServerResult } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
+import { agentIdSchema, replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
@@ -115,7 +115,7 @@ const lastRouteSchema = z.object({
   projectPath: z.string(),
   record: z.object({
     sessionId: z.string().min(1),
-    provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+    provider: agentIdSchema,
     projectPath: z.string(),
     cwd: z.string().nullable(),
     model: z.string().nullable(),

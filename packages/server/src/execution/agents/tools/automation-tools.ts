@@ -6,7 +6,7 @@ import { sessionSettings } from '../../sessions/session-settings'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
-import type { AgentId, Automation, AutomationAction, AutomationTrigger, ReasoningEffort } from '@solus/contracts/types'
+import { SESSION_AGENT_IDS, type AgentId, type Automation, type AutomationAction, type AutomationTrigger, type ReasoningEffort } from '@solus/contracts/types'
 import {
   automationHomeOf,
   createAutomation,
@@ -39,7 +39,6 @@ const log = createLogger('automations', 'automation-tools.ts')
 const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
 // Providers that can execute a headless run (Phase 1). 'opencode' is excluded —
 // it has no one-shot runner yet.
-const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 
 // ─── Schemas (raw Zod fields, reused by every tool definition) ───
 
@@ -67,7 +66,7 @@ const createAutomationFields = {
   prompt: z.string().describe('The instruction submitted to the agent when the automation runs.'),
   cwd: z.string().optional().describe('Exact working directory for the run. When omitted, defaults to the active project root.'),
   use_worktree: z.boolean().optional().describe('When true, create an isolated worktree from the project root for each run. Defaults to false.'),
-  agent_provider: z.enum(AGENT_PROVIDER_VALUES).optional().describe("Which agent runs the automation: 'claude-code' (default) or 'codex'."),
+  agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs the automation: 'claude-code' (default), 'codex', or 'antigravity'."),
   model_id: z.string().nullable().optional().describe('Model id to run with. Omit or null for the default model.'),
   reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning effort for runs. Defaults to 'medium'."),
   enabled: z.boolean().optional().describe('Whether the automation is enabled. Defaults to true.'),
@@ -81,7 +80,7 @@ const updateAutomationFields = {
   prompt: z.string().optional(),
   cwd: z.string().optional(),
   use_worktree: z.boolean().optional(),
-  agent_provider: z.enum(AGENT_PROVIDER_VALUES).optional(),
+  agent_provider: z.enum(SESSION_AGENT_IDS).optional(),
   model_id: z.string().nullable().optional(),
   reasoning_effort: z.enum(REASONING_VALUES).optional(),
   enabled: z.boolean().optional(),
@@ -128,7 +127,7 @@ function reasoning(value: ReasoningEffort | undefined, fallback: ReasoningEffort
 }
 
 function agentProvider(value: AgentId | undefined, fallback: AgentId): AgentId {
-  return value && AGENT_PROVIDER_VALUES.some((candidate) => candidate === value) ? value : fallback
+  return value && SESSION_AGENT_IDS.some((candidate) => candidate === value) ? value : fallback
 }
 
 type TriggerResult =

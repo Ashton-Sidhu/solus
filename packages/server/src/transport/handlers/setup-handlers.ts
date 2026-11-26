@@ -62,7 +62,7 @@ const SSH_COMMAND_TIMEOUT_MS = 10_000
 const GH_AUTH_TIMEOUT_MS = 10_000
 const MAX_DISPATCH_HISTORY_REPO_KEYS = 32
 
-const setupAgentSchema = z.enum(['claude', 'codex'])
+const setupAgentSchema = z.enum(['claude', 'codex', 'agy'])
 const delegatedCredentialSchema = z.object({
   accessToken: z.string(),
   login: z.string(),
@@ -143,7 +143,15 @@ export interface AgentAuthProbeDeps {
   resolveAgentBinary?: typeof whichAgentBinary
   hasClaudeAuth?: () => Promise<boolean>
   hasCodexAuth?: () => Promise<boolean>
+  hasAntigravityAuth?: () => Promise<boolean>
 }
+
+/** The provider each setup agent runs, and the step that installs it. */
+const SETUP_AGENTS = {
+  claude: { provider: 'claude-code', installStep: 'install-claude' },
+  codex: { provider: 'codex', installStep: 'install-codex' },
+  agy: { provider: 'antigravity', installStep: 'install-agy' },
+} as const satisfies Record<SetupAgent, { provider: SeatProvider; installStep: SetupStreamStep }>
 
 /** The capability fields a host learns by probing itself; the handler list adds the rest. */
 export type ProbedHostCapabilities = Required<Pick<HostCapabilities,
@@ -166,6 +174,7 @@ export async function probeHostCapabilities(opts: CapabilityProbeOptions): Promi
     agents: {
       claude: !!await whichAgentBinary('claude-code'),
       codex: !!await whichAgentBinary('codex'),
+      agy: !!await whichAgentBinary('antigravity'),
     },
     dictation: existsSync(join(PARAKEET_MODEL_DIR, '.installed')),
     platform: process.platform,
@@ -205,6 +214,10 @@ export function hasClaudeAuth(succeeds?: LoginProbe): Promise<boolean> {
 
 export function hasCodexAuth(): Promise<boolean> {
   return providerLoginConnected('codex', null)
+}
+
+export function hasAntigravityAuth(): Promise<boolean> {
+  return providerLoginConnected('antigravity', null)
 }
 
 export async function hasGithubAuth(): Promise<boolean> {
@@ -249,6 +262,7 @@ export async function probeHostReadiness(
     agents: {
       claude: await agentReadiness('claude', agentDeps),
       codex: await agentReadiness('codex', agentDeps),
+      agy: await agentReadiness('agy', agentDeps),
     },
     installGit: gitInstalled ? null : buildPackageInstallCommand('git', { hasCommand }),
     installGh: ghCli ? null : buildPackageInstallCommand('gh', { hasCommand }),
@@ -327,7 +341,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     if (!seats) return deps
     const seat = seatFor(ctx.actor)
     const connected = async (provider: SeatProvider) => (await seats.status(seat, provider)).state === 'connected'
-    return { ...deps, hasClaudeAuth: () => connected('claude-code'), hasCodexAuth: () => connected('codex') }
+    return { ...deps, hasClaudeAuth: () => connected('claude-code'), hasCodexAuth: () => connected('codex'), hasAntigravityAuth: () => connected('antigravity') }
   }
   const activeSteps = new Set<SetupStreamStep>()
   /** The one path `clean: true` is allowed to delete: what this host's last clone left behind. */
@@ -834,7 +848,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 }
 
 function installStepForAgent(agent: SetupAgent): SetupStreamStep {
-  return agent === 'claude' ? 'install-claude' : 'install-codex'
+  return SETUP_AGENTS[agent].installStep
 }
 
 /** Readiness cares only about "can this host run the agent", so an unknown auth probe reads as not signed in. */
@@ -845,15 +859,16 @@ async function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}):
 
 async function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Promise<SetupAgentAuthCheckResult> {
   const resolveBinary = deps.resolveAgentBinary ?? whichAgentBinary
-  const checkClaudeAuth = deps.hasClaudeAuth ?? hasClaudeAuth
-  const checkCodexAuth = deps.hasCodexAuth ?? hasCodexAuth
-  const installed = !!await resolveBinary(agent === 'claude' ? 'claude-code' : 'codex')
+  const checkAuth = {
+    claude: deps.hasClaudeAuth ?? hasClaudeAuth,
+    codex: deps.hasCodexAuth ?? hasCodexAuth,
+    agy: deps.hasAntigravityAuth ?? hasAntigravityAuth,
+  } satisfies Record<SetupAgent, () => Promise<boolean>>
+  const installed = !!await resolveBinary(SETUP_AGENTS[agent].provider)
   return {
     agent,
     installed,
-    authenticated: installed
-      ? await (agent === 'claude' ? checkClaudeAuth() : checkCodexAuth())
-      : false,
+    authenticated: installed ? await checkAuth[agent]() : false,
   }
 }
 

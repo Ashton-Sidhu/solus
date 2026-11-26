@@ -11,10 +11,11 @@ import { extractPlanTitle } from '../execution/agents/plan-text'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 import { commentThreads } from '../data/comments/schema'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
 const indexedPlanRowSchema = z.object({
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   session_id: z.string(),
   plan_tool_use_id: z.string(),
   project_path: z.string(),

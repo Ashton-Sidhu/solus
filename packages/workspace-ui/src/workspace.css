@@ -985,7 +985,7 @@
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
     0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
 
-  /* Insights provider colours: orange for Claude, charcoal for Codex. The
+  /* Insights provider colours: orange for Claude, charcoal for Codex, blue for Antigravity. The
      fills are the marks' colours washed toward the card: a bar of solid
      charcoal beside a bar of orange is the loudest thing on the plot, and the
      legend's swatch, not the bar, carries the full hue. */
@@ -993,6 +993,8 @@
   --insights-provider-codex: #292929;
   --insights-provider-claude-fill: color-mix(in srgb, var(--insights-provider-claude) 85%, var(--card));
   --insights-provider-codex-fill: color-mix(in srgb, var(--insights-provider-codex) 62%, var(--card));
+  --insights-provider-antigravity: #4c8df6;
+  --insights-provider-antigravity-fill: color-mix(in srgb, var(--insights-provider-antigravity) 75%, var(--card));
 
   /* Blue distinguishes the spend line from the provider counts. */
   --insights-cost-line: var(--solus-art-5);

@@ -1,0 +1,661 @@
+import { afterAll, describe, expect, test } from 'bun:test'
+import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
+import type { ChildProcess } from 'node:child_process'
+import type { NormalizedEvent, PermissionMode } from '@solus/contracts/types'
+import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import { AcpBackend, type AcpAgent, type AcpTurnFailure } from '@solus/server/execution/agents/acp/acp-backend'
+import { AcpRequestError } from '@solus/server/execution/agents/acp/acp-connection'
+import { acpPermissionAnswer } from '@solus/server/execution/agents/acp/acp-permissions'
+
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
+type Message = { id?: number | string; method?: string; params?: Json; result?: Json; error?: Json }
+
+const directories: string[] = []
+afterAll(() => { for (const directory of directories) rmSync(directory, { recursive: true, force: true }) })
+function temporaryDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'solus-acp-test-'))
+  directories.push(directory)
+  return directory
+}
+
+/**
+ * An ACP agent in memory. A test gives it a handler for each request method;
+ * the handler can send updates and requests to the client before it answers.
+ */
+class FakeAgent {
+  readonly received: Message[] = []
+  readonly answers = new Map<number | string, Json | undefined>()
+  private nextId = 1000
+  private readonly waiting = new Map<number | string, (result: Json | undefined) => void>()
+  readonly stdin = new PassThrough()
+  readonly stdout = new PassThrough()
+  readonly stderr = new PassThrough()
+
+  constructor(readonly handlers: Partial<Record<string, (params: Json | undefined, agent: FakeAgent) => Promise<Json> | Json>>) {
+    let buffer = ''
+    this.stdin.setEncoding('utf8')
+    this.stdin.on('data', (chunk: string) => {
+      buffer += chunk
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        void this.onMessage(JSON.parse(line) as Message)
+      }
+    })
+  }
+
+  methods(): string[] {
+    return this.received.filter((message) => message.method).map((message) => message.method!)
+  }
+
+  update(sessionId: string, update: Json): void {
+    this.send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update } })
+  }
+
+  /** A request to the client; resolves with the client's answer. */
+  request(method: string, params: Json): Promise<Json | undefined> {
+    const id = this.nextId++
+    return new Promise((resolve) => {
+      this.waiting.set(id, resolve)
+      this.send({ jsonrpc: '2.0', id, method, params })
+    })
+  }
+
+  private send(message: Json): void {
+    this.stdout.write(`${JSON.stringify(message)}\n`)
+  }
+
+  private async onMessage(message: Message): Promise<void> {
+    this.received.push(message)
+    if (message.method === undefined && message.id !== undefined) {
+      this.answers.set(message.id, message.result ?? message.error)
+      this.waiting.get(message.id)?.(message.result ?? (message.error as Json))
+      this.waiting.delete(message.id)
+      return
+    }
+    if (message.id === undefined || !message.method) return
+    const handler = this.handlers[message.method]
+    if (!handler) {
+      this.send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } })
+      return
+    }
+    try {
+      this.send({ jsonrpc: '2.0', id: message.id, result: await handler(message.params, this) })
+    } catch (error) {
+      const code = error instanceof AcpRequestError ? error.code : -32603
+      this.send({ jsonrpc: '2.0', id: message.id, error: { code, message: error instanceof Error ? error.message : String(error) } })
+    }
+  }
+}
+
+class FakeChild extends EventEmitter {
+  exitCode: number | null = null
+  signalCode: NodeJS.Signals | null = null
+  readonly pid = undefined
+  constructor(readonly agent: FakeAgent) { super() }
+  get stdin() { return this.agent.stdin }
+  get stdout() { return this.agent.stdout }
+  get stderr() { return this.agent.stderr }
+  kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
+    if (this.exitCode !== null || this.signalCode !== null) return false
+    this.signalCode = signal
+    this.agent.stdout.end()
+    this.emit('exit', null, signal)
+    return true
+  }
+}
+
+const INITIALIZE: Json = {
+  protocolVersion: 1,
+  agentCapabilities: { loadSession: true, mcpCapabilities: { http: true }, sessionCapabilities: { resume: {} } },
+  authMethods: [{ id: 'oauth-personal' }],
+}
+
+const testAgent: AcpAgent = {
+  id: 'antigravity',
+  label: 'Antigravity',
+  signInMessage: 'Sign in to Antigravity.',
+  mcpServerName: 'solus',
+  nameTool: () => null,
+  isSignInRequired: (error) => error instanceof AcpRequestError && error.code === -32000,
+  isQuestion: (toolCallId) => toolCallId.startsWith('interaction_'),
+  sessionMeta: () => undefined,
+  steersWithPrompt: (initialize) => initialize.agentInfo?.version === 'steers',
+  listCommands: () => ({ global: [], project: [] }),
+  launch: () => ({ file: 'agy', args: ['acp'], env: {}, connectionKey: 'profile', authMethod: 'oauth-personal', tempRoot: null }),
+}
+
+function setup(handlers: FakeAgent['handlers'], options: { agents?: FakeAgent[]; agent?: Partial<AcpAgent> } = {}) {
+  const agents = options.agents ?? []
+  const spawns: NodeJS.ProcessEnv[] = []
+  const indexed: Array<{ threadId: string; messages: SessionLoadMessage[] }> = []
+  const backend = new AcpBackend({
+    agent: { ...testAgent, ...options.agent },
+    historyDirectory: temporaryDirectory(),
+    indexMessages: (threadId, messages) => indexed.push({ threadId, messages }),
+    spawnAgent: (_file, _args, spawnOptions) => {
+      spawns.push(spawnOptions.env)
+      const agent = new FakeAgent({
+        initialize: () => INITIALIZE,
+        authenticate: () => ({}),
+        'session/new': () => ({ sessionId: 'thread-1', configOptions: [] }),
+        ...handlers,
+      })
+      agents.push(agent)
+      return new FakeChild(agent) as unknown as ChildProcess
+    },
+  })
+  const events: NormalizedEvent[] = []
+  const exits: Array<{ code: number | null; signal: string | null }> = []
+  backend.on('normalized', (_sessionId: string | null, event: NormalizedEvent) => events.push(event))
+  backend.on('exit', (_sessionId: string | null, code: number | null, signal: string | null) => exits.push({ code, signal }))
+  const errors: Error[] = []
+  backend.on('error', (_sessionId: string | null, error: Error) => errors.push(error))
+  return { backend, events, exits, agents, errors, spawns, indexed }
+}
+
+function request(overrides: Partial<AgentRunRequest> = {}): AgentRunRequest {
+  return {
+    provider: 'antigravity',
+    organizationId: 'local',
+    prompt: 'Fix the bug',
+    cwd: '/tmp',
+    tools: [],
+    permissionMode: 'supervised',
+    persistence: 'session',
+    service: 'session',
+    ...overrides,
+  } as AgentRunRequest
+}
+
+async function settle(promise: Promise<void>): Promise<void> {
+  await promise.catch(() => {})
+}
+
+describe('AcpBackend turns', () => {
+  test('a first turn starts a session, streams prose and an edit, and keeps the turn in history', async () => {
+    const { backend, events, exits, agents } = setup({
+      'session/prompt': (_params, agent) => {
+        agent.update('thread-1', { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Looking' } })
+        agent.update('thread-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Fixed ' } })
+        agent.update('thread-1', { sessionUpdate: 'tool_call', toolCallId: 'edit-1', title: 'Edit a.ts', kind: 'edit', status: 'pending' })
+        agent.update('thread-1', { sessionUpdate: 'tool_call_update', toolCallId: 'edit-1', status: 'completed', content: [{ type: 'diff', path: '/tmp/a.ts', oldText: 'a', newText: 'b' }] })
+        agent.update('thread-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'it.' } })
+        return { stopReason: 'end_turn' }
+      },
+    })
+    const handle = backend.startRun(request())
+    await handle.runPromise
+
+    expect(agents[0]!.methods()).toEqual(['initialize', 'authenticate', 'session/new', 'session/prompt'])
+    expect(events.find((event) => event.type === 'session_init')).toMatchObject({ sessionId: 'thread-1' })
+    expect(events.filter((event) => event.type === 'thinking').map((event) => event.state)).toEqual(['start', 'update', 'stop'])
+    const edit = events.find((event) => event.type === 'tool_call_update' && event.toolId === 'edit-1')
+    expect(edit && edit.type === 'tool_call_update' ? JSON.parse(edit.toolInput!) : null).toEqual({ file_path: '/tmp/a.ts', old_string: 'a', new_string: 'b' })
+    expect(events.find((event) => event.type === 'task_complete')).toMatchObject({ result: 'Fixed it.', sessionId: 'thread-1' })
+    expect(exits).toEqual([{ code: 0, signal: null }])
+    expect(handle.toolCallCount).toBe(1)
+
+    const history = await backend.loadSession('thread-1')
+    expect(history.map((row) => row.role)).toEqual(['user', 'reasoning', 'assistant', 'tool', 'assistant'])
+    expect(history[3]).toMatchObject({ toolName: 'Edit', toolStatus: 'completed' })
+    backend.shutdown()
+  })
+
+  test("a kept turn reaches session search, as Claude's and Codex's files do; a run with no session does not", async () => {
+    const answer = (_params: Json | undefined, agent: FakeAgent) => {
+      agent.update('thread-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Fixed it.' } })
+      return { stopReason: 'end_turn' }
+    }
+    const kept = setup({ 'session/prompt': answer })
+    await kept.backend.startRun(request()).runPromise
+    expect(kept.indexed.map((entry) => entry.threadId)).toEqual(['thread-1'])
+    expect(kept.indexed[0]!.messages.map((row) => [row.role, row.content])).toEqual([['user', 'Fix the bug'], ['assistant', 'Fixed it.']])
+    kept.backend.shutdown()
+
+    const once = setup({ 'session/prompt': answer })
+    await once.backend.startRun(request({ persistence: 'ephemeral' })).runPromise
+    expect(once.indexed).toEqual([])
+    once.backend.shutdown()
+  })
+
+  test('a second turn reuses the open connection and does not start a new session', async () => {
+    const { backend, agents } = setup({ 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    await backend.startRun(request()).runPromise
+    await backend.startRun(request({ conversation: { kind: 'resume', threadId: 'thread-1' } })).runPromise
+    expect(agents).toHaveLength(1)
+    expect(agents[0]!.methods()).toEqual(['initialize', 'authenticate', 'session/new', 'session/prompt', 'session/prompt'])
+    backend.shutdown()
+  })
+
+  test('a turn after a restart resumes the saved session instead of starting a new one', async () => {
+    const { backend, agents } = setup({
+      'session/resume': () => ({ configOptions: [] }),
+      'session/prompt': () => ({ stopReason: 'end_turn' }),
+    })
+    await backend.startRun(request({ conversation: { kind: 'resume', threadId: 'saved-thread' } })).runPromise
+    expect(agents[0]!.methods()).toEqual(['initialize', 'authenticate', 'session/resume', 'session/prompt'])
+    expect(agents[0]!.received.find((message) => message.method === 'session/resume')?.params).toMatchObject({ sessionId: 'saved-thread', cwd: '/tmp' })
+    backend.shutdown()
+  })
+
+  test('Stop cancels the prompt and reports an interrupted run', async () => {
+    let releasePrompt!: () => void
+    const { backend, exits, agents } = setup({
+      'session/prompt': () => new Promise<Json>((resolve) => { releasePrompt = () => resolve({ stopReason: 'cancelled' }) }),
+    })
+    const handle = backend.startRun(request())
+    while (!agents[0]?.methods().includes('session/prompt')) await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(backend.cancelSession('thread-1')).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(agents[0]!.methods()).toContain('session/cancel')
+    releasePrompt()
+    await handle.runPromise
+    expect(exits).toEqual([{ code: null, signal: 'SIGINT' }])
+    backend.shutdown()
+  })
+
+  test('a refused sign-in fails the run with an auth error, so the seat can ask to sign in again', async () => {
+    const { backend, events } = setup({
+      authenticate: () => { throw new AcpRequestError('authenticate', -32000, 'Authentication required') },
+    })
+    const handle = backend.startRun(request())
+    await settle(handle.runPromise)
+    expect(events.find((event) => event.type === 'error')).toMatchObject({ kind: 'auth', message: 'Sign in to Antigravity.' })
+    await expect(handle.runPromise).rejects.toThrow('Authentication required')
+  })
+})
+
+describe('AcpBackend steering', () => {
+  /** An agent whose prompts each wait until the test answers them. */
+  function steeringSetup(version: string) {
+    const answers: Array<(stopReason: string, usage?: Json) => void> = []
+    const result = setup({
+      initialize: () => ({ ...(INITIALIZE as object), agentInfo: { version } }),
+      'session/prompt': () => new Promise<Json>((resolve) => { answers.push((stopReason, usage) => resolve(usage ? { stopReason, usage } : { stopReason })) }),
+    })
+    return { ...result, answers }
+  }
+
+  async function untilPrompts(agents: FakeAgent[], count: number): Promise<void> {
+    while ((agents[0]?.methods().filter((method) => method === 'session/prompt').length ?? 0) < count) await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+
+  test('a message sent during a turn joins it, and the turn ends with the newest prompt', async () => {
+    const { backend, events, exits, agents, answers } = steeringSetup('steers')
+    const handle = backend.startRun(request())
+    await untilPrompts(agents, 1)
+    const steered = await backend.steerSession('thread-1', { prompt: 'Also fix the test' })
+    expect(steered).toBe(handle)
+    await untilPrompts(agents, 2)
+    expect(agents[0]!.received.filter((message) => message.method === 'session/prompt').at(-1)?.params)
+      .toMatchObject({ sessionId: 'thread-1', prompt: [{ type: 'text', text: 'Also fix the test' }] })
+    // The first prompt's answer does not end a turn that a newer prompt carries on.
+    answers[0]!('end_turn')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(exits).toEqual([])
+    answers[1]!('end_turn')
+    await handle.runPromise
+    expect(events.filter((event) => event.type === 'task_complete')).toHaveLength(1)
+    expect(exits).toEqual([{ code: 0, signal: null }])
+    expect((await backend.loadSession('thread-1')).filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['Fix the bug', 'Also fix the test'])
+    backend.shutdown()
+  })
+
+  test("a turn's tokens are the sum of its prompts' answers, steers included", async () => {
+    const { backend, events, agents, answers } = steeringSetup('steers')
+    const handle = backend.startRun(request())
+    await untilPrompts(agents, 1)
+    await backend.steerSession('thread-1', { prompt: 'Also fix the test' })
+    await untilPrompts(agents, 2)
+    answers[0]!('end_turn', { inputTokens: 100, outputTokens: 40, thoughtTokens: 30, cachedReadTokens: 900, totalTokens: 1040 })
+    answers[1]!('end_turn', { inputTokens: 20, outputTokens: 5, thoughtTokens: 9, cachedReadTokens: 1000, cachedWriteTokens: 50, totalTokens: 1075 })
+    await handle.runPromise
+    // Reasoning is part of the output: a thought count above the output is cut to it.
+    expect(events.find((event) => event.type === 'task_complete')).toMatchObject({
+      usage: { inputTokens: 120, outputTokens: 45, reasoningTokens: 35, cacheReadTokens: 1900, cacheCreationTokens: 50 },
+    })
+    backend.shutdown()
+  })
+
+  test('an agy that cannot steer leaves the message for the next turn', async () => {
+    const { backend, agents, answers } = steeringSetup('1.4.9')
+    const handle = backend.startRun(request())
+    await untilPrompts(agents, 1)
+    expect(await backend.steerSession('thread-1', { prompt: 'Also fix the test' })).toBeNull()
+    answers[0]!('end_turn')
+    await handle.runPromise
+    expect(agents[0]!.methods().filter((method) => method === 'session/prompt')).toHaveLength(1)
+    backend.shutdown()
+  })
+
+  test('a message that arrives after the turn has no running prompt is not sent', async () => {
+    const { backend, agents, answers } = steeringSetup('steers')
+    const handle = backend.startRun(request())
+    await untilPrompts(agents, 1)
+    answers[0]!('end_turn')
+    await handle.runPromise
+    expect(await backend.steerSession('thread-1', { prompt: 'Too late' })).toBeNull()
+    expect(agents[0]!.methods().filter((method) => method === 'session/prompt')).toHaveLength(1)
+    backend.shutdown()
+  })
+})
+
+describe('AcpBackend permissions', () => {
+  function permissionTurn(kind: string, mode: PermissionMode) {
+    const answers: Array<Json | undefined> = []
+    const setupResult = setup({
+      'session/prompt': async (_params, agent) => {
+        answers.push(await agent.request('session/request_permission', {
+          sessionId: 'thread-1',
+          toolCall: { toolCallId: 'tool-1', title: 'Run it', kind },
+          options: [
+            { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
+            { optionId: 'no', name: 'Deny', kind: 'reject_once' },
+          ],
+        }))
+        return { stopReason: 'end_turn' }
+      },
+    })
+    const handle = setupResult.backend.startRun(request({ permissionMode: mode }))
+    return { ...setupResult, handle, answers }
+  }
+
+  test('full access answers every request without asking', async () => {
+    const { backend, handle, answers, events } = permissionTurn('execute', 'full-access')
+    await handle.runPromise
+    expect(answers).toEqual([{ outcome: { outcome: 'selected', optionId: 'yes' } }])
+    expect(events.some((event) => event.type === 'permission_request')).toBe(false)
+    backend.shutdown()
+  })
+
+  test('plan mode denies a change and records the denial', async () => {
+    const { backend, handle, answers } = permissionTurn('edit', 'plan')
+    await handle.runPromise
+    expect(answers).toEqual([{ outcome: { outcome: 'selected', optionId: 'no' } }])
+    expect(handle.permissionDenials).toEqual([{ tool_name: 'Run it', tool_use_id: 'tool-1' }])
+    backend.shutdown()
+  })
+
+  test('supervised mode asks the person and sends the option they chose', async () => {
+    const { backend, handle, answers, events } = permissionTurn('edit', 'supervised')
+    while (!events.some((event) => event.type === 'permission_request')) await new Promise((resolve) => setTimeout(resolve, 1))
+    const asked = events.find((event) => event.type === 'permission_request')
+    expect(asked).toMatchObject({ toolUseId: 'tool-1', options: [{ id: 'yes', kind: 'allow' }, { id: 'no', kind: 'deny' }] })
+    if (asked?.type !== 'permission_request') throw new Error('No permission request')
+    expect(backend.permissions.respondToPermission(asked.questionId, 'yes')).toBe(true)
+    await handle.runPromise
+    expect(answers).toEqual([{ outcome: { outcome: 'selected', optionId: 'yes' } }])
+    expect(handle.sawPermissionRequest).toBe(true)
+    backend.shutdown()
+  })
+
+  test('the permission table: reads are free, changes follow the mode, plan denies', () => {
+    expect(acpPermissionAnswer('supervised', 'read')).toBe('allow')
+    expect(acpPermissionAnswer('supervised', 'edit')).toBe('ask')
+    expect(acpPermissionAnswer('accept-edits', 'edit')).toBe('allow')
+    expect(acpPermissionAnswer('accept-edits', 'execute')).toBe('ask')
+    expect(acpPermissionAnswer('plan', 'execute')).toBe('deny')
+    expect(acpPermissionAnswer('full-access', 'other')).toBe('allow')
+    expect(acpPermissionAnswer('auto', undefined)).toBe('ask')
+  })
+})
+
+describe('AcpBackend forms', () => {
+  // agy's `ask_question` arrives as an MCP-style form: the person answers it on the same card as an MCP server's form.
+  function formTurn(overrides: Partial<AgentRunRequest> = {}) {
+    const answers: Array<Json | undefined> = []
+    let initializeParams: Json | undefined
+    const setupResult = setup({
+      initialize: (params) => {
+        initializeParams = params
+        return INITIALIZE
+      },
+      'session/prompt': async (_params, agent) => {
+        answers.push(await agent.request('elicitation/create', {
+          sessionId: 'thread-1',
+          mode: 'form',
+          message: 'Which database?',
+          requestedSchema: { type: 'object', properties: { database: { type: 'string', title: 'Database', enum: ['postgres', 'sqlite'] } }, required: ['database'] },
+        }))
+        return { stopReason: 'end_turn' }
+      },
+    })
+    const handle = setupResult.backend.startRun(request(overrides))
+    return { ...setupResult, handle, answers, initializeParams: () => initializeParams }
+  }
+
+  async function askedForm(events: NormalizedEvent[]) {
+    while (!events.some((event) => event.type === 'question_request')) await new Promise((resolve) => setTimeout(resolve, 1))
+    const asked = events.find((event) => event.type === 'question_request')
+    if (asked?.type !== 'question_request') throw new Error('No question')
+    return asked
+  }
+
+  test('the client tells the agent that it fills forms, and the answer goes back as the form content', async () => {
+    const { backend, handle, answers, events, initializeParams } = formTurn()
+    const asked = await askedForm(events)
+    expect(initializeParams()).toMatchObject({ clientCapabilities: { elicitation: { form: {} } } })
+    expect(asked.kind).toBe('mcp_form')
+    expect(asked.questions.map((question) => question.id)).toContain('database')
+    expect(backend.permissions.respondToQuestion(asked.questionId, { database: 'sqlite' })).toBe(true)
+    await handle.runPromise
+    expect(answers).toEqual([{ action: 'accept', content: { database: 'sqlite' } }])
+    expect(events.some((event) => event.type === 'permission_resolved' && event.questionId === asked.questionId)).toBe(true)
+    backend.shutdown()
+  })
+
+  test('a declined form sends only the action', async () => {
+    const { backend, handle, answers, events } = formTurn()
+    const asked = await askedForm(events)
+    backend.permissions.respondToQuestion(asked.questionId, { __action: 'decline' })
+    await handle.runPromise
+    expect(answers).toEqual([{ action: 'decline' }])
+    backend.shutdown()
+  })
+
+  test('nobody is there to answer an unattended run, so the form is cancelled without a card', async () => {
+    const { backend, handle, answers, events } = formTurn({ unattended: true })
+    await handle.runPromise
+    expect(answers).toEqual([{ action: 'cancel' }])
+    expect(events.some((event) => event.type === 'question_request')).toBe(false)
+    backend.shutdown()
+  })
+
+  test('Stop cancels an open form', async () => {
+    const { backend, handle, answers, events } = formTurn()
+    await askedForm(events)
+    handle.abortController.abort()
+    await settle(handle.runPromise)
+    expect(answers).toEqual([{ action: 'cancel' }])
+    backend.shutdown()
+  })
+})
+
+describe('AcpBackend turn outcome', () => {
+  // agy answers `end_turn` when the API failed; the agent's own check reads what really happened.
+  function failedTurn(failure: AcpTurnFailure) {
+    const checked: string[] = []
+    const result = setup({ 'session/prompt': () => ({ stopReason: 'end_turn' }) }, {
+      agent: {
+        watchTurnOutcome: (_request, threadId) => {
+          checked.push(threadId)
+          return () => failure
+        },
+      },
+    })
+    return { ...result, checked, handle: result.backend.startRun(request()) }
+  }
+
+  test('a limit the account reached parks the run until its reset, as a Claude or Codex limit does', async () => {
+    const { backend, handle, events, exits, checked } = failedTurn({ message: 'Quota reached.', code: 'RESOURCE_EXHAUSTED', usageLimit: { resetsAt: 1_900_000_000 } })
+    await handle.runPromise
+    expect(checked).toEqual(['thread-1'])
+    expect(events).toContainEqual({ type: 'rate_limit', status: 'limited', resetsAt: 1_900_000_000, rateLimitType: 'Antigravity', isUsingOverage: false })
+    expect(events.some((event) => event.type === 'task_complete')).toBe(false)
+    expect(exits).toEqual([{ code: 0, signal: null }])
+    backend.shutdown()
+  })
+
+  test('another upstream error fails the run with its message, not a success', async () => {
+    const { backend, handle, events, errors } = failedTurn({ message: 'Bad Gateway: Failed to connect to backend API', code: '502 Bad Gateway', usageLimit: null })
+    await expect(handle.runPromise).rejects.toThrow('Bad Gateway: Failed to connect to backend API')
+    expect(errors.map((error) => error.message)).toEqual(['Bad Gateway: Failed to connect to backend API'])
+    expect(events.some((event) => event.type === 'task_complete')).toBe(false)
+    backend.shutdown()
+  })
+})
+
+describe('AcpBackend temp folders', () => {
+  // agy unpacks about 1 GB into its temp folder at each launch and never removes it.
+  test("each process gets its own temp folder, removed when it exits; a crash's leftovers go at the first launch", async () => {
+    const tempRoot = join(temporaryDirectory(), 'tmp')
+    mkdirSync(join(tempRoot, 'run-left-by-a-crash'), { recursive: true })
+    mkdirSync(join(tempRoot, 'kept'))
+    const { backend, spawns } = setup({ 'session/prompt': () => ({ stopReason: 'end_turn' }) }, {
+      agent: { launch: () => ({ file: 'agy', args: ['acp'], env: { PATH: '/bin' }, connectionKey: 'profile', authMethod: null, tempRoot }) },
+    })
+    await backend.startRun(request()).runPromise
+    const temp = spawns[0]!.TMPDIR!
+    expect(temp.startsWith(join(tempRoot, 'run-'))).toBe(true)
+    expect(spawns[0]).toMatchObject({ PATH: '/bin', TEMP: temp, TMP: temp })
+    expect(existsSync(temp)).toBe(true)
+    backend.shutdown()
+    while (existsSync(temp) || existsSync(join(tempRoot, 'run-left-by-a-crash'))) await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(readdirSync(tempRoot)).toEqual(['kept'])
+  })
+
+  test('a launch with no temp root keeps the environment as it is', async () => {
+    const { backend, spawns } = setup({ 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    await backend.startRun(request()).runPromise
+    expect(spawns[0]!.TMPDIR).toBeUndefined()
+    backend.shutdown()
+  })
+})
+
+describe('AcpBackend agent commands', () => {
+  // agy reports its own commands (`/plan`, `/compact`) when a session opens, before any turn: the slash menu lists them.
+  test("the agent's commands reach the slash menu, and stay after a restart", async () => {
+    const historyDirectory = temporaryDirectory()
+    const backend = new AcpBackend({
+      agent: testAgent,
+      historyDirectory,
+      indexMessages: () => {},
+      spawnAgent: () => new FakeChild(new FakeAgent({
+        initialize: () => INITIALIZE,
+        authenticate: () => ({}),
+        'session/new': (_params, agent) => {
+          agent.update('thread-1', { sessionUpdate: 'available_commands_update', availableCommands: [
+            { name: 'plan', description: 'Plan before acting', input: { hint: 'goal' } },
+            { name: 'compact', description: 'Compact the context' },
+          ] })
+          return { sessionId: 'thread-1', configOptions: [] }
+        },
+        'session/prompt': () => ({ stopReason: 'end_turn' }),
+      })) as unknown as ChildProcess,
+    })
+    expect((await backend.listPluginCommands('/tmp')).builtin).toBeUndefined()
+    await backend.startRun(request()).runPromise
+    const expected = [{ name: 'plan', description: 'Plan before acting', argumentHint: 'goal' }, { name: 'compact', description: 'Compact the context' }]
+    expect((await backend.listPluginCommands('/tmp')).builtin).toEqual(expected)
+    backend.shutdown()
+
+    const restarted = new AcpBackend({ agent: testAgent, historyDirectory })
+    expect((await restarted.listPluginCommands('/tmp')).builtin).toEqual(expected)
+    restarted.shutdown()
+  })
+})
+
+describe('AcpBackend reported models', () => {
+  // agy offers each Google account its own models in `session/new`; one the published list lacks joins the picker.
+  const configOptions = [{ id: 'model', category: 'model', type: 'select', currentValue: 'gemini-3.8-flash', options: [
+    { value: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+    { value: 'gemini-5-preview', name: 'Gemini 5 Preview' },
+  ] }]
+
+  test('a model the account offers and the published list lacks joins the picker, and stays after a restart', async () => {
+    const historyDirectory = temporaryDirectory()
+    const backend = new AcpBackend({
+      agent: testAgent,
+      historyDirectory,
+      indexMessages: () => {},
+      spawnAgent: () => new FakeChild(new FakeAgent({
+        initialize: () => INITIALIZE,
+        authenticate: () => ({}),
+        'session/new': () => ({ sessionId: 'thread-1', configOptions }),
+        'session/prompt': () => ({ stopReason: 'end_turn' }),
+      })) as unknown as ChildProcess,
+    })
+    let reports = 0
+    backend.on('models-reported', () => { reports += 1 })
+    await backend.startRun(request()).runPromise
+    expect(reports).toBe(1)
+    expect(backend.metadata.models.map((model) => model.id)).toContain('gemini-5-preview')
+    expect(backend.metadata.modelProfiles?.['gemini-5-preview']).toMatchObject({ label: 'Gemini 5 Preview', reasoningLevels: [] })
+    expect(backend.metadata.models.filter((model) => model.id === 'gemini-3.8-flash')).toHaveLength(1)
+    backend.shutdown()
+
+    const restarted = new AcpBackend({ agent: testAgent, historyDirectory })
+    expect(restarted.metadata.models.map((model) => model.id)).toContain('gemini-5-preview')
+    restarted.shutdown()
+  })
+
+  test('a model the account does not offer fails the run with a clear message; an older id of an offered model runs', async () => {
+    const run = async (model: string) => {
+      const { backend, agents } = setup({ 'session/new': () => ({ sessionId: 'thread-1', configOptions }), 'session/set_model': () => ({}), 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+      const handle = backend.startRun(request({ model }))
+      await settle(handle.runPromise)
+      backend.shutdown()
+      return { handle, methods: agents[0]!.methods() }
+    }
+    const refused = await run('gemini-4-argon')
+    await expect(refused.handle.runPromise).rejects.toThrow('Antigravity does not offer the model gemini-4-argon to this account. Choose another model.')
+    expect(refused.methods).not.toContain('session/prompt')
+    const legacy = await run('gemini-3.8-flash-high')
+    expect(legacy.methods).toContain('session/set_model')
+    expect(legacy.methods).toContain('session/prompt')
+  })
+})
+
+describe('AcpBackend file reads', () => {
+  test("a read Solus served completes the agent's open read, which agy would fail with a later unrelated error", async () => {
+    const root = temporaryDirectory()
+    writeFileSync(join(root, 'README.md'), 'hello')
+    const { backend, events } = setup({
+      'session/prompt': async (_params, agent) => {
+        agent.update('thread-1', { sessionUpdate: 'tool_call', toolCallId: 'read-1', title: 'Running client_view_file', kind: 'read', status: 'in_progress', locations: [{ path: join(root, 'README.md') }] })
+        await agent.request('fs/read_text_file', { sessionId: 'thread-1', path: join(root, 'README.md') })
+        agent.update('thread-1', { sessionUpdate: 'tool_call_update', toolCallId: 'read-1', status: 'failed', rawOutput: 'step error: unrelated' })
+        return { stopReason: 'end_turn' }
+      },
+    }, { agent: { isClientRead: (title) => title === 'Running client_view_file' } })
+    await backend.startRun(request({ cwd: root })).runPromise
+    expect(events.filter((event) => event.type === 'tool_result')).toEqual([{ type: 'tool_result', toolUseId: 'read-1', content: '', isError: false }])
+    backend.shutdown()
+  })
+
+  test('the agent reads files inside the session folders only', async () => {
+    const root = temporaryDirectory()
+    mkdirSync(join(root, 'src'))
+    writeFileSync(join(root, 'src', 'a.ts'), 'one\ntwo\nthree')
+    const outside = join(temporaryDirectory(), 'secret.txt')
+    writeFileSync(outside, 'secret')
+    const reads: Array<Json | undefined> = []
+    const { backend } = setup({
+      'session/prompt': async (_params, agent) => {
+        reads.push(await agent.request('fs/read_text_file', { sessionId: 'thread-1', path: join(root, 'src', 'a.ts'), line: 2, limit: 1 }))
+        reads.push(await agent.request('fs/read_text_file', { sessionId: 'thread-1', path: outside }))
+        return { stopReason: 'end_turn' }
+      },
+    })
+    await backend.startRun(request({ cwd: root })).runPromise
+    expect(reads[0]).toEqual({ content: 'two' })
+    expect(reads[1]).toMatchObject({ message: 'This file is outside the session folders.' })
+    backend.shutdown()
+  })
+})

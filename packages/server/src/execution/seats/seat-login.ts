@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { SeatProvider } from '@solus/contracts/seats'
 import { launchProcess, type LaunchedProcess } from '../../cli-env'
 import { memberUsers } from '../../host/member-users'
+import { antigravitySignedIn, hostAntigravityProfile } from '../agents/acp/antigravity-auth'
 
 /**
  * Where a provider CLI looks for its login. A member's seat names a directory; the
@@ -15,8 +16,15 @@ import { memberUsers } from '../../host/member-users'
  */
 export function seatEnv(provider: SeatProvider, home: string | null): NodeJS.ProcessEnv {
   if (home === null || memberUsers()) return {}
-  return provider === 'claude-code' ? { CLAUDE_CONFIG_DIR: home } : { CODEX_HOME: home }
+  return { [SEAT_HOME_VARIABLES[provider]]: home }
 }
+
+/** The variable each CLI reads its home from. */
+const SEAT_HOME_VARIABLES = {
+  'claude-code': 'CLAUDE_CONFIG_DIR',
+  codex: 'CODEX_HOME',
+  antigravity: 'GEMINI_HOME',
+} as const satisfies Record<SeatProvider, string>
 
 /**
  * Whether a login is present. Claude keeps its credential wherever the platform
@@ -33,6 +41,10 @@ export async function providerLoginConnected(
   if (provider === 'codex') {
     const codexHome = home ?? hostCodexHome()
     return existsSync(join(codexHome, 'auth.json'))
+  }
+  if (provider === 'antigravity') {
+    // Solus's record of the profile's sign-in says where its credential is (§7).
+    return antigravitySignedIn(home ?? hostAntigravityProfile())
   }
   // `.claude.json` is durable client state, not a credential: Claude keeps it
   // after logout with `loggedIn: false`. Let the CLI interpret every supported

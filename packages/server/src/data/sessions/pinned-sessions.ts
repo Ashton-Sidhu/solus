@@ -5,6 +5,7 @@ import { personalResourceState } from '../personal-state/schema'
 import { session } from './schema'
 import { organizationOfSession } from './session-records'
 import { z } from 'zod'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * A person's pins are `pinned_at` on their own `personal_resource_state` row
@@ -16,7 +17,7 @@ import { z } from 'zod'
 
 const pinnedSessionRowsSchema = z.array(z.object({
   session_id: z.string(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   model: z.string().nullable(),
   title: z.string(),
   cwd: z.string(),

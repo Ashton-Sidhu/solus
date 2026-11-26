@@ -9,6 +9,8 @@ import type { AgentId, ReasoningEffort, SessionMeta, SessionRecordUpsert, Sessio
 import { placeOfFolder } from '@solus/contracts/chat'
 import { TASK_FOLDER_ROOT_NAME } from '@solus/contracts/codebases'
 import {
+  AGENT_IDS,
+  agentIdSchema,
   encodePathAsFolder,
   isEncodedSolusWorktreeFolder,
 } from '@solus/contracts/types'
@@ -54,8 +56,7 @@ const MESSAGES_REBUILD_KEY = 'session-messages-rebuild'
  *  no join. A session keeps its first 2^20 messages in the index. */
 export const SESSION_ROW_SPAN = 2 ** 20
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
-const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode', 'replay'])
+const storedProviderSchema = z.enum(['claude', ...AGENT_IDS])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 export const sessionRowSchema = z.object({
   session_id: z.string(),

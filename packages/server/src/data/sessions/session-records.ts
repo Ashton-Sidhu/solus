@@ -1,6 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import {
+  agentIdSchema,
   type SessionRecord,
   type SessionRecordDelegation,
   type SessionRecordStatus,
@@ -41,7 +42,6 @@ import { sessionTranscripts, sessionTurnDiffs } from './transcript-schema'
  * organization.
  */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const statusSchema = z.enum(['idle', 'running', 'interrupted'])
 const publicationSchema = z.enum(['local', 'published'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])

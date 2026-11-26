@@ -546,7 +546,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "mirroredDoc": {
@@ -1023,7 +1024,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -1271,7 +1273,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -1709,7 +1712,8 @@
                       "claude-code",
                       "codex",
                       "opencode",
-                      "replay"
+                      "replay",
+                      "antigravity"
                     ]
                   },
                   "projectKey": {
@@ -2622,7 +2626,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -2870,7 +2875,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -3745,7 +3751,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -3993,7 +4000,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -4596,7 +4604,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "mirroredDoc": {
@@ -4844,7 +4853,8 @@
                                     "claude-code",
                                     "codex",
                                     "opencode",
-                                    "replay"
+                                    "replay",
+                                    "antigravity"
                                   ]
                                 },
                                 "title": {
@@ -5595,7 +5605,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "model": {
@@ -6119,7 +6130,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           },
@@ -6265,7 +6277,8 @@
                               "claude-code",
                               "codex",
                               "opencode",
-                              "replay"
+                              "replay",
+                              "antigravity"
                             ]
                           },
                           "title": {
@@ -7133,7 +7146,8 @@
                                             "claude-code",
                                             "codex",
                                             "opencode",
-                                            "replay"
+                                            "replay",
+                                            "antigravity"
                                           ]
                                         },
                                         "title": {
@@ -7738,7 +7752,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           },
@@ -8003,7 +8018,8 @@
                                   "claude-code",
                                   "codex",
                                   "opencode",
-                                  "replay"
+                                  "replay",
+                                  "antigravity"
                                 ]
                               },
                               "title": {
@@ -8871,7 +8887,8 @@
                                                 "claude-code",
                                                 "codex",
                                                 "opencode",
-                                                "replay"
+                                                "replay",
+                                                "antigravity"
                                               ]
                                             },
                                             "title": {
@@ -9664,7 +9681,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "title": {
@@ -10532,7 +10550,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -11570,7 +11589,8 @@
                           "claude-code",
                           "codex",
                           "opencode",
-                          "replay"
+                          "replay",
+                          "antigravity"
                         ]
                       },
                       "projectPath": {
@@ -12269,7 +12289,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -14534,7 +14555,8 @@
                                       "claude-code",
                                       "codex",
                                       "opencode",
-                                      "replay"
+                                      "replay",
+                                      "antigravity"
                                     ]
                                   },
                                   "title": {
@@ -15470,7 +15492,8 @@
                 "claude-code",
                 "codex",
                 "opencode",
-                "replay"
+                "replay",
+                "antigravity"
               ]
             }
           }
@@ -16895,7 +16918,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -17361,7 +17385,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -17743,7 +17768,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18135,7 +18161,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18528,7 +18555,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -18917,7 +18945,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19351,7 +19380,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19741,7 +19771,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -19980,7 +20011,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "model": {
@@ -19992,7 +20024,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     },
                     "fromModel": {
@@ -20148,7 +20181,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -20545,7 +20579,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -20944,7 +20979,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -21330,7 +21366,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -21721,7 +21758,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22192,7 +22230,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22431,7 +22470,8 @@
                         "claude-code",
                         "codex",
                         "opencode",
-                        "replay"
+                        "replay",
+                        "antigravity"
                       ]
                     }
                   },
@@ -22584,7 +22624,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -22970,7 +23011,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -23356,7 +23398,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -23804,7 +23847,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -24248,7 +24292,8 @@
                                 "claude-code",
                                 "codex",
                                 "opencode",
-                                "replay"
+                                "replay",
+                                "antigravity"
                               ]
                             },
                             "title": {
@@ -25129,7 +25174,8 @@
                       "claude-code",
                       "codex",
                       "opencode",
-                      "replay"
+                      "replay",
+                      "antigravity"
                     ]
                   },
                   "title": {

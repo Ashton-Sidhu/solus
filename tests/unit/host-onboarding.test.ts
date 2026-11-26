@@ -336,7 +336,7 @@ describe('provider choice rows', () => {
     // not disable an unrelated install or sign-in.
     const rows = codingProviderRows({
       readiness: readiness(),
-      stages: { claude: 'install', codex: null },
+      stages: { claude: 'install', codex: null, agy: null },
       add: noop,
     })
     const claude = rows.find((row) => row.id === 'claude')!
@@ -352,11 +352,12 @@ describe('provider choice rows', () => {
     // install CLIs that already exist on the connected host.
     const rows = codingProviderRows({
       readiness: null,
-      stages: { claude: null, codex: null },
+      stages: { claude: null, codex: null, agy: null },
       add: noop,
     })
 
     expect(rows.map((row) => row.detail)).toEqual([
+      'Checking the host…',
       'Checking the host…',
       'Checking the host…',
     ])
@@ -480,7 +481,7 @@ describe('provider setup action', () => {
           codex: { installed: false, signedIn: false },
         },
       }),
-      stages: { claude: null, codex: null },
+      stages: { claude: null, codex: null, agy: null },
       add: (agent, opts) => calls.push([agent, opts]),
     })
     const claude = rows.find((row) => row.id === 'claude')!

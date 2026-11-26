@@ -5,6 +5,7 @@ import { hubNotificationSchema } from '../notification-hub'
 import { resourceRoleSchema, shareSummarySchema } from '../sharing'
 import { sessionPlaceSchema, sessionStarterSchema } from '../session-starter'
 import { sessionAttachedFolderSchema } from '../codebases'
+import { agentIdSchema } from '../types'
 
 const datetime = z.iso.datetime({ offset: true })
 const nullableText = (max: number) => z.string().max(max).nullable()
@@ -84,7 +85,6 @@ export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
 // Works
 
 const workType = z.enum(['doc', 'slides', 'artifact'])
-const agentProvider = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
 
 export const workspaceLinkedDocumentSchema = z.strictObject({
@@ -111,7 +111,7 @@ export const workspaceWorkSummarySchema = z.strictObject({
   /** False for a work whose content is owned upstream; PATCH answers READ_ONLY_RESOURCE. */
   editable: z.boolean(),
   cwd: z.string().max(4096),
-  agentProvider,
+  agentProvider: agentIdSchema,
   mirroredDoc: workspaceLinkedDocumentSchema.optional(),
   /** Who else may open it (docs/workspace-page.md). Absent from a host older than the field. */
   share: shareSummarySchema.optional(),
@@ -131,7 +131,7 @@ const workspaceUserSchema = z.strictObject({
 
 export const workspaceAttributionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('user'), user: workspaceUserSchema }),
-  z.strictObject({ kind: z.literal('agent'), sessionId: z.string().max(256), provider: agentProvider.optional(), title: z.string().max(500).optional(), for: workspaceUserSchema.optional() }),
+  z.strictObject({ kind: z.literal('agent'), sessionId: z.string().max(256), provider: agentIdSchema.optional(), title: z.string().max(500).optional(), for: workspaceUserSchema.optional() }),
   z.strictObject({ kind: z.literal('automation'), automationId: z.string().max(256), name: z.string().max(500).optional(), for: workspaceUserSchema.optional() }),
   z.strictObject({ kind: z.literal('upstream'), provider: z.enum(['gdrive', 'confluence', 'github', 'jira', 'linear']) }),
   z.strictObject({ kind: z.literal('system') }),
@@ -151,7 +151,7 @@ export const workspaceCreateWorkSchema = z.strictObject({
   title: z.string().min(1).max(500),
   type: workType,
   content: z.string().max(4000000),
-  agentProvider: agentProvider.optional(),
+  agentProvider: agentIdSchema.optional(),
   projectKey: nullableText(4096).optional(),
   projectId: workspaceIdSchema.nullable().optional(),
   originSessionId: workspaceIdSchema.nullable().optional(),
@@ -341,7 +341,7 @@ export type WorkspaceSessionChanged = z.infer<typeof workspaceSessionChangedSche
 
 export const workspaceSessionSchema = z.strictObject({
   ...record,
-  provider: agentProvider,
+  provider: agentIdSchema,
   /** The derived name; `customTitle` is the user's own. */
   title: nullableText(500),
   customTitle: nullableText(500),
@@ -409,7 +409,7 @@ export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 export const workspaceSessionAdmissionRequestSchema = z.strictObject({
   sessionId: workspaceIdSchema,
   record: z.strictObject({
-    provider: agentProvider,
+    provider: agentIdSchema,
     projectPath: z.string().max(4096),
     cwd: z.string().max(4096).nullable(),
     /** A chat is its owner's alone until they share it; any other session is the organization's to open. */

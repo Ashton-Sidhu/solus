@@ -10,8 +10,9 @@ import {
   type AgentProfileFileEntry,
   type AgentProfileSkip,
   isAgentProfilePath,
+  PROFILE_PROVIDERS,
 } from '@solus/contracts/agent-profile'
-import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
+import type { SeatProvider } from '@solus/contracts/seats'
 
 /**
  * The file part of an agent profile (plans/020-agent-profile.md §2): the
@@ -59,7 +60,7 @@ export function readProfileFiles(homesFor: (provider: SeatProvider) => string[],
   const files: AgentProfileFileEntry[] = []
   const skipped: AgentProfileSkip[] = []
   let totalBytes = 0
-  for (const provider of SEAT_PROVIDERS) {
+  for (const provider of PROFILE_PROVIDERS) {
     const taken = new Set<string>()
     for (const [index, home] of homesFor(provider).entries()) {
       for (const entry of AGENT_PROFILE_ENTRIES[provider]) {
@@ -110,7 +111,7 @@ export function planProfileFiles(options: {
   ownerHost: boolean
 }): ProviderFileWrite[] {
   let totalBytes = 0
-  const writes = SEAT_PROVIDERS.map((provider): ProviderFileWrite => ({
+  const writes = PROFILE_PROVIDERS.map((provider): ProviderFileWrite => ({
     provider,
     home: resolvedHome(options.homeFor(provider)),
     files: [],

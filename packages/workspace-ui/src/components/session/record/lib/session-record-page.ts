@@ -3,6 +3,7 @@ import { hostReadinessCopy, isWaitingForHost, type HostReadinessState } from '@s
 import { conversationProjectLabel, conversationTitle } from '../../unified-picker/lib/picker-rows'
 import { relativeTime } from '../../../../lib/relative-time'
 import { agentLabel } from '../../../../lib/agentAvailability'
+import { providerMark, type ProviderMarkId } from '../../../insights/lib/provider'
 
 /** The header of a read-only session record: what the record itself carries,
  *  one fact per field so the page can draw each beside its icon. */
@@ -10,7 +11,7 @@ export interface SessionRecordHeader {
   title: string
   agent: string
   /** The agent's mark, where Solus has one to draw. */
-  agentMark: 'claude' | 'codex' | null
+  agentMark: ProviderMarkId
   project: string
   /** "5d ago"; null when the record has no usable time. */
   activeAgo: string | null
@@ -21,7 +22,7 @@ export function sessionRecordHeader(meta: SessionMeta): SessionRecordHeader {
   return {
     title: conversationTitle(meta),
     agent: agentLabel(meta.provider),
-    agentMark: meta.provider === 'claude-code' ? 'claude' : meta.provider === 'codex' ? 'codex' : null,
+    agentMark: providerMark(meta.provider),
     project: conversationProjectLabel(meta),
     activeAgo: Number.isFinite(at) && at > 0 ? relativeTime(at) : null,
   }

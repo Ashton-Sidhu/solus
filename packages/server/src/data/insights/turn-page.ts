@@ -85,6 +85,7 @@ interface VolumeRow {
   total: number
   claude_code: number
   codex: number
+  antigravity: number
   unknown_provider: number
   cost_usd: number
   costed_count: number
@@ -223,7 +224,8 @@ function volume(where: WhereClause, from: number, to: number): MetricsTurnVolume
       COUNT(*) AS total,
       SUM(CASE WHEN provider = 'claude-code' THEN 1 ELSE 0 END) AS claude_code,
       SUM(CASE WHEN provider = 'codex' THEN 1 ELSE 0 END) AS codex,
-      SUM(CASE WHEN provider IS NULL OR provider NOT IN ('claude-code', 'codex') THEN 1 ELSE 0 END) AS unknown_provider,
+      SUM(CASE WHEN provider = 'antigravity' THEN 1 ELSE 0 END) AS antigravity,
+      SUM(CASE WHEN provider IS NULL OR provider NOT IN ('claude-code', 'codex', 'antigravity') THEN 1 ELSE 0 END) AS unknown_provider,
       COALESCE(SUM(cost_usd), 0) AS cost_usd,
       SUM(CASE WHEN cost_usd IS NOT NULL THEN 1 ELSE 0 END) AS costed_count
     FROM turns
@@ -231,7 +233,7 @@ function volume(where: WhereClause, from: number, to: number): MetricsTurnVolume
     GROUP BY bucket_index
     ORDER BY bucket_index
   `).all(from, width, ...where.params)
-  // SAFETY: every grouped row is projected to the exact seven columns below.
+  // SAFETY: every grouped row is projected to the exact eight columns below.
   const rows = rawRows as VolumeRow[]
   return rows.map((row) => ({
     at: from + Number(row.bucket_index) * width,
@@ -239,6 +241,7 @@ function volume(where: WhereClause, from: number, to: number): MetricsTurnVolume
     total: Number(row.total),
     claudeCode: Number(row.claude_code ?? 0),
     codex: Number(row.codex ?? 0),
+    antigravity: Number(row.antigravity ?? 0),
     unknownProvider: Number(row.unknown_provider ?? 0),
     costUsd: Number(row.cost_usd ?? 0),
     costedCount: Number(row.costed_count ?? 0),

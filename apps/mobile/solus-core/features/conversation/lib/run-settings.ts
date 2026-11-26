@@ -52,6 +52,7 @@ export { PERMISSION_MODES }
 export const PROVIDERS: Array<{ id: AgentId; label: string }> = [
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
+  { id: 'antigravity', label: 'Antigravity' },
 ]
 
 export type RunDefaults = Pick<PersonalSettings, 'defaultModels' | 'modelOptionsByProvider'>

@@ -253,5 +253,32 @@
       "contextWindows": [258000],
       "defaultContextWindow": 258000
     }
+  },
+  "antigravity": {
+    "gemini-3.8-flash": {
+      "label": "Gemini 3.8 Flash",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-4-carbon": {
+      "label": "Gemini 4 Carbon",
+      "reasoningLevels": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-4-argon": {
+      "label": "Gemini 4 Argon",
+      "reasoningLevels": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    }
   }
 }

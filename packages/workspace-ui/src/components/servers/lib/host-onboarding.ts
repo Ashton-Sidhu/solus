@@ -31,13 +31,14 @@ export interface OnboardingStep {
 }
 
 /**
- * The providers a host can be given, in the order they are offered. Both are
- * always listed: one is enough to take a session, and the other has to stay
+ * The providers a host can be given, in the order they are offered. Each is
+ * always listed: one is enough to take a session, and the others have to stay
  * one click away rather than disappearing because the host arrived with a CLI.
  */
 export const SETUP_PROVIDERS: Array<{ id: SetupAgent; label: string }> = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
+  { id: 'agy', label: 'Antigravity' },
 ]
 
 /** What still has to happen before a provider can take a session on this host. */
@@ -63,7 +64,7 @@ export function providerSetupActions(
 }
 
 /** The brand marks the rail can draw, keyed the same as the rows that use them. */
-export type ProviderLogoId = 'github' | 'claude' | 'codex'
+export type ProviderLogoId = 'github' | 'claude' | 'codex' | 'agy'
 
 /**
  * One provider in a choice card, already resolved to what it says and what

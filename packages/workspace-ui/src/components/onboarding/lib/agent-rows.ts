@@ -49,6 +49,7 @@ export function agentRow(input: AgentRowInput): AgentRowView {
 const LOGIN_COMMANDS = {
   claude: 'claude auth login',
   codex: 'codex login --device-auth',
+  agy: 'agy acp --login',
 } satisfies Record<SetupAgent, string>
 
 /**

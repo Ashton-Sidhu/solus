@@ -35,6 +35,7 @@ import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from './updates/update-status-service'
 import { ModelProfilesService, downloadModelProfiles } from './updates/model-profiles-service'
+import { ModelPricesService, downloadLiteLlmPrices } from './updates/model-prices-service'
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
 import { rmSync } from 'fs'
@@ -143,6 +144,7 @@ import { IntegrationOAuth, type IntegrationConnectionEvents } from './integratio
 import { setIntegrationGateway } from './integrations/integration-tools'
 import { cliSkipLog } from './integrations/cli-skips'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
+import { antigravityProfileFilesHome } from './execution/agents/acp/antigravity-skills'
 import { profileIntegrations } from './integrations/profile-integrations'
 import { listInstalledSkills } from './skills/skills-provider'
 import { RegistrySkillCache } from './skills/registry-skill-cache'
@@ -1181,6 +1183,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // the CLI's own `~/.claude` and `~/.codex` in their home; elsewhere the seat folder.
     homeFor: (target, provider) => {
       const seat = profileSeat(target)
+      // An Antigravity profile keeps its global skills under `config` (docs/plans/antigravity-provider.md §7.1).
+      if (provider === 'antigravity') return antigravityProfileFilesHome(seats.homeFor(seat, provider))
       if (memberUsers && seat.kind === 'user') return join(memberUserOf(seat).home, provider === 'claude-code' ? '.claude' : '.codex')
       return seats.homeFor(seat, provider)
     },
@@ -1624,13 +1628,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publish: (status) => { events.broadcast('host.modelProfilesChanged', status) },
     onProfilesChanged: () => { void hostUpdates.refreshProviders() },
   })
-  if (opts.sessionRuntime.getBackendIds().includes('claude-code')) {
-    opts.sessionRuntime.backendFor('claude-code').on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
+  // Claude Code and an ACP agent report models the published list does not know; clients read them from the metadata.
+  for (const id of opts.sessionRuntime.getBackendIds()) {
+    opts.sessionRuntime.backendFor(id).on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
   }
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
   server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
+  const modelPrices = new ModelPricesService({ cachePath: join(solusDir(), 'model-prices.json'), download: downloadLiteLlmPrices })
+  modelPrices.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     agents: hostUpdates.agents,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
@@ -2614,6 +2621,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         serverTunnels.close()
         hostUpdates.stop()
         modelProfiles.stop()
+        modelPrices.stop()
         remoteUpdates.stop()
         stopSupervisor?.()
         codeIntel.dispose()

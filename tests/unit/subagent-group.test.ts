@@ -203,6 +203,12 @@ describe('which backend and model a sub-agent card names', () => {
     expect(row.modelLabel).not.toBe('')
   })
 
+  test('an Antigravity subagent is named Antigravity, with its backend’s default model, never Claude', () => {
+    const row = subagentRow(agent({ id: 'g', subagentType: 'antigravity' }), NOW, PARENT)
+    expect(row.provider).toBe('antigravity')
+    expect(row.modelLabel).not.toBe('')
+  })
+
   test('a model id that only Codex serves marks the agent as Codex', () => {
     const row = subagentRow(
       agent({ id: 'c', toolInput: JSON.stringify({ description: 'x', prompt: 'y', model: 'gpt-6-astra' }) }),

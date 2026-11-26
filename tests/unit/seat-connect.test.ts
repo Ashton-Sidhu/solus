@@ -203,6 +203,6 @@ describe('SeatConnector', () => {
     expect(await connector.cancel(BOB, 'codex')).toBe(true)
     expect(spawned[1]!.child.killed).toBe('SIGTERM')
     await expect(second).rejects.toThrow(/cancelled/)
-    expect(() => connector.submitCode(BOB, 'codex', 'x')).toThrow(/not waiting/)
+    await expect(connector.submitCode(BOB, 'codex', 'x')).rejects.toThrow(/not waiting/)
   })
 })

@@ -46,7 +46,7 @@ beforeAll(async () => {
       name: 'turn',
       service: registries.SPAN_SERVICES.sessions,
       sessionId: index < 60 ? 'session-a' : 'session-b',
-      provider: index % 2 === 0 ? 'claude-code' : 'codex',
+      provider: index === 119 ? 'antigravity' : index % 2 === 0 ? 'claude-code' : 'codex',
       model: index % 2 === 0 ? 'opus' : 'gpt',
       startedAt: index,
       endedAt: index + index + 1,
@@ -87,6 +87,9 @@ describe.serial('Insights turn pagination', () => {
     })
     expect(summary.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(120)
     expect(summary.volume.reduce((sum, bucket) => sum + bucket.costUsd, 0)).toBe(60)
+    // Each backend is its own band; an Antigravity turn is not unknown history.
+    const byProvider = (key: 'claudeCode' | 'codex' | 'antigravity' | 'unknownProvider') => summary.volume.reduce((sum, bucket) => sum + bucket[key], 0)
+    expect([byProvider('claudeCode'), byProvider('codex'), byProvider('antigravity'), byProvider('unknownProvider')]).toEqual([60, 59, 1, 0])
 
     const last = pageOf({ ...baseRequest, pageIndex: 4 })
     expect(last.page.rows).toHaveLength(20)

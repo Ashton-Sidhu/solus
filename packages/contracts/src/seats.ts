@@ -25,7 +25,7 @@ export type Seat =
 
 export const HOST_LOGIN_SEAT: Seat = { kind: 'host-login' }
 
-export const seatProviderSchema = z.enum(['claude-code', 'codex'])
+export const seatProviderSchema = z.enum(['claude-code', 'codex', 'antigravity'])
 export type SeatProvider = z.infer<typeof seatProviderSchema>
 
 export const SEAT_PROVIDERS: readonly SeatProvider[] = seatProviderSchema.options
@@ -56,6 +56,35 @@ export type SeatStatus = z.infer<typeof seatStatusSchema>
 export const seatProviderRequestSchema = z.object({ provider: seatProviderSchema }).strict()
 export type SeatProviderRequest = z.infer<typeof seatProviderRequestSchema>
 
+/**
+ * How an Antigravity seat signs in (docs/plans/antigravity-provider.md §7), by
+ * agy's own method ids. Gemini Enterprise (`oauth-business`) and Vertex AI
+ * (`agent-platform`) name the Google Cloud project and location they bill to.
+ */
+const gcpProjectSchema = z.string().trim().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, 'Enter a Google Cloud project id, such as my-project-123.')
+const gcpLocationSchema = z.string().trim().regex(/^[a-z][a-z0-9-]{1,39}$/, 'Enter a Google Cloud location, such as us-central1 or global.')
+
+/** A sign-in in the browser: a Google account, or Gemini Enterprise. */
+export const antigravityBrowserSignInSchema = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('oauth-personal') }).strict(),
+  z.object({ method: z.literal('oauth-business'), gcpProject: gcpProjectSchema, gcpLocation: gcpLocationSchema }).strict(),
+])
+export type AntigravityBrowserSignIn = z.infer<typeof antigravityBrowserSignInSchema>
+
+/** A pasted credential: a Gemini API key, or Vertex AI with an API key or Application Default Credentials. */
+export const antigravityCredentialSchema = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('gemini-api-key') }).strict(),
+  z.object({ method: z.literal('agent-platform'), gcpProject: gcpProjectSchema, gcpLocation: gcpLocationSchema }).strict(),
+])
+export type AntigravityCredential = z.infer<typeof antigravityCredentialSchema>
+
+/** `antigravity`: how an Antigravity seat signs in; absent, the way it last signed in, else a Google account. */
+export const seatConnectStartRequestSchema = z.object({
+  provider: seatProviderSchema,
+  antigravity: antigravityBrowserSignInSchema.optional(),
+}).strict()
+export type SeatConnectStartRequest = z.infer<typeof seatConnectStartRequestSchema>
+
 /** `seatConnectStart` answers once the provider CLI has printed where to sign in. */
 export const seatConnectStartResultSchema = z.object({
   verificationUrl: z.string().min(1),
@@ -63,6 +92,8 @@ export const seatConnectStartResultSchema = z.object({
   userCode: z.string().optional(),
   /** True when the browser hands back a code the member must paste into Solus. */
   requiresCodeInput: z.boolean(),
+  /** What the member pastes: the code the page shows, or (Gemini Enterprise) the address the browser ends on. Absent: a code. */
+  input: z.enum(['code', 'redirect-url']).optional(),
 })
 export type SeatConnectStartResult = z.infer<typeof seatConnectStartResultSchema>
 
@@ -82,6 +113,8 @@ export type SeatConnectCodeRequest = z.infer<typeof seatConnectCodeRequestSchema
 export const seatConnectTokenRequestSchema = z.object({
   provider: seatProviderSchema,
   token: z.string().min(1).max(65536),
+  /** Antigravity: what the token is. Absent: a Gemini API key. */
+  antigravity: antigravityCredentialSchema.optional(),
 }).strict()
 export type SeatConnectTokenRequest = z.infer<typeof seatConnectTokenRequestSchema>
 

@@ -3,6 +3,7 @@ import type { AgentId, SessionLineageMember, SessionLineageResolution } from '@s
 import { getDb } from '../../db'
 import { recordSessionChange } from '../tasks/task-revisions'
 import { z } from 'zod'
+import { agentIdSchema } from '@solus/contracts/types'
 
 interface SessionLineageMemberRow {
   session_id: string
@@ -18,7 +19,7 @@ interface SessionLineageMemberRow {
 const sessionLineageMemberRowSchema = z.object({
   session_id: z.string(),
   position: z.number(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   provider_session_id: z.string().nullable(),
   cwd: z.string(),
   started_at: z.number(),
