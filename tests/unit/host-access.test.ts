@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pairing'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
+import { connectedAppDetail, connectedApps, HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -27,6 +27,7 @@ function hostApi(): FakeApi {
     .on('connectionsListSessions', () => [])
     .on('connectionsListDevices', () => [])
     .on('hostOrganizations', () => ORGANIZATIONS)
+    .on('connectionsAppEndpoint', () => ({ localUrl: 'http://localhost:4810/mcp', publicUrl: null }))
 }
 
 async function phoneWith(api: FakeApi) {
@@ -119,6 +120,56 @@ describe('a host’s Access screen on the phone', () => {
   test('through the tunnel the note says where to change the network', () => {
     expect(networkNote({ ...INFO, principal: 'remote-owner' })).toContain('Change these from the host itself')
     expect(networkNote(INFO)).not.toContain('Change these')
+  })
+})
+
+describe('outside apps on a host’s Access screen', () => {
+  // An outside app (Claude Desktop, Cursor) signs in to the host with OAuth and
+  // uses its tools (plans/035 §10). The owner needs the address to give the app,
+  // a pairing code to type on its sign-in page, and the apps that still have access.
+
+  test('the address the app needs shows, and a host that refuses it still shows the rest', async () => {
+    const api = hostApi().on('connectionsAppEndpoint', () => ({ localUrl: 'http://localhost:4810/mcp', publicUrl: 'https://box.tunnel.example/mcp' }))
+    const { access } = await phoneWith(api)
+    expect(loaded(access).appEndpoint?.publicUrl).toBe('https://box.tunnel.example/mcp')
+
+    const refused = await phoneWith(hostApi().on('connectionsAppEndpoint', () => { throw new Error('only the host administrator') }))
+    expect(loaded(refused.access).appEndpoint).toBeNull()
+    expect(loaded(refused.access).appEndpointError).toBe('only the host administrator')
+    expect(loaded(refused.access).info.port).toBe(4810)
+  })
+
+  test('a pairing code stays on screen through a reload, and a refused code changes nothing', async () => {
+    const api = hostApi().on('connectionsCreateAppPairingCode', () => ({ code: 'ABCD-EFGH', expiresAt: 600_000 }))
+    const { access } = await phoneWith(api)
+    await access.createAppPairCode('inst-a')
+    expect(loaded(access).appPair).toEqual({ code: 'ABCD-EFGH', expiresAt: 600_000 })
+    await access.load('inst-a')
+    expect(loaded(access).appPair?.code).toBe('ABCD-EFGH')
+
+    const policy = hostApi().on('connectionsCreateAppPairingCode', () => { throw new Error('Your organization turned off connecting outside apps') })
+    const blocked = await phoneWith(policy)
+    await expect(blocked.access.createAppPairCode('inst-a')).rejects.toThrow('turned off')
+    expect(loaded(blocked.access).appPair).toBeNull()
+    expect(loaded(blocked.access).busy).toBeNull()
+  })
+
+  test('only apps that still have access are listed, each with its access, and Revoke removes one', async () => {
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    const tablet = { deviceId: 'd1', deviceLabel: 'Tablet', pairedAt: now, lastSeenAt: now, revokedAt: null }
+    const cursor = { deviceId: 'a1', deviceLabel: 'Cursor', pairedAt: now - 86_400_000, lastSeenAt: now - 3_600_000, revokedAt: null, app: { access: 'write' as const } }
+    const old = { ...cursor, deviceId: 'a0', revokedAt: now - 60_000 }
+    expect(connectedApps([tablet, cursor, old])).toEqual([cursor])
+    expect(connectedAppDetail(cursor, now)).toBe('Read and write access · Last seen 1h ago · paired 1d ago')
+    expect(connectedAppDetail({ ...cursor, app: { access: 'read' } }, now)).toStartWith('Read access ·')
+    expect(connectedAppDetail({ ...cursor, app: { access: 'full' } }, now)).toStartWith('Full access ·')
+
+    const api = hostApi().on('connectionsListDevices', () => [tablet, cursor]).on('connectionsRevokeDevice', () => ({ ok: true }))
+    const { access } = await phoneWith(api)
+    api.on('connectionsListDevices', () => [tablet, { ...cursor, revokedAt: now }])
+    await access.revokeDevice('inst-a', 'a1')
+    expect(api.callsOf('connectionsRevokeDevice')).toEqual([[{ deviceId: 'a1' }]])
+    expect(connectedApps(loaded(access).pairedDevices)).toEqual([])
   })
 })
 

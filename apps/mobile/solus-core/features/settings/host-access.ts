@@ -1,5 +1,5 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
+import type { AppAccess, ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { Listeners } from '../../lib/listeners'
 import { relativeTime } from '../../lib/time'
@@ -8,7 +8,7 @@ import type { HostConnection } from '../hosts/host-connections'
 /**
  * How one host is reached and who reaches it, as the desktop and web Access tab
  * shows it: its network, the pairing code it hands out, the devices with access,
- * its organizations. Only the host's local owner (the desktop on the machine
+ * its organizations, and how outside apps reach its tools (plans/035 §10). Only the host's local owner (the desktop on the machine
  * or a paired device, this phone included) changes how it is reached; the host
  * refuses anyone else, so the screen offers those controls to a local owner only.
  * The Solus Cloud link is `HostCloudLink`.
@@ -17,9 +17,11 @@ import type { HostConnection } from '../hosts/host-connections'
 export type HostEndpoint = Awaited<ReturnType<HostApi['connectionsListEndpoints']>>[number]
 export type HostDevice = Awaited<ReturnType<HostApi['connectionsListSessions']>>[number]
 export type HostPairCode = Awaited<ReturnType<HostApi['connectionsGeneratePairToken']>>
+export type HostAppEndpoint = Awaited<ReturnType<HostApi['connectionsAppEndpoint']>>
+export type HostAppPairCode = Awaited<ReturnType<HostApi['connectionsCreateAppPairingCode']>>
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'tailscale-serve' | 'pair' | `revoke:${string}` | `insights:${string}`
+export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'tailscale-serve' | 'pair' | 'app-pair' | `revoke:${string}` | `insights:${string}`
 
 export interface HostAccessSnapshot {
   info: ConnectionsServerInfo
@@ -33,6 +35,12 @@ export interface HostAccessSnapshot {
   /** Why the organizations could not be read; the rest of the screen still shows. */
   organizationsError: string | null
   pair: HostPairCode | null
+  /** Where an outside app reaches this host's tools. Only the host's owner may read it. */
+  appEndpoint: HostAppEndpoint | null
+  /** Why the app address could not be read; the rest of the screen still shows. */
+  appEndpointError: string | null
+  /** The one-time code an outside app's sign-in page accepts. */
+  appPair: HostAppPairCode | null
   busy: HostAccessAction | null
 }
 
@@ -64,12 +72,13 @@ export class HostAccess {
     const current = this.stateOf(hostId)
     if (current.kind !== 'loaded') this.set(hostId, { kind: 'loading' })
     try {
-      const [info, endpoints, devices, paired, organizations] = await Promise.all([
+      const [info, endpoints, devices, paired, organizations, appEndpoint] = await Promise.all([
         connection.api.connectionsGetServerInfo(),
         connection.api.connectionsListEndpoints(),
         connection.api.connectionsListSessions(),
         readPairedDevices(connection.api),
         readOrganizations(connection.api),
+        readAppEndpoint(connection.api),
       ])
       if (this.connectionFor(hostId) !== connection) return
       const latest = this.stateOf(hostId)
@@ -82,8 +91,11 @@ export class HostAccess {
         pairedDevicesError: paired.error,
         organizations: organizations.status,
         organizationsError: organizations.error,
+        appEndpoint: appEndpoint.endpoint,
+        appEndpointError: appEndpoint.error,
         // A code handed out before the reload stays on screen until it expires.
         pair: latest.kind === 'loaded' ? latest.pair : null,
+        appPair: latest.kind === 'loaded' ? latest.appPair : null,
         busy: latest.kind === 'loaded' ? latest.busy : null,
       })
     } catch (error) {
@@ -117,6 +129,10 @@ export class HostAccess {
 
   async generatePairCode(hostId: string): Promise<void> {
     await this.change(hostId, 'pair', async (api) => ({ pair: await api.connectionsGeneratePairToken() }))
+  }
+
+  async createAppPairCode(hostId: string): Promise<void> {
+    await this.change(hostId, 'app-pair', async (api) => ({ appPair: await api.connectionsCreateAppPairingCode() }))
   }
 
   async revokeDevice(hostId: string, deviceId: string): Promise<void> {
@@ -194,6 +210,15 @@ async function readPairedDevices(api: HostApi): Promise<{ devices: PairedDevice[
   }
 }
 
+/** A host that refuses the app address (to anyone but its owner) says why; the rest of the screen still shows. */
+async function readAppEndpoint(api: HostApi): Promise<{ endpoint: HostAppEndpoint | null; error: string | null }> {
+  try {
+    return { endpoint: await api.connectionsAppEndpoint(), error: null }
+  } catch (error) {
+    return { endpoint: null, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 /** A host that cannot read its organizations says why; the rest of the screen still shows. */
 async function readOrganizations(api: HostApi): Promise<{ status: HostOrganizationsStatus | null; error: string | null }> {
   try {
@@ -231,4 +256,17 @@ export function pairedDeviceDetail(device: PairedDevice, isConnected: boolean, n
   if (device.revokedAt !== null) return `Revoked ${ago(device.revokedAt)}`
   const seen = isConnected ? 'Connected now' : `Last seen ${ago(device.lastSeenAt)}`
   return `${seen} · paired ${ago(device.pairedAt)}`
+}
+
+/** The outside apps that still reach this host's tools; a revoked app signs in again as a new one. */
+export function connectedApps(devices: PairedDevice[]): (PairedDevice & { app: { access: AppAccess } })[] {
+  return devices.filter((device): device is PairedDevice & { app: { access: AppAccess } } =>
+    device.app !== undefined && device.revokedAt === null)
+}
+
+const APP_ACCESS_LABELS = { read: 'Read', write: 'Read and write', full: 'Full' } satisfies { [Access in AppAccess]: string }
+
+/** The line under a connected app: the access it was given, and when the host last saw it. */
+export function connectedAppDetail(app: PairedDevice & { app: { access: AppAccess } }, now = Date.now()): string {
+  return `${APP_ACCESS_LABELS[app.app.access]} access · ${pairedDeviceDetail(app, false, now)}`
 }
