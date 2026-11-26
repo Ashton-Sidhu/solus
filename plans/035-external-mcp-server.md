@@ -1,6 +1,6 @@
 # External MCP server
 
-Status: phases 1 to 4 and the docs built; phase 5 needs a decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
+Status: phases 1 to 4 and the docs built; phase 5 needs a product decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
 
 ## 0. What was built, and where it differs from the design
 
@@ -27,15 +27,15 @@ Status: phases 1 to 4 and the docs built; phase 5 needs a decision (§0.3). Refe
 7. **Provider of an app's call.** An outside app has no harness. Its calls record `claude-code` where a tool records a provider.
 8. **Sessions that an app starts.** `createSession` with no parent now works for the tool call's person (`toolCallActor` in `prompt-dispatch.ts`), not the host. This also applies to a parentless session that a harness turn starts.
 
-### 0.3 Phase 5: decision needed
+### 0.3 Phase 5: approval by a signed-in person
 
-Approval with a Solus account needs the account plane to treat a linked host as a client that signs a person in through a browser. Today a host client has no redirect addresses and only `client_credentials`, token exchange, and `refresh_token` (`solus-cloud: src/lib/server/auth/host-clients.ts`). The proposal:
+No account-plane change is needed. T3 Code approves with its account by sending the person to its hosted web app, which is already signed in to the host as a client session; the host only checks that the session may manage access (`apps/server/src/auth/McpOAuth.ts:430`). Solus already shows an app's approval request in every client connected to the host, app.solus.sh included. What is left:
 
-1. Host clients also get `authorization_code`, with the redirect `<tunnel>/oauth/mcp/account/callback`, registered at link and when the tunnel address changes. Existing host clients are updated once.
-2. The consent page sends the person to app.solus.sh with PKCE and `resource` = the host. The callback spends the code with `private_key_jwt` and checks the token as `access-tokens.ts` does.
-3. The grant keeps the account principal (a new `host_device` column, by migration). Each `/mcp` call checks that the person is still a member of the organization, as the socket does.
+1. **Who may approve.** `hostsPairApprovalDecide` needs `host.local.reach`, so only the local owner decides. An app request could be decided by any person with `host.use` on the host. T3 Code has one owner, so it has no such rule.
+2. **The grant names the person who approved it.** The app then acts as that person, not as the owner. This needs the approver's principal on the grant (a `host_device` column, by migration), and a check on each `/mcp` call that the person still has access to the host.
+3. **Through the tunnel,** the consent page links to app.solus.sh, where the person approves.
 
-This changes what a host may ask app.solus.sh for, so it is a decision for the maintainers before it is built.
+This lets organization members connect apps. It is a product decision: today only the owner of a personal host connects apps.
 
 ## 1. Problem
 
