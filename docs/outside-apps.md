@@ -32,17 +32,18 @@ Every person who uses the host can connect an app: the owner, and each member of
 
    **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
-Through the public address, and on a cloud machine, the owner is not asked: approve in Solus, or use a pairing code.
+Through an address that comes through a proxy (the Solus tunnel, Tailscale Serve or Funnel, or your own address), and on a cloud machine, the owner is not asked: approve in Solus, or use a pairing code. See [Security](#security).
 
 ### Before the steps
 
-Apps that run in the cloud need the host's public address. Before the steps, Solus checks that the host has one and that the host answers on it:
+Apps that run in the cloud need an address that the internet reaches. Before the steps, Solus checks that the host has one, and tests it.
 
-- **Not registered.** The host is not linked to a Solus account. Link it first.
-- **Public address off.** The owner turns it on with **Turn on**, on the host's own computer. Solus waits up to 90 seconds for the address. Other people see where to turn it on.
-- **Offline.** The host's connection test failed. Solus shows the reason and **Check again**.
+- **No address.** Solus shows one screen, **Give {host} an address apps can reach**, with three ways. See [Give the host an address](#give-the-host-an-address).
+- **The test.** Solus tests the chosen address before the steps: the host asks its own address, as an app does. When the test fails, Solus shows the reason and **Check again**. When the host cannot reach its own address (see [the test](#test-an-address)), Solus also shows **Go on anyway**.
 
-An app on the host's own computer, such as Claude Code or Codex next to the desktop app, uses `http://localhost:<port>/mcp` and needs no public address.
+An app on the host's own computer, such as Claude Code or Codex next to the desktop app, uses `http://localhost:<port>/mcp` and needs no other address. An app on another computer of yours can also use the Tailscale Serve address.
+
+On a phone, Solus offers only the apps that run in the cloud, so the host needs an address that the internet reaches. A phone cannot turn on Tailscale Funnel.
 
 ### Copy the address
 
@@ -57,7 +58,131 @@ When the clipboard is not available, Solus shows the value in a dialog, with a Q
 
 ### On a host with no screen
 
-On the host, `solus mcp` prints the MCP addresses and the commands that add Solus to Claude Code and Codex. `solus mcp code --access read|write|full` prints a one-time pairing code for the owner (the default access is write). On a machine with no browser, add `--no-browser` to `claude mcp login`. It prints the sign-in address: open it in a browser on another computer, then paste back the address that browser goes to.
+On the host, `solus mcp` prints the MCP addresses, each with its source, and the commands that add Solus to Claude Code and Codex. `solus mcp code --access read|write|full` prints a one-time pairing code for the owner (the default access is write). On a machine with no browser, add `--no-browser` to `claude mcp login`. It prints the sign-in address: open it in a browser on another computer, then paste back the address that browser goes to.
+
+## Give the host an address
+
+A host does not have to be linked to a Solus account for outside apps. The host serves `/mcp` and its own sign-in at every address that reaches it. There are three ways to give it an address: a Solus account, Tailscale (Serve, and Funnel on top of it), and your own address.
+
+| Way | Who can reach it | Who sets it up |
+|---|---|---|
+| Link the host to a Solus account | The internet | The owner, on the host's own computer |
+| Tailscale Funnel | The internet | A local owner, on desktop or web (not on a phone) |
+| Tailscale Serve | Only the devices on your tailnet | A local owner, on desktop or web (not on a phone) |
+| Your own https address | The internet, or what your proxy allows | A host administrator (`host.admin`), on desktop, web, or phone |
+
+**Settings → Sharing & access** lists each address with its source, who can reach it, a copy button, and its last test. The own address setting is on the same page.
+
+### The order of the addresses
+
+`connectionsAppEndpoint` gives the addresses in this order:
+
+1. the Solus account link (internet);
+2. Tailscale Funnel (internet);
+3. your own address (internet);
+4. Tailscale Serve without Funnel (tailnet only).
+
+A cloud app uses the first internet address. An app on a computer can also use the Tailscale Serve address. With Funnel on, the Serve address is the Funnel address, so Solus lists it once, as Funnel.
+
+### Solus account
+
+Link the host to a Solus account: **Turn on** on the host's own computer, or `solus connect` on a host with no screen. Solus waits up to 90 seconds for the address.
+
+### Tailscale Serve and Funnel
+
+Tailscale Serve gives the host an https address on your tailnet: `https://<machine>.<tailnet>.ts.net/mcp`. Only the devices on your tailnet reach it. It is good for Claude Code, Codex, or Cursor on another computer of yours. A cloud app, such as Claude or ChatGPT, cannot reach it.
+
+Tailscale Funnel gives the same address to the whole internet. Then cloud apps can reach it too.
+
+1. As a local owner, on desktop or web, open **Settings → Sharing & access** and turn on **Tailscale HTTPS** (Serve). Remote access must be on.
+2. Turn on **Funnel**. Solus runs `tailscale funnel --bg` for the same HTTPS port and the same local target as Serve, so the address does not change.
+
+Funnel has these rules:
+
+- Funnel uses only the HTTPS ports 443, 8443, and 10000. With another Serve port, Solus refuses Funnel and tells you to change the port.
+- Your tailnet policy must allow Funnel for the device: the `funnel` node attribute (see https://tailscale.com/s/no-funnel), and HTTPS certificates. When the policy does not allow it, Solus shows Tailscale's reason.
+- Turning Funnel off removes only Funnel. Serve stays on at the same address.
+- Solus changes only the Serve mapping to this host. It does not change a mapping that another service made on the port.
+- Solus keeps your Funnel choice. When it makes the Serve mapping again (after a restart, or when the mapping is gone), the mapping has Funnel again. Turning Serve off also turns Funnel off.
+
+### Your own address
+
+Use your own reverse proxy (Caddy, nginx, and others) or a tunnel of your own (for example Cloudflare Tunnel or ngrok). Then set the https origin in **Settings → Sharing & access → Your own address**, for example `https://solus.example.com`. Solus keeps only the origin: the scheme, the name, and the port.
+
+The rules:
+
+- **https only.** OAuth sign-in needs https. Solus refuses an `http:` address.
+- **Not a name of this machine.** Solus refuses `localhost`, an IP address, the machine's own name, and its Tailscale name. Solus reads every request that names your address as a request through a proxy, so one of these names would remove the trust of every local request.
+- **The proxy must say where the request came from.** It must keep the `Host` header, or set `X-Forwarded-Host`, and it should set `X-Forwarded-Proto`. A proxy that rewrites `Host` to `127.0.0.1` and sends no forwarded header makes every request from the internet look like a request from this machine. The test of the address finds this and tells you to fix the proxy.
+- **Streams.** `/mcp` answers as a stream (server-sent events), and a tool call can take long. Turn off response buffering and give the proxy a long read timeout.
+
+The proxy can send all paths to the host, or only the paths an app needs: `/mcp`, `/.well-known/oauth-*`, `/oauth/mcp/`, and `/health`. With only these paths, the internet does not see the web client or the pairing page.
+
+`<port>` is the port of the host: the port in the `On this computer` address that `solus mcp` prints. The examples use 3001.
+
+Caddy (it gets the https certificate itself):
+
+```caddy
+solus.example.com {
+	@app path /mcp /health /.well-known/oauth-* /oauth/mcp/*
+	handle @app {
+		reverse_proxy 127.0.0.1:3001 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+			flush_interval -1
+		}
+	}
+	respond 404
+}
+```
+
+nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name solus.example.com;
+    ssl_certificate     /etc/letsencrypt/live/solus.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/solus.example.com/privkey.pem;
+
+    location ~ ^/(mcp$|health$|\.well-known/oauth-|oauth/mcp/) {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+
+    location / {
+        return 404;
+    }
+}
+```
+
+When the proxy runs on another computer, it sends to the host's network address instead of `127.0.0.1`, and remote access must be on.
+
+### Test an address
+
+`connectionsTestAppAddress` tests one address that the host lists, by its source. The host asks `<address>/.well-known/oauth-protected-resource/mcp` from its own network, with a timeout of 5 seconds, and follows no redirect. The answer must name that `/mcp` as its resource, and `/health` must name this host. A failure gives a reason:
+
+- the name does not resolve (DNS);
+- the https certificate is not valid (TLS);
+- no answer in 5 seconds, or no connection;
+- an answer that is not Solus: an error status, a redirect, or a page that is not Solus's metadata;
+- an answer from another Solus host, or one that names another `/mcp` address (a proxy that does not send the headers above).
+
+A host often cannot reach its own public address from inside: Tailscale does not always let a device reach its own Funnel, and many routers do not let a device reach its own public IP address. Then the reason says that the address can still work from outside, and Solus does not call it down. Test it from a device on another network.
+
+The host asks only an address that it lists. A client sends only the source, never an address, so a client cannot make the host fetch another address.
+
+### Security
+
+- A request through any proxy never gets the trust of a request from this machine. The host reads a request as proxied when it comes through the Solus tunnel; when it comes from loopback with `X-Forwarded-*` headers, or to the host's Tailscale name (Tailscale Serve and Funnel); when it carries Tailscale's `Tailscale-Funnel-Request` header; or when its `Host` or `X-Forwarded-Host` names your own address, from any network address.
+- A proxied request must sign in, as a request from the internet does. On the sign-in page, **Ask the host owner** does not show, and the host refuses it. Approve in Solus, approve as yourself, or use a pairing code.
+- The sign-in metadata names the address that the app used, so the app signs in at the same address.
 
 ## Who the app acts as
 
