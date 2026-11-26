@@ -15,6 +15,7 @@ import type { HostRegistry } from '../hosts/host-registry'
 import type { CloudSessions, CloudSessionRecord } from './cloud-sessions'
 import type { SessionRunHosts } from './session-run-hosts'
 import { ShareArrivals } from './shared-with-you'
+import { markStart } from '../../lib/start-trace'
 
 /**
  * Every session on every host this device knows, as one list: the Solus side
@@ -203,7 +204,13 @@ export class ThreadDirectory {
     if (host === presumed) this.presumed.set(hostId, presumed)
     // The saved shell of a host that has one comes first; the directory copy is the older path.
     const savedShell = this.shell ? this.shell.restore(hostId).catch(() => null) : Promise.resolve(null)
-    const pending = savedShell.then(shell => shell ?? cache?.forHost(hostId).directory() ?? null).then(cached => {
+    const pending = savedShell.then(shell => {
+      markStart(`shell_read:${shell ? 'found' : 'none'}`)
+      return shell ?? cache?.forHost(hostId).directory().then(directory => {
+        markStart(`directory_read:${directory ? directory.threads.length : 'none'}`)
+        return directory
+      }) ?? null
+    }).then(cached => {
       // The catalog rebuilds its host objects when a route or label changes. Forgetting
       // the host or switching accounts cancels this read even if the same id returns.
       const currentHost = this.registry.host(hostId) ?? this.presumed.get(hostId)

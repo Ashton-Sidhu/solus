@@ -104,6 +104,7 @@ import { createSwipeRowActivation } from "./swipe-row-activation";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useFabScroll } from "./FabScrollContext";
 import { holdLaunchSplashForHomeRows, settleLaunchSplashHomeRows } from "./home-launch-splash";
+import { markStart } from "@solus-mobile/lib/start-trace";
 import { useWorkspaceTabs } from "../layout/workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
 import { deriveHomeEmptyState } from "./home-empty-state";
@@ -618,6 +619,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const hasRowsToLayOut = props.visible && hasAnyThreads && threadListV2Items.length > 0;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the native launch splash, which is outside React, until the rows are gone or this list unmounts; a layout effect runs before the splash hides in this commit
   useLayoutEffect(() => {
+    if (hasRowsToLayOut) markStart("home_rows");
     return hasRowsToLayOut ? holdLaunchSplashForHomeRows() : undefined;
   }, [hasRowsToLayOut]);
   const selectedEnvironmentLabel =
@@ -768,6 +770,7 @@ export function HomeScreen(props: HomeScreenProps) {
                 itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 ref={listRef}
                 onLoad={() => {
+                  markStart("list_loaded");
                   settleLaunchSplashHomeRows();
                   activateVisibleRows(threadListV2Items);
                 }}

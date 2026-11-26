@@ -12,6 +12,7 @@ import type { PresumedHost, SessionRowChange } from "@solus-mobile/features/thre
 import { readsSessionShell } from "@solus-mobile/features/threads/session-shell";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { holdLaunchSplashForHomeRows } from "../features/home/home-launch-splash";
+import { keepStartTrace, markStart, START_TRACE_KEY } from "@solus-mobile/lib/start-trace";
 import { expoPlatform, watchAppLifecycle } from "@solus-mobile/platform/expo";
 import type { WorkspaceEnvironment } from "../state/workspaceModel";
 import { solusWorkspaceState } from "./workspace-state";
@@ -88,6 +89,7 @@ export function startSolus() {
     void pending.finally(() => {
       if (!active || shellCacheRestores.get(hostId) !== pending) return;
       shellCacheRestores.set(hostId, null);
+      markStart(`restore_done:${solus.threads.threads().length}`);
       // The saved rows keep the native splash until Home lays them out. This read can end
       // before Home mounts, and Home holds the splash only from its own first rows.
       if (!restoredRowsHeld && solus.threads.threads().length > 0) {
@@ -99,7 +101,9 @@ export function startSolus() {
     });
   }
   // The saved lists of the last start show before the account and the hosts are read.
+  keepStartTrace((value) => expoPlatform.storage.setItem(START_TRACE_KEY, value));
   const presumedHosts = solus.presumeLastSessionList();
+  markStart(`presumed_hosts:${presumedHosts.length}`);
   let presumedScope: string | null = presumedHosts.length ? solus.sessionCache.scope() : null;
   for (const host of presumedHosts) restoreShellCache(host.id, host);
   function refresh() {
@@ -342,6 +346,7 @@ export function startSolus() {
   ];
   void solus.load(() => {
     if (!active) return;
+    markStart("account_read");
     localReady = true;
     reconcile();
     const stopActivity = installAgentActivity(solus);
