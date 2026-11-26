@@ -323,7 +323,10 @@ export class SolusApp {
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path), (hostId, pins) => this.threadList.restorePins(hostId, pins), {
       restore: async (hostId) => {
         const snapshot = await this.shells.restore(hostId, this.registry.host(hostId)?.label)
-        return snapshot && shellHostThreads(hostId, this.shellLabel(hostId), snapshot, null)
+        if (!snapshot) return null
+        // The saved facts (pins, attention) paint with the saved rows, not after the host answers.
+        this.threadList.receiveShell(hostId, snapshot.rows, false)
+        return shellHostThreads(hostId, this.shellLabel(hostId), snapshot, null)
       },
       follows: this.shells.follows,
       reload: (hostId) => this.shells.reload(hostId),

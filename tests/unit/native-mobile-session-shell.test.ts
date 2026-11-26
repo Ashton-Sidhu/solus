@@ -108,7 +108,8 @@ describe('session shell driver', () => {
     const scope = 'account-a'
     // The last start kept its scope and its host; the host's shell was saved in that scope.
     storage.setItem('solus.mobile.lastSessionList', JSON.stringify({ scope, hosts: [{ id: 'inst-a', installationId: 'inst-a' }] }))
-    await store.save('inst-a', scope, saved(scope, snapshot(5, [row('s1', 2), row('s2', 1)])))
+    const waiting = { sessionId: 's1', kind: 'question' as const, since: 1, summary: 'Which branch?' }
+    await store.save('inst-a', scope, saved(scope, snapshot(5, [row('s1', 2, { attention: waiting }), row('s2', 1)])))
     const api = new FakeApi()
     const slow = slowSecrets(secrets)
     const { app } = phone({ api, store, storage, secrets: slow })
@@ -116,6 +117,8 @@ describe('session shell driver', () => {
     try {
       for (const host of app.presumeLastSessionList()) await app.threads.restore(host.id, host)
       expect(ids(app.threads.threads())).toEqual(['s1', 's2'])
+      // The saved row's facts paint with it: a row that waits for the person must not change state when the host answers.
+      expect([...(app.threadList.facts().attention?.values() ?? [])]).toEqual([waiting])
       expect(app.shells.statusOf('inst-a')).toBe('cached')
       expect(api.calls).toEqual([])
     } finally {
