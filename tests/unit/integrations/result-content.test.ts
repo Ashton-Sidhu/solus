@@ -7,7 +7,7 @@ import type { ClaudeEvent } from '@solus/contracts/claude-types'
 import { createAssetUrl, serveAssetToken } from '@solus/server/data/assets/assets'
 import { toolResultMedia } from '@solus/server/data/assets/tool-result-media'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
-import { claudeToolResponse } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import {
@@ -68,7 +68,7 @@ describe('images', () => {
     expect(result.images?.map((each) => each.data)).toEqual(parts.map((bytes) => bytes.toString('base64')))
 
     // WHY: both providers get the same content (§3 rule 1).
-    const claude = claudeToolResponse(result).content
+    const claude = mcpToolResult(result).content
     expect(claude.map((block) => block.type)).toEqual(['text', 'image', 'image', 'image'])
     const codex = codexToolContentItems(result.text, result.images)
     expect(codex.map((item) => item.type)).toEqual(['inputText', 'inputImage', 'inputImage', 'inputImage'])
@@ -124,7 +124,7 @@ describe('audio', () => {
     const result = await map({ content: [audio(bytes)] }, { assetsDir: directory })
     // WHY: no provider model takes audio in a tool result (§1 item 8), so neither adapter sends it.
     expect(result.images).toBeUndefined()
-    expect(claudeToolResponse(result).content).toEqual([{ type: 'text', text: result.text }])
+    expect(mcpToolResult(result).content).toEqual([{ type: 'text', text: result.text }])
     expect(codexToolContentItems(result.text, result.images)).toEqual([{ type: 'inputText', text: result.text }])
 
     expect(result.text).toMatch(/^\[Audio: audio\/mpeg, 67 B, saved at .+\.mp3\]$/)
@@ -133,7 +133,7 @@ describe('audio', () => {
     expect(toolResultMedia(result.text).toolAudio).toEqual([{ assetId: basename(path), mimeType: 'audio/mpeg' }])
 
     // WHY: the line comes back from each provider's own transcript, so the player survives a reload.
-    const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse(result).content)).find((event) => event.type === 'tool_result')
+    const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(mcpToolResult(result).content)).find((event) => event.type === 'tool_result')
     expect(claudeEvent?.type === 'tool_result' && claudeEvent.toolAudio).toEqual([{ assetId: basename(path), mimeType: 'audio/mpeg' }])
   })
 

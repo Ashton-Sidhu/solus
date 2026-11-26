@@ -1,13 +1,11 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { runToolClient } from './helpers/run-tool-client'
 import budget from './agent-context-budget.json'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { advertisedInputSchema } from '@solus/server/execution/agents/tools/agent-tool'
 import { compactToolSchema } from '@solus/server/execution/agents/tools/compact-tool-schema'
-import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
 import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -29,13 +27,9 @@ function toolListBytes(tools: Array<{ name: string; description?: string; inputS
   return Buffer.byteLength(JSON.stringify(tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))))
 }
 
-/** What the Claude SDK's in-process MCP server lists, through a real MCP client. */
+/** What the host's MCP endpoint lists to Claude, through a real MCP client. */
 async function claudeListing(tools: AgentTool[]) {
-  const { server } = adaptClaudeTools(tools, context, 'default')
-  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-  await server.instance.connect(serverSide)
-  const client = new Client({ name: 'test', version: '1.0.0' })
-  await client.connect(clientSide)
+  const client = await runToolClient(tools, context)
   return { client, tools: (await client.listTools()).tools }
 }
 

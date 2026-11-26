@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
-import { claudeToolResponse } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
 import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
@@ -113,7 +113,7 @@ describe('device_screenshot', () => {
     const text = `Screenshot. Saved as asset ${stored.id}.`
     const before = assetCount()
 
-    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse({ ok: true, text, images: [image] }).content))
+    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(mcpToolResult({ ok: true, text, images: [image] }).content))
     const claudeResult = claude.find((event) => event.type === 'tool_result')
     expect(claudeResult?.type === 'tool_result' && claudeResult.toolImages).toEqual([{ assetId: stored.id, mimeType: 'image/png', width: 390, height: 844 }])
 

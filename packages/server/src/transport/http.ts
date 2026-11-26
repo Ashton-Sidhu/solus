@@ -54,6 +54,7 @@ import type { WebhookReceiver } from '../execution/webhooks/receiver'
 import type { AppServiceApi } from '../apps/deployments/app-service-api'
 import { APP_SERVICE_PATH_PREFIX } from '@solus/contracts/app-deployments'
 import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-page-requests'
+import { serveMcp } from './mcp-endpoint'
 
 const log = createLogger('main', 'http')
 
@@ -321,6 +322,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return hookAnswer(c, result.status, result.outcome, result.body)
   })
   app.all('/hooks/*', (c) => hookAnswer(c, 404, 'not_found', { error: 'not found' }))
+  // Agent tools over MCP (plans/035): a run's harness, with the run's token.
+  app.all('/mcp', (c) => serveMcp(c.req.raw))
 
   // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
   const appService = opts.appService

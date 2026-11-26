@@ -11,12 +11,13 @@ import { open, readdir, stat as fsStat } from 'node:fs/promises'
 import { createReadStream, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ModelInfo, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { ModelInfo, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, claudeConfigDir, type ClaudeSeat } from './claude-agent'
 import { reportedModelEffort, unlistedClaudeModelProfiles } from './claude-models'
 import type { TurnSeat } from '../../seats/seat-manager'
 import { TurnInputChannel } from './claude-turn-input'
-import { adaptClaudeTools } from './claude-tool-adapter'
+import { bindRunTools } from '../tools/agent-tool-endpoint'
+import { enabledAgentTools, type AgentTool } from '../tools/agent-tool'
 import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
@@ -160,6 +161,14 @@ export function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
     if (seat.launch.user) claudeSeat.user = seat.launch.user
   }
   return claudeSeat
+}
+
+/** A Solus tool call may wait an hour (request_secret); the limit stays above that. */
+const SOLUS_TOOL_TIMEOUT_MS = 65 * 60 * 1000
+
+/** The Solus tools Claude calls without asking. A tool that requires approval is left to the session's permission mode. */
+export function claudeAllowedTools(tools: AgentTool[]): string[] {
+  return enabledAgentTools(tools).filter((agentTool) => !agentTool.requiresApproval).map((agentTool) => `mcp__solus__${agentTool.name}`)
 }
 
 interface ClaudeRunHandle extends RunHandle {
@@ -307,14 +316,24 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     // readily as null, and an empty id is never a model — it leaves the SDK to
     // pick the CLI's own default instead of ours.
     const model = claudeModelId(request.model || this.metadata.defaultModel, request.contextWindow, request.model ? request.providerRuntime?.modelProfiles?.[request.model] : undefined)
-    const adaptedTools = adaptClaudeTools(request.tools, {
-      provider: 'claude-code',
-      cwd: resolveHomePath(request.cwd),
-      sessionId: () => handle.sessionId,
-      abortSignal: abortController.signal,
-      parentToolUseId: () => undefined,
-      emit: (event) => this.emit('normalized', handle.agentSessionId, event),
-    }, uiMode)
+    // The run's tools are served over the host's MCP endpoint (plans/035 §9).
+    const toolAccess = request.tools.length > 0 ? bindRunTools({
+      tools: request.tools,
+      context: {
+        provider: 'claude-code',
+        cwd: resolveHomePath(request.cwd),
+        sessionId: () => handle.sessionId,
+        abortSignal: abortController.signal,
+        emit: (event) => this.emit('normalized', handle.agentSessionId, event),
+      },
+      permissionMode: () => uiMode,
+      // Claude asks through canUseTool before it calls a tool that is not in allowedTools.
+      approve: async () => true,
+    }) : null
+    handle.releaseTools = toolAccess?.release
+    const mcpServers: Options['mcpServers'] = toolAccess
+      ? { solus: { type: 'http', url: toolAccess.url, headers: { Authorization: toolAccess.authorization }, timeout: SOLUS_TOOL_TIMEOUT_MS } }
+      : undefined
 
     this.pendingRuns.push(handle)
     void (async () => {
@@ -340,8 +359,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         fastMode: request.fastMode,
         permissionMode: uiMode,
         additionalDirectories: request.additionalDirectories,
-        mcpServers: { solus: adaptedTools.server },
-        allowedTools: adaptedTools.allowedTools,
+        mcpServers,
+        allowedTools: claudeAllowedTools(request.tools),
         // The user's instructions, then the host facts Codex also gets.
         systemPromptAppend: [
           request.systemPrompt,

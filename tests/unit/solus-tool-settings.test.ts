@@ -15,7 +15,7 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 let settings: typeof import('@solus/server/host/settings')
 let agentTools: typeof import('@solus/server/execution/agents/tools/agent-tool')
 let codex: typeof import('@solus/server/execution/agents/codex/codex-tool-adapter')
-let claude: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')
+let claude: typeof import('@solus/server/execution/agents/claude/claude-backend')
 let calls = 0
 const tool: AgentTool = { name: 'read_work', description: 'Read a work', inputFields: {}, requiresApproval: false,
   execute: async () => { calls++; return { ok: true, text: 'work' } } }
@@ -27,7 +27,7 @@ beforeAll(async () => {
   settings = await import('@solus/server/host/settings')
   agentTools = await import('@solus/server/execution/agents/tools/agent-tool')
   codex = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
-  claude = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
+  claude = await import('@solus/server/execution/agents/claude/claude-backend')
 })
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
@@ -67,10 +67,10 @@ describe('Solus tool settings', () => {
     expect(codex.adaptCodexTools([tool])).toHaveLength(1)
     settings.setHostConfig({ solusTools: { read_work: false } })
     expect(codex.adaptCodexTools([tool])).toHaveLength(0)
-    expect(claude.adaptClaudeTools([tool], context, 'auto').allowedTools).toEqual([])
+    expect(claude.claudeAllowedTools([tool])).toEqual([])
     settings.setHostConfig({ solusTools: { read_work: true } })
     expect(codex.adaptCodexTools([tool])).toHaveLength(1)
-    expect(claude.adaptClaudeTools([tool], context, 'auto').allowedTools).toEqual(['mcp__solus__read_work'])
+    expect(claude.claudeAllowedTools([tool])).toEqual(['mcp__solus__read_work'])
   })
   test('an existing dispatcher cannot execute a tool disabled after construction', async () => {
     const dispatcher = new codex.CodexToolDispatcher([tool], context)

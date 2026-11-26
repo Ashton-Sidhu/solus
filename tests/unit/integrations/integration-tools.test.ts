@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { executeAgentTool, type AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
-import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { runToolClient } from '../helpers/run-tool-client'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
@@ -111,12 +111,8 @@ describe('integration tool bridge', () => {
   test('Claude hands a passthrough tool every key the agent sent', async () => {
     const { gateway, calls } = recordingCalls()
     const tool = upstreamToolToAgentTool(integration, { ...askTool, inputSchema: { type: 'object', anyOf: [{ required: ['a'] }] } }, gateway)
-    const { server } = adaptClaudeTools([tool], context(), 'default')
-    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-    await server.instance.connect(serverSide)
-    const client = new Client({ name: 'test', version: '1.0.0' })
-    await client.connect(clientSide)
-    // WHY: the SDK strips keys an empty field map does not name; the upstream server would get nothing.
+    const client = await runToolClient([tool], context())
+    // WHY: an MCP server that parses with an empty field map strips the keys it does not name; the upstream server would get nothing.
     await client.callTool({ name: tool.name, arguments: { a: 1, b: 'two' } })
     expect(calls[0]?.input).toEqual({ a: 1, b: 'two' })
     await client.close()

@@ -20,7 +20,7 @@ const { McpTasks, MCP_TASK_HOLD_MS, MAX_LIVE_MCP_TASKS_PER_SESSION, MAX_MCP_TASK
 const { McpTaskStore } = await import('@solus/server/integrations/mcp-task-store')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
-const { claudeToolResponse } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
+const { mcpToolResult } = await import('@solus/server/execution/agents/tools/agent-tool-endpoint')
 const { codexToolContentItems } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { getDb, closeDb } = await import('@solus/server/db')
 const { SessionWake } = await import('@solus/server/execution/sessions/session-wake')
@@ -297,7 +297,7 @@ describe('MCP tasks', () => {
     expect(answer.text).toBe('Reports runs long in the background as an MCP task. Solus sends you the result in a new message when it ends. Do not call the tool again and do not poll. End your turn if you have no other work.')
     expect(w.owner.holdsSession(SESSION)).toBe(true)
     // Both providers get the same answer.
-    expect(claudeToolResponse(answer).content).toEqual([{ type: 'text', text: answer.text }])
+    expect(mcpToolResult(answer).content).toEqual([{ type: 'text', text: answer.text }])
     expect(codexToolContentItems(answer.text)).toEqual([{ type: 'inputText', text: answer.text }])
     await w.clock.advance(60_000)
     complete('the report')

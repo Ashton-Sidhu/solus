@@ -1,11 +1,9 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { runToolClient } from './helpers/run-tool-client'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
-import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
 import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { SECRET_FILE_TTL_MS } from '@solus/contracts/agent-tools'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -46,11 +44,7 @@ describe('request_secret as a session tool', () => {
     expect(SOLUS_TOOL_GROUPS.find((group) => group.id === 'sessions')?.tools).toContain('request_secret')
     expect(SOLUS_TOOL_GROUPS.find((group) => group.id === 'webhooks')?.tools).not.toContain('request_secret')
 
-    const { server } = adaptClaudeTools(sessionTools(), context('s', []), 'default')
-    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-    await server.instance.connect(serverSide)
-    const client = new Client({ name: 'test', version: '1.0.0' })
-    await client.connect(clientSide)
+    const client = await runToolClient(sessionTools(), context('s', []))
     expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('request_secret')
     await client.close()
 

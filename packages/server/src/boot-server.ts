@@ -198,6 +198,7 @@ import { SshDeviceHost, sshDeviceTarget } from './devices/ssh-device-host'
 import { SshClient } from './platform/ssh'
 import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
+import { setAgentToolEndpointUrl } from './execution/agents/tools/agent-tool-endpoint'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
@@ -2337,6 +2338,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   actualPort = await listenWithRetries(port)
+  // A harness on this host reaches its run's tools over loopback, whatever address the server binds.
+  setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
   const serveSetting = getServerSettings().tailscaleServe
   if (serveSetting.enabled && effectiveRemoteAccess() !== 'off') {
     void tailscaleServe.enable(serveSetting.port, actualPort).then(async () => {
@@ -2417,6 +2420,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
+    setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
     const serveSettingAfterBind = getServerSettings().tailscaleServe
     if (remoteAccess !== 'off' && serveSettingAfterBind.enabled) {
       void tailscaleServe.enable(serveSettingAfterBind.port, actualPort)

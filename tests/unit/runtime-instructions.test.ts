@@ -27,6 +27,8 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
 
 let ClaudeBackend: typeof import('@solus/server/execution/agents/claude/claude-backend')['ClaudeBackend']
 beforeAll(async () => {
+  // The run's tools are served over the host's MCP endpoint, which boot sets up.
+  ;(await import('@solus/server/execution/agents/tools/agent-tool-endpoint')).setAgentToolEndpointUrl('http://127.0.0.1:1/mcp')
   ;({ ClaudeBackend } = await import('@solus/server/execution/agents/claude/claude-backend'))
 })
 

@@ -18,7 +18,7 @@ const { CallLimits, ProgressEvents } = await import('@solus/server/integrations/
 const { upstreamToolToAgentTool } = await import('@solus/server/integrations/integration-tools')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
-const { adaptClaudeTools } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
+const { runToolClient } = await import('../helpers/run-tool-client')
 const { CodexToolDispatcher } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { SessionEmitter } = await import('@solus/server/execution/observability/session-emitter')
 const { getMetricsDb } = await import('@solus/server/data/insights/metrics-db')
@@ -298,11 +298,7 @@ describe('the card a progress event names', () => {
     const gateway = new IntegrationGateway({ get: () => integration, list: () => [integration] })
     const events: NormalizedEvent[] = []
     try {
-      const { server } = adaptClaudeTools([upstreamToolToAgentTool(integration, upstream, gateway)], { ...context(events), parentToolUseId: () => undefined }, 'auto')
-      const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-      await server.instance.connect(serverSide)
-      const client = new Client({ name: 'claude-cli', version: '1.0.0' })
-      await client.connect(clientSide)
+      const client = await runToolClient([upstreamToolToAgentTool(integration, upstream, gateway)], context(events), 'auto')
       const result = await withActingScope(HOST_SCOPE, () => client.callTool({ name: 'fake__quick', arguments: {}, _meta: { 'claudecode/toolUseId': 'toolu_from_cli' } }))
       expect(result.content).toEqual([{ type: 'text', text: 'quick done' }])
       expect(progressEvents(events)).toEqual([{ type: 'tool_progress', toolUseId: 'toolu_from_cli', progress: 1, total: 2, message: 'Halfway' }])
