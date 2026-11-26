@@ -69,8 +69,8 @@ An organization can choose the apps its members may connect: in Settings → Pol
 | Access | The app can |
 |---|---|
 | Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, your other hosts, and the results of messages the app sent. |
-| Read and write | Also create and change records, start, message, and stop sessions, and rerun checks. |
-| Full | Also use tools that ask for approval inside Solus, such as changing a work, running an automation, linking items to a session, and changing, reviewing, or merging a pull request. |
+| Read and write | Also create works, and start, message, organize, and stop sessions, on this host and your other hosts. |
+| Full | Also use tools that ask for approval inside Solus: change a work, change a task's status or comment on it, change, run, or delete an automation, link items to a session, change, answer, review, or merge a pull request, and rerun checks. |
 
 The app works as you, and only where you can work yourself. It does not get your integration tokens. To use an integration (for example Google), the app starts a Solus session, and the agent in that session uses your integrations.
 
