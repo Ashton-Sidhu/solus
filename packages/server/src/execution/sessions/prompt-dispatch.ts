@@ -16,7 +16,8 @@ import { responseForkStart } from './session-forks'
 import { type CreateSessionOrder, type ModelChoice } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptSender, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
-import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { HOST_ACTOR, actorFor, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { workspaceToolAuthority } from '../../admission/workspace-tool-authority'
 import { hostUserKey } from '../../host/host-user'
 import { userKey } from '@solus/contracts/user'
 import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
@@ -395,7 +396,8 @@ export class PromptDispatch {
   async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string }> {
     const parentId = req.sourceSessionId ?? req.delegation?.parentSessionId
     // A child works for the person its parent works for, on their seat (plans/019 decision 5).
-    const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
+    // An outside app's call has no parent: the session works for the app's person (plans/035 §8).
+    const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : toolCallActor())
     const sessionId = req.sessionId ?? crypto.randomUUID()
     await this.admitNewSession(req, sessionId, runActor)
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
@@ -633,4 +635,10 @@ export class PromptDispatch {
     const lifecycle = await this.rt.runTurn(request)
     await lifecycle.agentSessionId
   }
+}
+
+/** The person a tool call with no calling session acts for; none for the host's own work. */
+function toolCallActor(): Actor | undefined {
+  const principal = workspaceToolAuthority()
+  return principal && principal.kind !== 'system' ? actorFor(principal) : undefined
 }

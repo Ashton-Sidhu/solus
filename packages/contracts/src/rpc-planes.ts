@@ -244,6 +244,8 @@ export const RPC_PLANES = {
   hostListRemove: 'collaboration',
   hostsLinkForwarded: 'collaboration',
   connectionsListDevices: 'collaboration',
+  connectionsAppEndpoint: 'collaboration',
+  connectionsCreateAppPairingCode: 'collaboration',
   connectionsRevokeDevice: 'collaboration',
   connectionsGetServerInfo: 'collaboration',
   connectionsSetRemoteAccess: 'collaboration',

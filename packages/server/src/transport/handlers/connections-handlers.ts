@@ -5,6 +5,7 @@ import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
 import { generatePairToken, listPairedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
+import { createAppPairingCode } from '../../admission/app-sign-in'
 import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
@@ -178,6 +179,18 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   })
 
   server.register('connectionsListDevices', () => listPairedDevices())
+
+  server.register('connectionsAppEndpoint', () => {
+    const tunnel = deps.tunnelUrl()
+    return { localUrl: `http://localhost:${deps.getServerInfo().port}/mcp`, publicUrl: tunnel ? `${tunnel}/mcp` : null }
+  })
+
+  server.register('connectionsCreateAppPairingCode', () => {
+    enforce(hostPolicies().capabilityDenial('remoteAccess', 'connecting outside apps'))
+    const code = createAppPairingCode()
+    log.info('app_pairing_code_created', { expiresAt: code.expiresAt })
+    return code
+  })
 
   server.register('connectionsRevokeDevice', (args) => {
     const [{ deviceId }] = args

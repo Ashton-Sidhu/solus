@@ -19,19 +19,29 @@ export type PairApprovalOutcome =
   | { status: 'pending' }
   | { status: 'denied' }
   | { status: 'expired' }
-  | { status: 'approved'; sessionToken: string }
+  | { status: 'approved'; granted: string }
 
 type RequestState =
   | { kind: 'pending' }
   | { kind: 'denied'; keepUntil: number }
   | { kind: 'expired'; keepUntil: number }
   /** The token waits here until the requester collects it; it is revoked when nobody does. */
-  | { kind: 'approved'; keepUntil: number; sessionToken: string }
+  | { kind: 'approved'; keepUntil: number; granted: string }
+
+/**
+ * What an approval gives the requester: a paired device's session token, or
+ * the authorization code of an outside app's sign-in (plans/035 §10).
+ */
+export interface ApprovalGrant {
+  issue(): string
+  /** Nobody collected it: it must not stay valid. */
+  withdraw(granted: string): void
+}
 
 interface ApprovalEntry {
   view: PairApprovalRequest
   waitTokenHash: Buffer
-  replacesSessionToken?: string
+  grant: ApprovalGrant
   state: RequestState
   /** Wakes the long polls of this request when its state changes. */
   wake: Set<() => void>
@@ -69,7 +79,7 @@ export class PairApprovals {
    * The requester made `checkCode` (normalized by `normalizeCheckCode`) and shows it,
    * so the owner can compare it with the code on the requester's screen.
    */
-  start(input: { deviceLabel: string; checkCode: string; fromAddress: string; replacesSessionToken?: string }): { request: PairApprovalRequest; waitToken: string } | null {
+  start(input: { deviceLabel: string; checkCode: string; fromAddress: string; replacesSessionToken?: string; grant?: ApprovalGrant }): { request: PairApprovalRequest; waitToken: string } | null {
     if (this.list().length >= PAIR_APPROVAL_MAX_OPEN) return null
     const now = this.now()
     const waitToken = randomBytes(32).toString('base64url')
@@ -84,7 +94,7 @@ export class PairApprovals {
     this.entries.set(view.requestId, {
       view,
       waitTokenHash: hashOf(waitToken),
-      replacesSessionToken: input.replacesSessionToken,
+      grant: input.grant ?? deviceGrant(input.deviceLabel, input.replacesSessionToken, this.now),
       state: { kind: 'pending' },
       wake: new Set(),
     })
@@ -107,10 +117,7 @@ export class PairApprovals {
     if (!entry || entry.state.kind !== 'pending') return false
     const keepUntil = this.now() + SETTLED_KEEP_MS
     if (decision === 'approve') {
-      const { token: sessionToken } = issueSessionToken(entry.view.deviceLabel, this.now())
-      const replaced = entry.replacesSessionToken ? revokeSessionToken(entry.replacesSessionToken) : false
-      entry.state = { kind: 'approved', keepUntil, sessionToken }
-      log.info('pair_session_issued', { deviceLabel: entry.view.deviceLabel, approval: true, replaced })
+      entry.state = { kind: 'approved', keepUntil, granted: entry.grant.issue() }
     } else {
       entry.state = { kind: 'denied', keepUntil }
     }
@@ -135,7 +142,7 @@ export class PairApprovals {
     if (state.kind === 'pending') return { status: 'pending' }
     // A result is read once; a second read finds no request.
     if (this.entries.get(requestId) === entry) this.entries.delete(requestId)
-    if (state.kind === 'approved') return { status: 'approved', sessionToken: state.sessionToken }
+    if (state.kind === 'approved') return { status: 'approved', granted: state.granted }
     return { status: state.kind === 'denied' ? 'denied' : 'expired' }
   }
 
@@ -164,7 +171,7 @@ export class PairApprovals {
       this.entries.delete(requestId)
       // Nobody collected the token: the device never got it, so it must not stay valid.
       if (state.kind === 'approved') {
-        revokeSessionToken(state.sessionToken)
+        entry.grant.withdraw(state.granted)
         log.info('pair_approval_uncollected', { requestId })
       }
     }
@@ -204,6 +211,19 @@ export class PairApprovals {
 
   private sweepAt(at: number): void {
     setTimeout(() => this.sweep(), Math.max(0, at - this.now()) + 10).unref?.()
+  }
+}
+
+/** A paired device: its session token, which replaces the one it held. */
+function deviceGrant(deviceLabel: string, replacesSessionToken: string | undefined, now: () => number): ApprovalGrant {
+  return {
+    issue: () => {
+      const { token } = issueSessionToken(deviceLabel, now())
+      const replaced = replacesSessionToken ? revokeSessionToken(replacesSessionToken) : false
+      log.info('pair_session_issued', { deviceLabel, approval: true, replaced })
+      return token
+    },
+    withdraw: (token) => { revokeSessionToken(token) },
   }
 }
 

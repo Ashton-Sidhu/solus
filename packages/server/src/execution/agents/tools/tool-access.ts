@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import type { CallToolRequest } from '@modelcontextprotocol/server'
 import { HOST_USE, type Permission, type ResourceActionPath, type ResourceKind } from '@solus/contracts/permissions'
 import type { SolusAgentToolName } from '@solus/contracts/agent-tools'
+import type { AppAccess } from '@solus/contracts/host-api'
 import type { AccessResource } from '../../../admission/access'
 import type { Principal } from '../../../admission/principal'
 import { toolActionRefusal } from '../../../admission/workspace-tool-authority'
@@ -16,8 +18,8 @@ export type ToolAccess =
   | { permission: Permission }
   | { action: ResourceActionPath; resource: ToolResource }
 
-/** A tool call's arguments, after the tool's fields have parsed them. */
-type ToolCallInput = Parameters<AgentTool['execute']>[0]
+/** A tool call's arguments: as MCP carries them, or after the tool's fields parsed them. */
+type ToolCallInput = CallToolRequest['params']['arguments'] | Parameters<AgentTool['execute']>[0]
 
 /** The record a call names: from its input, or the session the call runs in. Null when it names none. */
 type ToolResource = (input: ToolCallInput, callerSessionId: string | undefined) => AccessResource | null
@@ -190,6 +192,50 @@ export const TOOL_ACCESS = {
 } as const satisfies Record<SolusAgentToolName, ToolAccess>
 
 const ACCESS_BY_NAME: ReadonlyMap<string, ToolAccess> = new Map(Object.entries(TOOL_ACCESS))
+
+/**
+ * The Solus tools an outside app may use, and what each does (plans/035 §7).
+ * A tool not named is only for a harness inside a session. A `write` tool
+ * needs a write grant; a tool that requires approval also needs a full one.
+ * The rest wait for an explicit `session_id` and the requester key (§8).
+ */
+export const APP_TOOLS = {
+  list_works: 'read',
+  read_work: 'read',
+  create_work: 'write',
+  update_work: 'write',
+  list_projects: 'read',
+  read_project: 'read',
+  list_codebases: 'read',
+  read_codebase: 'read',
+  list_tasks: 'read',
+  read_task: 'read',
+  update_task_status: 'write',
+  comment_task: 'write',
+  list_automations: 'read',
+  read_automation: 'read',
+  list_automation_runs: 'read',
+  update_automation: 'write',
+  delete_automation: 'write',
+  run_automation: 'write',
+  list_agent_targets: 'read',
+  search_sessions: 'read',
+  read_session: 'read',
+  start_sessions: 'write',
+  stop_session: 'write',
+  organize_session: 'write',
+} as const satisfies Partial<Record<SolusAgentToolName, 'read' | 'write'>>
+
+const APP_TOOL_EFFECTS: ReadonlyMap<string, 'read' | 'write'> = new Map(Object.entries(APP_TOOLS))
+
+/** Why an outside app with this access may not call a tool; null when it may. */
+export function appToolRefusal(tool: Pick<AgentTool, 'name' | 'requiresApproval'>, access: AppAccess): string | null {
+  const effect = APP_TOOL_EFFECTS.get(tool.name)
+  if (!effect) return `${tool.name} is only for an agent inside a Solus session.`
+  if (effect === 'write' && access === 'read') return `${tool.name} changes records, and this app was approved to read only. Connect it again with write access.`
+  if (tool.requiresApproval && access !== 'full') return `${tool.name} needs approval, and this app was approved without full access. Connect it again with full access.`
+  return null
+}
 
 /** A tool's rule: the table's for a Solus tool, else its own. A tool with neither has no rule. */
 export function toolAccessOf(tool: Pick<AgentTool, 'name' | 'access'>): ToolAccess | undefined {

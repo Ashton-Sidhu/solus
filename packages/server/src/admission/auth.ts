@@ -7,7 +7,7 @@ import { solusDir } from '../platform/paths'
 import { closeDb, getDb } from '../db'
 import { hostIdentity } from '../host/host-identity'
 import { githubCredentials } from '../providers/github/credentials'
-import type { PairedDevice } from '@solus/contracts/host-api'
+import type { AppAccess, PairedDevice } from '@solus/contracts/host-api'
 
 const log = createLogger('main', 'auth')
 
@@ -172,6 +172,7 @@ const LAST_SEEN_WRITE_INTERVAL_MS = 60_000
 
 const pairedRowSchema = z.object({
   device_id: z.string(),
+  kind: z.string(),
   label: z.string(),
   paired_at: z.number(),
   last_seen_at: z.number(),
@@ -198,7 +199,7 @@ export function issueSessionToken(deviceLabel: string, now = Date.now()): Issued
 export function verifySessionToken(token: string, now = Date.now()): PairedSession | null {
   if (!token) return null
   const db = getDb()
-  const found = db.prepare(`SELECT device_id, label, paired_at, last_seen_at, revoked_at FROM host_device
+  const found = db.prepare(`SELECT device_id, kind, label, paired_at, last_seen_at, revoked_at FROM host_device
     WHERE token_hash = ? AND kind = 'paired'`).get(hashSessionToken(token))
   if (!found) return null
   const row = pairedRowSchema.parse(found)
@@ -228,11 +229,60 @@ export function refreshSessionToken(token: string, now = Date.now()): string | n
   return token
 }
 
-/** The devices this host paired: the ones with access first, each group the most recently seen first. */
+/** The devices and outside apps this host paired: the ones with access first, each group the most recently seen first. */
 export function listPairedDevices(): PairedDevice[] {
-  const rows = z.array(pairedRowSchema).parse(getDb().prepare(`SELECT device_id, label, paired_at, last_seen_at, revoked_at
-    FROM host_device WHERE kind = 'paired' ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, device_id`).all())
-  return rows.map((row) => ({ deviceId: row.device_id, deviceLabel: row.label, pairedAt: row.paired_at, lastSeenAt: row.last_seen_at, revokedAt: row.revoked_at }))
+  const rows = z.array(pairedRowSchema).parse(getDb().prepare(`SELECT device_id, kind, label, paired_at, last_seen_at, revoked_at
+    FROM host_device WHERE kind = 'paired' OR kind LIKE 'app:%' ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, device_id`).all())
+  return rows.map((row) => {
+    const device: PairedDevice = { deviceId: row.device_id, deviceLabel: row.label, pairedAt: row.paired_at, lastSeenAt: row.last_seen_at, revokedAt: row.revoked_at }
+    const access = appAccessOfKind(row.kind)
+    if (access) device.app = { access }
+    return device
+  })
+}
+
+/**
+ * An outside app's grant: a row of its own kind, so its token is never a
+ * device's session token (plans/035 §4.2). It is listed and revoked with the
+ * paired devices, and kept while it is used, as a device's token is.
+ */
+const APP_KIND_PREFIX = 'app:'
+const appAccessSchema = z.enum(['read', 'write', 'full'])
+
+function appAccessOfKind(kind: string): AppAccess | null {
+  if (!kind.startsWith(APP_KIND_PREFIX)) return null
+  const access = appAccessSchema.safeParse(kind.slice(APP_KIND_PREFIX.length))
+  return access.success ? access.data : null
+}
+
+export function issueAppToken(appLabel: string, access: AppAccess, now = Date.now()): IssuedSessionToken {
+  const deviceId = randomBytes(12).toString('hex')
+  const token = randomBytes(32).toString('base64url')
+  getDb().prepare(`INSERT INTO host_device (device_id, kind, label, token_hash, paired_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(deviceId, `${APP_KIND_PREFIX}${access}`, appLabel, hashSessionToken(token), now, now)
+  return { token, deviceId }
+}
+
+/** The outside app a token names, while it is not revoked and was used within `SESSION_TOKEN_TTL_MS`. */
+export function verifyAppToken(token: string, now = Date.now()): (PairedSession & { access: AppAccess }) | null {
+  if (!token) return null
+  const db = getDb()
+  const found = db.prepare(`SELECT device_id, kind, label, paired_at, last_seen_at, revoked_at FROM host_device
+    WHERE token_hash = ? AND kind LIKE 'app:%'`).get(hashSessionToken(token))
+  if (!found) return null
+  const row = pairedRowSchema.parse(found)
+  const access = appAccessOfKind(row.kind)
+  if (!access || row.revoked_at !== null || now - row.last_seen_at > SESSION_TOKEN_TTL_MS) return null
+  if (now - row.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) db.prepare('UPDATE host_device SET last_seen_at = ? WHERE device_id = ?').run(now, row.device_id)
+  return { deviceId: row.device_id, deviceLabel: row.label, lastSeenAt: now, access }
+}
+
+/** Revokes the outside app a token names. False when no app has it. */
+export function revokeAppToken(token: string): boolean {
+  const found = getDb().prepare(`SELECT device_id FROM host_device WHERE token_hash = ? AND kind LIKE 'app:%'`).get(hashSessionToken(token))
+  if (!found) return false
+  revokeDevice(z.object({ device_id: z.string() }).parse(found).device_id)
+  return true
 }
 
 /** Whether the owner revoked this device on this host: a paired device, an account grant, or an acting host. */

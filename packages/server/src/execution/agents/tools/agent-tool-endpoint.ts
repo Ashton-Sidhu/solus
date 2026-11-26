@@ -5,7 +5,13 @@ import { ToolSchema } from '@modelcontextprotocol/core'
 // and these tools use the workspace's zod 4, so the tools publish JSON Schema.
 import { Server, type CallToolRequest, type CallToolResult, type Tool } from '@modelcontextprotocol/server'
 import type { PermissionMode } from '@solus/contracts/types'
+import type { AppAccess } from '@solus/contracts/host-api'
+import type { Actor } from '../../../admission/actor'
+import { withWorkspaceToolAuthority } from '../../../admission/workspace-tool-authority'
+import { resolveHomePath } from '../../../platform/paths'
+import { withActorScope } from '../../seats/acting-identity'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
+import { appToolRefusal, toolAccessRefusal } from './tool-access'
 import { advertisedInputSchema, assertUniqueAgentTools, enabledAgentTools, executeAgentTool } from './agent-tool'
 
 /**
@@ -149,6 +155,56 @@ export function runToolServer(binding: RunToolBinding | undefined): Server {
       }))
     } catch (error) {
       // The harness waits for one result for every call; a thrown tool still answers.
+      return refused(error instanceof Error ? error.message : String(error))
+    }
+  })
+  return server
+}
+
+/** An outside app that signed in to this host (plans/035 §4.2): its grant and the person it acts for. */
+export interface AppCaller {
+  access: AppAccess
+  actor: Actor
+  signal: AbortSignal
+}
+
+/**
+ * The tools an outside app may list: Solus tools on its allow-list, on in
+ * Settings → Tools, within its grant. The toolbox loads on an app's first
+ * call, not with the HTTP server.
+ */
+async function appTools(access: AppAccess): Promise<AgentTool[]> {
+  const { solusToolbox } = await import('./solus-toolbox')
+  return enabledAgentTools(Object.values(solusToolbox).flatMap((group) => Object.values(group))).filter((tool) => !appToolRefusal(tool, access))
+}
+
+/**
+ * The MCP server for one request of an outside app. It has no session: each
+ * call runs as the app's person, under the same access rule as a harness turn,
+ * with no conversation to show a card in.
+ */
+export async function appToolServer(app: AppCaller): Promise<Server> {
+  const server = new Server({ name: 'solus', version: '1.0.0' }, { capabilities: { tools: {} } })
+  const tools = await appTools(app.access)
+  server.setRequestHandler('tools/list', () => ({ tools: tools.map(listedTool) }))
+  server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult> => {
+    const agentTool = tools.find((candidate) => candidate.name === request.params.name)
+    if (!agentTool) return refused(appToolRefusal({ name: request.params.name, requiresApproval: false }, app.access) ?? `Unknown tool: ${request.params.name}`)
+    const input = request.params.arguments ?? {}
+    const denied = await toolAccessRefusal(agentTool, input, undefined, app.actor.principal)
+    if (denied) return refused(denied)
+    const context: AgentToolContext = {
+      // An outside app has no harness; a tool that records one records the default.
+      provider: 'claude-code',
+      cwd: resolveHomePath('~'),
+      sessionId: () => undefined,
+      abortSignal: AbortSignal.any([app.signal, extra.mcpReq.signal]),
+      parentToolUseId: () => undefined,
+      emit: () => {},
+    }
+    try {
+      return mcpToolResult(await withActorScope(app.actor, () => withWorkspaceToolAuthority(app.actor.principal, () => executeAgentTool(agentTool, input, context))))
+    } catch (error) {
       return refused(error instanceof Error ? error.message : String(error))
     }
   })

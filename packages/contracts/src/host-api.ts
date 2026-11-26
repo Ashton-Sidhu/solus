@@ -180,7 +180,12 @@ export interface PairedDevice {
   lastSeenAt: number
   /** Set once the owner revoked it. A revoked device pairs again as a new device. */
   revokedAt: number | null
+  /** An outside app that reaches this host's tools over MCP, and the access it was given (plans/035 §10). */
+  app?: { access: AppAccess }
 }
+
+/** What an outside app may do with this host's tools: read only, change records, or also run tools that need approval. */
+export type AppAccess = 'read' | 'write' | 'full'
 
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
@@ -520,6 +525,10 @@ export interface SolusAPI {
   hostListRemove(id: string): Promise<void>
   /** The devices this host paired, offline and revoked ones included (plans/033 §4.4): the ones with access first, then the most recently seen. Owner only. */
   connectionsListDevices(): Promise<PairedDevice[]>
+  /** Where an outside app reaches this host's tools: on this machine, and at the public tunnel address when the host has one. */
+  connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null }>
+  /** A one-time code that approves an outside app's sign-in on its consent page. */
+  connectionsCreateAppPairingCode(): Promise<{ code: string; expiresAt: number }>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean }>
   connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>
