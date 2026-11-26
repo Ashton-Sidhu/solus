@@ -1,46 +1,31 @@
 <script lang="ts">
   /** What stands between a person and the steps of "Use Solus in other apps"
-   *  (`resolveOutsideAppGate`): checking, a host with no Solus account, a
-   *  public address that is off, and a host or address that does not answer. */
-  import { LoaderCircle as SpinnerIcon } from "@lucide/svelte";
-  import { accountStore, uplinkStore } from "../../../contexts";
-  import { hosts } from "../../../contexts/hosts/hosts.svelte";
+   *  (`resolveOutsideAppGate`): checking, a host with no address the app
+   *  reaches (three ways to give it one), and a host or address that does not
+   *  answer. A host does not have to be linked to a Solus account
+   *  (plans/035 §0.8). */
+  import { LoaderCircle as SpinnerIcon, TriangleAlert as WarningIcon } from "@lucide/svelte";
+  import { connectionsStore } from "../../../contexts";
   import { Button } from "../../ui/button";
-  import { hostLock } from "../../settings/policy/managed-setting.svelte";
-  import ManagedSettingNote from "../../settings/policy/ManagedSettingNote.svelte";
-  import { registerWay, turnOnWay, type OutsideAppGate } from "../lib/outside-apps-gate";
+  import { appAddressSourceLabel } from "../lib/app-addresses";
+  import type { OutsideAppGate } from "../lib/outside-apps-gate";
   import { outsideAppsDialog } from "./outside-apps-dialog.svelte";
+  import OutsideAppsOwnAddress from "./OutsideAppsOwnAddress.svelte";
+  import OutsideAppsSolusChoice from "./OutsideAppsSolusChoice.svelte";
+  import OutsideAppsTailscaleChoice from "./OutsideAppsTailscaleChoice.svelte";
 
   interface Props {
     serverId: string;
     hostName: string;
+    /** The app chosen; null before a choice and for "Something else…". */
+    appName: string | null;
     gate: Exclude<OutsideAppGate, { kind: "open" }>;
   }
 
-  let { serverId, hostName, gate }: Props = $props();
+  let { serverId, hostName, appName, gate }: Props = $props();
 
-  const busy = $derived(uplinkStore.busyServerId === serverId);
-  const lock = $derived(hostLock(serverId, "cloudTunnel"));
-  const host = $derived(hosts.get(serverId));
-  const turnOn = $derived(turnOnWay({
-    hostKind: host.serverInfo.state === "ready" ? host.serverInfo.value.hostKind : undefined,
-    control: uplinkStore.controlFor(serverId),
-    mayReachLocally: host.me.may("host.local.reach"),
-    locked: !!lock,
-  }));
-  const register = $derived(registerWay({
-    control: uplinkStore.controlFor(serverId),
-    accountAvailable: uplinkStore.accountAvailable,
-    canLink: uplinkStore.canLink,
-  }));
-
-  // Only the kind: a new gate object on each read would run the check again and again.
-  const gateKind = $derived(gate.kind);
-  // A person who signs in here comes back to a host that the owner's client now registers by itself.
-  $effect(() => {
-    if (gateKind !== "not-registered" || !uplinkStore.canLink) return;
-    void outsideAppsDialog.check(serverId);
-  });
+  // Serve on: Funnel is one step away, so the Tailscale choice opens first.
+  const isServeOn = $derived(connectionsStore.appTailscaleFor(serverId)?.enabled === true);
 </script>
 
 {#snippet checkAgain()}
@@ -49,75 +34,79 @@
   </div>
 {/snippet}
 
+{#snippet choice(title: string, summary: string, isOpen: boolean, body: import("svelte").Snippet)}
+  <details name="outside-apps-address-choice" open={isOpen} class="group rounded-lg border border-border open:border-(--solus-text-tertiary)/40">
+    <summary class="flex cursor-pointer list-none flex-col gap-0.5 rounded-lg px-3 py-2.5 outline-none hover:bg-(--solus-surface-hover) focus-visible:ring-3 focus-visible:ring-ring/50 pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+      <span class="text-workspace-chrome font-medium text-(--solus-text-primary)">{title}</span>
+      <span class="text-chrome-dense text-(--solus-text-secondary)">{summary}</span>
+    </summary>
+    <div class="flex flex-col gap-3 px-3 pt-1 pb-3">
+      {@render body()}
+    </div>
+  </details>
+{/snippet}
+
+{#snippet solusBody()}
+  {#if gate.kind === "no-address"}
+    <OutsideAppsSolusChoice {serverId} {hostName} solus={gate.solus} />
+  {/if}
+{/snippet}
+
+{#snippet tailscaleBody()}
+  {#if gate.kind === "no-address"}
+    <OutsideAppsTailscaleChoice {serverId} {hostName} reach={gate.reach} />
+  {/if}
+{/snippet}
+
+{#snippet ownAddressBody()}
+  <OutsideAppsOwnAddress {serverId} {hostName} />
+{/snippet}
+
 <section class="flex flex-col gap-3" aria-live="polite">
   {#if gate.kind === "checking"}
     <p role="status" class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-secondary)">
       <SpinnerIcon size={16} class="motion-safe:animate-spin" />
-      Checking {hostName}…
+      {gate.testSource ? `Testing the address of ${hostName}…` : `Checking ${hostName}…`}
     </p>
-  {:else if gate.kind === "not-registered"}
-    <h3 class="text-base font-medium text-(--solus-text-primary)">Register {hostName} to your Solus account</h3>
+  {:else if gate.kind === "no-address"}
+    <h3 class="text-base font-medium text-pretty text-(--solus-text-primary)">Give {hostName} an address apps can reach</h3>
     <div class="flex flex-col gap-1 text-workspace-chrome text-(--solus-text-secondary)">
-      <p>Apps like Claude and ChatGPT run in the cloud. They need a public address to reach {hostName}.</p>
-      <p>A host registered to your account gets that address. Each app still needs your approval.</p>
+      {#if gate.reach === "internet"}
+        <p>{appName ?? "This app"} runs in the cloud. It needs an address on the internet to reach {hostName}.</p>
+      {:else}
+        <p>An app on another computer needs an address that reaches {hostName}.</p>
+      {/if}
+      <p>Choose one way. Each app still needs your approval.</p>
     </div>
-    {#if register === "register"}
-      <div>
-        <Button size="sm" disabled={busy} onclick={() => void outsideAppsDialog.register(serverId)}>
-          {busy ? "Registering…" : "Register"}
-        </Button>
-      </div>
-    {:else if register === "sign-in"}
-      <div>
-        {#if accountStore.state.kind === "signing-in"}
-          <Button variant="outline" size="sm" onclick={() => accountStore.cancelSignIn()}>Cancel sign-in</Button>
-        {:else}
-          <Button size="sm" disabled={accountStore.state.kind === "unavailable"} onclick={() => void accountStore.signIn()}>Sign in</Button>
-        {/if}
-      </div>
-    {:else}
-      <p class="text-workspace-chrome text-(--solus-text-secondary)">Open Solus on {hostName}, or from your Solus Cloud account, and register {hostName} in Settings › Hosts › {hostName} › Access.</p>
-      {@render checkAgain()}
-    {/if}
-  {:else if gate.kind === "turn-on"}
-    <h3 class="text-base font-medium text-(--solus-text-primary)">
-      {turnOn === "here" ? `Turn on the public address of ${hostName}` : `Turn on the public address on ${hostName}`}
-    </h3>
-    <div class="flex flex-col gap-1 text-workspace-chrome text-(--solus-text-secondary)">
-      <p>{hostName} gets a public https address through Solus Cloud, with no router setup.</p>
-      <p>Only apps you approve can use it. You can turn it off in Settings › Sharing & access.</p>
+    <div class="flex flex-col gap-2">
+      {@render choice("Link to your Solus account", "Solus Cloud gives the host a public https address, with no router setup.", !isServeOn, solusBody)}
+      {@render choice("Tailscale", gate.reach === "internet" ? "Tailscale Funnel opens the host's tailnet address to the internet." : "Tailscale Serve gives the host an https address on your tailnet.", isServeOn, tailscaleBody)}
+      {@render choice("Use your own address", "A reverse proxy or a tunnel of your own that serves the host over https.", false, ownAddressBody)}
     </div>
-    {#if gate.error}
-      <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{gate.error}</p>
-    {/if}
-    {#if turnOn === "here"}
-      <div>
-        <Button size="sm" disabled={gate.turningOn || busy} onclick={() => void outsideAppsDialog.turnOn(serverId)}>
-          {#if gate.turningOn}
-            <SpinnerIcon size={14} class="motion-safe:animate-spin" />
-            Turning on…
-          {:else}
-            Turn on
-          {/if}
-        </Button>
-      </div>
-    {:else if turnOn === "policy" && lock}
-      <ManagedSettingNote note={lock} />
-    {:else if turnOn === "cloud"}
-      <p class="text-workspace-chrome text-(--solus-text-secondary)">Solus Cloud gives {hostName} its address while the machine runs. Check again in a moment.</p>
-      {@render checkAgain()}
-    {:else}
-      <p class="text-workspace-chrome text-(--solus-text-secondary)">On {hostName}, open Settings › Hosts › {hostName} › Access and turn on Reachable from the internet, or run <code class="font-mono">solus connect</code> there.</p>
-      {@render checkAgain()}
-    {/if}
   {:else if gate.kind === "offline"}
-    <h3 class="text-base font-medium text-(--solus-text-primary)">
-      {gate.where === "host" ? `Solus cannot reach ${hostName}` : `${hostName} does not answer at its public address`}
+    <h3 class="text-base font-medium text-pretty text-(--solus-text-primary)">
+      {#if gate.where === "host"}
+        Solus cannot reach {hostName}
+      {:else}
+        {hostName} does not answer at its {gate.address ? appAddressSourceLabel(gate.address.source) : ""} address
+      {/if}
     </h3>
     <div class="flex flex-col gap-1 text-workspace-chrome text-(--solus-text-secondary) select-text">
+      {#if gate.address}<p><code class="font-mono text-chrome-dense break-all">{gate.address.url}</code></p>{/if}
       <p>{gate.reason}</p>
-      {#if gate.fix}<p><span class="font-medium text-(--solus-text-primary)">Fix:</span> {gate.fix}</p>{/if}
     </div>
-    {@render checkAgain()}
+    {#if gate.canGoOn && gate.address}
+      {@const url = gate.address.url}
+      <p class="flex items-start gap-2 text-chrome-dense text-(--solus-text-secondary)">
+        <WarningIcon size={16} class="mt-px shrink-0 text-(--warning)" />
+        {hostName} cannot reach its own address from itself. Your router may not send it back in, and other devices and cloud apps may still reach it.
+      </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onclick={() => void outsideAppsDialog.check(serverId)}>Check again</Button>
+        <Button size="sm" onclick={() => outsideAppsDialog.goOnUntested(url)}>Go on anyway</Button>
+      </div>
+    {:else}
+      {@render checkAgain()}
+    {/if}
   {/if}
 </section>

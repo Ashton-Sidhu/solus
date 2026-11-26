@@ -1,5 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { connectionsStore } from '../../../contexts/connections/connections.store.svelte'
+import { hostSettingsStore } from '../../../contexts/app/host-settings.store.svelte'
 import { serversStore } from '../../../contexts/connections/servers.store.svelte'
 import { uplinkStore } from '../../../contexts/connections/uplink.store.svelte'
 import { hosts } from '../../../contexts/hosts/hosts.svelte'
@@ -17,9 +18,10 @@ export type OutsideAppsView = 'connect' | 'approve'
  * "Use Solus in other apps" (plans/035 §10): which host its one dialog is open
  * for, and the commands that read what its gate needs. The palette, Sharing &
  * access, and the host menu open it; each client mounts it once
- * (`OutsideAppsDialogHost`). The address and the pairing code are in
- * `connectionsStore`; the registration, the link, and the host's test are in
- * `uplinkStore`. "Approve a sign-in" needs no address, so it skips the gate.
+ * (`OutsideAppsDialogHost`). The addresses, their tests, Tailscale, and the
+ * pairing code are in `connectionsStore`; the registration and the link are in
+ * `uplinkStore`; the person's own address is the host setting `publicAddress`.
+ * "Approve a sign-in" needs no address, so it skips the gate.
  */
 class OutsideAppsDialog {
   /** The host the dialog is open for; null when it is closed. */
@@ -29,6 +31,8 @@ class OutsideAppsDialog {
   signInRequestId = $state<string | null>(null)
   /** "Turn on" was pressed, and the dialog reads the address until it appears or the time limit passes. */
   isTurningOn = $state(false)
+  /** The address the person uses although the host could not test it from itself (hairpin). */
+  acceptedUrl = $state<string | null>(null)
   /** A value to copy by hand: the clipboard did not take it. Shown over the dialog, and after the host menu's copy. */
   copyFallback = $state<{ kind: CopiedValueKind; value: string } | null>(null)
   #pollTimer: ReturnType<typeof setInterval> | null = null
@@ -38,6 +42,7 @@ class OutsideAppsDialog {
     this.serverId = serverId
     this.view = view
     this.signInRequestId = signInRequestId
+    this.acceptedUrl = null
     void this.check(serverId)
   }
 
@@ -68,15 +73,40 @@ class OutsideAppsDialog {
     this.serverId = null
     this.view = 'connect'
     this.signInRequestId = null
+    this.acceptedUrl = null
     this.copyFallback = null
     // Typing is the natural next step once the dialog is gone.
     if (refocus) requestInputFocus()
   }
 
-  /** Reads the address and the link, then tests the public address when there is one. "Check again" does this too. */
+  /** Reads the addresses and the link again, and forgets the last tests, so the gate tests the chosen address again. "Check again" does this too. */
   async check(serverId: string): Promise<void> {
+    connectionsStore.forgetAppAddressTests(serverId)
+    this.acceptedUrl = null
     await Promise.all([connectionsStore.loadAppEndpoint(serverId), this.#readUplink(serverId)])
-    if (this.serverId === serverId && connectionsStore.appEndpoint?.publicUrl) void uplinkStore.runSelfTest(serverId)
+  }
+
+  /** "Go on anyway": the host could not test this address from itself, and the person uses it. */
+  goOnUntested(url: string): void {
+    this.acceptedUrl = url
+  }
+
+  /** Tailscale Funnel opens the Tailscale Serve address to the internet. Local owner only. */
+  async turnOnTailscaleFunnel(serverId: string): Promise<void> {
+    await connectionsStore.setAppTailscaleFunnel(serverId, true)
+  }
+
+  /** Tailscale Serve gives the host an https address on the tailnet. Local owner only. */
+  async turnOnTailscaleServe(serverId: string): Promise<void> {
+    await connectionsStore.enableAppTailscaleServe(serverId)
+  }
+
+  /** Saves the person's own https address, then reads the addresses again. False when the host refused it. */
+  async savePublicAddress(serverId: string, publicAddress: string): Promise<boolean> {
+    await hostSettingsStore.setPublicAddress(serverId, publicAddress.trim())
+    if (hostSettingsStore.states.get(serverId)?.error) return false
+    await connectionsStore.loadAppEndpoint(serverId)
+    return true
   }
 
   /** The owner's client registers the host, as the Solus Cloud section does, and then reads the gate again. */
@@ -85,7 +115,7 @@ class OutsideAppsDialog {
     await this.check(serverId)
   }
 
-  /** Turns the public address on, then reads the address until it appears, for at most `TURN_ON_TIME_LIMIT_MS`. */
+  /** Turns the Solus Cloud address on, then reads the addresses until it appears, for at most `TURN_ON_TIME_LIMIT_MS`. */
   async turnOn(serverId: string): Promise<void> {
     if (this.isTurningOn) return
     this.isTurningOn = true
@@ -101,10 +131,10 @@ class OutsideAppsDialog {
         this.#stopWaiting()
         return
       }
+      // The gate tests the address once it appears.
       void connectionsStore.loadAppEndpoint(serverId).then(() => {
-        if (this.serverId !== serverId || !connectionsStore.appEndpoint?.publicUrl) return
+        if (this.serverId !== serverId || !connectionsStore.appEndpointFor(serverId)?.addresses.some((address) => address.source === 'solus')) return
         this.#stopWaiting()
-        void uplinkStore.runSelfTest(serverId)
       })
     }, TURN_ON_POLL_MS)
   }
@@ -138,8 +168,8 @@ class OutsideAppsDialog {
     }
     const address = copiedMcpAddress(endpoint, isHostComputer(serverId))
     if (!address) {
-      toasts.error(`${hostLabel(serverId)} has no public address`, {
-        description: 'Apps on this computer need it to reach the host.',
+      toasts.error(`${hostLabel(serverId)} has no address that this computer reaches`, {
+        description: 'Give it one with Solus Cloud, Tailscale, or your own address.',
         action: { label: 'Set up', onAction: () => this.open(serverId) },
       })
       return

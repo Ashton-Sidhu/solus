@@ -21,7 +21,9 @@
   const connections = connectionsStore;
   let now = $state(Date.now());
   // A code for another access level is not this one: the person gets a new code.
-  const code = $derived(connections.appPairingCode?.access === access ? connections.appPairingCode : null);
+  const hostCode = $derived(connections.appPairingCodeFor(serverId));
+  const code = $derived(hostCode?.access === access ? hostCode : null);
+  const codeError = $derived(connections.appPairingCodeErrorFor(serverId));
   const countdown = $derived(code ? pairingCodeCountdown(code.expiresAt, now) : null);
 
   $effect(() => {
@@ -54,7 +56,7 @@
   {:else}
     <p class="text-chrome-dense text-(--solus-text-tertiary)">Type it on the app's sign-in page. It works once, for 10 minutes.</p>
   {/if}
-  {#if connections.appPairingCodeError}
-    <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{connections.appPairingCodeError}</p>
+  {#if codeError}
+    <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{codeError}</p>
   {/if}
 </div>

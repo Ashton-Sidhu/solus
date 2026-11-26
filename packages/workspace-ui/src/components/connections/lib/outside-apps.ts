@@ -1,22 +1,9 @@
 import type { AppEndpoint } from '../../../contexts/connections/connections.store.svelte'
-import type { AppAccess } from '@solus/contracts/host-api'
+import type { AppAccess, AppAddress } from '@solus/contracts/host-api'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { OUTSIDE_APP_GUIDES, type OutsideAppGuide } from '@solus/contracts/outside-apps'
+import { preferredAppAddress } from './app-addresses'
 import { appAccessLabel } from './paired-devices'
-
-/** One address of a host's MCP endpoint, and where it works. */
-export interface AppEndpointAddress {
-  kind: 'local' | 'public'
-  label: string
-  url: string
-}
-
-/** The addresses an outside app can use: always the one on the host's machine, and the public tunnel address when the host has one. */
-export function appEndpointAddresses(endpoint: AppEndpoint): AppEndpointAddress[] {
-  const local: AppEndpointAddress = { kind: 'local', label: "On the host's computer", url: endpoint.localUrl }
-  if (!endpoint.publicUrl) return [local]
-  return [local, { kind: 'public', label: 'From anywhere', url: endpoint.publicUrl }]
-}
 
 /** The example in the "MCP address copied" toast: the Claude Code command that adds the host with this address. */
 export function claudeMcpAddCommand(address: string): string {
@@ -34,32 +21,42 @@ export function pairingCodeCountdown(expiresAt: number, now: number): string | n
 }
 
 /**
- * Which address an app gets (plans/035 §10). A cloud app, and every app on
- * another computer than the host, needs the public address. An app on the
- * host's own computer uses the local address: it needs no tunnel, and there the
- * owner can approve it in Solus. "Something else…" on the host's computer may be
- * either kind, so it gets the public address when there is one.
+ * Which address an app gets (plans/035 §0.8, §10):
+ * - `internet`: a cloud app needs an address on the internet (Solus Cloud, Tailscale Funnel, or the person's own).
+ * - `internet-or-tailnet`: an app on another computer than the host can also use Tailscale Serve on the tailnet.
+ * - `local`: an app on the host's own computer uses the local address. It needs no other address, and there the owner can approve it in Solus.
+ * - `any-or-local`: "Something else…" on the host's computer may be either kind, so it gets another address when there is one, else the local one.
  */
-export type OutsideAppAddressKind = 'public' | 'local' | 'public-or-local'
+export type OutsideAppAddressKind = 'internet' | 'internet-or-tailnet' | 'local' | 'any-or-local'
 
 /** `guide` is null for "Something else…". `onHostComputer`: this client runs on the host's computer. */
 export function outsideAppAddressKind(guide: Pick<OutsideAppGuide, 'needsPublicUrl'> | null, onHostComputer: boolean): OutsideAppAddressKind {
-  if (!onHostComputer || guide?.needsPublicUrl) return 'public'
-  return guide ? 'local' : 'public-or-local'
+  if (guide?.needsPublicUrl) return 'internet'
+  if (!onHostComputer) return 'internet-or-tailnet'
+  return guide ? 'local' : 'any-or-local'
 }
 
-/** The address of that kind; null when it is the public one and the host has none. */
-export function outsideAppAddress(kind: OutsideAppAddressKind, endpoint: AppEndpoint): string | null {
+/** The address an app uses, and which of the host's addresses it is (null: the local one). */
+export interface ChosenAppAddress {
+  url: string
+  address: AppAddress | null
+}
+
+/** The address of that kind, in the order of preference; null when the host has none that the app reaches. */
+export function outsideAppAddress(kind: OutsideAppAddressKind, endpoint: AppEndpoint): ChosenAppAddress | null {
+  const local: ChosenAppAddress = { url: endpoint.localUrl, address: null }
+  const chosen = (address: AppAddress | null): ChosenAppAddress | null => (address ? { url: address.url, address } : null)
   switch (kind) {
-    case 'public': return endpoint.publicUrl
-    case 'local': return endpoint.localUrl
-    case 'public-or-local': return endpoint.publicUrl ?? endpoint.localUrl
+    case 'local': return local
+    case 'internet': return chosen(preferredAppAddress(endpoint.addresses, 'internet'))
+    case 'internet-or-tailnet': return chosen(preferredAppAddress(endpoint.addresses, 'internet-or-tailnet'))
+    case 'any-or-local': return chosen(preferredAppAddress(endpoint.addresses, 'internet-or-tailnet')) ?? local
   }
 }
 
-/** The address "Copy MCP address" copies: the local one on the host's computer, else the public one; null when that is missing. */
+/** The address "Copy MCP address" copies: the local one on the host's computer, else one another computer reaches; null when there is none. */
 export function copiedMcpAddress(endpoint: AppEndpoint, onHostComputer: boolean): string | null {
-  return outsideAppAddress(onHostComputer ? 'local' : 'public', endpoint)
+  return outsideAppAddress(onHostComputer ? 'local' : 'internet-or-tailnet', endpoint)?.url ?? null
 }
 
 /** One access level a person can give an app, with what it lets the app do (docs/outside-apps.md, Access). */

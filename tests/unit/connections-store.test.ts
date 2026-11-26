@@ -147,48 +147,80 @@ describe('outside apps on Sharing & access', () => {
     )
   }
 
-  test('an address read for a host left behind does not show on the next host', async () => {
+  const SOLUS = { source: 'solus' as const, url: 'https://box.solus.dev/mcp', reach: 'internet' as const }
+  const endpoint = (port: number, addresses: { source: 'solus'; url: string; reach: 'internet' }[] = []) => ({ localUrl: `http://localhost:${port}/mcp`, publicUrl: addresses[0]?.url ?? null, addresses })
+
+  test('each host keeps its own addresses, and an older read never overwrites a newer one', async () => {
     useState()
-    let answerOld!: (endpoint: { localUrl: string; publicUrl: string | null }) => void
-    mockedServerConnections.registerHost('old', {
-      connectionsAppEndpoint: () => new Promise((resolve) => { answerOld = resolve }),
+    const answers: ((value: ReturnType<typeof endpoint>) => void)[] = []
+    mockedServerConnections.registerHost('slow', {
+      connectionsAppEndpoint: () => new Promise((resolve) => { answers.push(resolve) }),
     })
-    mockedServerConnections.registerHost('new', {
-      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:2/mcp', publicUrl: null }),
+    mockedServerConnections.registerHost('other', {
+      connectionsAppEndpoint: async () => endpoint(2),
     })
     const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
 
-    const oldRead = store.loadAppEndpoint('old')
-    await store.loadAppEndpoint('new')
-    answerOld({ localUrl: 'http://localhost:1/mcp', publicUrl: 'https://old.example/mcp' })
-    await oldRead
+    const olderRead = store.loadAppEndpoint('slow')
+    const newerRead = store.loadAppEndpoint('slow')
+    await store.loadAppEndpoint('other')
+    answers[1]!(endpoint(1, [SOLUS]))
+    await newerRead
+    answers[0]!(endpoint(1))
+    await olderRead
 
-    expect(store.appEndpoint).toEqual({ localUrl: 'http://localhost:2/mcp', publicUrl: null })
+    expect(store.appEndpointFor('slow')).toEqual(endpoint(1, [SOLUS]))
+    // The dialog and Sharing & access may show two hosts: one host's read never shows on the other.
+    expect(store.appEndpointFor('other')).toEqual(endpoint(2))
+    // A host with no Tailscale (the mock has no such method) reads as "Tailscale did not answer", not as an error.
+    expect(store.appTailscaleFor('other')).toBeNull()
+  })
+
+  test('a test is kept with the url it tested, and Check again forgets it', async () => {
+    useState()
+    let answerTest!: (result: { reachable: boolean; reason: string | null }) => void
+    mockedServerConnections.registerHost('box', {
+      connectionsAppEndpoint: async () => endpoint(1, [SOLUS]),
+      connectionsTestAppAddress: () => new Promise((resolve) => { answerTest = resolve }),
+    })
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
+    const store = new ConnectionsStore()
+    await store.loadAppEndpoint('box')
+
+    const test = store.testAppAddress('box', 'solus')
+    expect(store.appAddressTestsFor('box').solus).toEqual({ kind: 'running', url: SOLUS.url })
+    answerTest({ reachable: false, reason: 'hairpin' })
+    await test
+    expect(store.appAddressTestsFor('box').solus).toMatchObject({ kind: 'done', url: SOLUS.url, reachable: false, reason: 'hairpin' })
+
+    store.forgetAppAddressTests('box')
+    expect(store.appAddressTestsFor('box')).toEqual({})
+    // An address the host does not list is not tested.
+    await store.testAppAddress('box', 'custom')
+    expect(store.appAddressTestsFor('box')).toEqual({})
   })
 
   test('a refused pairing code says why, and another host starts with no code', async () => {
     useState()
     mockedServerConnections.registerHost('locked', {
-      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:1/mcp', publicUrl: null }),
       connectionsCreateAppPairingCode: async () => { throw new Error('A policy turns off remote access') },
     })
     mockedServerConnections.registerHost('open', {
-      connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:2/mcp', publicUrl: null }),
       connectionsCreateAppPairingCode: async () => ({ code: '123456', access: 'write', expiresAt: 10 }),
     })
     const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
 
-    await store.loadAppEndpoint('open')
     await store.createAppPairingCode('open', 'write')
-    expect(store.appPairingCode).toEqual({ code: '123456', access: 'write', expiresAt: 10 })
+    expect(store.appPairingCodeFor('open')).toEqual({ code: '123456', access: 'write', expiresAt: 10 })
+    expect(store.appPairingCodeFor('locked')).toBeNull()
 
-    await store.loadAppEndpoint('locked')
-    expect(store.appPairingCode).toBeNull()
     await store.createAppPairingCode('locked', 'write')
-    expect(store.appPairingCode).toBeNull()
-    expect(store.appPairingCodeError).toBe('A policy turns off remote access')
+    expect(store.appPairingCodeFor('locked')).toBeNull()
+    expect(store.appPairingCodeFor('open')).toBeNull()
+    expect(store.appPairingCodeErrorFor('locked')).toBe('A policy turns off remote access')
+    expect(store.appPairingCodeErrorFor('open')).toBeNull()
     expect(store.appPairingCodeCreating).toBe(false)
   })
 })

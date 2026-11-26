@@ -5,8 +5,8 @@
    *  the first step, the palette, or a sign-in link; it needs no address, so it
    *  skips the gate. The palette, Sharing & access, and the host menu open
    *  it for one host; `OutsideAppsDialogHost` mounts it. */
-  import { onMount, tick } from "svelte";
-  import { X as CloseIcon } from "@lucide/svelte";
+  import { onMount, tick, untrack } from "svelte";
+  import { TriangleAlert as WarningIcon, X as CloseIcon } from "@lucide/svelte";
   import type { AppAccess } from "@solus/contracts/host-api";
   import { LOCAL_POLICY_ORGANIZATION_ID } from "@solus/contracts/policy";
   import { connectionsStore, getWorkspaceContext, uplinkStore } from "../../../contexts";
@@ -16,6 +16,7 @@
   import { Button } from "../../ui/button";
   import { sharingAccessRoute } from "../lib/sharing-access";
   import { DEFAULT_OUTSIDE_APP_ACCESS, OUTSIDE_APP_ACCESS_LEVELS, outsideAppChoices } from "../lib/outside-apps";
+  import { appAddressReachLabel, appAddressSourceLabel } from "../lib/app-addresses";
   import { gateAddressKind, resolveOutsideAppGate } from "../lib/outside-apps-gate";
   import { hostLabel, isHostComputer, outsideAppsDialog } from "./outside-apps-dialog.svelte";
   import { outsideAppLogo } from "./outside-app-logos";
@@ -56,20 +57,22 @@
   const hasChoice = $derived(guide !== null || (choiceId === OTHER && !otherDenial));
   const gate = $derived(resolveOutsideAppGate({
     addressKind: gateAddressKind(step === 0 || !hasChoice ? undefined : guide, onHostComputer),
-    endpoint: connectionsStore.appEndpoint,
-    endpointError: connectionsStore.appEndpointError,
+    endpoint: connectionsStore.appEndpointFor(serverId),
+    endpointError: connectionsStore.appEndpointErrorFor(serverId),
     uplink: uplinkStore.statusFor(serverId),
     uplinkError: uplinkStore.statusErrorFor(serverId),
-    selfTest: uplinkStore.selfTestFor(serverId),
+    addressTests: connectionsStore.appAddressTestsFor(serverId),
+    acceptedUrl: outsideAppsDialog.acceptedUrl,
     turningOn: outsideAppsDialog.isTurningOn,
   }));
-  const needsSelfTest = $derived(gate.kind === "checking" && gate.needsSelfTest);
+  const testSource = $derived(gate.kind === "checking" ? gate.testSource : null);
   const appName = $derived(guide?.name ?? "the app");
   const isApproving = $derived(outsideAppsDialog.view === "approve");
 
-  // The host forgets a finished test when its link changes; the gate asks for a new one then.
+  // The gate asks for a test of the chosen address when it has none for its current url.
   $effect(() => {
-    if (needsSelfTest) void uplinkStore.runSelfTest(serverId);
+    const source = testSource;
+    if (source) untrack(() => void connectionsStore.testAppAddress(serverId, source));
   });
 
   onMount(() => {
@@ -163,7 +166,7 @@
           <OutsideAppsApprove {serverId} {hostName} signInRequestId={outsideAppsDialog.signInRequestId} />
         {/key}
       {:else if gate.kind !== "open"}
-        <OutsideAppsGate {serverId} {hostName} {gate} />
+        <OutsideAppsGate {serverId} {hostName} appName={guide?.name ?? null} {gate} />
       {:else if step === 0}
         <section class="flex flex-col gap-3">
           <h3 id="outside-apps-choose" class="text-workspace-chrome font-medium">Which app?</h3>
@@ -221,9 +224,24 @@
           {/each}
         </fieldset>
       {:else}
-        {#key `${choiceId}:${access}`}
-          <OutsideAppsConnect {serverId} mcpUrl={gate.mcpUrl} {guide} {access} />
-        {/key}
+        <div class="flex flex-col gap-4">
+          <p class="text-chrome-dense text-(--solus-text-secondary)">
+            {#if gate.address}
+              {guide?.name ?? "The app"} reaches {hostName} through <span class="font-medium text-(--solus-text-primary)">{appAddressSourceLabel(gate.address.source)}</span> · {appAddressReachLabel(gate.address.reach)}
+            {:else}
+              {guide?.name ?? "The app"} reaches {hostName} on this computer.
+            {/if}
+          </p>
+          {#if gate.warning}
+            <p role="status" class="flex items-start gap-2 text-chrome-dense text-(--solus-text-secondary)">
+              <WarningIcon size={16} class="mt-px shrink-0 text-(--warning)" />
+              <span>Not proved from outside: {gate.warning}</span>
+            </p>
+          {/if}
+          {#key `${choiceId}:${access}`}
+            <OutsideAppsConnect {serverId} mcpUrl={gate.mcpUrl} {guide} {access} />
+          {/key}
+        </div>
       {/if}
     </div>
 

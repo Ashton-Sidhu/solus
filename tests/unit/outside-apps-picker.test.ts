@@ -21,8 +21,9 @@ import { outsideAppLinkUrl } from '../../apps/desktop/src/main/outside-app-links
 // an app their organization forbids that looks allowed, and a desktop that
 // refuses the app links the guides make or lets other deep links through.
 
-const LOCAL_ONLY = { localUrl: 'http://localhost:4810/mcp', publicUrl: null }
-const WITH_TUNNEL = { localUrl: 'http://localhost:4810/mcp', publicUrl: 'https://box.solus.dev/mcp' }
+const LOCAL_ONLY: AppEndpoint = { localUrl: 'http://localhost:4810/mcp', publicUrl: null, addresses: [] }
+const WITH_TUNNEL: AppEndpoint = { localUrl: 'http://localhost:4810/mcp', publicUrl: 'https://box.solus.dev/mcp', addresses: [{ source: 'solus', url: 'https://box.solus.dev/mcp', reach: 'internet' }] }
+const TAILNET_ONLY: AppEndpoint = { localUrl: 'http://localhost:4810/mcp', publicUrl: null, addresses: [{ source: 'tailscale-serve', url: 'https://box.tail1.ts.net/mcp', reach: 'tailnet' }] }
 
 function guide(id: string): OutsideAppGuide {
   const found = OUTSIDE_APP_GUIDES.find((entry) => entry.id === id)
@@ -32,11 +33,12 @@ function guide(id: string): OutsideAppGuide {
 
 describe('the address an app gets', () => {
   const address = (id: string | null, onHostComputer: boolean, endpoint: AppEndpoint = WITH_TUNNEL) =>
-    outsideAppAddress(outsideAppAddressKind(id === null ? null : guide(id), onHostComputer), endpoint)
+    outsideAppAddress(outsideAppAddressKind(id === null ? null : guide(id), onHostComputer), endpoint)?.url ?? null
 
-  test('a cloud app gets only the public address, and none on a host without one', () => {
+  test('a cloud app gets only an internet address, and none on a host with only a tailnet one', () => {
     expect(address('chatgpt', true)).toBe('https://box.solus.dev/mcp')
     expect(address('chatgpt', true, LOCAL_ONLY)).toBeNull()
+    expect(address('chatgpt', false, TAILNET_ONLY)).toBeNull()
   })
 
   test('an app on the host computer gets the local address, where the owner can approve it in Solus', () => {
@@ -44,12 +46,17 @@ describe('the address an app gets', () => {
     expect(address('claude-code', true, LOCAL_ONLY)).toBe('http://localhost:4810/mcp')
   })
 
-  test('on another computer, every app needs the public address: localhost there is that computer', () => {
+  test('on another computer, an app needs an address other than localhost: there localhost is that computer', () => {
     expect(address('claude-code', false)).toBe('https://box.solus.dev/mcp')
     expect(address('codex', false, LOCAL_ONLY)).toBeNull()
   })
 
-  test('Something else on the host computer gets the public address when there is one, else the local one', () => {
+  test('on another computer, an app on a computer can use the tailnet', () => {
+    expect(address('cursor', false, TAILNET_ONLY)).toBe('https://box.tail1.ts.net/mcp')
+    expect(address(null, false, TAILNET_ONLY)).toBe('https://box.tail1.ts.net/mcp')
+  })
+
+  test('Something else on the host computer gets another address when there is one, else the local one', () => {
     expect(address(null, true)).toBe('https://box.solus.dev/mcp')
     expect(address(null, true, LOCAL_ONLY)).toBe('http://localhost:4810/mcp')
     expect(address(null, false, LOCAL_ONLY)).toBeNull()

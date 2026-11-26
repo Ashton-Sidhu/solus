@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { HostSelfTest } from '@solus/contracts/host-connection'
+import type { AppAddress } from '@solus/contracts/host-api'
 import type { UplinkStatus } from '@solus/contracts/uplink'
+import type { AppAddressTests, AppEndpoint } from '@solus/workspace-ui/contexts/connections/connections.store.svelte'
 import {
   gateAddressKind,
   registerWay,
@@ -10,13 +11,21 @@ import {
 } from '@solus/workspace-ui/components/connections/lib/outside-apps-gate'
 
 // The gate before the steps of "Use Solus in other apps" (after T3 Code's
-// resolveMcpGate). What a person would notice going wrong: a cloud app sent a
-// public address that does not answer, an app on their own computer blocked by
-// a tunnel it does not need, a dialog that spins forever, and a "Turn on"
-// button on a client that the host refuses.
+// resolveMcpGate; plans/035 §0.8). What a person would notice going wrong: a
+// cloud app sent a tailnet address it cannot reach, or an address that does not
+// answer; a host with Tailscale or its own address stopped because it has no
+// Solus account; an app on their own computer blocked by an address it does not
+// need; a dialog that spins forever; and a hairpin failure that blocks an app
+// that could reach the host.
 
-const LOCAL_ONLY = { localUrl: 'http://localhost:4810/mcp', publicUrl: null }
-const WITH_TUNNEL = { localUrl: 'http://localhost:4810/mcp', publicUrl: 'https://h-1.solus.dev/mcp' }
+const LOCAL = 'http://localhost:4810/mcp'
+const SOLUS: AppAddress = { source: 'solus', url: 'https://h-1.solus.dev/mcp', reach: 'internet' }
+const FUNNEL: AppAddress = { source: 'tailscale-funnel', url: 'https://box.tail1.ts.net/mcp', reach: 'internet' }
+const SERVE: AppAddress = { source: 'tailscale-serve', url: 'https://box.tail1.ts.net/mcp', reach: 'tailnet' }
+const CUSTOM: AppAddress = { source: 'custom', url: 'https://solus.example.com/mcp', reach: 'internet' }
+const endpointWith = (...addresses: AppAddress[]): AppEndpoint => ({ localUrl: LOCAL, publicUrl: addresses.find((a) => a.reach === 'internet')?.url ?? null, addresses })
+const LOCAL_ONLY = endpointWith()
+const WITH_TUNNEL = endpointWith(SOLUS)
 
 const REGISTRATION: UplinkStatus['registration'] = {
   registered: true,
@@ -30,79 +39,113 @@ const linked = (observed: 'online' | 'offline' | 'error', error?: string): Uplin
   link: { linked: true, tunnel: { hostname: 'h-1.solus.dev', proxiedPort: 4810 }, state: error ? { observed, error } : { observed } },
 })
 
-function test_(reachable: boolean | null, problem: HostSelfTest['problem'] = null): { kind: 'done'; test: HostSelfTest } {
-  return { kind: 'done', test: { checkedAt: 1, reachable, summary: reachable ? 'Reachable.' : 'Not reachable.', stages: [], problem, facts: [] } }
-}
+const passed = (address: AppAddress): AppAddressTests => ({ [address.source]: { kind: 'done', url: address.url, reachable: true, reason: null, checkedAt: 1 } })
+const failed = (address: AppAddress, reason: string | null): AppAddressTests => ({ [address.source]: { kind: 'done', url: address.url, reachable: false, reason, checkedAt: 1 } })
 
 function gate(overrides: Partial<OutsideAppGateInput>) {
   return resolveOutsideAppGate({
-    addressKind: 'public',
+    addressKind: 'internet',
     endpoint: WITH_TUNNEL,
     endpointError: null,
     uplink: linked('online'),
     uplinkError: null,
-    selfTest: test_(true),
+    addressTests: passed(SOLUS),
+    acceptedUrl: null,
     turningOn: false,
     ...overrides,
   })
 }
 
-describe('an app that needs the public address', () => {
-  test('opens on the public address once the host tested it', () => {
-    expect(gate({})).toEqual({ kind: 'open', mcpUrl: 'https://h-1.solus.dev/mcp' })
+describe('a cloud app, which needs an internet address', () => {
+  test('opens on the Solus address once the host tested it, and names its source', () => {
+    expect(gate({})).toEqual({ kind: 'open', mcpUrl: SOLUS.url, address: SOLUS, warning: null })
   })
 
-  test('waits for the host test, and asks for one when none ran', () => {
-    expect(gate({ selfTest: undefined })).toEqual({ kind: 'checking', needsSelfTest: true })
-    expect(gate({ selfTest: { kind: 'running' } })).toEqual({ kind: 'checking', needsSelfTest: false })
+  test('waits for the test of the chosen address, and asks for one when none ran for its current url', () => {
+    expect(gate({ addressTests: {} })).toEqual({ kind: 'checking', testSource: 'solus' })
+    expect(gate({ addressTests: { solus: { kind: 'running', url: SOLUS.url } } })).toEqual({ kind: 'checking', testSource: null })
+    // A test of an older address (the person changed their own address) proves nothing.
+    expect(gate({ endpoint: endpointWith(CUSTOM), uplink: NOT_REGISTERED, addressTests: { custom: { kind: 'done', url: 'https://old.example.com/mcp', reachable: true, reason: null, checkedAt: 1 } } }))
+      .toEqual({ kind: 'checking', testSource: 'custom' })
   })
 
-  test('a failed test shows the reason and the fix', () => {
-    const problem = { stage: 'tunnel' as const, cause: 'connector-stopped' as const, reason: 'The tunnel connector stopped.', fix: 'Restart Solus.', hint: null }
-    expect(gate({ selfTest: test_(false, problem) })).toEqual({ kind: 'offline', where: 'public-address', reason: 'The tunnel connector stopped.', fix: 'Restart Solus.' })
-    expect(gate({ selfTest: { kind: 'error', message: 'timeout' } })).toMatchObject({ kind: 'offline', reason: 'The connection test could not run: timeout' })
+  test('a failed test shows the reason, and the person checks again', () => {
+    expect(gate({ addressTests: failed(SOLUS, 'The tunnel connector stopped.') })).toEqual({ kind: 'offline', where: 'address', address: SOLUS, reason: 'The tunnel connector stopped.', canGoOn: false })
+    expect(gate({ addressTests: { solus: { kind: 'error', url: SOLUS.url, message: 'timeout' } } })).toMatchObject({ kind: 'offline', reason: 'The address test could not run: timeout', canGoOn: false })
+    expect(gate({ addressTests: failed(SOLUS, null) })).toMatchObject({ reason: 'The address does not answer.' })
+  })
+
+  test('a hairpin failure lets the person go on, with a warning, only for the address they accepted', () => {
+    const hairpin = failed(FUNNEL, 'The host cannot reach its own address (hairpin NAT).')
+    const input = { endpoint: endpointWith(FUNNEL), uplink: NOT_REGISTERED, addressTests: hairpin }
+    expect(gate(input)).toMatchObject({ kind: 'offline', canGoOn: true })
+    expect(gate({ ...input, acceptedUrl: FUNNEL.url })).toEqual({ kind: 'open', mcpUrl: FUNNEL.url, address: FUNNEL, warning: 'The host cannot reach its own address (hairpin NAT).' })
+    expect(gate({ ...input, acceptedUrl: 'https://other.example/mcp' })).toMatchObject({ kind: 'offline' })
+  })
+
+  test('a host with no Solus account opens on Tailscale Funnel or its own address', () => {
+    expect(gate({ endpoint: endpointWith(FUNNEL), uplink: NOT_REGISTERED, addressTests: passed(FUNNEL) })).toMatchObject({ kind: 'open', address: FUNNEL })
+    expect(gate({ endpoint: endpointWith(CUSTOM), uplink: undefined, addressTests: passed(CUSTOM) })).toMatchObject({ kind: 'open', address: CUSTOM })
+  })
+
+  test('prefers Solus, then Funnel, then the own address', () => {
+    expect(gate({ endpoint: endpointWith(CUSTOM, FUNNEL, SOLUS) })).toMatchObject({ address: SOLUS })
+    expect(gate({ endpoint: endpointWith(CUSTOM, FUNNEL), addressTests: passed(FUNNEL) })).toMatchObject({ address: FUNNEL })
+  })
+
+  test('Tailscale Serve alone does not reach a cloud app: the person gets the three ways', () => {
+    expect(gate({ endpoint: endpointWith(SERVE), uplink: NOT_REGISTERED })).toEqual({ kind: 'no-address', reach: 'internet', solus: { kind: 'not-registered' } })
   })
 
   test('a host that does not answer is offline, not checking forever', () => {
-    expect(gate({ endpoint: null, endpointError: 'Host is offline' })).toEqual({ kind: 'offline', where: 'host', reason: 'Host is offline', fix: null })
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: undefined, uplinkError: 'socket closed' })).toMatchObject({ kind: 'offline', where: 'host' })
+    expect(gate({ endpoint: null, endpointError: 'Host is offline' })).toEqual({ kind: 'offline', where: 'host', address: null, reason: 'Host is offline', canGoOn: false })
   })
 
-  test('checks until the address and the link are read', () => {
-    expect(gate({ endpoint: null })).toMatchObject({ kind: 'checking' })
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: undefined })).toMatchObject({ kind: 'checking' })
+  test('checks until the addresses and the link are read', () => {
+    expect(gate({ endpoint: null })).toEqual({ kind: 'checking', testSource: null })
+    expect(gate({ endpoint: LOCAL_ONLY, uplink: undefined })).toEqual({ kind: 'checking', testSource: null })
   })
 
-  test('a host with no Solus account must be registered first', () => {
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: NOT_REGISTERED })).toEqual({ kind: 'not-registered' })
+  test('with no address, the Solus choice says where its link stands', () => {
+    const solus = (uplink: UplinkStatus | undefined, extra: Partial<OutsideAppGateInput> = {}) => {
+      const result = gate({ endpoint: LOCAL_ONLY, uplink, ...extra })
+      return result.kind === 'no-address' ? result.solus : result
+    }
+    expect(solus(NOT_REGISTERED)).toEqual({ kind: 'not-registered' })
+    expect(solus(UNLINKED)).toEqual({ kind: 'turn-on', turningOn: false, error: null })
+    expect(solus({ registration: REGISTRATION, link: { linked: false, error: 'Rejected' } })).toMatchObject({ error: 'Rejected' })
+    expect(solus(UNLINKED, { turningOn: true })).toMatchObject({ kind: 'turn-on', turningOn: true })
+    expect(solus(linked('offline'), { turningOn: true })).toMatchObject({ kind: 'turn-on', turningOn: true })
+    expect(solus(linked('error', 'Port 4810 is in use'))).toEqual({ kind: 'down', reason: 'Port 4810 is in use' })
+    // The host answers, so a link it cannot read is not an offline host: Tailscale and the own address still work.
+    expect(solus(undefined, { uplinkError: 'socket closed' })).toEqual({ kind: 'unreadable', reason: 'socket closed' })
+  })
+})
+
+describe('an app on another computer than the host', () => {
+  test('can use Tailscale Serve on the tailnet, after it is tested', () => {
+    expect(gate({ addressKind: 'internet-or-tailnet', endpoint: endpointWith(SERVE), uplink: NOT_REGISTERED, addressTests: passed(SERVE) })).toEqual({ kind: 'open', mcpUrl: SERVE.url, address: SERVE, warning: null })
   })
 
-  test('a registered host with the tunnel off asks to turn it on, and says why a link stopped', () => {
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: UNLINKED })).toEqual({ kind: 'turn-on', turningOn: false, error: null })
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: { registration: REGISTRATION, link: { linked: false, error: 'Rejected' } } })).toMatchObject({ error: 'Rejected' })
+  test('prefers an internet address to the tailnet one', () => {
+    expect(gate({ addressKind: 'internet-or-tailnet', endpoint: endpointWith(SERVE, CUSTOM), addressTests: passed(CUSTOM) })).toMatchObject({ address: CUSTOM })
   })
 
-  test('while the tunnel starts it keeps showing Turning on, then the down tunnel says why', () => {
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: UNLINKED, turningOn: true })).toMatchObject({ kind: 'turn-on', turningOn: true })
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: linked('offline'), turningOn: true })).toMatchObject({ kind: 'turn-on', turningOn: true })
-    expect(gate({ endpoint: LOCAL_ONLY, uplink: linked('error', 'Port 4810 is in use') })).toEqual({ kind: 'offline', where: 'public-address', reason: 'Port 4810 is in use', fix: null })
-  })
-
-  test('a cloud machine, linked at its own address, goes through the same test', () => {
-    expect(gate({ uplink: linked('online'), selfTest: undefined })).toMatchObject({ kind: 'checking', needsSelfTest: true })
+  test('with no address at all, gets the three ways for any reach', () => {
+    expect(gate({ addressKind: 'internet-or-tailnet', endpoint: LOCAL_ONLY, uplink: NOT_REGISTERED })).toMatchObject({ kind: 'no-address', reach: 'internet-or-tailnet' })
   })
 })
 
 describe('an app on the host computer', () => {
-  test('skips every public-address gate and gets the local address', () => {
+  test('skips every address gate and gets the local address', () => {
     for (const uplink of [NOT_REGISTERED, UNLINKED, linked('error', 'down'), undefined]) {
-      expect(gate({ addressKind: 'local', endpoint: LOCAL_ONLY, uplink, selfTest: undefined })).toEqual({ kind: 'open', mcpUrl: 'http://localhost:4810/mcp' })
+      expect(gate({ addressKind: 'local', endpoint: LOCAL_ONLY, uplink, addressTests: {} })).toEqual({ kind: 'open', mcpUrl: LOCAL, address: null, warning: null })
     }
   })
 
-  test('Something else gets the public address when the host has one, else the local one, with no test', () => {
-    expect(gate({ addressKind: 'public-or-local', selfTest: undefined })).toEqual({ kind: 'open', mcpUrl: 'https://h-1.solus.dev/mcp' })
-    expect(gate({ addressKind: 'public-or-local', endpoint: LOCAL_ONLY, uplink: UNLINKED })).toEqual({ kind: 'open', mcpUrl: 'http://localhost:4810/mcp' })
+  test('Something else gets another address when the host has one, else the local one, with no test', () => {
+    expect(gate({ addressKind: 'any-or-local', addressTests: {} })).toEqual({ kind: 'open', mcpUrl: SOLUS.url, address: SOLUS, warning: null })
+    expect(gate({ addressKind: 'any-or-local', endpoint: LOCAL_ONLY, uplink: UNLINKED })).toEqual({ kind: 'open', mcpUrl: LOCAL, address: null, warning: null })
   })
 
   test('still waits for the host to answer', () => {
@@ -116,19 +159,20 @@ describe('which address the gate checks', () => {
 
   test('on the host computer, the App step is open; a cloud app meets the gate only after it is chosen', () => {
     expect(gateAddressKind(undefined, true)).toBe('local')
-    expect(gateAddressKind(cloud, true)).toBe('public')
+    expect(gateAddressKind(cloud, true)).toBe('internet')
     expect(gateAddressKind(onComputer, true)).toBe('local')
-    expect(gateAddressKind(null, true)).toBe('public-or-local')
+    expect(gateAddressKind(null, true)).toBe('any-or-local')
   })
 
-  test('on another computer, every app needs the public address, so the gate comes before the steps', () => {
-    expect(gateAddressKind(undefined, false)).toBe('public')
-    expect(gateAddressKind(onComputer, false)).toBe('public')
-    expect(gateAddressKind(null, false)).toBe('public')
+  test('on another computer, the App step needs an address of any reach, and a cloud app an internet one', () => {
+    expect(gateAddressKind(undefined, false)).toBe('internet-or-tailnet')
+    expect(gateAddressKind(onComputer, false)).toBe('internet-or-tailnet')
+    expect(gateAddressKind(null, false)).toBe('internet-or-tailnet')
+    expect(gateAddressKind(cloud, false)).toBe('internet')
   })
 })
 
-describe('where the public address is turned on', () => {
+describe('where the Solus Cloud address is turned on', () => {
   const base = { hostKind: 'personal' as const, control: 'manage' as const, mayReachLocally: true, locked: false }
 
   test('only a local owner turns it on here, as uplinkLink needs host.local.reach', () => {

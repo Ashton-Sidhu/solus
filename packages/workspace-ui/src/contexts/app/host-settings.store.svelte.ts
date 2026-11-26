@@ -14,6 +14,8 @@ export interface HostSettingsState {
   sessionCloudSync: boolean
   previewTunnelEnabled: boolean | undefined
   agentAutoUpdates: boolean
+  /** The https origin of the person's own ingress for outside apps; empty for none (plans/035 §0.8). */
+  publicAddress: string
   reviewWarmingByProject: Record<string, boolean>
   /** The host emitter's own consent. */
   analyticsEnabled: boolean
@@ -90,6 +92,11 @@ class HostSettingsStore {
     await this.write(serverId, { agentAutoUpdates: enabled }, { agentAutoUpdates: enabled })
   }
 
+  /** The https origin where the person's own ingress serves this host; empty clears it. The host keeps only the origin. */
+  async setPublicAddress(serverId: string, publicAddress: string): Promise<void> {
+    await this.write(serverId, { publicAddress }, { publicAddress })
+  }
+
   private async write(
     serverId: string,
     patch: HostConfigPatch,
@@ -121,6 +128,7 @@ class HostSettingsStore {
       sessionCloudSync: snapshot.config.sessionCloudSync,
       previewTunnelEnabled: snapshot.config.previewTunnelEnabled,
       agentAutoUpdates: snapshot.config.agentAutoUpdates ?? false,
+      publicAddress: snapshot.config.publicAddress ?? '',
       reviewWarmingByProject: { ...snapshot.config.reviewWarmingByProject },
       analyticsEnabled: snapshot.config.analyticsEnabled,
       saving: false,
