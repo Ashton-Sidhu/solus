@@ -23,16 +23,19 @@ export const OUTSIDE_APP_NAMES = {
   other: 'Other apps',
 } as const satisfies Record<OutsideAppId, string>
 
-/**
- * Where each known app's sign-in returns. A host matches itself and its subdomains.
- * Muse and Instinct are not here yet: where their sign-ins return is not confirmed,
- * so their sign-ins are `other` until it is.
- */
+/** Where each known app's sign-in returns. A host matches itself and its subdomains. */
 const REDIRECTS: ReadonlyArray<{ app: OutsideAppId; hosts?: readonly string[]; schemes?: readonly string[] }> = [
   { app: 'claude', hosts: ['claude.ai', 'claude.com'] },
   { app: 'chatgpt', hosts: ['chatgpt.com', 'openai.com'] },
   { app: 'grok-bot', hosts: ['x.ai', 'grok.com'] },
   { app: 'poke', hosts: ['poke.com'] },
+  // Meta's personal agent. Its sign-in returns to https://agent.meta.ai/api/hatch/oauth/callback,
+  // as connector guides report (docs.nansen.ai/mcp/connectors/muse, apptoto.com, koala73/worldmonitor#9527).
+  // Only `agent.meta.ai`, not all of meta.ai, which other Meta products use.
+  { app: 'muse', hosts: ['agent.meta.ai', 'muse.ai'] },
+  // Instinct publishes no redirect address. Only Instinct controls instinct.com, so a
+  // sign-in that returns there or to a subdomain is Instinct's.
+  { app: 'instinct', hosts: ['instinct.com'] },
   { app: 'cursor', schemes: ['cursor:'] },
 ]
 
@@ -88,6 +91,16 @@ export interface OutsideAppGuide {
 }
 
 const encoded = encodeURIComponent
+
+/**
+ * Cursor's MCP install link (cursor.com/docs/context/mcp/install-links): Cursor
+ * asks to install Solus with this address. The config is base64 of its JSON,
+ * made with `btoa`, which browsers, the server, and React Native all have.
+ */
+function cursorInstallLink(mcpUrl: string): string {
+  const config = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({ url: mcpUrl }))))
+  return `cursor://anysphere.cursor-deeplink/mcp/install?${new URLSearchParams({ name: 'Solus', config })}`
+}
 
 export const OUTSIDE_APP_GUIDES: readonly OutsideAppGuide[] = [
   {
@@ -154,8 +167,8 @@ export const OUTSIDE_APP_GUIDES: readonly OutsideAppGuide[] = [
     id: 'cursor',
     name: 'Cursor',
     app: 'cursor',
-    handoff: { kind: 'copy-url', link: 'cursor://anysphere.cursor-deeplink/settings/mcp' },
-    steps: ['In Cursor, open Settings, then MCP.', 'Add a server with the address. Cursor opens the sign-in page.'],
+    handoff: { kind: 'open', link: cursorInstallLink },
+    steps: ['Cursor asks to install Solus. Choose Install.', 'Cursor then opens the sign-in page.'],
     needsPublicUrl: false,
     docs: 'https://docs.cursor.com/context/model-context-protocol',
   },

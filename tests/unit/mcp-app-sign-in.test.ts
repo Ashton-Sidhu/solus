@@ -328,6 +328,16 @@ describe('the outside app catalog', () => {
     }
     expect(JSON.stringify(OUTSIDE_APP_GUIDES.map((entry) => [entry.steps, entry.note]))).not.toMatch(/t3/i)
   })
+
+  test("Cursor opens its MCP install link, named Solus, with a config of only the address", () => {
+    const cursor = guide('cursor')
+    if (cursor.handoff.kind !== 'open') throw new Error('Cursor opens a link')
+    const link = new URL(cursor.handoff.link(url))
+    expect(`${link.protocol}//${link.host}${link.pathname}`).toBe('cursor://anysphere.cursor-deeplink/mcp/install')
+    expect(link.searchParams.get('name')).toBe('Solus')
+    expect(JSON.parse(atob(link.searchParams.get('config') ?? ''))).toEqual({ url })
+    expect(cursor.steps[0]).toContain('Cursor asks to install Solus')
+  })
 })
 
 describe("an outside app's grant", () => {
@@ -383,6 +393,17 @@ describe('which apps may connect, and as whom', () => {
     expect(outsideAppOf(['https://evil.example/cb'])).toBe('other')
     // A client that names two apps is not trusted as either.
     expect(outsideAppOf(['https://claude.ai/cb', 'https://evil.example/cb'])).toBe('other')
+  })
+
+  test("Muse is known by Meta's agent callback and muse.ai; Instinct by instinct.com, which only Instinct controls", () => {
+    expect(outsideAppOf(['https://agent.meta.ai/api/hatch/oauth/callback'])).toBe('muse')
+    expect(outsideAppOf(['https://muse.ai/oauth/callback'])).toBe('muse')
+    // Other Meta products use meta.ai: only the agent's host is Muse.
+    expect(outsideAppOf(['https://www.meta.ai/oauth/callback'])).toBe('other')
+    expect(outsideAppOf(['https://instinct.com/oauth/callback'])).toBe('instinct')
+    expect(outsideAppOf(['https://app.instinct.com/oauth/callback'])).toBe('instinct')
+    expect(outsideAppOf(['https://instinct.com.evil.example/cb'])).toBe('other')
+    expect(outsideAppOf(['https://notinstinct.com/cb'])).toBe('other')
   })
 
   test("an organization that does not allow the app refuses its sign-in and its later calls", async () => {
