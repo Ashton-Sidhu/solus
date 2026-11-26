@@ -8,6 +8,7 @@ import type { BackendSession, NormalizedEvent, Session, SessionStatus } from '@s
 import type { AttentionEntry } from '@solus/contracts/attention-types'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import { Turns } from '@solus/server/execution/sessions/turns'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -69,14 +70,14 @@ describe('a turn a queued prompt takes over', () => {
       launcher: { pendingStarts: new Map() },
       orchestration: undefined,
       isShuttingDown: false,
-      statuses: {
-        setStatus: (sessionId: string, status: SessionStatus) => {
-          statuses.push(status)
-          const session = activeSessions.get(sessionId)
-          if (session) session.status = status
-        },
-        queueTurnSettlement: (_sessionId: string, _session: BackendSession, outcome: string) => settledTurns.push(outcome),
-      },
+      turns: new Turns(),
+      statuses: undefined as unknown,
+      restarts: { restartRuns: undefined },
+      claudeGoals: { applySessionStatus: () => null },
+      activity: { observe: () => {} },
+      activeUnattendedAgentRuns: new Set(),
+      hasWorkForUpdate: () => false,
+      emit: () => {},
       inputRequests: { expirePendingInput: () => {}, stampTurnAuthor: () => {} },
       sessionEmitter: { onEvent: () => {}, recordTerminal: () => {} },
       rateLimitPark: { currentRateLimitEvent: () => null },
@@ -86,9 +87,18 @@ describe('a turn a queued prompt takes over', () => {
       scheduler: { hasReadyQueuedRequest: () => queue.ready, processQueueForSession: (sessionId: string) => queueRuns.push(sessionId) },
       flushPendingSession: () => {},
       emitError: () => {},
-      publish: () => {},
+      publish: (_sessionId: string, event: NormalizedEvent) => {
+        if (event.type === 'status_change') statuses.push(event.status)
+        if (event.type === 'turn_settled') settledTurns.push(event.outcome)
+      },
       reportToActiveRun: () => {},
     }
+    // SAFETY: the statuses read only the members above on these paths.
+    const sessionStatuses = new SessionStatuses(runtime as unknown as SessionRuntime)
+    if (sessionStatuses.runWatchdogTimer) clearInterval(sessionStatuses.runWatchdogTimer)
+    // Attention has its own tests below.
+    sessionStatuses.syncAttention = () => {}
+    runtime.statuses = sessionStatuses
     const backend = Object.assign(new EventEmitter(), {
       id: 'codex' as const,
       getSessionHandle: () => undefined,
@@ -97,33 +107,36 @@ describe('a turn a queued prompt takes over', () => {
     })
     // SAFETY: the provider events read only the members above in these paths.
     new ProviderEvents(runtime as unknown as SessionRuntime).wire(backend as unknown as AgentBackend)
-    const endTurn = () => {
+    // A turn settles in a microtask, after the result that ended it.
+    const endTurn = async () => {
       backend.emit('normalized', THREAD, taskComplete)
       backend.emit('exit', THREAD, 0, null)
+      await Promise.resolve()
     }
     return { statuses, settledTurns, queueRuns, queue, backend, endTurn }
   }
 
-  test('publishes no completed status, settles the turn, and hands the session to the queue', () => {
+  test('publishes no completed status, settles the turn, and hands the session to the queue', async () => {
     const { statuses, settledTurns, queueRuns, endTurn } = setup(true)
-    endTurn()
+    await endTurn()
     expect(statuses).toEqual([])
     expect(settledTurns).toEqual(['completed'])
     expect(queueRuns).toEqual([SESSION])
   })
 
-  test('a turn with nothing queued completes as before', () => {
+  test('a turn with nothing queued completes as before', async () => {
     const { statuses, settledTurns, endTurn } = setup(false)
-    endTurn()
-    expect(statuses).toEqual(['completed', 'completed'])
-    expect(settledTurns).toEqual([])
+    await endTurn()
+    expect(statuses).toEqual(['completed'])
+    expect(settledTurns).toEqual(['completed'])
   })
 
-  test('a prompt removed before the exit lets the turn complete once', () => {
+  test('a prompt removed before the exit lets the turn complete once', async () => {
     const { statuses, settledTurns, queue, backend } = setup(true)
     backend.emit('normalized', THREAD, taskComplete)
     queue.ready = false
     backend.emit('exit', THREAD, 0, null)
+    await Promise.resolve()
     expect(statuses).toEqual(['completed'])
     expect(settledTurns).toEqual(['completed'])
   })

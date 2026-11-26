@@ -609,7 +609,7 @@ export class PromptDispatch {
     )
     if (session?.status === 'dead' && !forkPointId) {
       session.agentSessionId = null
-      this.rt.statuses.setStatus(sessionId, 'idle')
+      this.rt.statuses.clearTurn(sessionId)
       request = {
         input: { ...input, agentSessionId: null },
         target: { kind: 'new-session' },

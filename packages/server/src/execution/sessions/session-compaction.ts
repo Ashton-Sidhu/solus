@@ -56,7 +56,7 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
     rt.activeSessions.set(sessionId, session)
   }
   session.lastActivityAt = Date.now()
-  rt.statuses.setStatus(sessionId, 'connecting')
+  rt.statuses.refresh(sessionId)
   try {
     const seat = await rt.seatForTurn(actor, 'codex')
     const organizationId = await organizationOfSession(sessionId)
@@ -76,7 +76,7 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
     void run.done.catch(() => {})
   } catch (error) {
     if (rt.turns.current(sessionId) === turn) {
-      rt.statuses.setStatus(sessionId, controller.signal.aborted ? 'interrupted' : 'failed')
+      rt.statuses.endTurn(sessionId, controller.signal.aborted ? 'interrupted' : 'failed', turn)
       rt.activeSessions.delete(sessionId)
     }
     turn.closeStop()

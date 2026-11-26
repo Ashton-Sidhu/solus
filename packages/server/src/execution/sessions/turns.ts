@@ -16,6 +16,8 @@ export class Turn {
   private isStopOpen = true
   private settledOutcome: TurnOutcome | null = null
   private isSettlementSent = false
+  private isParkedOnLimit = false
+  private isHandedToQueue = false
 
   constructor(readonly id: string, private current: 'starting' | 'running') {}
 
@@ -31,16 +33,43 @@ export class Turn {
     return this.settledOutcome !== null
   }
 
+  /** A person stopped the turn, or a rejected plan ended it. Its run never opens a turn again. */
+  get wasStopped(): boolean {
+    return this.signal.aborted || this.settledOutcome === 'interrupted'
+  }
+
+  /** A rate limit parked the turn. It never settles: its prompt waits in the
+   *  queue and runs again as a new turn, or the park is released. */
+  get isParked(): boolean {
+    return this.isParkedOnLimit
+  }
+
+  /** The turn has settled, and a queued prompt takes the session over. */
+  get isTakenOverByQueue(): boolean {
+    return this.isHandedToQueue
+  }
+
   /** The provider reports work. A starting turn now runs; any other phase stays. */
   markRunning(): void {
     this.current = 'running'
   }
 
-  /** Settles the turn once. False when it had settled already: the first outcome stays. */
+  /** Settles the turn. The phase stays settled. A later outcome replaces an
+   *  earlier one: Stop on the background work of a completed turn ends it as
+   *  stopped, and a failed exit after a result ends it as failed. True the first time. */
   settle(outcome: TurnOutcome): boolean {
-    if (this.settledOutcome) return false
+    const isFirst = this.settledOutcome === null
     this.settledOutcome = outcome
-    return true
+    return isFirst
+  }
+
+  park(): void {
+    this.isParkedOnLimit = true
+  }
+
+  /** `isTakingOver` false: the queued prompt left before it could start, so the turn shows its outcome. */
+  handOverToQueue(isTakingOver: boolean): void {
+    this.isHandedToQueue = isTakingOver
   }
 
   /** True the first time only: a turn's `turn_settled` goes out once. A turn

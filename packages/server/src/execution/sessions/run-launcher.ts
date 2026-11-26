@@ -33,7 +33,7 @@ import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import { hasOpenBackgroundQuery } from './background-work'
 import type { Turn } from './turns'
-import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
+import type { BackendSession, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import { gitCheckoutFromState, isSessionBusyStatus, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { shareTurnTranscripts } from '../seats/member-transcripts'
@@ -419,7 +419,7 @@ export class RunLauncher {
       const controller = new AbortController()
       this.pendingSetupControllers.set(sessionId, controller)
       const releaseRouting = turn.onStop(() => { controller.abort(new Error('Interrupted')); return true })
-      this.rt.statuses.setStatus(sessionId, 'connecting')
+      this.rt.statuses.refresh(sessionId)
       try {
         // Auto's selection is Solus work the turn waits on before any provider
         // starts, so it is a dispatch step: the insights waterfall shows the
@@ -464,7 +464,7 @@ export class RunLauncher {
         })
         log.info('model_routed', { sessionId, ...route })
       } catch (error) {
-        if (!controller.signal.aborted) this.rt.statuses.setStatus(sessionId, 'failed')
+        if (!controller.signal.aborted) this.rt.statuses.endTurn(sessionId, 'failed', turn)
         throw error
       } finally {
         releaseRouting()
@@ -656,7 +656,7 @@ export class RunLauncher {
           card.recoveryUrl = connectionsUrl
         }
         this.failedSetupPrompts.set(sessionId, options)
-        this.rt.statuses.setStatus(sessionId, 'failed')
+        this.rt.statuses.endTurn(sessionId, 'failed', turn)
         this.rt.publish(sessionId, { type: 'status_card', card })
         throw e
       } finally {
@@ -811,7 +811,7 @@ export class RunLauncher {
           const card = buildSetupCard()
           card.recovery = 'worktree'
           this.failedSetupPrompts.set(sessionId, options)
-          this.rt.statuses.setStatus(sessionId, 'failed')
+          this.rt.statuses.endTurn(sessionId, 'failed', turn)
           publishSetupCard(card)
           throw e
         }
@@ -939,16 +939,17 @@ export class RunLauncher {
     const isForkingSession = !!effectiveInput.forked && !!effectiveInput.agentSessionId
     // The provider thread this run resumes, or null when it will mint a new one.
     const dispatchAgentSessionId = isForkingSession ? null : effectiveInput.agentSessionId
-    const newStatus: SessionStatus = dispatchAgentSessionId ? 'running' : 'connecting'
+    // A resumed thread runs at once; a new one starts until its session_init.
+    const resumesThread = !!dispatchAgentSessionId
     // Stopped during setup: publishing the dispatch now would open the stopped turn again.
     turn.signal.throwIfAborted()
     if (dispatchAgentSessionId) this.rt.agentSessionToSession.set(dispatchAgentSessionId, sessionId)
 
     // Recorded at dispatch, not at session_init: the session exists — and is
     // addressable — from the moment work starts on its behalf. It carries the
-    // status it had coming in, so `setStatus` below performs a real transition
-    // and publishes it once; writing `newStatus` here would make the dispatch
-    // silent to everyone watching.
+    // status it had coming in, so the refresh below performs a real transition
+    // and publishes it once; writing the new status here would make the
+    // dispatch silent to everyone watching.
     this.rt.activeSessions.set(sessionId, {
       sessionId,
       agentSessionId: dispatchAgentSessionId,
@@ -960,8 +961,8 @@ export class RunLauncher {
       lastActivityAt: Date.now(),
       promptCount: existingSession ? existingSession.promptCount : 1,
     })
-    if (newStatus === 'running') turn.markRunning()
-    this.rt.statuses.setStatus(sessionId, newStatus, true)
+    if (resumesThread) turn.markRunning()
+    this.rt.statuses.refresh(sessionId, true)
     this.rt.publish(sessionId, { type: 'provider_startup', startup: { provider, phase: 'starting' } })
     this.rt.statuses.notifyActiveWork()
     // A prompt is work: a settled session is active again, and back in the
@@ -1179,7 +1180,7 @@ export class RunLauncher {
     } catch (err) {
       this.rt.activeRunRequests.delete(sessionId)
       // A stopped launch is already interrupted.
-      if (!turn.signal.aborted) this.rt.statuses.setStatus(sessionId, 'failed')
+      if (!turn.signal.aborted) this.rt.statuses.endTurn(sessionId, 'failed', turn)
       this.rt.activeSessions.delete(sessionId)
       // A drained queue entry has no RPC caller to reject to: the refusal reaches
       // the transcript as an error so the connect card can stand in for the turn.

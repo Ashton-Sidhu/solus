@@ -119,7 +119,7 @@ async function harness(projectsFolder = 'projects') {
     sessionOfThread: () => undefined,
     sessionIdForCtx: (ctx: IpcContext) => ctx.session.sessionId,
     launcher: { failedSetupPrompts: new Map() },
-    statuses: { setStatus: () => {} },
+    statuses: { refresh: () => {}, endTurn: () => {} },
     runTurn: async (request: SessionRunRequest) => {
       runs.push(request)
       return { disposition: 'started', agentSessionId: Promise.resolve({ agentSessionId: null }) }

@@ -267,6 +267,44 @@ describe('Stop once the provider runs', () => {
     plane.shutdown()
   })
 
+  test('a stopped turn shows as stopped, even while its permission still waits', async () => {
+    // WHY: Stop ends the turn at once; the run expires its waiting permission
+    // only when it exits. A stopped turn waits for no answer, so neither the
+    // waiting permission nor a late one from the stopped run may show it as
+    // waiting on the person.
+    const backend = new RecordingBackend()
+    const plane = new runtime.SessionRuntime(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    const statuses: string[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.push(event.status)
+    })
+    const sessionId = 'solus-stop-while-asking'
+    const permission = (questionId: string): NormalizedEvent => ({
+      type: 'permission_request', questionId, toolName: 'Bash', options: [],
+    })
+
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+      options: { prompt: 'do the work', promptSource: 'typed' },
+    })
+    void lifecycle.done.catch(() => {})
+    void lifecycle.agentSessionId.catch(() => {})
+    const handle = backend.handles[0]!
+    handle.agentSessionId = 'thread-asking'
+    backend.emit('normalized', 'thread-asking', {
+      type: 'session_init', sessionId: 'thread-asking', model: 'claude-test', skills: [],
+    } satisfies NormalizedEvent)
+    backend.emit('normalized', 'thread-asking', permission('q-1'))
+    expect(statuses.at(-1)).toBe('awaiting_input')
+
+    expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(true)
+    expect(statuses.at(-1)).toBe('interrupted')
+    backend.emit('normalized', 'thread-asking', permission('q-2'))
+    expect(statuses.at(-1)).toBe('interrupted')
+    plane.shutdown()
+  })
+
   test('leaves the next turn alone when the stopped run exits late', async () => {
     // WHY: a run stopped before session_init has no thread, so a new prompt can
     // start before that run exits. The old exit must not end or remove the new

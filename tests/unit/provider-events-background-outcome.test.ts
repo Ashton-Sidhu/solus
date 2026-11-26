@@ -9,8 +9,10 @@ import { Turns } from '@solus/server/execution/sessions/turns'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let ProviderEvents: typeof import('@solus/server/execution/sessions/provider-events')['ProviderEvents']
+let SessionStatuses: typeof import('@solus/server/execution/sessions/session-statuses')['SessionStatuses']
 beforeAll(async () => {
   ;({ ProviderEvents } = await import('@solus/server/execution/sessions/provider-events'))
+  ;({ SessionStatuses } = await import('@solus/server/execution/sessions/session-statuses'))
 })
 
 // WHY: a Codex turn can end, completed or failed, while work it started (a
@@ -41,14 +43,12 @@ function setup() {
     launcher: { pendingStarts: new Map() },
     orchestration: undefined,
     isShuttingDown: false,
-    statuses: {
-      holdsOutsideRun: () => false,
-      setStatus: (sessionId: string, status: SessionStatus) => {
-        statuses.push(status)
-        const session = activeSessions.get(sessionId)
-        if (session) session.status = status
-      },
-    },
+    statuses: undefined as unknown,
+    restarts: { restartRuns: undefined },
+    claudeGoals: { applySessionStatus: () => null },
+    activeUnattendedAgentRuns: new Set(),
+    hasWorkForUpdate: () => false,
+    emit: () => {},
     inputRequests: { expirePendingInput: () => {}, stampTurnAuthor: () => {} },
     sessionEmitter: { onEvent: () => {}, recordTerminal: () => {} },
     activity: { observe: () => {} },
@@ -59,9 +59,17 @@ function setup() {
     scheduler: { hasReadyQueuedRequest: () => false, processQueueForSession: (sessionId: string) => queueRuns.push(sessionId) },
     flushPendingSession: () => {},
     emitError: (sessionId: string) => errors.push(sessionId),
-    publish: () => {},
+    publish: (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.push(event.status)
+    },
     reportToActiveRun: () => {},
   }
+  // SAFETY: the statuses read only the members above on these paths.
+  const sessionStatuses = new SessionStatuses(runtime as unknown as SessionRuntime)
+  if (sessionStatuses.runWatchdogTimer) clearInterval(sessionStatuses.runWatchdogTimer)
+  // Attention is not what these tests check.
+  sessionStatuses.syncAttention = () => {}
+  runtime.statuses = sessionStatuses
   let backgroundWork = false
   const backend = Object.assign(new EventEmitter(), {
     id: 'codex' as const,
@@ -83,7 +91,7 @@ function setup() {
     backgroundWork = false
     emit({ type: 'background_task_settled', taskId: 'child', toolUseId: 'spawn-1', status })
   }
-  return { backend, activeSessions, statuses, errors, queueRuns, endTurnWithWork, settleWork }
+  return { backend, activeSessions, turns: runtime.turns, statuses, errors, queueRuns, endTurnWithWork, settleWork }
 }
 
 describe('a Codex turn that ends while its work still runs', () => {
@@ -133,9 +141,10 @@ describe('a Codex turn that ends while its work still runs', () => {
   })
 
   test('a later turn clears the failure: its own outcome settles the next wait', () => {
-    const { backend, activeSessions, statuses, endTurnWithWork, settleWork } = setup()
+    const { backend, activeSessions, turns, statuses, endTurnWithWork, settleWork } = setup()
     endTurnWithWork(1)
     // A prompt runs as the next turn, which completes with the work still running.
+    turns.begin(SESSION, { phase: 'running' })
     activeSessions.get(SESSION)!.status = 'running'
     backend.emit('exit', THREAD, 0, null)
     settleWork('completed')

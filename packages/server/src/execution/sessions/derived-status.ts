@@ -19,43 +19,36 @@ export interface SessionFacts {
   turn: TurnPhase
   /** What the person must answer: a plan alone, or any other request. */
   pendingInput: 'awaiting_input' | 'awaiting_plan' | null
-  /** A rate limit holds the turn, and the run does not continue past it. */
+  /** A rate limit parked the turn, and the run does not continue past it. */
   rateLimitParked: boolean
-  /** Background work the agent waits on still runs (`backgroundWorkHolds`), or
-   *  a session it sent work to has still to report. */
-  backgroundHolds: boolean
+  /** Background work the agent waits on still runs (`backgroundWorkHolds`). */
+  backgroundWorkHolds: boolean
+  /** A session it sent work to has still to report, or a live MCP task runs (`holdsOutsideRun`). */
+  holdsOutsideRun: boolean
+  /** The turn has settled, and a queued prompt takes the session over. */
+  queueTakesOver: boolean
 }
 
 /** The precedence, in one place: a parked limit, then the person, then the turn. */
 export function deriveSessionStatus(facts: SessionFacts): SessionStatus {
   if (facts.rateLimitParked) return 'rate_limited'
-  if (facts.pendingInput) return facts.pendingInput
-  switch (facts.turn.phase) {
+  const turn = facts.turn
+  // A stopped turn waits for no answer: its run exits and expires the request.
+  const isStopped = turn.phase === 'settled' && turn.outcome === 'interrupted'
+  if (facts.pendingInput && !isStopped) return facts.pendingInput
+  switch (turn.phase) {
     case 'none': return 'idle'
     case 'starting': return 'connecting'
     case 'running': return 'running'
-    case 'settled': return facts.backgroundHolds ? 'background' : facts.turn.outcome
-  }
-}
-
-/**
- * Step 1 only: no turn phase is stored yet, so it is read from the status a
- * caller writes. The comparison then checks the other facts against that write.
- * Step 2 replaces this with a stored turn phase.
- */
-export function turnOfStatus(status: SessionStatus): TurnPhase {
-  switch (status) {
-    case 'idle': return { phase: 'none' }
-    case 'connecting': return { phase: 'starting' }
-    case 'running':
-    case 'awaiting_input':
-    case 'awaiting_plan':
-    case 'rate_limited': return { phase: 'running' }
-    // A turn in background has settled; its outcome shows only once the work ends.
-    case 'background': return { phase: 'settled', outcome: 'completed' }
-    case 'completed':
-    case 'failed':
-    case 'interrupted':
-    case 'dead': return { phase: 'settled', outcome: status }
+    case 'settled':
+      // No client sees the session finish between a turn and the queued prompt after it.
+      if (facts.queueTakesOver) return 'running'
+      // A turn whose work still runs waits in 'background', so that work stays
+      // visible and stoppable. A failed turn waits for its own work only: its
+      // failure is reported at once, and the wait ends as 'failed'. A stopped
+      // or dead turn leaves no wait.
+      if (turn.outcome === 'completed' && (facts.backgroundWorkHolds || facts.holdsOutsideRun)) return 'background'
+      if (turn.outcome === 'failed' && facts.backgroundWorkHolds) return 'background'
+      return turn.outcome
   }
 }

@@ -385,7 +385,7 @@ export class SessionRuntime extends EventEmitter {
       session.runInput = { ...runInputFromContext(ctx, actingPreferences(ctx.session.organizationId)), agentSessionId: null }
       session.gitContext = ctx.session.gitContext ?? undefined
     }
-    this.statuses.setStatus(sessionId, 'idle')
+    this.statuses.clearTurn(sessionId)
     this.sessionCheckouts.setSessionGitEnvironment(sessionId, ctx.session.workingDirectory, ctx.session.gitContext)
   }
 
@@ -758,7 +758,7 @@ export class SessionRuntime extends EventEmitter {
     const stopped = (): void => {
       // Recorded before the status settles the turn, so it carries that turn's id.
       if (actor.user || agent) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' }, undefined, agent)
-      this.statuses.setStatus(sessionId, 'interrupted')
+      this.statuses.endTurn(sessionId, 'interrupted')
     }
 
     // Stop ends the running turn only (plan 004 D12). Queued prompts, other

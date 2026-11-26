@@ -579,7 +579,11 @@ describe('host restart continuation', () => {
       } satisfies NormalizedEvent)
     }
     expect(new RunLedger().activeRuns.get('asks')?.state).toBe('awaiting_input')
-    first.statuses.setStatus('answered', 'running')
+    // The person answers: the question leaves, and the status follows.
+    const answered = first.activeSessions.get('answered')!
+    answered.pendingInputEvents = []
+    answered.hasPendingInput = false
+    first.statuses.refresh('answered')
     first.shutdown()
     await Promise.resolve()
     const nextBackend = holdingBackend('claude-code', 'restart-question-next')

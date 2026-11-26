@@ -154,7 +154,7 @@ export class InputRequests {
       const agentSessionId = pendingInfo.sessionId
       if (agentSessionId) b.cancelSession(agentSessionId)
       // A rejected plan is not a stop, so the status names no stopper.
-      this.rt.statuses.setStatus(sessionId, 'interrupted')
+      this.rt.statuses.endTurn(sessionId, 'interrupted')
     }
     return true
   }
@@ -262,7 +262,7 @@ export class InputRequests {
       session.hasPendingInput = session.pendingInputEvents.length > 0
 
       if (session.pendingInputEvents.length !== before) {
-        this.rt.statuses.setStatus(session.sessionId, this.rt.statuses.pendingInputStatus(session))
+        this.rt.statuses.refresh(session.sessionId)
         this.rt.publish(session.sessionId, {
           type: 'pending_input_sync',
           pendingInputEvents: [...session.pendingInputEvents],

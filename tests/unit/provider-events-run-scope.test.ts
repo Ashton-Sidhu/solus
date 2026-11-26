@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
-import type { BackendSession, SessionStatus } from '@solus/contracts/types'
+import type { BackendSession, NormalizedEvent, SessionStatus } from '@solus/contracts/types'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import { Turns } from '@solus/server/execution/sessions/turns'
@@ -9,8 +9,10 @@ import { Turns } from '@solus/server/execution/sessions/turns'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let ProviderEvents: typeof import('@solus/server/execution/sessions/provider-events')['ProviderEvents']
+let SessionStatuses: typeof import('@solus/server/execution/sessions/session-statuses')['SessionStatuses']
 beforeAll(async () => {
   ;({ ProviderEvents } = await import('@solus/server/execution/sessions/provider-events'))
+  ;({ SessionStatuses } = await import('@solus/server/execution/sessions/session-statuses'))
 })
 
 // WHY: one backend runs many sessions. An error or an exit that belongs to one
@@ -43,7 +45,14 @@ function setup(pending: RunHandle[], sessions: BackendSession[] = []) {
     turns: new Turns(),
     launcher: { pendingStarts },
     orchestration: undefined,
-    statuses: { setStatus: (sessionId: string, status: SessionStatus) => statuses.set(sessionId, status), holdsOutsideRun: () => false },
+    statuses: undefined as unknown,
+    isShuttingDown: false,
+    restarts: { restartRuns: undefined },
+    claudeGoals: { applySessionStatus: () => null },
+    activity: { observe: () => {} },
+    activeUnattendedAgentRuns: new Set(),
+    hasWorkForUpdate: () => false,
+    emit: () => {},
     inputRequests: { expirePendingInput: () => {} },
     sessionEmitter: { recordTerminal: () => {} },
     rateLimitPark: { currentRateLimitEvent: () => null },
@@ -51,8 +60,16 @@ function setup(pending: RunHandle[], sessions: BackendSession[] = []) {
     scheduler: { hasReadyQueuedRequest: () => false, processQueueForSession: () => {} },
     flushPendingSession: () => {},
     emitError: () => {},
-    publish: () => {},
+    publish: (sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.set(sessionId, event.status)
+    },
   }
+  // SAFETY: the statuses read only the members above on these paths.
+  const sessionStatuses = new SessionStatuses(runtime as unknown as SessionRuntime)
+  if (sessionStatuses.runWatchdogTimer) clearInterval(sessionStatuses.runWatchdogTimer)
+  // Attention is not what these tests check.
+  sessionStatuses.syncAttention = () => {}
+  runtime.statuses = sessionStatuses
   const backend = Object.assign(new EventEmitter(), {
     id: 'claude-code' as const,
     getPendingHandles: () => [...pending],

@@ -139,7 +139,7 @@ export class ProviderHandoffs {
         session.agentSessionId = pendingHandoff.fromSessionId
       }
       this.rt.agentSessionToSession.set(pendingHandoff.fromSessionId, sessionId)
-      this.rt.statuses.setStatus(sessionId, 'idle')
+      this.rt.statuses.clearTurn(sessionId)
       const result: SessionProviderSwitchResult = {
         fromProvider,
         fromSessionId: pendingHandoff.fromSessionId,
@@ -195,7 +195,7 @@ export class ProviderHandoffs {
       }
       this.rt.activeRunRequests.delete(sessionId)
       this.rt.rateLimitPark.broadcastRateLimitResolved(sessionId, 'stop')
-      this.rt.statuses.setStatus(sessionId, 'idle')
+      this.rt.statuses.clearTurn(sessionId)
     }
 
     // Swap the session over immediately — the actual transcript/summary handoff
@@ -217,7 +217,7 @@ export class ProviderHandoffs {
       at: Date.now(),
     })
     if (session) {
-      this.rt.statuses.setStatus(sessionId, 'idle')
+      this.rt.statuses.clearTurn(sessionId)
       session.backendId = newProvider
       session.agentSessionId = null
     }

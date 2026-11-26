@@ -8,7 +8,7 @@ import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-
 import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread, sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { emitSessionDigestChanged } from '../../data/sessions/session-digests'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
-import type { BackendSession, SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
+import type { BackendSession, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
 import { encodePathAsFolder, isSessionBusyStatus } from '@solus/contracts/types'
 import { indexLivePlan } from '../../plans/plan-index'
 import type { SessionRuntime } from '../session-runtime'
@@ -20,21 +20,6 @@ import type { TurnOutcome } from './derived-status'
 import { turnActivity } from '../../git/turn-activity'
 
 const log = createLogger('SessionRuntime', 'provider-events.ts')
-
-/**
- * The status a turn's exit leaves its session in. A provider whose background
- * held work outlives the turn (Codex) settles into 'background', as Claude's open
- * query does; Claude's tasks end with its query, so its exit never leaves any.
- * A failed turn whose work still runs waits too, so that work stays visible
- * and stoppable: its failure is reported at once, and the wait ends as 'failed'.
- * A completed turn that waits on reports from the sessions it sent work to
- * waits in 'background' as well, until the last report wakes it.
- */
-function statusAfterExit(settled: SessionStatus, isAwaitingReplies: boolean, hasBackgroundWork: boolean): SessionStatus {
-  if (settled === 'failed') return hasBackgroundWork ? 'background' : settled
-  if (settled !== 'completed') return settled
-  return hasBackgroundWork || isAwaitingReplies ? 'background' : settled
-}
 
 /** How a run's exit ends its turn, before a rate limit and background work count. */
 function exitOutcome(isStopped: boolean, code: number | null, signal: string | null): TurnOutcome {
@@ -53,9 +38,6 @@ export class ProviderEvents {
   private registeredLineageThreads = new Set<string>()
   /** Provider threads whose start this process has indexed, with the model and effort it recorded. */
   private indexedThreadStarts = new Map<string, string>()
-  /** Sessions whose turn failed while background work still ran: the wait
-   *  ends as `failed`, not `completed`. Cleared by the session's next exit. */
-  private readonly failedBeforeBackground = new Set<string>()
 
   constructor(private readonly rt: SessionRuntime) {}
 
@@ -67,8 +49,8 @@ export class ProviderEvents {
     const session = this.rt.activeSessions.get(sessionId)
     if (session?.status !== 'background' || backgroundWorkHolds(session)) return
     if (this.rt.statuses.holdsOutsideRun(sessionId)) return
-    const hasFailed = this.failedBeforeBackground.delete(sessionId)
-    this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
+    // The turn's outcome shows now: completed, or failed when its run failed while the work ran.
+    this.rt.statuses.refresh(sessionId)
     if (!session.backgroundTaskIds?.size) this.rt.activeSessions.delete(sessionId)
     this.rt.orchestration?.backgroundEnded(sessionId)
   }
@@ -305,7 +287,7 @@ export class ProviderEvents {
           // input, rate-limited) outranks it and is left alone.
           if ((existingSession.status === 'connecting' || !isSessionBusyStatus(existingSession.status))
             && this.runWorks(initSessionId, backend, initHandle)) {
-            this.rt.statuses.setStatus(initSessionId, 'running')
+            this.rt.statuses.refresh(initSessionId)
           }
         } else if (this.runWorks(initSessionId, backend, initHandle, initializedRun?.options.clientPromptId)) {
           this.rt.activeSessions.set(initSessionId, {
@@ -363,7 +345,7 @@ export class ProviderEvents {
           session.hasPendingInput = true
           session.pendingInputEvents.push(event)
           this.rt.inputRequests.questionIdToSession.set(event.questionId, session.sessionId)
-          this.rt.statuses.setStatus(session.sessionId, 'awaiting_input')
+          this.rt.statuses.refresh(session.sessionId)
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.inputRequested(run, event))
         } else if (event.type === 'plan') {
           const cwd = session.runInput?.workingDirectory ?? getIndexedSession(agentSessionId)?.cwd ?? '~'
@@ -401,7 +383,7 @@ export class ProviderEvents {
           session.pendingInputEvents.push(event)
           this.rt.inputRequests.questionIdToSession.set(event.questionId, session.sessionId)
           const status = this.rt.statuses.pendingInputStatus(session)
-          this.rt.statuses.setStatus(session.sessionId, status)
+          this.rt.statuses.refresh(session.sessionId)
           this.rt.reportToActiveRun(session.sessionId, (run) => {
             this.rt.orchestration?.runEvent(run, event)
             if (status === 'awaiting_input' || status === 'awaiting_plan') this.rt.orchestration?.inputRequested(run, event)
@@ -413,7 +395,7 @@ export class ProviderEvents {
           )
           this.rt.inputRequests.questionIdToSession.delete(event.questionId)
           session.hasPendingInput = session.pendingInputEvents.length > 0
-          this.rt.statuses.setStatus(session.sessionId, this.rt.statuses.pendingInputStatus(session))
+          this.rt.statuses.refresh(session.sessionId)
         }
 
         // A work the turn made is part of what it answers its senders with.
@@ -435,7 +417,7 @@ export class ProviderEvents {
           // A task can be backgrounded after the turn already settled to idle;
           // pull the session back to running so it reflects the in-flight work.
           if (!isSessionBusyStatus(session.status) && this.runWorks(session.sessionId, backend, eventHandle)) {
-            this.rt.statuses.setStatus(session.sessionId, 'running')
+            this.rt.statuses.refresh(session.sessionId)
           }
         }
 
@@ -452,6 +434,7 @@ export class ProviderEvents {
         // not end the session's current turn.
         const endsCurrentTurn = !runTurn || (runTurn === this.rt.turns.current(session.sessionId) && runTurn.outcome !== 'interrupted')
         if (event.type === 'task_complete' && endsCurrentTurn) {
+          const endedTurn = runTurn ?? this.rt.turns.begin(session.sessionId, { phase: 'running' })
           // Before the actor of the run is forgotten: a folder that the turn wrote outside its folders is shown for review.
           void this.rt.sessionFolders.attachObserved(session.sessionId)
           this.rt.activeRunRequests.delete(session.sessionId)
@@ -465,18 +448,18 @@ export class ProviderEvents {
           if (isAwaitingReplies || session.backgroundTaskIds?.size) {
             const holds = isAwaitingReplies || backgroundWorkHolds(session)
             log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0, isAwaitingReplies, holds })
-            // The turn has settled; its settlement goes out when the wait ends.
-            runTurn?.settle('completed')
-            this.rt.statuses.setStatus(session.sessionId, holds ? 'background' : 'completed')
+            // Work that holds gives 'background': the settlement goes out when the wait ends.
+            this.rt.statuses.endTurn(session.sessionId, 'completed', endedTurn)
             this.rt.scheduler.processQueueForSession(session.sessionId)
           } else if (this.rt.scheduler.hasReadyQueuedRequest(session.sessionId)) {
             // A queued prompt takes over at the exit: the session is not done,
             // so it stays running and no "completed" reaches any client. The
             // turn itself is over, and settles for those who wait on it.
             log.info('turn_complete_queue_takes_over', { sessionId: session.sessionId })
-            this.rt.statuses.queueTurnSettlement(session.sessionId, 'completed', runTurn)
+            endedTurn.handOverToQueue(true)
+            this.rt.statuses.queueTurnSettlement(session.sessionId, 'completed', endedTurn)
           } else {
-            this.rt.statuses.setStatus(session.sessionId, 'completed')
+            this.rt.statuses.endTurn(session.sessionId, 'completed', endedTurn)
           }
         }
 
@@ -514,7 +497,7 @@ export class ProviderEvents {
           }
           // Publish the queue before the status so clients cannot briefly show
           // a decision card for a retry the host already chose to queue.
-          this.rt.statuses.setStatus(session.sessionId, 'rate_limited')
+          this.rt.statuses.park(session.sessionId, runTurn)
           // The run keeps its exchanges whether it waits in the queue for the
           // reset or on a person's decision; its senders hear it is parked.
           const parked = run ? this.rt.runExchanges(run) : null
@@ -613,10 +596,7 @@ export class ProviderEvents {
         const rateLimitEvent = this.rt.rateLimitPark.currentRateLimitEvent(sessionId)
         const hasPendingRateLimit = rateLimitEvent != null
         const exitWasRateLimited = hasPendingRateLimit && rateLimitEvent.deferCurrentRun !== true
-        const settledStatus: SessionStatus = exitWasRateLimited
-          ? 'rate_limited'
-          : exitOutcome(!!exitTurn?.signal.aborted, code, signal)
-        this.failedBeforeBackground.delete(sessionId)
+        const outcome = exitOutcome(!!exitTurn?.signal.aborted, code, signal)
         // Codex tasks outlive the turn; keep their wait policy until they end.
         const exited = this.rt.activeSessions.get(sessionId)
         const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
@@ -627,16 +607,20 @@ export class ProviderEvents {
           exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
           this.rt.publish(sessionId, { type: 'background_work', running: false })
         }
-        const newStatus = statusAfterExit(settledStatus, this.rt.statuses.holdsOutsideRun(sessionId), hasBackgroundWork && !!exited && backgroundWorkHolds(exited))
-        if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)
         this.rt.sessionEmitter.recordTerminal(
           sessionId,
-          settledStatus === 'completed' || settledStatus === 'rate_limited'
-            ? 'ok'
-            : settledStatus === 'interrupted'
-              ? 'interrupted'
-              : 'error',
+          exitWasRateLimited || outcome === 'completed' ? 'ok' : outcome === 'interrupted' ? 'interrupted' : 'error',
         )
+
+        // The run's turn ends. A parked turn does not settle: its prompt runs
+        // again as a new turn (plans/037 D7). Work that holds after the exit
+        // gives 'background', and the wait ends as the turn's outcome.
+        const turn = exitTurn ?? this.rt.turns.begin(sessionId, { phase: 'running' })
+        if (exitWasRateLimited) turn.park()
+        else turn.settle(outcome)
+        // A queued prompt that left before the exit no longer takes over.
+        turn.handOverToQueue(false)
+        const newStatus = this.rt.statuses.derive(sessionId)
 
         // Settle the status while the record still exists, so `applyStatus`
         // reads the real previous status and the global feed and the watching
@@ -650,12 +634,11 @@ export class ProviderEvents {
         }
         this.rt.turnLog.delete(sessionId)
         const queueWillTakeOver = (newStatus === 'interrupted' || newStatus === 'completed') && this.rt.scheduler.hasReadyQueuedRequest(sessionId)
-        // A parked turn does not settle: its prompt runs again as a new turn.
-        if (settledStatus !== 'rate_limited') exitTurn?.settle(settledStatus)
-        if (!queueWillTakeOver) this.rt.statuses.setStatus(sessionId, newStatus)
-        else if (exited && (newStatus === 'completed' || newStatus === 'interrupted')) {
+        if (!queueWillTakeOver) this.rt.statuses.refresh(sessionId)
+        else if (exited) {
           // The UI can skip a status as the queue takes over, but the run still ends.
-          this.rt.statuses.queueTurnSettlement(sessionId, newStatus, exitTurn)
+          if (newStatus === 'completed') turn.handOverToQueue(true)
+          this.rt.statuses.queueTurnSettlement(sessionId, newStatus === 'completed' ? 'completed' : 'interrupted', turn)
         }
         // A wait on reports alone is no interrupted work: after a host restart
         // the reports still come through the exchanges' own recovery.
@@ -668,7 +651,7 @@ export class ProviderEvents {
           this.rt.activeRunRequests.delete(sessionId)
         }
 
-        if (settledStatus === 'failed' || settledStatus === 'dead') {
+        if (!exitWasRateLimited && (outcome === 'failed' || outcome === 'dead')) {
           this.rt.emitError(sessionId, backend.getEnrichedError(agentSessionId, code))
         }
 
@@ -732,14 +715,14 @@ export class ProviderEvents {
         this.rt.missingRunCounts.delete(sessionId)
 
         if (rateLimitEvent) {
-          this.rt.statuses.setStatus(sessionId, 'rate_limited')
+          this.rt.statuses.park(sessionId, failedTurn)
           this.rt.publish(sessionId, rateLimitEvent)
           continue
         }
 
         // Status first, while the record still exists, so the transition is
         // published once rather than once here and once from applyStatus.
-        this.rt.statuses.setStatus(sessionId, outcome)
+        this.rt.statuses.endTurn(sessionId, outcome, failedTurn)
         this.rt.activeSessions.delete(sessionId)
         this.rt.activeRunRequests.delete(sessionId)
         clearForeignTaskSnapshot(sessionId)

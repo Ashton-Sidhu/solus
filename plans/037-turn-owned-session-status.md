@@ -1,7 +1,7 @@
 # Plan 037: The turn owns the session status
 
-Status: steps 1–4 DONE on `solus/turn-owned-status` (`c5c225511`); step 5 waits on the
-decisions in §7. Planned at `9c9b9b632`, 2026-11-26.
+Status: DONE on `solus/turn-owned-status` (steps 1–4 in `c5c225511`, step 5 in the
+next commit). Planned at `9c9b9b632`, 2026-11-26.
 Category: correctness. Risk: MED (every status writer on the host changes).
 Replaces the two plans that the code names but that do not exist:
 `docs/plans/derived-session-status.md` and `docs/plans/turn-stop.md`.
@@ -156,32 +156,37 @@ baseline of the step before.
 - A run event that arrives with no handle (an exit without a run, which can
   belong to any pending run) acts on the current turn, as today.
 
-### Decisions that step 5 needs
+### Decisions for step 5, as built
 
-Each writer was compared with `deriveSessionStatus`. These writers do not map
-one to one. If step 5 derives the status without a decision here, clients see a
-different status than today.
+Each writer was compared with `deriveSessionStatus`. These five did not map one
+to one. The person accepted the proposals; the code differs from them where noted.
 
-1. **Stop with a pending permission.** Stop writes `interrupted`. The pending
-   permission stays until the run exits. The derived status puts the person's
-   input first, so it gives `awaiting_input` until the exit. Proposal: Stop
-   expires the turn's pending input (Stop already removes pending plans).
-2. **A queued prompt that takes over.** Today the host writes no status, so the
-   session shows `running` until the next turn begins. A derived status gives
-   `completed` at the next `refresh` (for example a client that reconnects).
-   Proposal: a turn fact "the queue takes over" that derives `running`.
-3. **A session with no record.** Setup statuses (`connecting`, `failed`) of a
-   new session are published before its record exists, with no previous
-   status. A derived status needs a last published status for each session,
-   and it then publishes a repeated status one time, not two times.
-4. **A failed exit after a completed result.** The first outcome stays on the
-   turn (`completed`). Today a failed exit with background work ends as
-   `failed`. Proposal: the exit outcome replaces `completed` while the
-   settlement event has not gone out.
-5. **The rate-limit fact.** `rateLimits.peek` must hold only a limit that parks
-   the turn (`deferCurrentRun !== true`), never an `allowed` snapshot. This
-   needs a check before the fact replaces the `rate_limited` writes.
+1. **Stop with a pending permission.** Built as a rule of the derived status,
+   not as an expiry: a turn settled as `interrupted` waits for no answer, so
+   its pending input does not show. The run still expires the request when it
+   exits, as before. A late request from the stopped run also shows nothing.
+2. **A queued prompt that takes over.** A turn fact (`Turn.handOverToQueue`).
+   A settled turn that the queue takes over derives `running`. The exit clears
+   the fact first, so a prompt that left before the exit lets the turn show its
+   outcome.
+3. **A session with no record.** No change was needed. With no record, the
+   status is published with `idle` as the previous status, as before. Every
+   refresh of such a session comes from a writer that changed a fact.
+4. **A failed exit after a completed result.** A later outcome replaces an
+   earlier one (`Turn.settle`). The settlement event still goes out once,
+   with the first terminal status. `failedBeforeBackground` is removed: the
+   turn's own outcome gives `failed` when the wait ends.
+5. **The rate-limit fact.** The snapshot is not the fact: it also holds a limit
+   while a run continues (Codex `deferCurrentRun`, and a limit that gates the
+   next send). The fact is `Turn.park()`, set where the host wrote
+   `rate_limited` before. A release clears the turn (D7).
 
-Steps 1–4 removed the defect group (a stopped or older run that reopens, ends,
-or deletes a newer turn). Step 5 removes the 32 writers, so that a new writer
-cannot add the defect again.
+One more rule came out of the comparison: a failed turn waits in `background`
+for its own work only, not for reports from other sessions
+(`statusAfterExit` had this rule). The facts therefore split
+`backgroundWorkHolds` from `holdsOutsideRun`.
+
+One change that a client can see: a client that reattaches no longer turns a
+session that runs or has completed into `rate_limited` because a limit
+snapshot gates its next send. The status follows the park. That client still
+gets the limit event and its card, as before.

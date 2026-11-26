@@ -4,6 +4,7 @@ import { agentActivityKind, agentActivityOfTool } from '@solus/contracts/agent-a
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { BackendSession, NormalizedEvent, SessionStatus } from '@solus/contracts/types'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import { Turns } from '@solus/server/execution/sessions/turns'
 import { ACTIVITY_WINDOW_MS, SessionActivity, type ActivityClock } from '@solus/server/execution/sessions/session-activity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -178,8 +179,11 @@ describe('the approval fact on the status feed', () => {
 
   function statusFeed(session: BackendSession) {
     const feed: Array<{ channel: string; event: HostEventMap['session.statusChanged'] }> = []
+    const turns = new Turns()
+    turns.begin(session.sessionId, { phase: 'running' })
     const runtime = {
       activeSessions: new Map([[session.sessionId, session]]),
+      turns,
       isShuttingDown: false,
       restarts: { restartRuns: undefined },
       rateLimitPark: { rateLimits: { peek: () => null } },
@@ -203,13 +207,13 @@ describe('the approval fact on the status feed', () => {
 
   test('says a permission request waits', () => {
     const { statuses, feed } = statusFeed(session('approval-1', 'running', [permission]))
-    statuses.setStatus('approval-1', 'awaiting_input')
+    statuses.refresh('approval-1')
     expect(feed.at(-1)?.event).toMatchObject({ status: 'awaiting_input', awaitingApproval: true })
   })
 
   test('says nothing of approval when a question waits', () => {
     const { statuses, feed } = statusFeed(session('approval-2', 'running', [question]))
-    statuses.setStatus('approval-2', 'awaiting_input')
+    statuses.refresh('approval-2')
     expect(feed.at(-1)?.event.status).toBe('awaiting_input')
     expect(feed.at(-1)?.event.awaitingApproval).toBeUndefined()
   })
@@ -217,18 +221,20 @@ describe('the approval fact on the status feed', () => {
   test('the newest waiting input decides, and a change without a new status still reaches the feed', () => {
     const pending: NormalizedEvent[] = [question]
     const { statuses, feed } = statusFeed(session('approval-3', 'running', pending))
-    statuses.setStatus('approval-3', 'awaiting_input')
+    statuses.refresh('approval-3')
     pending.push(permission)
-    statuses.setStatus('approval-3', 'awaiting_input')
+    statuses.refresh('approval-3')
     expect(feed.at(-1)).toMatchObject({ channel: 'session-question', event: { status: 'awaiting_input', awaitingApproval: true } })
   })
 
   test('the fact ends when the wait ends', () => {
     const pending: NormalizedEvent[] = [permission]
-    const { statuses, feed } = statusFeed(session('approval-4', 'running', pending))
-    statuses.setStatus('approval-4', 'awaiting_input')
+    const waiting = session('approval-4', 'running', pending)
+    const { statuses, feed } = statusFeed(waiting)
+    statuses.refresh('approval-4')
     pending.length = 0
-    statuses.setStatus('approval-4', 'running')
+    waiting.hasPendingInput = false
+    statuses.refresh('approval-4')
     expect(feed.at(-1)?.event).toMatchObject({ status: 'running' })
     expect(feed.at(-1)?.event.awaitingApproval).toBeUndefined()
   })

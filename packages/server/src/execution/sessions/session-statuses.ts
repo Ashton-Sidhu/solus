@@ -8,12 +8,12 @@ import { ANY_ORGANIZATION } from '../../admission/principal'
 import { setSessionRecordStatus } from '../../data/sessions/session-records'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession } from '../../db/session-indexer'
-import type { BackendSession, SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
+import type { SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
 import { isSessionBusyStatus, sessionRecordStatusOf } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { SessionRuntime } from '../session-runtime'
 import { backgroundWorkHolds } from './background-work'
-import { deriveSessionStatus, turnOfStatus, type TurnOutcome } from './derived-status'
+import { deriveSessionStatus, type SessionFacts, type TurnOutcome } from './derived-status'
 import type { Turn } from './turns'
 
 const log = createLogger('SessionRuntime', 'session-statuses.ts')
@@ -35,11 +35,6 @@ function newestPendingRequest(events: NormalizedEvent[]): Extract<NormalizedEven
     if (e.type === 'permission_request' || e.type === 'question_request') return e
   }
   return undefined
-}
-
-/** The first stack frame outside this file: the call site that wrote the status. */
-function statusWriter(stack: string | undefined): string | null {
-  return stack?.split('\n').slice(1).map((line) => line.trim()).find((line) => !line.includes('session-statuses.')) ?? null
 }
 
 const RUN_WATCHDOG_INTERVAL_MS = 30_000
@@ -200,7 +195,7 @@ export class SessionStatuses {
       this.markSessionDead(sessionId)
     }
 
-    // Self-heal for any active-work transition that bypassed setStatus
+    // Self-heal for any active-work transition that bypassed refresh
     // (e.g. the last watch dropping while running); at worst the power blocker lingers one tick.
     this.notifyActiveWork()
   }
@@ -222,7 +217,7 @@ export class SessionStatuses {
       signal: null,
       stderrTail: [],
     })
-    this.setStatus(sessionId, 'dead')
+    this.endTurn(sessionId, 'dead')
     this.rt.activeSessions.delete(sessionId)
     this.rt.missingRunCounts.delete(sessionId)
     clearForeignTaskSnapshot(sessionId)
@@ -343,13 +338,54 @@ export class SessionStatuses {
     }
   }
 
-  setStatus(sessionId: string, newStatus: SessionStatus, startsTurn = false): void {
-    this.applyStatus(sessionId, newStatus, startsTurn)
+  /** The facts beneath the session's status (plans/037 D5). */
+  private facts(sessionId: string): SessionFacts {
+    const session = this.rt.activeSessions.get(sessionId)
+    const turn = this.rt.turns.current(sessionId)
+    const input = session ? this.pendingInputStatus(session) : null
+    return {
+      turn: turn?.phase ?? { phase: 'none' },
+      pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
+      rateLimitParked: !!turn?.isParked,
+      backgroundWorkHolds: !!session && backgroundWorkHolds(session),
+      holdsOutsideRun: this.holdsOutsideRun(sessionId),
+      queueTakesOver: !!turn?.isTakenOverByQueue,
+    }
+  }
+
+  /** The status that the facts give now. */
+  derive(sessionId: string): SessionStatus {
+    return deriveSessionStatus(this.facts(sessionId))
+  }
+
+  /** Publish the status that the facts give, when it changed. No writer names a
+   *  status: it changes a fact, then refreshes. `startsTurn`: a dispatch
+   *  announces its turn on the status feed even when the status stays. */
+  refresh(sessionId: string, startsTurn = false): void {
+    this.applyStatus(sessionId, this.derive(sessionId), startsTurn)
     this.notifyActiveWork()
   }
 
+  /** End a turn with `outcome`, the session's current turn when none is named, then refresh. */
+  endTurn(sessionId: string, outcome: TurnOutcome, turn?: Turn): void {
+    ;(turn ?? this.rt.turns.current(sessionId) ?? this.rt.turns.begin(sessionId, { phase: 'running' })).settle(outcome)
+    this.refresh(sessionId)
+  }
+
+  /** A rate limit parks a turn, the session's current turn when none is named, then refresh. */
+  park(sessionId: string, turn?: Turn): void {
+    ;(turn ?? this.rt.turns.current(sessionId) ?? this.rt.turns.begin(sessionId, { phase: 'running' })).park()
+    this.refresh(sessionId)
+  }
+
+  /** The session has no turn now, so it is idle: a handoff, a reset, or a released rate limit (plans/037 D7). */
+  clearTurn(sessionId: string): void {
+    this.rt.turns.clear(sessionId)
+    this.refresh(sessionId)
+  }
+
   /** Publish one Solus-owned terminal boundary for a turn: the one given, else
-   *  the session's current turn. A turn settles once; the first outcome stays.
+   *  the session's current turn. The event goes out once for each turn.
    *  Queueing the event preserves result-before-settlement ordering when a
    *  provider's `task_complete` caused the status transition in this same stack. */
   queueTurnSettlement(
@@ -376,34 +412,6 @@ export class SessionStatuses {
       // Unknown outcome: the next transition writes again.
       this.recordStatusWritten.delete(sessionId)
       log.warn('session_record_status_failed', { sessionId, error: String(error) })
-    })
-  }
-
-  /**
-   * Shadow mode (plans/037-turn-owned-session-status.md, step 1): logs a status
-   * write that the facts beneath it do not give. It changes nothing.
-   */
-  private compareWithDerived(sessionId: string, session: BackendSession, oldStatus: SessionStatus, newStatus: SessionStatus): void {
-    const input = this.pendingInputStatus(session)
-    const parked = this.rt.rateLimitPark.rateLimits.peek(sessionId)
-    const facts = {
-      turn: turnOfStatus(newStatus),
-      pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
-      rateLimitParked: !!parked && parked.deferCurrentRun !== true,
-      backgroundHolds: backgroundWorkHolds(session) || this.holdsOutsideRun(sessionId),
-    }
-    const derived = deriveSessionStatus(facts)
-    if (derived === newStatus) return
-    log.info('session_status_derived_mismatch', {
-      sessionId,
-      agentSessionId: session.agentSessionId ?? null,
-      oldStatus,
-      newStatus,
-      derived,
-      pendingInput: facts.pendingInput,
-      rateLimitParked: facts.rateLimitParked,
-      backgroundHolds: facts.backgroundHolds,
-      writer: statusWriter(new Error().stack),
     })
   }
 
@@ -459,7 +467,6 @@ export class SessionStatuses {
     }
 
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
-    if (session) this.compareWithDerived(sessionId, session, oldStatus, newStatus)
     // The collaboration plane's record keeps one fact of this: a turn open or
     // not. Most transitions (connecting, awaiting input, rate limited) keep that
     // fact, so write only when it changes. The record exists once the provider started a thread.

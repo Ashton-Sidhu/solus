@@ -86,7 +86,7 @@ export class RateLimitPark {
     this.rt.sessionEmitter.resolveRateLimit(sessionId)
     this.clearRateLimitTimer(sessionId)
     this.rateLimits.clear(sessionId)
-    this.rt.statuses.setStatus(sessionId, 'idle')
+    this.rt.statuses.clearTurn(sessionId)
     this.rt.cancelRunExchanges(this.rt.activeRunRequests.get(sessionId))
     this.rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
     this.broadcastRateLimitResolved(sessionId, 'stop')
@@ -163,7 +163,7 @@ export class RateLimitPark {
     // its countdown, until some unrelated turn moved it.
     if (this.rt.activeSessions.get(sessionId)?.status !== 'rate_limited') return
     this.rt.sessionEmitter.resolveRateLimit(sessionId)
-    this.rt.statuses.setStatus(sessionId, 'idle')
+    this.rt.statuses.clearTurn(sessionId)
     this.broadcastRateLimitResolved(sessionId, 'stop')
     this.dropParkedSession(sessionId)
   }
@@ -217,7 +217,7 @@ export class RateLimitPark {
     if (hasQueued || session?.status !== 'running') {
       // Releasing a limit does not start work. Dispatch sets the next turn's
       // status; a restored or failed entry can still be held for Resume.
-      this.rt.statuses.setStatus(sessionId, 'idle')
+      this.rt.statuses.clearTurn(sessionId)
     }
     this.broadcastRateLimitResolved(sessionId, action)
     if (!hasQueued) this.dropParkedSession(sessionId)

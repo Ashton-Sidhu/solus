@@ -685,7 +685,7 @@ function fakeRuntime(events: NormalizedEvent[]): SessionRuntime {
     reportToActiveRun: () => {},
     sessionEmitter: { resolveQuestion: () => {} },
     publish: () => {},
-    statuses: { setStatus: () => {}, pendingInputStatus: () => 'running' },
+    statuses: { refresh: () => {}, endTurn: () => {}, pendingInputStatus: () => 'running' },
   }
   // SAFETY: the test fake holds every runtime member `respondToQuestion` reads.
   return runtime as unknown as SessionRuntime
