@@ -1,8 +1,9 @@
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { sessionRecord } from '@solus/contracts/solus-api/records'
 import type { SolusServer } from '../server'
+import type { HistoryPrewarm } from '../../execution/sessions/history-prewarm'
 
-export function registerSessionDirectoryHandler(server: SolusServer): void {
+export function registerSessionDirectoryHandler(server: SolusServer, prewarm: Pick<HistoryPrewarm, 'warm'>): void {
   server.register('sessionDirectoryOpen', async (_args, caller) => {
     const client = new SolusApiClient({
       contextKey: () => caller.clientId,
@@ -19,6 +20,8 @@ export function registerSessionDirectoryHandler(server: SolusServer): void {
         server.handle('automationList', [], caller).then(rows => rows.map(({ id, name }) => ({ id, name }))).catch(() => []),
       ])
       const records = page.items.map(sessionRecord)
+      // The person is about to open one of these: parse their newest pages now, after this answer.
+      void prewarm.warm(records.map(row => row.sessionId))
       const listed = new Set(records.map(row => row.sessionId))
       const missing = new Set(pins.map(pin => pin.sessionId).filter(id => !listed.has(id)))
       const pinnedRecords = []

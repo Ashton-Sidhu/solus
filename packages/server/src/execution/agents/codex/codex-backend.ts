@@ -1375,6 +1375,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     let messageCount = 0
     let succeeded = false
     let resumed = false
+    let cacheHit = false
     try {
       const client = await this.readerFor(sessionId, { startSeatClient: true })
       nextStage('turns')
@@ -1384,19 +1385,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       nextStage('items')
       const cacheable = file && turns.every(turn => (turn.itemsView === 'summary' || turn.itemsView === 'notLoaded') && turn.id && ['completed', 'failed', 'interrupted'].includes(turn.status ?? ''))
       const key = cacheable ? JSON.stringify([sessionId, file.path, turnLimit, before, turns.map(turn => [turn.id, turn.status, turn.completedAt])]) : null
-      const cached = key && file ? this.historyPages.read(key, file.revision) : null
-      const page = cached ?? await loadCodexHistoryPage(sessionId, turns, async (params) => {
-        const requestedAt = performance.now()
-        itemRequests++
-        try {
-          return await client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params)
-        } finally {
-          itemRequestMs += performance.now() - requestedAt
+      const cached = key && file ? await this.historyPages.readShared(key, file.revision) : null
+      cacheHit = !!cached
+      const page = cached ?? await this.historyPages.reading(key ?? '', key && file ? file.revision : null, (async () => {
+        const page = await loadCodexHistoryPage(sessionId, turns, async (params) => {
+          const requestedAt = performance.now()
+          itemRequests++
+          try {
+            return await client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params)
+          } finally {
+            itemRequestMs += performance.now() - requestedAt
+          }
+        }, turnLimit, before)
+        if (key && file && !this.isSessionRunning(sessionId) && file.revision === await historyFileRevision(file.path)) {
+          this.historyPages.save(key, file.revision, page)
         }
-      }, turnLimit, before)
-      if (!cached && key && file && !this.isSessionRunning(sessionId) && file.revision === await historyFileRevision(file.path)) {
-        this.historyPages.save(key, file.revision, page)
-      }
+        return page
+      })())
       messageCount = page.messages.length
       nextStage('children')
       await reconcileCodexSubagentHistory(page.messages, (threadId) => this.readThreadTurns(client, threadId))
@@ -1409,7 +1414,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       nextStage('done')
       log.info('codex_history_page_profile', {
         sessionId, olderPage: before !== undefined, turnLimit, turnCount, messageCount,
-        itemRequests, itemRequestMs, stages, succeeded, resumed,
+        itemRequests, itemRequestMs, stages, succeeded, resumed, cacheHit,
         failedStage: succeeded ? undefined : finalStage,
         durationMs: performance.now() - startedAt,
       })
