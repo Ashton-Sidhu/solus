@@ -42,9 +42,12 @@ test('one opening response supplies the first 32 rows and older pins, and restor
   server.register('listAttention', () => [])
   server.register('automationList', () => [])
   registerPinnedSessionsHandlers(server)
-  registerSessionDirectoryHandler(server)
+  const warmed: string[][] = []
+  registerSessionDirectoryHandler(server, { warm: async (sessionIds) => { warmed.push([...sessionIds]) } })
   const opening = await server.handle('sessionDirectoryOpen', [], TEST_HANDLER_CTX)
   if ('error' in opening) throw new Error(opening.error.message)
+  // The host reads ahead the sessions the person sees first, newest first.
+  expect(warmed).toEqual([opening.records.map(row => row.sessionId)])
   expect(queries).toEqual(['list', 'pinned'])
   expect(opening.records).toHaveLength(32)
   expect(opening.pinnedRecords).toHaveLength(12)

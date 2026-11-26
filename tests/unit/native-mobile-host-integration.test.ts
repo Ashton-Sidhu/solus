@@ -65,7 +65,7 @@ beforeAll(async () => {
   })
   const server = new SolusServer()
   const { registerSessionDirectoryHandler } = await import('@solus/server/transport/handlers/session-directory-handler')
-  registerSessionDirectoryHandler(server)
+  registerSessionDirectoryHandler(server, { warm: async () => {} })
   server.register('serverGetCapabilities', () => ({ sessionDirectoryOpen: true }))
   server.register('pinnedSessionsList', () => [])
   server.register('listAttention', () => [])
