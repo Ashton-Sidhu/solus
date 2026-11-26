@@ -9,6 +9,7 @@ const SECTIONS = [
     rows: [
       { id: "SettingsSolusAccount", label: "Solus account & sync" },
       { id: "SettingsEnvironments", label: "Environments" },
+      { id: "SettingsSharingAccess", label: "Sharing & access" },
     ],
   },
   {
@@ -45,7 +46,10 @@ describe("filterSettingsSections", () => {
       ]),
     },
     { query: "   ", expected: visible("") },
-    { query: "sign in", expected: [["Connections", ["Solus account & sync"]], ["Server settings", ["Provider accounts"]]] },
+    // Approve a sign-in of an outside app is on Sharing & access.
+    { query: "sign in", expected: [["Connections", ["Solus account & sync", "Sharing & access"]], ["Server settings", ["Provider accounts"]]] },
+    { query: "mcp", expected: [["Connections", ["Sharing & access"]]] },
+    { query: "connected apps", expected: [["Connections", ["Sharing & access"]]] },
     { query: "appear", expected: [["Interface", ["Appearance"]]] },
     { query: "KEYBOARD", expected: [["Interface", ["Keyboard"]]] },
     { query: "dark mode", expected: [["Interface", ["Appearance"]]] },

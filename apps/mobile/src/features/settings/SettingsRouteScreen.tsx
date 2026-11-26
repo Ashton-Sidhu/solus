@@ -121,6 +121,12 @@ function LocalSettingsRouteScreen() {
         },
         environmentsRow(gt("Environments"), environments.length),
         {
+          id: "SettingsSharingAccess",
+          icon: "person.2",
+          label: gt("Sharing & access"),
+          target: "SettingsSharingAccess",
+        },
+        {
           id: "SettingsNotifications",
           icon: "bell.badge",
           label: gt("Notifications"),

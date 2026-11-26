@@ -369,6 +369,13 @@ export function SolusHostDetail({
         makeCode={route.params.pairCode === "new"}
       />
       <OutsideAppsSection hostId={id} hostName={host?.environmentLabel ?? "this host"} />
+      <SettingsSection>
+        <SettingsRow
+          label="Sharing & access"
+          icon="person.2"
+          onPress={() => nav.navigate("SettingsSharingAccess", { environmentId: id })}
+        />
+      </SettingsSection>
       <ReachedMachinesSection hostId={id} />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (
