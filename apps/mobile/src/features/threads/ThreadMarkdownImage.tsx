@@ -238,6 +238,7 @@ function ThreadMarkdownImageRequest(props: {
 
   return (
     <>
+      {loaded ? null : <ThreadMarkdownImageLoading />}
       <Image
         source={{ uri: props.uri, cacheKey: props.cacheKey }}
         contentFit="contain"
@@ -248,9 +249,8 @@ function ThreadMarkdownImageRequest(props: {
           props.onLoad(event.source);
         }}
         onError={props.onError}
-        style={{ width: "100%", height: "100%", opacity: loaded ? 1 : 0 }}
+        style={{ width: "100%", height: "100%" }}
       />
-      {loaded ? null : <ThreadMarkdownImageLoading />}
     </>
   );
 }

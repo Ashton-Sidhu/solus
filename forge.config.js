@@ -142,6 +142,8 @@ module.exports = {
     },
     icon: 'resources/icon',
     appBundleId: 'com.solus.app',
+    // macOS gives an app link (docs/app-shortcuts.md) to the app that names its scheme.
+    protocols: [{ name: 'Solus app link', schemes: ['solus'] }],
     extendInfo: {
       NSMicrophoneUsageDescription: 'Solus uses your microphone for local voice input and for browser sites you allow.',
       NSCameraUsageDescription: 'Solus uses your camera for browser sites you allow.',

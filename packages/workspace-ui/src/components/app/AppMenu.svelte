@@ -1,11 +1,23 @@
 <script lang="ts">
-  import { Ellipsis as MenuIcon, Pin as PinIcon, PinOff as UnpinIcon, Play as StartIcon, Square as StopIcon, Trash2 as DeleteIcon } from "@lucide/svelte";
+  import {
+    AppWindow as WindowIcon,
+    Ellipsis as MenuIcon,
+    MonitorDown as AddShortcutIcon,
+    MonitorOff as RemoveShortcutIcon,
+    Pin as PinIcon,
+    PinOff as UnpinIcon,
+    Play as StartIcon,
+    Square as StopIcon,
+    Trash2 as DeleteIcon,
+  } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
 
   /**
    * The app menu (docs/plans/apps.md §9.1): Stop or Start, Pin to sidebar or
-   * Unpin, then Delete. What else an owner does to an app is on its Manage page.
+   * Unpin, on desktop the app's own window and its shortcut
+   * (docs/app-shortcuts.md), then Delete. What else an owner does to an app
+   * is on its Manage page.
    */
   interface Props {
     stopped: boolean;
@@ -15,8 +27,10 @@
     onToggleStopped: () => void;
     onTogglePinned: () => void;
     onDelete: () => void;
+    /** The app window and the shortcut of an app with a UI. Absent on a client that has neither (web). */
+    desktop?: { hasShortcut: boolean; onOpenWindow: () => void; onToggleShortcut: () => void };
   }
-  let { stopped, pinned, disabled, onToggleStopped, onTogglePinned, onDelete }: Props = $props();
+  let { stopped, pinned, disabled, onToggleStopped, onTogglePinned, onDelete, desktop }: Props = $props();
 </script>
 
 <DropdownMenu.Root>
@@ -42,6 +56,18 @@
         <PinIcon size={14} /><span class="flex-1 text-left">Pin to sidebar</span>
       {/if}
     </DropdownMenu.Item>
+    {#if desktop}
+      <DropdownMenu.Item class="text-workspace-chrome" data-testid="app-menu-open-window" onSelect={desktop.onOpenWindow}>
+        <WindowIcon size={14} /><span class="flex-1 text-left">Open in its own window</span>
+      </DropdownMenu.Item>
+      <DropdownMenu.Item class="text-workspace-chrome" {disabled} data-testid="app-menu-toggle-shortcut" onSelect={desktop.onToggleShortcut}>
+        {#if desktop.hasShortcut}
+          <RemoveShortcutIcon size={14} /><span class="flex-1 text-left">Remove app shortcut</span>
+        {:else}
+          <AddShortcutIcon size={14} /><span class="flex-1 text-left">Add app shortcut</span>
+        {/if}
+      </DropdownMenu.Item>
+    {/if}
     <DropdownMenu.Item class="text-workspace-chrome text-destructive" {disabled} data-testid="app-menu-delete" onSelect={onDelete}>
       <DeleteIcon size={14} /><span class="flex-1 text-left">Delete…</span>
     </DropdownMenu.Item>

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { hostQueryScopeAtom } from "../state/host-query-scope";
 import { mobileHost } from "../state/mobile-host";
 import { useEnvironmentQuery } from "../state/query";
+import { remoteAgentChild } from "./agent-child-host";
 import { conversationFeed } from "./conversation-feed";
 import { solus } from "./runtime";
 import { sessionDetailAtom } from "./session-detail";
@@ -122,8 +123,9 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
           if (store) return store.controller.readToolInput(key);
           throw new Error("This tool input is available on the host.");
         },
+        { provider: store?.controller.run.provider ?? provider, child: remoteAgentChild(environmentId) },
       ),
-    [source, threadId, store],
+    [source, threadId, store, provider, environmentId],
   );
   const sequence = mirror?.model?.order ?? order;
   const reader = useMemo(() => project?.(sequence), [project, sequence]);

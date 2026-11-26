@@ -117,6 +117,7 @@ export const RPC_PLANES = {
   workspaceProjectRemove: 'collaboration',
   workspaceProjectUpdate: 'collaboration',
   // The record of a codebase is collaboration. Its members are read from a disk: execution.
+  sessionDirectoryOpen: 'collaboration',
   codebaseList: 'collaboration',
   codebaseSave: 'collaboration',
   codebaseMembers: 'execution',
@@ -133,6 +134,7 @@ export const RPC_PLANES = {
   loadSessionSubagent: 'execution',
   loadSessionPage: 'collaboration',
   loadSessionToolInputs: 'collaboration',
+  artifactFrameHeightReport: 'collaboration',
   mcpAppRead: 'execution',
   mcpAppLiveRead: 'execution',
   mcpAppToolInfo: 'execution',

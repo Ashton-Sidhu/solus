@@ -23,9 +23,11 @@ gives the address and the state.
 | Blocked here | Sparse dots, quiet | Dotted border with ⊘ |
 
 Each state that is not healthy has its own dash pattern. The map is therefore
-readable without color, in forced colors, and with reduced motion. Hosts show
-their state by shape too: a dashed card outline or a diamond tile when the host
-does not answer, and a dotted outline or a round tile while it reconnects.
+readable without color, in forced colors, and with reduced motion. A host card
+shows its state in its outline too: dashed when the host does not answer, and
+dotted while it reconnects. In a folded zone every host is one square tile, colored
+by its state; the summary row above the tiles counts each state with an icon, and
+each tile names its state in its tooltip.
 
 A zone with more hosts than its cards (5 for your machines, 3 for Solus Cloud,
 1 for shared hosts) shows small tiles and one line. Use the unfold button in
@@ -44,7 +46,25 @@ expired has its own dash pattern and color.
 To introduce two hosts yourself, for example after you forgot an
 introduction:
 
-- Drag the **+** beside one of your hosts onto another host.
+- Drag the **+** beside one of your hosts onto another host. A drop on a
+  machine marked **Found nearby** adds that machine, on the map. A machine
+  that runs Solus gets an approval request, and the **Add host** dialog opens
+  focused on its **Approve** tab: the check code in large type and what to do
+  on that machine, with the line between the two machines filling while it
+  waits. **Other ways** shows the dialog's other tabs. **Stop** ends the
+  request, **Use a pairing code** moves to the **Address** tab with the
+  machine's address filled in, and a denied or expired request offers
+  **Ask again**. A machine that runs an older Solus has no approval requests:
+  the dialog says so and offers only **Use a pairing code**. That machine shows
+  its code in **Settings › Hosts › This device › Access**. The machine's card on the
+  map shows the code too while the request waits. A machine found on Tailscale pairs as a
+  Tailscale route, by approval or by code. A WSL distro is set up; a machine from your SSH
+  config opens the SSH form, filled in. A drop on empty space says what a drop
+  takes.
+- While you drag, the line leaves the side of the host that faces the pointer,
+  snaps to the nearest edge of a host or found machine a drop would act on, and
+  turns green for a drop that works or red and dashed for one that does not. A
+  label beside the pointer says what the drop will do.
 - Shift-click or Shift-drag to pick several hosts, then drop the **+** on one
   of them to introduce the host to all of them.
 - From the keyboard, open the host's menu (the menu key) and use

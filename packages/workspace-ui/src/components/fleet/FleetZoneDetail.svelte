@@ -72,6 +72,7 @@
                 isSelected={false}
                 isPicked={false}
                 isCurrent
+                dropState={null}
                 {onPoint}
                 onSelect={(serverId) => onOpen(serverId)}
               />

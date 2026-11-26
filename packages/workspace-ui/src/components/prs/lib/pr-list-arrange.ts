@@ -5,8 +5,8 @@
  *     typed text only narrows until the host has answered it (the host reads
  *     bodies and comments a row does not show); the qualifiers always hold.
  *  2. **filtered** — the page's State and Filters menus on top.
- *  3. **ordered** — the chosen sort; a search under merge readiness is
- *     ordered by how well each row answers it instead.
+ *  3. **ordered** — the chosen sort; a search under the default sort,
+ *     Recently updated, is ordered by how well each row answers it instead.
  *  4. **sections** — Authored, Review requested, Others for the unnarrowed
  *     list; one flat section otherwise.
  *
@@ -55,9 +55,9 @@ export function arrangePrList(
     listView,
     { viewerLogin: facts.viewerLogin, checksState: facts.checksState, hasGuide: facts.hasGuide, hasLens: facts.hasLens },
   )
-  const ordered = search.typed.text.trim() && listView.sortMode === 'ready'
+  const ordered = search.typed.text.trim() && listView.sortMode === 'updated'
     ? rankPrMatches(filtered, search.typed.text)
-    : sortPrs(filtered, listView.sortMode, facts.checksState, facts.viewerLogin)
+    : sortPrs(filtered, listView.sortMode)
   const sectioned = showsPrSections(listView.involvement, listView.query)
   return {
     searched,

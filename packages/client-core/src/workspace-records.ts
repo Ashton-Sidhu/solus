@@ -58,17 +58,18 @@ export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
       await client.request('deleteWork', { id, version: await workVersion(id) })
       workVersions.delete(id)
     },
-    async sessionRecordList(filter) {
+    async sessionRecordList(filter, onFirstPage) {
       // Paged by last activity, so the newest `limit` sessions are the first pages. A record
       // whose activity changes during the read can move between pages; the map keeps it once.
       const records = new Map<string, SessionRecord>()
-      let cursor: string | undefined
+      let cursor = filter?.cursor
       let indexing = false
       let completeRevision: string | undefined
       let order: 'activity' | undefined = 'activity'
       const filters = sessionListFilters(filter)
       for (;;) {
-        const query = { ...filters, limit: 200, cursor, order }
+        const opening = onFirstPage && !cursor && order && filter?.limit === undefined && !filter?.knownRevision
+        const query = { ...filters, limit: opening ? 32 : 200, cursor, order }
         const key = JSON.stringify(query)
         const saved = pages.get(key)
         const disk = !cursor && filter?.limit === undefined && filter?.knownRevision
@@ -91,6 +92,7 @@ export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
           if (pages.size > 4) pages.delete(pages.keys().next().value!)
         }
         if (!cursor && !page.nextCursor && filter?.limit === undefined) completeRevision = response ? revision : saved?.revision
+        if (opening && page.nextCursor) onFirstPage({ records: page.records, indexing: page.indexing })
         for (const record of page.records) records.set(record.sessionId, record)
         indexing ||= page.indexing
         cursor = page.nextCursor ?? undefined

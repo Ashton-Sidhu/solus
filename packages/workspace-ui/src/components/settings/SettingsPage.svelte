@@ -39,7 +39,10 @@
     serversStore,
     agentProfileLocalStore,
     codebasesStore,
+    accountStore,
   } from "../../contexts";
+  import { FOOTER_TAB, settingsNavGroups, settingsTabShown, type SettingsNavGroup } from "./lib/settings-nav";
+  import SettingsNavAccount from "./SettingsNavAccount.svelte";
   import { NEW_CODEBASE } from "../codebases/lib/codebase-view";
   import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -108,53 +111,53 @@
     /** One line of page copy — the single source for the content subtitle. */
     description: string;
     icon: Component<{ size?: number; class?: string }>;
-    group: string;
+    group: SettingsNavGroup;
     desktopOnly?: boolean;
   }
 
-  // Follow the app, Agents, Code, and Connections groups used by T3 Code.
+  // The groups and their order follow T3 Code's settings sidebar (lib/settings-nav.ts).
   const ALL_TABS: TabMeta[] = [
     {
       id: "general",
       label: "General",
       description: "Project folders, session names, your editor and terminal, and updates.",
       icon: SlidersHorizontalIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "appearance",
       label: "Appearance",
       description: "Theme, typefaces, and text sizes on this device.",
       icon: PaletteIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "chat",
       label: "Chat",
       description: "Responses, tool activity, and the input bar.",
       icon: ChatIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "notifications",
       label: "Notifications",
       description: "Which events notify you, and how.",
       icon: BellIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "keybindings",
       label: "Keybindings",
       description: "Rebind any shortcut. Saved on this device only.",
       icon: KeyboardIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "voice",
       label: "Voice",
       description: "Dictation, custom dictionary, and the voice model.",
       icon: MicrophoneIcon,
-      group: "App",
+      group: "Preferences",
     },
     {
       id: "providers",
@@ -168,13 +171,6 @@
       label: "Sessions",
       description: "New-session defaults, model routing, and delegation.",
       icon: SessionsIcon,
-      group: "Agents",
-    },
-    {
-      id: "tasks",
-      label: "Tasks",
-      description: "How agents work on tasks, and how a task's lead runs.",
-      icon: IssueOpenedIcon,
       group: "Agents",
     },
     {
@@ -214,13 +210,6 @@
       group: "Agents",
     },
     {
-      id: "webhooks",
-      label: "Webhooks",
-      description: "Let other services start agent work on your hosts.",
-      icon: WebhookIcon,
-      group: "Agents",
-    },
-    {
       id: "source-control",
       label: "Source Control",
       description: "Repository integrations and generated Git writing.",
@@ -235,6 +224,13 @@
       group: "Code",
     },
     {
+      id: "tasks",
+      label: "Tasks",
+      description: "How agents work on tasks, and how a task's lead runs.",
+      icon: IssueOpenedIcon,
+      group: "Code",
+    },
+    {
       id: "review",
       label: "Review companion",
       description: "How review guides are made, and by which agent.",
@@ -242,24 +238,10 @@
       group: "Code",
     },
     {
-      id: "account",
-      label: "Account & sync",
-      description: "Who you are signed in as, and what syncs between your devices and hosts.",
-      icon: PersonIcon,
-      group: "Connections",
-    },
-    {
-      id: "organization",
-      label: "Organization",
-      description: "Your organization's projects in Solus Cloud.",
-      icon: OrganizationIcon,
-      group: "Connections",
-    },
-    {
-      id: "policy",
-      label: "Policy",
-      description: "What sessions may do and which settings are locked, on this host and for your organization's work.",
-      icon: PolicyIcon,
+      id: "api-access",
+      label: "Hosts",
+      description: "The computers your agents run on, and how each one is reached.",
+      icon: HostsIcon,
       group: "Connections",
     },
     {
@@ -270,32 +252,53 @@
       group: "Connections",
     },
     {
-      id: "api-access",
-      label: "Hosts",
-      description: "The computers your agents run on, and how each one is reached.",
-      icon: HostsIcon,
+      id: "webhooks",
+      label: "Webhooks",
+      description: "Let other services start agent work on your hosts.",
+      icon: WebhookIcon,
       group: "Connections",
+    },
+    {
+      id: "policy",
+      label: "Policy",
+      description: "What sessions may do and which settings are locked, on this host and for your organization's work.",
+      icon: PolicyIcon,
+      group: "Connections",
+    },
+    {
+      id: "organization",
+      label: "Organization",
+      description: "Your organization's name, members, and host rules. Owners change them.",
+      icon: OrganizationIcon,
+      group: "Organization",
     },
     {
       id: "host",
       label: "Host",
       description: "The selected host's own settings. They apply to all work on it.",
       icon: HostIcon,
-      group: "Advanced",
+      group: "More",
     },
     {
       id: "telemetry",
       label: "Telemetry",
       description: "Usage analytics, and traces, logs, and metrics over OpenTelemetry.",
       icon: BroadcastIcon,
-      group: "Advanced",
+      group: "More",
     },
     {
       id: "experimental",
       label: "Experimental",
       description: "Beta features that may change or go away.",
       icon: FlaskIcon,
-      group: "Advanced",
+      group: "More",
+    },
+    {
+      id: "account",
+      label: "Account & sync",
+      description: "Who you are signed in as, and what syncs between your devices and hosts.",
+      icon: PersonIcon,
+      group: "More",
     },
   ];
 
@@ -318,7 +321,7 @@
 
   const tabs = $derived(
     ALL_TABS.filter(
-      (t) => !t.desktopOnly || shell.supportsNativeSettings,
+      (t) => (!t.desktopOnly || shell.supportsNativeSettings) && settingsTabShown(t.id, accountStore.isSignedIn),
     ),
   );
 
@@ -327,18 +330,7 @@
     searchQuery ? tabs.filter((t) => tabMatchesSearch(t, searchQuery)) : tabs,
   );
 
-  const groupedTabs = $derived.by(() => {
-    const order: string[] = [];
-    const map = new Map<string, TabMeta[]>();
-    for (const t of searchedTabs) {
-      if (!map.has(t.group)) {
-        map.set(t.group, []);
-        order.push(t.group);
-      }
-      map.get(t.group)!.push(t);
-    }
-    return order.map((group) => ({ group, items: map.get(group)! }));
-  });
+  const groupedTabs = $derived(settingsNavGroups(searchedTabs, accountStore.isSignedIn));
 
   // Deep links resolve against all destinations, including native-only pages.
   const activeTabMeta = $derived(
@@ -593,7 +585,10 @@
   {/if}
 {/snippet}
 
-<!-- The dialog owns its keyboard events; menus and child dialogs handle theirs. -->
+<!-- The dialog owns its keyboard events; menus and child dialogs handle theirs.
+     Every settings text field is one field: the border, fill, and focus of the
+     review instructions field and of the dropdowns (SettingsSelect), so a field
+     never blends into its row. A search field (name="search") keeps its own frame. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   role="region"
@@ -602,7 +597,7 @@
   tabindex="-1"
   {@attach (element) => element.focus({ preventScroll: true })}
   onkeydown={handleKeydown}
-  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--input:color-mix(in_oklch,var(--solus-input-border)_60%,transparent)] [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
+  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit] [&_input[data-slot=input]:not([name=search])]:border [&_input[data-slot=input]:not([name=search])]:border-input [&_input[data-slot=input]:not([name=search])]:bg-white [&_input[data-slot=input]:not([name=search])]:shadow-xs/5 dark:[&_input[data-slot=input]:not([name=search])]:bg-input/30 [&_input[data-slot=input]:not([name=search]):focus-visible]:border-(--solus-accent) [&_input[data-slot=input]:not([name=search]):focus-visible]:ring-0 [&_input[data-slot=input]:not([name=search]):focus-visible]:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
 >
   <!-- The dialog is the pane container. Below 48rem, section buttons replace
        the fixed navigation column. A page under Hosts takes the whole dialog:
@@ -629,15 +624,16 @@
       <Sidebar.Content
         class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-[1.1875rem] pb-4"
       >
-        {#if groupedTabs.length === 0}
+        {#if searchedTabs.length === 0}
           <p class="px-[0.625rem] py-2 text-workspace-chrome text-muted-foreground">No settings match</p>
         {/if}
         {#each groupedTabs as section (section.group)}
           <Sidebar.Group class="p-0">
             <!-- A group name is the level above the rows, so it starts on the
                  icons' column rather than on the labels'. -->
+            <!-- Preferences and More are set apart by space alone, as in T3 Code. -->
             <Sidebar.GroupLabel
-              class="h-8 pr-2.5 pl-[0.625rem] text-workspace-chrome font-normal text-muted-foreground"
+              class={section.headingHidden ? "sr-only" : "h-8 pr-2.5 pl-[0.625rem] text-workspace-chrome font-normal text-muted-foreground"}
               >{section.group}</Sidebar.GroupLabel
             >
             <Sidebar.GroupContent>
@@ -671,6 +667,11 @@
           </Sidebar.Group>
         {/each}
       </Sidebar.Content>
+      {#if searchedTabs.some((tab) => tab.id === FOOTER_TAB)}
+        <Sidebar.Footer class="border-t border-sidebar-border/50 px-[1.1875rem] py-3">
+          <SettingsNavAccount isActive={session.settingsTab === FOOTER_TAB} onSelect={() => selectTab(FOOTER_TAB)} />
+        </Sidebar.Footer>
+      {/if}
     </Sidebar.Root>
   </Sidebar.Provider>
 

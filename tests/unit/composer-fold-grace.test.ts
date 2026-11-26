@@ -76,6 +76,8 @@ test('ordinary blur folds without delay while menus, selections and recording st
     globalThis.window = window;
     globalThis.document = document;
     globalThis.Node = window.Node;
+    globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+    globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     globalThis.CSS = { escape: (value) => value };
     let windowHasFocus = true;
     document.hasFocus = () => windowHasFocus;
@@ -92,6 +94,10 @@ test('ordinary blur folds without delay while menus, selections and recording st
     let claims = 0;
     let fold;
     const renders = [];
+    // Each read of the card's box forces a layout of the page around it.
+    let cardReads = 0;
+    const cardBox = el('card').getBoundingClientRect.bind(el('card'));
+    el('card').getBoundingClientRect = () => { cardReads += 1; return cardBox(); };
     const destroy = $effect.root(() => {
       fold = useComposerFold({
         root: () => el('bar'), tabId: () => 'tab', enabled: () => true,
@@ -120,6 +126,15 @@ test('ordinary blur folds without delay while menus, selections and recording st
     assert.equal(fold.collapsed, false, 'focus opens the bar at once, with no grace');
     assert.equal(foldedOnCard(), false, 'unfolding clears the flag, so the dock may re-measure');
     assert.equal(claims, 1, 'focus claims the mic for this bar');
+    // WHY: a new tab's bar takes focus inside the open, before its first frame.
+    // There is nothing on screen to tween from, and each read laid out the tab.
+    assert.equal(cardReads, 0, 'a bar that has not painted folds as a cut, with no layout read');
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    el('editor').blur(); flush();
+    advance(0); flush();
+    assert.equal(fold.collapsed, true, 'a painted bar folds when the keyboard leaves');
+    assert.ok(cardReads > 0, 'a painted bar reads its card, so the fold can tween');
+    el('editor').focus(); flush();
 
     // A pointer gesture holds the bar, but its release adds no timed delay.
     let since = paints.length;

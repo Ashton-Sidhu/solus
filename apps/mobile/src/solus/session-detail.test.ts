@@ -1,16 +1,13 @@
 // @vitest-environment jsdom
 import { AtomRegistry } from "effect/reactivity";
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
-import { sessionDetailAtom, useOpeningHistoryPreview } from "./session-detail";
+import { sessionDetailAtom } from "./session-detail";
 
 const host = vi.hoisted(() => ({
   account: "first",
   listeners: new Set<() => void>(),
   read: vi.fn(() => ({})),
   retained: vi.fn<() => { sessionId: string } | null>(() => null),
-  hasHistoryKey: vi.fn<() => boolean | undefined>(() => false),
   observe: vi.fn(() => () => {}),
 }));
 vi.mock("./runtime", () => ({
@@ -23,42 +20,13 @@ vi.mock("./runtime", () => ({
         },
       },
     },
-    sessionCache: { scope: () => host.account, forHost: () => ({ hasHistoryKey: host.hasHistoryKey }) },
+    sessionCache: { scope: () => host.account },
     threads: { thread: () => ({ record: {} }) },
     openConversation: host.retained,
     conversation: host.read,
     observeConversation: host.observe,
   },
 }));
-
-it.each([
-  [false, false, true],
-  [true, false, true],
-  [undefined, false, true],
-  [true, true, false],
-] as const)("previews a new store once (saved page %s, retained store %s)", async (cached, retained, expected) => {
-  host.hasHistoryKey.mockReturnValue(cached);
-  if (retained) host.retained.mockReturnValueOnce({ sessionId: "thread" });
-  const registry = AtomRegistry.make();
-  const detail = sessionDetailAtom("host", "thread");
-  const close = registry.mount(detail);
-  const store = registry.get(detail)!;
-  const node = document.createElement("div");
-  const root = createRoot(node);
-  function Screen() {
-    return String(useOpeningHistoryPreview(store));
-  }
-  try {
-    await act(() => root.render(createElement(Screen)));
-    expect(node.textContent).toBe(String(expected));
-    await act(() => root.render(createElement(Screen, { key: "reopen" })));
-    expect(node.textContent).toBe("false");
-  } finally {
-    await act(() => root.unmount());
-    close();
-    registry.dispose();
-  }
-});
 
 it("hands the navigation read to the screen and starts a new read after an account switch", () => {
   host.read.mockClear();

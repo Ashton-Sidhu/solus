@@ -70,12 +70,13 @@ vi.mock("react-native-reanimated", async () => {
 });
 vi.mock("expo-image", () => ({
   Image: (props: {
+    style: { opacity?: number };
     onError: () => void;
     onLoad: (event: { source: { width: number; height: number } }) => void;
   }) => {
     harness.failImage = props.onError;
     harness.loadImage = props.onLoad;
-    return <img alt="" />;
+    return <img alt="" style={props.style} />;
   },
 }));
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
@@ -175,6 +176,8 @@ it("keeps the frame size when the same image reports a different decoded width",
         </MarkdownImageAvailableWidthContext>,
       ),
     );
+    // A native cache hit can paint before JavaScript receives the load event.
+    expect(container.querySelector("img")!.style.opacity).not.toBe("0");
     // Android reports the bitmap downsampled for the current frame, so the same file
     // alternates between widths (969 and 970 of 1000) as the frame changes size.
     await act(async () => harness.loadImage({ source: { width: 970, height: 567 } }));

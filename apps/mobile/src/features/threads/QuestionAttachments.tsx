@@ -149,14 +149,6 @@ export function QuestionAttachments(props: {
   };
   return (
     <View className="gap-2">
-      {attachmentAccess?.canUpload ? (
-        <ComposerAttachmentButton
-          disabled={props.disabled}
-          supportsFiles
-          onPickMedia={() => pick("media")}
-          onPickFiles={() => pick("files")}
-        />
-      ) : null}
       <ComposerAttachmentStrip
         environmentId={environmentId}
         attachments={attachments}
@@ -181,29 +173,42 @@ export function QuestionAttachments(props: {
       />
       <FilePreviewModal source={previewFile} onRequestClose={() => setPreviewFile(null)} />
       <VideoPreviewModal source={previewVideo} onRequestClose={() => setPreviewVideo(null)} />
-      <TextInputWrapper onPaste={paste}>
-        <TextInput
-          ref={inputRef}
-          defaultValue={initialText}
-          multiline={props.question.initialAnswer !== undefined}
-          submitBehavior={props.question.initialAnswer !== undefined ? "newline" : undefined}
-          editable={!props.disabled}
-          onChangeText={(text) => {
-            nativeText.current = text;
-            props.onChangeText(text);
-          }}
-          onFocus={() => {
-            focusedRef.current = true;
-            onInputFocusChange?.(true);
-          }}
-          onBlur={() => {
-            focusedRef.current = false;
-            onInputFocusChange?.(false);
-          }}
-          placeholder={gt("Or type a custom answer")}
-          className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
-        />
-      </TextInputWrapper>
+      <View className="flex-row items-center rounded-2xl border border-input-border bg-input">
+        <View className="min-w-0 flex-1">
+          <TextInputWrapper onPaste={paste}>
+            <TextInput
+              ref={inputRef}
+              defaultValue={initialText}
+              multiline={props.question.initialAnswer !== undefined}
+              submitBehavior={props.question.initialAnswer !== undefined ? "newline" : undefined}
+              editable={!props.disabled}
+              onChangeText={(text) => {
+                nativeText.current = text;
+                props.onChangeText(text);
+              }}
+              onFocus={() => {
+                focusedRef.current = true;
+                onInputFocusChange?.(true);
+              }}
+              onBlur={() => {
+                focusedRef.current = false;
+                onInputFocusChange?.(false);
+              }}
+              placeholder={gt("Or type a custom answer")}
+              className="min-h-[52px] rounded-none border-0 bg-transparent"
+            />
+          </TextInputWrapper>
+        </View>
+        {attachmentAccess?.canUpload ? (
+          <ComposerAttachmentButton
+            disabled={props.disabled}
+            icon="paperclip"
+            supportsFiles
+            onPickMedia={() => pick("media")}
+            onPickFiles={() => pick("files")}
+          />
+        ) : null}
+      </View>
     </View>
   );
 }

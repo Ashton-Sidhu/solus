@@ -530,6 +530,10 @@ export class PromptDispatch {
     if (!isBusy && !session.agentSessionId && !session.handoffPending) session.threadProvider = session.run.provider
 
     const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
+    // A fork's first prompt starts its thread, but its transcript already
+    // shows the history it copied. Only a prompt with no earlier prompt above
+    // it goes to the top of the view, as in T3 Code.
+    const opensTranscript = !session.messages.some((message) => message.role === 'user')
     const agent = session.run.provider ?? this.workspace.settings.activeAgent
     if (isFirstMessage) track('conversation_started', { agent })
     // The person sent this, so the project view moves the session to the top of its folder.
@@ -619,9 +623,9 @@ export class PromptDispatch {
     const before = this.heldSends.get(session.id)
     if (isUploading || before) this.sendWhenUploaded(targetTabId, session, sent, { clientPromptId, isQueued: isBusy, before }, send)
     else this.sendAfterPaint(targetTabId, session, send)
-    // Only a session's first message moves to the top of the view, as in T3
-    // Code. A later send keeps the conversation above it in view.
-    requestConversationScrollToBottom(targetTabId, { firstMessageId: isFirstMessage && !isBusy ? clientPromptId : undefined })
+    // Only the first prompt of a transcript moves to the top of the view, as
+    // in T3 Code. A later send keeps the conversation above it in view.
+    requestConversationScrollToBottom(targetTabId, { firstMessageId: opensTranscript && !isBusy ? clientPromptId : undefined })
     return true
   }
 

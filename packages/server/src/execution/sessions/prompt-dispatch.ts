@@ -213,6 +213,9 @@ export class PromptDispatch {
     let lifecycle: SessionRunLifecycle
     try {
       await this.attachNamedFolders(sessionId, input, options, origin?.actor)
+      // A message instead of an answer declines the open cards it does not
+      // answer, so the turn goes on and the message steers it; a queued one leaves them.
+      if (isWrittenByAPerson(options) && options.delivery !== 'queue') await this.rt.inputRequests.declineForMessage(sessionId, origin?.actor ?? HOST_ACTOR)
       lifecycle = await this.rt.runTurn({
         input,
         target,

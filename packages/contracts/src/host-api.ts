@@ -30,7 +30,7 @@ import type { SessionChange, SessionChanged } from './session-state'
 import type { ListMySessionsResponse, SessionTurnDiff } from './session-repositories'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { Codebase, CodebaseFolderScan, CodebaseListOptions, CodebaseMember, SessionFolder, TaskFolder } from './codebases'
-import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
+import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput, ArtifactFrameHeightReport } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewGuideTarget, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
 import type { PrChecksSnapshot } from './checks-rpc-types'
@@ -70,7 +70,7 @@ import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishReque
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
 import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, HostPersonalSettings, PersonalSettingsPatch, PersonalSettingsPatchResult } from './settings'
-import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
+import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, OrganizationSettingsPatchRequest, OrganizationSettingsResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
 import type { PolicySet } from './policy'
 
 import type { AccountState, CreateManagedHostOutcome, SignInEnd } from './account-types'
@@ -239,9 +239,24 @@ export interface LocalConnectionInfo {
   installationId: string
 }
 
+export interface SessionDirectoryPage {
+  /** Revision of the visible session list when it fits on one page. */
+  revision?: string
+  records: SessionRecord[]
+  pinnedRecords: SessionRecord[]
+  nextCursor: string | null
+  indexing: boolean
+  projects: ProjectEntry[]
+  codebases: Codebase[] | null
+  pins: PinnedSession[]
+  attention: AttentionEntry[]
+  automations: { id: string; name: string }[]
+}
+
 // Renderer-facing surface. The desktop renderer builds this API over WebSocket
 // in `src/client-core`; preload now exposes only the native shell residue below.
 export interface SolusAPI {
+  sessionDirectoryOpen(): Promise<SessionDirectoryPage | { error: { status: number; code: string; message: string; retryAfter?: number } }>
   start(): Promise<StartInfo>
   serverGetCapabilities(): Promise<HostCapabilities>
   /** Subscribe to a session's events. Resolves identity: the answer may differ
@@ -350,7 +365,8 @@ export interface SolusAPI {
    *  implementation prompt. */
   acceptPlan(ctx: IpcContext, request: AcceptPlanRequest): Promise<AcceptPlanResult>
   /** Collaboration plane: the session records of the caller's organization (docs/plans/cloud-service-model.md). */
-  sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecordList>
+  // The local records client can publish its newest page while it reads the rest of the same list.
+  sessionRecordList(filter?: SessionRecordListFilter, onFirstPage?: (page: SessionRecordList) => void): Promise<SessionRecordList>
   /** Collaboration plane: one session record with the caller's view and whether it is in their list
    *  (`/v1/sessions/:sessionId`); null when the caller may not read it. */
   sessionRecordGet(sessionId: string): Promise<SessionRecord | null>
@@ -410,6 +426,8 @@ export interface SolusAPI {
   loadSessionSubagent(request: SessionSubagentRequest): Promise<SessionHistoryPage>
   loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
   loadSessionToolInputs(request: SessionToolInputsRequest): Promise<SessionToolInput[]>
+  /** Keep a height this client measured for a reply's HTML frame, so other clients size it before it loads. */
+  artifactFrameHeightReport(report: ArtifactFrameHeightReport): Promise<void>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   /** The passage a search hit sits in: the message and its neighbours, from the index. */
   loadSessionMessageWindow(request: SessionMessageWindowRequest): Promise<SessionMessageWindow>
@@ -1747,6 +1765,9 @@ export interface NativeSolusAPI {
   hostPolicyDelete(organizationId: string, policyId: string): Promise<PolicyApiResult<null>>
   hostPolicyAssign(organizationId: string, hostId: string, request: HostPolicyAssignRequest): Promise<PolicyApiResult<PolicyHost>>
   hostPolicyUnassign(organizationId: string, hostId: string): Promise<PolicyApiResult<PolicyHost>>
+  /** An organization's name, members, and host rules: members read them, owners change them (Settings → Organization). */
+  organizationSettingsGet(organizationId: string): Promise<PolicyApiResult<OrganizationSettingsResponse>>
+  organizationSettingsPatch(organizationId: string, request: OrganizationSettingsPatchRequest): Promise<PolicyApiResult<OrganizationSettingsResponse>>
   /** The desktop update status. Owned by the main process, which runs the
    *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
   updateStatus(): Promise<DesktopUpdateStatus>
@@ -1756,4 +1777,11 @@ export interface NativeSolusAPI {
   restartToUpdate(): void
   setUpdateAutoDownload(enabled: boolean): Promise<void>
   onUpdateStatusChange(callback: (status: DesktopUpdateStatus) => void): () => void
+  /** The app shortcuts of this device (docs/app-shortcuts.md). Owned by the main process: a launcher is a file of this computer. */
+  appShortcuts(): Promise<import('./app-shortcuts').AppShortcutView[]>
+  /** Writes the launcher of one app where this operating system lists apps, or writes it again with a new name. */
+  addAppShortcut(request: import('./app-shortcuts').AppShortcutRequest): Promise<void>
+  removeAppShortcut(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
+  /** Opens the app window of one app, or brings the one it has to the front. */
+  openAppWindow(request: import('./app-shortcuts').AppWindowRequest): Promise<void>
 }

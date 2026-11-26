@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Layers as AllIcon, Search as SearchIcon } from "@lucide/svelte";
-  import type { PrFilterGroup } from "./lib/pr-filter-menu";
+  import { Layers as AllIcon, Search as SearchIcon, X as ClearIcon } from "@lucide/svelte";
+  import { prFilterHasMarks, type PrFilterGroup } from "./lib/pr-filter-menu";
   import PrAvatar from "./PrAvatar.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { untrack } from "svelte";
@@ -15,6 +15,7 @@
       : group.options,
   );
   let listEl = $state<HTMLDivElement | null>(null);
+  const hasMarks = $derived(prFilterHasMarks(group));
 
   // The host is asked for choices beyond the loaded rows: once when the
   // submenu opens, then as the search changes. The store debounces.
@@ -82,7 +83,21 @@
     {#if group.multiple}
       {#each visibleOptions as option (option.value)}
         <DropdownMenu.CheckboxItem onpointermove={keepSearchFocus} onpointerleave={keepSearchFocus} checked={option.value ? group.selected?.includes(option.value) : !group.selected?.length} onCheckedChange={() => group.select(option.value)} closeOnSelect={false}>
+          <span class="grid size-5 shrink-0 place-items-center text-muted-foreground">
+            {#if !option.value}
+              <ClearIcon size={14} />
+            {:else if option.color}
+              <!-- The host's colour, softened a little into the surface. -->
+              <span
+                class="size-2.5 rounded-full bg-[color-mix(in_oklch,var(--label-color)_85%,var(--background))] shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_14%,transparent)]"
+                style="--label-color: {option.color}"
+              ></span>
+            {/if}
+          </span>
           <span class="min-w-0 flex-1 truncate">{option.value ? option.label : 'Clear selection'}</span>
+          {#if option.value && option.count !== undefined}
+            <span class="mr-5 shrink-0 text-xs tabular-nums text-muted-foreground">{option.count}</span>
+          {/if}
         </DropdownMenu.CheckboxItem>
       {/each}
     {:else}
@@ -95,16 +110,17 @@
           onpointerleave={keepSearchFocus}
         >
           <!-- One 20px leading slot for every mark, so each label starts on
-               the same line whether it follows an avatar, a dot or a glyph. -->
-          <span class="grid size-5 shrink-0 place-items-center text-muted-foreground">
+               the same line whether it follows an avatar, a dot or a glyph.
+               A menu with no marks has no slot. -->
+          {#if hasMarks}
+          <span class="grid size-5 shrink-0 place-items-center {option.toneClass ?? 'text-muted-foreground'}">
             {#if group.key === "author" && option.value}
               <PrAvatar name={option.label} url={option.avatarUrl} size="size-5 text-[9px]" />
             {:else if option.color}
-              <!-- Keep label marks quieter than action glyphs. They use the
-                   same host colour as the row chip, mixed into the surface so
-                   the result stays pastel in both themes. -->
+              <!-- The host's colour, softened a little into the surface, so
+                   each label reads as its own colour in both themes. -->
               <span
-                class="size-2.5 rounded-full bg-[color-mix(in_oklch,var(--label-color)_42%,var(--background))]"
+                class="size-2.5 rounded-full bg-[color-mix(in_oklch,var(--label-color)_85%,var(--background))] shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_14%,transparent)]"
                 style="--label-color: {option.color}"
               ></span>
             {:else if Icon}
@@ -113,6 +129,7 @@
               <AllIcon size={15} />
             {/if}
           </span>
+          {/if}
           <span class="min-w-0 flex-1 truncate">{option.label}</span>
           {#if option.count !== undefined}
             <span class="shrink-0 text-xs tabular-nums text-muted-foreground">{option.count}</span>

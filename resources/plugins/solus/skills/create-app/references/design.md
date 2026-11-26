@@ -2,11 +2,25 @@
 
 An artifact in a reply matches the theme of Solus. An app does not have to: you have creative liberty with its layout, its palette, its type, and its components. An app is a product that the user opens every day. Design it to the standard of an application that a good product team ships. A column of inputs under a toolbar is a form over a database, and it is not an acceptable result. Decide the design before you write components.
 
-The starter shows one quiet identity: a cream page, hairline borders, a dark green accent, and the system face. Use its patterns, not its look: give each app the identity and the shell that fit its subject.
+The starter's look is a sample for Notes, not a house style. Keep its patterns and replace its look. An app that keeps the starter's page color, accent, wordmark, and single column is not finished, unless the brief chose them for a reason that it states.
 
-- **Identity.** Give the app a wordmark and an icon in its navigation, and one accent color that fits its subject. Define your own colors for both modes with `light-dark()`, as the starter's `@theme` block does; the page's `color-scheme` follows the theme of Solus, so do not use Tailwind's `dark:` variant or a media query for them.
+## Write the brief
+
+Before you write a component, write a brief of about five lines, and keep it in your reply to the user:
+
+- **Tone.** One word for how the app feels: calm, dense, playful, clinical, editorial, technical.
+- **Accent.** One color that comes from the subject, and why. A finance tool, a garden log, and an incident board do not share a color.
+- **Face.** The display face and the body face. The system face is a choice, not a default.
+- **Shell.** A sidebar, a top bar with tabs, a split view, a board, or a single page, and why this subject needs it.
+- **Signature.** One detail that belongs to this app only: a chart in the header, a status strip, a card shape, a way to show time.
+
+Then build from the brief, and check each preview against it.
+
+## The parts
+
+- **Identity.** Give the app a wordmark and an icon in its navigation, and the accent from the brief. Define your own colors for both modes with `light-dark()`, in the same form as the starter's `@theme` block (its values are Notes' own; do not keep them). The page's `color-scheme` follows the theme of Solus, so do not use Tailwind's `dark:` variant or a media query for them. For example, a recipe app:
   ```css
-  @theme { --color-brand: light-dark(#247259, #62c7a2); --color-brand-soft: light-dark(#edf3ed, #18261f); }
+  @theme { --color-brand: light-dark(#c2410c, #fb923c); --color-brand-soft: light-dark(#fff1e8, #2a1a10); }
   ```
 - **Light and dark.** The app follows the mode of Solus; never force one mode. Define each color of your palette for both modes with `light-dark()`, as the starter does, and check that text on the accent reads in both. Solus also puts its theme in the page (`--background`, `--foreground`, `--card`, `--muted`, `--muted-foreground`, `--border`); use them when the app must look like a part of the workspace.
 - **Background.** Solus styles `html` and `body` of the page, and its styles win over yours. Paint the app's background on its root element (`<div className="min-h-dvh bg-page text-ink">` in the starter), not on `html` or `body`.
@@ -29,4 +43,4 @@ Write the controls the app needs as its own components, in its own style. Native
 
 ## Check the design
 
-Look at each preview as the user will: would a person take this for a product that a team shipped? If it reads as a form, a debug view, or a default page, design it again before you deploy. Check each state in a preview: first open with no data, loading, an error from an operation with a way to try again, a long list, every page, a narrow window, and dark mode. Show real data; never put a hard-coded array where live data belongs.
+Look at each preview as the user will: would a person take this for a product that a team shipped? If it reads as a form, a debug view, a default page, or Notes with new words, design it again before you deploy. Compare it with the brief: the tone, the accent, the face, the shell, and the signature must show on the first screen. Check each state in a preview: first open with no data, loading, an error from an operation with a way to try again, a long list, every page, a narrow window, and dark mode. Show real data; never put a hard-coded array where live data belongs.

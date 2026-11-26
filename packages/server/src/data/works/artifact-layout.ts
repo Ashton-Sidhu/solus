@@ -28,6 +28,42 @@ export async function saveArtifactMeasurements(html: string, sizes: ArtifactMeas
   await saveMeasurements(artifactLayoutId(html), sizes, root)
 }
 
+/** Two frame widths this close lay a render out the same way. */
+const SAME_FRAME_WIDTH_PX = 4
+/** The most widths one render keeps (the store's own limit). */
+const MAX_FRAME_WIDTHS = 12
+
+/**
+ * Adds one height a client measured at one frame width. A width already known
+ * takes the new height; a render that keeps every width it was ever shown at
+ * stays within the store's limit by dropping the width nearest the new one.
+ */
+export function withFrameHeight(sizes: ArtifactMeasurements, width: number, height: number): ArtifactMeasurements {
+  const others = sizes.filter(([known]) => Math.abs(known - width) > SAME_FRAME_WIDTH_PX)
+  if (others.length >= MAX_FRAME_WIDTHS) {
+    let nearest = 0
+    for (let index = 1; index < others.length; index++) {
+      if (Math.abs(others[index][0] - width) < Math.abs(others[nearest][0] - width)) nearest = index
+    }
+    others.splice(nearest, 1)
+  }
+  const measured: [number, number] = [width, height]
+  return [...others, measured].sort((a, b) => a[0] - b[0])
+}
+
+/**
+ * A client measured a reply's HTML frame: kept, so every client that opens the
+ * reply later sizes the frame before it loads (`withReplyHtmlLayouts`). Only a
+ * dimension is stored, and a wrong one costs one frame a resize.
+ */
+export async function recordArtifactFrameHeight(attachmentId: string, width: number, height: number, root = dataDir()): Promise<void> {
+  if (!/^[0-9a-f]{64}$/.test(attachmentId)) return
+  const known = await readArtifactMeasurements(attachmentId, root) ?? []
+  const next = withFrameHeight(known, width, height)
+  if (known.length === next.length && known.every(([w, h], index) => w === next[index][0] && h === next[index][1])) return
+  await saveMeasurements(attachmentId, next, root)
+}
+
 /** Measurements of one saved artifact version, so a client can size its frame before the page loads. */
 function versionLayoutId(workId: string, contentVersion: number): string {
   return artifactLayoutId(`artifact-version\0${workId}\0${contentVersion}`)

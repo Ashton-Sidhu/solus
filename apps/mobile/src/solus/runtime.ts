@@ -157,20 +157,23 @@ export function startSolus() {
         scheduleRecords();
       };
       rowReaders.set(host.id, recordChanged);
+      const receiveAutomationNames = (automations: readonly { id: string; name: string }[]) => {
+        automationRevision++;
+        automationNames.set(host.id, new Map(automations.map(({ id, name }) => [id, name])));
+        changed();
+      };
       const refreshAutomationNames = () => {
         if (solus.connections.state(host.id)?.readiness !== "ready") return;
         const request = ++automationRequest;
         void connection.api.automationList().then((automations) => {
           if (request !== automationRequest) return;
-          automationRevision++;
-          automationNames.set(host.id, new Map(automations.map(({ id, name }) => [id, name])));
-          changed();
+          receiveAutomationNames(automations);
         }, () => {
           // Older hosts can still list sessions without answering automation reads.
         });
       };
       const readAutomationNames = () => {
-        if (automationRequest > 0 || connection.state.readiness !== "ready") return;
+        if (generation === undefined || automationRequest > 0 || connection.state.readiness !== "ready") return;
         const rows = solus.threads.threads();
         if (rows === lastAutomationRows) return;
         const positions = lastAutomationRows && solus.threads.changedPositions(lastAutomationRows, []);
@@ -183,15 +186,30 @@ export function startSolus() {
         const state = solus.connections.state(host.id);
         if (state?.readiness === "ready" && state.sessionGeneration !== generation) {
           generation = state.sessionGeneration;
-          if (automationRequest > 0) refreshAutomationNames();
+          const opening = solus.openingDirectory(host.id, "sessions");
+          let directoryPage = opening;
+          if (opening) {
+            const request = ++automationRequest;
+            void opening.then(page => {
+              if (request !== automationRequest || disposed) return;
+              if (page) {
+                receiveAutomationNames(page.automations);
+              } else {
+                automationRequest = 0;
+                readAutomationNames();
+              }
+            }, () => {});
+            const pins = solus.threadList.loadPins(host.id, opening.then(page => page?.pins));
+            directoryPage = Promise.all([opening, pins]).then(([page]) => page);
+          } else if (automationRequest > 0) refreshAutomationNames();
           else readAutomationNames();
-          solus.threadList.follow(host.id);
+          solus.threadList.follow(host.id, opening?.then(page => page?.attention));
           nearby.onHostReady();
           clearTimeout(timer);
           timer = undefined;
           pendingRecords.clear();
           deltas.clear();
-          void solus.threads.load(host.id);
+          void solus.threads.load(host.id, 0, "all", directoryPage);
         }
       };
       const stops = [
@@ -292,7 +310,11 @@ export function startSolus() {
   };
 }
 
-const projectThreads = createSessionListProjection((codebaseId) => solus.codebases.codebaseOf(codebaseId));
+const projectThreads = createSessionListProjection(
+  (codebaseId, hostId) => solus.codebases.codebaseOf(codebaseId) ??
+    (solus.codebases.isDeleted(codebaseId) ? undefined : solus.threads.openingCodebase(hostId, codebaseId)),
+  (hostId, automationId) => solus.threads.openingAutomation(hostId, automationId),
+);
 
 function readHosts() {
   const environments = solus.registry.hosts().map((host): WorkspaceEnvironment & {supportsListControls: boolean} => {

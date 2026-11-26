@@ -23,6 +23,9 @@
   import FleetRouteTree from "./FleetRouteTree.svelte";
   import FleetLoad from "./FleetLoad.svelte";
   import FleetZoneDetail from "./FleetZoneDetail.svelte";
+  import { addWslDistroStore } from "../servers/add-wsl-distro.store.svelte";
+  import { openSshAdd } from "./add-machine";
+  import { approvalRequestStore } from "../servers/approval-request.store.svelte";
   import { askAgentAboutHosts } from "./ask-agent";
   import { discoverStore } from "./discover.store.svelte";
   import { fleetStore } from "./fleet.store.svelte";
@@ -227,6 +230,20 @@
     }
   }
 
+  /**
+   * Adds a found machine that a handle was dropped on: a host that runs Solus gets
+   * an approval request, shown in the Add host dialog with its check code; a WSL
+   * distro is set up; a machine from the SSH config opens the SSH form, filled in.
+   */
+  function addFound(key: string) {
+    const machine = discoverStore.found.find((entry) => entry.key === key);
+    if (!machine) return;
+    if (machine.kind === "wsl") return void addWslDistroStore.add(machine.windowsHostId, machine.distro);
+    if (machine.kind === "ssh") return openSshAdd(machine.sshTarget);
+    void approvalRequestStore.start(machine);
+    serversStore.openAddServer("", "approve");
+  }
+
   /** Enter in Find goes to the next match, Shift+Enter to the one before, centered on the map and selected. */
   function findNext(step: 1 | -1) {
     // From the start, Shift+Enter goes to the last match.
@@ -362,6 +379,8 @@
               bind:this={fleetMap}
               {machines}
               found={discoverStore.found}
+              approval={approvalRequestStore}
+              onAddFound={addFound}
               answers={fleetStore.answers}
               {colorMode}
               {query}

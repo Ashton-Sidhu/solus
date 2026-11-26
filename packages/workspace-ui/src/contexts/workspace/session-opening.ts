@@ -411,6 +411,7 @@ export class SessionOpening {
       provider: meta.provider ?? this.workspace.settings.activeAgent,
       turnLimit: INITIAL_HISTORY_TURNS,
       deferArtifactHtml: true,
+      replyLayout: true,
     }
   }
 

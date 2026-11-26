@@ -94,7 +94,7 @@ This session is a chat with no project. The person did not choose a folder or a 
 
 const VISUALS_INSTRUCTIONS = `## Showing visuals
 
-Show trends, comparisons, and flows as a chart or diagram, even unasked. For a visual in the conversation, write a self-contained HTML page with inline CSS and any JavaScript it needs. Pass the HTML or file path to render_artifact with preview: true. Check the screenshot and console output, then fix any problems. To show the live page, write it in a \`\`\`html fence in your reply, or call render_artifact without preview when the user needs a saved work. Use the Solus theme and layout rules in the tool description. The preview runs on the host and is visible only to you. Do not scaffold a project or start a server for the preview.`
+Show trends, comparisons, and flows as a chart or diagram, even unasked. Before your first visual in a session, load the visual-artifacts skill: it holds the design rules, and render_artifact says how to check and show the page.`
 
 /** One folder on this host in the `<codebase>` block. */
 export interface CodebaseBlockFolder {

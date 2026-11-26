@@ -27,7 +27,7 @@ function fakeHost(count: number, options: { knowsOrder: boolean }) {
       return { items, nextCursor: end < count ? String(end) : null, indexing: false }
     },
   }
-  const records = workspaceRecordMethods(client as never, async () => ({}) as never)
+  const records = workspaceRecordMethods(client as never)
   return { records, queries }
 }
 
@@ -41,6 +41,28 @@ describe('session record list', () => {
     expect(list.records[0].sessionId).toBe('s4000')
   })
 
+  test('publishes the newest page before requesting the remaining sessions', async () => {
+    const host = fakeHost(450, { knowsOrder: true })
+    const pages: string[][] = []
+    const list = await host.records.sessionRecordList({}, page => {
+      expect(host.queries).toHaveLength(1)
+      pages.push(page.records.map(record => record.sessionId))
+    })
+    expect(pages).toEqual([list.records.slice(0, 32).map(record => record.sessionId)])
+    expect(host.queries.map(query => query.limit)).toEqual([32, 200, 200, 200])
+    expect(list.records).toHaveLength(450)
+    expect(new Set(list.records.map(record => record.sessionId)).size).toBe(450)
+  })
+
+  test('an older host finishes sorting its history before publishing any rows', async () => {
+    const host = fakeHost(450, { knowsOrder: false })
+    let partialReads = 0
+    const list = await host.records.sessionRecordList({}, () => { partialReads++ })
+    expect(partialReads).toBe(0)
+    expect(list.records).toHaveLength(450)
+    expect(list.records[0].sessionId).toBe('s450')
+  })
+
   test('reads every page of a host older than activity order', async () => {
     const host = fakeHost(450, { knowsOrder: false })
     const list = await host.records.sessionRecordList({ limit: 100 })
@@ -52,6 +74,28 @@ describe('session record list', () => {
 })
 
 describe('native directory: request budget', () => {
+  test('publishes projects, codebases and pinned rows before reading older sessions', async () => {
+    const record = (sessionId: string) => ({ sessionId, codebaseId: 'cb', lastActivityAt: 1 }) as SessionRecord
+    const host = { id: 'h', label: 'Mac' }
+    const registry = { host: () => host, hosts: () => [host] }
+    const reads: string[] = []
+    const connection = { state: { sessionGeneration: 1 }, api: {
+      sessionRecordList: async (filter: SessionRecordListFilter) => {
+        reads.push(filter.scope ?? 'list')
+        expect(directory.threads().map(row => row.record.sessionId)).toEqual(['a', 'p'])
+        expect(directory.projects()[0]?.project.path).toBe('/project')
+        expect(directory.openingCodebase('h', 'cb')?.name).toBe('Platform')
+        return { records: [], indexing: false }
+      },
+    } }
+    const directory = new ThreadDirectory(registry as never, () => connection as never)
+    const opening = { records: [record('a')], pinnedRecords: [record('p')], indexing: false, nextCursor: null,
+      projects: [{ path: '/project' }], codebases: [{ id: 'cb', name: 'Platform', updatedAt: 1, deletedAt: null, roots: [{ installationId: 'h', path: '/src', name: 'src', container: true }] }], pins: [], automations: [], attention: [] }
+    await directory.load('h', 0, 'all', Promise.resolve(opening) as never)
+    expect(directory.stateOf('h').kind).toBe('loaded')
+    expect(reads).toEqual(['all'])
+  })
+
   test('a refused read keeps the list and reads again after the wait the host asks for', async () => {
     const record = (sessionId: string) => ({ sessionId, parentSessionId: null, lastActivityAt: 1, projectPath: '/p' }) as SessionRecord
     let refusals = 0

@@ -1,7 +1,7 @@
 import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
+import { RUNNING_SERVER_PROVIDER_ENV, RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { instanceRuntime, providerHistoryInstanceId, type ProviderRuntime } from '../../seats/provider-runtime'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { requireActingScope } from '../../../vault/acting-scope'
@@ -746,7 +746,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
       const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
-      const config = { ...THREAD_CONFIG, [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '' }
+      const config = {
+        ...THREAD_CONFIG,
+        [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '',
+        [`shell_environment_policy.set.${RUNNING_SERVER_PROVIDER_ENV}`]: 'codex',
+      }
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,

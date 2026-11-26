@@ -4,8 +4,7 @@
   import type { Component } from 'svelte';
   import * as Tooltip from '../ui/tooltip';
   import ProviderMark from '../ui/ProviderMark.svelte';
-  import { providerMark } from '../insights/lib/provider';
-  import { sessionListStore } from '../../contexts/workspace/session-list.store.svelte';
+  import { providerMark, providerName } from '../insights/lib/provider';
   import { hostPathBaseName } from '@solus/contracts/host-path';
   import { stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
   import type { RunningServers, RunningServersRow } from '@solus/client-core/running-servers';
@@ -112,12 +111,13 @@
       {@const { server, endpoint } = row}
       {@const forwarded = server.forwarded(endpoint)}
       {@const copied = copiedAction === `copy:${endpoint.endpointId}`}
-      {@const agentMark = server.startedBy.kind === 'agent' && server.startedBy.sessionId ? providerMark(sessionListStore.listed(server.startedBy.sessionId)?.opensWith.provider) : null}
+      {@const provider = server.startedBy.kind === 'agent' ? server.startedBy.provider : undefined}
+      {@const agentMark = providerMark(provider)}
       {@const SourceIcon = server.startedBy.kind === 'agent' ? Bot : server.startedBy.kind === 'terminal' ? SquareTerminal : Globe}
       {@const folder = server.location.projectRoot ?? row.checkoutPath}
       {@const detail = [folder ? hostPathBaseName(folder) : null, forwarded ? `localhost:${forwarded.localPort}` : null].filter(Boolean).join(' · ')}
       <div class="group flex items-center rounded-md hover:bg-(--solus-surface-hover)" data-active={copied || pendingAction?.endsWith(`:${endpoint.endpointId}`) || undefined}>
-        <button type="button" title={`${endpoint.url}\n${server.sourceLabel} · ${server.process.name}${row.checkoutPath ? `\n${row.checkoutPath}` : ''}`} class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 focus-visible:outline-2"
+        <button type="button" title={`${endpoint.url}\n${providerName(provider) ?? server.sourceLabel} · ${server.process.name}${row.checkoutPath ? `\n${row.checkoutPath}` : ''}`} class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 focus-visible:outline-2"
           onclick={(event) => void ((forwardingEnabled || host === hosts.device) && (event.metaKey || event.ctrlKey || event.shiftKey) ? external(server, endpoint) : open(server, endpoint))}
           onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); void (forwardingEnabled || host === hosts.device ? external(server, endpoint) : open(server, endpoint)); } }}>
           <span class="flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)" aria-hidden="true">

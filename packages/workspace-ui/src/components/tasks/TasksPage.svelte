@@ -748,7 +748,7 @@
            keep the same natural height in both layouts. -->
       <div
         bind:this={listEl}
-        class={view.boardLayout && (loadingTasks || view.visibleTasks.length > 0) ? "flex h-full min-h-0 flex-col" : ""}
+        class={view.boardLayout && (loadingTasks || view.awaitingProvider || view.visibleTasks.length > 0) ? "flex h-full min-h-0 flex-col" : ""}
         onkeydown={onBodyKeydown}
         role="presentation"
       >
@@ -819,6 +819,14 @@
               {/if}
             {/snippet}
           </PageEmpty>
+        {:else if view.awaitingProvider}
+          <!-- The provider is still answering the search or the involvement
+               filter: the rows on screen do not answer it yet. -->
+          {#if view.boardLayout}
+            <TaskBoardSkeleton />
+          {:else}
+            <ListSkeleton identWidth={62} />
+          {/if}
         {:else if view.visibleTasks.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.

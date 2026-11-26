@@ -29,8 +29,8 @@ export const workspaceSessionQuerySchema = z.strictObject({
   /** Only chats, the sessions with no project, in every chat folder. */
   chats: z.enum(['true', 'false']).optional(),
   /** `list` (the default): the caller's session list. `all`: every session they may read,
-   *  archived ones too, each marked with `listed` (docs/plans/session-archive.md). */
-  scope: z.enum(['list', 'all']).default('list'),
+   *  archived ones too, each marked with `listed`. `pinned` reads the caller's current pins. */
+  scope: z.enum(['list', 'all', 'pinned']).default('list'),
   /** The sessions this session started. Without it, only top-level sessions are answered. */
   parentSessionId: workspaceIdSchema.optional(),
   ...page,

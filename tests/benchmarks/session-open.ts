@@ -39,6 +39,10 @@ const TRACE = argv.includes('--trace')
 const KEEP = argv.includes('--keep')
 /** Measure one fixture only, by key. */
 const ONLY = flag('--only')
+/** Open as a client that never showed these renders (another device, the web client): no remembered frame heights. */
+const FORGET_FRAME_HEIGHTS = argv.includes('--forget-frame-heights')
+/** With --trace --keep, also record why each style recalc and layout ran (Chrome invalidation tracking). */
+const INVALIDATIONS = argv.includes('--invalidations')
 /** Rest the pointer on the row this long before the click, as a person does (0: click at once, the worst case). */
 const HOVER_MS = Number(flag('--hover-ms') ?? 0)
 /** Chrome CPU slowdown factor: 4 stands in for a laptop that is busy with agents, builds, and other tabs. */
@@ -310,7 +314,9 @@ async function startTrace(cdp: CDPSession): Promise<void> {
   await cdp.send('Profiler.start')
   await cdp.send('Tracing.start', {
     transferMode: 'ReturnAsStream',
-    traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8', 'v8.execute', 'blink', 'loading', '__metadata'] },
+    traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8', 'v8.execute', 'blink', 'loading', '__metadata',
+      // What made each style recalc and layout necessary; costly to record, so only on request.
+      ...(INVALIDATIONS ? ['disabled-by-default-devtools.timeline.invalidationTracking'] : [])] },
   })
 }
 
@@ -402,7 +408,10 @@ type OpenTrace = ReturnType<typeof summarizeTrace> & { hot: Awaited<ReturnType<t
 async function openOnce(page: Page, base: string, fixture: Fixture, cdp: CDPSession | null): Promise<{ sample: OpenSample; trace?: OpenTrace }> {
   // Forget the tabs the last open left, on a same-origin page the app does not run on.
   await page.goto(`${base}/health`)
-  await page.evaluate(() => { for (const key of ['solus-open-tabs', 'solus-open-sidebar-tasks']) localStorage.removeItem(key) })
+  await page.evaluate((forgetFrameHeights) => {
+    for (const key of ['solus-open-tabs', 'solus-open-sidebar-tasks']) localStorage.removeItem(key)
+    if (forgetFrameHeights) localStorage.removeItem('solus.artifact-heights')
+  }, FORGET_FRAME_HEIGHTS)
   await page.goto(`${base}/?skip-onboarding`)
   const row = page.locator(`[data-task-key="session:${fixture.sessionId}"]`).first()
   await row.waitFor({ timeout: OPEN_TIMEOUT_MS }).catch(async (error: Error) => {

@@ -1,5 +1,4 @@
 import { agentActivityOfTool, type AgentActivity } from "@solus/contracts/agent-activity";
-import type { AgentExchangeStatus } from "@solus/contracts/types";
 import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from "@solus/client-core/dot-marks";
 import type { ToolItem } from "@solus-mobile/features/conversation/lib/tool-item";
 import type { OrchestrationV2Subagent } from "@t3tools/contracts";
@@ -153,48 +152,4 @@ export function toolStateMark(tool: Pick<ToolItem, "toolName" | "status" | "time
     mark: DOT_MARK_FOR_ACTIVITY[agentActivityOfTool(tool.toolName) ?? "other"],
     startedAt: tool.timestamp ?? null,
   };
-}
-
-/** What this client knows live about the session an agent card stands for. */
-export interface StartedSessionLive {
-  /** From `session.activityChanged`, while its turn runs. */
-  readonly activity: AgentActivity | undefined;
-  /** The input that waits is a permission request, not a question. */
-  readonly awaitingApproval: boolean;
-}
-
-/**
- * The mark of a card for a session that this session started: the same
- * states as the desktop card. An interrupted exchange reads as replied.
- */
-export function startedSessionStateMark(
-  status: AgentExchangeStatus,
-  startedAt: number,
-  live: StartedSessionLive,
-): StateMark {
-  switch (status) {
-    case "dispatched":
-    case "queued":
-      return { kind: "dot", mark: "starting", startedAt: null };
-    case "running":
-    case "answered":
-      return {
-        kind: "dot",
-        mark: DOT_MARK_FOR_ACTIVITY[live.activity ?? "other"],
-        startedAt,
-      };
-    case "waiting_for_children":
-      return { kind: "dot", mark: "delegating", startedAt };
-    case "awaiting_input":
-      return glyph(live.awaitingApproval ? "approval" : "input");
-    case "rate_limited":
-      return glyph("limited");
-    case "failed":
-      return glyph("failed");
-    case "lost":
-      return { kind: "dot", mark: "offline", startedAt: null };
-    case "done":
-    case "interrupted":
-      return glyph("done");
-  }
 }

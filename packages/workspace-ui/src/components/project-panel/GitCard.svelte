@@ -3,9 +3,7 @@
    *  repository (docs/plans/codebases.md §9): the card then lists them, and
    *  its Git rows work in the chosen one. There is one Git section, aimed at
    *  that repository. With one repository the card is the Git section alone. */
-  import { isTaskFolderPath } from "@solus/contracts/codebases";
   import { getSessionEnvironmentStore, getWorkspaceContext } from "../../contexts";
-  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import { conversationViewStates } from "../conversation/lib/conversation-view-state.svelte";
@@ -53,9 +51,6 @@
   const fold = $derived(foldGitRepositoryRows(rows, chosen?.key ?? null, view ? view.gitRepositoriesExpanded : draftRepositoriesExpanded));
   // The Git section shows for the repository of the working directory, or for the chosen session folder.
   const hasGitSection = $derived(!!env.checkout || !!folder);
-  const canAddRepository = $derived(
-    isStarted && isTaskFolderPath(env.cwd) && !!panelSession && canDriveSession(session.serverIdFor(sourceId), panelSession.id),
-  );
 
   function choose(row: GitRepositoryRow) {
     if (view) view.gitRepositoryPath = gitRepositoryChoice(rows, row);
@@ -71,8 +66,8 @@
   }
 </script>
 
-{#if showsRows || canAddRepository}
-  <GitRepositories {sourceId} {active} {fold} chosenKey={chosen?.key ?? null} {canAddRepository} onChoose={choose} onToggleFold={toggleFold} />
+{#if showsRows}
+  <GitRepositories {sourceId} {active} {fold} chosenKey={chosen?.key ?? null} onChoose={choose} onToggleFold={toggleFold} />
 {/if}
 {#if hasGitSection}
   <!-- One Git section. A choice of a different repository starts it again, so

@@ -33,9 +33,9 @@ test('the PR list distinguishes pending, empty, and populated answers', async ()
       ['@lucide/svelte', icons], ['../ui/octicons', icons], ['../ui/button', button], ['../ui/PageEmpty.svelte', stub],
       ['./GithubConnectionRequired.svelte', stub], ['./PrListLoading.svelte', loading], ['./lib/pr-surface-error', errors],
     ]))
-    const harness = writeComponent('harness', `<script>import States from 'STATES'; let { loading, hasItems } = $props();</script>
+    const harness = writeComponent('harness', `<script>import States from 'STATES'; let { loading, hasItems, narrowed = false } = $props();</script>
       <States allProjects={true} hasScope={true} scopeError={null} scopeLabel={null} serverId={null}
-        projectsFailure={{kind: 'none'}} {loading} {hasItems} onRetry={() => {}} onShowAll={() => {}}>
+        projectsFailure={{kind: 'none'}} {loading} {hasItems} {narrowed} onRetry={() => {}} onShowAll={() => {}}>
         Existing pull requests
       </States>`, new Map([['STATES', states]]))
     const { default: Harness } = await import(harness)
@@ -48,6 +48,11 @@ test('the PR list distinguishes pending, empty, and populated answers', async ()
     const refreshing = render(Harness, { props: { loading: true, hasItems: true } }).body
     expect(refreshing).toContain('Existing pull requests')
     expect(refreshing).not.toContain('data-empty')
+    // A search or filter the host answered with nothing is a miss for the list
+    // to state, not a project with no pull requests.
+    const missed = render(Harness, { props: { loading: false, hasItems: false, narrowed: true } }).body
+    expect(missed).toContain('Existing pull requests')
+    expect(missed).not.toContain('data-empty')
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

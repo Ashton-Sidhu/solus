@@ -10,7 +10,7 @@ import { LINUX_KEYS, MAC_KEYS, WINDOWS_KEYS } from '@solus/workspace-ui/lib/keyb
 // Windows choices without starting any program, so they run on every platform.
 
 // The adapters import Electron, which only loads inside Electron.
-mock.module('electron', () => ({ app: {}, Menu: {}, desktopCapturer: {}, nativeImage: {}, screen: {} }))
+mock.module('electron', () => ({ app: {}, Menu: {}, desktopCapturer: {}, nativeImage: {}, screen: {}, shell: {} }))
 const { desktopPlatformFor } = await import('@solus/desktop-main/platform/desktop-platform')
 
 describe('the desktop adapter for each operating system', () => {

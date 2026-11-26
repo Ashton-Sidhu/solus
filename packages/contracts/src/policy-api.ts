@@ -6,6 +6,7 @@
 // on both ends, so a newer schema reads as a refusal, not a crash.
 
 import { z } from 'zod'
+import { directoryMemberSchema, organizationRoleSchema } from './uplink'
 
 const documentEnvelope = {
   revision: z.number().int().nonnegative(),
@@ -88,3 +89,55 @@ export const organizationPolicyPath = (organizationId: string): string => `/v1/o
 export const hostPoliciesPath = (organizationId: string): string => `/v1/orgs/${encodeURIComponent(organizationId)}/host-policies`
 export const hostPolicyPath = (organizationId: string, policyId: string): string => `${hostPoliciesPath(organizationId)}/${encodeURIComponent(policyId)}`
 export const hostPolicyAssignmentPath = (organizationId: string, hostId: string): string => `/v1/orgs/${encodeURIComponent(organizationId)}/hosts/${encodeURIComponent(hostId)}/policy`
+
+// ─── Organization settings ───
+//
+// What an organization is and where its members run work: its name, its people,
+// and its host rules (organization-scope §3.1). Every member reads them in
+// Settings → Organization; only an owner changes them. The people themselves —
+// invitations, roles, removal — are changed on the Solus console.
+
+/** The host rules of an organization, and what a new cloud host of it starts with. */
+export const organizationHostRulesSchema = z.object({
+  allowCloudHosts: z.boolean(),
+  allowPersonalHosts: z.boolean(),
+  defaultPackages: z.array(z.string().min(1)),
+  defaultSetupScript: z.string().nullable(),
+})
+export type OrganizationHostRules = z.infer<typeof organizationHostRulesSchema>
+
+/** `GET /v1/orgs/:organizationId/settings`: members only. */
+export const organizationSettingsResponseSchema = z.object({
+  organizationId: z.string().min(1),
+  name: z.string(),
+  /** Made from the name when the organization was founded; a rename keeps it. */
+  slug: z.string(),
+  /** The caller's own role: an owner changes these settings, a member reads them. */
+  role: organizationRoleSchema,
+  members: z.array(directoryMemberSchema),
+  hostRules: organizationHostRulesSchema,
+  /** A host rules write names it, so a save from another owner is never overwritten unseen. */
+  hostRulesRevision: z.number().int().nonnegative(),
+})
+export type OrganizationSettingsResponse = z.infer<typeof organizationSettingsResponseSchema>
+
+/** The longest organization name, as the console allows. */
+export const MAX_ORGANIZATION_NAME_LENGTH = 80
+
+/**
+ * `PATCH /v1/orgs/:organizationId/settings`: owners only. A rename, new host rules
+ * against the revision that was read, or both. The answer is the settings after the write;
+ * a 409 carries the current settings as its `document`.
+ */
+export const organizationSettingsPatchRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(MAX_ORGANIZATION_NAME_LENGTH).optional(),
+    hostRules: organizationHostRulesSchema.optional(),
+    expectedRevision: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .refine((request) => request.name !== undefined || request.hostRules !== undefined, { message: 'nothing to change' })
+  .refine((request) => request.hostRules === undefined || request.expectedRevision !== undefined, { message: 'host rules need the revision they were read at', path: ['expectedRevision'] })
+export type OrganizationSettingsPatchRequest = z.infer<typeof organizationSettingsPatchRequestSchema>
+
+export const organizationSettingsPath = (organizationId: string): string => `/v1/orgs/${encodeURIComponent(organizationId)}/settings`

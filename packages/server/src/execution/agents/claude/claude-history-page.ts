@@ -54,8 +54,9 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
       const { bytesRead } = await file.read(block, 0, block.length, start)
       if (bytesRead !== block.length) throw new Error('Session history changed during loading.')
       let end = block.length
-      for (let index = block.length - 1; index >= 0; index--) {
-        if (block[index] !== 10) continue
+      while (end > 0) {
+        const index = block.lastIndexOf(10, end - 1)
+        if (index < 0) break
         const head = block.subarray(index + 1, end)
         const line = fragments.length ? Buffer.concat([head, ...fragments.reverse()]) : head
         fragments = []

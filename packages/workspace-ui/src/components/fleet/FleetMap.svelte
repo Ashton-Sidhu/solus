@@ -4,13 +4,15 @@
   import { Button } from "../ui/button";
   import * as Popover from "../ui/popover";
   import FleetMapScene from "./FleetMapScene.svelte";
+  import type { ApprovalRequest } from "../servers/approval-request.store.svelte";
   import type { FoundMachine } from "./lib/discover";
   import { machinesByZone, OPEN_ZONE_CARDS, type AddWay, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
   import { arrowDirection, nextFleetStop, type FleetStop } from "./lib/fleet-keys";
   import { introduceAction, introduceBlock, reachNeighbors, type IntroduceAction, type ReachEdge } from "./lib/fleet-reach";
   import type { WireRoute } from "./lib/fleet-routes";
-  import { cardCenter, fleetScene, scenePercent, zoneTop } from "./lib/fleet-scene";
-  import { anchorView, centerOn, fitView, frameHeight, panView, revealRect, toScene, zoomView, type FleetView, type ScenePoint } from "./lib/fleet-view";
+  import { dragCurve, dragHint, dragStart, snapPoint } from "./lib/fleet-drag";
+  import { cardCenter, fleetScene, zoneTop } from "./lib/fleet-scene";
+  import { anchorView, centerOn, fitView, frameHeight, panView, revealRect, toScene, zoomView, type FleetView, type ScenePoint, type SceneRect } from "./lib/fleet-view";
 
   /**
    * The frame of the host map: it lays the map out at its own width, fits it, and
@@ -43,6 +45,10 @@
     onSelectEdge: (edgeId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
     onAdd: (way: AddWay) => void;
+    /** The approval request a drop on a found machine sent: its card says it waits. */
+    approval: ApprovalRequest;
+    /** A drop on a found machine: add it. */
+    onAddFound: (key: string) => void;
     onStart: (serverId: string) => void;
     onPointFound: (key: string | null) => void;
     onRetry: (zone: FleetZoneId) => void;
@@ -53,7 +59,7 @@
 
   let {
     machines, found, answers, colorMode, query, isLive, edges, pointedId, selectedId, pickedIds, selectedEdgeId, routesOf, isOwner,
-    onPoint, onActivate, onSelect, onPick, onClearSelection, onSelectEdge, onOpenZone, onAdd, onStart, onPointFound, onRetry, onIntroduce, onOpenMenu,
+    onPoint, onActivate, onSelect, onPick, onClearSelection, onSelectEdge, onOpenZone, onAdd, approval, onAddFound, onStart, onPointFound, onRetry, onIntroduce, onOpenMenu,
   }: Props = $props();
 
   let frame = $state<HTMLDivElement | null>(null);
@@ -69,7 +75,23 @@
   let gesture = $state<
     | { kind: "pan"; startX: number; startY: number; startView: FleetView; moved: boolean }
     | { kind: "box"; startX: number; startY: number; x: number; y: number }
-    | { kind: "link"; sourceId: string; startX: number; startY: number; from: ScenePoint; to: ScenePoint; overId: string | null; moved: boolean }
+    | {
+        kind: "link"
+        sourceId: string
+        startX: number
+        startY: number
+        /** The box of the host it started from, and the side its handle is on, on the map in its px. */
+        sourceRect: SceneRect
+        handleSide: "left" | "bottom"
+        /** The pointer on the map, in its px; `at` is the pointer in the frame, for the label. */
+        to: ScenePoint
+        at: ScenePoint
+        overId: string | null
+        overFoundKey: string | null
+        /** The box of the host or found machine a drop would act on; null over nothing. */
+        targetRect: SceneRect | null
+        moved: boolean
+      }
     | null
   >(null);
 
@@ -80,7 +102,9 @@
   const frameSize = $derived({ w: frameWidth, h: frameHeight(sceneSize.h) });
   const view = $derived(manual ?? fitView(sceneSize, frameSize));
   const focusId = $derived(pointedId ?? selectedId);
-  const lit = $derived(focusId ? new Set([focusId, ...reachNeighbors(edges, focusId)]) : null);
+  // While a handle is dragged, every host is a place to drop it, so none steps back. The pointer is
+  // captured then, so the host it started from would otherwise stay the one in focus.
+  const lit = $derived(gesture?.kind !== "link" && focusId ? new Set([focusId, ...reachNeighbors(edges, focusId)]) : null);
   const isLit = (serverId: string) => !lit || lit.has(serverId);
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
   const currentId = $derived(selectedId ?? lastFocusedId ?? device?.serverId ?? machines[0]?.serverId ?? null);
@@ -93,8 +117,36 @@
     if (gesture?.kind !== "link" || !gesture.overId) return null;
     return introduceAction({ sourceId: gesture.sourceId, dropId: gesture.overId, selected: pickedIds, edges, blockOf, labelOf });
   });
-  const dropStateOf = (serverId: string) => (gesture?.kind === "link" && gesture.overId === serverId && dropAction ? (dropAction.kind === "introduce" ? "ok" : "no") : null);
-  const dragLine = $derived(gesture?.kind === "link" && gesture.moved ? { from: scenePercent(gesture.from, sceneSize), to: scenePercent(gesture.to, sceneSize) } : null);
+  /** Each host a drop would introduce shows it, so a drop on one of several picked hosts lights them all; a refused drop marks only the host under the pointer. */
+  const dropStateOf = (serverId: string) => {
+    if (gesture?.kind !== "link" || !dropAction) return null;
+    if (dropAction.kind === "introduce") return dropAction.targetIds.includes(serverId) ? "ok" : null;
+    return gesture.overId === serverId ? "no" : null;
+  };
+  /** The found machine a dragged handle is over: a drop there adds it. */
+  const dropFoundKey = $derived(gesture?.kind === "link" ? gesture.overFoundKey : null);
+  /** The line a dragged handle draws, the end it snaps to, and what a drop there would do. */
+  const drag = $derived.by(() => {
+    if (gesture?.kind !== "link" || !gesture.moved) return null;
+    const overFoundKey = gesture.overFoundKey;
+    const foundName = overFoundKey ? found.find((machine) => machine.key === overFoundKey)?.name ?? null : null;
+    const target = gesture.targetRect;
+    const toward = target ? { x: target.x + target.w / 2, y: target.y + target.h / 2 } : gesture.to;
+    const start = dragStart(gesture.sourceRect, gesture.handleSide, toward);
+    const snap = target ? snapPoint(start.point, target) : null;
+    const end = snap?.point ?? gesture.to;
+    return {
+      d: dragCurve(start.point, start.normal, end, snap?.normal ?? null),
+      from: start.point,
+      end,
+      isSnapped: snap !== null,
+      at: gesture.at,
+      // Near the right edge of the frame the label goes to the left of the pointer.
+      isLabelLeft: gesture.at.x > frameSize.w - 240,
+      hint: dragHint({ action: dropAction, foundName, labelOf }),
+    };
+  });
+  const dragColor = { ok: "var(--success)", no: "var(--solus-status-error)", none: "var(--foreground)" };
 
   // The root size can change with the person's zoom; it is read with the frame's width.
   $effect(() => {
@@ -243,8 +295,22 @@
       gesture = { ...gesture, x: at.x, y: at.y };
     } else {
       const moved = gesture.moved || Math.hypot(at.x - gesture.startX, at.y - gesture.startY) > 4;
-      const overId = hostIdOf(document.elementFromPoint(event.clientX, event.clientY));
-      gesture = { ...gesture, moved, to: toScene(view, at), overId: overId === gesture.sourceId ? null : overId };
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const hostElement = under?.closest<HTMLElement>("[data-host-id]") ?? null;
+      const overId = hostElement?.dataset.hostId ?? null;
+      const isOverSource = overId === gesture.sourceId;
+      // A found machine is not a host yet: a drop on it adds it.
+      const foundElement = overId ? null : under?.closest<HTMLElement>("[data-found-key]") ?? null;
+      const target = isOverSource ? null : hostElement ?? foundElement;
+      gesture = {
+        ...gesture,
+        moved,
+        to: toScene(view, at),
+        at,
+        overId: isOverSource ? null : overId,
+        overFoundKey: foundElement?.dataset.foundKey ?? null,
+        targetRect: target ? sceneRectOf(target) : null,
+      };
     }
   }
 
@@ -270,7 +336,20 @@
         notice = null;
         onIntroduce(action.sourceId, action.targetIds, action.skipped);
       } else if (action) notice = action.message;
+    } else if (done.overFoundKey) {
+      notice = null;
+      onAddFound(done.overFoundKey);
+    } else {
+      // A drop that lands on nothing says what it takes, so it never fails in silence.
+      notice = "Drop it on another of your hosts to introduce the two, or on a found machine to add it.";
     }
+  }
+
+  /** An element's box on the map, in its px, whatever the zoom and pan. */
+  function sceneRectOf(element: Element) {
+    const box = element.getBoundingClientRect();
+    const topLeft = toScene(view, framePoint({ clientX: box.left, clientY: box.top }));
+    return { ...topLeft, w: box.width / view.scale, h: box.height / view.scale };
   }
 
   function onHandleDown(event: PointerEvent, serverId: string) {
@@ -279,10 +358,12 @@
     event.stopPropagation();
     frame?.setPointerCapture(event.pointerId);
     if (!(event.currentTarget instanceof HTMLElement)) return;
-    const handle = event.currentTarget.getBoundingClientRect();
-    const from = toScene(view, framePoint({ clientX: handle.left + handle.width / 2, clientY: handle.top + handle.height / 2 }));
+    const source = event.currentTarget.closest("[data-host-id]");
+    if (!source) return;
     const at = framePoint(event);
-    gesture = { kind: "link", sourceId: serverId, startX: at.x, startY: at.y, from, to: from, overId: null, moved: false };
+    // A card's handle is on its left edge, This device's under it.
+    const handleSide = event.currentTarget.dataset.handleSide === "bottom" ? "bottom" : "left";
+    gesture = { kind: "link", sourceId: serverId, startX: at.x, startY: at.y, sourceRect: sceneRectOf(source), handleSide, to: toScene(view, at), at, overId: null, overFoundKey: null, targetRect: null, moved: false };
   }
 </script>
 
@@ -331,8 +412,10 @@
       {currentId}
       wires={scene.wires}
       reachPaths={scene.reachPaths}
-      {dragLine}
+      dragSourceId={gesture?.kind === "link" ? gesture.sourceId : null}
       {dropStateOf}
+      {dropFoundKey}
+      {approval}
       canIntroduce={(serverId) => blockOf(serverId) === null}
       {labelOf}
       {onPoint}
@@ -346,7 +429,32 @@
       {onHandleDown}
       {onSelectEdge}
     />
+    {#if drag}
+      <!-- The drag line, above the cards and in the map's own px, so it never stretches or hides under a card. -->
+      <svg aria-hidden="true" class="pointer-events-none absolute inset-0 z-30 overflow-visible" width={sceneSize.w} height={sceneSize.h} viewBox="0 0 {sceneSize.w} {sceneSize.h}">
+        <path d={drag.d} fill="none" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"
+          stroke-dasharray={drag.hint.tone === "no" ? "6 4" : undefined} style:stroke={dragColor[drag.hint.tone]} />
+        <circle cx={drag.from.x} cy={drag.from.y} r="3.5" style:fill={dragColor[drag.hint.tone]} />
+        <circle cx={drag.end.x} cy={drag.end.y} r={drag.isSnapped ? 5 : 3.5} stroke-width="2" vector-effect="non-scaling-stroke"
+          style:fill={drag.isSnapped ? dragColor[drag.hint.tone] : "var(--background)"} style:stroke={dragColor[drag.hint.tone]} />
+      </svg>
+    {/if}
   </div>
+
+  {#if drag}
+    <!-- What a drop here would do, beside the pointer. -->
+    <div
+      aria-live="polite"
+      class="pointer-events-none absolute z-40 flex max-w-64 items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-chrome-dense whitespace-nowrap shadow-[shadow:var(--solus-menu-shadow)]
+        {drag.hint.tone === 'none' ? 'text-muted-foreground' : 'text-foreground'}"
+      style:left="{drag.isLabelLeft ? drag.at.x - 14 : drag.at.x + 14}px"
+      style:top="{drag.at.y + 14}px"
+      style:translate={drag.isLabelLeft ? "-100% 0" : undefined}
+    >
+      <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full" style:background={dragColor[drag.hint.tone]}></span>
+      <span class="truncate">{drag.hint.text}</span>
+    </div>
+  {/if}
 
   <p id="fleet-map-keys" class="sr-only">
     Arrow keys move between hosts. Enter selects a host, and Enter again opens it. Space picks hosts to introduce several at once.
@@ -385,7 +493,7 @@
       <Popover.Content side="top" align="end" class="w-72 p-3">
         <ul class="list-disc space-y-1 pl-4 text-chrome-dense text-muted-foreground">
           <li>Click a host to select it, and click it again to open it.</li>
-          <li>Drag the + beside one of your hosts onto another to introduce them, so their agents reach each other.</li>
+          <li>Drag the + beside one of your hosts onto another to introduce them, so their agents reach each other. Drop it on a found machine to add that machine.</li>
           <li>Shift-click or Shift-drag to pick several hosts, then drop a + on one of them to introduce it to all.</li>
           <li>Drag the background to move the map. Pinch, or hold Ctrl or ⌘ and scroll, to zoom.</li>
           <li>Arrow keys move between hosts. Space picks, Enter selects, and the menu key opens a host's actions.</li>

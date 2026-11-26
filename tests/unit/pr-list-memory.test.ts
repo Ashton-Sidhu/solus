@@ -80,6 +80,11 @@ describe('remembered list preferences', () => {
     storage.values.set('solus.prs.preferences', JSON.stringify(beforeLens))
     expect(readPrListPreferences(storage)).toEqual({ ...preferences, lens: 'all' })
 
+    // A sort that the list no longer offers opens as Recently updated, and the
+    // filters chosen with it stay.
+    storage.values.set('solus.prs.preferences', JSON.stringify({ ...preferences, sortMode: 'ready', author: 'sam' }))
+    expect(readPrListPreferences(storage)).toEqual({ ...preferences, author: 'sam' })
+
     storage.values.set('solus.prs.preferences', JSON.stringify({ ...preferences, sortMode: 'size' }))
     expect(readPrListPreferences(storage)).toBeNull()
   })

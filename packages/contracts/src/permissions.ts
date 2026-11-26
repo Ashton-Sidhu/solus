@@ -250,7 +250,7 @@ const PERMISSION_OF_METHOD = {
   codeIntelDocs: HOST_USE, codeIntelStatus: HOST_USE, codeIntelReindex: HOST_USE, workspaceProjectList: HOST_USE,
   workspaceProjectAdd: HOST_USE, generateSessionMetadata: HOST_USE, trackRecentProject: HOST_USE,
   // A codebase is a record of the host (docs/plans/codebases.md decision 6): each person who uses the host reads and changes it.
-  codebaseList: HOST_USE, codebaseSave: HOST_USE, codebaseMembers: HOST_USE,
+  sessionDirectoryOpen: HOST_USE, codebaseList: HOST_USE, codebaseSave: HOST_USE, codebaseMembers: HOST_USE,
   listPlans: HOST_USE, detectEditors: HOST_USE, openInEditor: HOST_USE, getPluginCommands: HOST_USE,
   continueInWorktree: HOST_USE, decideWorktreeOffer: HOST_USE, projectConfigLoad: HOST_USE,
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
@@ -432,7 +432,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — reading: the transcript, its cards and plans; every custom role holds it
   watchSession: 'read.transcript', unwatchSession: 'read.transcript', bindRuntimeSession: 'read.transcript',
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
-  loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
+  loadSessionToolInputs: 'read.transcript', artifactFrameHeightReport: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
   getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript', integrationResourceWatchList: 'read.transcript',
   sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',

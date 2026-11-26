@@ -1,13 +1,11 @@
 <script lang="ts">
-  import type { Point } from "./lib/fleet-model";
   import { isTwoWay, REACH_HEALTH_LABELS, REACH_STYLES, reachNeedsAttention, type ReachPath } from "./lib/fleet-reach";
 
   /** The lines between your hosts that reach each other, on the outer side of
    *  Your machines. A line ends in an arrowhead at each host that is reached, so a
    *  two-way line has one at each end. A healthy line stays neutral; each kind of
    *  trouble has its own dash and color, and stays clear when another host is in
-   *  focus. A click on a line selects it. While a handle is dragged, a curve
-   *  follows the pointer. */
+   *  focus. A click on a line selects it. */
   interface Props {
     paths: ReachPath[];
     selectedEdgeId: string | null;
@@ -15,11 +13,9 @@
     focusId: string | null;
     labelOf: (serverId: string) => string;
     onSelectEdge: (edgeId: string) => void;
-    /** The line a dragged handle draws, in the map's percent units. */
-    dragLine: { from: Point; to: Point } | null;
   }
 
-  let { paths, selectedEdgeId, focusId, labelOf, onSelectEdge, dragLine }: Props = $props();
+  let { paths, selectedEdgeId, focusId, labelOf, onSelectEdge }: Props = $props();
 
   const isLit = (path: ReachPath) =>
     path.edge.id === selectedEdgeId || (!focusId && !selectedEdgeId) || path.edge.a === focusId || path.edge.b === focusId || reachNeedsAttention(path.edge.health);
@@ -54,18 +50,6 @@
       ><title>{lineName(path)}</title></path>
     </g>
   {/each}
-  {#if dragLine}
-    {@const { from, to } = dragLine}
-    <path
-      d="M {from.x} {from.y} C {from.x - 6} {from.y}, {to.x - 6} {to.y}, {to.x} {to.y}"
-      fill="none"
-      vector-effect="non-scaling-stroke"
-      stroke-width="1.5"
-      stroke-dasharray="4 3"
-      style:stroke="var(--foreground)"
-      aria-hidden="true"
-    />
-  {/if}
 </svg>
 
 <!-- Arrowheads into each host that is reached, drawn in px so the map's stretch does not bend them. -->

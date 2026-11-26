@@ -97,7 +97,7 @@
       </div>
       {#if control}
         <div
-          class="settings-controls flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end @min-[30rem]/pane:[&_[data-slot=select-trigger]]:min-w-40"
+          class="settings-controls flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end @min-[30rem]/pane:[&_[data-slot=select-trigger]]:min-w-24"
           inert={isInert}
         >
           {@render control()}

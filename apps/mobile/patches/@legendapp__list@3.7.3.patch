@@ -1,8 +1,7 @@
 diff --git a/react-native.js b/react-native.js
-index 440b0ad..fd5d18d 100644
 --- a/react-native.js
 +++ b/react-native.js
-@@ -1344,7 +1344,8 @@ function checkAtBottom(ctx, allowedEdge, allowGateCreatedInCurrentCheck) {
+@@ -1344,7 +1344,8 @@
      return;
    }
    if (contentSize > 0 && queuedInitialLayout) {
@@ -12,11 +11,169 @@ index 440b0ad..fd5d18d 100644
      set$(ctx, "isAtEnd", isContentLess || distanceFromEnd <= EDGE_POSITION_EPSILON);
      set$(ctx, "isNearEnd", isContentLess || distanceFromEnd <= onEndReachedThreshold * scrollLength);
      set$(
+@@ -5041,7 +5042,12 @@
+     const scrollAdjustPendingBeforeMVCP = (_f = peek$(ctx, "scrollAdjustPending")) != null ? _f : 0;
+     checkMVCP == null ? void 0 : checkMVCP();
+     const didMVCPAdjustScroll = !!checkMVCP && (state.scroll !== scrollBeforeMVCP || ((_g = peek$(ctx, "scrollAdjustPending")) != null ? _g : 0) !== scrollAdjustPendingBeforeMVCP);
+-    if (didMVCPAdjustScroll) {
++    if (state.props.nativeOpeningAtEnd && !state.isDragging) {
++      // Keep allocating the bottom window as estimates become measurements.
++      // The native scroll view can still report its pre-layout offset here.
++      scroll = Math.max(0, totalSize - topPad - scrollLength);
++      updateScrollRange();
++    } else if (didMVCPAdjustScroll) {
+       updateScroll2(state.scroll);
+       updateScrollRange();
+     }
+@@ -5994,6 +6000,7 @@
+ };
+
+ // src/components/PositionView.native.tsx
++var EndLayoutContext = React2__namespace.createContext(false);
+ var PositionViewState = typedMemo(function PositionViewState2({
+   id,
+   horizontal,
+@@ -6001,6 +6008,7 @@
+   refView,
+   ...rest
+ }) {
++  const endLayout = React2__namespace.useContext(EndLayoutContext);
+   const [position = POSITION_OUT_OF_VIEW, _itemKey, layoutReady = true] = useArr$([
+     `containerPosition${id}`,
+     `containerItemKey${id}`,
+@@ -6010,7 +6018,7 @@
+     ReactNative.View,
+     {
+       ref: refView,
+-      style: [style, horizontal ? { left: position } : { top: position }, !layoutReady && { opacity: 0 }],
++      style: endLayout ? { position: "relative", flexShrink: 0 } : [style, horizontal ? { left: position } : { top: position }, !layoutReady && { opacity: 0 }],
+       ...rest,
+       pointerEvents: layoutReady ? void 0 : "none"
+     }
+@@ -6697,6 +6705,8 @@
+ var useCommittedMinSize = IsNewArchitecture ? () => useArr$(["totalSize"])[0] : () => void 0;
+ var ContainersLayer = typedMemo(function ContainersLayer2({
+   children,
++  EndLayoutContainer,
++  placingFromEnd = false,
+   freshDataTransitionEpoch,
+   horizontal
+ }) {
+@@ -6705,7 +6715,8 @@
+   const size = useValue$("totalSize");
+   const minSize = useCommittedMinSize();
+   const [readyToRender, numColumns, otherAxisSize = 0] = useArr$(["readyToRender", "numColumns", "otherAxisSize"]);
+-  const isVisible = useFreshDataTransitionVisibility(!!readyToRender, freshDataTransitionEpoch);
++  const listVisible = useFreshDataTransitionVisibility(!!readyToRender, freshDataTransitionEpoch);
++  const isVisible = placingFromEnd || listVisible;
+   const style = horizontal ? {
+     height: otherAxisSize || "100%",
+     minHeight: otherAxisSize,
+@@ -6733,9 +6744,37 @@
+       }
+     }
+   }
+-  return /* @__PURE__ */ React2__namespace.createElement(ReactNative.Animated.View, { pointerEvents: isVisible ? void 0 : "none", style }, /* @__PURE__ */ React2__namespace.createElement(ContainerLayoutCoordinator, null, children));
++  const rows = React2__namespace.createElement(ContainerLayoutCoordinator, null, children);
++  if (EndLayoutContainer) {
++    return React2__namespace.createElement(EndLayoutContext.Provider, { value: placingFromEnd },
++      React2__namespace.createElement(EndLayoutContainer, { placingFromEnd, style, pointerEvents: isVisible ? undefined : "none" }, rows));
++  }
++  return React2__namespace.createElement(ReactNative.Animated.View, { pointerEvents: isVisible ? undefined : "none", style }, rows);
+ });
++// Yoga places the same keyed cell hosts in reading order until their virtual offsets are ready.
++function EndLayoutLayer({ children, initialEndLayout, ...props }) {
++  const ctx = useStateContext();
++  const indices = useArr$(initialEndLayout.active
++    ? children.map((_, id) => "containerItemIndex" + id)
++    : ["numContainersPooled"]);
++  const slots = initialEndLayout.active
++    ? children.map((child, id) => ({ child, index: indices[id] })).filter(slot => slot.index != null && slot.index >= 0)
++        .sort((left, right) => left.index - right.index)
++    : [];
++  // A measurement can leave spare pool slots outside the current contiguous window.
++  // Only the suffix that includes the final item belongs in the opening column.
++  let start = slots.length;
++  let index = ctx.state.props.data.length - 1;
++  while (start > 0 && slots[start - 1].index === index) {
++    start--;
++    index--;
++  }
++  const placingFromEnd = start < slots.length;
++  return React2__namespace.createElement(ContainersLayer, { ...props, EndLayoutContainer: initialEndLayout.Container, placingFromEnd },
++    placingFromEnd ? slots.slice(start).map(slot => slot.child) : children);
++}
+ var Containers = typedMemo(function Containers2({
++  initialEndLayout,
+   freshDataTransitionEpoch,
+   horizontal,
+   recycleItems,
+@@ -6761,6 +6800,9 @@
+       )
+     );
+   }
++  if (initialEndLayout) {
++    return React2__namespace.createElement(EndLayoutLayer, { initialEndLayout, freshDataTransitionEpoch, horizontal }, containers);
++  }
+   return /* @__PURE__ */ React2__namespace.createElement(ContainersLayer, { freshDataTransitionEpoch, horizontal }, containers);
+ });
+ var ListComponentScrollView = ReactNative.Animated.ScrollView;
+@@ -6926,6 +6968,7 @@
+   );
+ });
+ var ListComponent = typedMemo(function ListComponent2({
++  initialEndLayout,
+   canRender,
+   freshDataTransitionEpoch,
+   style,
+@@ -7069,6 +7112,7 @@
+     canRender && !ListEmptyComponent && /* @__PURE__ */ React2__namespace.createElement(
+       Containers,
+       {
++        initialEndLayout,
+         freshDataTransitionEpoch,
+         getRenderedItem: getRenderedItem2,
+         horizontal,
+@@ -8711,7 +8755,9 @@
+     index: 0,
+     viewOffset: 0
+   } : void 0;
+-  const [canRender, setCanRender] = React2__namespace.useState(!IsNewArchitecture);
++  const startFromEnd = IsNewArchitecture && !!props.initialEndLayout?.active && initialScrollAtEnd && !horizontal &&
++    numColumnsProp === 1 && !positionComponentInternal && estimatedListSize?.height > 0 && estimatedListSize.width > 0;
++  const [canRender, setCanRender] = React2__namespace.useState(!IsNewArchitecture || startFromEnd);
+   const [, scheduleImperativeScrollCommit] = React2__namespace.useReducer((value) => value + 1, 0);
+   const ctx = useStateContext();
+   ctx.columnWrapperStyle = columnWrapperStyle || (contentContainerStyle ? createColumnWrapperStyle(contentContainerStyle) : void 0);
+@@ -8864,6 +8910,7 @@
+   const throttleScrollFn = scrollEventThrottle && onScrollProp ? throttledOnScroll : onScrollProp;
+   const didAnchoredEndSpaceAnchorIndexChange = !isFirstLocal && !didDataChangeLocal && ((_r = state.props.anchoredEndSpace) == null ? void 0 : _r.anchorIndex) !== (anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorIndex);
+   state.props = {
++    nativeOpeningAtEnd: startFromEnd,
+     adaptiveRender: experimental_adaptiveRender,
+     alignItemsAtEnd,
+     alignItemsAtEndPaddingEnabled: useAlignItemsAtEndPadding,
+@@ -9255,6 +9302,8 @@
+   useInit(() => {
+     if (!IsNewArchitecture) {
+       doInitialAllocateContainers(ctx);
++    } else if (startFromEnd && dataProp.length && doInitialAllocateContainers(ctx)) {
++      calculateItemsInView(ctx, { dataChanged: true, doMVCP: false });
+     }
+   });
+   React2.useImperativeHandle(forwardedRef, () => createImperativeHandle(ctx, scheduleImperativeScrollCommit), []);
+@@ -9317,6 +9366,7 @@
+     {
+       ...restProps,
+       alignItemsAtEnd,
++      initialEndLayout: IsNewArchitecture && !horizontal && numColumnsProp === 1 && !positionComponentInternal ? props.initialEndLayout : undefined,
+       canRender,
+       contentContainerStyle,
+       contentInset,
 diff --git a/react-native.mjs b/react-native.mjs
-index b95e1f8..e2b013a 100644
 --- a/react-native.mjs
 +++ b/react-native.mjs
-@@ -1323,7 +1323,8 @@ function checkAtBottom(ctx, allowedEdge, allowGateCreatedInCurrentCheck) {
+@@ -1323,7 +1323,8 @@
      return;
    }
    if (contentSize > 0 && queuedInitialLayout) {
@@ -26,3 +183,192 @@ index b95e1f8..e2b013a 100644
      set$(ctx, "isAtEnd", isContentLess || distanceFromEnd <= EDGE_POSITION_EPSILON);
      set$(ctx, "isNearEnd", isContentLess || distanceFromEnd <= onEndReachedThreshold * scrollLength);
      set$(
+@@ -5020,7 +5021,12 @@
+     const scrollAdjustPendingBeforeMVCP = (_f = peek$(ctx, "scrollAdjustPending")) != null ? _f : 0;
+     checkMVCP == null ? void 0 : checkMVCP();
+     const didMVCPAdjustScroll = !!checkMVCP && (state.scroll !== scrollBeforeMVCP || ((_g = peek$(ctx, "scrollAdjustPending")) != null ? _g : 0) !== scrollAdjustPendingBeforeMVCP);
+-    if (didMVCPAdjustScroll) {
++    if (state.props.nativeOpeningAtEnd && !state.isDragging) {
++      // Keep allocating the bottom window as estimates become measurements.
++      // The native scroll view can still report its pre-layout offset here.
++      scroll = Math.max(0, totalSize - topPad - scrollLength);
++      updateScrollRange();
++    } else if (didMVCPAdjustScroll) {
+       updateScroll2(state.scroll);
+       updateScrollRange();
+     }
+@@ -5973,6 +5979,7 @@
+ };
+
+ // src/components/PositionView.native.tsx
++var EndLayoutContext = React2.createContext(false);
+ var PositionViewState = typedMemo(function PositionViewState2({
+   id,
+   horizontal,
+@@ -5980,6 +5987,7 @@
+   refView,
+   ...rest
+ }) {
++  const endLayout = React2.useContext(EndLayoutContext);
+   const [position = POSITION_OUT_OF_VIEW, _itemKey, layoutReady = true] = useArr$([
+     `containerPosition${id}`,
+     `containerItemKey${id}`,
+@@ -5989,7 +5997,7 @@
+     View$1,
+     {
+       ref: refView,
+-      style: [style, horizontal ? { left: position } : { top: position }, !layoutReady && { opacity: 0 }],
++      style: endLayout ? { position: "relative", flexShrink: 0 } : [style, horizontal ? { left: position } : { top: position }, !layoutReady && { opacity: 0 }],
+       ...rest,
+       pointerEvents: layoutReady ? void 0 : "none"
+     }
+@@ -6676,6 +6684,8 @@
+ var useCommittedMinSize = IsNewArchitecture ? () => useArr$(["totalSize"])[0] : () => void 0;
+ var ContainersLayer = typedMemo(function ContainersLayer2({
+   children,
++  EndLayoutContainer,
++  placingFromEnd = false,
+   freshDataTransitionEpoch,
+   horizontal
+ }) {
+@@ -6684,7 +6694,8 @@
+   const size = useValue$("totalSize");
+   const minSize = useCommittedMinSize();
+   const [readyToRender, numColumns, otherAxisSize = 0] = useArr$(["readyToRender", "numColumns", "otherAxisSize"]);
+-  const isVisible = useFreshDataTransitionVisibility(!!readyToRender, freshDataTransitionEpoch);
++  const listVisible = useFreshDataTransitionVisibility(!!readyToRender, freshDataTransitionEpoch);
++  const isVisible = placingFromEnd || listVisible;
+   const style = horizontal ? {
+     height: otherAxisSize || "100%",
+     minHeight: otherAxisSize,
+@@ -6712,9 +6723,37 @@
+       }
+     }
+   }
+-  return /* @__PURE__ */ React2.createElement(Animated.View, { pointerEvents: isVisible ? void 0 : "none", style }, /* @__PURE__ */ React2.createElement(ContainerLayoutCoordinator, null, children));
++  const rows = React2.createElement(ContainerLayoutCoordinator, null, children);
++  if (EndLayoutContainer) {
++    return React2.createElement(EndLayoutContext.Provider, { value: placingFromEnd },
++      React2.createElement(EndLayoutContainer, { placingFromEnd, style, pointerEvents: isVisible ? undefined : "none" }, rows));
++  }
++  return React2.createElement(Animated.View, { pointerEvents: isVisible ? undefined : "none", style }, rows);
+ });
++// Yoga places the same keyed cell hosts in reading order until their virtual offsets are ready.
++function EndLayoutLayer({ children, initialEndLayout, ...props }) {
++  const ctx = useStateContext();
++  const indices = useArr$(initialEndLayout.active
++    ? children.map((_, id) => "containerItemIndex" + id)
++    : ["numContainersPooled"]);
++  const slots = initialEndLayout.active
++    ? children.map((child, id) => ({ child, index: indices[id] })).filter(slot => slot.index != null && slot.index >= 0)
++        .sort((left, right) => left.index - right.index)
++    : [];
++  // A measurement can leave spare pool slots outside the current contiguous window.
++  // Only the suffix that includes the final item belongs in the opening column.
++  let start = slots.length;
++  let index = ctx.state.props.data.length - 1;
++  while (start > 0 && slots[start - 1].index === index) {
++    start--;
++    index--;
++  }
++  const placingFromEnd = start < slots.length;
++  return React2.createElement(ContainersLayer, { ...props, EndLayoutContainer: initialEndLayout.Container, placingFromEnd },
++    placingFromEnd ? slots.slice(start).map(slot => slot.child) : children);
++}
+ var Containers = typedMemo(function Containers2({
++  initialEndLayout,
+   freshDataTransitionEpoch,
+   horizontal,
+   recycleItems,
+@@ -6740,6 +6779,9 @@
+       )
+     );
+   }
++  if (initialEndLayout) {
++    return React2.createElement(EndLayoutLayer, { initialEndLayout, freshDataTransitionEpoch, horizontal }, containers);
++  }
+   return /* @__PURE__ */ React2.createElement(ContainersLayer, { freshDataTransitionEpoch, horizontal }, containers);
+ });
+ var ListComponentScrollView = Animated.ScrollView;
+@@ -6905,6 +6947,7 @@
+   );
+ });
+ var ListComponent = typedMemo(function ListComponent2({
++  initialEndLayout,
+   canRender,
+   freshDataTransitionEpoch,
+   style,
+@@ -7048,6 +7091,7 @@
+     canRender && !ListEmptyComponent && /* @__PURE__ */ React2.createElement(
+       Containers,
+       {
++        initialEndLayout,
+         freshDataTransitionEpoch,
+         getRenderedItem: getRenderedItem2,
+         horizontal,
+@@ -8690,7 +8734,9 @@
+     index: 0,
+     viewOffset: 0
+   } : void 0;
+-  const [canRender, setCanRender] = React2.useState(!IsNewArchitecture);
++  const startFromEnd = IsNewArchitecture && !!props.initialEndLayout?.active && initialScrollAtEnd && !horizontal &&
++    numColumnsProp === 1 && !positionComponentInternal && estimatedListSize?.height > 0 && estimatedListSize.width > 0;
++  const [canRender, setCanRender] = React2.useState(!IsNewArchitecture || startFromEnd);
+   const [, scheduleImperativeScrollCommit] = React2.useReducer((value) => value + 1, 0);
+   const ctx = useStateContext();
+   ctx.columnWrapperStyle = columnWrapperStyle || (contentContainerStyle ? createColumnWrapperStyle(contentContainerStyle) : void 0);
+@@ -8843,6 +8889,7 @@
+   const throttleScrollFn = scrollEventThrottle && onScrollProp ? throttledOnScroll : onScrollProp;
+   const didAnchoredEndSpaceAnchorIndexChange = !isFirstLocal && !didDataChangeLocal && ((_r = state.props.anchoredEndSpace) == null ? void 0 : _r.anchorIndex) !== (anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorIndex);
+   state.props = {
++    nativeOpeningAtEnd: startFromEnd,
+     adaptiveRender: experimental_adaptiveRender,
+     alignItemsAtEnd,
+     alignItemsAtEndPaddingEnabled: useAlignItemsAtEndPadding,
+@@ -9234,6 +9281,8 @@
+   useInit(() => {
+     if (!IsNewArchitecture) {
+       doInitialAllocateContainers(ctx);
++    } else if (startFromEnd && dataProp.length && doInitialAllocateContainers(ctx)) {
++      calculateItemsInView(ctx, { dataChanged: true, doMVCP: false });
+     }
+   });
+   useImperativeHandle(forwardedRef, () => createImperativeHandle(ctx, scheduleImperativeScrollCommit), []);
+@@ -9296,6 +9345,7 @@
+     {
+       ...restProps,
+       alignItemsAtEnd,
++      initialEndLayout: IsNewArchitecture && !horizontal && numColumnsProp === 1 && !positionComponentInternal ? props.initialEndLayout : undefined,
+       canRender,
+       contentContainerStyle,
+       contentInset,
+diff --git a/react-native.d.ts b/react-native.d.ts
+--- a/react-native.d.ts
++++ b/react-native.d.ts
+@@ -221,6 +221,11 @@
+      * @default false
+      */
+     initialScrollAtEnd?: boolean;
++    /** Place the mounted suffix in native flow while opening a vertical, single-column list at its end. */
++    initialEndLayout?: {
++        active: boolean;
++        Container: React.ComponentType<Pick<React.ComponentProps<typeof import("react-native").Animated.View>, "style" | "pointerEvents"> & { placingFromEnd: boolean; children?: React.ReactNode }>;
++    };
+     /**
+      * Index to scroll to initially.
+      * @default 0
+diff --git a/reanimated.d.ts b/reanimated.d.ts
+--- a/reanimated.d.ts
++++ b/reanimated.d.ts
+@@ -222,6 +222,11 @@
+      * @default false
+      */
+     initialScrollAtEnd?: boolean;
++    /** Place the mounted suffix in native flow while opening a vertical, single-column list at its end. */
++    initialEndLayout?: {
++        active: boolean;
++        Container: React.ComponentType<Pick<React.ComponentProps<typeof import("react-native").Animated.View>, "style" | "pointerEvents"> & { placingFromEnd: boolean; children?: React.ReactNode }>;
++    };
+     /**
+      * Index to scroll to initially.
+      * @default 0

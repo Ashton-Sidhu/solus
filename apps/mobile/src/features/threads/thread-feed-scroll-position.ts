@@ -4,6 +4,15 @@ export interface ThreadWorkGroupScrollPosition {
   readonly scrollOffset: number;
 }
 
+export function threadOpeningBottomInset(
+  composerInset: number,
+  composerKeyboardTranslation: number,
+): number {
+  "worklet";
+  // Match KeyboardAwareLegendList's visible inset during the handoff.
+  return composerInset + Math.max(0, -composerKeyboardTranslation);
+}
+
 export function resolveThreadWorkGroupInitialScroll(
   rows: ReadonlyArray<{ readonly id: string }>,
   position: ThreadWorkGroupScrollPosition | undefined,
@@ -30,4 +39,17 @@ export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
   }
 
   return input.queuedMessageCount > 0 ? null : input.submittedMessageId;
+}
+
+/** Keep the list at its reading position until the new row and keyboard insets settle. */
+export async function finishThreadFeedGlide(input: {
+  readonly afterPaint: () => Promise<void>;
+  readonly isCurrent: () => boolean;
+  readonly dismissKeyboard?: (() => Promise<void>) | undefined;
+  readonly scrollToEnd: () => Promise<void>;
+}) {
+  await input.afterPaint();
+  if (!input.isCurrent()) return;
+  await input.dismissKeyboard?.();
+  if (input.isCurrent()) await input.scrollToEnd();
 }

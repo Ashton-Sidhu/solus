@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import { storeAttachmentBytes } from '@solus/server/data/assets/attachment-store'
 import type { IpcContext, NormalizedEvent, PromptOptions, QueuedPromptSnapshot } from '@solus/contracts/types'
@@ -894,4 +894,88 @@ describe('host restart continuation', () => {
     expect(next.scheduler.sessionQueue(ctx('restart-failure')).entries).toHaveLength(1)
   })
 
+})
+
+// WHY: a turn blocked on a card cannot take a steer. A person who writes instead
+// of answering ("can we get it from wrangler?") must reach the agent now, not
+// queue behind a card that no one will answer. The message declines each card
+// that the composer does not take as its answer; an explicit queue keeps them all.
+describe('a message sent while a card is open', () => {
+  /** A Claude turn that is running on a backend that can steer, with what each card was answered. */
+  async function runningTurn(sessionId: string) {
+    const backend = holdingBackend('claude-code', sessionId)
+    const value = backend.value as AgentBackend & { steerSession: AgentBackend['steerSession'] }
+    value.steerSession = async (threadId) => value.getSessionHandle(threadId) ?? null
+    // As a real backend does, the handle names its session, so the provider's init binds the turn.
+    const startRun = value.startRun.bind(value)
+    value.startRun = (request: AgentRunRequest, state?: AgentRunSessionState) => Object.assign(startRun(request), { sessionId: state?.sessionId })
+    const chosen: string[] = []
+    const answered: Array<Record<string, string>> = []
+    value.permissions.respondToPermission = (_questionId: string, optionId: string) => { chosen.push(optionId); return true }
+    value.permissions.respondToQuestion = (_questionId: string, answers: Record<string, string>) => { answered.push(answers); return true }
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
+    await plane.dispatch.submitPrompt(ctx(sessionId), { prompt: 'Deploy it' }, { actor: HOST_ACTOR })
+    await Promise.resolve()
+    const threadId = `${sessionId}-1`
+    const emit = (event: NormalizedEvent) => { value.emit('normalized', threadId, event) }
+    const send = (options: PromptOptions) => plane.dispatch.submitPrompt(ctx(sessionId, threadId), options, { actor: HOST_ACTOR })
+    return { plane, emit, send, chosen, answered, status: () => plane.activeSessions.get(sessionId)?.status }
+  }
+
+  const permission = (questionId: string, toolName = 'Bash'): NormalizedEvent => ({
+    type: 'permission_request', questionId, toolName,
+    options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
+  })
+
+  test('a sent message declines every secret on a secret card and steers the turn', async () => {
+    const { requestSecrets } = await import('@solus/server/execution/sessions/secret-requests')
+    const turn = await runningTurn('secret-steer')
+    const outcome = requestSecrets({
+      provider: 'claude-code', cwd: projectDir, sessionId: () => 'secret-steer', abortSignal: new AbortController().signal,
+      parentToolUseId: () => undefined, emit: turn.emit,
+    }, [{ name: 'BETTER_AUTH_SECRET', reason: 'To sign grants.' }, { name: 'Cloudflare token', reason: 'For wrangler.' }])
+    expect(turn.status()).toBe('awaiting_input')
+    expect((await turn.send({ prompt: 'Can we not get it from wrangler?' })).disposition).toBe('steered')
+    expect(await outcome).toEqual({ secrets: [
+      { name: 'BETTER_AUTH_SECRET', status: 'declined' },
+      { name: 'Cloudflare token', status: 'declined' },
+    ] })
+  })
+
+  test('a permission, an Add machine card, and an MCP elicitation are declined; the message steers', async () => {
+    const turn = await runningTurn('cards-steer')
+    turn.emit(permission('q-bash'))
+    let addMachine: Record<string, string> | null = null
+    inputRequestsModule.answerToolQuestionWith('q-host', (answers) => { addMachine = answers })
+    turn.emit({ type: 'question_request', questionId: 'q-host', kind: 'host-link', hostLink: { reason: 'To run tests on Windows.' },
+      questions: [{ header: 'Add a machine', question: 'To run tests on Windows.', options: [], multiSelect: false }] })
+    turn.emit({ type: 'question_request', questionId: 'q-mcp', kind: 'mcp_form',
+      questions: [{ id: 'name', question: 'Name', options: [], multiSelect: false }] })
+    expect(turn.status()).toBe('awaiting_input')
+
+    expect((await turn.send({ prompt: 'Use the staging database instead' })).disposition).toBe('steered')
+    expect(turn.chosen).toEqual(['deny'])
+    expect(addMachine).toEqual({ status: 'declined' })
+    expect(turn.answered).toEqual([{ __action: 'decline' }])
+    expect(turn.status()).toBe('running')
+  })
+
+  test('a queued message, or one Solus sends, leaves the cards open; a plan and a question stay for the composer', async () => {
+    const turn = await runningTurn('cards-kept')
+    turn.emit(permission('q-bash'))
+    expect((await turn.send({ prompt: 'After that, tag the release', delivery: 'queue' })).disposition).toBe('queued')
+    await turn.send({ prompt: 'Report back', via: 'session-report' })
+    expect(turn.chosen).toEqual([])
+
+    // The composer sends text as a plan's revision or a question's answer, so the host leaves them.
+    const other = await runningTurn('plan-kept')
+    other.emit(permission('q-plan', 'ExitPlanMode'))
+    other.emit({ type: 'question_request', questionId: 'q-ask', questions: [{ question: 'Which database?', options: [], multiSelect: false }] })
+    expect((await other.send({ prompt: 'Something else' })).disposition).toBe('queued')
+    expect(other.chosen).toEqual([])
+    expect(other.answered).toEqual([])
+    expect(other.status()).toBe('awaiting_input')
+  })
 })

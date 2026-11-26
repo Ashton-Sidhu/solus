@@ -1,8 +1,8 @@
 import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
-import { clearActiveHistoryLoading, isActiveHistoryRequestCursor } from "@t3tools/client-runtime/state/thread-history-merge"
+import { clearActiveHistoryLoading } from "@t3tools/client-runtime/state/thread-history-merge"
 import type { MobileSessionCache } from "../threads/session-cache"
 import type { TaskSnapshot } from '@solus/contracts/task-types'
-import type { SessionHistoryPage } from '@solus/contracts/session-history'
+import { startsHistoryTurn, type SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
@@ -85,7 +85,7 @@ export interface ConversationTarget {
   hostId: string
   /** A saved session to open, or a new one to start in `workingDirectory`.
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
-  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role' | 'execution'> & Partial<Pick<SessionRecord, 'organizationId' | 'projectRoot' | 'codebaseId'>>
+  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role' | 'execution'> & Partial<Pick<SessionRecord, 'organizationId' | 'projectRoot' | 'codebaseId' | 'size'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string; attachments?: readonly UploadedAttachment[] }
   /** The host this saved session was open on before the person chose this
    *  one to run its next turn (docs/plans/portable-sessions.md §10). */
@@ -101,6 +101,9 @@ export interface ConversationTarget {
 }
 
 export interface ConversationDeps {
+  isIOS?: boolean
+  /** A new store now owns this closed store's host and session watch. */
+  hasReplacement?(): boolean
   accountScope?: string
   sessionCache?: ReturnType<MobileSessionCache["forHost"]>
   connection: HostConnection
@@ -139,8 +142,22 @@ export function conversationOutboxPrefix(hostId: string): string {
 
 // A known disk page can save a full network response. Keep the wait bounded on slow storage.
 const HISTORY_CACHE_WAIT_MS = 50
+const SAVED_OPENING_CACHE_WAIT_MS = 200
+const COLD_HISTORY_TURNS = 5
+const OPENING_PAGE_TURNS = 2
+const LARGE_SESSION_BYTES = 16 * 1024 * 1024
+
+function fitsOpeningPage(page: SessionHistoryPage): boolean {
+  let turns = 0
+  for (const message of page.messages) {
+    if (startsHistoryTurn(message) && ++turns > OPENING_PAGE_TURNS) return false
+  }
+  return true
+}
 
 interface HistoryPreview {
+  resumedWatch?: WatchSessionResult
+  acceptsCachedPage?(page: SessionHistoryPage): boolean
   shown: SessionHistoryPage | null
   saved: SessionHistoryPage | null
   paint(page: SessionHistoryPage | null): void
@@ -250,6 +267,9 @@ export class ConversationController {
   private settings: RunSettings | null = null
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
+  private openingTurnsLeft = 0
+  private openingRead: Promise<void> | null = null
+  private openingPage: { saved: SessionHistoryPage; result: Promise<SessionHistoryPage | null> } | null = null
   private held: WireNormalizedEvent[] | null = null
   private bufferedCursor?: string
   private appliedCursor?: string
@@ -580,6 +600,9 @@ export class ConversationController {
   /** First load, and the rebuild after a reset. */
   async load(resume = false): Promise<void> {
     if (this.closed) return
+    this.openingTurnsLeft = 0
+    this.openingRead = null
+    this.openingPage = null
     const generation = ++this.loadGeneration
     const afterEvent = resume && this.phase.kind === 'ready' && !this.watchReplay ? this.appliedCursor : undefined
     this.appliedCursor = undefined
@@ -627,7 +650,7 @@ export class ConversationController {
     const cached = cache?.history(this.run.sessionId).catch(() => null)
     void cached?.then(page => {
       preview.saved = page
-      if (!preview.shown) preview.paint(page)
+      if (!preview.shown && page && preview.acceptsCachedPage?.(page) !== false) preview.paint(page)
     })
     this.watchReplay = null
     clearTimeout(this.replayTimeout)
@@ -635,7 +658,7 @@ export class ConversationController {
     this.watching = false
     this.setPhase({ kind: 'loading' })
     try {
-      const history = this.readHistory(generation, cached && cache?.hasHistoryKey(this.run.sessionId) ? cached : undefined, preview)
+      const history = this.readHistory(generation, cached, preview)
       const settings = this.applyRunSettingsOnce()
       this.runOptionsLoaded = settings.then(() => {
         if (!this.closed && generation === this.loadGeneration) return this.loadRunOptions(generation)
@@ -656,17 +679,17 @@ export class ConversationController {
       }
       const held = this.held ?? []
       this.held = null
-      for (const event of held) this.receive(event)
+      for (const event of preview.resumedWatch ? reconcileWatchReplay(model, held) : held) this.receive(event)
       this.appliedCursor = this.bufferedCursor
       this.bufferedCursor = undefined
 
       // Show the history now. Joining the live session can take another
       // network round trip and must not hold back rows already read.
-      this.flush()
+      this.flush(this.openingTurnsLeft > 0)
       if (generation !== this.loadGeneration || this.closed) return
       const replay: WireNormalizedEvent[] = []
       this.watchReplay = replay
-      const [watched] = await Promise.all([this.watch(), settings])
+      const [watched] = await Promise.all([preview.resumedWatch ?? this.watch(), settings])
       if (generation !== this.loadGeneration) return
       if (this.watchReplay === replay) {
         if (!watched.runtime || !this.model.order.some(id => this.model.items.get(id)?.kind === 'tool')) this.finishWatchReplay()
@@ -794,14 +817,63 @@ export class ConversationController {
     const api = this.deps.connection.api
     // The page travels while the session is described. A lineage that moves
     // the thread to another provider reads the page again from that provider.
+    const hasSavedPage = cached && this.deps.sessionCache?.hasHistoryKey(this.run.sessionId)
+    const largeOpening = this.deps.isIOS && generation === 1 && cached !== undefined && (this.target.record?.size ?? 0) >= LARGE_SESSION_BYTES
+    let turnLimit = INITIAL_HISTORY_TURNS
+    if (largeOpening && hasSavedPage !== undefined) turnLimit = OPENING_PAGE_TURNS
+    else if (generation === 1 && hasSavedPage === false) turnLimit = COLD_HISTORY_TURNS
+    if (largeOpening && turnLimit === OPENING_PAGE_TURNS) {
+      const deadline = performance.now() + SAVED_OPENING_CACHE_WAIT_MS
+      preview.acceptsCachedPage = page => (hasSavedPage && performance.now() <= deadline) ||
+        fitsOpeningPage(page)
+    }
+    const connectionGeneration = this.deps.connection.state.sessionGeneration
     const firstSource = this.historySource
-    const firstPage = this.target.movedFrom || this.target.fromCloud
-      ? null : loadSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, ...sessionFeedHistoryOptions, knownHistoryBlocks: [] },
-        cached ? () => cached : undefined, HISTORY_CACHE_WAIT_MS)
+    const acceptWatch = (watched: WatchSessionResult) => {
+      if (this.closed) {
+        if (!this.deps.hasReplacement?.() && connectionGeneration === this.deps.connection.state.sessionGeneration) {
+          void api.unwatchSession(this.run.sessionId).catch(() => undefined)
+        }
+        return
+      }
+      if (generation === this.loadGeneration) {
+        this.watching = true
+        preview.resumedWatch = watched
+      }
+    }
+    const coldOpen = generation === 1 && hasSavedPage === false && !this.target.movedFrom && !this.target.fromCloud
+      ? api.loadSessionPage({ ...firstSource, turnLimit, ...sessionFeedHistoryOptions, knownHistoryBlocks: [], openSession: true })
+        .then(({ resumedWatch, openingDescription, ...page }) => {
+          if (resumedWatch) acceptWatch(resumedWatch)
+          return { page, openingDescription }
+        })
+      : null
+    const firstPage = this.target.movedFrom || this.target.fromCloud ? null
+      : coldOpen?.then(open => open.page) ?? loadSessionHistoryPage(api, { ...firstSource, turnLimit, ...sessionFeedHistoryOptions, knownHistoryBlocks: [] },
+        hasSavedPage && cached ? () => cached : undefined, largeOpening ? SAVED_OPENING_CACHE_WAIT_MS : HISTORY_CACHE_WAIT_MS,
+        {
+          cachedTurnLimit: largeOpening ? page => {
+            // Older installs can have a full page. Validate that window when disk supplied it in time.
+            if (!fitsOpeningPage(page)) turnLimit = INITIAL_HISTORY_TURNS
+            if (turnLimit === OPENING_PAGE_TURNS && page.before && page.historyRevision && !this.closed && generation === this.loadGeneration) {
+              const before = page.before
+              // Start the confirmation first. Read ahead by one page while the native list lands.
+              const result = Promise.resolve().then(() => api.loadSessionPage({
+                ...firstSource, before, turnLimit: OPENING_PAGE_TURNS, ...sessionFeedHistoryOptions,
+              })).catch(() => null)
+              this.openingPage = { saved: page, result }
+            }
+            return turnLimit
+          } : undefined,
+          onResumedWatch: this.deps.isIOS && generation === 1 ? acceptWatch : undefined,
+        })
     let waitingForDescription = true
     // If the source is already known, the authoritative read below paints this page.
     void firstPage?.then(page => { if (waitingForDescription) preview.paint(page) }).catch(() => {})
-    const description = await api.describeSession(this.run.sessionId).catch(() => null)
+    // An old host can ignore openSession. A stale provider can also reject the speculative page.
+    // In either case resolve the lineage before deciding which page to use.
+    const openingDescription = await coldOpen?.then(open => open.openingDescription, () => undefined)
+    const description = openingDescription ?? await api.describeSession(this.run.sessionId).catch(() => null)
     waitingForDescription = false
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
@@ -818,10 +890,13 @@ export class ConversationController {
     const source = this.historySource
     const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
       ? firstPage
-      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, ...sessionFeedHistoryOptions }))
+      : api.loadSessionPage({ ...source, turnLimit, ...sessionFeedHistoryOptions }))
     if (generation !== this.loadGeneration) return null
+    if (this.openingPage && (source.provider !== firstSource.provider || source.projectPath !== firstSource.projectPath ||
+        !sameHistoryPage(this.openingPage.saved, page))) this.openingPage = null
+    if (page.before) this.openingTurnsLeft = INITIAL_HISTORY_TURNS - turnLimit
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
-    if (!preview.saved || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
+    if (!preview.saved || preview.saved.historyRevision !== page.historyRevision || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
     if (preview.shown && sameHistoryPage(preview.shown, page)) return this.model
     return TranscriptModel.fromHistory(this.run.sessionId, page)
   }
@@ -862,34 +937,73 @@ export class ConversationController {
     return input.toolInput
   }
 
+  get canFillOpeningHistory(): boolean {
+    return !this.closed && this.held === null && this.phase.kind !== 'error' && this.openingTurnsLeft > 0 && !!this.model.olderCursor && !this.model.history.loading
+  }
+
+  get hasOpeningPage(): boolean {
+    return this.openingPage !== null
+  }
+
+  readonly fillOpeningHistory = async (beforeInsert: () => Promise<void> = () => Promise.resolve()): Promise<void> => {
+    if (!this.canFillOpeningHistory || this.openingRead) return
+    const turns = Math.min(OPENING_PAGE_TURNS, this.openingTurnsLeft)
+    this.openingTurnsLeft -= turns
+    const read = this.readOlder(turns, undefined, beforeInsert)
+    this.openingRead = read
+    try {
+      await read
+    } finally {
+      if (this.openingRead === read) this.openingRead = null
+    }
+  }
+
   async loadOlder(throughEntryId?: string): Promise<void> {
+    this.openingTurnsLeft = 0
+    const generation = this.loadGeneration
+    if (this.openingRead) await this.openingRead
+    if (!this.closed && generation === this.loadGeneration) await this.readOlder(OLDER_HISTORY_TURNS, throughEntryId)
+  }
+
+  private async readOlder(turnLimit: number, throughEntryId?: string, beforeInsert?: () => Promise<void>): Promise<void> {
     const cursor = this.model.olderCursor
     // A copy from the cloud reads its older turns there, with no host.
     const isCloudRead = this.deps.cloudHistory?.isCopy(this.model) === true
-    if (!cursor || this.model.history.loading || (this.phase.kind !== 'ready' && !isCloudRead)) return
+    if (!cursor || this.model.history.loading || (this.phase.kind !== 'ready' && !isCloudRead && !beforeInsert)) return
     const generation = this.loadGeneration
     const model = this.model
-    model.history = { ...model.history, loading: true, error: null }
-    this.flush(true)
+    if (!beforeInsert) {
+      model.history = { ...model.history, loading: true, error: null }
+      this.flush(true)
+    }
     try {
       if (isCloudRead) {
         await this.deps.cloudHistory?.readOlder(model, throughEntryId)
       } else {
-        const page = await this.deps.connection.api.loadSessionPage({
+        const prepared = beforeInsert && this.openingPage?.saved.before === cursor ? this.openingPage.result : undefined
+        this.openingPage = null
+        const earlier = prepared ? await prepared : null
+        if (this.closed || generation !== this.loadGeneration || this.model !== model) return
+        const page = earlier ?? await this.deps.connection.api.loadSessionPage({
           ...this.historySource,
-          turnLimit: OLDER_HISTORY_TURNS, ...sessionFeedHistoryOptions,
+          turnLimit, ...sessionFeedHistoryOptions,
           before: cursor,
           ...(throughEntryId && { throughEntryId }),
         })
-        if (generation === this.loadGeneration && model === this.model && isActiveHistoryRequestCursor(cursor, model.history)) model.prependHistory(page)
+        if (beforeInsert) await beforeInsert()
+        if (!this.closed && generation === this.loadGeneration && model === this.model && model.olderCursor === cursor) {
+          if (page.before === cursor) throw new Error('The host returned the same history cursor.')
+          model.prependHistory(page)
+        }
       }
     } catch (error) {
-      if (generation === this.loadGeneration && model === this.model && isActiveHistoryRequestCursor(cursor, model.history)) {
+      if (!this.closed && generation === this.loadGeneration && model === this.model && model.olderCursor === cursor) {
+        this.openingTurnsLeft = 0
         model.history = { ...model.history, error: error instanceof Error ? error.message : 'Could not load earlier turns.' }
       }
     } finally {
-      model.history = clearActiveHistoryLoading(cursor, model.history)
-      this.flush(true)
+      if (!beforeInsert) model.history = clearActiveHistoryLoading(cursor, model.history)
+      if (!this.closed && generation === this.loadGeneration && this.model === model) this.flush(true)
     }
   }
 
@@ -1544,6 +1658,7 @@ export class ConversationController {
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.openingPage = null
     for (const upload of this.uploads) upload.abort?.abort()
     for (const file of this.attachments) void file.pending?.discard().catch(() => {})
     this.failedUploads.clear()

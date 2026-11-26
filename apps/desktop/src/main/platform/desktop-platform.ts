@@ -2,6 +2,7 @@ import type { App, BrowserWindow, BrowserWindowConstructorOptions, NativeImage }
 import type { DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, TerminalLaunchRequest } from '@solus/contracts/types'
 import type { KeyPlatform } from '@solus/workspace-ui/lib/keybindings/key-platform'
 import type { EditorApp } from '@solus/desktop-main/editor-apps'
+import type { AppLaunchers, SolusInstall } from '@solus/desktop-main/app-shortcuts/launchers'
 import { darwinPlatform } from './darwin'
 import { linuxPlatform } from './linux'
 import { win32Platform } from './win32'
@@ -46,6 +47,8 @@ export interface DesktopPlatform {
 
   terminal: TerminalIntegration
   editors: EditorIntegration
+  /** The launchers of app shortcuts, where this operating system lists apps (docs/app-shortcuts.md §4). */
+  appLaunchers(install: SolusInstall): AppLaunchers
   /** Write a PNG of the screen, or a region the user picks, to `path`.
    *  False when the user cancelled. */
   captureScreen(path: string, signal?: AbortSignal): Promise<boolean>

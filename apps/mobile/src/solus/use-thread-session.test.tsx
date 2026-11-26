@@ -180,7 +180,7 @@ it("restores an explicit codebase only when it holds the saved draft folder", as
   }
 });
 
-it("opens the saved feed as soon as its first rows arrive while the watch is still loading", async () => {
+it("mounts the saved conversation with its first rows while the watch is loading", async () => {
   const route = mountRoute();
   try {
     state.historyPhase = "loading";

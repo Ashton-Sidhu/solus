@@ -1,4 +1,6 @@
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
+import { Platform } from "react-native";
+import { KeyboardController } from "react-native-keyboard-controller";
 import { CommonActions, type NavigationProp, type ParamListBase } from "@react-navigation/native";
 import { abortComposerDraftOperations } from "../../state/composerDraftOperations";
 import {
@@ -21,6 +23,10 @@ export async function submitNewTaskDraft(
   if (saved === null) return null;
   await saved;
   if (isCurrent?.() === false) return null;
+  if (Platform.OS === "ios" && KeyboardController.isVisible()) {
+    await KeyboardController.dismiss({ animated: false });
+    if (isCurrent?.() === false) return null;
+  }
   navigation.dispatch(CommonActions.setParams(submittedThreadParams(message.environmentId, message.threadId)));
   abortComposerDraftOperations(draftKey);
   const draft = getComposerDraftSnapshot(draftKey);

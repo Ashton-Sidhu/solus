@@ -1,5 +1,5 @@
 import type { ProviderStartupPhase } from '@solus/contracts/provider-startup'
-import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
+import { RUNNING_SERVER_PROVIDER_ENV, RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { readFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { homedir } from 'os'
@@ -395,7 +395,7 @@ export class ClaudeAgent {
         }],
       },
       ...claudeLaunch(opts.seat, abortController.signal),
-      env: { ...claudeEnv(opts.seat), [RUNNING_SERVER_SESSION_ENV]: opts.solusSessionId ?? '' },
+      env: { ...claudeEnv(opts.seat), [RUNNING_SERVER_SESSION_ENV]: opts.solusSessionId ?? '', [RUNNING_SERVER_PROVIDER_ENV]: 'claude-code' },
     }
     if (opts.seat?.idleCompaction) {
       claudeOptions.supportedDialogKinds = ['resume_return']

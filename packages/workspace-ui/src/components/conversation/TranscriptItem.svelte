@@ -31,6 +31,7 @@
   import ConversationArtifact from "./ConversationArtifact.svelte";
   import ArtifactGroupCard from "./ArtifactGroupCard.svelte";
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
+  import { setReplyFrameMessage } from "./lib/reply-frame-layout";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import McpAppCard from "./McpAppCard.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
@@ -81,6 +82,7 @@
   const rendersSettled = untrack(() => !(!skipMotion && !!sess?.isStreamingText));
   const artifactRevisions = getArtifactRevisions();
   provideArtifactMessage(() => "message" in item ? item.message.id : undefined);
+  setReplyFrameMessage(() => "message" in item ? item.message : undefined);
   const markdownRenderers = {
     code: FencedBlock,
     codespan: CodeSpan,

@@ -5,13 +5,13 @@ import type { SidebarFolder } from './sidebar-project-folders'
 
 /** Where a row sits in the one list. */
 export type SidebarSection = 'sessions' | 'shared' | 'pinned' | 'working' | 'snoozed' | 'completed'
+export type SidebarShelf = Exclude<SidebarSection, 'sessions' | 'pinned'>
 
 /**
  * One entry of the sidebar's single list. Drafts, pinned and active sessions,
- * Shared with you, Working, Snoozed, and Completed form one list. Only the
- * collapsible sections have headers
- * (docs/plans/sidebar-motion.md, step 3), so a row that changes section, and a
- * draft that arrives or leaves, animate like any other change of order.
+ * Shared with you, Working, Snoozed, and Completed form one ordered list.
+ * Only the collapsible sections have headers. The renderer uses those headers
+ * to give each shelf a separate scroll area.
  */
 export type SidebarListItem =
   /** `folderKey` names the project folder a draft sits in, in the project view. */
@@ -19,13 +19,32 @@ export type SidebarListItem =
   | { kind: 'drafts-divider'; key: string }
   /** `canToggle` is false when the section holds only the row on screen: a
    *  closed section still shows that row, so a toggle would hide nothing. */
-  | { kind: 'header'; key: string; section: SidebarSection; count: number; isOpen: boolean; canToggle: boolean }
+  | { kind: 'header'; key: string; section: SidebarShelf; count: number; isOpen: boolean; canToggle: boolean }
   /** A project folder's header, in the project view only. */
   | { kind: 'folder'; key: string; folder: SidebarFolder }
   /** `folderKey` names the project folder a row sits in, in the project view. */
   | { kind: 'task'; key: string; section: SidebarSection; task: SidebarTask; folderKey?: string }
   /** A pinned session the list has no row for, such as a closed one. */
   | { kind: 'pinned'; key: string; pin: PinnedSession }
+
+type SidebarListHeader = Extract<SidebarListItem, { kind: 'header' }>
+export type SidebarListRow = Exclude<SidebarListItem, SidebarListHeader>
+
+/** Section headers start the shelves below the main list in both views. */
+export function groupSidebarListItems(items: readonly SidebarListItem[]) {
+  const mainRows: SidebarListRow[] = []
+  const shelves: { header: SidebarListHeader; rows: SidebarListRow[] }[] = []
+  let rows = mainRows
+  for (const item of items) {
+    if (item.kind === 'header') {
+      rows = []
+      shelves.push({ header: item, rows })
+    } else {
+      rows.push(item)
+    }
+  }
+  return { mainRows, shelves }
+}
 
 /** One entry of the Pinned section: a pin, with the row that stands for its
  *  session when the list has one. */
@@ -61,18 +80,17 @@ export interface SidebarListInput {
  * A row's list key names its variant as well as the row: an open session row
  * is a full card and a shelved row is slim. Changing variant mounts the other
  * shape, which the list cross-fades, while a row that keeps its shape — a slim
- * row moving between the two shelves — keeps its element and slides.
+ * row moving within a shelf — keeps its element and slides.
  */
 export function taskItem(task: SidebarTask, section: SidebarSection): Extract<SidebarListItem, { kind: 'task' }> {
-  // A working row keeps the card it had, so a row that starts or finishes a
-  // turn slides between sections rather than changing shape.
+  // A working row keeps its card shape when a turn starts or finishes.
   const isCard = section === 'sessions' || section === 'shared' || section === 'working'
   const variant = isCard ? 'card' : 'slim'
   return { kind: 'task', key: `${task.key}:${variant}`, section, task }
 }
 
 export function sectionItems(
-  name: SidebarSection,
+  name: SidebarShelf,
   tasks: readonly SidebarTask[],
   isOpen: boolean,
   shelfRevealTaskId: string | null,

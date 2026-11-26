@@ -581,7 +581,7 @@ export function useThreadComposerState(input: {
       text: string,
       hasAttachmentsOrContext: boolean,
     ) => Promise<boolean | "responded">,
-    onWillEnqueue?: () => void,
+    onWillEnqueue?: (messageId: MessageId) => void,
   ) => {
     if (
       selectedThreadShell &&
@@ -834,7 +834,7 @@ export function useThreadComposerState(input: {
       appAtomRegistry.get(fullHistoryThreadKeysAtom)[threadKey] !== true &&
       resumeCompactionTokens(modelSelection, text, metadata.createdAt) !== null;
     const messageId = MessageId.make(metadata.messageId);
-    onWillEnqueue?.();
+    onWillEnqueue?.(messageId);
     clearThreadComposerError(threadKey);
     const message: QueuedThreadMessage = {
       environmentId: selectedThreadShell.environmentId,

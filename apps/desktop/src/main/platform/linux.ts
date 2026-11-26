@@ -11,6 +11,7 @@ import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { loginShellCommand, tmuxTerminal } from '@solus/desktop-main/terminal-launcher'
 import type { DesktopPlatform } from './desktop-platform'
 import { linuxTerminalApps } from './linux-terminal'
+import { linuxAppLaunchers } from './linux-app-launchers'
 
 const log = createLogger('main', 'platform-linux')
 const tmux = tmuxTerminal(linuxTerminalApps)
@@ -71,6 +72,8 @@ export const linuxPlatform: DesktopPlatform = {
       })
     },
   },
+
+  appLaunchers: linuxAppLaunchers,
 
   async captureScreen(path, signal) {
     // The desktop's Screenshot portal asks the user for a region and writes a file.

@@ -141,7 +141,7 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
         sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
-        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true,
+        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true, replyLayout: true,
       })
     : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
         { deferToolInputs: true })))
@@ -348,6 +348,8 @@ export function materializeSessionTranscript(
       }
     }
     if (m.role === 'user' && m.sender) msg.sender = m.sender
+    // The reply's content is kept as read, so the frame offsets stay valid.
+    if (m.role === 'assistant' && m.replyHtmlLayout) msg.replyHtmlLayout = m.replyHtmlLayout
     if (m.role === 'user' && m.imageAttachmentRefs?.length) {
       msg.attachments = [...(msg.attachments ?? []), ...(imageRefAttachments(m.imageAttachmentRefs) ?? [])]
     }

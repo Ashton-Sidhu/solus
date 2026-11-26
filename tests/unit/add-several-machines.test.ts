@@ -5,10 +5,10 @@ import { afterAll, expect, mock, test } from 'bun:test'
 // machine. An added machine leaves the selection; a failed one stays, so Add tries
 // it again; a machine that cannot be added in one step is never sent a request.
 
-const requests: Array<{ url: string; checkCode: string }> = []
+const requests: Array<{ url: string; checkCode: string; onTailnet: boolean }> = []
 mock.module('@solus/workspace-ui/components/fleet/add-machine', () => ({
-  pairWithApproval: async (url: string, checkCode: string) => {
-    requests.push({ url, checkCode })
+  pairWithApproval: async (url: string, checkCode: string, _onWaiting: unknown, _signal: unknown, onTailnet = false) => {
+    requests.push({ url, checkCode, onTailnet })
     if (url.includes('box')) throw new Error('The owner of that machine denied the request.')
     return { id: url, label: url }
   },
@@ -42,4 +42,19 @@ test('one check code reaches each selected machine; an added one leaves the sele
   expect([...several.selected]).toEqual(['box'])
   expect(several.isRunning).toBe(false)
   expect(several.checkCode).toBeNull()
+})
+
+// WHY: a route is saved as Tailscale only when the pairing says so, because an
+// address in 100.64.0.0/10 alone does not prove it (other VPNs share the range).
+// A machine the scan found on the tailnet must say so when it pairs by approval,
+// as it does with a code; otherwise its route is saved under the wrong kind and is
+// not counted as encrypted.
+test('a machine found on the tailnet pairs as a tailnet route; one found on the local network does not', async () => {
+  requests.length = 0
+  const several = new AddSeveral()
+  const tailnet = { ...server('studio'), source: 'tailnet' as const }
+  const found = [server('nas'), tailnet]
+  several.toggleAll(found)
+  await several.add(found)
+  expect(requests.map(({ url, onTailnet }) => [url, onTailnet]).sort()).toEqual([['http://nas:7777', false], ['http://studio:7777', true]])
 })

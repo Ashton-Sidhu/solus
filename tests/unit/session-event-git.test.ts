@@ -183,4 +183,47 @@ describe('SessionEventReducer Git events', () => {
     expect(workingPlace(session.run)).toEqual({ serverId: 'local', path: '/shop/api/.git/solus/worktrees/fix' })
     expect(checkoutGit(session.run)?.branch).toBe('solus/fix')
   })
+
+  test('the checkout of another repository does not move the run before its folders arrive', async () => {
+    // WHY: a task folder session works in the worktree of one repository and
+    // has the worktree of another as a session folder. A client that has not
+    // read the folders yet got that folder's `git_context`, moved the run into
+    // it, and the Git card then showed one repository only: the other was the
+    // folder that the host left out as the working directory.
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
+    const { workingPlace } = await import('@solus/workspace-ui/contexts/workspace/run-location')
+    const task = '/home/.solus/solus-task-folders/fix-1'
+    const session = {
+      id: 'session-1',
+      status: 'idle',
+      sessionFolders: [],
+      run: {
+        location: folderLocation(
+          { serverId: 'local', path: `${task}/app` },
+          { git: { repoRoot: '/code/app', branch: 'solus/fix', targetBranch: 'main', worktreePath: `${task}/app` } },
+        ),
+      } as Session['run'],
+    } as unknown as Session
+    const reducer = new SessionEventReducer({
+      sessions: { byId: { 'session-1': session } },
+      registry: {
+        tabs: { 'tab-1': { id: 'tab-1', sessionId: 'session-1' } as Tab },
+        sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
+        tabIdsBySession: new Map([['session-1', ['tab-1']]]),
+      },
+      settings: { rateLimitBehavior: 'ask' },
+      tasksStore: { refreshSessionBinding: async () => null },
+      log: () => {},
+    } as any)
+
+    reducer.apply('session-1', {
+      type: 'git_context',
+      cwd: `${task}/cloud`,
+      gitContext: { repoRoot: '/code/cloud', branch: 'solus/fix', targetBranch: 'main', worktreePath: `${task}/cloud` },
+    })
+
+    expect(workingPlace(session.run)).toEqual({ serverId: 'local', path: `${task}/app` })
+    expect(checkoutGit(session.run)?.repoRoot).toBe('/code/app')
+  })
 })

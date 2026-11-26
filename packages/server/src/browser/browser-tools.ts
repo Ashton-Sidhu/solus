@@ -32,6 +32,7 @@ import { browserRegistry, type BrowserSettleResult } from './browser-registry'
 import type { BrowserDialogAnswer } from './surface-driver'
 import { refSelector, waitConditionExpression } from './page-script'
 import { discoverBrowserTargets } from './target-scanner'
+import { servedPages } from './served-pages'
 import { currentPersonKey } from '../vault/acting-scope'
 
 /**
@@ -236,7 +237,8 @@ export const browserOpenAgentTool = browserTool({
   description:
     'Open a browser page on a URL and show it in the user\'s browser pane. It fills the pane unless '
     + 'you name a device preset. Pass show: false for a background check the user does not need to '
-    + 'watch: the page is rendered on this host and is yours to drive whether or not anyone is looking.',
+    + 'watch: the page is rendered on this host and is yours to drive whether or not anyone is looking. '
+    + 'A page on a dev server that you started closes when you stop that server and it does not listen again within 15 seconds.',
   inputFields: {
     url: z.string().describe('The dev-server URL to browser, e.g. http://localhost:5173/'),
     preset: z.string().optional().describe(
@@ -278,8 +280,11 @@ export const browserOpenAgentTool = browserTool({
 
     // The session rides along so a client shows the page beside that session's
     // conversation only, not over whichever one the user is reading.
-    const page = browserRegistry().open(request, personKey, context.sessionId())
-    browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.sessionId())
+    const sessionId = context.sessionId()
+    const page = browserRegistry().open(request, personKey, sessionId)
+    browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', sessionId)
+    // A page on a server this session started closes when that server stops for good.
+    if (sessionId) void servedPages().follow(page.browserPageId, page.url, sessionId)
     return ok(`${describePage(page)}\n\nUse browser_snapshot with this browserPageId to see it.`)
   },
 })

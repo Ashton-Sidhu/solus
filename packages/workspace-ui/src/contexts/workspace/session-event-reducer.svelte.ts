@@ -27,7 +27,7 @@ import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
-import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, startsWorktree, workingPlace } from './run-location'
 import { mcpAppLiveToolName } from '@solus/contracts/mcp-apps'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
@@ -622,7 +622,10 @@ export class SessionEventReducer {
         }
         // The host names the task for the background row; an older host does not.
         if (event.kind && !session.backgroundTasks?.some((task) => task.taskId === event.taskId)) {
-          ;(session.backgroundTasks ??= []).push({ taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
+          // Two statements: on a `$state` proxy, `??=` gives the plain array,
+          // and a push to it never reaches the list the background row reads.
+          session.backgroundTasks ??= []
+          session.backgroundTasks.push({ taskId: event.taskId, kind: event.kind, ...(event.description && { description: event.description }) })
         }
         break
       }
@@ -868,6 +871,15 @@ export class SessionEventReducer {
         // location is the working place only. The host sends the session
         // folders before it sends a `git_context` for one of them.
         if (session.sessionFolders.some((folder) => sameHostPath(folder.path, event.cwd))) break
+        // That order is not enough: a client that has not read the folders yet
+        // takes a folder's checkout for the run's, and the run then works in
+        // the folder (`workingPlace` follows `worktreePath`). A run that
+        // already works in one repository moves to another only by a clone or
+        // a new worktree that it asked for: the checkout of another repository
+        // is a session folder's.
+        const known = checkoutGit(session.run)
+        if (known?.repoRoot && event.gitContext.repoRoot && !sameHostPath(known.repoRoot, event.gitContext.repoRoot)
+          && !pendingClone(session.run) && !startsWorktree(session.run)) break
         // The host made the clone Send asked for: the run works in it from now on.
         const clonedPath = pendingClone(session.run) ? event.gitContext.worktreePath ?? event.gitContext.repoRoot : undefined
         if (clonedPath) session.run.location = landClone(session.run.location, clonedPath)

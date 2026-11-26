@@ -211,6 +211,8 @@ function switchableRequests(initial: SettingsCloudRequests) {
     hostPolicyDelete: (id, policyId) => current.hostPolicyDelete(id, policyId),
     hostPolicyAssign: (id, hostId, request) => current.hostPolicyAssign(id, hostId, request),
     hostPolicyUnassign: (id, hostId) => current.hostPolicyUnassign(id, hostId),
+    organizationSettingsGet: (id) => current.organizationSettingsGet(id),
+    organizationSettingsPatch: (id, request) => current.organizationSettingsPatch(id, request),
   }
   return { requests, use: (next: SettingsCloudRequests) => { current = next } }
 }

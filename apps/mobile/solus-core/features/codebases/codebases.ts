@@ -64,6 +64,7 @@ export interface CodebaseMachine {
 }
 
 export interface CodebasesDeps {
+  opening?(hostId: string): Promise<Codebase[] | null> | undefined
   /** The account and the organization that every read and every send belongs to. */
   scope(): string
   /** Each host of this phone. The workspace service is not one: it keeps no codebases. */
@@ -305,12 +306,12 @@ export class Codebases {
   }
 
   /** Read the codebases of one host, deleted ones included, then send each host the copies it does not have. */
-  async load(hostId: string): Promise<void> {
+  async load(hostId: string, opening?: Promise<Codebase[] | null>): Promise<void> {
     this.followScope()
     const connection = this.connectionOf(hostId)
     if (!connection) return
     if (!this.hostStatus.has(hostId)) this.setStatus(hostId, 'loading')
-    const read = Promise.resolve().then(() => connection.api.codebaseList({ includeDeleted: true }))
+    const read = Promise.resolve(opening).then(copies => copies ?? connection.api.codebaseList({ includeDeleted: true }))
     this.listReads.set(hostId, read)
     try {
       const copies = await read
@@ -496,7 +497,7 @@ export class Codebases {
           if (this.hostStatus.has(hostId)) void this.load(hostId)
         }),
       })
-      void this.load(hostId)
+      void this.load(hostId, this.deps.opening?.(hostId))
     }
   }
 
