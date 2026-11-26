@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import {
   ATTACHMENTS_FIELD, HOST_FIELD, REASONING_VALUES, REQUEST_ID_FIELD, WAIT_FIELD,
-  attachTo, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
+  attachTo, clientReadNote, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
   type SessionToolDeps, type SessionToolResult,
 } from './session-tools'
 import { sessionSettings } from '../../sessions/session-settings'
@@ -130,12 +130,14 @@ export async function startSessions(input: StartSessionsInput, deps: SessionTool
   if ('error' in launches) return { ok: false, text: launches.error }
 
   const callerSessionId = deps.ctx?.sessionId
+  // An outside app sends with its requester key, so it can read each exchange later.
+  const sender = callerSessionId ?? deps.ctx?.requesterKey
   const waitMs = input.wait_seconds * 1000
   // Each spawn opens its exchange and card before it awaits anything, so the
   // sessions start together and a wait covers all of them at once.
   const outcomes = await Promise.all(launches.map(async (launch, item): Promise<Checked<SpawnedSession>> => {
     try {
-      return await orchestration.spawn(callerSessionId, launch.order, launch.report, waitMs, input.request_id && `${input.request_id}#${item}`, launch.target)
+      return await orchestration.spawn(sender, launch.order, launch.report, waitMs, input.request_id && `${input.request_id}#${item}`, launch.target)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.warn('session_start_failed', { sessionId: callerSessionId, item, error: message })
@@ -144,7 +146,7 @@ export async function startSessions(input: StartSessionsInput, deps: SessionTool
   }))
   return {
     ok: outcomes.some((outcome) => !('error' in outcome)),
-    text: formatReceipt(launches, outcomes, waitMs),
+    text: formatReceipt(launches, outcomes, waitMs, !callerSessionId),
   }
 }
 
@@ -275,7 +277,9 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   }
   const attachError = await attachTo(order, session.attachments, deps)
   if (attachError) return { error: attachError }
-  return { ...choice, order, target: place.target, report: session.report ?? !session.independent }
+  // An outside app has no session to report to: it reads each result itself.
+  const report = caller.sessionId ? session.report ?? !session.independent : false
+  return { ...choice, order, target: place.target, report }
 }
 
 /** Another of the owner's hosts, as if the owner started the sessions there
@@ -344,7 +348,7 @@ function fallbackNote(runner: Runner, { provider, spent }: NonNullable<Choice['f
 
 /** One line for each session, in list order, each with its exchange tag, then
  *  what arrived while the call waited: a report's reply runs to the end. */
-function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<SpawnedSession>[], waitMs: number): string {
+function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<SpawnedSession>[], waitMs: number, readsItself: boolean): string {
   const head = `Started ${outcomes.filter((outcome) => !('error' in outcome)).length} of ${outcomes.length} sessions.`
   const lines = outcomes.map((outcome, item) => {
     const { order, runner, report, fallbackFrom } = launches[item]!
@@ -360,7 +364,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
     const startup = !outcome.starting ? ''
       : `${outcome.waited?.type === 'report' ? ' Provider startup ended.' : ' Startup continues in the background.'} read_session_exchange with exchange_id=${outcome.exchangeId} reads the startup state.`
     const tag = formatExchangeTag({ messageId: outcome.exchangeId, sessionId: outcome.sessionId, provider, serverId: host?.installationId, item })
-    return `${item + 1}. Session ${session}${name}. ${runs}${startup}${outcomeNote(report, waitMs, outcome.waited)}\n${tag}`
+    return `${item + 1}. Session ${session}${name}. ${runs}${startup}${outcomeNote(report, waitMs, outcome.waited)}${clientReadNote(readsItself, outcome.exchangeId, outcome.waited)}\n${tag}`
   })
   const waited = outcomes.map((outcome) => ('error' in outcome ? '' : waitedBlock(outcome.waited))).join('')
   return `${head}\n${lines.join('\n')}${waited}`
@@ -376,7 +380,7 @@ export const startSessionsAgentTool: AgentTool = {
   execute: async (input, context) => {
     try {
       return await startSessions(startSessionsSchema.parse(input), {
-        ctx: { agentProvider: context.provider, cwd: resolveHomePath(context.cwd), sessionId: context.sessionId() },
+        ctx: { agentProvider: context.provider, cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), requesterKey: context.requesterKey?.() },
       })
     } catch (error) {
       return { ok: false, text: `start_sessions failed: ${error instanceof Error ? error.message : String(error)}` }

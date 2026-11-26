@@ -44,7 +44,7 @@ const appHandler = createMcpHandler(({ authInfo, requestInfo }) => {
   // Checked again here: the grant may have been revoked since the request was admitted.
   const app = authInfo ? verifyAppToken(authInfo.token) : null
   if (!app) throw new Error('This app is not signed in.')
-  return appToolServer({ access: app.access, actor: actorFor(appPrincipal(app)), signal: requestInfo?.signal ?? new AbortController().signal })
+  return appToolServer({ grantId: app.deviceId, access: app.access, actor: actorFor(appPrincipal(app)), signal: requestInfo?.signal ?? new AbortController().signal })
 }, { responseMode: 'sse' })
 
 function bearerToken(request: Request): string | null {

@@ -3,6 +3,7 @@ import type { SessionRuntime } from '../session-runtime'
 import { HOST_ACTOR, type AgentVia } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
 import { ANY_ORGANIZATION } from '../../admission/principal'
+import { toolCallActor } from '../../admission/workspace-tool-authority'
 import { codebasesFor } from '../../data/codebases/codebases'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { codeHostFor, pullRequestForHead, pushHeadFor } from '../../prs/code-host'
@@ -22,19 +23,21 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       const senderSessionId = order.sourceSessionId ?? order.delegation?.parentSessionId
       return sessionRuntime.dispatch.createSession(senderSessionId ? { ...order, sender: { kind: 'agent', ...senderAgent(senderSessionId) } } : order)
     },
-    // A prompt one agent sends acts for the person the sender works for; with no sender, the target's.
+    // A prompt one agent sends acts for the person the sender works for; an
+    // outside app's, for the app's person; with neither, the target's.
     promptSession: (sessionId, prompt, delivery, { senderSessionId, ...order }) => sessionRuntime.dispatch.promptSession(sessionId, prompt, delivery, {
       ...order,
-      actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined,
+      actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : toolCallActor(),
       sender: senderSessionId ? { kind: 'agent', ...senderAgent(senderSessionId) } : undefined,
     }),
     // An agent's release acts for the person its sender works for, as a stop does.
-    releaseRateLimit: (sessionId, senderSessionId) => sessionRuntime.rateLimitPark.releaseHeld(sessionId, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR),
+    releaseRateLimit: (sessionId, senderSessionId) => sessionRuntime.rateLimitPark.releaseHeld(sessionId, (senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : toolCallActor()) ?? HOST_ACTOR),
     // An agent's stop acts for the person its sender works for, and names the
-    // sender, so the stopped turn says an agent ended it. With no sender, the host's.
+    // sender, so the stopped turn says an agent ended it. With no sender
+    // session, an outside app's person, else the host's.
     stopSession: (id, senderSessionId) => senderSessionId
       ? sessionRuntime.stopSession(id, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR, senderAgent(senderSessionId))
-      : sessionRuntime.stopSession(id, HOST_ACTOR),
+      : sessionRuntime.stopSession(id, toolCallActor() ?? HOST_ACTOR),
     respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),
     pendingInputEvents: (sessionId) => sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
     replaceQueuedPrompt: (sessionId, queueId, text, reportExchangeIds, exchangeIds) => sessionRuntime.scheduler.replaceQueuedPrompt(sessionId, queueId, text, reportExchangeIds, exchangeIds),

@@ -52,6 +52,9 @@ export interface AgentToolContext {
   /** The session id: what every record the tool writes names
    *  (docs/plans/session-identity.md). */
   sessionId: () => string | undefined
+  /** An outside app's requester key (`client:<grantId>`) when no session calls
+   *  (plans/035 §8): the work it starts is keyed by it, and only it reads that work. */
+  requesterKey?: () => string | undefined
   abortSignal: AbortSignal
   parentToolUseId: () => string | undefined
   emit: (event: NormalizedEvent) => void

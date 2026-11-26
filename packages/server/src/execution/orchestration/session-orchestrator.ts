@@ -30,7 +30,7 @@ import { planKey } from '@solus/contracts/types'
 import { attributionOf, type Actor } from '../../admission/actor'
 import { createLogger } from '../../logger'
 import { describePendingInput, type PendingInputDescription } from '../sessions/pending-input'
-import { applyExchangeEvent, isOpenExchange, type Exchange, type ExchangeEvent } from './exchange'
+import { applyExchangeEvent, isOpenExchange, senderSessionOf, type Exchange, type ExchangeEvent } from './exchange'
 import { recordPlanDecision } from './plan-decisions'
 import { addOutput, answerText, outputFromEvent, outputsFromAnswer, type ResolvedInput } from './session-outputs'
 import { ParentDelivery } from './parent-delivery'
@@ -141,10 +141,11 @@ export class SessionOrchestrator {
 
   /** Starts a new session running `order.prompt`. With a sender, the message is
    *  an exchange and the child is recorded as the sender's delegate; with
-   *  `report`, the sender hears its notices and its result. With `target`, the
-   *  session runs on that host instead of this one. */
+   *  `report`, the sender hears its notices and its result. An outside app's
+   *  requester key is a sender with no session: the new session is nobody's
+   *  delegate. With `target`, the session runs on that host instead of this one. */
   async spawn(
-    senderSessionId: string | undefined,
+    sender: string | undefined,
     order: SpawnOrder,
     report: boolean,
     waitMs = 0,
@@ -153,13 +154,14 @@ export class SessionOrchestrator {
   ): Promise<SpawnedSession> {
     // The stored delegation keeps the intent names it has always had.
     const intent = report ? 'delegate' : 'fire_and_forget'
-    const identity = this.ledger.identify(senderSessionId, requestId, JSON.stringify({ kind: 'create', order, report, hostId: target?.host.hostId }))
+    const identity = this.ledger.identify(sender, requestId, JSON.stringify({ kind: 'create', order, report, hostId: target?.host.hostId }))
     if (identity.existing) return this.repeatedSpawn(identity.existing, waitMs)
+    const senderSessionId = sender ? senderSessionOf(sender) : undefined
     const { exchangeId } = identity
     const dispatchedAt = Date.now()
     // The new session's id is chosen now, so the sender's card names it from the start.
     const targetSessionId = order.sessionId ?? randomUUID()
-    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt, target?.host)
+    const exchange = this.openSpawn(sender, targetSessionId, order, report, identity, dispatchedAt, target?.host)
     const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
 
     const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange, senderSessionId) : (async (): Promise<SpawnedSession> => {
@@ -246,22 +248,22 @@ export class SessionOrchestrator {
   }
 
   private openSpawn(
-    senderSessionId: string | undefined, targetSessionId: string,
+    sender: string | undefined, targetSessionId: string,
     order: SpawnOrder, report: boolean,
     identity: ExchangeIdentity, dispatchedAt: number, targetHost?: RemoteHost,
   ): Exchange | null {
     const { exchangeId, fingerprint } = identity
-    const exchange = senderSessionId
+    const exchange = sender
       ? this.open({
           exchangeId,
           kind: order.independent ? 'independent' : 'create',
-          senderSessionId,
+          senderSessionId: sender,
           targetSessionId,
           targetHostId: targetHost?.hostId,
           provider: order.provider,
           notify: report,
           dispatchedAt, fingerprint,
-          parentExchangeIds: report && !order.independent && senderSessionId ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : [],
+          parentExchangeIds: this.parentExchangeIdsOf(sender, report && !order.independent),
         })
       : null
     if (exchange) {
@@ -304,7 +306,7 @@ export class SessionOrchestrator {
     const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId, hostId: target?.host.hostId, request }))
     if (identity.existing) return this.repeatedSend(identity.existing, message.waitMs ?? 0)
     const { exchangeId, fingerprint } = identity
-    const parentExchangeIds = message.notify ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : []
+    const parentExchangeIds = this.parentExchangeIdsOf(senderSessionId, message.notify)
     if (this.ledger.isAncestor(parentExchangeIds, targetSessionId)) {
       throw new Error('A request cannot wait for its own ancestor. Use report=false for an update to the sender.')
     }
@@ -350,7 +352,7 @@ export class SessionOrchestrator {
   }
 
   private async promptHere(exchange: Exchange, message: SendOrder): Promise<PromptDisposition> {
-    const order: PromptOrder = { exchangeIds: [exchange.exchangeId], senderSessionId: exchange.senderSessionId }
+    const order: PromptOrder = { exchangeIds: [exchange.exchangeId], senderSessionId: senderSessionOf(exchange.senderSessionId) }
     if (message.permissionMode) order.permissionMode = message.permissionMode
     if (message.model) order.model = message.model
     if (!message.attachments?.length) return this.runtime.promptSession(exchange.targetSessionId, message.prompt, message.delivery, order)
@@ -386,7 +388,7 @@ export class SessionOrchestrator {
    *  the person's Send now does: its held prompts run now. False when no limit holds it. */
   releaseRateLimit(senderSessionId: string, targetSessionId: string): boolean {
     if (targetSessionId === senderSessionId) return false
-    const released = this.runtime.releaseRateLimit(targetSessionId, senderSessionId)
+    const released = this.runtime.releaseRateLimit(targetSessionId, senderSessionOf(senderSessionId))
     log.info('session_rate_limit_released', { sessionId: targetSessionId, senderSessionId, released })
     return released
   }
@@ -410,7 +412,7 @@ export class SessionOrchestrator {
       })
       return true
     }
-    const stopped = this.runtime.stopSession(targetSessionId, senderSessionId)
+    const stopped = this.runtime.stopSession(targetSessionId, senderSessionId ? senderSessionOf(senderSessionId) : undefined)
     // Nothing stopped: a later result is not the sender's own doing.
     if (!stopped) for (const exchangeId of marked) this.stoppedBySender.delete(exchangeId)
     return stopped
@@ -467,7 +469,7 @@ export class SessionOrchestrator {
     actor: Actor,
     comment?: string,
   ): Promise<boolean> {
-    if (!this.contacts.get(senderSessionId)?.has(targetSessionId)) return false
+    if (!senderSessionOf(senderSessionId) || !this.contacts.get(senderSessionId)?.has(targetSessionId)) return false
     const pending = this.pendingPlan(targetSessionId)
     if (!pending) return false
     const note = comment?.trim() ?? ''
@@ -544,7 +546,7 @@ export class SessionOrchestrator {
     }
     try {
       await this.runtime.promptSession(targetSessionId, `${REVISION_PREFIX}${note}`, 'queue', {
-        senderSessionId: waiting[0]?.senderSessionId,
+        senderSessionId: waiting[0] && senderSessionOf(waiting[0].senderSessionId),
         exchangeIds: waiting.map((exchange) => exchange.exchangeId),
         permissionMode: 'plan',
       })
@@ -562,6 +564,8 @@ export class SessionOrchestrator {
    *  is waiting on: its own session's request, or one a session it sent work to
    *  is waiting on. The control plane then checks the request is that session's. */
   mayAnswer(callerSessionId: string, askingSessionId: string): boolean {
+    // An outside app's requester key is never a conversation.
+    if (!senderSessionOf(callerSessionId)) return false
     if (callerSessionId === askingSessionId) return true
     for (const exchange of this.exchanges.values()) {
       if (exchange.senderSessionId === callerSessionId && exchange.targetSessionId === askingSessionId && exchange.state === 'awaiting_input') return true
@@ -818,6 +822,13 @@ export class SessionOrchestrator {
 
   // ─── Internals ───
 
+  /** The open requests of a sender session whose work a message is part of,
+   *  when the sender asked to hear back. An outside app has no session, so none. */
+  private parentExchangeIdsOf(sender: string, notify: boolean): string[] {
+    const senderSessionId = senderSessionOf(sender)
+    return notify && senderSessionId ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : []
+  }
+
   private open(fields: Omit<Exchange, 'state' | 'outputs' | 'notices' | 'revising'>): Exchange {
     const exchange: Exchange = { ...fields, state: 'dispatched', outputs: [], notices: [], revising: false }
     this.ledger.open(exchange)
@@ -876,7 +887,8 @@ export class SessionOrchestrator {
   /** A request of a session that `sessionId` started began or stopped waiting:
    *  `sessionId` and every session above it learn of it. */
   private delegatedRequestChanged(sessionId: string, seen = new Set<string>()): void {
-    if (seen.has(sessionId)) return
+    // An outside app has no session row to show the request on.
+    if (seen.has(sessionId) || !senderSessionOf(sessionId)) return
     seen.add(sessionId)
     this.runtime.delegatedRequestChanged(sessionId)
     for (const exchange of this.exchanges.values()) {
@@ -886,8 +898,10 @@ export class SessionOrchestrator {
     }
   }
 
+  /** Shows a change on the sender's card. An outside app has no conversation, so no card. */
   private publish(exchange: Pick<Exchange, 'senderSessionId'>, update: AgentConversationUpdate): void {
-    this.runtime.emit(exchange.senderSessionId, { type: 'agent_conversation_update', update })
+    const senderSessionId = senderSessionOf(exchange.senderSessionId)
+    if (senderSessionId) this.runtime.emit(senderSessionId, { type: 'agent_conversation_update', update })
   }
 
   /** Never accepted, so no turn will ever settle it. */
@@ -993,7 +1007,12 @@ export class SessionOrchestrator {
 
   /** Sends each settled report as soon as it is ready. */
   private deliverReport(exchange: Exchange, item: OrchestrationItem, hasReport: boolean): void {
-    const senderSessionId = exchange.senderSessionId
+    const senderSessionId = senderSessionOf(exchange.senderSessionId)
+    // An outside app has no session to wake: it reads the report with read_session_exchange.
+    if (!senderSessionId) {
+      if (hasReport) this.ledger.markDelivery([exchange.exchangeId], 'disposed')
+      return
+    }
     const awaitingOthers = this.isAwaitingReplies(senderSessionId)
     if (hasReport) {
       this.delivery.deliver(senderSessionId, {
@@ -1036,7 +1055,7 @@ export class SessionOrchestrator {
   private notify(exchange: Exchange, notice: SessionNotice, key: string): void {
     // A sender waiting in its tool call hears it there: the wait ends at once.
     if (this.endWait(exchange, { type: 'notice', notice })) return
-    if (!exchange.notify) return
+    if (!exchange.notify || !senderSessionOf(exchange.senderSessionId)) return
     exchange.notices.push(key)
     const openKey = `${exchange.senderSessionId}:${exchange.targetSessionId}:${key}`
     if (this.openNotices.has(openKey)) return

@@ -12,6 +12,7 @@ import { resolveHomePath } from '../../../platform/paths'
 import { withActorScope } from '../../seats/acting-identity'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 import { appToolRefusal, toolAccessRefusal } from './tool-access'
+import { clientRequesterKey } from '../../orchestration/exchange'
 import { advertisedInputSchema, assertUniqueAgentTools, enabledAgentTools, executeAgentTool } from './agent-tool'
 
 /**
@@ -163,6 +164,8 @@ export function runToolServer(binding: RunToolBinding | undefined): Server {
 
 /** An outside app that signed in to this host (plans/035 §4.2): its grant and the person it acts for. */
 export interface AppCaller {
+  /** The app's grant: its `host_device` row. */
+  grantId: string
   access: AppAccess
   actor: Actor
   signal: AbortSignal
@@ -198,6 +201,8 @@ export async function appToolServer(app: AppCaller): Promise<Server> {
       provider: 'claude-code',
       cwd: resolveHomePath('~'),
       sessionId: () => undefined,
+      // The work an app starts is keyed by its grant, as T3 Code keys it by its client (`requestNamespace`).
+      requesterKey: () => clientRequesterKey(app.grantId),
       abortSignal: AbortSignal.any([app.signal, extra.mcpReq.signal]),
       parentToolUseId: () => undefined,
       emit: () => {},
