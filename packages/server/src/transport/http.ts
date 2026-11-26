@@ -554,7 +554,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
     }
     if (range) Object.assign(headers, { 'content-range': `bytes ${start}-${end}/${stat.size}` })
-    return new Response(Readable.toWeb(fileStream), {
+    // SAFETY: a file read stream gives only bytes, so its web stream is a stream of Uint8Array.
+    return new Response(Readable.toWeb(fileStream) as ReadableStream<Uint8Array>, {
       status: range ? 206 : 200,
       headers,
     })

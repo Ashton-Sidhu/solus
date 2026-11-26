@@ -2436,8 +2436,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
           http.once('listening', onListening)
           http.listen(nextPort, host)
         })
-        const address = http.address()
-        return address && 'port' in address ? address.port : nextPort
+        // A TCP server answers its address with a port; a pipe or a closed server does not.
+        const address = z.object({ port: z.number() }).safeParse(http.address())
+        return address.success ? address.data.port : nextPort
       } catch (err) {
         const parsed = systemErrorSchema.safeParse(err)
         const code = parsed.success ? parsed.data.code : undefined
