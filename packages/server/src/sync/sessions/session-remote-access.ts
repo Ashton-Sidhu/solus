@@ -1,7 +1,7 @@
 import {
-  SESSION_REPOSITORY_HEAD_PATH, SESSION_REPOSITORY_TOKEN_PATH,
-  sessionRepositoryHeadResponseSchema, sessionRepositoryTokenResponseSchema,
-  type SessionCloudScope, type SessionRepositoryHeadRequest, type SessionRepositoryTokenRequest, type SessionRepositoryTokenResponse,
+  SESSION_CODE_URL_PATH, SESSION_REPOSITORY_HEAD_PATH, SESSION_REPOSITORY_TOKEN_PATH,
+  sessionCodeUrlResponseSchema, sessionRepositoryHeadResponseSchema, sessionRepositoryTokenResponseSchema,
+  type SessionCloudScope, type SessionCodeUrlRequest, type SessionRepositoryHeadRequest, type SessionRepositoryTokenRequest, type SessionRepositoryTokenResponse,
 } from '@solus/contracts/session-repositories'
 import type { HostRegistration } from '@solus/contracts/uplink'
 import { DelegationError, type Delegations } from '../delegations'
@@ -19,7 +19,10 @@ export interface SessionCloudIdentity {
 export interface SessionRemoteAccess {
   remote(sessionId: string, identity: SessionCloudIdentity, access: 'read' | 'write'): Promise<SessionRemoteResult>
   report(request: SessionRepositoryHeadRequest, identity: SessionCloudIdentity): Promise<'accepted' | 'unavailable' | 'conflict'>
-  /** A short-lived signed URL of one code bundle: `PUT` its bytes with a Content-Length to write, `GET` to read. */
+  /**
+   * A URL for one code bundle, valid for 15 minutes. A PUT to a `write` URL sends `content-length: bytes`
+   * and `SESSION_CODE_CHECKSUM_HEADER` with the base64 SHA-256; the store refuses other bytes.
+   */
   codeUrl(request: { sessionId: string; sha256: string; bytes: number; access: 'read' | 'write' }, identity: SessionCloudIdentity): Promise<{ status: 'ready'; url: string } | { status: 'unavailable' }>
 }
 
@@ -31,7 +34,7 @@ export class DelegatedSessionRemoteAccess implements SessionRemoteAccess {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  private async request({ cloudScope, actorUserId }: SessionCloudIdentity, path: string, body: SessionRepositoryTokenRequest | SessionRepositoryHeadRequest): Promise<Response> {
+  private async request({ cloudScope, actorUserId }: SessionCloudIdentity, path: string, body: SessionRepositoryTokenRequest | SessionRepositoryHeadRequest | SessionCodeUrlRequest): Promise<Response> {
     const registration = this.registration()
     if (!registration?.apiUrl) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'The Solus API is not available.')
     const separator = cloudScope.indexOf(':')
@@ -47,10 +50,20 @@ export class DelegatedSessionRemoteAccess implements SessionRemoteAccess {
   async remote(sessionId: string, identity: SessionCloudIdentity, access: 'read' | 'write'): Promise<SessionRemoteResult> {
     const registration = this.registration()
     if (!registration) return { status: 'unavailable' }
-    const response = await this.request(identity, SESSION_REPOSITORY_TOKEN_PATH, { hostId: registration.hostId, sessionId, access })
+    const response = await this.request(identity, SESSION_REPOSITORY_TOKEN_PATH, { hostId: registration.hostId, sessionId, access, format: 2 })
     if (response.status === 404 || response.status === 503) return { status: 'unavailable' }
     if (!response.ok) throw new Error(`Session repository token request failed (${response.status}).`)
     return { status: 'ready', remote: sessionRepositoryTokenResponseSchema.parse(await response.json()) }
+  }
+
+  async codeUrl(request: { sessionId: string; sha256: string; bytes: number; access: 'read' | 'write' }, identity: SessionCloudIdentity): Promise<{ status: 'ready'; url: string } | { status: 'unavailable' }> {
+    const registration = this.registration()
+    if (!registration?.apiUrl) return { status: 'unavailable' }
+    const response = await this.request(identity, SESSION_CODE_URL_PATH, { hostId: registration.hostId, ...request })
+    if (response.status === 404 || response.status === 503) return { status: 'unavailable' }
+    if (!response.ok) throw new Error(`Session code URL request failed (${response.status}).`)
+    // A local store answers a path on the Solus API; R2 answers a full URL.
+    return { status: 'ready', url: new URL(sessionCodeUrlResponseSchema.parse(await response.json()).url, registration.apiUrl).toString() }
   }
 
   async report(request: SessionRepositoryHeadRequest, identity: SessionCloudIdentity): Promise<'accepted' | 'unavailable' | 'conflict'> {
@@ -60,10 +73,5 @@ export class DelegatedSessionRemoteAccess implements SessionRemoteAccess {
     if (!response.ok) throw new Error(`Session repository head request failed (${response.status}).`)
     sessionRepositoryHeadResponseSchema.parse(await response.json())
     return 'accepted'
-  }
-
-  // Part 2 replaces this.
-  async codeUrl(_request: Parameters<SessionRemoteAccess['codeUrl']>[0], _identity: SessionCloudIdentity): Promise<{ status: 'ready'; url: string } | { status: 'unavailable' }> {
-    return { status: 'unavailable' }
   }
 }

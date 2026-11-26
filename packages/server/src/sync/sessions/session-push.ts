@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { SessionRepositoryCard } from '@solus/contracts/session-repositories'
+import { SESSION_CODE_CHECKSUM_HEADER, type SessionRepositoryCard } from '@solus/contracts/session-repositories'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getSessionRecord } from '../../data/sessions/session-records'
 import { readSessionStorage } from '../../data/sessions/session-storage'
@@ -228,9 +228,7 @@ export class SessionPusher {
       const response = await (this.deps.fetch ?? fetch)(answer.url, {
         method: 'PUT', body, signal: AbortSignal.any([this.active.signal, AbortSignal.timeout(CODE_UPLOAD_TIMEOUT_MS)]),
         // The store refuses a `PUT` without the length and the SHA-256 that the URL was signed for.
-        headers: { 'content-length': String(bundle.bytes),
-          // SESSION_CODE_CHECKSUM_HEADER in part 2
-          'x-amz-checksum-sha256': Buffer.from(bundle.sha256, 'hex').toString('base64') },
+        headers: { 'content-length': String(bundle.bytes), [SESSION_CODE_CHECKSUM_HEADER]: Buffer.from(bundle.sha256, 'hex').toString('base64') },
       })
       if (!response.ok) throw new Error(`Code bundle upload failed (${response.status}).`)
       return true
