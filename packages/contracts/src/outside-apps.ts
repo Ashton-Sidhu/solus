@@ -216,3 +216,22 @@ export const OUTSIDE_APP_GUIDES: readonly OutsideAppGuide[] = [
     docs: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp',
   },
 ]
+
+/**
+ * The link that opens an app's waiting sign-in in a Solus client: the phone app
+ * takes it from the sign-in page's QR code (plans/035 §0.5). `hostId` is the
+ * host's installation id, so the client calls the host that holds the sign-in.
+ */
+export function appSignInLink(hostId: string, requestId: string): string {
+  return `solus://approve-app?${new URLSearchParams({ host: hostId, request: requestId })}`
+}
+
+/** The host and sign-in an `appSignInLink` names, or null for any other link. */
+export function parseAppSignInLink(link: string): { hostId: string; requestId: string } | null {
+  if (!URL.canParse(link)) return null
+  const url = new URL(link)
+  if (url.protocol !== 'solus:' || url.host !== 'approve-app') return null
+  const hostId = url.searchParams.get('host')
+  const requestId = url.searchParams.get('request')
+  return hostId && requestId ? { hostId, requestId } : null
+}

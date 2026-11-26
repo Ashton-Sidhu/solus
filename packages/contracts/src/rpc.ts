@@ -339,6 +339,8 @@ export const RPC_INVOKE_METHODS = [
   // Outside apps that use this host's tools over MCP (plans/035 §10)
   'connectionsAppEndpoint',
   'connectionsCreateAppPairingCode',
+  'connectionsReadAppSignIn',
+  'connectionsDecideAppSignIn',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',

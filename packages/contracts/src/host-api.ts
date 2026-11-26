@@ -188,6 +188,21 @@ export interface PairedDevice {
 /** What an outside app may do with this host's tools: read only, change records, or also run tools that need approval. */
 export type AppAccess = 'read' | 'write' | 'full'
 
+/** An outside app's sign-in that waits for a person to approve it in their Solus client (plans/035 §0.5). */
+export interface AppSignInRequest {
+  requestId: string
+  /** The name the app gave itself. */
+  appName: string
+  appId: OutsideAppId
+  /** Where the app's access goes: the host of its web address, or its app scheme. */
+  redirectPlace: string
+  /** The app's sign-in returns to the computer that opened the sign-in page. */
+  onThisComputer: boolean
+  /** The access chosen on the sign-in page. */
+  access: AppAccess
+  expiresAt: number
+}
+
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
   accountConnectionsUrl?: string
@@ -530,6 +545,10 @@ export interface SolusAPI {
   connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null }>
   /** A one-time code that approves an outside app's sign-in on its consent page, with the access it gives. */
   connectionsCreateAppPairingCode(args: { access: AppAccess }): Promise<{ code: string; access: AppAccess; expiresAt: number }>
+  /** An outside app's sign-in that waits for a person to approve it in Solus, by the id in its link or the code on its sign-in page. */
+  connectionsReadAppSignIn(args: { requestId: string } | { checkCode: string }): Promise<AppSignInRequest>
+  /** Approves or denies that sign-in as the calling person: the app then acts as them (plans/035 §0.5). */
+  connectionsDecideAppSignIn(args: { requestId: string; decision: 'approve' | 'deny' }): Promise<{ ok: true }>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean }>
   connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>

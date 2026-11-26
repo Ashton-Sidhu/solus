@@ -83,6 +83,8 @@ const PERMISSION_OF_METHOD = {
   // A person connects an outside app that acts as them (plans/035 §0.3): the owner, or a member of an organization.
   connectionsAppEndpoint: HOST_USE,
   connectionsCreateAppPairingCode: HOST_USE,
+  connectionsReadAppSignIn: HOST_USE,
+  connectionsDecideAppSignIn: HOST_USE,
   connectionsRevokeDevice: 'host.admin',
   // Introductions give one host a token for another: a local owner's, never on a managed host (host-reach.md §4).
   hostIntroductionsList: 'host.local.reach',
