@@ -368,7 +368,7 @@ export function SolusHostDetail({
         isConnected={host?.connectionState === "connected"}
         makeCode={route.params.pairCode === "new"}
       />
-      <OutsideAppsSection hostId={id} />
+      <OutsideAppsSection hostId={id} hostName={host?.environmentLabel ?? "this host"} />
       <ReachedMachinesSection hostId={id} />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (

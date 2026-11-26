@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pairing'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { connectedAppDetail, connectedApps, HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
-import { appSetup, connectedAppName, openFirstLink, PHONE_APP_GUIDES, showsOutsideApps } from '../../apps/mobile/solus-core/features/settings/outside-app-setup'
+import { connectedAppDetail, connectedApps, HostAccess, networkNote, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
+import { APP_ACCESS_OPTIONS, appCodeExpiry, appSetup, connectedAppName, DEFAULT_APP_ACCESS, openFirstLink, PHONE_APP_GUIDES, showsOutsideApps } from '../../apps/mobile/solus-core/features/settings/outside-app-setup'
+import { OUTSIDE_APP_GUIDES } from '@solus/contracts/outside-apps'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -100,15 +101,10 @@ describe('a host’s Access screen on the phone', () => {
     expect(loaded(access).info.port).toBe(4810)
   })
 
-  test('only the owner of a personal host sees its pairings, each as connected, last seen, or revoked', () => {
+  test('only the owner of a personal host sees its pairings', () => {
     expect(showsPairedDevices(INFO)).toBe(true)
     expect(showsPairedDevices({ ...INFO, principal: 'org-member' })).toBe(false)
     expect(showsPairedDevices({ ...INFO, hostKind: 'cloud' })).toBe(false)
-    const now = Date.parse('2026-11-20T12:00:00Z')
-    const device = { deviceId: 'd1', deviceLabel: 'Phone', pairedAt: now - 3 * 86_400_000, lastSeenAt: now - 2 * 3_600_000, revokedAt: null }
-    expect(pairedDeviceDetail(device, true, now)).toBe('Connected now · paired 3d ago')
-    expect(pairedDeviceDetail(device, false, now)).toBe('Last seen 2h ago · paired 3d ago')
-    expect(pairedDeviceDetail({ ...device, revokedAt: now - 60_000 }, false, now)).toBe('Revoked 1m ago')
   })
 
   test('an organization change made elsewhere shows without a reload', async () => {
@@ -161,9 +157,11 @@ describe('outside apps on a host’s Access screen', () => {
     const cursor = { deviceId: 'a1', deviceLabel: 'Cursor', pairedAt: now - 86_400_000, lastSeenAt: now - 3_600_000, revokedAt: null, app: { access: 'write' as const, appId: 'cursor' as const } }
     const old = { ...cursor, deviceId: 'a0', revokedAt: now - 60_000 }
     expect(connectedApps([tablet, cursor, old])).toEqual([cursor])
-    expect(connectedAppDetail(cursor, now)).toBe('Read and write access · Last seen 1h ago · paired 1d ago')
+    expect(connectedAppDetail(cursor, now)).toBe('Read and write access · Last connected 1h ago')
     expect(connectedAppDetail({ ...cursor, app: { access: 'read', appId: 'cursor' } }, now)).toStartWith('Read access ·')
     expect(connectedAppDetail({ ...cursor, app: { access: 'full', appId: 'cursor' } }, now)).toStartWith('Full access ·')
+    // The host writes the time it last saw the app; at the approval it is the time of the approval.
+    expect(connectedAppDetail({ ...cursor, lastSeenAt: cursor.pairedAt }, now)).toBe('Read and write access · Not connected yet')
 
     const api = hostApi().on('connectionsListDevices', () => [tablet, cursor]).on('connectionsRevokeDevice', () => ({ ok: true }))
     const { access } = await phoneWith(api)
@@ -171,6 +169,25 @@ describe('outside apps on a host’s Access screen', () => {
     await access.revokeDevice('inst-a', 'a1')
     expect(api.callsOf('connectionsRevokeDevice')).toEqual([[{ deviceId: 'a1' }]])
     expect(connectedApps(loaded(access).pairedDevices)).toEqual([])
+  })
+
+  test('Revoke all apps revokes each app, reads the list once, and a refusal still shows what changed', async () => {
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    const app = (deviceId: string) => ({ deviceId, deviceLabel: deviceId, pairedAt: now, lastSeenAt: now, revokedAt: null, app: { access: 'read' as const, appId: 'claude' as const } })
+    const api = hostApi()
+      .on('connectionsListDevices', () => [app('a1'), app('a2'), app('a3')])
+      .on('connectionsRevokeDevice', ({ deviceId }: { deviceId: string }) => {
+        if (deviceId === 'a2') throw new Error('not revoked')
+        return { ok: true }
+      })
+    const { access } = await phoneWith(api)
+    api.on('connectionsListDevices', () => [{ ...app('a1'), revokedAt: now }, app('a2'), { ...app('a3'), revokedAt: now }])
+    const reads = api.callsOf('connectionsListDevices').length
+    await expect(access.revokeDevices('inst-a', ['a1', 'a2', 'a3'])).rejects.toThrow('not revoked')
+    expect(api.callsOf('connectionsRevokeDevice')).toEqual([[{ deviceId: 'a1' }], [{ deviceId: 'a2' }], [{ deviceId: 'a3' }]])
+    expect(api.callsOf('connectionsListDevices').length).toBe(reads + 1)
+    expect(connectedApps(loaded(access).pairedDevices).map((device) => device.deviceId)).toEqual(['a2'])
+    expect(loaded(access).busy).toBeNull()
   })
 })
 
@@ -183,8 +200,23 @@ describe('connecting an outside app from the phone', () => {
   const URL = 'https://box.tunnel.example/mcp'
   const guide = (id: string) => PHONE_APP_GUIDES.find((entry) => entry.id === id)!
 
-  test('the phone offers the cloud apps, not the apps that run on a computer', () => {
-    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).toEqual(['claude', 'chatgpt', 'grok-bot', 'poke', 'muse', 'instinct'])
+  test('the phone offers each cloud app of the catalog, not the apps that run on a computer', () => {
+    expect(PHONE_APP_GUIDES).toEqual(OUTSIDE_APP_GUIDES.filter((entry) => entry.needsPublicUrl))
+    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).toContain('claude')
+    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).not.toContain('cursor')
+    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).not.toContain('claude-code')
+  })
+
+  test('the access starts at Read and write, and each level says what the app can do', () => {
+    expect(DEFAULT_APP_ACCESS).toBe('write')
+    expect(APP_ACCESS_OPTIONS.map((option) => option.label)).toEqual(['Read', 'Read and write', 'Full'])
+    expect(APP_ACCESS_OPTIONS.find((option) => option.access === 'full')?.effect).toContain('ask for approval')
+  })
+
+  test('a pairing code counts down to its end, then it has expired', () => {
+    expect(appCodeExpiry(600_000, 0)).toBe('Expires 10:00 · one use')
+    expect(appCodeExpiry(600_000, 600_000 - 61_500)).toBe('Expires 1:02 · one use')
+    expect(appCodeExpiry(600_000, 600_000)).toBeNull()
   })
 
   test('each app gets the address the way it takes it', () => {
@@ -193,7 +225,7 @@ describe('connecting an outside app from the phone', () => {
     expect(claude.kind === 'ready' && claude.action.links[0]).toContain(`connectorUrl=${encodeURIComponent(URL)}`)
 
     const chatgpt = appSetup(guide('chatgpt'), URL)
-    expect(chatgpt.kind === 'ready' && chatgpt.action).toEqual({ label: 'Copy address and open ChatGPT', copyText: URL, links: ['https://chatgpt.com/plugins'] })
+    expect(chatgpt.kind === 'ready' && chatgpt.action).toEqual({ label: 'Copy address and open ChatGPT', copyText: URL, copiedNotice: 'Address copied', links: ['https://chatgpt.com/plugins'], page: 'https://chatgpt.com/plugins' })
 
     const grok = appSetup(guide('grok-bot'), URL)
     if (grok.kind !== 'ready') throw new Error('Grok Bot has a public address')
@@ -201,6 +233,8 @@ describe('connecting an outside app from the phone', () => {
     expect(grok.action.copyText).toBe(grok.message)
     // The app itself first, then its web page when the app is not installed.
     expect(grok.action.links).toEqual([`grokbot://app/v1/prompt?text=${encodeURIComponent(grok.message!)}`, 'https://x.ai/bot'])
+    // The web page is the way through when the app is not installed.
+    expect(grok.action.page).toBe('https://x.ai/bot')
   })
 
   test('with no public address, a cloud app cannot be set up', () => {

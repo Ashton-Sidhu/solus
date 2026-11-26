@@ -4,6 +4,7 @@ import type { HostOrganizationsStatus } from '@solus/contracts/organization-scop
 import { Listeners } from '../../lib/listeners'
 import { relativeTime } from '../../lib/time'
 import type { HostConnection } from '../hosts/host-connections'
+import { appAccessLabel } from './outside-app-setup'
 
 /**
  * How one host is reached and who reaches it, as the desktop and web Access tab
@@ -21,7 +22,7 @@ export type HostAppEndpoint = Awaited<ReturnType<HostApi['connectionsAppEndpoint
 export type HostAppPairCode = Awaited<ReturnType<HostApi['connectionsCreateAppPairingCode']>>
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'tailscale-serve' | 'pair' | 'app-pair' | `revoke:${string}` | `insights:${string}`
+export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'tailscale-serve' | 'pair' | 'app-pair' | 'revoke-apps' | `revoke:${string}` | `insights:${string}`
 
 export interface HostAccessSnapshot {
   info: ConnectionsServerInfo
@@ -143,6 +144,21 @@ export class HostAccess {
     })
   }
 
+  /**
+   * Revokes each of these devices, one request each, then reads the pairings once. A device the
+   * host refused stays in the list; the first refusal is thrown after the list is read again.
+   */
+  async revokeDevices(hostId: string, deviceIds: readonly string[]): Promise<void> {
+    const refusals: unknown[] = []
+    await this.change(hostId, 'revoke-apps', async (api) => {
+      const results = await Promise.allSettled(deviceIds.map((deviceId) => api.connectionsRevokeDevice({ deviceId })))
+      for (const result of results) if (result.status === 'rejected') refusals.push(result.reason)
+      const [devices, paired] = await Promise.all([api.connectionsListSessions(), readPairedDevices(api)])
+      return { devices, pairedDevices: paired.devices, pairedDevicesError: paired.error }
+    })
+    if (refusals.length > 0) throw refusals[0]
+  }
+
   /** Opts this host's work for one organization into its Insights while the organization's policy is off. */
   async setInsightsOptIn(hostId: string, organizationId: string, enabled: boolean): Promise<void> {
     await this.change(hostId, `insights:${organizationId}`, async (api) => ({
@@ -250,23 +266,20 @@ export function showsPairedDevices(info: ConnectionsServerInfo): boolean {
   return hasPairing(info) && (info.principal === 'local-owner' || info.principal === 'remote-owner')
 }
 
-/** The line under a paired device: revoked, connected now, or when the host last saw it. */
-export function pairedDeviceDetail(device: PairedDevice, isConnected: boolean, now = Date.now()): string {
-  const ago = (at: number) => `${relativeTime(new Date(at).toISOString(), now)} ago`
-  if (device.revokedAt !== null) return `Revoked ${ago(device.revokedAt)}`
-  const seen = isConnected ? 'Connected now' : `Last seen ${ago(device.lastSeenAt)}`
-  return `${seen} · paired ${ago(device.pairedAt)}`
-}
-
 /** The outside apps that still reach this host's tools; a revoked app signs in again as a new one. */
 export function connectedApps(devices: PairedDevice[]): (PairedDevice & { app: { access: AppAccess } })[] {
   return devices.filter((device): device is PairedDevice & { app: { access: AppAccess } } =>
     device.app !== undefined && device.revokedAt === null)
 }
 
-const APP_ACCESS_LABELS = { read: 'Read', write: 'Read and write', full: 'Full' } satisfies { [Access in AppAccess]: string }
-
-/** The line under a connected app: the access it was given, and when the host last saw it. */
+/**
+ * The line under a connected app: the access it was given, and when it last used the host.
+ * The host writes `lastSeenAt` at most once a minute, so an app that has not come back since
+ * its approval still has the time of its approval there.
+ */
 export function connectedAppDetail(app: PairedDevice & { app: { access: AppAccess } }, now = Date.now()): string {
-  return `${APP_ACCESS_LABELS[app.app.access]} access · ${pairedDeviceDetail(app, false, now)}`
+  const seen = app.lastSeenAt > app.pairedAt
+    ? `Last connected ${relativeTime(new Date(app.lastSeenAt).toISOString(), now)} ago`
+    : 'Not connected yet'
+  return `${appAccessLabel(app.app.access)} access · ${seen}`
 }

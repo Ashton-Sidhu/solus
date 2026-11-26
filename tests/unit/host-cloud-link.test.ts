@@ -131,6 +131,26 @@ describe('a phone paired with a host registers it, and links it', () => {
     expect(state.kind === 'loaded' && state.control).toBe('view')
   })
 
+  test('a member of the host\'s organization reads the tunnel to connect an outside app, and never changes it', async () => {
+    const api = new FakeApi()
+      .on('connectionsGetServerInfo', () => ({ principal: 'org-member', hostKind: 'personal' }))
+      .on('uplinkStatus', () => REGISTERED)
+    const { cloud } = await phoneWith(api, TICKET, true)
+    const state = cloud.stateOf('inst-a')
+    expect(state.kind === 'loaded' && state.control).toBe('none')
+    expect(state.kind === 'loaded' && state.status).toEqual(REGISTERED)
+    await cloud.link('inst-a')
+    expect(api.callsOf('uplinkLink')).toEqual([])
+  })
+
+  test('a guest does not read the tunnel', async () => {
+    const api = new FakeApi().on('connectionsGetServerInfo', () => ({ principal: 'guest', hostKind: 'personal' }))
+    const { cloud } = await phoneWith(api)
+    const state = cloud.stateOf('inst-a')
+    expect(state.kind === 'loaded' && state.status).toBeNull()
+    expect(api.callsOf('uplinkStatus')).toEqual([])
+  })
+
   test('the tunnel coming online after the link shows without a reload', async () => {
     const api = new FakeApi()
       .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
