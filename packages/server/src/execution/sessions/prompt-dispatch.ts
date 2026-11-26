@@ -1,7 +1,7 @@
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { MANAGED_SESSION_SETTING_KEYS } from '@solus/contracts/policy'
 import { organizationOfSession } from '../../data/sessions/session-records'
-import { childPermissionMode } from './child-permissions'
+import { childPermissionMode, rootPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
@@ -9,7 +9,7 @@ import { solusToolbox } from '../agents/tools/solus-toolbox'
 import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '../agents/run-input'
 import { actingPreferences } from '../person-settings'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
-import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { responseForkStart } from './session-forks'
@@ -409,7 +409,7 @@ export class PromptDispatch {
     // A default is lowered to the policy's ceiling; an explicit mode above it is refused where the provider starts.
     const permissionMode = parentMode
       ? childPermissionMode(parentMode, req.permissionMode)
-      : req.permissionMode ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode(preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode)
+      : rootPermissionMode(hostPolicies().forWork(await organizationOfSession(sessionId)), req.permissionMode, preferences)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,

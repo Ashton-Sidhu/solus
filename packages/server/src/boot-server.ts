@@ -235,8 +235,9 @@ import { registerAutomationHandlers } from './transport/handlers/automation-hand
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
-import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
-import { RemoteHosts } from './execution/orchestration/remote-hosts'
+import { setRemoteHosts, setSessionController, setSessionOrchestration, type ReachCaller } from './execution/agents/tools/session-tools'
+import { RemoteHosts, reachOfPrincipal } from './execution/orchestration/remote-hosts'
+import { organizationApisOf } from './execution/orchestration/remote-session-read'
 import { hostMesh } from './execution/orchestration/host-mesh'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
@@ -1304,9 +1305,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
   }
   // A caller's reach: the owner's own, a member's organization, and nothing for anyone else.
-  const reachOf = (principal: Principal): ReachRequest | null => principal.kind === 'org-member'
-    ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-    : principal.kind === 'owner' ? ownerReach() : null
+  const reachOf = (principal: Principal): ReachRequest | null => reachOfPrincipal(principal, ownerReach)
+  // The person an agent tool reaches for: the calling session's current turn, or an outside
+  // app's person. Null for the host's own turn, which has no person.
+  const reachingPrincipal = (caller: ReachCaller): Principal | null => {
+    if ('principal' in caller) return caller.principal
+    const actor = opts.sessionRuntime.activeRunRequests.get(caller.sessionId)?.actor
+    return actor?.user ? actor.principal : null
+  }
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
@@ -1373,30 +1379,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
-    // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
-    // their personal delegation and the introduced hosts; a member only through the
-    // organization they work in here; anyone else not at all.
-    reachRequestFor: (sessionId): ReachRequest | null => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      if (!actor?.user || principal?.kind === 'owner') return ownerReach()
-      if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-      return null
+    // A turn, or an outside app's call, reaches other hosts for its own person by `reachOf`
+    // (host-reach.md §3.2; plans/035 §0.6): the owner through their personal delegation and
+    // the introduced hosts; a member only through their organization; anyone else not at all.
+    // The host's own turn, with no person, reaches as the owner.
+    reachRequestFor: (caller): ReachRequest | null => {
+      const principal = reachingPrincipal(caller)
+      return principal ? reachOf(principal) : ownerReach()
     },
     // The same people and scopes read their organizations' Solus APIs: the owner every
     // organization this host holds a delegation for, a member only their own.
-    organizationApisFor: (sessionId) => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      const owner = !actor?.user || principal?.kind === 'owner'
-      const ownerId = owner ? delegations?.holders().find((holder) => holder.scope === 'personal')?.userId : undefined
-      return (delegations?.holders() ?? []).flatMap((holder) => {
-        if (holder.scope === 'personal') return []
-        const reads = owner
-          ? holder.userId === ownerId
-          : principal?.kind === 'org-member' && holder.userId === principal.userId && holder.scope.organizationId === principal.organizationId
-        return reads ? [{ organizationId: holder.scope.organizationId, client: delegations!.apiClient(holder.userId, holder.scope) }] : []
-      })
+    organizationApisFor: (caller) => {
+      const held = delegations
+      return held ? organizationApisOf(reachingPrincipal(caller), held.holders(), (userId, scope) => held.apiClient(userId, scope)) : []
     },
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { RemoteTarget } from '@solus/server/execution/orchestration/session-orchestrator'
+import type { Principal } from '@solus/server/admission/principal'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -23,6 +24,8 @@ let sessionTools: typeof import('@solus/server/execution/agents/tools/session-to
 let startTool: typeof import('@solus/server/execution/agents/tools/start-sessions-tool')['startSessionsAgentTool']
 let hostDisplayName: typeof import('@solus/server/platform/host-display-name')['hostDisplayName']
 let closeDb: typeof import('@solus/server/db')['closeDb']
+let reachOfPrincipal: typeof import('@solus/server/execution/orchestration/remote-hosts')['reachOfPrincipal']
+let withWorkspaceToolAuthority: typeof import('@solus/server/admission/workspace-tool-authority')['withWorkspaceToolAuthority']
 
 const spawned: unknown[][] = []
 const sentOrders: unknown[][] = []
@@ -68,6 +71,20 @@ const remoteHosts = {
 }
 
 const ctx = { agentProvider: 'codex' as const, cwd: '/repo/on/a', sessionId: 'solus-parent' }
+/** An outside app's requester key (plans/035 §8), and its call: no session, the app's person as the authority. */
+const APP = 'client:grant-app'
+const appContext = {
+  provider: 'claude-code' as const, cwd: '/home/me', sessionId: () => undefined, requesterKey: () => APP, emit: () => {},
+  abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+}
+const OWNER_APP: Principal = { kind: 'owner', via: 'local', deviceId: 'grant-app', deviceLabel: 'Claude Desktop', expiresAt: null }
+const MEMBER_APP: Principal = {
+  kind: 'org-member', userId: 'bob', organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'personal',
+  displayName: 'Bob', deviceId: 'grant-bob', expiresAt: Date.now() + 60_000, deviceLabel: 'Cursor',
+}
+const GUEST_APP = { kind: 'guest', guestId: 'guest-1', displayName: 'Guest', deviceId: 'guest-1', expiresAt: Date.now() + 60_000, deviceLabel: 'Cursor' } as unknown as Principal
+/** One tool, called by an outside app acting for `principal`. */
+const asApp = <T>(principal: Principal, call: () => Promise<T>) => withWorkspaceToolAuthority(principal, call)
 const toolContext = {
   provider: ctx.agentProvider, cwd: ctx.cwd, sessionId: () => ctx.sessionId, emit: () => {},
   abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
@@ -83,10 +100,13 @@ beforeAll(async () => {
   startTool = (await import('@solus/server/execution/agents/tools/start-sessions-tool')).startSessionsAgentTool
   ;({ hostDisplayName } = await import('@solus/server/platform/host-display-name'))
   ;({ closeDb } = await import('@solus/server/db'))
+  ;({ reachOfPrincipal } = await import('@solus/server/execution/orchestration/remote-hosts'))
+  ;({ withWorkspaceToolAuthority } = await import('@solus/server/admission/workspace-tool-authority'))
   sessionTools.setSessionController({
     permissionModeFor: () => 'supervised',
     getSessionInfo: async () => null,
-    reachRequestFor: () => turnReach,
+    // A session's turn reaches as the test sets; an outside app's person by the host's one rule.
+    reachRequestFor: (caller) => 'principal' in caller ? reachOfPrincipal(caller.principal, () => OWNER_REACH) : turnReach,
     organizationApisFor: () => turnApis,
     listAgentTargets: async () => [{
       provider: 'codex', label: 'Codex', available: true, defaultModel: 'model-on-a',
@@ -99,7 +119,7 @@ beforeAll(async () => {
     readExchange: (_sender, exchangeId) => exchangeId === 'm-sent-b' ? { provider: 'codex' } as never : undefined,
     releaseRateLimit: () => false,
     stop: (...args) => { stopped.push(args); return true },
-    remoteHostOf: (sender, target) => sender === 'solus-parent' && target === 'child-on-b' ? 'Host B' : undefined,
+    remoteHostOf: (sender, target) => [ctx.sessionId, APP].includes(sender) && target === 'child-on-b' ? 'Host B' : undefined,
   })
 })
 
@@ -321,4 +341,121 @@ test('a child across hosts retains child ownership, isolation, and permission li
   expect(result.ok).toBe(true)
   expect(spawned.at(-1)?.[1]).toMatchObject({ independent: false, provider: 'codex', modelId: 'model-on-b', cwd: '~/code/app', worktreeBaseBranch: 'main', permissionMode: 'supervised' })
   expect(spawned.at(-1)?.[2]).toBe(true)
+})
+
+describe('an outside app on another host (plans/035 §0.6)', () => {
+  // WHY: an app connected to this host reaches the person's other hosts as an agent
+  // here does, for the person who approved it: the owner their own hosts, a member
+  // only through their organization, a guest none. The work it starts there names
+  // no session, reports to nobody, and is reached again only by the same app.
+
+  test('the owner\'s app lists hosts and starts a session on one, with no session origin and no report', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    lookups.length = 0
+    const listed = await asApp(OWNER_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    expect(listed.ok).toBe(true)
+    expect(JSON.parse(listed.text).hosts.map((host: { name: string }) => host.name)).toEqual(['Host B'])
+
+    const result = await asApp(OWNER_APP, () => startTool.execute({ sessions: [{ prompt: 'Run the suite on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('read_session_exchange with exchange_id=m-remote')
+    const [sender, order, report, , , target] = spawned.at(-1)!
+    expect(sender).toBe(APP)
+    expect(report).toBe(false)
+    expect((target as RemoteTarget).host.hostId).toBe('host-b')
+    expect((target as RemoteTarget).origin).toBeUndefined()
+    // The mode it would start in here, by this host's policy: nothing limits it in this test.
+    expect(order).toMatchObject({ permissionMode: 'full-access' })
+    expect(lookups).toEqual([OWNER_REACH, OWNER_REACH])
+  })
+
+  test('a member\'s app reaches only through its organization', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    lookups.length = 0
+    await asApp(MEMBER_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    await asApp(MEMBER_APP, () => startTool.execute({ sessions: [{ prompt: 'Org work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
+    const memberReach = { account: { userId: 'bob', scope: { organizationId: 'org-1' } }, isOwner: false }
+    expect(lookups).toEqual([memberReach, memberReach])
+  })
+
+  test('an app whose person reaches no other host is refused, and nothing starts', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    const before = spawned.length
+    const listed = await asApp(GUEST_APP, () => sessionTools.listHostsAgentTool.execute({}, appContext))
+    expect(listed).toEqual({ ok: false, text: 'Only a person with host access can list their other hosts.' })
+    const started = await asApp(GUEST_APP, () => startTool.execute({ sessions: [{ prompt: 'Work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
+    expect(started).toEqual({ ok: false, text: 'sessions[0]: Only a person with access to this host can reach their other hosts from it. No session was started.' })
+    expect(spawned).toHaveLength(before)
+  })
+
+  test('an app with read access lists hosts, but cannot start, message, or stop a session there', async () => {
+    const { appToolRefusal } = await import('@solus/server/execution/agents/tools/tool-access')
+    expect(appToolRefusal(sessionTools.listHostsAgentTool, 'read')).toBeNull()
+    for (const tool of [startTool, sessionTools.sendSessionAgentTool, sessionTools.stopSessionAgentTool]) {
+      expect(appToolRefusal(tool, 'read')).toContain('approved to read only')
+      expect(appToolRefusal(tool, 'write')).toBeNull()
+    }
+  })
+
+  test('the session it started there is messaged, read, and stopped there, as the app', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    const sent = await asApp(OWNER_APP, () => sessionTools.sendSessionAgentTool.execute({ session_id: 'child-on-b', message: 'More work.' }, appContext))
+    expect(sent.ok).toBe(true)
+    expect(sent.text).toContain('on Host B')
+    const [sender, targetId, order, remote] = sentOrders.at(-1)!
+    expect([sender, targetId]).toEqual([APP, 'child-on-b'])
+    expect(order).toMatchObject({ notify: false })
+    expect((remote as RemoteTarget).origin).toBeUndefined()
+
+    const read = await asApp(OWNER_APP, () => sessionTools.readSessionAgentTool.execute({ session_id: 'thread-on-b' }, appContext))
+    expect(JSON.parse(read.text).session.foundOn).toBe('Host B')
+
+    const stop = await asApp(OWNER_APP, () => sessionTools.stopSessionAgentTool.execute({ session_id: 'child-on-b' }, appContext))
+    expect(stop.text).toContain('Asked Host B to stop session child-on-b')
+    expect(stopped.at(-1)).toEqual([APP, 'child-on-b'])
+  })
+
+  test('the app gets no broader mode there than here: this host\'s ceiling applies first', async () => {
+    const { HostPolicyStore, useHostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
+    const document = { schemaVersion: 1 as const, organization: { name: 'Example Corp' }, sessions: { limits: { maxPermissionMode: 'supervised' as const } } }
+    useHostPolicyStore(new HostPolicyStore({ mdm: { source: 'test', document, fingerprint: 'test' }, standing: () => null }))
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    const before = spawned.length
+    try {
+      // With no mode, the default here, lowered to the ceiling here.
+      await asApp(OWNER_APP, () => startTool.execute({ sessions: [{ prompt: 'Work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B' }] }, appContext))
+      expect(spawned.at(-1)![1]).toMatchObject({ permissionMode: 'supervised' })
+      // A mode above the ceiling here is refused here, before host B is asked.
+      const refused = await asApp(OWNER_APP, () => startTool.execute({ sessions: [{ prompt: 'Work on B.', agent_provider: 'codex', model_id: 'model-on-b', host: 'Host B', permission_mode: 'full-access' }] }, appContext))
+      expect(refused.ok).toBe(false)
+      expect(refused.text).toContain('Supervised')
+      expect(spawned).toHaveLength(before + 1)
+    } finally {
+      useHostPolicyStore(new HostPolicyStore({ mdm: null, standing: () => null }))
+    }
+  })
+})
+
+describe('the reach rule that a turn and an app share', () => {
+  test('the owner reaches as the owner, a member through their organization, anyone else nothing', () => {
+    const ownerReach = () => OWNER_REACH
+    expect(reachOfPrincipal(OWNER_APP, ownerReach)).toEqual(OWNER_REACH)
+    expect(reachOfPrincipal(MEMBER_APP, ownerReach)).toEqual({ account: { userId: 'bob', scope: { organizationId: 'org-1' } }, isOwner: false })
+    expect(reachOfPrincipal(GUEST_APP, ownerReach)).toBeNull()
+  })
+
+  test('a member reads only their own organization\'s Solus API; the owner, and the host\'s own work, the owner\'s', async () => {
+    const { organizationApisOf } = await import('@solus/server/execution/orchestration/remote-session-read')
+    const holders = [
+      { userId: 'alice', scope: 'personal' as const },
+      { userId: 'alice', scope: { organizationId: 'org-a' } },
+      { userId: 'bob', scope: { organizationId: 'org-1' } },
+      { userId: 'bob', scope: { organizationId: 'org-2' } },
+    ]
+    const ids = (principal: Principal | null) => organizationApisOf(principal, holders, () => ({}) as never).map((api) => api.organizationId)
+    expect(ids(OWNER_APP)).toEqual(['org-a'])
+    expect(ids(null)).toEqual(['org-a'])
+    expect(ids({ ...MEMBER_APP, organizationId: 'org-1' } as Principal)).toEqual(['org-1'])
+    expect(ids(GUEST_APP)).toEqual([])
+  })
 })

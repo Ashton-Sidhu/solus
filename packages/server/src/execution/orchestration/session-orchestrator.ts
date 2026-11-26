@@ -223,9 +223,10 @@ export class SessionOrchestrator {
       reasoningEffort: order.reasoningEffort,
       contextWindow: order.contextWindow,
       cwd: order.cwd,
-      startedBy: target.origin,
       permissionMode: order.permissionMode,
     }
+    // An outside app's work names no session: that host records the person who started it.
+    if (target.origin) request.startedBy = target.origin
     if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
     if (order.title) request.title = order.title
     try {

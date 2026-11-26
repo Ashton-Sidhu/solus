@@ -198,8 +198,9 @@ export interface SpawnedSession {
  *  (docs/plans/cross-host-sessions.md). */
 export interface RemoteTarget {
   host: RemoteHost
-  /** This host's session that starts it, as the target host shows it. */
-  origin: SessionStarterFromHost
+  /** This host's session that starts it, as the target host shows it. None for an
+   *  outside app's work: the target host records the person who started it. */
+  origin?: SessionStarterFromHost
 }
 
 /** The longest a tool call may wait on a session, in milliseconds. */

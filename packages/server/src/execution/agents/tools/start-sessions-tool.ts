@@ -3,12 +3,15 @@ import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import {
   ATTACHMENTS_FIELD, HOST_FIELD, REASONING_VALUES, REQUEST_ID_FIELD, WAIT_FIELD,
-  attachTo, clientReadNote, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
+  attachTo, clientReadNote, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, reachCallerOf, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
   type SessionToolDeps, type SessionToolResult,
 } from './session-tools'
 import { sessionSettings } from '../../sessions/session-settings'
 import type { PersonalSettings } from '@solus/contracts/settings'
-import { childPermissionMode } from '../../sessions/child-permissions'
+import { childPermissionMode, rootPermissionMode } from '../../sessions/child-permissions'
+import { hostPolicies } from '../../../host/policy/host-policy-store'
+import { LOCAL_ORGANIZATION_ID, organizationForNew } from '../../../admission/principal'
+import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { resolveHomePath } from '../../../platform/paths'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { getHeadCommit } from '../../../git/worktree-manager'
@@ -195,7 +198,7 @@ async function checkedLaunches(sessions: readonly SessionInput[], deps: SessionT
   const places = new Map<string, Promise<Checked<Place>>>()
   const placeOf = (host: string | undefined) => {
     const key = host ?? ''
-    if (!places.has(key)) places.set(key, host ? remotePlace(host, caller.sessionId) : listAgentTargets().then((targets) => ({ targets })))
+    if (!places.has(key)) places.set(key, host ? remotePlace(host, deps) : listAgentTargets().then((targets) => ({ targets })))
     return places.get(key)!
   }
   const launches = await Promise.all(sessions.map(async (session): Promise<Checked<Launch>> => {
@@ -259,7 +262,12 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   const choice = runnerFor(session, caller, place)
   if ('error' in choice) return choice
   const { runner } = choice
-  const permissionMode = caller.permissionMode ? childPermissionMode(caller.permissionMode, session.permission_mode) : session.permission_mode
+  // A child keeps within its caller's policy; an outside app's work on another host, within what it gets here.
+  const permission = caller.sessionId || !place.target
+    ? { mode: caller.permissionMode ? childPermissionMode(caller.permissionMode, session.permission_mode) : session.permission_mode }
+    : appModeThere(session.permission_mode)
+  if ('error' in permission) return permission
+  const permissionMode = permission.mode
   if (place.target && !permissionMode) return { error: 'The caller’s permission policy is unavailable. Remote work was not started.' }
   const workspace = place.target ? remoteWorkspace(session) : await localWorkspace(session, deps.ctx?.cwd)
   if ('error' in workspace) return workspace
@@ -282,11 +290,26 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   return { ...choice, order, target: place.target, report }
 }
 
-/** Another of the owner's hosts, as if the owner started the sessions there
- *  (docs/plans/cross-host-sessions.md). */
-async function remotePlace(hostRef: string, callerSessionId: string | undefined): Promise<Checked<Place>> {
-  if (!callerSessionId) return { error: 'start_sessions on another host is unavailable before the calling session is initialized.' }
-  const target = await remoteTarget(hostRef, callerSessionId)
+/**
+ * The mode an outside app's session starts in on another host: the mode it would
+ * start in here, by the same rule and this host's policy, so it is never broader
+ * there than here. The other host checks it against its own policy too, and
+ * refuses a mode above that (plans/035 §0.6).
+ */
+function appModeThere(requested: PermissionMode | undefined): Checked<{ mode: PermissionMode }> {
+  const principal = workspaceToolAuthority()
+  const policy = hostPolicies().forWork(principal ? organizationForNew(principal) : LOCAL_ORGANIZATION_ID)
+  const mode = rootPermissionMode(policy, requested, undefined)
+  const refused = policy.modeDenial(mode)
+  return refused ? { error: `${refused.message} Remote work was not started.` } : { mode }
+}
+
+/** Another of the person's hosts, as if they started the sessions there
+ *  (docs/plans/cross-host-sessions.md). The caller is a session, or an outside app with its person. */
+async function remotePlace(hostRef: string, deps: SessionToolDeps): Promise<Checked<Place>> {
+  const caller = reachCallerOf(deps)
+  if (!caller) return { error: 'start_sessions on another host is unavailable before the calling session is initialized.' }
+  const target = await remoteTarget(hostRef, caller)
   if ('error' in target) return target
   const targets = await remoteAgentTargets(target.host)
   return 'error' in targets ? targets : { targets, target }

@@ -221,6 +221,8 @@ export const APP_TOOLS = {
   update_automation: 'write',
   delete_automation: 'write',
   run_automation: 'write',
+  // The person's other hosts: start_sessions with `host` starts work there (§0.6).
+  list_hosts: 'read',
   list_agent_targets: 'read',
   search_sessions: 'read',
   read_session: 'read',

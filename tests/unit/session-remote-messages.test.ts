@@ -219,3 +219,35 @@ describe('messages to a session on another host', () => {
     expect(b.prompted).toEqual([])
   })
 })
+
+describe('work an outside app starts on another host (plans/035 §0.6)', () => {
+  test('names no session there, reports to nobody, and only that app reads or messages it', async () => {
+    // WHY: the app has no session here. Host B records the person who started the
+    // work, as this host does for an app's work here. The result waits in the
+    // app's exchange, keyed by its grant: another app or a session cannot read it.
+    const APP_A = 'client:grant-a'
+    const b = hostB()
+    const orchestration = orchestrator()
+    const child = await orchestration.spawn(APP_A, { ...ORDER, prompt: 'Run the suite.' }, false, 0, undefined, { host: b.host })
+    await orchestration.settled()
+    expect(b.started[0]?.startedBy).toBeUndefined()
+    expect(b.started[0]?.organizationId).toBeUndefined()
+
+    b.emit(child.sessionId, { type: 'task_complete', result: 'Suite passes.', costUsd: 0, durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0 }, sessionId: 'thread' } as WireNormalizedEvent)
+    b.emit(child.sessionId, { type: 'turn_settled', turnId: 't1', outcome: 'completed', settledAt: 1 })
+    await orchestration.settled()
+
+    expect(orchestration.readExchange(APP_A, child.exchangeId)?.report?.reply).toBe('Suite passes.')
+    expect(orchestration.readExchange('client:grant-b', child.exchangeId)).toBeUndefined()
+    expect(orchestration.readExchange('parent', child.exchangeId)).toBeUndefined()
+    expect(orchestration.remoteHostOf(APP_A, child.sessionId)).toBe('host-b')
+    expect(orchestration.remoteHostOf('client:grant-b', child.sessionId)).toBeUndefined()
+
+    // Only the app that started it reaches it there again.
+    await expect(orchestration.send('client:grant-b', child.sessionId, { prompt: 'Hi.', delivery: 'queue', notify: false }, { host: b.host }))
+      .rejects.toThrow('was not started on Host B')
+    const sent = await orchestration.send(APP_A, child.sessionId, { prompt: 'Once more.', delivery: 'queue', notify: false }, { host: b.host })
+    expect(b.prompted.map((request) => request.prompt)).toEqual(['Once more.'])
+    expect(orchestration.readExchange(APP_A, sent.exchangeId)?.targetSessionId).toBe(child.sessionId)
+  })
+})

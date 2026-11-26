@@ -294,7 +294,7 @@ const threadLinks: AgentTool<typeof threadLinkFields> = {
       if (input.environmentId !== undefined && input.environmentId !== getInstallationId()) {
         if (!input.threadId) throw new Error('Pass threadId on the target host.')
         if (!callerSessionId) throw new Error(SESSION_REQUIRED)
-        const remote = await remoteTarget(input.environmentId, callerSessionId)
+        const remote = await remoteTarget(input.environmentId, { sessionId: callerSessionId })
         if ('error' in remote) throw new Error(remote.error)
         const links = await remote.host.call('list session pull requests', () => remote.host.api.sessionPullRequests(sessionId))
         return { ok: true, text: JSON.stringify(threadPullRequestPage(links, new Map(), input)), format: 'json' }

@@ -2,6 +2,8 @@ import type { SolusApiClient } from '@solus/contracts/solus-api/client'
 import type { WorkspaceSession, WorkspaceTranscriptPart } from '@solus/contracts/solus-api/schemas'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { SessionMeta } from '@solus/contracts/types'
+import type { DelegationScope } from '@solus/contracts/uplink'
+import type { Principal } from '../../admission/principal'
 import { createLogger } from '../../logger'
 import type { RemoteHost } from './remote-hosts'
 
@@ -20,6 +22,28 @@ export interface RemoteSession {
 export interface OrganizationApi {
   organizationId: string
   client: SolusApiClient
+}
+
+/**
+ * The organizations' Solus APIs a person reads, with the people and scopes of
+ * the reach rule (`reachOfPrincipal`): the owner, and the host's own work with
+ * no person (null), every organization the owner holds a delegation for; a
+ * member only their own organization; anyone else none.
+ */
+export function organizationApisOf(
+  principal: Principal | null,
+  holders: readonly { userId: string; scope: DelegationScope }[],
+  clientOf: (userId: string, scope: DelegationScope) => SolusApiClient,
+): OrganizationApi[] {
+  const owner = !principal || principal.kind === 'owner'
+  const ownerId = owner ? holders.find((holder) => holder.scope === 'personal')?.userId : undefined
+  return holders.flatMap((holder) => {
+    if (holder.scope === 'personal') return []
+    const reads = owner
+      ? holder.userId === ownerId
+      : principal.kind === 'org-member' && holder.userId === principal.userId && holder.scope.organizationId === principal.organizationId
+    return reads ? [{ organizationId: holder.scope.organizationId, client: clientOf(holder.userId, holder.scope) }] : []
+  })
 }
 
 /** The API sends at most 200 parts a page; a longer transcript is cut at this many pages. */

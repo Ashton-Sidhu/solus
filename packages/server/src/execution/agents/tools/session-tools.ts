@@ -13,8 +13,8 @@ import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PermissionM
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { loadTask } from '../../../data/tasks/task-store'
-import { ANY_ORGANIZATION } from '../../../admission/principal'
-import { assertToolMay, toolMayRead, type ToolCommand } from '../../../admission/workspace-tool-authority'
+import { ANY_ORGANIZATION, type Principal } from '../../../admission/principal'
+import { assertToolMay, toolMayRead, workspaceToolAuthority, type ToolCommand } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type ModelChoice, type RateLimitHold, type RemoteTarget, type SendOrder, type SentMessage, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import { resolveSessionLineageById } from '../../../data/sessions/session-lineage'
@@ -91,10 +91,10 @@ export interface SessionController {
   permissionModeFor?(sessionId: string): PermissionMode | undefined
   /** The codebase of a session, which a session it starts gets too (docs/plans/codebases.md decision 5). */
   codebaseIdFor?(sessionId: string): Promise<string | null>
-  /** What the session's current turn may reach on other hosts; null when its person reaches none from here (a guest). */
-  reachRequestFor?(sessionId: string): ReachRequest | null
-  /** The Solus APIs of the organizations the session's current turn may read, as its person. */
-  organizationApisFor?(sessionId: string): OrganizationApi[]
+  /** What the caller's person may reach on other hosts; null when they reach none from here (a guest). */
+  reachRequestFor?(caller: ReachCaller): ReachRequest | null
+  /** The Solus APIs of the organizations the caller's person may read. */
+  organizationApisFor?(caller: ReachCaller): OrganizationApi[]
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
@@ -143,6 +143,20 @@ export interface SessionToolCtx {
 
 /** What a tool that acts on a session says to an outside app that names none (plans/035 §8). */
 export const APP_NEEDS_SESSION_ID = 'Pass session_id: this app is not running inside a Solus session.'
+
+/**
+ * Who reaches the person's other hosts: the calling session, whose current turn
+ * names the person, or an outside app, with the person it acts for (plans/035 §0.6).
+ */
+export type ReachCaller = { sessionId: string } | { principal: Principal }
+
+/** The caller that reaches other hosts; null before a session is initialized and for a call that has no person. */
+export function reachCallerOf(deps: SessionToolDeps): ReachCaller | null {
+  if (deps.ctx?.sessionId) return { sessionId: deps.ctx.sessionId }
+  // An outside app's call runs with its person's authority, set where it was admitted, never from its arguments.
+  const principal = deps.ctx?.requesterKey ? workspaceToolAuthority() : undefined
+  return principal ? { principal } : null
+}
 
 /** Who sends a message: the calling session, else the outside app's requester key. */
 function senderOf(deps: SessionToolDeps): string | undefined {
@@ -379,10 +393,10 @@ export function waitedBlock(waited: OrchestrationItem | null | undefined): strin
   return waited ? `\n\n${formatOrchestrationItem(waited)}` : ''
 }
 
-/** The other host a session the caller started runs on, if any. */
+/** The other host a session the caller (a session or an outside app) started runs on, if any. */
 function remoteHostOf(deps: SessionToolDeps, sessionId: string): string | undefined {
-  const caller = deps.ctx?.sessionId
-  return caller ? sessionOrchestration?.remoteHostOf?.(caller, sessionId) : undefined
+  const sender = senderOf(deps)
+  return sender ? sessionOrchestration?.remoteHostOf?.(sender, sessionId) : undefined
 }
 
 export async function findSession(sessionId: string): Promise<SessionMeta | null> {
@@ -431,7 +445,7 @@ function validatedSessionTool<Args>(
 
 async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTargetsFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (args.host) {
-    const remote = await connectRemoteHost(args.host, deps.ctx?.sessionId)
+    const remote = await connectRemoteHost(args.host, reachCallerOf(deps))
     if ('error' in remote) return { ok: false, text: remote.error }
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
@@ -454,30 +468,33 @@ function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
   })
 }
 
+const NO_HOST_REACH = 'Only a person with access to this host can reach their other hosts from it.'
+
 async function listHostsTool(_args: Record<string, never>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const hosts = deps.ctx?.sessionId ? await listedRemoteHosts(deps.ctx.sessionId) : null
-  if (!hosts) return { ok: false, text: 'Only a session with host access can list its remote hosts.' }
+  const caller = reachCallerOf(deps)
+  const hosts = caller ? await listedRemoteHosts(caller) : null
+  if (!hosts) return { ok: false, text: 'Only a person with host access can list their other hosts.' }
   return { ok: true, text: JSON.stringify({ hosts }, null, 2) }
 }
 
-/** The hosts `list_hosts` shows a session, with their status; null when its person reaches none from here. */
-export async function listedRemoteHosts(sessionId: string): Promise<ListedRemoteHost[] | null> {
-  const request = reachRequestOf(sessionId)
+/** The hosts `list_hosts` shows a caller, with their status; null when its person reaches none from here. */
+export async function listedRemoteHosts(caller: ReachCaller): Promise<ListedRemoteHost[] | null> {
+  const request = reachRequestOf(caller)
   if (!request) return null
   return remoteHosts ? remoteHosts.summaries(request) : []
 }
 
-/** The connection to one of the owner's other hosts, by id or name. */
-async function connectRemoteHost(ref: string, callerSessionId: string | undefined): Promise<RemoteHost | { error: string }> {
+/** The connection to one of the person's other hosts, by id or name. */
+async function connectRemoteHost(ref: string, caller: ReachCaller | null): Promise<RemoteHost | { error: string }> {
   if (!remoteHosts) return { error: 'This host cannot reach other hosts.' }
-  const request = callerSessionId ? reachRequestOf(callerSessionId) : null
-  if (!request) return { error: 'Only a person with access to this host can reach their other hosts from it.' }
+  const request = caller ? reachRequestOf(caller) : null
+  if (!request) return { error: NO_HOST_REACH }
   return remoteHosts.connectTo(request, ref)
 }
 
-/** What the turn may reach; with no controller (tests, a bare host), the owner's own reach. */
-function reachRequestOf(sessionId: string): ReachRequest | null {
-  return sessionController?.reachRequestFor ? sessionController.reachRequestFor(sessionId) : { account: null, isOwner: true }
+/** What the caller's person may reach; with no controller (tests, a bare host), the owner's own reach. */
+function reachRequestOf(caller: ReachCaller): ReachRequest | null {
+  return sessionController?.reachRequestFor ? sessionController.reachRequestFor(caller) : { account: null, isOwner: true }
 }
 
 /** What another host offers, read the way a client reads it. */
@@ -516,7 +533,7 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
   if (!(await toolMayRead({ kind: 'session', id: requestedId }))) return { ok: false, text: `No session ${requestedId} that this turn may read.` }
   const meta = await findSession(requestedId)
   if (!meta) {
-    const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
+    const remote = await findOffHost(requestedId, reachCallerOf(deps))
     // Its task and pending input stay on the host that holds it.
     if (remote) return readResult({ meta: remote.meta, status: remote.meta.status ?? 'idle', foundOn: remote.source }, await remote.load(), request)
     const remoteHost = remoteHostOf(deps, requestedId)
@@ -573,15 +590,15 @@ function readResult(context: SessionReadContext, messages: readonly SessionLoadM
 }
 
 /** The session on one of the person's other hosts or organizations' Solus APIs; null when none has it. */
-async function findOffHost(sessionId: string, callerSessionId: string | undefined): Promise<RemoteSession | null> {
-  if (!callerSessionId) return null
-  const request = reachRequestOf(callerSessionId)
+async function findOffHost(sessionId: string, caller: ReachCaller | null): Promise<RemoteSession | null> {
+  if (!caller) return null
+  const request = reachRequestOf(caller)
   const targets = remoteHosts && request ? await remoteHosts.list(request) : []
   const hosts = 'error' in targets ? [] : targets.flatMap((target) => {
     const connected = remoteHosts!.connect(target)
     return 'error' in connected ? [] : [connected]
   })
-  const apis = sessionController?.organizationApisFor?.(callerSessionId) ?? []
+  const apis = sessionController?.organizationApisFor?.(caller) ?? []
   return findRemoteSession(sessionId, hosts, apis)
 }
 
@@ -649,7 +666,7 @@ async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionField
   const report = callerSessionId ? args.report : false
   const waitMs = args.wait_seconds * 1000
   const order = sendOrderFor({ ...args, report })
-  const recipient = await sendRecipient(sessionId, callerSessionId, deps)
+  const recipient = await sendRecipient(sessionId, deps)
   if ('error' in recipient) return { ok: false, text: recipient.error }
   const model = await checkedSend(args, recipient)
   if ('error' in model) return { ok: false, text: model.error }
@@ -767,16 +784,16 @@ type SendRecipient =
   | { sessionId: string; meta: SessionMeta; target?: undefined }
   | { sessionId: string; meta?: undefined; target: RemoteTarget }
 
-async function sendRecipient(sessionId: string, callerSessionId: string | undefined, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
+async function sendRecipient(sessionId: string, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
   const remoteHost = remoteHostOf(deps, sessionId)
-  if (remoteHost && callerSessionId) {
-    // The other host is reached for the turn's person, as for start_sessions.
-    const target = await remoteTarget(remoteHost, callerSessionId)
+  if (remoteHost) {
+    // The other host is reached for the caller's person, as for start_sessions.
+    const target = await remoteTarget(remoteHost, reachCallerOf(deps))
     return 'error' in target ? target : { sessionId, target }
   }
   const meta = await findSession(sessionId)
   if (!meta) return { error: `Session ${sessionId} not found.` }
-  if (meta.sessionId === callerSessionId) return { error: 'Cannot message your own session.' }
+  if (meta.sessionId === deps.ctx?.sessionId) return { error: 'Cannot message your own session.' }
   return { sessionId: meta.sessionId, meta }
 }
 
@@ -796,11 +813,18 @@ export async function attachTo(order: { attachments?: string[] }, paths: string[
   return null
 }
 
-/** Another host, reached as `start_sessions` with `host` reaches it. */
-export async function remoteTarget(hostRef: string, callerSessionId: string): Promise<RemoteTarget | { error: string }> {
-  const remote = await connectRemoteHost(hostRef, callerSessionId)
+/**
+ * Another host, reached as `start_sessions` with `host` reaches it. A session
+ * there names the calling session as its origin. An outside app's work names
+ * none: the other host records the person who started it, as this host does
+ * for an app's work here (plans/035 §0.6).
+ */
+export async function remoteTarget(hostRef: string, caller: ReachCaller | null): Promise<RemoteTarget | { error: string }> {
+  const remote = await connectRemoteHost(hostRef, caller)
   if ('error' in remote) return remote
-  return { host: remote, origin: { kind: 'session', hostLabel: hostDisplayName(), sessionId: callerSessionId } }
+  return caller && 'sessionId' in caller
+    ? { host: remote, origin: { kind: 'session', hostLabel: hostDisplayName(), sessionId: caller.sessionId } }
+    : { host: remote }
 }
 
 const readExchangeFields = {
