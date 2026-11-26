@@ -4,6 +4,7 @@ import type { AttentionEntry } from '@solus/contracts/attention-types'
 import type { Codebase } from '@solus/contracts/codebases'
 import type { HostEvent } from '@solus/contracts/host-events'
 import type { SessionShellChange, SessionShellChanges, SessionShellCursor, SessionShellOpenResult, SessionShellRow, SessionShellSnapshot } from '@solus/contracts/session-shell'
+import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import type { ProjectEntry } from '@solus/contracts/types'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { isAnyOrganization, recordScopeOf, type Principal } from '../../admission/principal'
@@ -36,6 +37,8 @@ export interface SessionShellDeps {
   hostProjects(): Promise<readonly Pick<ProjectEntry, 'path'>[]>
   /** The sessions an automation started: their rows show its name. */
   sessionsStartedBy(automationId: string): Promise<string[]>
+  /** The sessions whose last activity is in [from, to), on any scope: only their ids, which each caller then reads with their own scope. */
+  sessionsLastActiveBetween(from: number, to: number): Promise<string[]>
   now?: () => number
 }
 
@@ -98,9 +101,13 @@ export class SessionShell {
   private timer: ReturnType<typeof setTimeout> | null = null
   private flushing: Promise<void> = Promise.resolve()
   private readonly now: () => number
+  /** The idle limit's position at the last check: sessions last active before it were checked. */
+  private idleCheckedThrough: number
 
   constructor(private readonly deps: SessionShellDeps) {
     this.now = deps.now ?? Date.now
+    // A snapshot of this process lists no session that passed the limit before it started.
+    this.idleCheckedThrough = this.now() - SESSION_LIST_IDLE_MS
     this.indexing = deps.reads.indexing()
     this.projects = this.readHostProjects()
   }
@@ -207,6 +214,26 @@ export class SessionShell {
       for (const sessionId of await this.deps.sessionsStartedBy(automationId)) this.sessionChanged(sessionId)
     } catch (error) {
       log.warn('session_shell_automation_sessions_failed', { automationId, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  /**
+   * A session leaves each list when its last activity passes the idle limit
+   * (`SESSION_LIST_IDLE_MS`), and no event marks that moment. Each check
+   * records the sessions that passed it since the last check, so a client that
+   * continues its copy from a cursor loses those rows too.
+   */
+  async checkIdleSessions(): Promise<void> {
+    const from = this.idleCheckedThrough
+    const to = this.now() - SESSION_LIST_IDLE_MS
+    if (to <= from) return
+    try {
+      const sessionIds = await this.deps.sessionsLastActiveBetween(from, to)
+      this.idleCheckedThrough = to
+      for (const sessionId of sessionIds) this.sessionChanged(sessionId)
+    } catch (error) {
+      // The next check reads the same window again.
+      log.warn('session_shell_idle_check_failed', { error: error instanceof Error ? error.message : String(error) })
     }
   }
 

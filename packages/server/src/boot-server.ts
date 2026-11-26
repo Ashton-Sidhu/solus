@@ -211,7 +211,7 @@ import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
 import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
-import { getSessionRecord, hasSessionRecords, sessionRecordsIndexing } from './data/sessions/session-records'
+import { getSessionRecord, hasSessionRecords, sessionIdsLastActiveBetween, sessionRecordsIndexing } from './data/sessions/session-records'
 import { readSessionStorage } from './data/sessions/session-storage'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
@@ -1490,7 +1490,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publish: (clientId, changes) => { void events.publish(clientId, 'sessionShell.changed', changes) },
     hostProjects: listProjects,
     sessionsStartedBy: async (automationId) => (await listRuns(automationId)).flatMap(run => run.sessionId ? [run.sessionId] : []),
+    sessionsLastActiveBetween: sessionIdsLastActiveBetween,
   })
+  // A session leaves the list 30 days after its last activity, with no event: check once an hour.
+  const sessionShellIdleCheck = setInterval(() => { void sessionShell.checkIdleSessions() }, 60 * 60_000)
+  sessionShellIdleCheck.unref?.()
   sessionShell.attentionChanged(opts.sessionRuntime.attention.list())
   domainEventUnsubscribes.push(
     events.observe((event) => sessionShell.observe(event)),
@@ -1499,6 +1503,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onSessionViewChanged((change) => sessionShell.sessionChanged(change.sessionId)),
     onSessionReadStateChanged((change) => sessionShell.sessionChanged(change.sessionId)),
     onPinnedSessionChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    () => clearInterval(sessionShellIdleCheck),
   )
   registerSessionShellHandler(server, sessionShell)
   // A turn changes the provider file: read the session's first page again before it is next opened.

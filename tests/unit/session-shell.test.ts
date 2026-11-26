@@ -3,6 +3,7 @@ import type { HostEvent } from '@solus/contracts/host-events'
 import { workspaceSessionQuerySchema } from '@solus/contracts/solus-api'
 import type { SessionShellChanges, SessionShellOpenResult, SessionShellRow } from '@solus/contracts/session-shell'
 import type { SessionRecord } from '@solus/contracts/types'
+import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
 import { SolusApiError } from '@solus/server/admission/workspace-error'
@@ -64,6 +65,7 @@ function shellFor(server: SolusServer, published: { clientId: string; changes: S
     publish: (clientId, changes) => { published.push({ clientId, changes }) },
     hostProjects: async () => [],
     sessionsStartedBy: async () => [],
+    sessionsLastActiveBetween: async () => [],
   })
 }
 
@@ -160,8 +162,13 @@ function fakeReads(visible: (principal: Principal, sessionId: string) => boolean
   }
 }
 
-function fakeShell(reads: SessionShellReads, published: { clientId: string; changes: SessionShellChanges }[] = [], now?: () => number): SessionShell {
-  return new SessionShell({ reads, publish: (clientId, changes) => { published.push({ clientId, changes }) }, hostProjects: async () => [], sessionsStartedBy: async () => [], now })
+function fakeShell(
+  reads: SessionShellReads,
+  published: { clientId: string; changes: SessionShellChanges }[] = [],
+  now?: () => number,
+  sessionsLastActiveBetween: (from: number, to: number) => Promise<string[]> = async () => [],
+): SessionShell {
+  return new SessionShell({ reads, publish: (clientId, changes) => { published.push({ clientId, changes }) }, hostProjects: async () => [], sessionsStartedBy: async () => [], sessionsLastActiveBetween, now })
 }
 
 describe('session shell cursor', () => {
@@ -199,6 +206,31 @@ describe('session shell cursor', () => {
     const second = snapshotOf(await shell.open(callerOf('phone', OWNER), undefined))
     for (let index = 0; index <= SESSION_SHELL_LOG_LIMIT; index++) shell.sessionChanged('many-' + index)
     expect((await shell.open(callerOf('phone', OWNER), second.cursor)).kind).toBe('snapshot')
+  })
+})
+
+describe('session shell idle limit', () => {
+  test('a session that passes the idle limit leaves the copy of a client that resumes from its cursor', async () => {
+    const started = 10_000_000_000
+    let now = started
+    const listed = new Set(['a', 'b'])
+    const asked: [number, number][] = []
+    // No event marks the moment a session's last activity passes the idle limit: only the check finds it.
+    const shell = fakeShell(fakeReads((_principal, sessionId) => listed.has(sessionId)), [], () => now, async (from, to) => {
+      asked.push([from, to])
+      return ['a']
+    })
+    const first = snapshotOf(await shell.open(callerOf('phone', OWNER), undefined))
+    shell.disconnected('phone')
+    listed.delete('a')
+    now += 60 * 60_000
+    await shell.checkIdleSessions()
+    const resumed = await shell.open(callerOf('phone', OWNER), first.cursor)
+    expect(resumed.kind).toBe('changes')
+    if (resumed.kind !== 'changes') return
+    expect(resumed.changes).toEqual([{ kind: 'row.removed', sessionId: 'a' }])
+    // Each check reads only the sessions that passed the limit since the last one.
+    expect(asked).toEqual([[started - SESSION_LIST_IDLE_MS, now - SESSION_LIST_IDLE_MS]])
   })
 })
 

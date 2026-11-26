@@ -125,6 +125,6 @@ Solus features that must keep working:
 - Desktop and web use their own session list. They can use this operation later; this plan does not change them.
 - Phase 4 removes the old path. A host without `sessionShell` then shows its rows only after an update. Decide before phase 4 whether to keep the old path for such hosts.
 - The log size (2,000 entries, 10 minutes) is a first value. Measure how often phones get `snapshot` after a short absence.
-- A session leaves a list when it is quiet for a long time, with no event. The host does not send `row.removed` for it; the row stays on the phone until the next snapshot.
+- A session leaves a list when its last activity passes the idle limit (`SESSION_LIST_IDLE_MS`, 30 days), with no event. Once an hour the host records each session that passed the limit since the last check (`SessionShell.checkIdleSessions`), so a phone that continues from its cursor gets `row.removed` too, at most one hour late.
 - The first index sweep can end with no index event. Then `indexing.changed` comes with the next change, not at once.
 - An automation rename reaches only the sessions of the runs that the host keeps.

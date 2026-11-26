@@ -274,6 +274,14 @@ export async function sessionIsOrganizationWork(sessionId: string): Promise<bool
 }
 
 /** The records of many sessions in one read, by session id; a session with no record is absent. */
+/** The ids of the sessions whose last activity is in [from, to), on every scope. The session shell records them when they pass the idle limit; each caller then reads them with their own scope. */
+export async function sessionIdsLastActiveBetween(from: number, to: number): Promise<string[]> {
+  const rows = z.object({ session_id: z.string() }).array().parse(await getDatabase().all(sql`
+    SELECT session_id FROM ${session} WHERE last_activity_at >= ${from} AND last_activity_at < ${to}
+  `))
+  return rows.map(row => row.session_id)
+}
+
 export async function getSessionRecords(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionRecord>> {
   const unique = [...new Set(sessionIds)]
   if (!unique.length) return new Map()
