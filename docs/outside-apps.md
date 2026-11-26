@@ -4,7 +4,7 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
 
 ## Connect an app
 
-1. Open **Settings → Connections → Use Solus in other apps** and copy the MCP address.
+1. Open the host's **Access** tab (on mobile, the host page) and find **Use Solus in other apps**. The command palette command **Use Solus in other apps** opens it too. Copy the MCP address.
    - An app on the same computer as the host uses `http://localhost:<port>/mcp`.
    - An app on another computer, or a cloud app such as claude.ai, uses the public address. Only a host with a public tunnel has one.
 2. Add the address to the app. For Claude Code:
@@ -34,7 +34,7 @@ Tools that act as the calling session (for example the browser, devices, checkou
 
 ## Revoke an app
 
-Connected apps are listed with your paired devices in **Settings → Connections**. **Revoke** ends the app's access at once. An app that is not used for thirty days must sign in again.
+Connected apps are listed with their access: on desktop and web with the paired devices on the host's **Access** tab, on mobile under **Connected apps**. **Revoke** ends the app's access at once. An app that is not used for thirty days must sign in again.
 
 ## Limits
 

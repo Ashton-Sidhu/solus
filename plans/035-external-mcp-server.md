@@ -1,6 +1,6 @@
 # External MCP server
 
-Status: phases 1 to 4 built; phase 5 needs a decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
+Status: phases 1 to 4 and the docs built; phase 5 needs a decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
 
 ## 0. What was built, and where it differs from the design
 
@@ -14,6 +14,7 @@ Status: phases 1 to 4 built; phase 5 needs a decision (§0.3). Reference: T3 Cod
 | The host's OAuth server, consent page, pairing codes, app grants | `transport/mcp-oauth.ts`, `admission/app-sign-in.ts`, `admission/auth.ts` (`app:<access>` rows in `host_device`) |
 | The tools an outside app may use (`APP_TOOLS`) | `execution/agents/tools/tool-access.ts` |
 | RPCs `connectionsAppEndpoint`, `connectionsCreateAppPairingCode` | `transport/handlers/connections-handlers.ts` |
+| The UI: address, `claude mcp add` command, pairing code, apps with their access and Revoke | desktop and web: `components/connections/OutsideAppsSection.svelte`, `paired-devices.ts`, palette entry in `fleet-commands.ts`; mobile: `apps/mobile/src/solus/OutsideAppsSection.tsx` |
 
 ### 0.2 Differences from the design below
 
