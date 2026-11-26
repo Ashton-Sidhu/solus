@@ -1,9 +1,10 @@
 import type { SeatProvider, SeatStatus } from '@solus/contracts/seats'
+import { AGENT_LABELS } from '@solus/contracts/types'
 
 /** The words a seat row and the connect card share. Pure, so both surfaces say the same thing. */
 
 export function seatLabel(provider: SeatProvider): string {
-  return provider === 'claude-code' ? 'Claude' : 'Codex'
+  return AGENT_LABELS[provider]
 }
 
 /** One line under the provider's name: where the seat stands. */
@@ -29,10 +30,21 @@ export function seatDescription(status: SeatStatus | undefined, error: string | 
 
 /** The pasted-credential fallback, named by what the person has to paste. */
 export function seatTokenHint(provider: SeatProvider): string {
-  return provider === 'claude-code'
-    ? 'Run `claude setup-token` on your own machine and paste the token. It runs turns but cannot show usage.'
-    : 'Paste the contents of your ~/.codex/auth.json from a machine where you are signed in.'
+  return TOKEN_HINTS[provider]
 }
+
+const TOKEN_HINTS = {
+  'claude-code': 'Run `claude setup-token` on your own machine and paste the token. It runs turns but cannot show usage.',
+  codex: 'Paste the contents of your ~/.codex/auth.json from a machine where you are signed in.',
+  antigravity: 'Paste a Gemini API key from Google AI Studio. Your turns here run on that key.',
+} as const satisfies Record<SeatProvider, string>
+
+/** What a pasted credential looks like, as the field's placeholder. */
+export const SEAT_TOKEN_PLACEHOLDERS = {
+  'claude-code': 'sk-ant-oat01-…',
+  codex: '{ "tokens": … }',
+  antigravity: 'AIza…',
+} as const satisfies Record<SeatProvider, string>
 
 /**
  * The verb on the row's control, by state. The host login signed in through the

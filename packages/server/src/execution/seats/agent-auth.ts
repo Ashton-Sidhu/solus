@@ -60,7 +60,12 @@ export class AgentAuthFlows {
     // One sign-in per person at a time: a fresh start supersedes an abandoned one.
     for (const [flowId, flow] of this.flows) if (seatKey(flow.seat) === seatKey(seat)) this.finish(flowId, false, 'Sign-in was replaced by a new one.')
     if (target.kind === 'claude-design') return this.startDesign(seat)
-    return target.provider === 'claude-code' ? this.startClaudeMcp(seat, target) : this.startCodexMcp(seat, target)
+    switch (target.provider) {
+      case 'claude-code': return this.startClaudeMcp(seat, target)
+      case 'codex': return this.startCodexMcp(seat, target)
+      // agy signs in to its MCP servers itself; Solus has no command to run for it.
+      case 'antigravity': return Promise.reject(new Error('Antigravity signs in to its MCP servers on its own.'))
+    }
   }
 
   async submit(seat: Seat, flowId: string, value: string): Promise<void> {

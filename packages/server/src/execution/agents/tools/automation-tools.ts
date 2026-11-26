@@ -6,7 +6,7 @@ import { sessionSettings } from '../../sessions/session-settings'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
-import type { AgentId, Automation, AutomationAction, AutomationTrigger, ReasoningEffort } from '@solus/contracts/types'
+import { SESSION_AGENT_IDS, type AgentId, type Automation, type AutomationAction, type AutomationTrigger, type ReasoningEffort } from '@solus/contracts/types'
 import {
   automationHomeOf,
   createAutomation,
@@ -39,7 +39,6 @@ const log = createLogger('automations', 'automation-tools.ts')
 const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
 // Providers that can execute a headless run (Phase 1). 'opencode' is excluded —
 // it has no one-shot runner yet.
-const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 
 // ─── Schemas (raw Zod fields, reused by every tool definition) ───
 
@@ -75,7 +74,7 @@ function manageFields(actions: readonly [AutomationToolAction, ...AutomationTool
     prompt: z.string().optional().describe('create: required. The instruction the agent gets at each run.'),
     cwd: z.string().optional().describe('Exact working directory for the run. create: defaults to the active project root.'),
     use_worktree: z.boolean().optional().describe('True: each run makes an isolated worktree from cwd. Defaults to false.'),
-    agent_provider: z.enum(AGENT_PROVIDER_VALUES).optional().describe("Which agent runs it: 'claude-code' (default) or 'codex'."),
+    agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs it. Defaults to 'claude-code'."),
     model_id: z.string().nullable().optional().describe('Omit or null for the default model.'),
     reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Defaults to 'medium'."),
     enabled: z.boolean().optional().describe('Defaults to true.'),
@@ -113,7 +112,7 @@ function reasoning(value: ReasoningEffort | undefined, fallback: ReasoningEffort
 }
 
 function agentProvider(value: AgentId | undefined, fallback: AgentId): AgentId {
-  return value && AGENT_PROVIDER_VALUES.some((candidate) => candidate === value) ? value : fallback
+  return value && SESSION_AGENT_IDS.some((candidate) => candidate === value) ? value : fallback
 }
 
 type TriggerResult =

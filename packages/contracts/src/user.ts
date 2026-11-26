@@ -9,6 +9,7 @@ import type { DocProviderId } from './docs'
 import { PRESENCE_COLOR_COUNT } from './presence'
 import type { IssueProviderId } from './task-types'
 import type { AgentId } from './types'
+import { agentIdSchema } from './types'
 
 /** The kind of person, and their id in that kind (U3). */
 export type UserId =
@@ -54,7 +55,7 @@ export const attributionSchema: z.ZodType<Attribution> = z.discriminatedUnion('k
   z.object({
     kind: z.literal('agent'),
     sessionId: z.string(),
-    provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+    provider: agentIdSchema.optional(),
     title: z.string().optional(),
     for: userSchema.optional(),
   }),

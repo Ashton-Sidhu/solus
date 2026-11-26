@@ -30,8 +30,34 @@ import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
-/** `replay` is the development-only provider that replays recorded turns (docs/replay-provider.md). */
-export type AgentId = 'claude-code' | 'codex' | 'opencode' | 'replay'
+/**
+ * Every provider id, in one list (docs/plans/antigravity-provider.md decision 1).
+ * Read this list, or `agentIdSchema`, instead of writing the ids out again.
+ * `replay` is the development-only provider that replays recorded turns
+ * (docs/replay-provider.md). `antigravity` runs Google's `agy` over ACP.
+ */
+export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay', 'antigravity'] as const
+export type AgentId = (typeof AGENT_IDS)[number]
+export const agentIdSchema = z.enum(AGENT_IDS)
+
+/** The providers that run a whole Solus session with nobody watching: automations and worker sessions. Each has a headless runner. */
+export const SESSION_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as const satisfies readonly AgentId[]
+
+/**
+ * The providers that can answer through a Solus capture tool in a run. Text
+ * generation (titles, names, commit and pull request text) and reviews read the
+ * answer from that tool. Antigravity reaches it through the host's `/mcp` endpoint.
+ */
+export const SOLUS_TOOL_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as const satisfies readonly AgentId[]
+
+/** The short name of each provider, as people read it in a sentence ("Claude agent"). */
+export const AGENT_LABELS = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  replay: 'Replay',
+  antigravity: 'Antigravity',
+} as const satisfies Record<AgentId, string>
 
 
 /** The binary each provider runs. `replay` runs in the server process and has none. */
@@ -41,6 +67,7 @@ export const AGENT_BIN: AgentBinaries = {
   'claude-code': 'claude',
   'codex': 'codex',
   'opencode': 'opencode',
+  'antigravity': 'agy',
 }
 
 /**
@@ -109,7 +136,8 @@ export interface HostCapabilities {
   /** The desktop main process registered its handlers (screenshots, native dialogs). */
   desktopHandlers?: boolean
   /** Which agent CLIs the host found on its PATH. */
-  agents?: { claude: boolean; codex: boolean }
+  /** `agy` is absent from older hosts. */
+  agents?: { claude: boolean; codex: boolean; agy?: boolean }
   /** The local transcription model is installed. */
   dictation?: boolean
   platform?: string
@@ -126,10 +154,11 @@ export interface HostCapabilities {
   projectsBaseDirectoryIsSet?: boolean
 }
 
-export type SetupAgent = 'claude' | 'codex'
+/** An agent CLI the host setup installs, by its command name. `agy` is Antigravity's. */
+export type SetupAgent = 'claude' | 'codex' | 'agy'
 /** Signing an agent in is a seat connect (`seats.ts`), not a setup step. */
 export type SetupStreamStep =
-  | 'install-claude' | 'install-codex' | 'install-git' | 'install-gh' | 'clone'
+  | 'install-claude' | 'install-codex' | 'install-agy' | 'install-git' | 'install-gh' | 'clone'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
 export interface SetupLogEvent {
@@ -555,6 +584,7 @@ export const modelProfilesSchema = z.object({
   'claude-code': providerModelProfilesSchema.optional(),
   codex: providerModelProfilesSchema.optional(),
   opencode: providerModelProfilesSchema.optional(),
+  antigravity: providerModelProfilesSchema.optional(),
   /** Never published: the replay backend lists its scenarios as its models. */
   replay: providerModelProfilesSchema.optional(),
 })
@@ -576,7 +606,7 @@ export const MODEL_PROFILES: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFI
  * so a module that holds `MODEL_PROFILES['claude-code']` reads the new list.
  */
 export function replaceModelProfiles(next: ModelProfiles): void {
-  for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+  for (const provider of ['claude-code', 'codex', 'opencode', 'antigravity'] as const) {
     const incoming = next[provider] ?? {}
     const current = MODEL_PROFILES[provider]
     if (!current) {
@@ -3535,7 +3565,7 @@ export interface AgentSlashCommand {
 export interface PluginCommandsResult {
   global: PluginCommand[]
   project: PluginCommand[]
-  /** Built-in agent commands reported live by the SDK (claude-code only). */
+  /** The agent's own commands, as it reports them live: Claude Code's SDK, or an ACP agent's `available_commands_update`. */
   builtin?: AgentSlashCommand[]
 }
 

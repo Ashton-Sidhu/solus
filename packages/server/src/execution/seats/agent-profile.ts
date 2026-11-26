@@ -23,10 +23,11 @@ import {
   type AgentProfileStatus,
   retiredAgentProfileKeys,
   withoutRetiredEntries,
+  PROFILE_PROVIDERS,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
 import { VAULT_PATH, vaultConnectionListSchema, type VaultConnection } from '@solus/contracts/vault'
-import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
+import type { SeatProvider } from '@solus/contracts/seats'
 import type { SkillListResult } from '@solus/contracts/skill-types'
 import { createLogger } from '../../logger'
 import type { RegistrySkillFile } from '../../skills/registry-skill-cache'
@@ -77,7 +78,12 @@ interface AccountRead {
 /** The homes each provider's profile is read from, first one wins a path. The
  *  shared `~/.agents/skills` is where the skills CLI installs for Codex. */
 export function hostProfileHomes(provider: SeatProvider): string[] {
-  return provider === 'claude-code' ? [hostClaudeDir()] : [hostCodexHome(), join(homedir(), '.agents')]
+  switch (provider) {
+    case 'claude-code': return [hostClaudeDir()]
+    case 'codex': return [hostCodexHome(), join(homedir(), '.agents')]
+    // agy's own global skills, where `agy` reads them without Solus.
+    case 'antigravity': return [join(homedir(), '.gemini', 'config'), join(homedir(), '.gemini', 'antigravity-cli')]
+  }
 }
 
 /**
@@ -224,7 +230,7 @@ export class AgentProfileManager {
     const { files, skills, integrations } = byKind(copy.profile)
     const user = this.deps.processUserFor?.(target) ?? null
     // A member who is their own user owns their home: a missing agent folder is made as them.
-    const missingHomes = SEAT_PROVIDERS.map((provider) => this.deps.homeFor(target, provider)).filter((home) => !existsSync(home))
+    const missingHomes = PROFILE_PROVIDERS.map((provider) => this.deps.homeFor(target, provider)).filter((home) => !existsSync(home))
     applyMemberFiles(user, missingHomes.map((path) => ({ kind: 'folder', path, mode: 0o750 })))
     const previousFor = (provider: SeatProvider) => this.readManifest(this.deps.homeFor(target, provider))?.files ?? []
     const registry = await this.registryFiles(skills, previousFor)
@@ -245,7 +251,7 @@ export class AgentProfileManager {
     const integrationOutcome = this.applyIntegrations(target, integrations, this.manifestFor(target)?.integrations ?? [], origin)
     const held = [...copy.skipped, ...kept, ...registry.failed, ...integrationOutcome.skipped]
     const empty = Object.keys(copy.profile).length === 0 && copy.skipped.length === 0
-    for (const provider of SEAT_PROVIDERS) {
+    for (const provider of PROFILE_PROVIDERS) {
       const home = resolvedHome(this.deps.homeFor(target, provider))
       const manifestPath = join(home, MANIFEST_FILE)
       const ownFiles = writtenFiles.get(provider) ?? []
@@ -275,7 +281,7 @@ export class AgentProfileManager {
   }
 
   status(target: AgentProfileTarget): AgentProfileStatus {
-    const manifests = SEAT_PROVIDERS.map((provider) => this.readManifest(this.deps.homeFor(target, provider))).filter((manifest) => manifest !== null)
+    const manifests = PROFILE_PROVIDERS.map((provider) => this.readManifest(this.deps.homeFor(target, provider))).filter((manifest) => manifest !== null)
     if (manifests.length === 0) return EMPTY_AGENT_PROFILE_STATUS
     const [first] = manifests
     const skipped = manifests.flatMap((manifest) => manifest.skipped)
@@ -478,13 +484,13 @@ export class AgentProfileManager {
       } catch (error) {
         log.warn('agent_profile_skill_unavailable', { skillName: entry.name, source: entry.source, error: error instanceof Error ? error.message : String(error) })
         failed.push({ path: entry.name, reason: 'install-failed' })
-        for (const provider of SEAT_PROVIDERS) {
+        for (const provider of PROFILE_PROVIDERS) {
           for (const path of previousFor(provider)) if (path.startsWith(`skills/${entry.name}/`)) retained.push({ provider, path, reason: 'install-failed' })
         }
         continue
       }
       placed.push(entry.name)
-      for (const provider of SEAT_PROVIDERS) {
+      for (const provider of PROFILE_PROVIDERS) {
         for (const file of skillFiles) {
           const written: AgentProfileFileEntry = { kind: 'file', provider, path: `skills/${entry.name}/${file.path}`, contentBase64: file.content.toString('base64'), hash: sha256Hex(file.content) }
           if (file.executable) written.executable = true
@@ -527,7 +533,7 @@ export class AgentProfileManager {
 
   /** The first home's manifest: the source and revision a copy came from, and what it owns. */
   private manifestFor(target: AgentProfileTarget): Manifest | null {
-    for (const provider of SEAT_PROVIDERS) {
+    for (const provider of PROFILE_PROVIDERS) {
       const manifest = this.readManifest(this.deps.homeFor(target, provider))
       if (manifest) return manifest
     }

@@ -36,7 +36,7 @@ export class CodexSoftwareAdapter implements AgentSoftwareAdapter {
     const name = `codex-package-${target}.tar.gz`
     const asset = release.assets.find((entry) => entry.name === name)
     if (!asset) throw new Error(`The Codex release has no package for ${this.platform}/${this.arch}.`)
-    return { version, downloadUrl: `${base}/releases/${version}/${name}`, sha256: softwareDigestSchema.parse(asset.digest.replace(/^sha256:/, '')), archive: true, binary: `bin/codex${this.platform === 'win32' ? '.exe' : ''}` }
+    return { version, downloadUrl: `${base}/releases/${version}/${name}`, digest: { algorithm: 'sha256', hex: softwareDigestSchema.parse(asset.digest.replace(/^sha256:/, '')) }, archive: true, binary: `bin/codex${this.platform === 'win32' ? '.exe' : ''}` }
   }
 }
 

@@ -20,7 +20,7 @@ export const workArchiveManifestSchema = z.object({
     id: z.string(), organizationId: z.string(), title: z.string(), preview: z.string(),
     type: z.enum(['doc', 'slides', 'artifact']), createdAt: z.string(), updatedAt: z.string(),
     sessionId: z.string().optional(), sessionIds: z.array(z.string()).optional(),
-    agentProvider: z.enum(['claude-code', 'codex', 'opencode']), cwd: z.string(), pinned: z.boolean().optional(),
+    agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'antigravity']), cwd: z.string(), pinned: z.boolean().optional(),
     mirroredDoc: workExternalLinkSchema.optional(),
     contentVersion: z.number().int().positive(), contentHash: hashSchema, contentAuthor: attributionSchema.nullable(),
   }),

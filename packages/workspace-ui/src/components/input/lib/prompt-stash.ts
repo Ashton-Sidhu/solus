@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Attachment, Prompt } from '@solus/contracts/types'
+import { agentIdSchema } from '@solus/contracts/types'
 
 export const MAX_STASHED_PROMPTS = 20
 export const STASH_FILE_LIFETIME_MS = 24 * 60 * 60 * 1000
@@ -45,7 +46,7 @@ const prompt = z.object({
     workId: z.string(), title: z.string(), type: z.enum(['doc', 'slides', 'artifact']),
   })),
   sessionRefs: z.array(z.object({
-    sessionId: z.string(), provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+    sessionId: z.string(), provider: agentIdSchema,
     title: z.string(), cwd: z.string(), serverId: z.string().optional(),
   })),
 }) satisfies z.ZodType<Prompt>

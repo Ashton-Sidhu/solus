@@ -47,16 +47,17 @@ describe('Insights volume chart bucket density', () => {
 
   test('responsive rebinning preserves every server aggregate', () => {
     const source = [
-      { at: 0, endAt: 10, total: 3, claudeCode: 2, codex: 1, unknownProvider: 0, costUsd: 0.4, costedCount: 2 },
-      { at: 10, endAt: 20, total: 5, claudeCode: 1, codex: 3, unknownProvider: 1, costUsd: 0.6, costedCount: 1 },
+      { at: 0, endAt: 10, total: 4, claudeCode: 2, codex: 1, antigravity: 1, unknownProvider: 0, costUsd: 0.4, costedCount: 2 },
+      { at: 10, endAt: 20, total: 7, claudeCode: 1, codex: 3, antigravity: 2, unknownProvider: 1, costUsd: 0.6, costedCount: 1 },
     ]
     const buckets = rebucketVolume(source, 0, 20, 1)
     expect(buckets).toEqual([{
       at: 0,
       endAt: 20,
-      total: 8,
+      total: 11,
       claudeCode: 3,
       codex: 4,
+      antigravity: 3,
       unknownProvider: 1,
       costUsd: 1,
       costedCount: 3,
@@ -165,14 +166,14 @@ describe('Insights volume chart provider breakdown', () => {
       { at: at + offsetMs, provider, failed: false, costUsd, durationMs: 1000 }
     )
     const buckets = bucketPoints(
-      [point(0, 'claude-code', 1), point(60_000, 'codex', null), point(120_000, 'claude-code', null)],
+      [point(0, 'claude-code', 1), point(60_000, 'codex', null), point(120_000, 'claude-code', null), point(180_000, 'antigravity', null)],
       at,
       at + 60 * 60_000,
       4,
     )
     const totals = providerTotals(buckets)
-    expect(totals).toEqual({ claudeCode: 2, codex: 1, unknownProvider: 0 })
-    expect(totals.claudeCode + totals.codex + totals.unknownProvider).toBe(
+    expect(totals).toEqual({ claudeCode: 2, codex: 1, antigravity: 1, unknownProvider: 0 })
+    expect(totals.claudeCode + totals.codex + totals.antigravity + totals.unknownProvider).toBe(
       buckets.reduce((sum, bucket) => sum + bucket.total, 0),
     )
   })

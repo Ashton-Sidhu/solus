@@ -30,7 +30,10 @@ import {
   notificationPreferencesPatchSchema,
 } from './notification-types'
 import {
+  AGENT_IDS,
   DEFAULT_SOURCE_CONTROL_WRITING,
+  SESSION_AGENT_IDS,
+  SOLUS_TOOL_AGENT_IDS,
   EDITOR_IDS,
   PERMISSION_MODES,
   TERMINAL_APP_IDS,
@@ -98,9 +101,11 @@ export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
 export const DEFAULT_REVIEW_MODEL = 'gpt-6-luna'
 export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
+/** Each writer's cheap model, in fallback order: Antigravity last, since each agy launch is slow. */
 export const DEFAULT_TEXT_GENERATION_MODELS = {
   codex: 'gpt-6-luna',
   'claude-code': 'claude-haiku-5-5',
+  antigravity: 'gemini-3.8-flash',
 } as const
 
 export interface ModelOptions {
@@ -132,7 +137,6 @@ export function isFontPreset(key: FontPreferenceKey, value: string): boolean {
   return (FONT_PRESETS[key] as readonly string[]).includes(value)
 }
 
-const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
 const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const satisfies readonly ReasoningEffort[]
 const MAX_INSTRUCTIONS = 20_000
 const MAX_MODEL_ID = 200
@@ -144,13 +148,13 @@ const MAX_SIDEBAR_APPS = 32
 const MAX_SIDEBAR_APP_REF = 200
 
 const modelSelectionSchema = z.object({
-  provider: z.enum(['codex', 'claude-code']),
+  provider: z.enum(SOLUS_TOOL_AGENT_IDS),
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
 }).strict()
 
 /** A worker model, with the reasoning level it runs at; none runs at the model's default. */
 const workerModelSelectionSchema = z.object({
-  provider: z.enum(['codex', 'claude-code']),
+  provider: z.enum(SESSION_AGENT_IDS),
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
 }).strict().transform((selection) => ({ provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort }))

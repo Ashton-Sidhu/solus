@@ -190,9 +190,9 @@ export class AgentSoftware extends EventEmitter {
       const payload = join(staging, 'payload')
       await (this.options.download ?? downloadProviderFile)(release.downloadUrl, payload)
       this.setOperation('verifying', version)
-      const hash = createHash('sha256')
+      const hash = createHash(release.digest.algorithm)
       for await (const chunk of createReadStream(payload)) hash.update(chunk)
-      if (hash.digest('hex') !== release.sha256) throw new Error('The agent download failed SHA-256 verification.')
+      if (hash.digest('hex') !== release.digest.hex) throw new Error(`The agent download failed ${release.digest.algorithm === 'sha256' ? 'SHA-256' : 'SHA-512'} verification.`)
       const packagePath = join(staging, 'package')
       await mkdir(packagePath)
       if (release.archive) await extractPackage(payload, packagePath)
@@ -230,6 +230,7 @@ export class AgentSoftware extends EventEmitter {
   }
 
   private async npmVersion(): Promise<string> {
+    if (!this.adapter.npmPackage) throw new Error(`${this.adapter.label} is not published to npm.`)
     const spec = `${this.adapter.npmPackage}@latest`
     const output = this.options.npmView ? await this.options.npmView(spec) : await new Promise<string | null>((resolve, reject) => {
       const env = hostCliEnv()

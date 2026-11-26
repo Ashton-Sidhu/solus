@@ -18,6 +18,7 @@ import { activityFor } from '../../data/activity/activity'
 import { session } from '../../data/sessions/schema'
 import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
 import { personMirrorScope, personOfMirrorScope } from '../../data/sessions/mirror-scope'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const log = createLogger('main', 'transcript-mirror')
 
@@ -238,7 +239,7 @@ export class TranscriptMirror {
 
 const interruptedRowSchema = z.object({
   session_id: z.string(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   project_path: z.string(),
 })
 

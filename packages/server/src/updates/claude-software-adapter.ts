@@ -46,6 +46,6 @@ export class ClaudeSoftwareAdapter implements AgentSoftwareAdapter {
     const asset = manifest.platforms[target]
     if (!asset) throw new Error(`The Claude release has no binary for ${target}.`)
     const binary = `claude${this.platform === 'win32' ? '.exe' : ''}`
-    return { version, downloadUrl: `${base}/${version}/${target}/${binary}`, sha256: asset.checksum, archive: false, binary }
+    return { version, downloadUrl: `${base}/${version}/${target}/${binary}`, digest: { algorithm: 'sha256', hex: asset.checksum }, archive: false, binary }
   }
 }

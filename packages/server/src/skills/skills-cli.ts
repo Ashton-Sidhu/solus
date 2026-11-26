@@ -4,11 +4,11 @@
  * Settings → Skills; it is independent of the bundled auto-installer in installer.ts.
  *
  * The registry API works without a user API key.
- * Provider ids (claude-code, codex, opencode) map 1:1 to the CLI's `-a` agent values.
+ * Provider ids map to the CLI's `-a` agent values through `SKILLS_CLI_AGENTS`.
  */
 
 import { execFile } from 'child_process'
-import { chmod, mkdtemp, rm } from 'fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readlink, rm, symlink, unlink } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -40,6 +40,8 @@ const SEARCH_LIMIT = 20
 export interface MemberSkillHomes {
   claudeHome: string
   codexHome: string
+  /** The member's Antigravity profile: the CLI writes `~/.gemini/config/skills`, so `<claudeHome>/.gemini` links here. */
+  antigravityHome: string
 }
 
 function skillsEnv(member: MemberSkillHomes | undefined): NodeJS.ProcessEnv {
@@ -182,14 +184,46 @@ export async function removeSkill(name: string, member?: MemberSkillHomes): Prom
  * A member's install copies the files into each seat rather than linking them
  * to the CLI's store, so each seat holds plain files the agent reads directly.
  */
+/**
+ * The CLI's agent for each provider. `antigravity-cli` installs into
+ * `~/.gemini/config/skills`, where agy reads global skills
+ * (docs/plans/antigravity-provider.md §7.1). The replay provider has none.
+ */
+const SKILLS_CLI_AGENTS = new Map<AgentId, string>([
+  ['claude-code', 'claude-code'],
+  ['codex', 'codex'],
+  ['opencode', 'opencode'],
+  ['antigravity', 'antigravity-cli'],
+])
+
+/**
+ * A member's CLI runs with their Claude seat as `HOME`, so its `~/.gemini` is
+ * linked to their Antigravity profile: a skill then lands where their agy reads
+ * it. A real folder there is the member's and stays.
+ */
+async function linkMemberGemini(member: MemberSkillHomes): Promise<void> {
+  const link = join(member.claudeHome, '.gemini')
+  const current = await lstat(link).catch(() => null)
+  if (current && !current.isSymbolicLink()) return
+  if (current && await readlink(link) === member.antigravityHome) return
+  if (current) await unlink(link)
+  await mkdir(member.antigravityHome, { recursive: true, mode: 0o700 })
+  await mkdir(member.claudeHome, { recursive: true, mode: 0o700 })
+  await symlink(member.antigravityHome, link, 'dir')
+}
+
 export async function installSkill(id: string, agentIds: AgentId[], member?: MemberSkillHomes): Promise<SkillInstallResult> {
   if (!id.trim()) return { ok: false, agents: [], error: 'No skill specified' }
   if (agentIds.length === 0) return { ok: false, agents: [], error: 'No active agent providers' }
 
-  const agentArgs = agentIds.flatMap((id) => ['-a', id])
+  const agents = agentIds.flatMap((agentId) => SKILLS_CLI_AGENTS.get(agentId) ?? [])
+  if (agents.length === 0) return { ok: false, agents: [], error: 'No active agent providers' }
+  const agentArgs = agents.flatMap((agent) => ['-a', agent])
   log.info('skill_install_started', { skillId: id, agentIds })
 
   try {
+    // Where each member is their own user, their CLI's `~/.gemini` is already their own.
+    if (member && !memberUsers() && agentIds.includes('antigravity')) await linkMemberGemini(member)
     await runGlobalSkills(['add', id, '-g', '-y', ...(member ? ['--copy'] : []), ...agentArgs], member)
     log.info('skill_installed', { skillId: id })
     captureServerEvent('skill_installed', {})

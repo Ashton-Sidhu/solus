@@ -69,7 +69,7 @@ export interface AgentAuthFinishedEvent {
  * goes to the agent, which reports its servers.
  */
 export const AGENT_AUTH_COMMANDS = [
-  { command: '/login', description: 'Sign in to this agent on the host', providers: ['claude-code', 'codex'] },
+  { command: '/login', description: 'Sign in to this agent on the host', providers: ['claude-code', 'codex', 'antigravity'] },
   { command: '/design-login', description: 'Sign in to Claude Design on the host', providers: ['claude-code'] },
   { command: '/mcp login', description: 'Sign in to an MCP server', argumentHint: '<server>', providers: ['claude-code', 'codex'] },
   { command: '/mcp logout', description: 'Sign out of an MCP server', argumentHint: '<server>', providers: ['claude-code', 'codex'] },
@@ -93,6 +93,8 @@ export function parseAgentAuthCommand(text: string, provider: string | null | un
     case '/design-login':
       return words.length === 1 && seatProvider === 'claude-code' ? { kind: 'design-login' } : null
     case '/mcp': {
+      // agy signs in to MCP servers on its own; Solus runs no CLI command for it.
+      if (seatProvider === 'antigravity') return null
       if (words[1] !== 'login' && words[1] !== 'logout') return null
       if (words.length > 3) return null
       return { kind: words[1] === 'login' ? 'mcp-login' : 'mcp-logout', provider: seatProvider, server: words[2] ?? null }

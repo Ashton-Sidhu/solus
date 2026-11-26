@@ -10,6 +10,7 @@ import { worktreeDisplayName } from '../../../lib/git-context'
 import { attentionLabel, sessionTitle } from '../../../lib/sessionUtils'
 import { prChipForChoices } from '../../session/lib/sidebar-rows'
 import { activeTurnAuthorOf } from '../../presence/lib/presence-people'
+import { providerMark } from '../../insights/lib/provider'
 
 /**
  * The sessions with a turn open on one host, each with the facts its sidebar
@@ -37,7 +38,7 @@ export function runningSessionRows(workspace: WorkspaceContext, sidebarStore: Se
         attention,
         live,
         state: attentionLabel(attention, null, live),
-        providerMark: provider === 'claude-code' ? 'claude' as const : provider === 'codex' ? 'codex' as const : null,
+        providerMark: providerMark(provider),
         model: modelLabelFor(provider, session.sessionModel ?? session.run.modelConfig.modelId),
         effort: REASONING_EFFORT_LABELS[session.run.modelConfig.reasoningEffort],
         branch: environment.branch ? worktreeDisplayName(environment.branch) : null,

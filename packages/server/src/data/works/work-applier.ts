@@ -7,6 +7,7 @@ import { createLogger } from '../../logger'
 import { agentAttribution } from '../stored-attribution'
 import type { OutboxOp, WorkUpdateOpPayload } from '@solus/contracts/outbox-types'
 import { z } from 'zod'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const log = createLogger('folio', 'work-applier.ts')
 const workCreatePayloadSchema = z.object({
@@ -14,7 +15,7 @@ const workCreatePayloadSchema = z.object({
   title: z.string(),
   docType: z.enum(['doc', 'slides', 'artifact']),
   content: z.string(),
-  agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  agentProvider: agentIdSchema.optional(),
   originSessionId: z.string().optional(),
   cwd: z.string().optional(),
   linkToSessionTask: z.boolean().optional(),

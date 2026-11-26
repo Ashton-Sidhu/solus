@@ -227,15 +227,18 @@ describe('histogram bucketing', () => {
       turnPoints([
         turnRow({ startedAt: 100, provider: 'claude-code' }),
         turnRow({ startedAt: 200, provider: 'codex' }),
+        turnRow({ startedAt: 250, provider: 'antigravity' }),
         turnRow({ startedAt: 300, provider: null }),
       ]),
       from,
       to,
     )
+    // An Antigravity turn is its own band, not unknown history.
     expect(buckets[0]).toMatchObject({
-      total: 3,
+      total: 4,
       claudeCode: 1,
       codex: 1,
+      antigravity: 1,
       unknownProvider: 1,
     })
   })

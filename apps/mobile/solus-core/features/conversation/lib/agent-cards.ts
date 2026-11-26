@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { AgentConversationResultProjection } from '@solus/contracts/session-history'
 import { isSessionStartTool, parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionReport } from '@solus/contracts/session-exchange'
-import type { AgentConversationUpdate, AgentExchangeStatus, AgentId, ExchangeProgress } from '@solus/contracts/types'
+import { agentIdSchema, type AgentConversationUpdate, type AgentExchangeStatus, type AgentId, type ExchangeProgress } from '@solus/contracts/types'
 
 /**
  * Agent cards for the native transcript: one card per other Solus session per
@@ -96,7 +96,7 @@ const startedSessionInputSchema = z.object({
   title: z.string().trim().min(1).optional().catch(undefined),
   reasoning_effort: z.string().optional().catch(undefined),
   model_id: z.string().optional().catch(undefined),
-  agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
+  agent_provider: agentIdSchema.optional().catch(undefined),
 })
 
 /** A send_session or stop_session call names its session; a start_sessions call lists its sessions. */

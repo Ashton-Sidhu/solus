@@ -10,7 +10,8 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SignInSteps from "./SignInSteps.svelte";
-  import { seatAction, seatLabel, seatTokenHint } from "./lib/seat-copy";
+  import AntigravitySignIn from "./AntigravitySignIn.svelte";
+  import { SEAT_TOKEN_PLACEHOLDERS, seatAction, seatLabel, seatTokenHint } from "./lib/seat-copy";
 
   interface Props {
     serverId: string;
@@ -61,6 +62,13 @@
       oncancel={() => void seatsStore.cancel(serverId, provider)}
       {autofocus}
     />
+  {:else if provider === "antigravity" && (action !== "disconnect" || signInAgain)}
+    <!-- Four ways in, two of which need a Google Cloud project: one form, not a button and a token field. -->
+    <AntigravitySignIn
+      {serverId}
+      startLabel={action === "disconnect" ? "Sign in again" : action === "switch" ? "Switch account" : action === "reconnect" ? `Reconnect ${label}` : `Connect ${label}`}
+      {autofocus}
+    />
   {:else if action !== "disconnect" || signInAgain}
     <div class="flex flex-wrap items-center gap-2">
       <Button size="sm" variant={compact ? "ghost" : action === "switch" ? "outline" : "default"} class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void seatsStore.connect(serverId, provider)}>
@@ -82,7 +90,7 @@
           <Input
             bind:value={token}
             class="h-8 min-w-0 flex-1 font-mono"
-            placeholder={provider === "claude-code" ? "sk-ant-oat01-…" : "{ \"tokens\": … }"}
+            placeholder={SEAT_TOKEN_PLACEHOLDERS[provider]}
             aria-label="{label} credential"
             dictation={false}
             disabled={busy}

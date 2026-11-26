@@ -21,6 +21,7 @@ import type {
   IssueSessionLink,
   IssueSessionRole,
 } from '@solus/contracts/task-types'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /** The session↔task binding store: the task→session edges of `resource_links`
  * (`works-on`, or `reference` for a session the task only mentions) and the
@@ -29,7 +30,6 @@ import type {
  * (docs/plans/provider-owned-tasks.md §4.3). Its organization is the
  * session's. */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const relationSchema = z.enum(['works-on', 'reference'])
 const taskSessionLinkRowSchema = z.object({
   issue_id: z.string(),

@@ -3,6 +3,7 @@ import type { AgentConversationResultProjection } from '@solus/contracts/session
 import { isSessionStartTool, parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
 import { z } from 'zod'
 import { isAgentNotice, nextMsgId } from './session.utils'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * The one place a conversation's agent cards are built: one card per other
@@ -335,7 +336,7 @@ const startedSessionInputSchema = z.object({
   model_id: z.string().optional(),
   reasoning_effort: z.string().optional(),
   cwd: z.string().optional(),
-  agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
+  agent_provider: agentIdSchema.optional().catch(undefined),
 })
 
 /** A send_session or stop_session call names its session; a start_sessions call lists its sessions. */

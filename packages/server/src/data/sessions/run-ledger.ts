@@ -7,6 +7,7 @@ import { queueAttachmentSchema } from '@solus/contracts/session-queue'
 import { userSchema } from '@solus/contracts/user'
 import { getDb, withTx } from '../../db'
 import { pruneSettledAsyncQuestions } from './async-questions'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * The run ledger: the one durable source for the lifecycle of a run on this
@@ -21,7 +22,7 @@ import { pruneSettledAsyncQuestions } from './async-questions'
  */
 
 const inputFields = z.object({
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']), agentSessionId: z.string().nullable(),
+  provider: agentIdSchema, agentSessionId: z.string().nullable(),
   workingDirectory: z.string(), projectPath: z.string(), model: z.string(), preferredModel: z.string().nullable(),
   forked: z.boolean(),
   contextWindow: z.number().nullable(), fastMode: z.boolean(), extraInstructions: z.string(),
@@ -78,7 +79,7 @@ export type DeliveryState = z.infer<typeof deliveryStateSchema>
 const exchangeFields = {
   exchangeId: z.string(), kind: z.enum(['create', 'independent', 'prompt']),
   senderSessionId: z.string(), targetSessionId: z.string(), targetHostId: z.string().optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']), notify: z.boolean(),
+  provider: agentIdSchema, notify: z.boolean(),
   state: z.enum(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'settled']),
   runId: z.string().optional(), parentExchangeIds: z.array(z.string()),
   fingerprint: z.string().optional(), disposition: z.enum(['started', 'steered', 'queued']).optional(),

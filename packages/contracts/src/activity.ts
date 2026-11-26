@@ -10,6 +10,7 @@ import { mcpAppReferenceSchema, type McpAppReference } from './mcp-apps'
 import type { IssueEventKind, IssueLinkKind } from './task-types'
 import type { AgentId, PermissionDecision, RateLimitDecisionAction } from './types'
 import { attributionSchema, userIdSchema, userSchema, type Attribution, type User, type UserId } from './user'
+import { agentIdSchema } from './types'
 
 export interface ActivitySubject {
   kind: 'session' | 'issue' | 'work'
@@ -82,7 +83,6 @@ export type Activity = {
   turnId?: string
 } & ActivityKind
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
 const taskEventKindSchema = z.enum([
   'created', 'status_changed', 'priority_changed', 'assignee_changed',

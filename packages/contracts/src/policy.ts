@@ -8,11 +8,9 @@
 import { z } from 'zod'
 import { CONFIGURABLE_SOLUS_TOOL_NAMES, withRenamedSolusTools } from './agent-tools'
 import { PERSONAL_SETTING_SCHEMAS } from './settings'
-import { PERMISSION_MODES, type AgentId, type PermissionMode } from './types'
+import { AGENT_LABELS, PERMISSION_MODES, agentIdSchema, type AgentId, type PermissionMode } from './types'
 import { OUTSIDE_APP_IDS, OUTSIDE_APP_NAMES, type OutsideAppId } from './outside-apps'
 
-export const POLICY_PROVIDER_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
-const providerIdSchema = z.enum(POLICY_PROVIDER_IDS)
 
 /** Narrowest first. `plan` cannot change anything, `full-access` asks for nothing. */
 const PERMISSION_MODE_RANK = {
@@ -128,11 +126,11 @@ export const sessionLimitsSchema = z.object({
   sessionCloudSync: z.boolean().optional(),
   maxPermissionMode: z.enum(PERMISSION_MODES).optional(),
   providers: z.object({
-    allowed: z.array(providerIdSchema).nonempty().optional(),
-    launch: z.partialRecord(providerIdSchema, providerLaunchPinSchema).optional(),
+    allowed: z.array(agentIdSchema).nonempty().optional(),
+    launch: z.partialRecord(agentIdSchema, providerLaunchPinSchema).optional(),
   }).strict().optional(),
   /** By provider: the only model ids that may run. A provider not named is not limited. */
-  models: z.partialRecord(providerIdSchema, z.array(z.string().trim().min(1)).nonempty()).optional(),
+  models: z.partialRecord(agentIdSchema, z.array(z.string().trim().min(1)).nonempty()).optional(),
   insights: z.object({ syncAll: z.boolean() }).strict().optional(),
   webhooks: z.object({ allowUnverified: z.boolean() }).strict().optional(),
   /** The outside apps whose members may connect to this work's hosts (plans/035 §10). Not set: every app. */
@@ -336,14 +334,13 @@ export const PERMISSION_MODE_LABELS = {
   'full-access': 'Full access',
 } satisfies Record<PermissionMode, string>
 
-export const PROVIDER_LABELS = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 export function permissionCeilingMessage(source: PolicySource, ceiling: PermissionMode): string {
   return `${capitalize(policySourceLabel(source))} limits sessions to ${PERMISSION_MODE_LABELS[ceiling]}.`
 }
 
 export function providerDeniedMessage(source: PolicySource, provider: AgentId): string {
-  return `${capitalize(policySourceLabel(source))} does not allow ${PROVIDER_LABELS[provider]}.`
+  return `${capitalize(policySourceLabel(source))} does not allow ${AGENT_LABELS[provider]}.`
 }
 
 export function appDeniedMessage(source: PolicySource, app: OutsideAppId): string {

@@ -1,9 +1,9 @@
-import type { AgentId, AgentMetadata, ReasoningEffort } from '@solus/contracts/types'
+import { SESSION_AGENT_IDS, type AgentId, type AgentMetadata, type ReasoningEffort } from '@solus/contracts/types'
 import type { WorkerModelSelection } from '@solus/contracts/settings'
 import { defaultReasoningFor, type PickerSelection } from '../../pickers/lib/picker-selection'
 
 function isWorkerModelAgent(provider: AgentId): provider is WorkerModelSelection['provider'] {
-  return provider === 'claude-code' || provider === 'codex'
+  return SESSION_AGENT_IDS.some((agent) => agent === provider)
 }
 
 export function workerModelAgents(metadata: Record<string, AgentMetadata | null>): AgentMetadata[] {

@@ -17,6 +17,7 @@
   } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import { getSettingsContext, getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { workPolicy } from "../../contexts/policy/work-policy.svelte";
@@ -219,7 +220,7 @@
   const agentName = $derived(agentLabel(activeAgent, metadata));
 
   // Leading brand glyph on the chip — Claude's starburst for claude-code, the
-  // OpenAI mark for codex, a generic code glyph otherwise.
+  // OpenAI mark for codex, Solus's arch for antigravity, a generic code glyph otherwise.
   const isCodex = $derived(activeAgent === "codex");
 
   let open = $state(false);
@@ -501,6 +502,8 @@
     <ClaudeIcon size={16} />
   {:else if agentId === "codex"}
     <OpenAIBlossom size={16} fill={blossomFill} />
+  {:else if agentId === "antigravity"}
+    <ProviderMark mark="antigravity" size={16} transparent />
   {:else}
     <CodeIcon size={16} class="flex-shrink-0" />
   {/if}

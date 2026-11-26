@@ -114,7 +114,7 @@ import type { McpTask, McpTaskAnswerRequest, McpTaskIdRequest, McpTaskListReques
 import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopRequest, ResourceWatch } from './integrations/resource-watch'
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundChangeRequest, IntegrationFoundChangeResult, IntegrationDiscoverRequest, IntegrationFoundListRequest, IntegrationDiscovery, IntegrationFoundTestRequest, IntegrationFoundTestResult, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
-import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
+import type { SeatConnectCodeRequest, SeatConnectStartRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileDocumentPatch, AgentProfileStatus, HostAgentProfileDocument } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
@@ -643,7 +643,7 @@ export interface SolusAPI {
   providerInstancesWrite(request: ProviderInstancesWrite): Promise<ProviderInstancesSnapshot>
   seatList(): Promise<SeatStatus[]>
   /** Starts the provider's login on the host for the caller's seat; answers once it has printed where to sign in. */
-  seatConnectStart(request: SeatProviderRequest): Promise<SeatConnectStartResult>
+  seatConnectStart(request: SeatConnectStartRequest): Promise<SeatConnectStartResult>
   /** Hands the browser's code to the login waiting on stdin. Completion arrives as `host.seatChanged`. */
   seatConnectSubmitCode(request: SeatConnectCodeRequest): Promise<{ submitted: true }>
   seatConnectCancel(request: SeatProviderRequest): Promise<{ cancelled: boolean }>

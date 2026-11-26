@@ -11,6 +11,10 @@ import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
 import { memberFolderFor, recordedMemberFolder } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
+import { AGENT_LABELS } from '@solus/contracts/types'
+import { ANTIGRAVITY_ADC_FILE, ANTIGRAVITY_SIGN_IN_FILE, ANTIGRAVITY_TOKEN_FILE, antigravitySignInRecord, hostAntigravityProfile, type AntigravityAuth } from '../agents/acp/antigravity-auth'
+import { ANTIGRAVITY_BROWSER_MARKER } from './antigravity-enterprise-sign-in'
+import type { AntigravityCredential } from '@solus/contracts/seats'
 import { identityFor } from './acting-identity'
 import { applyMemberFiles, type MemberFileChange } from './member-files'
 import { memberUsers } from '../../host/member-users'
@@ -57,7 +61,7 @@ const log = createLogger('main', 'seat-manager')
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS provider_seat (
   user_id TEXT NOT NULL,
-  provider TEXT NOT NULL CHECK (provider IN ('claude-code', 'codex')),
+  provider TEXT NOT NULL CHECK (provider IN ('claude-code', 'codex', 'antigravity')),
   state TEXT NOT NULL CHECK (state IN ('connecting', 'connected', 'expired')),
   method TEXT CHECK (method IN ('login', 'token')),
   error TEXT,
@@ -103,10 +107,65 @@ const seatUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
 /** Seats of members who ran nothing for this long are removed by the sweep (plan §3.7). */
 export const SEAT_IDLE_REMOVAL_MS = 30 * 24 * 60 * 60 * 1000
 
+const API_KEY_RE = /^[A-Za-z0-9_.-]{10,512}$/
+/** Application Default Credentials: a JSON object that names its kind, as gcloud writes it. */
+const adcSchema = z.looseObject({ type: z.enum(['authorized_user', 'service_account', 'external_account', 'impersonated_service_account']) })
+
+/**
+ * The files a pasted Antigravity credential becomes (§7): a Gemini API key, or
+ * for Vertex AI an API key or Application Default Credentials, kept in the seat's
+ * profile; the record says which.
+ */
+interface AntigravityCredentialFiles {
+  files: MemberFileChange[]
+  auth: AntigravityAuth
+}
+
+function antigravityCredentialFiles(home: string, token: string, credential: AntigravityCredential): AntigravityCredentialFiles {
+  const text = token.trim()
+  if (credential.method === 'gemini-api-key') {
+    if (!API_KEY_RE.test(text)) throw new Error('Paste a Gemini API key.')
+    return { files: [], auth: { method: 'gemini-api-key', apiKey: text } }
+  }
+  const { gcpProject, gcpLocation } = credential
+  let adc: z.infer<typeof adcSchema> | null = null
+  try { adc = adcSchema.parse(JSON.parse(text)) } catch { adc = null }
+  if (adc) {
+    return {
+      files: [{ kind: 'write', path: join(home, ANTIGRAVITY_ADC_FILE), content: `${JSON.stringify(adc)}\n`, mode: 0o600 }],
+      auth: { method: 'agent-platform', gcpProject, gcpLocation },
+    }
+  }
+  if (!API_KEY_RE.test(text)) throw new Error('Paste a Google Cloud API key, or the contents of your application_default_credentials.json file.')
+  // A key replaces credentials pasted before it.
+  return { files: [{ kind: 'remove', path: join(home, ANTIGRAVITY_ADC_FILE) }], auth: { method: 'agent-platform', apiKey: text, gcpProject, gcpLocation } }
+}
+
 /** A Claude seat connected by pasting a `setup-token`: inference-only, carried in the env per turn. */
 export const CLAUDE_TOKEN_FILE = 'solus-seat-token'
 export const CLAUDE_CREDENTIALS_FILE = '.credentials.json'
 export const CODEX_AUTH_FILE = 'auth.json'
+
+/** The folder under the seats root that holds each provider's member seats. */
+const SEAT_FOLDERS = {
+  'claude-code': 'claude',
+  codex: 'codex',
+  antigravity: 'antigravity',
+} as const satisfies Record<SeatProvider, string>
+
+/** The file a provider CLI writes when a sign-in succeeds, inside a seat directory. */
+const LOGIN_FILES = {
+  'claude-code': CLAUDE_CREDENTIALS_FILE,
+  codex: CODEX_AUTH_FILE,
+  antigravity: ANTIGRAVITY_TOKEN_FILE,
+} as const satisfies Record<SeatProvider, string>
+
+/** Every file a seat's login is kept in: a CLI's own sign-in, and what a person pasted. */
+const CREDENTIAL_FILES = {
+  'claude-code': [CLAUDE_CREDENTIALS_FILE, CLAUDE_TOKEN_FILE],
+  codex: [CODEX_AUTH_FILE],
+  antigravity: [ANTIGRAVITY_TOKEN_FILE, ANTIGRAVITY_SIGN_IN_FILE, ANTIGRAVITY_ADC_FILE],
+} as const satisfies Record<SeatProvider, readonly string[]>
 
 export class SeatRequiredError extends Error {
   readonly code = SEAT_REQUIRED_CODE
@@ -120,8 +179,9 @@ export class SeatRequiredError extends Error {
 }
 
 export function seatProviderLabel(provider: SeatProvider): string {
-  return provider === 'claude-code' ? 'Claude' : 'Codex'
+  return AGENT_LABELS[provider]
 }
+
 
 /** What a turn gets: the seat's directory and, for a pasted Claude token, the token itself. */
 export interface TurnSeat {
@@ -158,10 +218,10 @@ export interface SeatStore {
   homeFor(seat: Seat, provider: SeatProvider): string
   shimBinDir(): string
   markConnecting(seat: Seat, provider: SeatProvider): Promise<SeatStatus>
-  markConnected(seat: Seat, provider: SeatProvider, method: 'login' | 'token'): Promise<SeatStatus>
+  markConnected(seat: Seat, provider: SeatProvider, method: 'login' | 'token', antigravity?: AntigravityAuth): Promise<SeatStatus>
   markFailed(seat: Seat, provider: SeatProvider, error: string): Promise<SeatStatus>
   markExpired(seat: Seat, provider: SeatProvider, error: string): Promise<SeatStatus>
-  storeToken(seat: Seat, provider: SeatProvider, token: string): Promise<SeatStatus>
+  storeToken(seat: Seat, provider: SeatProvider, token: string, antigravity?: AntigravityCredential): Promise<SeatStatus>
   disconnect(seat: Seat, provider: SeatProvider): Promise<SeatStatus>
   remove(userId: UserId, provider?: SeatProvider): Promise<number>
   sweep(maxIdleMs?: number): Promise<number>
@@ -180,6 +240,8 @@ export interface SeatManagerDeps {
   hostClaudeDir?: string
   /** The host's own Codex home: the owner's seat, and where every member seat's `sessions` link points. */
   hostCodexHome?: string
+  /** The host login's Antigravity profile (docs/plans/antigravity-provider.md §7). */
+  hostAntigravityProfile?: string
   /** Whether the host login is signed in; the CLI's own answer by default. */
   hostLoginConnected?: (provider: SeatProvider) => Promise<boolean>
   /** Whether a member's seat directory holds a working login; the CLI's own answer by default. */
@@ -191,6 +253,7 @@ export class SeatManager implements SeatStore {
   readonly seatsRoot: string
   private readonly hostClaudeDir: string
   private readonly hostCodexHome: string
+  private readonly hostAntigravityProfile: string
   private readonly hostLoginConnected: (provider: SeatProvider) => Promise<boolean>
   private readonly memberLoginConnected: (provider: SeatProvider, home: string) => Promise<boolean>
   private readonly listeners = new Set<(event: SeatChangedEvent) => void>()
@@ -200,12 +263,14 @@ export class SeatManager implements SeatStore {
   private readonly rows = new Map<string, SeatRow | null>()
   constructor(private readonly deps: SeatManagerDeps) {
     deps.db.exec(SCHEMA)
+    allowEverySeatProvider(deps.db)
     // A pasted owner token was stored under the old owner sentinel; it is the host login's.
     deps.db.prepare('UPDATE OR IGNORE provider_seat SET user_id = ? WHERE user_id = ?').run(HOST_LOGIN_ROW_ID, LEGACY_HOST_LOGIN_ROW_ID)
     deps.db.prepare('DELETE FROM provider_seat WHERE user_id = ?').run(LEGACY_HOST_LOGIN_ROW_ID)
     this.seatsRoot = deps.seatsRoot ?? `${solusDir()}-seats`
     this.hostClaudeDir = deps.hostClaudeDir ?? hostClaudeDir()
     this.hostCodexHome = deps.hostCodexHome ?? hostCodexHome()
+    this.hostAntigravityProfile = deps.hostAntigravityProfile ?? hostAntigravityProfile()
     this.hostLoginConnected = deps.hostLoginConnected ?? ((provider) => providerLoginConnected(provider, null))
     this.memberLoginConnected = deps.memberLoginConnected ?? providerLoginConnected
   }
@@ -232,7 +297,7 @@ export class SeatManager implements SeatStore {
     if (!row) {
       // The host login is the CLI's to report: no row, no stale answer.
       if (isHostLogin) {
-        return { provider, state: await this.hostLoginConnected(provider) ? 'connected' : 'none', method: 'login', usageCapable: true, hostLogin: true }
+        return { provider, state: await this.hostLoginConnected(provider) ? 'connected' : 'none', method: 'login', usageCapable: provider !== 'antigravity', hostLogin: true }
       }
       return { provider, state: 'none', usageCapable: false }
     }
@@ -240,7 +305,8 @@ export class SeatManager implements SeatStore {
       provider,
       state: row.state,
       // A pasted Claude token is `user:inference` only; `/usage` cannot read its quota.
-      usageCapable: row.state === 'connected' && !(provider === 'claude-code' && row.method === 'token'),
+      // Google publishes no quota endpoint for Antigravity (docs/plans/antigravity-provider.md §9).
+      usageCapable: row.state === 'connected' && provider !== 'antigravity' && !(provider === 'claude-code' && row.method === 'token'),
     }
     if (row.method) status.method = row.method
     if (row.connected_at !== null) status.connectedAt = row.connected_at
@@ -335,7 +401,11 @@ export class SeatManager implements SeatStore {
   }
 
   /** The provider CLI finished its login and the credential verified in the seat's directory. */
-  markConnected(seat: Seat, provider: SeatProvider, method: 'login' | 'token'): Promise<SeatStatus> {
+  markConnected(seat: Seat, provider: SeatProvider, method: 'login' | 'token', antigravity?: AntigravityAuth): Promise<SeatStatus> {
+    // The newest Antigravity sign-in is the one the profile signs in with (§7).
+    if (provider === 'antigravity' && antigravity) {
+      applyMemberFiles(processUserOf(seat), [{ kind: 'write', path: join(this.homeFor(seat, provider), ANTIGRAVITY_SIGN_IN_FILE), content: antigravitySignInRecord(antigravity), mode: 0o600 }])
+    }
     if (seat.kind === 'host-login' && method === 'login') {
       // The host login answers for itself from here on; a row would only go stale.
       this.deleteRow(seat, provider)
@@ -365,9 +435,14 @@ export class SeatManager implements SeatStore {
   }
 
   /** A credential the user made elsewhere (plan §3.2 `seatConnectToken`). */
-  async storeToken(seat: Seat, provider: SeatProvider, token: string): Promise<SeatStatus> {
+  async storeToken(seat: Seat, provider: SeatProvider, token: string, antigravity?: AntigravityCredential): Promise<SeatStatus> {
     const home = this.homeFor(seat, provider)
     // The host's own provider home may not exist yet on a host that never ran the CLI; the write makes it.
+    if (provider === 'antigravity') {
+      const { files, auth } = antigravityCredentialFiles(home, token, antigravity ?? { method: 'gemini-api-key' })
+      applyMemberFiles(processUserOf(seat), files)
+      return this.markConnected(seat, provider, 'token', auth)
+    }
     let file: MemberFileChange
     if (provider === 'claude-code') {
       file = { kind: 'write', path: join(home, CLAUDE_TOKEN_FILE), content: `${token.trim()}\n`, mode: 0o600 }
@@ -387,7 +462,8 @@ export class SeatManager implements SeatStore {
    */
   disconnect(seat: Seat, provider: SeatProvider): Promise<SeatStatus> {
     const home = this.homeFor(seat, provider)
-    const files = seat.kind === 'host-login' ? [CLAUDE_TOKEN_FILE] : credentialFiles(provider)
+    // The host login's Antigravity profile is Solus's own (§7), so its whole login is Solus's to delete.
+    const files = seat.kind === 'host-login' && provider !== 'antigravity' ? [CLAUDE_TOKEN_FILE] : credentialFiles(provider)
     applyMemberFiles(processUserOf(seat), files.map((file) => ({ kind: 'remove', path: join(home, file) })))
     this.deleteRow(seat, provider)
     log.info('seat_disconnected', { seat: seatKey(seat), provider })
@@ -410,10 +486,10 @@ export class SeatManager implements SeatStore {
     for (const each of providers) {
       const hadRow = !!this.row(seat, each)
       if (!isolated) {
-        const home = join(this.seatsRoot, each === 'claude-code' ? 'claude' : 'codex', this.folderOf(seat))
+        const home = join(this.seatsRoot, SEAT_FOLDERS[each], this.folderOf(seat))
         if (existsSync(home)) rmSync(home, { recursive: true, force: true })
       } else if (user) {
-        const home = join(this.seatsRoot, each === 'claude-code' ? 'claude' : 'codex', user.username)
+        const home = join(this.seatsRoot, SEAT_FOLDERS[each], user.username)
         applyMemberFiles({ uid: user.uid }, credentialFiles(each).map((file) => ({ kind: 'remove', path: join(home, file) })))
       }
       this.deleteRow(seat, each)
@@ -449,7 +525,7 @@ export class SeatManager implements SeatStore {
   // ── Internals ───────────────────────────────────────────────────────────
 
   private hostHomeFor(provider: SeatProvider): string {
-    return provider === 'claude-code' ? this.hostClaudeDir : this.hostCodexHome
+    return { 'claude-code': this.hostClaudeDir, codex: this.hostCodexHome, antigravity: this.hostAntigravityProfile }[provider]
   }
 
   private hostLoginSeat(provider: SeatProvider): TurnSeat {
@@ -461,11 +537,12 @@ export class SeatManager implements SeatStore {
    * their own user, the host object made it and its links (docs/plans/member-isolation.md §5).
    */
   private userHome(seat: Extract<Seat, { kind: 'user' }>, provider: SeatProvider): string {
-    if (memberUsers()) return join(this.seatsRoot, provider === 'claude-code' ? 'claude' : 'codex', this.folderOf(seat))
+    if (memberUsers()) return join(this.seatsRoot, SEAT_FOLDERS[provider], this.folderOf(seat))
     const home = memberSeatDirectory(this.seatsRoot, this.folderOf(seat), provider)
+    // Antigravity's history is the kept history Solus writes, so its profile needs no link.
     if (provider === 'claude-code') {
       ensureLink(join(home, 'projects'), join(this.hostClaudeDir, 'projects'))
-    } else {
+    } else if (provider === 'codex') {
       ensureLink(join(home, 'sessions'), join(this.hostCodexHome, 'sessions'))
     }
     return home
@@ -489,8 +566,8 @@ export class SeatManager implements SeatStore {
     // A read: look in the folders that exist, and make none. The named folder, or the
     // user id's when the login arrived before the name did.
     const userId = seatUserIdSchema.parse(seatKey(seat))
-    const level = join(this.seatsRoot, provider === 'claude-code' ? 'claude' : 'codex')
-    const file = provider === 'claude-code' ? CLAUDE_CREDENTIALS_FILE : CODEX_AUTH_FILE
+    const level = join(this.seatsRoot, SEAT_FOLDERS[provider])
+    const file = LOGIN_FILES[provider]
     let found: { home: string; writtenAt: number } | null = null
     for (const folder of new Set([recordedMemberFolder(userId), userId])) {
       try {
@@ -565,9 +642,33 @@ export class SeatManager implements SeatStore {
   }
 }
 
+/**
+ * A table made before a provider was added keeps the old CHECK, which refuses
+ * that provider's rows. SQLite cannot change a CHECK, so the table is copied
+ * into one made from the current schema, once, in one transaction.
+ */
+function allowEverySeatProvider(db: DatabaseSync): void {
+  const table = z.object({ sql: z.string() }).nullish().parse(
+    db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'provider_seat'").get(),
+  )
+  if (!table || SEAT_PROVIDERS.every((provider) => table.sql.includes(`'${provider}'`))) return
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    db.exec(SCHEMA.replace('CREATE TABLE IF NOT EXISTS provider_seat (', 'CREATE TABLE provider_seat_next ('))
+    db.exec('INSERT INTO provider_seat_next SELECT user_id, provider, state, method, error, connected_at, last_used_at, updated_at FROM provider_seat')
+    db.exec('DROP TABLE provider_seat')
+    db.exec('ALTER TABLE provider_seat_next RENAME TO provider_seat')
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  log.info('seat_table_providers_widened', { providers: SEAT_PROVIDERS.length })
+}
+
 /** The files a provider keeps its login in, inside a seat directory. */
-export function credentialFiles(provider: SeatProvider): string[] {
-  return provider === 'claude-code' ? [CLAUDE_CREDENTIALS_FILE, CLAUDE_TOKEN_FILE] : [CODEX_AUTH_FILE]
+export function credentialFiles(provider: SeatProvider): readonly string[] {
+  return CREDENTIAL_FILES[provider]
 }
 
 /** A member's seat directory under the seats root, made 0700 on first use, without its transcript links. */
@@ -581,7 +682,7 @@ export function memberSeatDirectory(seatsRoot: string, folder: string, provider:
   const safeFolder = seatUserIdSchema.parse(folder)
   ensureDir(seatsRoot, 0o700)
   ensureSeatShims(seatsRoot)
-  const level = join(seatsRoot, provider === 'claude-code' ? 'claude' : 'codex')
+  const level = join(seatsRoot, SEAT_FOLDERS[provider])
   ensureDir(level, 0o700)
   const home = join(level, safeFolder)
   ensureDir(home, 0o700)
@@ -599,8 +700,15 @@ export function ensureSeatShims(seatsRoot: string): string {
     if (!existsSync(path)) writeFileSync(path, '#!/bin/sh\n# Solus seat shim: a relayed login must not open a browser on the host.\nexit 1\n', { mode })
     chmodSync(path, mode)
   }
+  // agy's browser for a Gemini Enterprise sign-in: it prints the link for Solus to relay.
+  const browser = join(bin, ANTIGRAVITY_BROWSER_HELPER)
+  writeFileSync(browser, `#!/bin/sh\n# Solus seat shim: print the sign-in link instead of opening it.\nprintf '%s%s\\n' '${ANTIGRAVITY_BROWSER_MARKER}' "$1" >&2\n`, { mode })
+  chmodSync(browser, mode)
   return bin
 }
+
+/** The name of agy's browser helper in the seats' `bin`. */
+export const ANTIGRAVITY_BROWSER_HELPER = 'solus-agy-browser'
 
 function ensureDir(path: string, mode: number): void {
   if (!existsSync(path)) mkdirSync(path, { recursive: true, mode })

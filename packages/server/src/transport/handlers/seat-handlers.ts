@@ -2,7 +2,7 @@ import { providerInstanceTargetSchema, providerInstanceCodeSchema } from '@solus
 import { ProviderInstanceAuth } from '../../execution/seats/provider-instance-auth'
 import { agentAuthFlowRequestSchema, agentAuthMcpTargetSchema, agentAuthSubmitRequestSchema, agentAuthTargetSchema } from '@solus/contracts/agent-auth'
 import { agentProfileCopySchema } from '@solus/contracts/agent-profile'
-import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
+import { SEAT_PROVIDERS, seatConnectCodeRequestSchema, seatConnectStartRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
 import { parseUserKey } from '@solus/contracts/user'
 import type { AgentAuthFlows } from '../../execution/seats/agent-auth'
 import type { AgentProfileManager, AgentProfileTarget } from '../../execution/seats/agent-profile'
@@ -24,9 +24,9 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   const instances = new ProviderInstanceAuth({ seats: deps.seats, connector: deps.connector, changed: deps.providerInstancesChanged })
   server.register('providerInstanceStatus', ([request], ctx) => instances.status(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId))
   server.register('providerInstanceSignIn', ([request], ctx) => instances.start(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId))
-  server.register('providerInstanceSubmitCode', ([request], ctx) => {
+  server.register('providerInstanceSubmitCode', async ([request], ctx) => {
     const { instanceId, code } = providerInstanceCodeSchema.parse(request)
-    instances.submit(seatFor(ctx.actor), instanceId, code)
+    await instances.submit(seatFor(ctx.actor), instanceId, code)
     return { submitted: true as const }
   })
   server.register('providerInstanceCancelSignIn', async ([request], ctx) => ({ cancelled: await instances.cancel(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId) }))
@@ -34,13 +34,13 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   server.register('seatList', (_args, ctx) => deps.seats.list(seatFor(ctx.actor)))
 
   server.register('seatConnectStart', (args, ctx) => {
-    const { provider } = seatProviderRequestSchema.parse(args[0])
-    return deps.connector.start(seatFor(ctx.actor), provider)
+    const { provider, antigravity } = seatConnectStartRequestSchema.parse(args[0])
+    return deps.connector.start(seatFor(ctx.actor), provider, undefined, antigravity)
   })
 
-  server.register('seatConnectSubmitCode', (args, ctx) => {
+  server.register('seatConnectSubmitCode', async (args, ctx) => {
     const { provider, code } = seatConnectCodeRequestSchema.parse(args[0])
-    deps.connector.submitCode(seatFor(ctx.actor), provider, code)
+    await deps.connector.submitCode(seatFor(ctx.actor), provider, code)
     return { submitted: true as const }
   })
 
@@ -50,10 +50,10 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   })
 
   server.register('seatConnectToken', async (args, ctx) => {
-    const { provider, token } = seatConnectTokenRequestSchema.parse(args[0])
+    const { provider, token, antigravity } = seatConnectTokenRequestSchema.parse(args[0])
     const seat = seatFor(ctx.actor)
     await deps.connector.cancel(seat, provider)
-    return deps.seats.storeToken(seat, provider, token)
+    return deps.seats.storeToken(seat, provider, token, antigravity)
   })
 
   server.register('seatDisconnect', async (args, ctx) => {
@@ -67,7 +67,7 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
     const request = seatRemoveRequestSchema.parse(args[0])
     const userId = parseUserKey(request.userId)
     const provider = request.provider
-    for (const each of provider ? [provider] : (['claude-code', 'codex'] as const)) await deps.connector.cancel({ kind: 'user', userId }, each)
+    for (const each of provider ? [provider] : SEAT_PROVIDERS) await deps.connector.cancel({ kind: 'user', userId }, each)
     return { removed: await deps.seats.remove(userId, provider) }
   })
 

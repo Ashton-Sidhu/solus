@@ -11,6 +11,7 @@ import { resourceLinks } from '../links/schema'
 import { workRevisions, works } from './schema'
 import './database-work-storage'
 import { initializeWorkStorage, storageForWork } from './work-storage'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * The storage rows of one work and its revisions, shared by `Work` (one work's
@@ -18,7 +19,6 @@ import { initializeWorkStorage, storageForWork } from './work-storage'
  * here is exported past the works domain.
  */
 
-const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 export const workTypeSchema = z.enum(['doc', 'slides', 'artifact'])
 const workExtraSchema = z.object({
   mirroredDoc: workExternalLinkSchema.optional(),
@@ -41,7 +41,7 @@ export const workRowSchema = z.object({
   preview: z.string().nullable(),
   type: workTypeSchema.nullable(),
   session_id: z.string().nullable(),
-  agent_provider: agentProviderSchema.nullable(),
+  agent_provider: agentIdSchema.nullable(),
   cwd: z.string().nullable(),
   pinned: z.number().nullable(),
   content: z.string().nullable(),

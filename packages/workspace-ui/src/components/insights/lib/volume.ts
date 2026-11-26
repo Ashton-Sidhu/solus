@@ -55,6 +55,7 @@ export interface VolumeBucket {
   total: number
   claudeCode: number
   codex: number
+  antigravity: number
   unknownProvider: number
   /** Spend across the rows that report one. */
   costUsd: number
@@ -160,6 +161,7 @@ export function bucketPoints(
     total: 0,
     claudeCode: 0,
     codex: 0,
+    antigravity: 0,
     unknownProvider: 0,
     costUsd: 0,
     costedCount: 0,
@@ -177,6 +179,8 @@ export function bucketPoints(
       buckets[index].claudeCode += 1
     } else if (mark === 'codex') {
       buckets[index].codex += 1
+    } else if (mark === 'antigravity') {
+      buckets[index].antigravity += 1
     } else {
       buckets[index].unknownProvider += 1
     }
@@ -200,6 +204,7 @@ export function rebucketVolume(
     total: 0,
     claudeCode: 0,
     codex: 0,
+    antigravity: 0,
     unknownProvider: 0,
     costUsd: 0,
     costedCount: 0,
@@ -211,6 +216,7 @@ export function rebucketVolume(
     bucket.total += item.total
     bucket.claudeCode += item.claudeCode
     bucket.codex += item.codex
+    bucket.antigravity += item.antigravity
     bucket.unknownProvider += item.unknownProvider
     bucket.costUsd += item.costUsd
     bucket.costedCount += item.costedCount
@@ -246,11 +252,12 @@ export function costAxisMax(buckets: VolumeBucket[]): number {
  */
 export function providerTotals(
   buckets: VolumeBucket[],
-): Pick<VolumeBucket, 'claudeCode' | 'codex' | 'unknownProvider'> {
-  const totals = { claudeCode: 0, codex: 0, unknownProvider: 0 }
+): Pick<VolumeBucket, 'claudeCode' | 'codex' | 'antigravity' | 'unknownProvider'> {
+  const totals = { claudeCode: 0, codex: 0, antigravity: 0, unknownProvider: 0 }
   for (const bucket of buckets) {
     totals.claudeCode += bucket.claudeCode
     totals.codex += bucket.codex
+    totals.antigravity += bucket.antigravity
     totals.unknownProvider += bucket.unknownProvider
   }
   return totals

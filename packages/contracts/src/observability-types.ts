@@ -140,6 +140,7 @@ export interface MetricsTurnVolumeBucket {
   total: number
   claudeCode: number
   codex: number
+  antigravity: number
   unknownProvider: number
   costUsd: number
   costedCount: number
