@@ -33,6 +33,8 @@ Saved sessions expose their messages and visible turns to T3's thread detail sel
 
 The thread header reads the checkout summary. Opening Git loads the detailed status. Files and Git use the adaptive workspace inspector. The host reports provider switching and side-chat command support to the composer. The current Solus host has no side-chat command handler.
 
+The Solus thread route shows a small activity indicator and muted text while a session opens. The back or close control remains available during the wait.
+
 The home session rows and tablet sidebar use the T3 Code row styles and swipe controls checked at `dd19bce823d833b5612fd74851d50047e65347fa`. The row reads its project icon, provider, and read state from the Solus host. The Solus adapter reads execution status from the runner’s saved session record and applies newer revisions from host events.
 
 The shared mobile search scorer and its tests include T3 Code pull request [#37700](https://github.com/pingdotgg/t3code/pull/37700). The home list, tablet sidebar, and command palette use this scorer for exact phrase matching and highlighting.

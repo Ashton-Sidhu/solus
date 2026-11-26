@@ -128,8 +128,13 @@ vi.mock("../../components/ui/ScreenScrollView", () => ({
 vi.mock("../../components/ui/EmptyState", () => ({
   EmptyState: ({ title }: { title: string }) => <span>{title}</span>,
 }));
-vi.mock("../../components/LoadingScreen", () => ({
-  LoadingScreen: ({ message }: { message: string }) => <span>{message}</span>,
+vi.mock("../../components/ui/AppActivityIndicator", () => ({
+  AppActivityIndicator: ({ size }: { size: string }) => (
+    <span role="progressbar" data-size={size} />
+  ),
+}));
+vi.mock("../../components/ui/AppText", () => ({
+  AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("./NewTaskHero", () => ({
   draftHeroContent: () => () => null,
@@ -258,8 +263,10 @@ it("keeps the inspector close control while a thread loads or is unavailable", (
   try {
     render("loading");
     expect(container.textContent).toContain("Opening thread");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("data-size")).toBe("small");
     expect(container.querySelector("button")?.textContent).toBe("Close thread");
     render("unavailable");
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
     expect(container.textContent).toContain("Thread unavailable");
     expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
       "Close thread",
