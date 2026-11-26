@@ -150,19 +150,25 @@ describe("an outside app's grant", () => {
     const read = await appClient(await signInWithPairingCode('read'))
     const readTools = (await read.listTools()).tools.map((tool) => tool.name)
     expect(readTools).toContain('list_works')
+    // An app reads its own exchanges, a session's links, and pull requests.
+    expect(readTools).toEqual(expect.arrayContaining(['read_session_exchange', 'list_links', 'pull_request_read', 'ci_logs']))
     expect(readTools).not.toContain('start_sessions')
     expect(readTools).not.toContain('move_checkout')
     await read.close()
     const write = await appClient(await signInWithPairingCode('write'))
     const writeTools = (await write.listTools()).tools.map((tool) => tool.name)
-    expect(writeTools).toContain('start_sessions')
-    // update_work needs approval: a write grant does not reach it.
+    expect(writeTools).toEqual(expect.arrayContaining(['start_sessions', 'send_session']))
+    // update_work, link, and a PR merge need approval: a write grant does not reach them.
     expect(writeTools).not.toContain('update_work')
+    expect(writeTools).not.toContain('link')
+    expect(writeTools).not.toContain('pull_request_merge')
+    // A PR is opened from a session's own checkout.
+    expect(writeTools).not.toContain('pull_request_create')
     const refused = await write.callTool({ name: 'update_work', arguments: { work_id: 'w', expected_content_version: 0 } })
     expect(refused.isError).toBe(true)
     await write.close()
     const full = await appClient(await signInWithPairingCode('full'))
-    expect((await full.listTools()).tools.map((tool) => tool.name)).toContain('update_work')
+    expect((await full.listTools()).tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['update_work', 'link', 'unlink', 'pull_request_merge']))
     await full.close()
   })
 

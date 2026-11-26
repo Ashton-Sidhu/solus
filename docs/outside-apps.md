@@ -30,13 +30,21 @@ The app acts as the person who approved it. The host owner approves in the Solus
 
 | Access | The app can |
 |---|---|
-| Read | Read works, projects, codebases, tasks, automations, and sessions. |
-| Read and write | Also create and change records, and start and stop sessions. |
-| Full | Also use tools that ask for approval inside Solus, such as changing a work or running an automation. |
+| Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, and the results of messages the app sent. |
+| Read and write | Also create and change records, start, message, and stop sessions, and rerun checks. |
+| Full | Also use tools that ask for approval inside Solus, such as changing a work, running an automation, linking items to a session, and changing, reviewing, or merging a pull request. |
 
-The app works as you, and only where you can work yourself. It does not get your integration tokens. To use an integration (for example GitHub or Google), the app starts a Solus session, and the agent in that session uses your integrations.
+The app works as you, and only where you can work yourself. It does not get your integration tokens. To use an integration (for example Google), the app starts a Solus session, and the agent in that session uses your integrations.
 
-Tools that act as the calling session (for example the browser, devices, checkouts, and secrets) are only for agents inside Solus.
+## Sessions and pull requests
+
+The app is not inside a Solus session, so it names what a tool acts on:
+
+- **A session.** `link`, `unlink`, and `list_links` take `session_id`. Get ids from `search_sessions` or `start_sessions`.
+- **A project.** The pull request tools take `project`, a project from `list_projects`, and use that project's code host. `repository` must be the project's repository.
+- **The results of its messages.** A session that the app starts or messages sends no report to the app. The app waits for the result in the same call with `wait_seconds`, or reads it later with `read_session_exchange` and the exchange id. Only the app that sent a message reads its exchange.
+
+Tools that act as the calling session (for example the browser, devices, checkouts, secrets, and opening a pull request from a checkout) are only for agents inside Solus.
 
 ## Revoke an app
 

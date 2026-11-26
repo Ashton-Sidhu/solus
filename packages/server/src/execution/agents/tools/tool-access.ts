@@ -199,7 +199,8 @@ const ACCESS_BY_NAME: ReadonlyMap<string, ToolAccess> = new Map(Object.entries(T
  * The Solus tools an outside app may use, and what each does (plans/035 §7).
  * A tool not named is only for a harness inside a session. A `write` tool
  * needs a write grant; a tool that requires approval also needs a full one.
- * The rest wait for an explicit `session_id` and the requester key (§8).
+ * An app names the session (`session_id`) or project (`project`) a tool acts
+ * on, and the work it starts is keyed by its grant (§8).
  */
 export const APP_TOOLS = {
   list_works: 'read',
@@ -224,8 +225,23 @@ export const APP_TOOLS = {
   search_sessions: 'read',
   read_session: 'read',
   start_sessions: 'write',
+  send_session: 'write',
+  read_session_exchange: 'read',
   stop_session: 'write',
   organize_session: 'write',
+  link: 'write',
+  unlink: 'write',
+  list_links: 'read',
+  pull_request_read: 'read',
+  pull_request_list: 'read',
+  ci_logs: 'read',
+  list_thread_pull_requests: 'read',
+  pull_request_guide_read: 'read',
+  pull_request_update: 'write',
+  pull_request_respond: 'write',
+  pull_request_review: 'write',
+  pull_request_merge: 'write',
+  ci_rerun: 'write',
 } as const satisfies Partial<Record<SolusAgentToolName, 'read' | 'write'>>
 
 const APP_TOOL_EFFECTS: ReadonlyMap<string, 'read' | 'write'> = new Map(Object.entries(APP_TOOLS))
