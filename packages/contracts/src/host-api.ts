@@ -1,3 +1,4 @@
+import type { OutsideAppId } from './outside-apps'
 import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
 import type { PairApprovalDecision, PairApprovalRequest } from './add-machine'
 import type { PersonHistoryEntry } from './person-history'
@@ -181,7 +182,7 @@ export interface PairedDevice {
   /** Set once the owner revoked it. A revoked device pairs again as a new device. */
   revokedAt: number | null
   /** An outside app that reaches this host's tools over MCP, and the access it was given (plans/035 §10). */
-  app?: { access: AppAccess }
+  app?: { access: AppAccess; appId: OutsideAppId }
 }
 
 /** What an outside app may do with this host's tools: read only, change records, or also run tools that need approval. */

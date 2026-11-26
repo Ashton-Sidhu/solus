@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { z } from 'zod'
 import { formatCheckCode, normalizeCheckCode } from '@solus/contracts/add-machine'
 import type { AppAccess } from '@solus/contracts/host-api'
+import { outsideAppOf, type OutsideAppId } from '@solus/contracts/outside-apps'
+import { hostKindSchema, organizationRoleSchema } from '@solus/contracts/uplink'
 import { getAssetSigningSecret, readSignedToken, signToken } from './signed-token'
 
 /**
@@ -29,31 +31,57 @@ export function registeredClient(clientId: string): RegisteredClient | null {
   return readSignedToken(clientId, getAssetSigningSecret(), clientIdSchema)
 }
 
-/** A pairing code lives ten minutes and works once. */
-export const APP_PAIRING_CODE_TTL_MS = 10 * 60 * 1000
-const pairingCodes = new Map<string, number>()
+/**
+ * Who approved an app: the app acts as that person (plans/035 §0.3). The host's
+ * owner approves in the Solus app or with a pairing code; an organization member
+ * with a pairing code made in their own Solus client. A member's role and teams
+ * are those at approval; the host checks on each call that they still have access.
+ */
+export const appApproverSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('owner') }).strict(),
+  z.object({
+    kind: z.literal('member'),
+    userId: z.string().min(1),
+    organizationId: z.string().min(1),
+    organizationRole: organizationRoleSchema,
+    teamIds: z.array(z.string()),
+    hostKind: hostKindSchema,
+    displayName: z.string(),
+  }).strict(),
+])
+export type AppApprover = z.infer<typeof appApproverSchema>
 
-export function createAppPairingCode(now = Date.now()) {
-  for (const [code, expiresAt] of pairingCodes) if (expiresAt <= now) pairingCodes.delete(code)
+/** A pairing code lives ten minutes and works once, for the person who made it. */
+export const APP_PAIRING_CODE_TTL_MS = 10 * 60 * 1000
+const pairingCodes = new Map<string, { expiresAt: number; approver: AppApprover }>()
+
+export function createAppPairingCode(approver: AppApprover, now = Date.now()) {
+  for (const [code, entry] of pairingCodes) if (entry.expiresAt <= now) pairingCodes.delete(code)
   const code = formatCheckCode((n) => randomInt(n))
   const expiresAt = now + APP_PAIRING_CODE_TTL_MS
-  pairingCodes.set(code, expiresAt)
+  pairingCodes.set(code, { expiresAt, approver })
   return { code, expiresAt }
 }
 
-/** Spends a pairing code. False when it is unknown, used, or expired. */
-export function spendAppPairingCode(typed: string, now = Date.now()): boolean {
+/** Spends a pairing code: the person who made it, or null when it is unknown, used, or expired. */
+export function spendAppPairingCode(typed: string, now = Date.now()): AppApprover | null {
   const code = normalizeCheckCode(typed)
-  if (!code) return false
-  const expiresAt = pairingCodes.get(code)
+  if (!code) return null
+  const entry = pairingCodes.get(code)
   pairingCodes.delete(code)
-  return expiresAt !== undefined && expiresAt > now
+  return entry && entry.expiresAt > now ? entry.approver : null
+}
+
+/** The app a registered client is, from where its sign-in returns. */
+export function appOfClient(client: RegisteredClient): OutsideAppId {
+  return outsideAppOf(client.redirectUris)
 }
 
 /** What a sign-in asked for, kept with its authorization code. */
 export interface AuthorizationRequest {
   clientId: string
   appName: string
+  app: OutsideAppId
   redirectUri: string
   codeChallenge: string
   state: string | null
@@ -62,13 +90,17 @@ export interface AuthorizationRequest {
 
 /** An authorization code lives one minute (OAuth 2.1 §4.1.2). */
 const CODE_TTL_MS = 60 * 1000
-const codes = new Map<string, AuthorizationRequest & { expiresAt: number }>()
+/** An approved sign-in, waiting for its code to be spent. */
+export interface ApprovedSignIn extends AuthorizationRequest {
+  approver: AppApprover
+}
+const codes = new Map<string, ApprovedSignIn & { expiresAt: number }>()
 
-/** The address the app's browser goes back to, with a new authorization code. */
-export function approvedRedirect(request: AuthorizationRequest, now = Date.now()): string {
+/** The address the app's browser goes back to, with a new authorization code for an approved sign-in. */
+export function approvedRedirect(request: AuthorizationRequest, approver: AppApprover, now = Date.now()): string {
   for (const [code, entry] of codes) if (entry.expiresAt <= now) codes.delete(code)
   const code = randomBytes(32).toString('base64url')
-  codes.set(code, { ...request, expiresAt: now + CODE_TTL_MS })
+  codes.set(code, { ...request, approver, expiresAt: now + CODE_TTL_MS })
   const url = new URL(request.redirectUri)
   url.searchParams.set('code', code)
   if (request.state !== null) url.searchParams.set('state', request.state)
@@ -82,7 +114,7 @@ export function withdrawRedirect(redirect: string): void {
 }
 
 /** The sign-in a code was issued for, once: the client, its redirect address, and its PKCE verifier must match. */
-export function redeemCode(code: string, clientId: string, redirectUri: string, codeVerifier: string, now = Date.now()): AuthorizationRequest | null {
+export function redeemCode(code: string, clientId: string, redirectUri: string, codeVerifier: string, now = Date.now()): ApprovedSignIn | null {
   const entry = codes.get(code)
   codes.delete(code)
   if (!entry || entry.expiresAt <= now || entry.clientId !== clientId || entry.redirectUri !== redirectUri) return null
@@ -97,4 +129,23 @@ export function redeemCode(code: string, clientId: string, redirectUri: string, 
 export function resetAppSignInForTests(): void {
   pairingCodes.clear()
   codes.clear()
+}
+
+/** What boot gives the app sign-in: the host's policies and its delegations (plans/035 §10). */
+export interface AppAccessChecks {
+  /** Why policy refuses this app for this approver's work, or null when it allows it. */
+  appDenial(app: OutsideAppId, approver: AppApprover): string | null
+  /** Whether a member who approved an app still has access to this host. */
+  memberHasAccess(approver: Extract<AppApprover, { kind: 'member' }>): Promise<boolean>
+}
+
+/** Until boot installs the checks, every app is allowed and no member's grant works. */
+let checks: AppAccessChecks = { appDenial: () => null, memberHasAccess: async () => false }
+
+export function installAppAccessChecks(next: AppAccessChecks): void {
+  checks = next
+}
+
+export function appAccessChecks(): AppAccessChecks {
+  return checks
 }

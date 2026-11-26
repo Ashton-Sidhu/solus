@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { solusToolSwitchesSchema } from './agent-tools'
 import { PERSONAL_SETTING_SCHEMAS } from './settings'
 import { PERMISSION_MODES, type AgentId, type PermissionMode } from './types'
+import { OUTSIDE_APP_IDS, OUTSIDE_APP_NAMES, type OutsideAppId } from './outside-apps'
 
 export const POLICY_PROVIDER_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
 const providerIdSchema = z.enum(POLICY_PROVIDER_IDS)
@@ -134,6 +135,8 @@ export const sessionLimitsSchema = z.object({
   models: z.partialRecord(providerIdSchema, z.array(z.string().trim().min(1)).nonempty()).optional(),
   insights: z.object({ syncAll: z.boolean() }).strict().optional(),
   webhooks: z.object({ allowUnverified: z.boolean() }).strict().optional(),
+  /** The outside apps whose members may connect to this work's hosts (plans/035 §10). Not set: every app. */
+  apps: z.object({ allowed: z.array(z.enum(OUTSIDE_APP_IDS)).nonempty() }).strict().optional(),
 }).strict()
 export type SessionLimits = z.infer<typeof sessionLimitsSchema>
 
@@ -308,6 +311,7 @@ export const POLICY_REFUSAL_CODES = [
   'UPDATES_MANAGED',
   'POLICY_UNAVAILABLE',
   'POLICY_UNENFORCEABLE',
+  'APP_NOT_ALLOWED',
 ] as const
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number]
 
@@ -331,6 +335,10 @@ export function permissionCeilingMessage(source: PolicySource, ceiling: Permissi
 
 export function providerDeniedMessage(source: PolicySource, provider: AgentId): string {
   return `${capitalize(policySourceLabel(source))} does not allow ${PROVIDER_LABELS[provider]}.`
+}
+
+export function appDeniedMessage(source: PolicySource, app: OutsideAppId): string {
+  return `${capitalize(policySourceLabel(source))} does not allow ${OUTSIDE_APP_NAMES[app]} to use Solus.`
 }
 
 export function modelDeniedMessage(source: PolicySource, model: string): string {

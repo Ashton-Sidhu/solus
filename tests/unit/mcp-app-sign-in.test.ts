@@ -10,7 +10,8 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const auth = await import('@solus/server/admission/auth')
-const { createAppPairingCode, resetAppSignInForTests } = await import('@solus/server/admission/app-sign-in')
+const { createAppPairingCode, installAppAccessChecks, resetAppSignInForTests } = await import('@solus/server/admission/app-sign-in')
+const { outsideAppOf } = await import('@solus/contracts/outside-apps')
 const { PairApprovals } = await import('@solus/server/admission/pair-approvals')
 const { serveMcpOAuth } = await import('@solus/server/transport/mcp-oauth')
 const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
@@ -22,7 +23,9 @@ const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
 
 const originalDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
+const allowEverything = { appDenial: () => null, memberHasAccess: async () => true }
 beforeEach(() => {
+  installAppAccessChecks(allowEverything)
   dataDir = mkdtempSync(join(tmpdir(), 'solus-mcp-app-sign-in-'))
   process.env.SOLUS_DATA_DIR = dataDir
   auth.resetAuthStateForTests()
@@ -63,9 +66,13 @@ async function tokenFor(clientId: string, redirect: string): Promise<Response> {
   return oauth('/oauth/mcp/token', { method: 'POST', form: { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: clientId, code_verifier: verifier } })
 }
 
-async function signInWithPairingCode(access: 'read' | 'write' | 'full'): Promise<string> {
+type Approver = Parameters<typeof createAppPairingCode>[0]
+const OWNER: Approver = { kind: 'owner' }
+const MEMBER: Approver = { kind: 'member', userId: 'alice', organizationId: 'org-a', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Alice' }
+
+async function signInWithPairingCode(access: 'read' | 'write' | 'full', approver: Approver = OWNER): Promise<string> {
   const clientId = await register()
-  const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access, pairing_code: createAppPairingCode().code } })
+  const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access, pairing_code: createAppPairingCode(approver).code } })
   const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
   return z.object({ access_token: z.string() }).parse(await (await tokenFor(clientId, redirect)).json()).access_token
 }
@@ -94,7 +101,7 @@ describe('signing in an outside app', () => {
 
   test('a pairing code from the owner approves; the code works once, with the verifier', async () => {
     const clientId = await register()
-    const pairing = createAppPairingCode().code
+    const pairing = createAppPairingCode({ kind: 'owner' }).code
     const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: pairing } })
     const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
     expect(new URL(redirect).searchParams.get('state')).toBe('st-1')
@@ -163,11 +170,50 @@ describe("an outside app's grant", () => {
     const token = await signInWithPairingCode('write')
     expect(auth.verifySessionToken(token)).toBeNull()
     const listed = auth.listPairedDevices().find((device) => device.app)
-    expect(listed).toMatchObject({ deviceLabel: 'Claude Desktop', app: { access: 'write' } })
+    // Its redirect address is on this computer, so it is a local app.
+    expect(listed).toMatchObject({ deviceLabel: 'Claude Desktop', app: { access: 'write', appId: 'local' } })
     auth.revokeDevice(listed!.deviceId)
     const response = await serveMcp(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), { appsSignIn: true })
     expect(response.status).toBe(401)
     // The challenge names where to sign in again.
     expect(response.headers.get('WWW-Authenticate')).toBe(`Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/mcp"`)
+  })
+})
+
+// WHY: an organization decides which outside apps its members may connect;
+// with no rule every app is allowed (plans/035 §10). The app is known by where
+// its sign-in returns, and an app acts as the person who approved it.
+describe('which apps may connect, and as whom', () => {
+  test('an app is known by where its sign-in returns', () => {
+    expect(outsideAppOf(['https://claude.ai/api/mcp/auth_callback'])).toBe('claude')
+    expect(outsideAppOf(['https://chatgpt.com/connector_platform_oauth_redirect'])).toBe('chatgpt')
+    expect(outsideAppOf(['http://localhost:33418/callback', 'http://127.0.0.1:33418/callback'])).toBe('local')
+    expect(outsideAppOf(['cursor://anysphere.cursor-retrieval/oauth/callback'])).toBe('cursor')
+    expect(outsideAppOf(['https://evil.example/cb'])).toBe('other')
+    // A client that names two apps is not trusted as either.
+    expect(outsideAppOf(['https://claude.ai/cb', 'https://evil.example/cb'])).toBe('other')
+  })
+
+  test("an organization that does not allow the app refuses its sign-in and its later calls", async () => {
+    const token = await signInWithPairingCode('write', MEMBER)
+    const client = await appClient(token)
+    await client.close()
+    // The organization narrows its apps after the approval.
+    installAppAccessChecks({ ...allowEverything, appDenial: (app, approver) => approver.kind === 'member' && app === 'local' ? 'Example Corp does not allow Apps on your computer to use Solus.' : null })
+    const call = await serveMcp(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), { appsSignIn: true })
+    expect(call.status).toBe(403)
+    const clientId = await register()
+    const refused = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(MEMBER).code } })
+    expect(refused.status).toBe(403)
+    expect(z.object({ error: z.string() }).parse(await refused.json()).error).toContain('does not allow')
+    // The owner's own work is not that organization's.
+    expect((await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(OWNER).code } })).status).toBe(200)
+  })
+
+  test("a member's app stops when the member loses access to the host", async () => {
+    const token = await signInWithPairingCode('read', MEMBER)
+    installAppAccessChecks({ ...allowEverything, memberHasAccess: async () => false })
+    const call = await serveMcp(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), { appsSignIn: true })
+    expect(call.status).toBe(403)
   })
 })

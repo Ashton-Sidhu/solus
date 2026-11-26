@@ -15,6 +15,7 @@ import {
   modelDeniedMessage,
   permissionCeilingMessage,
   providerDeniedMessage,
+  appDeniedMessage,
   settingManagedMessage,
   summarizePolicySet,
   type ManagedHostKey,
@@ -29,6 +30,7 @@ import {
   POLICY_PROVIDER_IDS,
 } from './policy'
 import type { AgentId, PermissionMode } from './types'
+import type { OutsideAppId } from './outside-apps'
 
 /** Why a policy refuses something, in the words every client shows. */
 export interface PolicyRefusal {
@@ -223,6 +225,14 @@ export class WorkPolicy {
     const allowed = byProvider(rule?.value, provider)
     if (!rule || !allowed || allowed.includes(model)) return null
     return { code: 'MODEL_NOT_ALLOWED', message: modelDeniedMessage(rule.source, model) }
+  }
+
+  /** Why an outside app may not reach this work's host, or null when it may. Every app is allowed until a policy names some. */
+  appDenial(app: OutsideAppId): PolicyRefusal | null {
+    if (this.refusal) return this.refusal
+    const rule = this.limit('apps')
+    if (!rule || rule.value.allowed.includes(app)) return null
+    return { code: 'APP_NOT_ALLOWED', message: appDeniedMessage(rule.source, app) }
   }
 
   /** Why work cannot be saved or switched to this provider (and model), or null when it can. */

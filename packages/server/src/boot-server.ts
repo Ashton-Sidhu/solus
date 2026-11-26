@@ -199,6 +199,11 @@ import { SshClient } from './platform/ssh'
 import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import { setAgentToolEndpointUrl } from './execution/agents/tools/agent-tool-endpoint'
+import { installAppAccessChecks } from './admission/app-sign-in'
+import { LOCAL_POLICY_ORGANIZATION_ID } from '@solus/contracts/policy'
+
+/** How long a member's access holds after the host renewed their token: their app stops within this after they lose access. */
+const MEMBER_ACCESS_CHECK_MS = 5 * 60 * 1000
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
@@ -1793,6 +1798,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : Promise.resolve({ ok: false, reason: 'not-linked' })
   let runnerDelivery: RunnerDelivery | null = null
   let delegations: Delegations | null = null
+  // An outside app's organization may allow only some apps, and a member's app stops when
+  // the member loses access: the host acts for them only while it can renew their token (plans/035 §0.3).
+  const memberAccessCache = new Map<string, number>()
+  installAppAccessChecks({
+    appDenial: (app, approver) => hostPolicies().forWork(approver.kind === 'member' ? approver.organizationId : LOCAL_POLICY_ORGANIZATION_ID).appDenial(app)?.message ?? null,
+    memberHasAccess: async (approver) => {
+      const key = `${approver.userId}:${approver.organizationId}`
+      if ((memberAccessCache.get(key) ?? 0) > Date.now()) return true
+      try {
+        await delegations?.accessToken(approver.userId, { organizationId: approver.organizationId }, { kind: 'api' })
+        if (!delegations) return false
+        memberAccessCache.set(key, Date.now() + MEMBER_ACCESS_CHECK_MS)
+        return true
+      } catch {
+        memberAccessCache.delete(key)
+        return false
+      }
+    },
+  })
   // A registration again under the same host id is a new generation with a new OAuth client.
   const registrationKey = (registration: HostRegistration | null) => registration ? `${registration.hostId}:${registration.generation}` : null
   let registeredKey = registrationKey(readStoredRegistration())

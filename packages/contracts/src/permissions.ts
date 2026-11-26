@@ -80,9 +80,9 @@ const PERMISSION_OF_METHOD = {
   uplinkUnlink: 'host.local.reach',
   // Administers the machine: credentials, updates, host config.
   connectionsListDevices: 'host.admin',
-  // An outside app acts as the owner: approving one is local authorization, as pairing a device is.
-  connectionsAppEndpoint: 'host.admin',
-  connectionsCreateAppPairingCode: 'host.local.reach',
+  // A person connects an outside app that acts as them (plans/035 §0.3): the owner, or a member of an organization.
+  connectionsAppEndpoint: HOST_USE,
+  connectionsCreateAppPairingCode: HOST_USE,
   connectionsRevokeDevice: 'host.admin',
   // Introductions give one host a token for another: a local owner's, never on a managed host (host-reach.md §4).
   hostIntroductionsList: 'host.local.reach',

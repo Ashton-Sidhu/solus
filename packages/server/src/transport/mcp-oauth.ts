@@ -4,6 +4,8 @@ import { formatCheckCode } from '@solus/contracts/add-machine'
 import type { AppAccess } from '@solus/contracts/host-api'
 import { issueAppToken, revokeAppToken } from '../admission/auth'
 import {
+  appAccessChecks,
+  appOfClient,
   approvedRedirect,
   redeemCode,
   registerClient,
@@ -98,7 +100,7 @@ function oauthError(error: string, description: string, status = 400): Response 
 function signInOf(params: z.infer<typeof authorizeSchema>, access: AppAccess): AuthorizationRequest | null {
   const client = registeredClient(params.client_id)
   if (!client || !client.redirectUris.includes(params.redirect_uri)) return null
-  return { clientId: params.client_id, appName: client.name, redirectUri: params.redirect_uri, codeChallenge: params.code_challenge, state: params.state ?? null, access }
+  return { clientId: params.client_id, appName: client.name, app: appOfClient(client), redirectUri: params.redirect_uri, codeChallenge: params.code_challenge, state: params.state ?? null, access }
 }
 
 /** A request's body, parsed by its route's schema: JSON, or a form as OAuth's token and revoke routes take. Null when it does not parse. */
@@ -151,17 +153,24 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
   if (!parsed || !signIn) return Response.json({ error: 'This sign-in is not valid.' }, { status: 400 })
   if (parsed.pairing_code !== undefined) {
     if (!codeAttempts.allow(options.remoteAddress)) return Response.json({ error: 'Too many attempts. Wait a minute.' }, { status: 429 })
-    if (!spendAppPairingCode(parsed.pairing_code)) return Response.json({ error: 'That pairing code is not valid. Make a new one in Solus.' }, { status: 403 })
-    return Response.json({ redirect: approvedRedirect(signIn) })
+    const approver = spendAppPairingCode(parsed.pairing_code)
+    if (!approver) return Response.json({ error: 'That pairing code is not valid. Make a new one in Solus.' }, { status: 403 })
+    // The person's organization may allow only some apps (plans/035 §10).
+    const denied = appAccessChecks().appDenial(signIn.app, approver)
+    if (denied) return Response.json({ error: denied }, { status: 403 })
+    return Response.json({ redirect: approvedRedirect(signIn, approver) })
   }
   // Pairing is local authorization: through the public tunnel, only the owner's pairing code approves.
   if (options.viaTunnel || !options.pairApprovals) return Response.json({ error: 'Use a pairing code from Solus.' }, { status: 403 })
+  // Approval in the Solus app is the owner's.
+  const denied = appAccessChecks().appDenial(signIn.app, { kind: 'owner' })
+  if (denied) return Response.json({ error: denied }, { status: 403 })
   const checkCode = formatCheckCode((n) => randomInt(n))
   const started = options.pairApprovals.start({
     deviceLabel: `${signIn.appName} (MCP app, ${signIn.access} access)`,
     checkCode,
     fromAddress: options.remoteAddress,
-    grant: { issue: () => approvedRedirect(signIn), withdraw: withdrawRedirect },
+    grant: { issue: () => approvedRedirect(signIn, { kind: 'owner' }), withdraw: withdrawRedirect },
   })
   if (!started) return Response.json({ error: 'Too many open requests. Try again later.' }, { status: 429 })
   return Response.json({ requestId: started.request.requestId, waitToken: started.waitToken, checkCode, expiresAt: started.request.expiresAt })
@@ -179,7 +188,10 @@ async function token(request: Request): Promise<Response> {
   if (!parsed) return oauthError('invalid_request', 'Send grant_type=authorization_code with code, redirect_uri, client_id, and code_verifier.')
   const signIn = redeemCode(parsed.code, parsed.client_id, parsed.redirect_uri, parsed.code_verifier)
   if (!signIn) return oauthError('invalid_grant', 'The code is not valid, was used, or does not match this client.')
-  const issued = issueAppToken(signIn.appName, signIn.access)
+  // A policy may have changed since the approval.
+  const denied = appAccessChecks().appDenial(signIn.app, signIn.approver)
+  if (denied) return oauthError('access_denied', denied)
+  const issued = issueAppToken(signIn.appName, signIn.app, signIn.access, signIn.approver)
   return Response.json({ access_token: issued.token, token_type: 'Bearer', scope: signIn.access }, { headers: { 'cache-control': 'no-store' } })
 }
 

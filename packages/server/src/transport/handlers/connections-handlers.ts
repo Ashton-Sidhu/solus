@@ -3,9 +3,9 @@ import { accountConnectionsUrl } from '../../vault/account-reads'
 import { ownerKeyOf } from '../../admission/actor'
 import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
-import { wirePrincipalKind } from '../../admission/principal'
+import { isHostOwner, wirePrincipalKind } from '../../admission/principal'
 import { generatePairToken, listPairedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
-import { createAppPairingCode } from '../../admission/app-sign-in'
+import { createAppPairingCode, type AppApprover } from '../../admission/app-sign-in'
 import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
@@ -185,10 +185,15 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return { localUrl: `http://localhost:${deps.getServerInfo().port}/mcp`, publicUrl: tunnel ? `${tunnel}/mcp` : null }
   })
 
-  server.register('connectionsCreateAppPairingCode', () => {
-    enforce(hostPolicies().capabilityDenial('remoteAccess', 'connecting outside apps'))
-    const code = createAppPairingCode()
-    log.info('app_pairing_code_created', { expiresAt: code.expiresAt })
+  server.register('connectionsCreateAppPairingCode', (_args, ctx) => {
+    // The app the code approves acts as the person who made it.
+    const principal = ctx.principal
+    const approver: AppApprover | null = isHostOwner(principal) ? { kind: 'owner' }
+      : principal.kind === 'org-member' ? { kind: 'member', userId: principal.userId, organizationId: principal.organizationId, organizationRole: principal.organizationRole, teamIds: principal.teamIds, hostKind: principal.hostKind, displayName: principal.displayName }
+        : null
+    if (!approver) throw new Error('Only the host owner or a member of its organization can connect an outside app.')
+    const code = createAppPairingCode(approver)
+    log.info('app_pairing_code_created', { expiresAt: code.expiresAt, approver: approver.kind })
     return code
   })
 
