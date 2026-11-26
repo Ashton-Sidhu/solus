@@ -19,7 +19,7 @@ export const OUTSIDE_APP_NAMES = {
   muse: 'Muse',
   instinct: 'Instinct',
   cursor: 'Cursor',
-  local: 'Apps on your computer (Claude Code, Codex)',
+  local: 'Apps on your computer (Claude Code, Codex, OpenClaw, Hermes Agent)',
   other: 'Other apps',
 } as const satisfies Record<OutsideAppId, string>
 
