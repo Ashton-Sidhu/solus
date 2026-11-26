@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { EMPTY_AGENT_PROFILE_STATUS } from '@solus/contracts/agent-profile'
 import { accountSyncBadge, accountSyncTone } from '@solus/workspace-ui/components/settings/lib/sync-status'
-import { agentProfileDescription } from '@solus/workspace-ui/components/seats/lib/agent-profile-copy'
 
 /**
  * Settings → Account & sync shows the sync state as a badge. Only a confirmed
@@ -23,20 +21,5 @@ describe('account sync badge', () => {
     expect(accountSyncTone('conflict')).toBe('attention')
     expect(accountSyncTone('offline')).toBe('attention')
     expect(accountSyncTone('error')).toBe('stopped')
-  })
-})
-
-describe('host row on Account & sync', () => {
-  test('the line says what the host holds and where from, not what the profile is', () => {
-    const status = { ...EMPTY_AGENT_PROFILE_STATUS, syncedAt: Date.now(), source: 'account' as const, counts: { files: 0, skills: 3, integrations: 1 } }
-    const text = agentProfileDescription(status, undefined)
-    expect(text).toStartWith('Pulled from your account')
-    expect(text).toContain('3 skills, 1 MCP server')
-    expect(text).not.toContain('subagents')
-  })
-
-  test('a host without the profile says so, and an error wins', () => {
-    expect(agentProfileDescription(undefined, undefined)).toBe('Not on this host yet.')
-    expect(agentProfileDescription(undefined, 'The host refused.')).toBe('The host refused.')
   })
 })

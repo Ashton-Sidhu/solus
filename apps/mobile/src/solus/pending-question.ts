@@ -1,5 +1,5 @@
 import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
-import { formatAnswer } from "@solus/contracts/question-answer";
+import { formatAnswer, previewMarkdown } from "@solus/contracts/question-answer";
 import type { PendingUserInputDraftAnswer } from "@t3tools/client-runtime/state/pending-user-input";
 
 /**
@@ -19,7 +19,13 @@ export function pendingInputQuestions(question: Pick<PendingQuestion, "questions
     header: item.header ?? item.question,
     question: item.question,
     multiSelect: item.multiSelect,
-    options: item.options.map((option) => ({ ...option, description: option.description ?? "" })),
+    // A preview as the desktop card shows it: a mockup verbatim, in one fenced
+    // block, so T3's markdown keeps its columns and leading spaces.
+    options: item.options.map((option) => ({
+      ...option,
+      description: option.description ?? "",
+      ...(option.preview ? { preview: previewMarkdown(option.preview) } : {}),
+    })),
   }));
 }
 

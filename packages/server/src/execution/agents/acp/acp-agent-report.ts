@@ -1,9 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
-import { MODEL_PROFILES, type AgentId, type AgentSlashCommand, type ModelProfile } from '@solus/contracts/types'
+import { MODEL_PROFILES, reasoningEffortSchema, type AgentId, type AgentSlashCommand, type ModelProfile, type ReasoningEffort } from '@solus/contracts/types'
 import { createLogger } from '../../../logger'
-import type { AcpConfigOption } from './acp-protocol'
+import type { AcpSessionSetupResult } from './acp-protocol'
 
 const log = createLogger('AcpAgentReport', 'acp-agent-report.ts')
 
@@ -11,11 +11,13 @@ const log = createLogger('AcpAgentReport', 'acp-agent-report.ts')
 export interface ReportedModel {
   id: string
   label: string
+  /** The efforts the agent offers for the model, least first. Absent: the agent did not say. */
+  reasoningLevels?: ReasoningEffort[]
 }
 
 const reportSchema = z.object({
   commands: z.array(z.object({ name: z.string(), description: z.string(), argumentHint: z.string().optional() })).catch([]),
-  models: z.array(z.object({ id: z.string(), label: z.string() })).catch([]),
+  models: z.array(z.object({ id: z.string(), label: z.string(), reasoningLevels: z.array(reasoningEffortSchema).optional() })).catch([]),
 })
 
 const selectOptionSchema = z.object({ value: z.string(), name: z.string().optional() })
@@ -24,13 +26,23 @@ const optionGroupSchema = z.object({ options: z.array(selectOptionSchema) })
 /** The context window of a model the published list does not know: the provider's default model's. */
 const FALLBACK_CONTEXT_WINDOW = 1_000_000
 
-/** The models a session's `model` option offers; empty when the agent sent no such option. */
-export function modelsOffered(configOptions: AcpConfigOption[]): ReportedModel[] {
-  const option = configOptions.find((candidate) => candidate.id === 'model')
+/**
+ * The models a session's `model` option offers; empty when the agent sent no
+ * such option. A model's efforts come from `models.availableModels`, which
+ * names each as its own id (`gemini-4-neon-low`): the `thought_level` option
+ * gives them only for the selected model.
+ */
+export function modelsOffered(setup: Pick<AcpSessionSetupResult, 'configOptions' | 'models'>): ReportedModel[] {
+  const option = setup.configOptions?.find((candidate) => candidate.id === 'model')
+  const variants = setup.models?.availableModels.map((model) => model.modelId)
   return (option?.options ?? []).flatMap((entry) => {
     const one = selectOptionSchema.safeParse(entry)
     const entries = one.success ? [one.data] : optionGroupSchema.safeParse(entry).data?.options ?? []
-    return entries.map((choice) => ({ id: choice.value, label: choice.name?.trim() || choice.value }))
+    return entries.map((choice): ReportedModel => {
+      const model: ReportedModel = { id: choice.value, label: choice.name?.trim() || choice.value }
+      if (variants) model.reasoningLevels = reasoningEffortSchema.options.filter((effort) => variants.includes(`${choice.value}-${effort}`))
+      return model
+    })
   })
 }
 
@@ -65,30 +77,45 @@ export class AcpAgentReport {
     this.write()
   }
 
-  /** Keeps the models a session offered; true when the models outside the published list changed. */
-  keepModels(models: ReportedModel[]): boolean {
-    if (models.length === 0 || JSON.stringify(models) === JSON.stringify(this.report.models)) return false
-    const before = JSON.stringify(this.unlistedModels())
-    this.report.models = models
-    this.write()
-    return JSON.stringify(this.unlistedModels()) !== before
+  /** The efforts the agent reported for a model; undefined when it did not report them. */
+  reasoningLevelsOf(modelId: string): ReasoningEffort[] | undefined {
+    return this.report.models.find((model) => model.id === modelId)?.reasoningLevels
   }
 
-  /** The offered models the published list does not know, with a profile each: the list stays authoritative. */
-  unlistedModels(): Array<ReportedModel & { profile: ModelProfile }> {
+  /** Keeps the models a session offered; true when they changed. */
+  keepModels(models: ReportedModel[]): boolean {
+    if (models.length === 0 || JSON.stringify(models) === JSON.stringify(this.report.models)) return false
+    this.report.models = models
+    this.write()
+    return true
+  }
+
+  /**
+   * The models the agent offered this account, in its order, each with a profile: the published
+   * one when the list knows the model (its label, legacy flag, and default), else a plain one under
+   * the agent's own label. The efforts are the agent's when it reported them, else the published
+   * ones. Empty until a session has opened.
+   */
+  offeredModels(): Array<{ id: string; profile: ModelProfile }> {
     const listed = MODEL_PROFILES[this.agentId] ?? {}
     const fallback = Object.values(listed).find((profile) => profile.isDefault)
-    return this.report.models.filter((model) => !listed[model.id]).map((model) => ({
-      ...model,
-      profile: {
+    return this.report.models.map((model) => {
+      const published = listed[model.id]
+      const profile: ModelProfile = published ? { ...published } : {
         label: model.label,
         reasoningLevels: [],
         defaultReasoningEffort: 'medium',
         supportsFastMode: false,
         contextWindows: [fallback?.defaultContextWindow ?? FALLBACK_CONTEXT_WINDOW],
         defaultContextWindow: fallback?.defaultContextWindow ?? FALLBACK_CONTEXT_WINDOW,
-      },
-    }))
+      }
+      const levels = model.reasoningLevels
+      if (levels?.length) {
+        profile.reasoningLevels = levels
+        if (!levels.includes(profile.defaultReasoningEffort)) profile.defaultReasoningEffort = levels.includes('medium') ? 'medium' : levels[0]!
+      }
+      return { id: model.id, profile }
+    })
   }
 
   private write(): void {

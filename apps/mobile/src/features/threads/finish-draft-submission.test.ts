@@ -59,14 +59,14 @@ it("does not navigate or clear after the account changes or the local save fails
   expect(state.clear).not.toHaveBeenCalled();
 });
 
-it("starts closing the iOS keyboard at enqueue and opens the saved prompt without waiting for dismissal", async () => {
+it("slides the iOS keyboard down from enqueue and opens the saved prompt without waiting for it", async () => {
   const closed = Promise.withResolvers<void>();
   const saved = Promise.withResolvers<void>();
   keyboard.isVisible.mockReturnValueOnce(true);
   keyboard.dismiss.mockReturnValueOnce(closed.promise);
   const dispatch = vi.fn();
   const sent = submitNewTaskDraft({ dispatch }, "draft", message.text, message, () => saved.promise);
-  expect(keyboard.dismiss).toHaveBeenCalledWith({ animated: false });
+  expect(keyboard.dismiss).toHaveBeenCalledWith();
   saved.resolve();
   expect(await sent).toBe(message.messageId);
   expect(dispatch).toHaveBeenCalledOnce();

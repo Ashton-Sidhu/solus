@@ -21,6 +21,15 @@ export interface HostResources {
   cpuCount: number
   availableMemoryBytes: number
   totalMemoryBytes: number
+  /** The disk that holds the Solus data folder, where task folders live.
+   *  Absent from an older host; null when the host could not read it. */
+  disk?: HostDiskSpace | null
+}
+
+/** The space of one disk volume, in bytes. `availableBytes` is what a person can write, not the root reserve. */
+export interface HostDiskSpace {
+  availableBytes: number
+  totalBytes: number
 }
 
 export interface HostProcessRow {

@@ -30,7 +30,7 @@
            one size above their labels, so it reads as the name of the whole card. -->
       <div class="flex min-h-7 items-start justify-between gap-4">
         <h2
-          class="flex min-h-7 min-w-0 items-center gap-2 text-base font-medium tracking-[-0.01em] text-foreground"
+          class="flex min-h-7 min-w-0 items-center gap-2 text-base font-semibold tracking-[-0.01em] text-foreground"
         >
           {#if icon}
             <span class="flex size-3.5 shrink-0 items-center justify-center">
@@ -45,7 +45,7 @@
       </div>
     {/if}
     {#if description}
-      <p class="-mt-1.5 max-w-xl text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">{description}</p>
+      <p class="-mt-1.5 max-w-xl text-pretty text-[13px] leading-[1.45] text-muted-foreground">{description}</p>
     {/if}
     {#if plain}
       {@render children()}

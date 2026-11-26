@@ -23,6 +23,36 @@ function usingStore(run: (store: ProviderInstances) => void) {
   finally { rmSync(root, { recursive: true, force: true }) }
 }
 describe('private provider instances', () => {
+  // WHY: Google Antigravity is in Settings → Providers as its built-in instance, with a binary path
+  // and models. agy keeps one keychain sign-in for every profile, so it has only that one instance.
+  test('a document from before Google Antigravity gets its built-in instance, which stays the only one', () => {
+    const secrets = new MemorySecrets()
+    const root = mkdtempSync(join(tmpdir(), 'solus-provider-instances-'))
+    try {
+      const older = new ProviderInstances({ secrets, root })
+      older.write('alice', { expectedRevision: 0, change: { kind: 'save', instance: newProviderInstance('codex', 'work', 'Work') } })
+      // Remove what this host wrote, as an older host's document has no Antigravity instance.
+      const [key, raw] = [...secrets.values.entries()][0]!
+      const document = JSON.parse(raw)
+      document.instances = document.instances.filter((instance: { provider: string }) => instance.provider !== 'antigravity')
+      delete document.selected.antigravity
+      secrets.values.set(key, JSON.stringify(document))
+
+      const snapshot = older.snapshot('alice')
+      expect(snapshot.instances.find((instance) => instance.provider === 'antigravity')).toMatchObject({ id: 'antigravity', displayName: 'Google Antigravity', enabled: true })
+      expect(snapshot.selected.antigravity).toBe('antigravity')
+      expect(() => older.write('alice', { expectedRevision: snapshot.revision, change: { kind: 'save', instance: newProviderInstance('antigravity', 'second', 'Second') } })).toThrow('Google Antigravity has one instance')
+      expect(() => older.write('alice', { expectedRevision: snapshot.revision, change: { kind: 'remove', instanceId: 'antigravity' } })).toThrow('cannot be removed')
+      expect(() => older.write('alice', { expectedRevision: snapshot.revision, change: { kind: 'save', instance: { ...newProviderInstance('antigravity', 'antigravity', 'Google Antigravity'), homePath: '~/.gemini-work' } } })).toThrow('binary path and models only')
+    } finally { rmSync(root, { recursive: true, force: true }) }
+  })
+
+  test('a disabled Google Antigravity instance stops its new runs', () => usingStore((store) => {
+    expect(store.forRun('alice', 'antigravity', 'session-1').instance.id).toBe('antigravity')
+    const instance = { ...store.lookup('alice', 'antigravity'), enabled: false, binaryPath: '/opt/agy/bin/agy' }
+    store.write('alice', { expectedRevision: 0, change: { kind: 'save', instance } })
+    expect(() => store.forRun('alice', 'antigravity', 'session-2')).toThrow('Google Antigravity is disabled')
+  }))
   test('legacy instance model defaults are cleared when an instance is saved', () => usingStore((store) => {
     const instance = newProviderInstance('codex', 'work', 'Work')
     instance.defaultModel = 'legacy-default'

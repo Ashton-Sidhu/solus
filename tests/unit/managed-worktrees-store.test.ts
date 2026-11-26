@@ -1,8 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { ManagedWorktree, ManagedWorktreeRemoveResult, ManagedWorktreeSize } from '@solus/contracts/types'
+import type { HostResources } from '@solus/contracts/host-resources'
 import { SvelteRunes } from './helpers/svelte-runes'
 import {
   deleteConfirmText,
+  projectFilterOptions,
+  statusFilterOptions,
   statusCount,
   worktreeGroups,
   worktreeStatusText,
@@ -31,6 +34,7 @@ const worktree = (overrides: Partial<ManagedWorktree> = {}): ManagedWorktree => 
   lastModified: 1_000,
   hasUncommittedWork: false,
   hasUnmergedCommits: false,
+  sessionId: null,
   sessions: [],
   ...overrides,
 })
@@ -47,6 +51,10 @@ function hostWith(listed: ManagedWorktree[], results: ManagedWorktreeRemoveResul
         return results.shift() ?? { status: 'failed', error: 'no answer' }
       },
       managedWorktreeSizes: async (paths: string[]): Promise<ManagedWorktreeSize[]> => paths.map((path) => ({ path, bytes: 1024 ** 3 })),
+      hostResources: async (): Promise<HostResources> => ({
+        sampledAt: 1, cpuUtilization: 0, cpuCount: 1, availableMemoryBytes: 1, totalMemoryBytes: 2,
+        disk: { availableBytes: 10 * 1024 ** 3, totalBytes: 100 * 1024 ** 3 },
+      }),
     },
   }
 }
@@ -72,14 +80,28 @@ describe('Solus worktrees in Settings', () => {
     expect(store.worktrees).toEqual([])
   })
 
+  test('the free disk space shows the gain of a removal at once', async () => {
+    // WHY: the host caches its resource read for a few seconds. The removal
+    // answers with a fresh read, so the number the person watches goes up now.
+    const store = new ManagedWorktreesStore()
+    const freed = { availableBytes: 13 * 1024 ** 3, totalBytes: 100 * 1024 ** 3 }
+    const host = hostWith([worktree()], [{ status: 'removed', disk: freed }])
+    await store.load(host.api)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.disk?.availableBytes).toBe(10 * 1024 ** 3)
+
+    await store.remove(host.api, store.worktrees[0])
+    expect(store.disk).toEqual(freed)
+  })
+
   test('keeps the row of a worktree that a session started to use', async () => {
     const store = new ManagedWorktreesStore()
-    const sessions = [{ sessionId: 's1', title: 'Fix the login' }]
+    const sessions = [{ sessionId: 's1', title: 'Fix the login', isBusy: true }]
     const host = hostWith([worktree()], [{ status: 'in_use', sessions }])
     await store.load(host.api)
 
     expect(await store.remove(host.api, store.worktrees[0])).toContain('A session works')
-    expect(worktreeStatusText(store.worktrees[0])).toBe('A session works here')
+    expect(worktreeStatusText(store.worktrees[0])).toBe('A turn is running')
   })
 
   test('sizes arrive after the list, and a removal does not stop them', async () => {
@@ -99,7 +121,7 @@ describe('Solus worktrees in Settings', () => {
 
 describe('the project and status filters', () => {
   const rows = [
-    worktree({ path: '/1', group: solus, title: 'In use', sessions: [{ sessionId: 's', title: 'S' }] }),
+    worktree({ path: '/1', group: solus, title: 'In use', sessions: [{ sessionId: 's', title: 'S', isBusy: true }] }),
     worktree({ path: '/2', group: solus, title: 'Unsaved', hasUnmergedCommits: true }),
     worktree({ path: '/3', group: solus, title: 'Safe' }),
     worktree({ path: '/4', group: atlas, title: 'Atlas unsaved', hasUncommittedWork: true }),
@@ -118,7 +140,26 @@ describe('the project and status filters', () => {
     expect(statusCount(rows, solus.key, 'unsaved')).toBe(1)
   })
 
+  test('the Filters menu offers each project and each status, with counts', () => {
+    expect(projectFilterOptions(rows)).toEqual([
+      { value: 'all', label: 'All projects', count: 4 },
+      { value: solus.key, label: 'Solus', count: 3 },
+      { value: atlas.key, label: 'atlas', count: 1 },
+    ])
+    expect(statusFilterOptions(rows, solus.key).map((option) => [option.label, option.count])).toEqual([
+      ['All', 3], ['Safe to delete', 1], ['Unsaved work', 1], ['In use', 1],
+    ])
+  })
+
   test('a row says its state in plain words', () => {
-    expect(rows.map(worktreeStatusText)).toEqual(['A session works here', 'Has unmerged commits', 'No unsaved work', 'Has uncommitted work'])
+    expect(rows.map(worktreeStatusText)).toEqual(['A turn is running', 'Has unmerged commits', 'No unsaved work', 'Has uncommitted work'])
+  })
+
+  test('an idle session does not block Delete, and the confirmation names it', () => {
+    const open = worktree({ sessions: [{ sessionId: 's', title: 'Add Antigravity Provider', isBusy: false }] })
+    expect(worktreeStatusText(open)).toBe('No unsaved work')
+    expect(deleteConfirmText(open, null)).toBe(
+      'No work is lost. “Add Antigravity Provider” is open. It loses its working folder; its conversation stays. The branch solus/fix-login is deleted.',
+    )
   })
 })

@@ -1,4 +1,4 @@
-import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
+import { WaitingForEditor } from "./RequestActionButton";
 import {
   canSubmitSecrets,
   SECRET_PLACEHOLDER,
@@ -9,10 +9,11 @@ import {
   type SecretField,
 } from "@solus/contracts/secret-request";
 import { requestExpiryText } from "@solus/contracts/types";
-import { webLinkIcon } from "@solus/client-core/web-link-icon";
-import { Image } from "expo-image";
-import { useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { Button } from "../../../src/components/ui/Button";
+import { SecretTextInput } from "../../../src/components/ui/SecretTextInput";
+import type { SecretTextInputHandle } from "../../../src/components/ui/SecretTextInput.types";
+import { useRef, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 
 import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
@@ -42,7 +43,9 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
   const [fields, setFields] = useState<SecretField[]>(() =>
     prompts.map(() => ({ value: "", isDeclined: false })),
   );
-  const [revealed, setRevealed] = useState<boolean[]>(() => prompts.map(() => false));
+  const inputs = useRef<Array<SecretTextInputHandle | null>>([]);
+  const [inputGeneration, resetInputs] = useState(0);
+  const submitting = useRef(false);
   const canRespond = props.request.expired === undefined;
   const disabled = !canRespond || props.responding || !props.mayDrive;
   const isReady = canSubmitSecrets(fields);
@@ -50,23 +53,23 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
   const changeField = (index: number, patch: Partial<SecretField>) => {
     setFields((current) => current.map((field, at) => (at === index ? { ...field, ...patch } : field)));
   };
-  const setFieldRevealed = (index: number, isRevealed: boolean) => {
-    setRevealed((current) => current.map((value, at) => (at === index ? isRevealed : value)));
-  };
-  const send = (values: (string | null)[]) => {
-    // No value is kept after a send.
-    setFields((current) => current.map((field) => ({ ...field, value: "" })));
-    setRevealed((current) => current.map(() => false));
-    void props.onSubmit(values);
+  const send = async (values: (string | null)[]) => {
+    if (disabled || submitting.current) return;
+    submitting.current = true;
+    setFields(current => current.map(field => ({ ...field, value: "" })));
+    resetInputs(generation => generation + 1);
+    try {
+      await props.onSubmit(values);
+    } finally {
+      submitting.current = false;
+    }
   };
 
   return (
     <View
-      className="overflow-hidden gap-2.5 rounded-[20px] border border-border bg-card-alt p-4"
+      className="overflow-hidden gap-3 rounded-[20px] border border-border bg-card-alt p-4"
     >
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-        {isGroup ? `${prompts.length} secrets requested` : "Secret requested"}
-      </Text>
+      {isGroup && <Text className="font-t3-bold text-base text-foreground">{prompts.length} secrets requested</Text>}
       <ScrollView
         bounces={false}
         className="min-h-0"
@@ -83,33 +86,28 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
         {prompts.map((prompt, index) => {
           const field = fields[index];
           if (!field) return null;
-          const isRevealed = revealed[index];
+          const next = fields.findIndex((candidate, i) => i > index && !candidate.isDeclined);
           const isFile = prompt.delivery === "file";
           const link = secretRequestLink(prompt);
-          const linkIcon = link ? webLinkIcon(link.href) : null;
           return (
             <View key={index} className="gap-2">
-              <View className="gap-0.5">
-                <Text className="font-t3-bold text-lg text-foreground">{prompt.name}</Text>
-                <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
-                {link ? (
-                  <Pressable
-                    accessibilityRole="link"
-                    accessibilityLabel={`Open ${link.href}`}
-                    hitSlop={8}
-                    onPress={() => void app.platform.openBrowser(link.href)}
-                    className="mt-1 min-h-8 flex-row items-center gap-1.5 self-start active:opacity-60"
-                  >
-                    {linkIcon?.kind === "favicon" ? (
-                      <Image source={{ uri: linkIcon.url }} style={{ width: 16, height: 16, borderRadius: 3 }} contentFit="contain" />
-                    ) : (
-                      <SymbolView name="globe" size={16} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
-                    )}
-                    <Text numberOfLines={1} className="shrink font-t3-bold text-sm text-foreground underline">{link.host}</Text>
-                    <SymbolView name="arrow.up.right" size={14} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
-                  </Pressable>
-                ) : null}
+              <View className="gap-1">
+                <Text className="font-t3-bold text-base text-foreground">{prompt.name}</Text>
+                <Text selectable className="font-sans text-sm leading-5 text-foreground-muted">{prompt.reason}</Text>
               </View>
+              {link ? (
+                <View className="gap-1.5">
+                  <Button
+                    label={`Open ${link.host}`}
+                    tone="secondary"
+                    fullWidth
+                    onPress={() => void app.platform.openBrowser(link.href)}
+                  />
+                  {prompt.url ? (
+                    <Text selectable className="font-mono text-xs text-foreground-muted">{link.href}</Text>
+                  ) : null}
+                </View>
+              ) : null}
               {!canRespond ? null : field.isDeclined ? (
                 <View className="flex-row items-center justify-between gap-2">
                   <Text className="flex-1 font-sans text-xs text-foreground-muted">
@@ -128,38 +126,24 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
                 </View>
               ) : (
                 <>
-                  <View className="justify-center">
-                    <TextInput
-                      accessibilityLabel={`Value of ${prompt.name}`}
-                      editable={!disabled}
-                      secureTextEntry={!isRevealed}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      autoComplete="off"
-                      textContentType="none"
-                      placeholder={SECRET_PLACEHOLDER}
-                      value={field.value}
-                      onChangeText={(value) => changeField(index, { value })}
-                      className="min-h-12 rounded-2xl border border-border bg-input py-3 pl-3.5 pr-12 font-mono text-sm text-foreground"
-                    />
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={isRevealed ? `Hide value of ${prompt.name}` : `Show value of ${prompt.name}`}
-                      accessibilityState={{ selected: isRevealed, disabled }}
-                      disabled={disabled}
-                      hitSlop={8}
-                      onPress={() => setFieldRevealed(index, !isRevealed)}
-                      className="absolute right-1 h-10 w-10 items-center justify-center active:opacity-60"
-                    >
-                      <SymbolView
-                        name={isRevealed ? "eye.slash" : "eye"}
-                        size={18}
-                        tintColorClassName="accent-icon-muted"
-                        type="monochrome"
-                        weight="regular"
-                      />
-                    </Pressable>
-                  </View>
+                  <SecretTextInput
+                    key={inputGeneration}
+                    onMount={handle => { inputs.current[index] = handle; }}
+                    accessibilityLabel={`Value of ${prompt.name}`}
+                    editable={!disabled}
+                    placeholder={SECRET_PLACEHOLDER}
+                    value={field.value}
+                    onChangeText={value => changeField(index, { value })}
+                    returnKeyType={next >= 0 ? "next" : "done"}
+                    onSubmitEditing={value => {
+                      if (next >= 0) {
+                        inputs.current[next]?.focus();
+                        return;
+                      }
+                      const latest = fields.map((entry, i) => i === index ? { ...entry, value } : entry);
+                      if (canSubmitSecrets(latest)) void send(secretAnswer(latest));
+                    }}
+                  />
                   <View className="flex-row items-center gap-2">
                     <View className="min-w-0 flex-1 flex-row items-start gap-1.5">
                       <SymbolView name={isFile ? "terminal" : "lock"} size={12} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
@@ -173,7 +157,6 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
                         hitSlop={8}
                         onPress={() => {
                           changeField(index, { isDeclined: true, value: "" });
-                          setFieldRevealed(index, false);
                         }}
                         className="min-h-8 justify-center rounded-full px-3 active:opacity-70"
                       >
@@ -189,19 +172,22 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
       </ScrollView>
       {canRespond && !props.mayDrive ? <WaitingForEditor /> : null}
       {canRespond && props.mayDrive ? (
-        <View className="flex-row gap-2.5">
-          <RequestActionButton
-            label={isGroup ? "Decline all" : "Decline"}
-            tone="secondary"
-            disabled={disabled}
-            onPress={() => send(fields.map(() => null))}
-          />
-          <RequestActionButton
+        <View className="gap-2">
+          <Button
             label="Save securely"
-            tone={isReady ? "primary" : "secondary"}
+            tone="primary"
+            fullWidth
             disabled={disabled || !isReady}
-            onPress={() => send(secretAnswer(fields))}
+            onPress={() => void send(secretAnswer(fields))}
           />
+          <View className="flex-row justify-end">
+            <Button
+              label={isGroup ? "Decline all" : "Decline"}
+              tone="text"
+              disabled={disabled}
+              onPress={() => void send(fields.map(() => null))}
+            />
+          </View>
         </View>
       ) : null}
     </View>

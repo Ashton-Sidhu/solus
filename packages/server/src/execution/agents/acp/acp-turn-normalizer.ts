@@ -29,8 +29,29 @@ export interface AcpStepsTool {
   stepsOf(rawInput: AcpToolCall['rawInput']): TodoItem[] | null
 }
 
+/** An agent that writes its plan as a file in plan mode: the plan a call writes, else null. */
+export interface AcpPlanTool {
+  planOf(toolCall: AcpToolCall): { content: string; path: string } | null
+}
+
+/** Where the calls of an agent's subagents go: into the card of the subagent that made them. */
+export interface AcpChildCalls {
+  /** Takes each call of the turn: a subagent launch is a card its children can name. */
+  note(toolCall: AcpToolCall): void
+  /** The card a call belongs in; null for a call of the agent itself. */
+  parentOf(toolCallId: string): string | null
+}
+
+/** What one turn adds to the generic rules: plan mode's plan file, and the subagents' own calls. */
+export interface AcpTurnHooks {
+  planTool?: AcpPlanTool | null
+  childCalls?: AcpChildCalls | null
+}
+
 interface ToolState {
   index: number
+  /** The card of the subagent that made the call. */
+  parent: string | null
   kind: AcpToolCall['kind']
   title: string | null
   rawInput: JsonValue | undefined
@@ -118,8 +139,14 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
 
   /** The ids of the open calls that carry the agent's checklist. */
   private readonly stepsCalls = new Set<string>()
+  /** The open calls that write the plan, with the plan: a later update names the call by id only. */
+  private readonly planCalls = new Map<string, { content: string; path: string }>()
 
-  constructor(private readonly nameTool: AcpToolNamer = () => null, private readonly stepsTool: AcpStepsTool | null = null) {}
+  constructor(
+    private readonly nameTool: AcpToolNamer = () => null,
+    private readonly stepsTool: AcpStepsTool | null = null,
+    private readonly hooks: AcpTurnHooks = {},
+  ) {}
 
   push(update: AcpSessionUpdate): NormalizedEvent[] {
     if (this.interrupted) return []
@@ -144,6 +171,9 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
       case 'tool_call':
       case 'tool_call_update': {
         if (this.stepsTool && (this.stepsCalls.has(update.toolCallId) || this.stepsTool.isStepsCall(update))) return this.pushSteps(update, this.stepsTool)
+        const plan = this.pushPlan(update)
+        if (plan) return plan
+        this.hooks.childCalls?.note(update)
         const started = this.startTool(update)
         return [...this.closeThought(), ...started, ...this.updateTool(update, started.length > 0)]
       }
@@ -154,6 +184,12 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
       default:
         return []
     }
+  }
+
+  /** Whether a tool call of the turn has not ended yet. */
+  get hasOpenTools(): boolean {
+    for (const tool of this.tools.values()) if (!tool.done) return true
+    return false
   }
 
   interrupt(): void {
@@ -187,6 +223,18 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
     return todos ? [...this.closeThought(), { type: 'progress', todos }] : []
   }
 
+  /** In plan mode, the call that writes the plan is the plan card, not a tool card; null for any other call. */
+  private pushPlan(update: AcpToolCall): NormalizedEvent[] | null {
+    const plan = this.planCalls.get(update.toolCallId) ?? this.hooks.planTool?.planOf(update)
+    if (!plan) return null
+    this.planCalls.set(update.toolCallId, plan)
+    if (update.status !== 'completed' && update.status !== 'failed') return []
+    this.planCalls.delete(update.toolCallId)
+    if (update.status === 'failed') return []
+    const toolCallId = update.toolCallId
+    return [...this.closeThought(), { type: 'plan', planContent: plan.content, planFilePath: plan.path, questionId: toolCallId, options: [], planToolUseId: toolCallId }]
+  }
+
   private closeThought(): NormalizedEvent[] {
     const thought = this.thought
     if (!thought) return []
@@ -203,6 +251,7 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
     if (this.tools.has(toolCall.toolCallId)) return []
     const tool: ToolState = {
       index: this.summary.toolCallCount,
+      parent: this.hooks.childCalls?.parentOf(toolCall.toolCallId) ?? null,
       kind: toolCall.kind ?? 'other',
       title: toolCall.title ?? null,
       rawInput: toolCall.rawInput,
@@ -216,6 +265,7 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
     const { toolName, toolInput, isSubagent, subagentType } = this.presentation(tool, toolCall)
     const event: NormalizedEvent = { type: 'tool_call', toolName, toolId: toolCall.toolCallId, index: tool.index, startedAtMs: Date.now() }
     if (toolInput !== undefined) event.toolInput = toolInput
+    if (tool.parent) event.parentToolUseId = tool.parent
     if (isSubagent) {
       event.isSubagent = true
       if (subagentType) event.subagentType = subagentType
@@ -249,6 +299,7 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
     if (text) tool.output = boundToolOutput(text)
     if (inputChanged || text) {
       const update: NormalizedEvent = { type: 'tool_call_update', toolId: toolCall.toolCallId, index: tool.index }
+      if (tool.parent) update.parentToolUseId = tool.parent
       if (inputChanged) {
         const { toolInput } = this.presentation(tool, toolCall)
         if (toolInput !== undefined) update.toolInput = toolInput
@@ -260,8 +311,13 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
       tool.done = true
       const failed = toolCall.status === 'failed'
       const result = tool.output || boundToolOutput(outputText(toolCall.rawOutput))
-      events.push({ type: 'tool_call_complete', index: tool.index, toolId: toolCall.toolCallId, completedAtMs: Date.now(), outcome: { status: failed ? 'failed' : 'completed' } })
-      events.push({ type: 'tool_result', toolUseId: toolCall.toolCallId, content: result, isError: failed })
+      const complete: NormalizedEvent = { type: 'tool_call_complete', index: tool.index, toolId: toolCall.toolCallId, completedAtMs: Date.now(), outcome: { status: failed ? 'failed' : 'completed' } }
+      const toolResult: NormalizedEvent = { type: 'tool_result', toolUseId: toolCall.toolCallId, content: result, isError: failed }
+      if (tool.parent) {
+        complete.parentToolUseId = tool.parent
+        toolResult.parentToolUseId = tool.parent
+      }
+      events.push(complete, toolResult)
     }
     return events
   }

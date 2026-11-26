@@ -1,13 +1,14 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { readFile, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentId, AgentMetadata, AgentSlashCommand, IpcContext, NormalizedEvent, PermissionMode, PermissionOption, PlanDescriptor, PluginCommandsResult, PromptOptions, UsageData } from '@solus/contracts/types'
 import type { TurnSeat } from '../../seats/seat-manager'
-import { MODEL_PROFILES, providerModelsFor } from '@solus/contracts/types'
+import { providerModelsFor } from '@solus/contracts/types'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { indexSessionMessages } from '../../../db/session-indexer'
@@ -16,6 +17,8 @@ import { bindRunTools, type RunToolAccess } from '../tools/agent-tool-endpoint'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { KeptHistory, TurnHistory } from '../kept-history'
+import { importThreadFiles, type ThreadImportRequest, type ThreadImportResult } from '../thread-import'
+import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
 import { AcpConnection, AcpConnectionClosedError, methodNotFound } from './acp-connection'
 import { acpPermissionAnswer, acpPermissionOption } from './acp-permissions'
 import {
@@ -26,16 +29,22 @@ import {
   readTextFileSchema,
   requestPermissionSchema,
   sessionNotificationSchema,
+  configOptionSchema,
   sessionSetupResultSchema,
   sessionUpdateSchema,
   type AcpConfigOption,
+  type AcpSessionSetupResult,
   type AcpInitializeResult,
   type AcpPermissionRequest,
   type AcpPromptUsage,
   type AcpStopReason,
 } from './acp-protocol'
-import { AcpTurnNormalizer, type AcpStepsTool, type AcpToolNamer } from './acp-turn-normalizer'
+import { AcpTurnNormalizer } from './acp-turn-normalizer'
 import { AcpAgentReport, modelsOffered } from './acp-agent-report'
+import { AcpAgentWork } from './acp-agent-work'
+import type { AcpAgent, AcpAgentLaunch } from './acp-agent'
+import { AcpThreadPlaces } from './acp-thread-places'
+import { buildHandoff, composeHandoffSeed } from '../session-handoff'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../codex/codex-permissions'
 
 const log = createLogger('AcpBackend', 'acp-backend.ts')
@@ -44,69 +53,10 @@ type JsonValue = z.core.util.JSONType
 
 /** A connection with no turn closes after this long (docs/plans/antigravity-provider.md decision 3). */
 export const ACP_IDLE_CLOSE_MS = 10 * 60_000
+/** A model refresh that has not had its answer by then is stopped. */
+const REFRESH_TIMEOUT_MS = 60_000
 /** A stopped agent gets this long to exit before it is killed. */
 const STOP_GRACE_MS = 2_000
-
-/** How the backend starts one agent process. */
-export interface AcpAgentLaunch {
-  file: string
-  args: string[]
-  env: NodeJS.ProcessEnv
-  /** Two runs with the same key may share a connection: same binary, profile, and credential. */
-  connectionKey: string
-  /** The ACP `authenticate` method to call after `initialize`, when the agent offers it. */
-  authMethod: string | null
-  /**
-   * Where each process gets its own temp folder, which Solus removes when the
-   * process exits. Null: the process uses the host's temp folder.
-   */
-  tempRoot: string | null
-}
-
-/**
- * What one ACP agent adds to the generic backend (decision 2): how to start
- * it, how it names its tools, and how it says that it needs a sign-in.
- */
-export interface AcpAgent {
-  readonly id: AgentId
-  readonly label: string
-  launch(request: AgentRunRequest): AcpAgentLaunch
-  /** The `_meta` of `session/new`, which can carry Solus's instructions. */
-  sessionMeta(initializeResult: JsonValue | undefined, systemPrompt: string | undefined): JsonValue | undefined
-  readonly nameTool: AcpToolNamer
-  /** Whether a tool call titled so is the agent's read of a file through `fs/read_text_file`. */
-  isClientRead?(title: string): boolean
-  /** The tool that carries the agent's checklist, when it reports one that way. */
-  readonly stepsTool?: AcpStepsTool
-  isSignInRequired(error: Error): boolean
-  /** A permission request that is really a question for the person. */
-  isQuestion(toolCallId: string): boolean
-  /** Whether a `session/prompt` sent during a turn joins that turn (decision 4). */
-  steersWithPrompt(initialize: AcpInitializeResult): boolean
-  /** The agent's skills for the slash menu, in a folder and for a seat (the host login's when absent). */
-  listCommands(workingDirectory: string, seat: TurnSeat | undefined): PluginCommandsResult
-  /** What a person reads when the agent needs a sign-in. */
-  readonly signInMessage: string
-  /** The name the Solus MCP server has in `session/new`. */
-  readonly mcpServerName: string
-  /**
-   * Called before a turn's first prompt. The check it gives reads, after the
-   * turn, an error the agent reported as an answer. Absent: the stop reason is
-   * the whole answer.
-   */
-  watchTurnOutcome?(request: AgentRunRequest, threadId: string): AcpTurnOutcomeCheck
-}
-
-/** A turn that ended on an error the agent reported as an answer. */
-export interface AcpTurnFailure {
-  message: string
-  code: string | null
-  /** Set when the account reached a limit: the run parks as a rate limit. `resetsAt` is in epoch seconds. */
-  usageLimit: { resetsAt: number | null } | null
-}
-
-/** Reads, after the turn, how it ended. Null: as its stop reason says. */
-export type AcpTurnOutcomeCheck = (stopReason: AcpStopReason) => AcpTurnFailure | null
 
 export type SpawnAgent = (file: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess
 
@@ -137,7 +87,10 @@ interface ActiveTurn {
 
 interface LiveSession {
   key: string
+  /** The Solus thread: the id of the agent session that started it. */
   threadId: string | null
+  /** The agent session in this connection's place, which every ACP message names. */
+  agentSessionId: string | null
   child: ChildProcess
   connection: AcpConnection
   configOptions: AcpConfigOption[]
@@ -146,6 +99,12 @@ interface LiveSession {
   idleTimer: ReturnType<typeof setTimeout> | null
   /** Whether a run with Solus tools opened it: only `session/new` or a resume can give the agent the Solus MCP server. */
   openedWithTools: boolean
+  /** Set once the session is open: an update before that is a replay of its history. */
+  isOpen: boolean
+  /** What the agent did with no turn, until the turn that wakes the session takes it. */
+  agentWork: AcpAgentWork
+  /** The agent left work running that replies later (a daemon schedule): the connection does not close when idle. */
+  keepsWorking: boolean
 }
 
 /** A request waiting on a person: a choice among the agent's options, or a form's answers by field. Null finishes it as cancelled. */
@@ -202,6 +161,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
 
   private readonly agent: AcpAgent
   private readonly history: KeptHistory
+  private readonly historyDirectory: string
   private readonly spawnAgent: SpawnAgent
   private readonly idleCloseMs: number
   private readonly indexMessages: (threadId: string, messages: SessionLoadMessage[]) => void
@@ -211,13 +171,17 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   private readonly sweptTempRoots = new Set<string>()
   /** The commands and models the agent reported last: agy reports them only when a session opens. */
   private readonly report: AcpAgentReport
+  private readonly places: AcpThreadPlaces
+  private refreshing: Promise<void> | null = null
 
   constructor(options: AcpBackendOptions) {
     super()
     this.agent = options.agent
     this.id = options.agent.id
+    this.historyDirectory = options.historyDirectory
     this.history = new KeptHistory(options.historyDirectory)
     this.report = new AcpAgentReport(options.agent.id, join(options.historyDirectory, `.${options.agent.id}-report.json`))
+    this.places = new AcpThreadPlaces(join(options.historyDirectory, `.${options.agent.id}-places.json`))
     this.spawnAgent = options.spawnAgent ?? defaultSpawn
     this.idleCloseMs = options.idleCloseMs ?? ACP_IDLE_CLOSE_MS
     this.indexMessages = options.indexMessages ?? indexSessionMessages
@@ -263,10 +227,13 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
       available: true,
       capabilities: { planMode: true, permissions: true, transport: 'acp' },
     }
-    const unlisted = this.report.unlistedModels()
-    if (unlisted.length === 0) return metadata
-    metadata.models = [...models, ...unlisted.map(({ id, label }) => ({ id, label }))]
-    metadata.modelProfiles = { ...MODEL_PROFILES[this.id], ...Object.fromEntries(unlisted.map(({ id, profile }) => [id, profile])) }
+    // Once the agent has reported its models, they are the list; the published list only labels them.
+    const offered = this.report.offeredModels()
+    if (offered.length === 0) return metadata
+    metadata.models = offered.map(({ id, profile }) => ({ id, label: profile.label }))
+    metadata.modelProfiles = Object.fromEntries(offered.map(({ id, profile }) => [id, profile]))
+    metadata.defaultModel = offered.find(({ profile }) => profile.isDefault)?.id ?? offered[0]!.id
+    metadata.modelsOffered = true
     return metadata
   }
 
@@ -323,23 +290,14 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     this.promoteToActive(handle, threadId)
     const model = request.model || this.metadata.defaultModel
     this.emit('normalized', threadId, { type: 'session_init', sessionId: threadId, model, skills: [] } satisfies NormalizedEvent)
-    await this.applyModel(live, threadId, request)
-
-    const turn: ActiveTurn = {
-      handle,
-      permissionMode: request.permissionMode,
-      unattended: request.unattended === true,
-      readableRoots: [request.cwd, ...(request.additionalDirectories ?? [])].map((root) => resolve(resolveHomePath(root))),
-      normalizer: new AcpTurnNormalizer(this.agent.nameTool, this.agent.stepsTool ?? null),
-      history: new TurnHistory(request.prompt),
-      latestPrompt: null,
-      isClosing: false,
-      usage: {},
-    }
-    const outcome = this.agent.watchTurnOutcome?.(request, threadId)
+    if (request.prompt === this.agentWorkPrompt) return this.takeAgentWork(live, threadId, this.newTurn(handle, request, live), request)
+    await this.applyModel(live, request)
+    await this.applyMode(live, request)
+    const turn = this.newTurn(handle, request, live)
+    const outcome = this.agent.watchTurnOutcome?.(request, live.agentSessionId!)
     // The turn is registered first: the agent's updates for the prompt can arrive at once.
     live.turn = turn
-    const stopReason = await this.followPrompts(live, threadId, turn, this.sendPrompt(live, threadId, turn, request.prompt, request.imageAttachments))
+    const stopReason = await this.followPrompts(live, threadId, turn, this.sendPrompt(live, turn, request.prompt, request.imageAttachments))
     this.endTurn(live, threadId, turn, request.persistence)
     if (stopReason === 'cancelled' || handle.abortController.signal.aborted) return this.endStopped(handle, live, threadId)
     const failure = outcome?.(stopReason) ?? null
@@ -347,6 +305,23 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     // The turn's history is kept; the run fails with the agent's own error.
     if (failure) throw new Error(failure.message)
     this.complete(handle, threadId, turn, stopReason)
+  }
+
+  private newTurn(handle: RunHandle, request: AgentRunRequest, live: LiveSession): ActiveTurn {
+    return {
+      handle,
+      permissionMode: request.permissionMode,
+      unattended: request.unattended === true,
+      readableRoots: [request.cwd, ...(request.additionalDirectories ?? [])].map((root) => resolve(resolveHomePath(root))),
+      normalizer: new AcpTurnNormalizer(this.agent.nameTool, this.agent.stepsTool ?? null, {
+        planTool: request.permissionMode === 'plan' ? this.agent.planTool ?? null : null,
+        childCalls: this.agent.childCalls?.(request, live.agentSessionId!) ?? null,
+      }),
+      history: new TurnHistory(request.prompt),
+      latestPrompt: null,
+      isClosing: false,
+      usage: {},
+    }
   }
 
   /** A limit the account reached: the run parks until the reset, as a Claude or Codex limit does. */
@@ -361,6 +336,31 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     this.finishRun(handle)
     handle._resolveRun()
     this.emit('exit', threadId, 0, null, handle)
+  }
+
+  /** The wake's prompt, which the session shows; the turn that carries it takes the agent's own work and sends no prompt. */
+  get agentWorkPrompt(): string {
+    return `${this.agent.label} continued work it started earlier.`
+  }
+
+  /**
+   * The turn of a wake: the work the agent did with no turn, then what it does
+   * until it has been quiet (`AGENT_WORK_QUIET_MS`) with no call open. A wake
+   * that finds no work (the connection closed meanwhile) ends at once.
+   */
+  private async takeAgentWork(live: LiveSession, threadId: string, turn: ActiveTurn, request: AgentRunRequest): Promise<void> {
+    const signal = turn.handle.abortController.signal
+    live.turn = turn
+    for (const update of live.agentWork.take()) {
+      for (const event of turn.normalizer.push(update)) this.emitTurnEvent(turn, threadId, event)
+    }
+    while (!signal.aborted && !(live.agentWork.isQuiet() && !turn.normalizer.hasOpenTools) && !live.connection.isClosed) {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (signal.aborted) live.connection.notify('session/cancel', { sessionId: live.agentSessionId })
+    this.endTurn(live, threadId, turn, request.persistence)
+    if (signal.aborted) return this.endStopped(turn.handle, live, threadId)
+    this.complete(turn.handle, threadId, turn, 'end_turn')
   }
 
   /** The session's open connection, or a new one: a changed sign-in or binary starts a new process. */
@@ -407,8 +407,8 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   /** One `session/prompt`, which answers when the agent ends the work it started. */
-  private sendPrompt(live: LiveSession, threadId: string, turn: ActiveTurn, prompt: string, images: AgentRunRequest['imageAttachments']): Promise<AcpStopReason> {
-    const answer = live.connection.request('session/prompt', { sessionId: threadId, prompt: this.promptBlocks(prompt, images) })
+  private sendPrompt(live: LiveSession, turn: ActiveTurn, prompt: string, images: AgentRunRequest['imageAttachments']): Promise<AcpStopReason> {
+    const answer = live.connection.request('session/prompt', { sessionId: live.agentSessionId, prompt: this.promptBlocks(prompt, images) })
       .then((result) => {
         const parsed = promptResultSchema.parse(result)
         // An answer that arrives after the turn ended counts for no turn.
@@ -427,7 +427,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
    */
   private async followPrompts(live: LiveSession, threadId: string, turn: ActiveTurn, first: Promise<AcpStopReason>): Promise<AcpStopReason> {
     const signal = turn.handle.abortController.signal
-    const cancel = () => live.connection.notify('session/cancel', { sessionId: threadId })
+    const cancel = () => live.connection.notify('session/cancel', { sessionId: live.agentSessionId })
     signal.addEventListener('abort', cancel, { once: true })
     turn.latestPrompt = first
     try {
@@ -519,13 +519,17 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
         ? [{ type: 'http', name: this.agent.mcpServerName, url: tools.url, headers: [{ name: 'Authorization', value: tools.authorization }] }]
         : []
       live.openedWithTools = tools !== null
-      const threadId = resumeId
-        ? await this.resumeSession(live, initialize.parsed, resumeId, cwd, mcpServers)
+      const agentSessionId = resumeId
+        ? await this.continueSession(live, initialize, launch, resumeId, request, cwd, mcpServers)
         : await this.newSession(live, initialize.raw, cwd, mcpServers, request.systemPrompt)
+      const threadId = resumeId ?? agentSessionId
+      if (launch.place) this.places.record(threadId, launch.place, agentSessionId)
       live.threadId = threadId
+      live.agentSessionId = agentSessionId
       const previous = this.live.get(threadId)
       if (previous && previous !== live) this.closeLive(previous)
       this.live.set(threadId, live)
+      live.isOpen = true
       log.info('acp_session_opened', { provider: this.id, sessionId: solusSessionId ?? null, threadId, resumed: !!resumeId })
       return live
     } catch (error) {
@@ -554,7 +558,10 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
       child.once('exit', remove)
       child.once('error', remove)
     }
-    const live: LiveSession = { key: launch.connectionKey, threadId: null, child, connection: null!, configOptions: [], steersWithPrompt: false, turn: null, idleTimer: null, openedWithTools: false }
+    const live: LiveSession = {
+      key: launch.connectionKey, threadId: null, agentSessionId: null, child, connection: null!, configOptions: [], steersWithPrompt: false, turn: null, idleTimer: null,
+      openedWithTools: false, isOpen: false, agentWork: new AcpAgentWork(), keepsWorking: false,
+    }
     live.connection = new AcpConnection({ stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr }, {
       onNotification: (method, params) => this.onNotification(live, method, params),
       onRequest: (method, params) => this.onAgentRequest(live, method, params),
@@ -600,8 +607,28 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const meta = this.agent.sessionMeta(initializeResult, systemPrompt)
     const setup = sessionSetupResultSchema.parse(await live.connection.request('session/new', meta === undefined ? { cwd, mcpServers } : { cwd, mcpServers, _meta: meta }) ?? {})
     if (!setup.sessionId) throw new Error(`${this.agent.label} started a session without an id.`)
-    this.takeConfigOptions(live, setup.configOptions ?? [])
+    this.takeSetup(live, setup)
     return setup.sessionId
+  }
+
+  /**
+   * The thread's agent session in this place: the one recorded, else the thread's own when the
+   * place holds it. A place without it (another member's seat, or another host after the cloud
+   * copy) gets a new agent session that reads the thread's history from the handoff text.
+   */
+  private async continueSession(live: LiveSession, initialize: { raw: JsonValue | undefined; parsed: AcpInitializeResult }, launch: AcpAgentLaunch, threadId: string, request: AgentRunRequest, cwd: string, mcpServers: JsonValue[]): Promise<string> {
+    const recorded = launch.place ? this.places.agentSession(threadId, launch.place) : undefined
+    if (recorded || !launch.place || this.agent.hasThread?.(launch.place, threadId) !== false) {
+      return this.resumeSession(live, initialize.parsed, recorded ?? threadId, cwd, mcpServers)
+    }
+    const handoff = await buildHandoff(threadId, cwd, {
+      loadPage: async (id, _path, turnLimit, before) => this.history.page(id, turnLimit, before),
+      loadFirstTurn: async (id) => this.history.firstTurn(id),
+      fromProvider: this.id, targetProvider: this.id, targetModel: request.model ?? undefined, nextPrompt: request.prompt,
+    })
+    log.info('acp_thread_handed_off', { provider: this.id, threadId, hasHistory: handoff.transcriptFilePath !== null })
+    const seed = composeHandoffSeed({ fromProvider: this.id, ...handoff })
+    return this.newSession(live, initialize.raw, cwd, mcpServers, [request.systemPrompt, seed].filter(Boolean).join('\n\n'))
   }
 
   /** `session/resume` keeps the agent from replaying history; `session/load` is the fallback. */
@@ -610,35 +637,83 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const method = capabilities?.sessionCapabilities?.resume ? 'session/resume' : capabilities?.loadSession ? 'session/load' : null
     if (!method) throw new Error(`${this.agent.label} cannot continue a saved session.`)
     const setup = sessionSetupResultSchema.parse(await live.connection.request(method, { sessionId: threadId, cwd, mcpServers }) ?? {})
-    this.takeConfigOptions(live, setup.configOptions ?? [])
+    this.takeSetup(live, setup)
     return threadId
   }
 
+  /**
+   * Opens a session only to read the models the agent offers the account, then
+   * closes it (§5.5). The list otherwise changes only when a person opens a
+   * session, so a new plan on the account would not show. A refresh in flight
+   * is joined.
+   */
+  refreshModels(seat?: TurnSeat): Promise<void> {
+    this.refreshing ??= this.readOfferedModels(seat).finally(() => { this.refreshing = null })
+    return this.refreshing
+  }
+
+  private async readOfferedModels(seat: TurnSeat | undefined): Promise<void> {
+    const launch = this.agent.launch({ seat })
+    const cwd = homedir()
+    const live = this.spawnLive(launch, cwd)
+    const timer = setTimeout(() => live.connection.close(`${this.agent.label} did not report its models within ${REFRESH_TIMEOUT_MS / 1000} seconds.`), REFRESH_TIMEOUT_MS)
+    timer.unref?.()
+    try {
+      const initialize = await this.handshake(live, launch)
+      await this.newSession(live, initialize.raw, cwd, [], undefined)
+      log.info('acp_models_refreshed', { provider: this.id, models: this.report.offeredModels().length })
+    } finally {
+      clearTimeout(timer)
+      this.closeLive(live)
+    }
+  }
+
   /** A session's options; the models it offers join the model picker (§5.5). */
-  private takeConfigOptions(live: LiveSession, configOptions: AcpConfigOption[]): void {
-    live.configOptions = configOptions
-    if (this.report.keepModels(modelsOffered(configOptions))) this.emit('models-reported')
+  private takeSetup(live: LiveSession, setup: AcpSessionSetupResult): void {
+    live.configOptions = setup.configOptions ?? []
+    if (this.report.keepModels(modelsOffered(setup))) this.emit('models-reported')
   }
 
   /** The model and its reasoning level, through the session's own options (§5.5). */
-  private async applyModel(live: LiveSession, threadId: string, request: AgentRunRequest): Promise<void> {
+  private async applyModel(live: LiveSession, request: AgentRunRequest): Promise<void> {
     const modelOption = live.configOptions.find((option) => option.id === 'model')
-    const models = modelsOffered(live.configOptions)
+    const models = modelsOffered({ configOptions: live.configOptions })
     // agy still takes a model's older id, such as `gemini-3.8-flash-high` for `gemini-3.8-flash`.
     if (request.model && models.length > 0 && !models.some((model) => request.model === model.id || request.model!.startsWith(`${model.id}-`))) {
       throw new Error(`${this.agent.label} does not offer the model ${request.model} to this account. Choose another model.`)
     }
-    if (request.model && modelOption?.currentValue !== request.model) {
-      await live.connection.request('session/set_model', { sessionId: threadId, modelId: request.model })
-      if (modelOption) modelOption.currentValue = request.model
+    const newModel = request.model && modelOption?.currentValue !== request.model ? request.model : null
+    const modelChanged = newModel !== null
+    if (newModel) {
+      await live.connection.request('session/set_model', { sessionId: live.agentSessionId, modelId: newModel })
+      if (modelOption) modelOption.currentValue = newModel
     }
     const thinking = live.configOptions.find((option) => option.category === 'thought_level')
     const effort = request.reasoningEffort
-    if (!thinking || !effort || thinking.currentValue === effort) return
-    const offered = (thinking.options ?? []).flatMap((entry) => 'value' in entry ? [entry.value] : entry.options.map((option) => option.value))
+    // agy resets the level when the model changes, so a new model always gets the effort.
+    if (!thinking || !effort || (!modelChanged && thinking.currentValue === effort)) return
+    // After a model change the options are the previous model's until agy's
+    // update arrives, after its answer: the report says which efforts the model takes.
+    const offered = (request.model ? this.report.reasoningLevelsOf(request.model) : undefined)
+      ?? (thinking.options ?? []).flatMap((entry) => 'value' in entry ? [entry.value] : entry.options.map((option) => option.value))
     if (!offered.includes(effort)) return
-    await live.connection.request('session/set_config_option', { sessionId: threadId, configId: thinking.id, value: effort })
+    await live.connection.request('session/set_config_option', { sessionId: live.agentSessionId, configId: thinking.id, value: effort })
     thinking.currentValue = effort
+  }
+
+  /**
+   * The agent's own plan mode for Solus's: in it the agent writes its plan
+   * instead of asking to edit, which Solus's plan mode would refuse. Every other
+   * Solus mode keeps the agent's default, which asks, and Solus answers.
+   */
+  private async applyMode(live: LiveSession, request: AgentRunRequest): Promise<void> {
+    const mode = live.configOptions.find((option) => option.category === 'mode')
+    const wanted = request.permissionMode === 'plan' && !request.unattended ? 'plan' : 'default'
+    if (!mode || mode.currentValue === wanted) return
+    const offered = (mode.options ?? []).flatMap((entry) => 'value' in entry ? [entry.value] : entry.options.map((option) => option.value))
+    if (!offered.includes(wanted)) return
+    await live.connection.request('session/set_config_option', { sessionId: live.agentSessionId, configId: mode.id, value: wanted })
+    mode.currentValue = wanted
   }
 
   private emitTurnEvent(turn: ActiveTurn, threadId: string, event: NormalizedEvent): void {
@@ -651,6 +726,12 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const notification = sessionNotificationSchema.safeParse(params)
     const update = notification.success ? sessionUpdateSchema.safeParse(notification.data.update) : null
     if (!notification.success || !update?.success) return
+    // The selected model's options, such as its thinking levels, after a model change.
+    if (update.data.sessionUpdate === 'config_option_update') {
+      const options = z.array(configOptionSchema).safeParse(update.data.configOptions)
+      if (options.success) live.configOptions = options.data
+      return
+    }
     // The agent's own commands, for the slash menu. They arrive when a session opens, before any turn.
     if (update.data.sessionUpdate === 'available_commands_update') {
       this.report.keepCommands(update.data.availableCommands.map((command): AgentSlashCommand => {
@@ -662,8 +743,14 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     }
     const turn = live.turn
     const threadId = live.threadId
-    // Another update outside a turn (a replay of history) is not part of any run.
-    if (!turn || !threadId || notification.data.sessionId !== threadId) return
+    if (!threadId || notification.data.sessionId !== live.agentSessionId) return
+    if ((update.data.sessionUpdate === 'tool_call' || update.data.sessionUpdate === 'tool_call_update') && this.agent.startsDaemon?.(update.data)) live.keepsWorking = true
+    if (!turn) {
+      // Work the agent started by itself wakes the session once; a replay of history while the session opens is no work.
+      if (live.isOpen && live.agentWork.hold(update.data)) this.emit('background-task-completed', threadId, this.agentWorkPrompt, 'background-command')
+      return
+    }
+    live.agentWork.lastUpdateAt = Date.now()
     for (const event of turn.normalizer.push(update.data)) this.emitTurnEvent(turn, threadId, event)
   }
 
@@ -678,7 +765,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const turn = live.turn
     const threadId = live.threadId
     const cancelled = { outcome: { outcome: 'cancelled' } }
-    if (!turn || !threadId || request.sessionId !== threadId) return cancelled
+    if (!turn || !threadId || request.sessionId !== live.agentSessionId) return cancelled
     const select = (optionId: string | null): JsonValue => optionId ? { outcome: { outcome: 'selected', optionId } } : cancelled
     // The tool's card shows before the person is asked about it.
     for (const event of turn.normalizer.push({ ...request.toolCall, sessionUpdate: 'tool_call_update' })) this.emitTurnEvent(turn, threadId, event)
@@ -706,7 +793,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const turn = live.turn
     const threadId = live.threadId
     const request = elicitationRequestSchema.safeParse(params)
-    if (!turn || !threadId || !request.success || request.data.sessionId !== threadId || turn.unattended) return { action: 'cancel' }
+    if (!turn || !threadId || !request.success || request.data.sessionId !== live.agentSessionId || turn.unattended) return { action: 'cancel' }
     const form = normalizeMcpElicitationRequest(params)
     if (form?.request.kind !== 'mcp_form') return { action: 'decline' }
     const answers = await this.waitForAnswer<Record<string, string>>(turn, threadId, (finish) => ({ kind: 'form', threadId, toolName: 'AskUserQuestion', finish }), (questionId) => ({
@@ -793,7 +880,7 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   private armIdle(live: LiveSession): void {
     this.clearIdle(live)
     live.idleTimer = setTimeout(() => {
-      if (!live.turn) this.closeLive(live)
+      if (!live.turn && !live.keepsWorking) this.closeLive(live)
     }, this.idleCloseMs)
     live.idleTimer.unref?.()
   }
@@ -813,9 +900,24 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     const turn = live?.turn
     if (!live || !turn?.latestPrompt || !live.steersWithPrompt || turn.isClosing || turn.handle.abortController.signal.aborted) return null
     turn.history.record({ type: 'user_message', text: options.prompt })
-    turn.latestPrompt = this.sendPrompt(live, threadId, turn, options.prompt, options.imageAttachments)
+    turn.latestPrompt = this.sendPrompt(live, turn, options.prompt, options.imageAttachments)
     log.info('acp_steer_sent', { provider: this.id, sessionId: turn.handle.sessionId ?? null, threadId })
     return turn.handle
+  }
+
+  /**
+   * The session cloud copy of a thread (docs/plans/portable-sessions.md): Solus's own history of
+   * it, which only grows. The agent's session files stay in its profile; a host that continues the
+   * thread has no agent session for it, so the thread goes on there by handoff (`continueSession`).
+   */
+  async threadFiles(threadId: string): Promise<ThreadFile[]> {
+    const path = this.history.file(threadId)
+    return existsSync(path) ? [{ key: 'history', relativePath: this.history.fileName(threadId), path }] : []
+  }
+
+  async importThread(request: ThreadImportRequest): Promise<ThreadImportResult> {
+    mkdirSync(this.historyDirectory, { recursive: true })
+    return importThreadFiles(this.historyDirectory, request.files, request.signal, request.replaceConflicts)
   }
 
   async loadSession(threadId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {

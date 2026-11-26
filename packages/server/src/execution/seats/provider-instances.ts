@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
-  newProviderInstance, providerInstancesSnapshotSchema, providerInstancesWriteSchema,
+  INSTANCE_PROVIDERS, newProviderInstance, providerInstancesSnapshotSchema, providerInstancesWriteSchema,
   type InstanceProvider, type ProviderInstance, type ProviderProjectOverride, type ProviderInstancesSnapshot, type ProviderInstancesWrite,
 } from '@solus/contracts/provider-instances'
 import { providerProjectOverride } from '@solus/contracts/provider-instance-models'
@@ -18,12 +18,24 @@ const storedSchema = providerInstancesSnapshotSchema.extend({
 })
 type StoredInstances = z.infer<typeof storedSchema>
 
+/** Each provider's built-in instance has the provider's own id. */
+const BUILT_IN_NAMES = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Google Antigravity' } as const
+
 function defaults(): StoredInstances {
   return {
-    revision: 0, projects: [], instances: [newProviderInstance('claude-code', 'claude-code', 'Claude Code'), newProviderInstance('codex', 'codex', 'Codex')],
-    selected: { 'claude-code': 'claude-code', codex: 'codex' },
+    revision: 0, projects: [], instances: INSTANCE_PROVIDERS.map((provider) => newProviderInstance(provider, provider, BUILT_IN_NAMES[provider])),
+    selected: { 'claude-code': 'claude-code', codex: 'codex', antigravity: 'antigravity' },
     healthCheckSeconds: 300, idleCompaction: 'onReturn', bindings: {}, authEpochs: {}, threadHomes: {},
   }
+}
+
+/** A document from before a provider had an instance gets that provider's built-in one. */
+function withBuiltIns(state: StoredInstances): StoredInstances {
+  for (const provider of INSTANCE_PROVIDERS) {
+    if (!state.instances.some((instance) => instance.id === provider)) state.instances.push(newProviderInstance(provider, provider, BUILT_IN_NAMES[provider]))
+  }
+  state.selected.antigravity ??= 'antigravity'
+  return state
 }
 
 /** Private to one person on this host. No request can supply another person's key. */
@@ -37,7 +49,8 @@ export class ProviderInstances {
 
   private read(personKey: string): StoredInstances {
     const location = this.location(personKey)
-    return this.deps.secrets.loadJson(location.key, location.path, storedSchema) ?? defaults()
+    const stored = this.deps.secrets.loadJson(location.key, location.path, storedSchema)
+    return stored ? withBuiltIns(stored) : defaults()
   }
 
   private save(personKey: string, value: StoredInstances): void {
@@ -88,6 +101,7 @@ export class ProviderInstances {
     const previous = state.instances.find((instance) => instance.id === input.id)
     if (previous && previous.provider !== input.provider) throw new Error('An instance cannot change its provider.')
     if (!previous && state.instances.length >= 50) throw new Error('Remove an instance before adding another.')
+    if (!previous && input.provider === 'antigravity') throw new Error('Google Antigravity has one instance. Change its settings instead.')
     const next = structuredClone(input)
     next.defaultModel = null
     preserveSensitiveValues(next, previous)
@@ -99,7 +113,7 @@ export class ProviderInstances {
     for (const instanceId of Object.keys(next.enabled)) {
       if (!state.instances.some((instance) => instance.id === instanceId)) throw new Error('This provider instance is unavailable.')
     }
-    for (const provider of ['codex', 'claude-code'] as const) {
+    for (const provider of INSTANCE_PROVIDERS) {
       const selected = next.selected[provider]
       if (selected && !state.instances.some((instance) => instance.id === selected && instance.provider === provider)) throw new Error('Choose an instance for the matching provider.')
     }
@@ -111,7 +125,7 @@ export class ProviderInstances {
   }
 
   private removeInstance(state: StoredInstances, instanceId: string): void {
-    if (instanceId === 'codex' || instanceId === 'claude-code') throw new Error('The built-in provider instance cannot be removed. Disable it instead.')
+    if (INSTANCE_PROVIDERS.some((provider) => provider === instanceId)) throw new Error('The built-in provider instance cannot be removed. Disable it instead.')
     if (Object.values(state.bindings).includes(instanceId) || Object.values(state.threadHomes).some((thread) => thread.instanceId === instanceId)) throw new Error('This instance has sessions. Disable it to keep those sessions resumable.')
     const instance = state.instances.find((candidate) => candidate.id === instanceId)
     if (!instance) throw new Error('This provider instance no longer exists.')
@@ -155,7 +169,7 @@ export class ProviderInstances {
     const state = this.read(personKey)
     const bindingKey = sessionId ? `${provider}:${sessionId}` : null
     const project = providerProjectOverride(state.projects, projectRoot)
-    const instanceId = bindingKey && state.bindings[bindingKey] || (continuation ? provider : project?.selected[provider] ?? state.selected[provider])
+    const instanceId = bindingKey && state.bindings[bindingKey] || (continuation ? provider : project?.selected[provider] ?? state.selected[provider] ?? provider)
     const instance = state.instances.find((candidate) => candidate.provider === provider && candidate.id === instanceId)
     if (!instance) throw new Error('The provider instance for this session is unavailable.')
     if (!(project?.enabled[instance.id] ?? instance.enabled)) throw new Error(`${instance.displayName} is disabled. Check its availability in Settings → Projects or Providers.`)

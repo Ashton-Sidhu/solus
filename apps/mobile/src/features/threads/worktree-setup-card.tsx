@@ -1,5 +1,6 @@
 import { msg, T, useGT, useMessages } from "gt-react-native";
 
+import type { ReactNode } from "react";
 import type { MessageResolver } from "../../i18n/messages";
 
 import { Button } from "../../components/ui/Button";
@@ -22,7 +23,8 @@ import { useVisibleSecondClock } from "./use-visible-second-clock";
 export interface WorktreeSetupCardProps {
   snapshot: WorktreeSetupSnapshot;
   turnStarted: boolean;
-  onCancel: () => void;
+  onCancel: (() => void) | null;
+  extraDetails?: ReactNode;
   onWorkLocally: (() => void) | null;
 }
 
@@ -298,6 +300,7 @@ function SetupDetailsSheet({
   snapshot,
   turnStarted,
   onCancel,
+  extraDetails,
   onWorkLocally,
   onClose,
   now,
@@ -332,7 +335,8 @@ function SetupDetailsSheet({
             {snapshot.error}
           </Text>
         ) : null}
-        {canCancel ? (
+        {extraDetails}
+        {canCancel && onCancel ? (
           <View className="mt-3 flex-row items-center justify-end gap-4 border-t border-border pt-1">
             <Button
               label={gt("Cancel setup")}

@@ -15,11 +15,21 @@ export interface PrReactionsSubject {
   number: number;
 }
 
+/** What a reaction bar and its picker ask of the page they sit on. A pull
+ *  request page and an issue page each give one (`provideReactionWrites`). */
+export interface ReactionWrites {
+  /** False until the page knows where it writes. */
+  readonly canWrite: boolean;
+  /** What a bar shows for a target (`null` is the page's own subject). */
+  shown(targetId: string | null, read: PrReactions | undefined): PrReactions | undefined;
+  toggle(targetId: string | null, content: PrReactionContent, read: PrReactions | undefined): void;
+}
+
 /** The reaction writes of one pull request page. The reactions themselves
  *  come with the pull request, its comments, and its threads; every bar on
  *  the page passes them in, and this owner shows a write over them until a
  *  read catches up (`PrReactionWrites`). */
-export class PrPageReactions {
+export class PrPageReactions implements ReactionWrites {
   /** Changes when a write changes what a bar shows. */
   #version = $state(0);
   #writes: PrReactionWrites | null = null;
@@ -92,13 +102,19 @@ export class PrPageReactions {
 export function providePrReactions(): PrPageReactions {
   const settings = getSettingsContext();
   const reactions = new PrPageReactions(() => settings.personal.accountKey);
-  setContext(KEY, reactions);
+  provideReactionWrites(reactions);
   onDestroy(() => reactions.close());
   return reactions;
 }
 
-/** Absent outside a pull request page, so a thread card in the Diff tab
- *  shows its reactions without a way to change them. */
-export function getPrReactions(): PrPageReactions | undefined {
-  return getContext<PrPageReactions | undefined>(KEY);
+/** Gives the bars and pickers under a page its reaction writes. Call during
+ *  component init. */
+export function provideReactionWrites(writes: ReactionWrites): void {
+  setContext(KEY, writes);
+}
+
+/** Absent outside a pull request or issue page, so a thread card in the
+ *  Diff tab shows its reactions without a way to change them. */
+export function getPrReactions(): ReactionWrites | undefined {
+  return getContext<ReactionWrites | undefined>(KEY);
 }

@@ -1,4 +1,4 @@
-import { Building2, FileSearch, FolderGit2, RefreshCw, Share2, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
+import { Building2, Cloud, FileSearch, FolderGit2, RefreshCw, Share2, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
@@ -37,7 +37,8 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
 }
 
 /**
- * The palette entry for Settings → Sharing & access (docs/outside-apps.md), shared
+ * The palette entries for Settings → Sharing & access (docs/outside-apps.md) and
+ * Settings → Solus Cloud, shared
  * by desktop and web. The page opens on the host of the current session, else on
  * this device's host. "Use Solus in other apps" and "Approve an app sign-in" open
  * the dialog, not the page (fleet-commands.ts).
@@ -50,6 +51,13 @@ export function sharingAccessCommands(shell: { showSettings(tab: SettingsTab, vi
     icon: Share2,
     keywords: ['sharing', 'access', 'mcp', 'outside apps', 'connected apps', 'authorized clients', 'paired devices', 'pairing', 'revoke', 'pair code'],
     run: () => shell.showSettings('sharing', 'palette'),
+  }, {
+    id: 'open-solus-cloud',
+    label: 'Solus Cloud',
+    group: 'General',
+    icon: Cloud,
+    keywords: ['solus cloud', 'cloud', 'register', 'tunnel', 'internet', 'reachable', 'connection test', 'organizations'],
+    run: () => shell.showSettings('cloud', 'palette'),
   }]
 }
 

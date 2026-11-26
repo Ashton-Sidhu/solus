@@ -124,7 +124,7 @@ export class ConversationStore {
         } else {
           for (const id of changes.items) {
             const item = this.item(id)
-            if (this.itemListeners.has(id) || (this.feedListeners.size && (item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'tool' || item?.kind === 'agent'))) this.pendingItemIds.add(id)
+            if (this.itemListeners.has(id) || (this.feedListeners.size && (item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'tool' || item?.kind === 'agent' || item?.kind === 'setup' || item?.kind === 'compaction' || item?.kind === 'notice'))) this.pendingItemIds.add(id)
             if (item?.kind !== 'tool' || !item.children) continue
             for (const childId of item.children.takeChanges().items) {
               const childKey = `${id}\0${childId}`

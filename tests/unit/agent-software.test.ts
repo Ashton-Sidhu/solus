@@ -124,6 +124,22 @@ test('another server process cannot modify the same installation during an updat
   } finally { resume(); await running }
 })
 
+test('an install keeps only the new release and the one it replaced', async () => {
+  // WHY: each install extracts a new folder of about 200 MB. Nothing removed
+  // the old ones, so one host kept five copies of the same Antigravity. The
+  // replaced release stays because a running turn may still use it.
+  await mkdir(join(root, 'releases', 'older'), { recursive: true })
+  const f = fixture()
+  await f.software.install()
+  const first = new AgentExecutable('claude', root).selection!.release
+  expect((await readdir(join(root, 'releases'))).sort()).toEqual([first, 'previous'].sort())
+
+  previousSelection = await readFile(join(root, 'current.json'), 'utf8')
+  await f.software.install()
+  const second = new AgentExecutable('claude', root).selection!.release
+  expect((await readdir(join(root, 'releases'))).sort()).toEqual([first, second].sort())
+})
+
 test('switching back uses the original installation without deleting either package', async () => {
   const f = fixture()
   await f.software.install()

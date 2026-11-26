@@ -41,4 +41,11 @@ describe('the settings sidebar', () => {
     expect(groupOf(false, 'organization')).toBeUndefined()
     expect(groupOf(false, 'policy')).toBe('Connections')
   })
+
+  test('shows Solus Cloud only when signed in to it', () => {
+    // WHY: signed out, there is no account to register a host to; sign-in is on Account & sync.
+    const shown = (isSignedIn: boolean) => tabs.filter((tab) => settingsTabShown(tab.id, isSignedIn)).map((tab) => tab.id)
+    expect(shown(true)).toContain('cloud')
+    expect(shown(false)).not.toContain('cloud')
+  })
 })

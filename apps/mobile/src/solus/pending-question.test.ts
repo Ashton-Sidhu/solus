@@ -116,3 +116,25 @@ it("sends uploaded screenshots as part of the question they answer", () => {
     branch: "main",
   });
 });
+
+it("shows a mockup preview as one fenced block, so the phone keeps its columns", () => {
+  // WHY: T3's card renders a preview as markdown, which drops leading spaces and reflows lines.
+  const [question] = pendingInputQuestions({
+    questions: [
+      {
+        question: "Which layout?",
+        multiSelect: false,
+        options: [
+          { label: "Split", preview: "┌───┬───┐\n│ a │ b │\n└───┴───┘\n" },
+          { label: "Code", preview: "Adds a guard:\n\n```ts\nif (!id) return\n```" },
+          { label: "None" },
+        ],
+      },
+    ],
+  });
+  expect(question?.options.map((option) => option.preview)).toEqual([
+    "```\n┌───┬───┐\n│ a │ b │\n└───┴───┘\n```",
+    "Adds a guard:\n\n```ts\nif (!id) return\n```",
+    undefined,
+  ]);
+});

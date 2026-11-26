@@ -52,6 +52,31 @@ describe('session transcript rehydration', () => {
     expect(transcript.messages.map((message) => message.content)).toEqual([typed])
   })
 
+  test('a prompt sent while a Claude turn ran comes back on reload, with its video', () => {
+    // WHY: Claude keeps a steered prompt only as a `queued_command` attachment
+    // line, never as a user line. Without it, a reload loses the prompt and
+    // the files it carried, though the agent read them.
+    const video = '/data/attachments/s/28119a3689e6e0720cbc4d77-ScreenRecording.mp4'
+    const steer = (prompt: string, commandMode: string) => JSON.stringify({
+      type: 'attachment', uuid: 'steer', timestamp: '2026-11-26T18:43:40.327Z',
+      attachment: { type: 'queued_command', prompt, commandMode, delivery_id: 'd' },
+    })
+    const rows = claudeHistoryRows(steer(`[Attached file: ${video}]\n\n`, 'prompt'))
+    expect(rows).toMatchObject([{ role: 'user', content: `[Attached file: ${video}]` }])
+    // A finished background task is plumbing, not something a person sent.
+    expect(claudeHistoryRows(steer('<task-notification>done</task-notification>', 'task-notification'))).toEqual([])
+
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, rows)
+    expect(transcript.messages).toMatchObject([{
+      role: 'user', content: '', attachments: [{ type: 'file', name: 'ScreenRecording.mp4', hostPath: video, mimeType: 'video/mp4' }],
+    }])
+  })
+
   test('shared history hydration keeps the durable Q&A row', () => {
     const questionAnswer = { questionId: 'codex-async:session:ask', questions: [{ id: '0', question: 'Which branch?', options: [], multiSelect: false }], answers: { '0': 'main' } }
     const history = projectSessionHistory([{ role: 'system', content: '', timestamp: 10, questionAnswer }])

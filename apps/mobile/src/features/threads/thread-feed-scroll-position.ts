@@ -40,3 +40,31 @@ export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
 
   return input.queuedMessageCount > 0 ? null : input.submittedMessageId;
 }
+
+const SUBMITTED_ROW_MAX_FRAMES = 12;
+
+/**
+ * Runs `run` one frame after the list has laid out the rows a send added, or after a bounded
+ * wait. A keyboard that starts closing before then animates the list toward an end that the
+ * new rows then move, and the list corrects itself late in one jump.
+ */
+export function afterSubmittedRowLands(input: {
+  readonly isLaidOut: () => boolean;
+  readonly nextFrame: (callback: () => void) => void;
+  readonly isCurrent: () => boolean;
+  readonly run: () => void;
+}) {
+  let frames = 0;
+  let landed = false;
+  const tick = () => {
+    if (!input.isCurrent()) return;
+    if (landed || frames >= SUBMITTED_ROW_MAX_FRAMES) {
+      input.run();
+      return;
+    }
+    landed = input.isLaidOut();
+    frames++;
+    input.nextFrame(tick);
+  };
+  input.nextFrame(tick);
+}

@@ -193,7 +193,7 @@ const checkFields = {
 
 export const checkHostAgentTool: AgentTool<typeof checkFields> = {
   name: 'check_host',
-  description: 'Check the health of a host: its self test (can people and other hosts reach it) and its CPU and memory now. This host when host is absent.',
+  description: 'Check the health of a host: its self test (can people and other hosts reach it) and its CPU, memory, and disk space now. This host when host is absent.',
   inputFields: checkFields,
   requiresApproval: false,
   async execute(input, context) {

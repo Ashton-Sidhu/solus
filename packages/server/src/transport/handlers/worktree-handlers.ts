@@ -32,6 +32,7 @@ import { writingBackendFor, type WritingBackend } from '../../execution/agents/w
 import type { WorktreeMover } from '../../execution/sessions/worktree-move'
 import type { WorktreeOffers } from '../../execution/sessions/worktree-offers'
 import type { PrSync } from '../../prs/pr-sync'
+import { readDiskSpace } from '../../host/host-resources'
 import { listManagedWorktrees, managedWorktreeSizes, removeManagedWorktree, type ManagedWorktreeHost } from '../../git/managed-worktrees'
 import { findTaskFolderContaining, listTaskFolders } from '../../git/task-folder-store'
 import { listProjects } from '../../project-config/projects-manifest'
@@ -179,6 +180,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   /** The host as one caller sees it: their sessions, and the task folders and codebases in their scope. */
   const managedWorktreeHost = (handlerCtx: HandlerCtx): ManagedWorktreeHost => ({
     boundDirectories: () => sessionRuntime.sessionCheckouts.sessionCheckoutPaths.entries(),
+    isSessionBusy: (sessionId) => sessionRuntime.statuses.isSessionBusy(sessionId),
     sessionTitles: async (sessionIds) => {
       const records = await getSessionRecords(recordScopeOf(handlerCtx.principal), sessionIds)
       const titles = new Map<string, string>()
@@ -219,7 +221,8 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('managedWorktreeRemove', async ([worktreePath, options], handlerCtx) => {
     assertManagedFolderInScope('managedWorktreeRemove', worktreePath, handlerCtx)
     log.info('rpc_managed_worktree_remove', { worktreePath, force: options?.force === true })
-    return removeManagedWorktree(worktreePath, { force: options?.force === true }, managedWorktreeHost(handlerCtx))
+    const result = await removeManagedWorktree(worktreePath, { force: options?.force === true }, managedWorktreeHost(handlerCtx))
+    return result.status === 'removed' ? { ...result, disk: await readDiskSpace() } : result
   })
 
   server.register('managedWorktreeSizes', async ([worktreePaths], handlerCtx) => {

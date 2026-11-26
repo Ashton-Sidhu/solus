@@ -69,10 +69,6 @@ test('the profile is read on this machine and written on the shared host, once p
   await settle()
   expect(calls).toEqual(['read:laptop', 'apply:cloud:2'])
   expect(store.statuses.get('cloud')?.counts).toEqual({ files: 1, skills: 0, integrations: 1 })
-
-  await store.remove('cloud')
-  expect(calls.at(-1)).toBe('apply:cloud:0')
-  expect(store.statuses.get('cloud')?.syncedAt).toBeNull()
 })
 
 test('with sync on, a host pulls from the account and this client pushes nothing', async () => {

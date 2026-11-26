@@ -54,7 +54,14 @@
     ListSkeleton,
     type ListFilterSpec,
   } from "../ui/list-page";
-  import { isStackedPane } from "../../lib/pane-width";
+  import DetailPanelResizeHandle from "../ui/list-page/DetailPanelResizeHandle.svelte";
+  import {
+    canSplitDetailPanel,
+    clampDetailPanelWidth,
+    detailPanelWidth,
+    readSavedDetailPanelWidth,
+    saveDetailPanelWidth,
+  } from "../ui/list-page/detail-panel-width";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import TaskUrlInspector, { type ResolvedIssueUrl } from "./TaskUrlInspector.svelte";
   import TaskComposer from "./TaskComposer.svelte";
@@ -254,11 +261,10 @@
 
   const openTask = $derived(openTaskId ? (taskById(openTaskId) ?? null) : null);
   const panelOpen = $derived(openTask !== null || externalIssue !== null);
-  const roomForSplit = $derived(pageWidth >= 1040);
-  // The record rung, for the one decision a container query cannot make: the
-  // virtualiser is told a row's height as a number. Same 30rem the stylesheet
-  // uses, so the layout and the positions cannot disagree.
-  const recordRows = $derived(isStackedPane(pageWidth));
+  const roomForSplit = $derived(canSplitDetailPanel(pageWidth));
+  let savedPanelWidth = $state(readSavedDetailPanelWidth("tasks"));
+  const panelWidth = $derived(detailPanelWidth("tasks", savedPanelWidth, pageWidth));
+  const maxPanelWidth = $derived(clampDetailPanelWidth(Number.POSITIVE_INFINITY, pageWidth));
   const boardPanel = $derived(panelOpen && view.boardLayout);
   const splitList = $derived(panelOpen && roomForSplit && !boardPanel);
 
@@ -691,22 +697,24 @@
 
 {#if open}
   <div
-    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-(--solus-container-bg) focus:outline-none [--task-list-width:380px]"
+    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-(--solus-container-bg) focus:outline-none"
     bind:clientWidth={pageWidth}
     bind:this={pageEl}
     role="dialog"
     aria-label="Issues"
     tabindex="-1"
   >
+    <!-- Beside an open task the list takes what the panel leaves, as on the
+         pull requests page; the reader drags the panel's edge. -->
     <div
-      class="flex min-h-0 min-w-0 shrink-0 {splitList
-        ? 'w-(--task-list-width)'
-        : 'w-full'}"
+      class="flex min-h-0 min-w-0 shrink-0 {splitList ? '' : 'w-full'}"
+      style={splitList ? `width: ${pageWidth - panelWidth}px` : undefined}
     >
     <ListPage
       split={splitList}
-      hideHeader={splitList}
       page="tasks"
+      title={splitList ? "Issues" : undefined}
+      chromeHead={splitList}
       onRefresh={refresh}
       {refreshing}
       syncedAt={view.syncState.syncedAt}
@@ -844,7 +852,6 @@
           <TasksList
             groups={view.groups}
             height={contentHeight}
-            {recordRows}
             split={splitList}
             {selection}
             {selectedKey}
@@ -870,11 +877,21 @@
         role="presentation"
         class="flex flex-col bg-background {boardPanel && roomForSplit
           ? 'absolute inset-y-0 right-0 z-10 w-[clamp(680px,72%,1400px)] shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
-          : roomForSplit
-            ? 'absolute inset-y-0 right-0 left-(--task-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
+          : splitList
+            ? 'absolute inset-y-0 right-0 z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong)]'
             : 'absolute inset-0 z-50'}"
+        style={splitList ? `width: ${panelWidth}px` : undefined}
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
+        {#if splitList}
+          <DetailPanelResizeHandle
+            width={panelWidth}
+            maxWidth={maxPanelWidth}
+            label="Resize issue panel"
+            onResize={(width) => (savedPanelWidth = clampDetailPanelWidth(width, pageWidth))}
+            onCommit={(width) => saveDetailPanelWidth("tasks", clampDetailPanelWidth(width, pageWidth))}
+          />
+        {/if}
         {#if externalIssue}
           {#key externalIssue.address}
             <TaskPage

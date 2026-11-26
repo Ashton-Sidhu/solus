@@ -22,7 +22,7 @@ export async function submitNewTaskDraft(
   const saved = enqueue(message);
   if (saved === null) return null;
   if (Platform.OS === "ios" && KeyboardController.isVisible()) {
-    void KeyboardController.dismiss({ animated: false }).catch(() => {});
+    void KeyboardController.dismiss().catch(() => {});
   }
   await saved;
   if (isCurrent?.() === false) return null;

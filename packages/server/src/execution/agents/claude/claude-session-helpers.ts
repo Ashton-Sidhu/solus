@@ -135,6 +135,13 @@ const claudeTranscriptLineSchema = z.object({
     isAsync: z.boolean().optional(),
     status: z.string().optional(),
   }).optional().catch(undefined),
+  /** On an `attachment` line. A prompt sent while a turn ran is a
+   *  `queued_command` with `commandMode: 'prompt'`, and has no user line. */
+  attachment: z.object({
+    type: z.string(),
+    prompt: z.union([z.string(), z.array(claudeContentBlockSchema)]).optional(),
+    commandMode: z.string().optional(),
+  }).optional().catch(undefined),
 })
 
 export interface SessionHeadMeta {
@@ -264,6 +271,12 @@ function claudeHistoryRow(obj: z.infer<typeof claudeTranscriptLineSchema>): Sess
     if (metadata?.preTokens !== undefined) compaction.preTokens = metadata.preTokens
     if (metadata?.postTokens !== undefined) compaction.postTokens = metadata.postTokens
     return { messageId: obj.uuid, role: 'system', content: '', compaction, timestamp: new Date(obj.timestamp ?? 0).getTime() }
+  }
+  // A steered prompt is read as the user line it would have been.
+  if (obj.type === 'attachment') {
+    const queued = obj.attachment
+    if (queued?.type !== 'queued_command' || queued.commandMode !== 'prompt' || queued.prompt === undefined) return null
+    return claudeHistoryRow({ type: 'user', uuid: obj.uuid, timestamp: obj.timestamp, message: { content: queued.prompt } })
   }
   if (obj.type === 'user') {
     if (obj.isMeta) return null

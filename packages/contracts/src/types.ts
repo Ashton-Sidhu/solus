@@ -569,7 +569,8 @@ export interface ModelProfile {
   defaultContextWindow: number
 }
 
-const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
+/** Every reasoning effort, from the least to the most. */
+export const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 const modelProfileSchema = z.object({
   label: z.string(),
   isDefault: z.boolean().optional(),
@@ -609,7 +610,9 @@ export const MODEL_PROFILES: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFI
  */
 export function replaceModelProfiles(next: ModelProfiles): void {
   for (const provider of ['claude-code', 'codex', 'opencode', 'antigravity'] as const) {
-    const incoming = next[provider] ?? {}
+    // A provider the list does not name keeps this build's models: the published
+    // list can predate a provider the build already runs, and would empty its picker.
+    const incoming = next[provider] ?? BUNDLED_MODEL_PROFILES[provider] ?? {}
     const current = MODEL_PROFILES[provider]
     if (!current) {
       MODEL_PROFILES[provider] = structuredClone(incoming)
@@ -3070,6 +3073,11 @@ export interface AgentMetadata {
   instancePreferences?: import('./provider-instances').ProviderInstancePreferences
   /** Private effective model catalog for this caller on this host. */
   modelProfiles?: Record<string, ModelProfile>
+  /**
+   * The models and profiles are the ones the agent offered this account (Google Antigravity's
+   * report), not the published list: a catalog keeps only these and the custom models.
+   */
+  modelsOffered?: boolean
   id: AgentId
   label: string
   models: Array<{ id: string; label: string }>

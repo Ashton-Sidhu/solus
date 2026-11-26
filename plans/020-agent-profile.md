@@ -584,10 +584,9 @@ Grilled with the maintainer; plan 018 decision 9 is the twin record.
   adapter each over the same requester, so they stay.
 - **Settings → Account & sync** (the tab's existing label; its component is renamed from Personal): who is signed in; one sync status
   with both documents' conflicts, each resolved in place on its own tab, and
-  the two clear actions; one row per host with its account link (uplink) and
-  what it holds of the profile, with Pull, Copy when signed out, and Remove.
-  "This computer" is the first row on the desktop. The host detail Access page
-  keeps its link control. The Agent profile tab holds only content. Mobile
+  the two clear actions. It shows no host: a host's account link (uplink) is
+  on Settings → Solus Cloud, and signing in is only on Account & sync
+  (changed 2026-11-26). The Agent profile tab holds only content. Mobile
   mirrors this as an Account screen; its Host access screen keeps its link
   section. Extra instructions stay where they are; moving them under the
   profile is out of scope.

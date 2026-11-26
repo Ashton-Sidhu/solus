@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settingsDefinitions } from "@solus/client-core/settings-definitions";
-  import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
+  import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type ModelProfile } from "@solus/contracts/types";
   import { instanceModelCatalog, changeModelPreference, modelNeighbor } from "@solus/contracts/provider-instance-models";
   import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
@@ -13,7 +13,8 @@
   import { Switch } from "../ui/switch";
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
-  let { instance = $bindable() }: { instance: ProviderInstance } = $props();
+  // `offered`: the models the agent offered this account, when it reports them; they replace the published list.
+  let { instance = $bindable(), offered }: { instance: ProviderInstance; offered?: Record<string, ModelProfile> } = $props();
   const settings = getSettingsContext();
   const workspace = getWorkspaceContext();
   let query = $state("");
@@ -22,7 +23,7 @@
   let modelLabel = $state("");
   let copyFrom = $state("");
   let error = $state("");
-  const catalog = $derived(instanceModelCatalog(instance, true));
+  const catalog = $derived(instanceModelCatalog(instance, true, offered));
   const order = $derived(catalog.models.map((model) => model.id));
   const shown = $derived(catalog.models.filter((model) => `${model.label} ${model.id}`.toLowerCase().includes(query.toLowerCase())));
   // The same two groups as the model picker: current models, then legacy models behind a disclosure.
@@ -34,12 +35,12 @@
   let legacyOpen = $state(false);
   /** The personal default saves at once, as in the default model menu. A hidden model returns to the picker with it. */
   function makeDefault(id: string) {
-    if (instance.hiddenModels.includes(id)) instance = changeModelPreference(instance, id, "visibility");
+    if (instance.hiddenModels.includes(id)) instance = changeModelPreference(instance, id, "visibility", offered);
     workspace.config.setDefaultModel(instance.provider, id);
   }
   function moveGroup(id: string) {
     if (!isLegacy(id)) legacyOpen = true;
-    instance = changeModelPreference(instance, id, "group");
+    instance = changeModelPreference(instance, id, "group", offered);
   }
   function add() {
     if (!modelId.trim()) { error = "Enter the model ID that the provider accepts."; return; }
@@ -50,7 +51,7 @@
   }
   function closeForm() { adding = false; modelId = ""; modelLabel = ""; copyFrom = ""; error = ""; }
   function toggleAll() {
-    instance.hiddenModels = instance.hiddenModels.length ? [] : Object.keys(MODEL_PROFILES[instance.provider] ?? {});
+    instance.hiddenModels = instance.hiddenModels.length ? [] : Object.keys(offered ?? MODEL_PROFILES[instance.provider] ?? {});
   }
 </script>
 
@@ -93,10 +94,10 @@
       {:else}
         <span class="size-7 shrink-0 pointer-coarse:size-11" aria-hidden="true"></span>
       {/if}
-      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move up" aria-label="Move {model.label} up" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "up") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "up"))}><ArrowUp size={16} /></Button>
-      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move down" aria-label="Move {model.label} down" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "down") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "down"))}><ArrowDown size={16} /></Button>
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move up" aria-label="Move {model.label} up" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "up") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "up", offered))}><ArrowUp size={16} /></Button>
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move down" aria-label="Move {model.label} down" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "down") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "down", offered))}><ArrowDown size={16} /></Button>
       {#if !custom}
-        <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={model.id === defaultModelId && !hidden} title={model.id === defaultModelId && !hidden ? "The default model stays in the model picker" : hidden ? "Show in model picker" : "Hide from model picker"} aria-label="{hidden ? 'Show' : 'Hide'} {model.label} {hidden ? 'in' : 'from'} the model picker" aria-pressed={hidden} onclick={() => (instance = changeModelPreference(instance, model.id, "visibility"))}>{#if hidden}<EyeOff size={16} />{:else}<Eye size={16} />{/if}</Button>
+        <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={model.id === defaultModelId && !hidden} title={model.id === defaultModelId && !hidden ? "The default model stays in the model picker" : hidden ? "Show in model picker" : "Hide from model picker"} aria-label="{hidden ? 'Show' : 'Hide'} {model.label} {hidden ? 'in' : 'from'} the model picker" aria-pressed={hidden} onclick={() => (instance = changeModelPreference(instance, model.id, "visibility", offered))}>{#if hidden}<EyeOff size={16} />{:else}<Eye size={16} />{/if}</Button>
       {:else}
         <!-- A custom model is always in the picker; the gap keeps every row's menu in one column. -->
         <span class="size-7 shrink-0 pointer-coarse:size-11" aria-hidden="true"></span>

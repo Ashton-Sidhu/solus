@@ -29,7 +29,7 @@
   import SettingsApplicationsSection from "./SettingsApplicationsSection.svelte";
   import { Switch } from "../ui/switch";
   import { isModelOffered } from "./lib/text-generation-models";
-  import type { TextGenerationModelSelection } from "@solus/contracts/types";
+  import { SOLUS_TOOL_AGENT_IDS, type TextGenerationModelSelection } from "@solus/contracts/types";
 
   interface Props {
     searchQuery?: string;
@@ -110,9 +110,11 @@
   }
 
   function selectTextGenerationModel(selection: PickerSelection): void {
-    if (!selection.modelId) return;
+    // The picker offers only the agents that can run Solus tools.
+    const provider = SOLUS_TOOL_AGENT_IDS.find((id) => id === selection.provider);
+    if (!selection.modelId || !provider) return;
     theme.setPersonal("textGenerationModel", {
-      provider: selection.provider,
+      provider,
       model: selection.modelId,
     });
   }
@@ -178,6 +180,7 @@
     {#snippet control()}
       {#if textGenerationPickerSelection && textGenerationSnapshot}
         <SessionChip
+          browseAgents
           selection={textGenerationPickerSelection}
           agents={textGenerationSnapshot.agents}
           modelOnly

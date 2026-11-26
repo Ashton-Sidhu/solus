@@ -19,6 +19,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path'
 import { z } from 'zod'
 import { solusDir } from '../../../platform/paths'
+import type { ProcessUser } from '../../../cli-env'
+import { applyMemberFiles } from '../../seats/member-files'
 
 /** The folder beside `GEMINI_HOME` that `agy acp` keeps its own state in. The CLI joins it under the profile. */
 export const ANTIGRAVITY_APP_DATA_DIR = 'antigravity-acp'
@@ -137,15 +139,21 @@ interface AntigravitySettings {
  * Google Cloud project and location of Gemini Enterprise and Vertex AI. The file
  * holds no credential.
  */
-export function prepareAntigravityProfile(profile: string, auth: Pick<AntigravityAuth, 'method' | 'gcpProject' | 'gcpLocation'>): void {
+export function prepareAntigravityProfile(profile: string, auth: Pick<AntigravityAuth, 'method' | 'gcpProject' | 'gcpLocation'>, user: ProcessUser | null = null): void {
   const appData = join(profile, ANTIGRAVITY_APP_DATA_DIR)
-  if (!existsSync(appData)) mkdirSync(appData, { recursive: true, mode: 0o700 })
-  chmodSync(profile, 0o700)
   const settings: AntigravitySettings = { auth: { type: auth.method } }
   if (auth.gcpProject || auth.gcpLocation) {
     settings.gcp = {}
     if (auth.gcpProject) settings.gcp.project = auth.gcpProject
     if (auth.gcpLocation) settings.gcp.location = auth.gcpLocation
   }
-  writeFileSync(join(appData, 'settings.json'), `${JSON.stringify(settings)}\n`, { mode: 0o600 })
+  const content = `${JSON.stringify(settings)}\n`
+  if (user) {
+    // Where each member is their own OS user, the host object made the profile as theirs, and agy runs as them.
+    applyMemberFiles(user, [{ kind: 'folder', path: appData, mode: 0o700 }, { kind: 'write', path: join(appData, 'settings.json'), content, mode: 0o600 }])
+    return
+  }
+  if (!existsSync(appData)) mkdirSync(appData, { recursive: true, mode: 0o700 })
+  chmodSync(profile, 0o700)
+  writeFileSync(join(appData, 'settings.json'), content, { mode: 0o600 })
 }

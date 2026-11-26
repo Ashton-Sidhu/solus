@@ -80,6 +80,18 @@ test('a published model reaches every reader of MODEL_PROFILES without a new bui
   expect(JSON.parse(readFileSync(cachePath, 'utf8')).profiles['claude-code']['claude-sonnet-next'].label).toBe('Sonnet Next')
 })
 
+test('a provider the published list does not name keeps the models this build ships', () => {
+  // WHY: the published list on GitHub predated Antigravity, so a host that took it emptied
+  // Antigravity's models and the picker showed none, although this build runs it.
+  const olderList = structuredClone(BUNDLED_MODEL_PROFILES)
+  delete olderList.antigravity
+  replaceModelProfiles(olderList)
+  expect(Object.keys(MODEL_PROFILES.antigravity ?? {})).toEqual(Object.keys(BUNDLED_MODEL_PROFILES.antigravity ?? {}))
+  expect(Object.keys(MODEL_PROFILES.antigravity ?? {}).length).toBeGreaterThan(0)
+  // A provider the list names still takes the list's models.
+  expect(Object.keys(MODEL_PROFILES['claude-code'] ?? {})).toEqual(Object.keys(olderList['claude-code'] ?? {}))
+})
+
 test('only a downloaded list that differs from the one in effect reports a change', async () => {
   // WHY: the host checks provider updates on a change, because a new model usually
   // ships with the provider release that runs it. The same list again must not

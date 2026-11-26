@@ -4,9 +4,9 @@
   /**
    * Settings → Account & sync (plans/018 decision 9): the one place for the
    * account. Who is signed in, with sign out, and the Solus Cloud address this
-   * device signs in to; this computer's link to Solus Cloud; one sync status for the two synced documents, the settings and the
+   * device signs in to; one sync status for the two synced documents, the settings and the
    * agent profile, with the settings' conflicts resolved here and the
-   * profile's on its own tab; each host with what it holds of the profile;
+   * profile's on its own tab;
    * and, last, the two clear actions. Signed in is synced: there is no
    * switch. Signed out, it names the host that keeps the settings on screen
    * (ADR 0007). The page needs no host.
@@ -16,7 +16,6 @@
   import { untrack } from "svelte";
   import { RefreshCw as SyncIcon } from "@lucide/svelte";
   import { accountStore, accountSyncStore, getWorkspaceContext, serversStore } from "../../contexts";
-  import UplinkSection from "../connections/UplinkSection.svelte";
   import { relativeTime } from "../../lib/relative-time";
   import { messageTimestampClock } from "../../lib/shared-clock";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -24,7 +23,6 @@
   import { accountInitial } from "../session/lib/account-menu";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
-  import AgentProfileHostsSection from "./agent-profile/AgentProfileHostsSection.svelte";
   import { agentProfileKeyLabel } from "./agent-profile/lib/agent-profile-entries";
   import { accountSyncBadge, accountSyncStateLabel, accountSyncTone, conflictRows, settingKeyLabel } from "./lib/sync-status";
 
@@ -36,7 +34,7 @@
   const isSignedIn = $derived(sync.state !== "signed-out");
   const settingConflicts = $derived(conflictRows(sync.settings.conflicts));
   const profileConflictCount = $derived(sync.profile.conflicts.length);
-  // Only the desktop hosts a server on this computer; a browser has none to link.
+  // Only the desktop hosts a server on this computer; a browser has none.
   const localServerId = $derived(serversStore.servers.find((server) => server.local)?.id ?? null);
   const hasComputer = $derived(localServerId !== null);
   // Signed out, the settings on screen are this host's (docs/plans/personal-settings-source.md).
@@ -119,10 +117,6 @@
   <CloudAddressSetting />
 </SettingsSection>
 
-{#if localServerId && isVisible}
-  <UplinkSection serverId={localServerId} label="This computer" />
-{/if}
-
 <SettingsSection
   {...settingsDefinitions["account.section-sync"]}
   visible={isVisible && isSignedIn}
@@ -184,10 +178,6 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
-
-{#if isVisible}
-  <AgentProfileHostsSection />
-{/if}
 
 <SettingsSection
   {...settingsDefinitions["account.section-reset-sync"]}

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { settingsDefinitions } from "@solus/client-core/settings-definitions";
-  import { instanceModelCatalog } from "@solus/contracts/provider-instance-models";
+  import { instanceModelCatalog, offeredModelProfiles } from "@solus/contracts/provider-instance-models";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ProviderInstanceModels from "./ProviderInstanceModels.svelte";
   import { untrack } from "svelte";
-  import type { ProviderInstance } from "@solus/contracts/provider-instances";
+  import { DEFAULT_INSTANCE_BINARIES, type ProviderInstance } from "@solus/contracts/provider-instances";
   import type { ProviderInstancesClient } from "@solus/client-core/provider-instances";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
@@ -21,6 +22,17 @@
   // The launch fields the policy of the window's organization's work owns (plans/030 §6.4).
   const launch = $derived(launchLockNotes(launchLock(workPolicy(serverId), instance.provider)));
   let draft = $state(untrack(() => structuredClone(instance)));
+  const hostAgent = $derived(hosts.get(serverId).machineInfo?.agents?.find((agent) => agent.id === instance.provider));
+  // The executable an empty binary path starts, as the host resolved it. A guest reads no path.
+  const defaultBinary = $derived(hostAgent?.binaryPath ?? DEFAULT_INSTANCE_BINARIES[instance.provider]);
+  // Google Antigravity's list is the models agy offered this account; a saved custom model is the instance's own.
+  const offered = $derived.by(() => {
+    const profiles = offeredModelProfiles(hostAgent);
+    if (!profiles) return undefined;
+    const custom = new Set(instance.customModels.map((model) => model.id));
+    return Object.fromEntries(Object.entries(profiles).filter(([id]) => !custom.has(id)));
+  });
+  const isAntigravity = $derived(instance.provider === "antigravity");
   let expectedRevision = $state(untrack(() => revision));
   async function save() {
     const snapshot = await client.write({ expectedRevision, change: { kind: "save", instance: $state.snapshot(draft) } });
@@ -43,12 +55,13 @@
     {#snippet control()}<Switch checked={draft.enabled} onCheckedChange={(value) => (draft.enabled = value)} aria-label="Enable provider instance" />{/snippet}
   </SettingsRow>
 </SettingsSection>
-<ProviderInstanceModels bind:instance={draft} />
-<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />
+<ProviderInstanceModels bind:instance={draft} {offered} />
+<ProviderModelSettings modelProfiles={instanceModelCatalog(instance, false, offered).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />
 <SettingsSection {...settingsDefinitions["providers.section-runtime"]}>
   <SettingsRow {...settingsDefinitions["providers.binary-path"]} managed={launch.binaryPath}>
-    {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} />{/snippet}
+    {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={defaultBinary} title={draft.binaryPath || defaultBinary} />{/snippet}
   </SettingsRow>
+  {#if !isAntigravity}
   <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat." managed={launch.homePaths}>
     {#snippet control()}<Input aria-label="Provider home path" bind:value={draft.homePath} placeholder={draft.provider === "codex" ? "~/.codex" : "~/.claude"} />{/snippet}
   </SettingsRow>
@@ -74,7 +87,9 @@
       </div>
     {/snippet}
   </SettingsRow>
+  {/if}
 </SettingsSection>
+{#if !isAntigravity}
 <SettingsSection {...settingsDefinitions["providers.section-environment"]}>
   <SettingsRow {...settingsDefinitions["providers.variables"]} managed={launch.environment}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={addVariable}>Add variable</Button>{/snippet}
@@ -92,6 +107,7 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
+{/if}
 {#if isDirty || revision !== expectedRevision}
 <div class="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-3 rounded-xl border border-border/50 bg-background/95 px-4 py-3 shadow-sm">
   <p role="status" class="min-w-0 flex-1 text-sm text-muted-foreground">

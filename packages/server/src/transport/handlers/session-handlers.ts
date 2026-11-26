@@ -1,6 +1,7 @@
 import { readSessionExecution } from '../../data/sessions/session-executions'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import { privateProviderInstances } from '../../execution/seats/provider-instances'
+import { isInstanceProvider } from '@solus/contracts/provider-instances'
 import { captureActingScope } from '../../vault/acting-scope'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
@@ -31,7 +32,7 @@ import type { ShareManager } from '../../sharing/share-manager'
 import { mayAnswerFor } from '../../execution/sessions/turn-organization'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
-import { chatFolderFor, projectsRootFor } from '../../workspace'
+import { chatFolderFor, chatHomeFor, projectsRootFor } from '../../workspace'
 import { actingPreferences } from '../../execution/person-settings'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { sessionStarterFromHostSchema } from '@solus/contracts/session-starter'
@@ -186,17 +187,18 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
   const binaryPath = await resolveAgentBinary(metadata.id)
   const scope = captureActingScope()
   const personKey = scope?.personKey
-  if (personKey && (metadata.id === 'codex' || metadata.id === 'claude-code')) {
+  const provider = metadata.id
+  if (personKey && isInstanceProvider(provider)) {
     const snapshot = privateProviderInstances().snapshot(personKey)
     const cliPath = await warmCliPath()
     const home = scope?.identity.launchOptionsSync().env.HOME
-    const instances = snapshot.instances.filter((instance) => instance.provider === metadata.id).map((instance) => {
+    const instances = snapshot.instances.filter((instance) => instance.provider === provider).map((instance) => {
       const path = instance.binaryPath.startsWith('~/') && home ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath
       const customBinary = path ? isAbsolute(path) ? existsSync(path) ? path : null : findOnPath(path, cliPath) : binaryPath
       const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups } = instance
       return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups, binaryAvailable: !!customBinary }
     })
-    return agentForProject({ ...metadata, binaryPath: binaryPath ?? undefined, instancePreferences: { selected: snapshot.selected[metadata.id], instances, projects: snapshot.projects } })
+    return agentForProject({ ...metadata, binaryPath: binaryPath ?? undefined, instancePreferences: { selected: snapshot.selected[provider] ?? provider, instances, projects: snapshot.projects } })
   }
   return {
     ...metadata,
@@ -597,7 +599,14 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   })
 
   server.register('getPluginCommands', (args, handlerCtx) => {
-    const [workingDirectory, ctx] = args
+    const [requestedDirectory, ctx] = args
+    // A new chat's composer asks before the chat has a folder. It has no
+    // project commands, so they are read where the person's chats live.
+    const workingDirectory = requestedDirectory === NEW_CHAT_DIRECTORY ? chatHomeFor(handlerCtx.principal) : requestedDirectory
+    if (ctx?.session.workingDirectory === NEW_CHAT_DIRECTORY) {
+      ctx.session.workingDirectory = workingDirectory
+      ctx.session.projectPath = workingDirectory
+    }
     const agentId = agentIdFromContext(ctx)
     return sessionRuntime.history.listPluginCommands(agentId, workingDirectory, ctx, sessionRuntime.commandSeatFor(handlerCtx.actor, agentId))
   })

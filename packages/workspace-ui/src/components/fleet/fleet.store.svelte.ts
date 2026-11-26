@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import type { HostDiskSpace } from '@solus/contracts/host-resources'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostReadinessCopy } from '@solus/client-core/host-readiness'
 import { serversStore, type ServerItem } from '../../contexts'
@@ -25,6 +26,8 @@ export interface HostLoad {
   latencyMs: number | null
   cpuCount: number | null
   totalMemoryBytes: number | null
+  /** The disk of the host's Solus data folder. Null when the host could not read it, or is too old to say. */
+  disk: HostDiskSpace | null
   cpuHistory: number[]
   /** KB/s each way on this device's connection to the host, between the last two reads; null until there are two. */
   traffic: Traffic | null
@@ -173,6 +176,7 @@ class FleetStore {
         latencyMs: Math.round(performance.now() - startedAt),
         cpuCount: resources.cpuCount,
         totalMemoryBytes: resources.totalMemoryBytes,
+        disk: resources.disk ?? null,
         cpuHistory: cpu === null ? history : [...history, cpu].slice(-HISTORY_POINTS),
         traffic: this.readTraffic(serverId),
       })

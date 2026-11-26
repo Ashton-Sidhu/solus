@@ -1,4 +1,5 @@
 import { managedWorktreeState, type ManagedWorktree, type ManagedWorktreeGroup, type ManagedWorktreeState } from '@solus/contracts/git-types'
+import { formatResourceBytes } from '@solus/client-core/host-resource-watch'
 import { relativeTime } from '../../../lib/relative-time'
 
 /** A status filter: every worktree, or one state. */
@@ -60,23 +61,42 @@ export function statusCount(worktrees: readonly ManagedWorktree[], groupKey: str
   return worktrees.filter((worktree) => (groupKey === 'all' || worktree.group.key === groupKey) && matchesStatus(worktree, status)).length
 }
 
+/** One choice of a group in the Filters menu (`ListFilterGroup`). */
+export interface WorktreeFilterOption<T extends string> {
+  value: T
+  label: string
+  count: number
+}
+
+/** The Project group of the Filters menu: all projects, then each project or codebase. */
+export function projectFilterOptions(worktrees: readonly ManagedWorktree[]): WorktreeFilterOption<string>[] {
+  return [
+    { value: 'all', label: 'All projects', count: worktrees.length },
+    ...worktreeGroupOptions(worktrees).map((option) => ({ value: option.key, label: option.name, count: option.count })),
+  ]
+}
+
+/** The Status group of the Filters menu, counted in the chosen project. */
+export function statusFilterOptions(worktrees: readonly ManagedWorktree[], groupKey: string): WorktreeFilterOption<WorktreeStatusFilter>[] {
+  return WORKTREE_STATUS_FILTERS.map((filter) => ({ ...filter, count: statusCount(worktrees, groupKey, filter.value) }))
+}
+
 /** What the row says about the worktree: the state in words, then when it changed last. */
 export function worktreeStatusText(worktree: ManagedWorktree): string {
   switch (managedWorktreeState(worktree)) {
-    case 'in_use': return 'A session works here'
+    case 'in_use': return 'A turn is running'
     case 'unsaved': return worktree.hasUncommittedWork ? 'Has uncommitted work' : 'Has unmerged commits'
     case 'safe': return 'No unsaved work'
   }
 }
 
-export function lastUsedText(worktree: ManagedWorktree, now = Date.now()): string {
-  return worktree.lastModified ? `last used ${relativeTime(worktree.lastModified, now)}` : ''
+/** The idle sessions bound to it: Delete takes their working folder. */
+export function idleSessions(worktree: ManagedWorktree): ManagedWorktree['sessions'] {
+  return worktree.sessions.filter((session) => !session.isBusy)
 }
 
-export function formatSize(bytes: number): string {
-  const gigabytes = bytes / 1024 ** 3
-  if (gigabytes >= 1) return `${gigabytes.toFixed(1)} GB`
-  return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`
+export function lastUsedText(worktree: ManagedWorktree, now = Date.now()): string {
+  return worktree.lastModified ? `last used ${relativeTime(worktree.lastModified, now)}` : ''
 }
 
 /** The sizes of `worktrees` that are known, added. Null until one is known. */
@@ -97,10 +117,11 @@ export function deleteConfirmText(worktree: ManagedWorktree, bytes: number | nul
   ].filter(Boolean)
   const sentences = [
     lost.length ? `You lose ${lost.join(' and ')}.` : 'No work is lost.',
+    ...idleSessions(worktree).map((session) => `“${session.title}” is open. It loses its working folder; its conversation stays.`),
     worktree.branch
       ? `The branch ${worktree.branch} is deleted${worktree.kind === 'task_folder' ? ' in each repository' : ''}.`
       : null,
-    bytes !== undefined && bytes !== null ? `Frees ${formatSize(bytes)}.` : null,
+    bytes !== undefined && bytes !== null ? `Frees ${formatResourceBytes(bytes)}.` : null,
   ]
   return sentences.filter(Boolean).join(' ')
 }

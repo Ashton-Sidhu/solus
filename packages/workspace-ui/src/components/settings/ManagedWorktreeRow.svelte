@@ -1,13 +1,15 @@
 <script lang="ts">
   /** One worktree or task folder that Solus made: the title of its session,
-   *  its state in words, when it was used last, and its size. Delete asks
-   *  first and names what is lost. One that a session works in offers
-   *  "Open session" in place of Delete. */
-  import { Trash2 as TrashIcon } from "@lucide/svelte";
+   *  its state in words, when it was used last, and its size. Two actions sit
+   *  in the same place on every row: open its session, and delete it. Delete
+   *  asks first and names what is lost; it waits while a turn runs there. */
+  import { ArrowUpRight as OpenIcon, Trash2 as TrashIcon } from "@lucide/svelte";
+  import { formatResourceBytes } from "@solus/client-core/host-resource-watch";
   import { managedWorktreeState, type ManagedWorktree } from "@solus/contracts/types";
   import { Button } from "../ui/button";
+  import { Skeleton } from "../ui/skeleton";
   import McpConfirmPopover from "./McpConfirmPopover.svelte";
-  import { deleteConfirmText, formatSize, lastUsedText, worktreeStatusText } from "./lib/managed-worktrees";
+  import { deleteConfirmText, idleSessions, lastUsedText, worktreeStatusText } from "./lib/managed-worktrees";
 
   interface Props {
     worktree: ManagedWorktree;
@@ -26,35 +28,56 @@
 
   const worktreeState = $derived(managedWorktreeState(worktree));
   const lastUsed = $derived(lastUsedText(worktree));
+  const isSessionOpen = $derived(idleSessions(worktree).length > 0);
+  const openSessionId = $derived(worktree.sessions[0]?.sessionId ?? worktree.sessionId);
 
   async function remove() {
     removeError = (await onRemove()) ?? "";
   }
 </script>
 
-<div class="flex items-center gap-3 py-2.5 pr-3 pl-4">
-  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-    <h4 class="truncate text-sm text-foreground" title={worktree.branch ?? worktree.path}>{worktree.title}</h4>
-    <p class="truncate text-chrome-dense text-muted-foreground">
-      <span class={worktreeState === "unsaved" ? "text-warning" : worktreeState === "in_use" ? "text-foreground" : ""}>{worktreeStatusText(worktree)}</span>{#if lastUsed}&nbsp;· {lastUsed}{/if}
+<div class="flex min-h-15 items-center gap-4 py-2.5 pr-2.5 pl-4">
+  <div class="flex min-w-0 flex-1 flex-col gap-1">
+    <h4 class="truncate text-sm font-medium tracking-[-0.005em] text-foreground" title={worktree.branch ?? worktree.path}>{worktree.title}</h4>
+    <p class="flex min-w-0 items-baseline gap-1.5 text-chrome-dense text-muted-foreground">
+      <span class="shrink-0 {worktreeState === 'unsaved' ? 'text-warning' : worktreeState === 'in_use' ? 'text-foreground' : ''}">{worktreeStatusText(worktree)}</span>
+      {#if isSessionOpen && worktreeState !== "in_use"}
+        <span aria-hidden="true">·</span><span class="shrink-0">Session open</span>
+      {/if}
+      {#if lastUsed}
+        <span aria-hidden="true">·</span><span class="truncate">{lastUsed}</span>
+      {/if}
     </p>
   </div>
-  <span class="w-16 shrink-0 text-right text-chrome-dense text-muted-foreground tabular-nums @max-[30rem]/pane:hidden">
-    {bytes !== undefined && bytes !== null ? formatSize(bytes) : ""}
-  </span>
-  <div class="flex w-28 shrink-0 justify-end">
-    {#if worktreeState === "in_use"}
-      <Button variant="outline" size="sm" class="text-workspace-chrome" onclick={() => onOpenSession(worktree.sessions[0].sessionId)}>
-        Open session
-      </Button>
-    {:else}
+
+  <div class="flex w-16 shrink-0 justify-end text-chrome-dense text-muted-foreground tabular-nums @max-[30rem]/pane:hidden">
+    {#if bytes === undefined}
+      <Skeleton class="h-2.5 w-11 rounded-[0.1875rem] opacity-60" aria-label="Measuring the size" />
+    {:else if bytes !== null}
+      {formatResourceBytes(bytes)}
+    {/if}
+  </div>
+
+  <div class="flex shrink-0 items-center gap-0.5">
+    <Button
+      size="icon-sm"
+      variant="ghost"
+      class="text-muted-foreground hover:text-foreground pointer-coarse:tap-area {openSessionId ? '' : 'invisible'}"
+      title="Open session"
+      aria-label="Open the session of {worktree.title}"
+      tabindex={openSessionId ? undefined : -1}
+      onclick={() => { if (openSessionId) onOpenSession(openSessionId); }}
+    >
+      <OpenIcon size={16} />
+    </Button>
+    <span title={worktreeState === "in_use" ? "A turn is running here. Wait for it to end, or stop it." : undefined}>
       <Button
         bind:ref={deleteButtonEl}
         size="icon-sm"
         variant="ghost"
         class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
-        disabled={isRemoving}
-        title="Delete"
+        disabled={isRemoving || worktreeState === "in_use"}
+        title={worktreeState === "in_use" ? undefined : "Delete"}
         aria-label="Delete {worktree.title}"
         onclick={() => {
           removeError = "";
@@ -63,17 +86,17 @@
       >
         <TrashIcon size={16} />
       </Button>
-      <McpConfirmPopover
-        bind:open={isConfirming}
-        anchor={deleteButtonEl}
-        title="Delete “{worktree.title}”?"
-        text={deleteConfirmText(worktree, bytes)}
-        action={worktreeState === "unsaved" ? "Delete and lose work" : "Delete"}
-        busyAction="Deleting…"
-        isBusy={isRemoving}
-        error={removeError}
-        onConfirm={() => void remove()}
-      />
-    {/if}
+    </span>
+    <McpConfirmPopover
+      bind:open={isConfirming}
+      anchor={deleteButtonEl}
+      title="Delete “{worktree.title}”?"
+      text={deleteConfirmText(worktree, bytes)}
+      action={worktreeState === "unsaved" ? "Delete and lose work" : "Delete"}
+      busyAction="Deleting…"
+      isBusy={isRemoving}
+      error={removeError}
+      onConfirm={() => void remove()}
+    />
   </div>
 </div>

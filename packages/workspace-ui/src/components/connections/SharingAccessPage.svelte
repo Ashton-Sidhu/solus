@@ -1,7 +1,8 @@
 <script lang="ts">
   /** Settings → Sharing & access, as in T3 Code: the access of one host (its
    *  outside apps, paired devices, and pair codes), for the host chosen in the
-   *  page's host picker. The host page has no copy of it. */
+   *  page's host picker. The host page has no copy of it. Its Solus Cloud link
+   *  is on Settings → Solus Cloud. */
   import { untrack } from "svelte";
   import { connectionsStore } from "../../contexts";
   import HostDetailAccess from "./HostDetailAccess.svelte";

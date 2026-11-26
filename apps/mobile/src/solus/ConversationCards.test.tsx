@@ -1,6 +1,10 @@
+import { sessionWorktreeSetup } from "./session-worktree-setup";
+import { pendingWorktreeSetupCard, settleSetupCard } from "@solus/contracts/setup-card";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
+import { AppProvider } from "@solus-mobile/app/app-context";
+import type { SecretTextInputProps } from "../components/ui/SecretTextInput.types";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { memoryKeyValueStore, memorySecretStore } from "@solus-mobile/platform/ports";
 import { hasOwnCard, type PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
@@ -15,7 +19,7 @@ import {
 import { PendingApprovalCard } from "../features/threads/PendingApprovalCard";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ThreadSubagentGroup } from "../features/threads/thread-subagent-group";
 import { conversationFeed } from "./conversation-feed";
 import { remoteAgentChild } from "./agent-child-host";
@@ -62,6 +66,20 @@ vi.mock("react-native", () => ({
 vi.mock("../components/ui/AppText", () => ({
   AppTextInput: () => <input />,
   AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+}));
+vi.mock("@solus-mobile/components/AppText", () => ({
+  AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+}));
+vi.mock("@solus-mobile/components/AppSymbol", () => ({ SymbolView: () => null }));
+vi.mock("../components/ui/SecretTextInput", () => ({
+  SecretTextInput: (props: SecretTextInputProps) => (
+    <input aria-label={props.accessibilityLabel} disabled={!props.editable} value={props.value}
+      onChange={event => props.onChangeText(event.currentTarget.value)}
+      onKeyDown={event => {
+        if (event.key === "Enter") props.onSubmitEditing(event.currentTarget.value);
+      }}
+    />
+  ),
 }));
 vi.mock("react-native-keyboard-controller", () => ({ useKeyboardState: () => false }));
 vi.mock("../features/threads/thread-inspector-navigation", async () => ({
@@ -223,7 +241,7 @@ async function fixture() {
     act(() => root.unmount());
     app.dispose();
   };
-  return { container, store, root };
+  return { app, container, store, root };
 }
 let afterEachCleanup = () => {};
 afterEach(() => {
@@ -260,6 +278,47 @@ it("sends an opaque permission option unchanged, and private answers only to the
   vi.spyOn(store.controller, "mayApprove", "get").mockReturnValue(false);
   await act(async () => submit!.click());
   expect(secret).toHaveBeenCalledTimes(1);
+});
+
+it("keeps failed worktree offers actionable and shows only the outcome after a decision", async () => {
+  const { store, root, container } = await fixture();
+  const { WorktreeOfferCard } = await vi.importActual<typeof import("@solus-mobile/features/threads/WorktreeOfferCard")>(
+    "@solus-mobile/features/threads/WorktreeOfferCard",
+  );
+  const decide = vi.spyOn(store.controller, "decideWorktreeOffer").mockResolvedValue();
+  const offer = { kind: "worktree_offer" as const, id: "activity", offerId: "offer", branch: "new-branch", path: "/project" };
+  await act(async () => root.render(<WorktreeOfferCard store={store}
+    offer={{ ...offer, resolution: { decision: "failed", error: "Branch is busy" } }} />));
+  expect(container.textContent).toContain("Branch is busy");
+  await act(async () => container.querySelectorAll("button")[1]!.click());
+  expect(decide).toHaveBeenCalledWith("offer", "keep");
+  await act(async () => root.render(<WorktreeOfferCard store={store}
+    offer={{ ...offer, resolution: { decision: "kept" } }} />));
+  expect(container.textContent).toContain("Kept the current checkout");
+  expect(container.textContent).toContain("new-branch");
+  expect(container.querySelector("button")).toBeNull();
+});
+
+it("submits the current keyboard value and the declined secret in request order", async () => {
+  const { app, root, container } = await fixture();
+  const { PendingSecretCard } = await vi.importActual<typeof import("@solus-mobile/features/threads/PendingSecretCard")>(
+    "@solus-mobile/features/threads/PendingSecretCard",
+  );
+  const request: PendingQuestion = { kind: "secret", questionId: "private", questions: ["First", "Second"].map(header => ({
+    header, question: "Private fixture", options: [], multiSelect: false,
+  })) };
+  const submit = vi.fn(async () => {});
+  await act(async () => root.render(<AppProvider app={app}>
+    <PendingSecretCard request={request} mayDrive responding={false} onSubmit={submit} />
+  </AppProvider>));
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Decline First"]')!.click());
+  const input = container.querySelector("input")!;
+  await act(async () => {
+    input.value = "typed fixture";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(submit.mock.calls).toEqual([[[null, "typed fixture"]]]);
+  expect(container.querySelector("input")!.value).toBe("");
 });
 
 it("uses the T3 approval card and keeps approval feedback from racing a button response", async () => {
@@ -572,4 +631,32 @@ it("opens a session guide stop inline with the host patch for its numbered turn"
   expect(read).toHaveBeenCalledTimes(1);
   expect(container.querySelector("pre")?.textContent).toBe(patch);
   expect(container.textContent).toContain("Check the new value.");
+});
+
+it("shows the upstream setup stages until the agent starts and keeps host recovery in Details", async () => {
+  const { store, root, container } = await fixture();
+  const threadId = ThreadId.make("session");
+  const card = pendingWorktreeSetupCard(threadId, "main");
+  const active = sessionWorktreeSetup(store, threadId, card, 1000, true);
+  expect(active?.snapshot.stages.map(stage => [stage.id, stage.status])).toEqual([
+    ["fetch", "running"], ["checkout", "pending"], ["submodules", "pending"], ["agent", "pending"],
+  ]);
+  expect(active?.onWorkLocally).toBeTypeOf("function");
+  expect(sessionWorktreeSetup(store, threadId, settleSetupCard(card, "running"), 1000, true)).toBeNull();
+  const failed = { ...settleSetupCard(card, "failed"), recovery: "worktree" as const, output: ["Checkout failed"] };
+  failed.steps[0]!.substeps = [{ id: "repo", label: "Mobile repo", status: "error", detail: "Fetch failed" }];
+  const recover = vi.spyOn(store.controller, "recoverWorktreeSetup").mockResolvedValue();
+  const props = sessionWorktreeSetup(store, threadId, failed, 1000, true);
+  expect(props?.snapshot.phase).toBe("failed");
+  await act(async () => root.render(props?.extraDetails));
+  expect(container.textContent).toContain("Checkout failed");
+  expect(container.textContent).toContain("Mobile repo · error · Fetch failed");
+  const [retry, local] = container.querySelectorAll("button");
+  await act(async () => retry!.click());
+  await act(async () => local!.click());
+  expect(recover.mock.calls).toEqual([["setup:worktree-session", false], ["setup:worktree-session", true]]);
+  const readOnly = sessionWorktreeSetup(store, threadId, failed, 1000, false);
+  await act(async () => root.render(readOnly?.extraDetails));
+  expect(container.querySelector("button")).toBeNull();
+  expect(readOnly?.onCancel).toBeNull();
 });

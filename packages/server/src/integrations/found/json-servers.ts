@@ -4,7 +4,8 @@ import { invalidEntry, stdioEntry, urlEntry, type ConfigEntry } from './config-e
 
 /**
  * The JSON config files (docs/plans/mcp-first-class.md §8.1): a project
- * `.mcp.json`, Claude Code's `~/.claude.json`, Cursor's and VS Code's
+ * `.mcp.json`, Claude Code's `~/.claude.json`, Google Antigravity's
+ * `~/.gemini/config/mcp_config.json`, Cursor's and VS Code's
  * `mcp.json`, and Claude Desktop's config. Each holds a table of servers by
  * name, `mcpServers`, or `servers` in VS Code's own format. Keys Solus does not
  * know are ignored. An entry Solus cannot read is kept as an invalid entry, so
@@ -28,6 +29,8 @@ const jsonEntrySchema = z.object({
   env: z.record(z.string(), valueSchema).optional(),
   cwd: z.string().optional(),
   url: z.string().optional(),
+  // Google Antigravity still reads its older name for `url`.
+  serverUrl: z.string().optional(),
   headers: z.record(z.string(), valueSchema).optional(),
 })
 type JsonEntry = z.infer<typeof jsonEntrySchema>
@@ -74,7 +77,8 @@ export function jsonServers(table: ServerTable, place: Omit<FoundPlace, 'name'>)
 }
 
 function jsonEntry(place: FoundPlace, entry: JsonEntry): ConfigEntry {
-  const { type, url, command } = entry
+  const { type, command } = entry
+  const url = entry.url ?? (place.file === 'antigravity-config' ? entry.serverUrl : undefined)
   if (type === 'sse') return url === undefined ? invalidEntry(place) : urlEntry(place, 'sse', { url, headers: [] })
   if (command !== undefined && (type === 'stdio' || type === undefined)) {
     return stdioEntry(place, { command, args: entry.args ?? [], env: Object.entries(entry.env ?? {}), cwd: entry.cwd })

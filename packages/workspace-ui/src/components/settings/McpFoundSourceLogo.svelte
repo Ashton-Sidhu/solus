@@ -11,6 +11,7 @@
   import { Server } from "@lucide/svelte";
   import type { FoundSource } from "@solus/contracts/integrations/found-server-labels";
   import ClaudeIcon from "../ClaudeIcon.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import { ensureIconCollections } from "../../lib/iconify";
   import { APP_LOGOS } from "./lib/app-logos";
@@ -25,6 +26,8 @@
     <span class="flex text-(--brand-claude)"><ClaudeIcon size={14} /></span>
   {:else if source.kind === "codex-config"}
     <OpenAIBlossom size={14} fill="currentColor" />
+  {:else if source.kind === "antigravity-config"}
+    <ProviderMark mark="antigravity" size={14} transparent />
   {:else if source.kind === "cursor" || source.kind === "vscode"}
     <Icon icon={APP_LOGOS.get(source.kind) ?? ""} width={14} height={14} />
   {:else}

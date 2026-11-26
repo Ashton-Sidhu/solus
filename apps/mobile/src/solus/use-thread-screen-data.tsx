@@ -1,3 +1,5 @@
+import { isSessionWorktreeSetup, worktreeSetupCardId } from "@solus/contracts/setup-card";
+import { sessionWorktreeSetup } from "./session-worktree-setup";
 import { parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import { isPickerProvider } from "./use-model-picker-host";
 import { projectThreadContentPresentation, threadSyncStatusLabel } from "../features/threads/threadContentPresentation";
@@ -397,7 +399,16 @@ export function useThreadScreenData({
   const syncStatus = useDelayedStatus(key, showingDraft || meta.phase.kind === "ready"
     ? null
     : threadSyncStatusLabel(feed.length ? "cached" : "synchronizing", contentPresentation.kind, loadError !== null));
+  const setup = store.item("setup:" + worktreeSetupCardId(id));
+  const worktreeCard = setup?.kind === "setup" && isSessionWorktreeSetup(setup.card, id)
+    ? setup.card : null;
+  const mayDrive = controller.mayDrive;
+  const worktreeSetup = useMemo(() => {
+    if (!worktreeCard) return null;
+    return sessionWorktreeSetup(store, threadId, worktreeCard, openedAt, mayDrive);
+  }, [store, threadId, worktreeCard, openedAt, mayDrive]);
   const binding = {
+    worktreeSetup,
     selectedThread: { ...shell, pendingBackgroundTasks: backgroundTasks(controller.model) },
     onStopBackgroundWork: () => void controller.stopBackgroundWork(),
     composerModelSelection: editedModel

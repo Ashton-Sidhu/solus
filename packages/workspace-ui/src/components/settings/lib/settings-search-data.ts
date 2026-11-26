@@ -261,7 +261,7 @@ export const telemetrySettings = [
 export const webhookHostSearchWords = ["webhook", "public url", "hold", "offline", "reverse proxy", "ngrok"];
 
 /** Search words, read by the settings page to find this page from any other. */
-export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "link", "computer", "hosts", "profile", "copy", "address", "self-hosted"];
+export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "profile", "copy", "address", "self-hosted"];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const agentProfileSearchWords = ["agent profile", "profile", "instructions", "extra", "system prompt", "custom", "subagents", "commands", "prompts", "skills", "mcp", "servers", "conflict"];
@@ -290,6 +290,9 @@ export const webhooksSearchWords = ["webhook", "hook", "github", "sender", "deli
 
 /** Search words, read by the settings page to find Sharing & access from any other. */
 export const sharingSearchWords = ["sharing", "access", "mcp", "outside apps", "other apps", "connect an app", "authorized clients", "connected apps", "approve", "sign-in", "pairing", "pair code", "paired devices", "devices", "revoke", "network", "remote access", "tailscale"];
+
+/** Search words, read by the settings page to find Solus Cloud from any other. */
+export const solusCloudSearchWords = ["solus cloud", "cloud", "register", "registration", "tunnel", "internet", "reachable", "connection test", "team access", "organizations", "insights", "delivery"];
 
 /** Search words, read by the settings page to find the Codebases page from any other. */
 export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root", "codebase names", "naming"];

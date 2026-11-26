@@ -67,7 +67,7 @@
       label="No organizations"
       description={status.registered
         ? "This host delivers to no organization yet. Join one on the Solus Cloud website, or share this host with one."
-        : "Sign in to Solus Cloud to register this host and see its organizations."}
+        : "Sign in on Account & sync to register this host and see its organizations."}
     />
   {:else}
     {#each rows as row (row.organizationId)}

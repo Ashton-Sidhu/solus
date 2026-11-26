@@ -1,8 +1,9 @@
-import type {
-  AgentId,
-  PlanReference,
-  SessionReference,
-  WorkReference,
+import {
+  AGENT_IDS,
+  type AgentId,
+  type PlanReference,
+  type SessionReference,
+  type WorkReference,
 } from "@solus/contracts/types";
 import {
   parsePersonMentionHref,
@@ -110,7 +111,6 @@ const CUSTOM_REFERENCE_RE =
 // Claude Code CLI uses — so the token does not end at the first space.
 const FILE_REFERENCE_RE = /(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g;
 const SLASH_REFERENCE_RE = /(^|\s)(\/[a-zA-Z-]+(?::[a-zA-Z-]+)*)/g;
-const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode", "replay"]);
 
 function isPlanStatus(value: string): value is PlanReference["status"] {
   return value === "pending" || value === "accepted" || value === "rejected";
@@ -121,7 +121,7 @@ export function isWorkType(value: string): value is WorkReference["type"] {
 }
 
 export function isAgentId(value: string): value is AgentId {
-  return value === "claude-code" || value === "codex" || value === "opencode" || value === "replay";
+  return AGENT_IDS.some((id) => id === value);
 }
 
 function basename(path: string): string {
@@ -199,7 +199,7 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
   if (url.protocol === "session:") {
     const sessionId = stringParam(url, "sessionId");
     const provider = url.searchParams.get("provider");
-    if (!sessionId || !provider || !isAgentId(provider) || !AGENT_IDS.has(provider)) return null;
+    if (!sessionId || !provider || !isAgentId(provider)) return null;
     const token: SessionReferenceToken = {
       kind: "session",
       sessionId,

@@ -216,6 +216,16 @@
       {@render loadError()}
     {/await}
   {/key}
+{:else if session.settingsTab === "cloud" && selectedSettingsHost}
+  {#key selectedSettingsHost.serverId}
+    {#await settingsSection("cloud")}
+      {@render loading()}
+    {:then { default: SolusCloudPage }}
+      <SolusCloudPage serverId={selectedSettingsHost.serverId} />
+    {:catch}
+      {@render loadError()}
+    {/await}
+  {/key}
 {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
   {#await settingsSection("tools")}
     {@render loading()}

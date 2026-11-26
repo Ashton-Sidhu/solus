@@ -19,7 +19,7 @@ import type { UserId } from '@solus/contracts/user'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { attributionName } from '../../../presence/lib/actor-name'
 import { providerMark, type ProviderMarkId } from '../../../insights/lib/provider'
-import { CATEGORY_META, dueDateMeta, PRIORITY_META, PROVIDER_NAMES } from '../../lib/tasks-api'
+import { CATEGORY_META, PRIORITY_META, PROVIDER_NAMES } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
 /**
@@ -33,7 +33,7 @@ import { linkedPrTitle } from './task-prs'
  * the button that opens the sheet — appeared at a JavaScript rung of 30rem,
  * which left every pane between the two with the properties stacked under the
  * comment composer and no way to reach them otherwise. Above the rung the rail
- * is a column, below it the whole rail is the sheet.
+ * is a column; below it the task's facts are a list under the title.
  *
  * 72rem, not 60rem: the 308px rail, its 34px gap and the 52px gutters take
  * 446px, which at 60rem left the task itself a 514px column. At 72rem the
@@ -42,30 +42,6 @@ import { linkedPrTitle } from './task-prs'
  * pane before it squeezes them.
  */
 export const TASK_RAIL_FOLD_MAX = 72 * 16
-
-/**
- * What the Details control states before it opens, where the rail has folded:
- * the few fields a reader looks for first, and only the ones that are set.
- * Status and priority are left out — the line above the title already shows
- * them. An empty summary leaves the control reading "Details" alone.
- */
-export interface TaskDetailsSummary {
-  assignee: string | null
-  due: { label: string; tone: 'overdue' | 'soon' | 'normal' } | null
-  /** The first label, and how many more there are: "bug +2". */
-  labels: string | null
-}
-
-export function taskDetailsSummary(
-  task: Pick<Issue, 'assignee' | 'dueDate' | 'labels'>,
-): TaskDetailsSummary {
-  const [first, ...rest] = task.labels
-  return {
-    assignee: task.assignee?.trim() || null,
-    due: dueDateMeta(task.dueDate),
-    labels: first ? (rest.length ? `${first} +${rest.length}` : first) : null,
-  }
-}
 
 /** True once the properties rail has folded out of the content row. */
 export function isTaskRailFolded(pageWidth: number): boolean {

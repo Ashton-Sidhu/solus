@@ -136,13 +136,15 @@ describe('the grouped list', () => {
 })
 
 describe('where a task row says it lives', () => {
-  test('project and host take the place column, not a chip after the title', () => {
-    // WHY: the list is a table. A project chip trailing each title sat at a
-    // different x on every row and could not be scanned down; a column can.
+  test('project and host are the place fact, and labels are pills on the facts line, not chips', () => {
+    // WHY: the row has the pull request row's shape. Its chips sit beside the
+    // title and are kept for the state that needs colour; where the task lives
+    // and its labels belong to the line under the title.
     const placeFor = () => ({ project: 'acme/app', host: 'Solus Cloud' })
     const row = taskRow(issue(1, 'open', { labels: ['design'] }), 0, NOW, placeFor)
     expect(row.place).toEqual({ project: 'acme/app', host: 'Solus Cloud' })
-    expect(row.chips.map((chip) => chip.label)).toEqual(['design'])
+    expect(row.labels).toEqual(['design'])
+    expect(row.chips).toEqual([])
   })
 
   test('a page that draws no place column gives no row the cell', () => {
@@ -222,11 +224,40 @@ describe('a board card', () => {
   })
 })
 
+describe('the task row', () => {
+  test('carries the status category, which draws its state glyph', () => {
+    // WHY: the glyph is how a row says open, active or done at a glance, the
+    // way a pull request row says open, merged or closed.
+    expect(taskRow(issue(1, 'open'), 0, NOW).category).toBe('open')
+    expect(taskRow(jiraIssue('ACME-1'), 0, NOW).category).toBe('active')
+    expect(taskRow(issue(2, 'done'), 0, NOW).category).toBe('done')
+  })
+
+  test('shows every assignee the provider reports, else its one assignee', () => {
+    // WHY: a shared task can have more than one owner, and the row is where a
+    // person checks who has it.
+    const pair = taskRow(
+      issue(1, 'open', { assignees: [{ login: 'octocat' }, { login: 'hubot', avatarUrl: 'https://avatars.test/hubot' }] }),
+      0,
+      NOW,
+    )
+    expect(pair.people.map((person) => person.id)).toEqual(['octocat', 'hubot'])
+    expect(taskRow(issue(2, 'open', { assignee: 'octocat' }), 0, NOW).people.map((person) => person.id)).toEqual(['octocat'])
+  })
+
+  test('draws three labels and counts the rest', () => {
+    // WHY: the facts line clips at its end; a count says that more exist.
+    const row = taskRow(issue(1, 'open', { labels: ['a', 'b', 'c', 'd', 'e'] }), 0, NOW)
+    expect(row.labels).toEqual(['a', 'b', 'c'])
+    expect(row.moreLabels).toBe(2)
+  })
+})
+
 describe('the chips', () => {
-  test('a task label is the shared pastel pill in the accent, not a neutral ring', () => {
-    // WHY: a label reads the same on a task row, a task page and a pull
-    // request row. The colour is what selects the pill skin.
-    expect(taskRow(issue(1, 'open', { labels: ['design'] }), 0, NOW).chips[0]).toEqual({
+  test('a board card carries the task label as the shared pastel pill in the accent', () => {
+    // WHY: a card has no facts line, so its label is a chip. The colour is
+    // what selects the pill skin.
+    expect(taskBoardCard(issue(1, 'open', { labels: ['design'] }), 0, NOW).chips[0]).toEqual({
       label: 'design',
       labelColor: 'var(--solus-accent)',
     })

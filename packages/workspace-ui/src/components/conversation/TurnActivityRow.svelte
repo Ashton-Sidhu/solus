@@ -2,6 +2,7 @@
   import type { ProviderStartup } from "@solus/contracts/provider-startup";
   import { providerStartupLabel } from "@solus/client-core/provider-startup";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { providerMark } from "../insights/lib/provider";
   import type { Snippet } from "svelte";
   import {
     RotateCcw as ArrowCounterClockwiseIcon,
@@ -93,6 +94,8 @@
   // distinction survives the merge into this row: dots, not a spinner, and the
   // label holds still because nothing is happening.
   const waiting = $derived(live && !runningTool);
+  // The agent's own logo while it starts; Replay has none, so it keeps the dots.
+  const startupMark = $derived(providerMark(providerStartup?.provider));
 
   let now = $state(Date.now());
   const onScreen = conversationIsVisible();
@@ -184,11 +187,8 @@
 >
   {#snippet glyph()}
     {#if rowState === "live"}
-      {#if providerStartup?.provider === "claude-code" || providerStartup?.provider === "codex"}
-        <ProviderMark
-          mark={providerStartup.provider === "codex" ? "codex" : "claude"}
-          transparent
-        />
+      {#if startupMark}
+        <ProviderMark mark={startupMark} transparent />
       {:else if waiting}
         <span class="activity-dots" aria-hidden="true"
           ><span></span><span></span><span></span></span

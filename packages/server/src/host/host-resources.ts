@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, statfs } from 'node:fs/promises'
 import { cpus, freemem, totalmem } from 'node:os'
-import type { HostResources } from '@solus/contracts/host-resources'
+import type { HostDiskSpace, HostResources } from '@solus/contracts/host-resources'
+import { solusDir } from '../platform/paths'
 
 /** Many clients cost one read. */
 const READ_TTL_MS = 5_000
@@ -66,17 +67,33 @@ async function readAvailableMemory(): Promise<number> {
   return fallback
 }
 
+/** `bavail`, not `bfree`: the blocks that a person can write, without the root reserve. */
+export function diskSpaceOf(stats: { bavail: number; blocks: number; bsize: number }): HostDiskSpace | null {
+  const availableBytes = stats.bavail * stats.bsize
+  const totalBytes = stats.blocks * stats.bsize
+  if (!Number.isSafeInteger(availableBytes) || !Number.isSafeInteger(totalBytes) || totalBytes <= 0) return null
+  return { availableBytes: Math.min(availableBytes, totalBytes), totalBytes }
+}
+
+/** The disk of the Solus data folder: task folders and the database live there. Not cached. */
+export async function readDiskSpace(): Promise<HostDiskSpace | null> {
+  const stats = await statfs(solusDir()).catch(() => null)
+  return stats ? diskSpaceOf(stats) : null
+}
+
 async function sampleHostResources(): Promise<HostResources> {
   const before = readCpuCounters()
   await new Promise((resolve) => setTimeout(resolve, CPU_WINDOW_MS))
   const after = readCpuCounters()
   const totalMemoryBytes = totalmem()
+  const disk = await readDiskSpace()
   return {
     sampledAt: Date.now(),
     cpuUtilization: cpuUtilizationBetween(before, after),
     cpuCount: after.count,
     availableMemoryBytes: Math.min(totalMemoryBytes, Math.max(0, await readAvailableMemory())),
     totalMemoryBytes,
+    disk,
   }
 }
 

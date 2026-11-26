@@ -1,3 +1,5 @@
+import { isSessionWorktreeSetup } from "@solus/contracts/setup-card";
+import { compactionDividerText } from "@solus/contracts/context-compaction";
 import { hostNoticeKind, watchNotification } from "@solus/client-core/host-notice";
 import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
@@ -169,6 +171,20 @@ export function conversationFeed(
     const timestamp = "timestamp" in item ? item.timestamp : undefined;
     const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
     const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
+    if (item.kind === "setup" && isSessionWorktreeSetup(item.card, id)) return [];
+    if (item.kind === "notice" || item.kind === "compaction") {
+      const sourceItemId = TurnItemId.make(key);
+      const body = item.kind === "notice"
+        ? { type: "system_notice" as const, message: item.text, level: item.tone }
+        : { type: "compaction" as const, driver: null, summary: compactionDividerText(item.compaction).label,
+            beforeTokenCount: item.compaction.preTokens, afterTokenCount: item.compaction.postTokens };
+      return [{ sourceItemId, sourceThreadId: threadId, position: 0, visibility: "local", hostTime: createdAt,
+        item: { id: sourceItemId, threadId, runId: leadingRun, nodeId: null, providerThreadId: null, providerTurnId: null,
+          nativeItemRef: null, parentItemId: null, ordinal: 0, title: null, startedAt: null, completedAt: null,
+          status: item.kind === "compaction" && item.compaction.isRunning ? "running" : "completed",
+          updatedAt: DateTime.makeUnsafe(date ?? 0), ...body },
+      }];
+    }
     if (item.kind === "artifact") return [htmlRenderRow(threadId, key, item, leadingRun, date && createdAt ? date : null)];
     if (item.kind === "fork") {
       const sourceThreadId = ThreadId.make(item.activity.sourceSessionId);
@@ -360,7 +376,7 @@ export function conversationFeed(
     const update = (key: string) => {
       const item = store.item(key);
       if (!item) return;
-      if (item.kind === "agent" || item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
+      if (item.kind === "setup" || item.kind === "compaction" || item.kind === "notice" || item.kind === "agent" || item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
         observed.set(key, item);
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
       let held = cache.get(item);

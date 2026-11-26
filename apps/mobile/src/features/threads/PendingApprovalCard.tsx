@@ -85,6 +85,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
 }
 
 export function ApprovalCardView(props: {
+  heading?: string;
   title: string;
   detail?: string;
   reason?: string;
@@ -104,7 +105,7 @@ export function ApprovalCardView(props: {
   return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
-        <T>Approval needed</T>
+        {props.heading ?? <T>Approval needed</T>}
       </Text>
       <Text className="font-t3-bold text-lg text-foreground">{props.title}</Text>
       {props.detail ? (

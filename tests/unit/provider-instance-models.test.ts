@@ -1,13 +1,41 @@
 import { describe, expect, test } from 'bun:test'
 import { newProviderInstance } from '@solus/contracts/provider-instances'
 import { isLegacyModel } from '@solus/contracts/types'
-import { instanceModelCatalog, changeModelPreference } from '@solus/contracts/provider-instance-models'
+import { agentForProject, instanceModelCatalog, changeModelPreference } from '@solus/contracts/provider-instance-models'
 import { modelOptionsFor, splitLegacyModels } from '@solus/workspace-ui/components/pickers/lib/picker-selection'
 import { newSessionModel } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
 
 const customModel = { id: 'private-model', label: 'Private model', reasoningLevels: ['low', 'high'] as const, defaultReasoningEffort: 'low' as const, contextWindows: [32000], defaultContextWindow: 32000, supportsFastMode: true }
 
 describe('private instance model catalogs', () => {
+  // WHY: agy offers each account its own models. Once it has reported them they are the list, and
+  // the person's controls (hide, order, custom models) apply to them; a published model it does not
+  // offer would only fail its run.
+  test("a reported catalog keeps only the offered and custom models, under the person's order and hidden models", () => {
+    const instance = newProviderInstance('antigravity', 'antigravity', 'Google Antigravity')
+    instance.hiddenModels = ['gpt-oss-120b-medium']
+    instance.modelOrder = ['gemini-5-preview', 'gemini-3.8-flash']
+    instance.customModels = [{ id: 'gemini-next', label: 'Gemini Next', reasoningLevels: ['high'], defaultReasoningEffort: 'high', contextWindows: [1_000_000], defaultContextWindow: 1_000_000, supportsFastMode: false }]
+    const offered = {
+      'gemini-3.8-flash': { label: 'Gemini 3.8 Flash', reasoningLevels: ['low', 'medium', 'high'] as const, defaultReasoningEffort: 'high' as const, supportsFastMode: false, contextWindows: [1_048_576], defaultContextWindow: 1_048_576 },
+      'gemini-5-preview': { label: 'Gemini 5 Preview', reasoningLevels: [], defaultReasoningEffort: 'medium' as const, supportsFastMode: false, contextWindows: [1_000_000], defaultContextWindow: 1_000_000 },
+      'gpt-oss-120b-medium': { label: 'GPT-OSS 120B', reasoningLevels: [], defaultReasoningEffort: 'medium' as const, supportsFastMode: false, contextWindows: [131_072], defaultContextWindow: 131_072 },
+    }
+    const metadata = {
+      id: 'antigravity' as const, label: 'Google Antigravity', defaultModel: 'gemini-3.8-flash', modelsOffered: true,
+      models: Object.entries(offered).map(([id, profile]) => ({ id, label: profile.label })),
+      modelProfiles: structuredClone(offered) as never,
+      instancePreferences: { selected: 'antigravity', projects: [], instances: [{ ...instance, binaryAvailable: true }] },
+    }
+    const catalog = agentForProject(metadata)
+    expect(catalog.models.map((model) => model.id)).toEqual(['gemini-5-preview', 'gemini-3.8-flash', 'gemini-next'])
+    // The published default, Gemini 4 Hydrogen, is not offered: the agent's own default stays.
+    expect(catalog.defaultModel).toBe('gemini-3.8-flash')
+    expect(catalog.modelProfiles?.['gemini-4-hydrogen']).toBeUndefined()
+    // The client applies the same catalog again for its project; the answer does not change.
+    expect(agentForProject(catalog).models).toEqual(catalog.models)
+  })
+
   test('custom model capabilities reach native defaults without changing the global catalog', () => {
     const instance = newProviderInstance('codex', 'work', 'Work')
     instance.customModels.push({ ...customModel, reasoningLevels: [...customModel.reasoningLevels] })

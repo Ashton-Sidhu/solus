@@ -1,6 +1,6 @@
 /**
  * The width of a detail panel beside its list — a pull request's review, an
- * Insights turn: the panel opens at the page's own share, the reader drags its
+ * issue, an Insights turn: the panel opens at the page's own share, the reader drags its
  * edge, and the width is remembered on this device, per page. Both sides keep a
  * floor, so the list stays a readable queue and the panel stays a readable
  * record. A page too narrow for both floors does not split at all; the panel
@@ -16,17 +16,19 @@ const DETAIL_PANEL_MAX_PERCENT = 70
 /** Where each page remembers its own width. */
 export const DETAIL_PANEL_WIDTH_KEYS = {
   prs: 'solus.prs.panel-width',
+  tasks: 'solus.tasks.panel-width',
   insights: 'solus.insights.panel-width',
 } as const
 
 export type DetailPanelPage = keyof typeof DETAIL_PANEL_WIDTH_KEYS
 
 /** Where the panel opens before the reader drags it, in percent of the page.
- *  A review reads beside its queue at half. A turn is a wide record — the
+ *  A review reads beside its queue at half, and so does an issue. A turn is a wide record — the
  *  trace, the findings, the rail of cards — and the list beside it is only
  *  navigation, so it opens wider. */
 const DETAIL_PANEL_DEFAULT_PERCENT = {
   prs: 50,
+  tasks: 50,
   insights: 65,
 } as const satisfies Record<DetailPanelPage, number>
 

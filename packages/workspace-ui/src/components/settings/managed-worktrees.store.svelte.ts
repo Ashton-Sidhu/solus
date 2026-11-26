@@ -1,9 +1,10 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@solus/client-core/host-api'
 import { managedWorktreeState, type ManagedWorktree } from '@solus/contracts/git-types'
+import type { HostDiskSpace } from '@solus/contracts/host-resources'
 import { keptBranchNotice } from './lib/managed-worktrees'
 
-type WorktreesApi = Pick<HostApi, 'managedWorktreesList' | 'managedWorktreeRemove' | 'managedWorktreeSizes'>
+type WorktreesApi = Pick<HostApi, 'managedWorktreesList' | 'managedWorktreeRemove' | 'managedWorktreeSizes' | 'hostResources'>
 
 /** Size reads at one time. Each one walks a whole checkout on the host. */
 const SIZE_READS = 2
@@ -20,6 +21,8 @@ export class ManagedWorktreesStore {
   notice = $state('')
   /** The path of the worktree being removed. */
   removing = $state<string | null>(null)
+  /** The free space on the host's disk. Null until read, or when the host cannot say. */
+  disk = $state<HostDiskSpace | null>(null)
   private loadSequence = 0
   /** Only a new list stops the size reads: a removal does not. */
   private sizeSequence = 0
@@ -34,11 +37,18 @@ export class ManagedWorktreesStore {
       this.worktrees = worktrees
       this.loaded = true
       void this.loadSizes(api, ++this.sizeSequence)
+      void this.loadDisk(api, sequence)
     } catch {
       if (sequence === this.loadSequence) this.error = 'Could not load the worktrees. Try again.'
     } finally {
       if (sequence === this.loadSequence) this.loading = false
     }
+  }
+
+  /** Read with the list. A removal answers with a fresh read, so the gain shows at once. */
+  private async loadDisk(api: WorktreesApi, sequence: number): Promise<void> {
+    const resources = await api.hostResources().catch(() => null)
+    if (sequence === this.loadSequence) this.disk = resources?.disk ?? null
   }
 
   /** The list shows first; each size arrives when the host has measured it. */
@@ -74,6 +84,7 @@ export class ManagedWorktreesStore {
         case 'removed':
           if (index !== -1) this.worktrees.splice(index, 1)
           this.sizes.delete(worktree.path)
+          if (result.disk !== undefined) this.disk = result.disk
           if (result.branchError) this.notice = keptBranchNotice(worktree, result.branchError)
           return null
         case 'unsaved':

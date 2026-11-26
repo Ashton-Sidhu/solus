@@ -949,7 +949,7 @@ function toFeedActivity(
   });
   return {
     id: `${row.visibility}:${row.sourceThreadId}:${row.sourceItemId}`,
-    createdAt: row.hostTool ? row.hostTime ?? createdAt : createdAt,
+    createdAt: row.hostTime ?? createdAt,
     runId: item.runId,
     attemptId,
     get summary() {

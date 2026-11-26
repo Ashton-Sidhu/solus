@@ -45,7 +45,6 @@
       onSubmit={onComment}
       {providerName}
       class={stacked ? "static bottom-auto p-0 [background:none]" : undefined}
-      compact={stacked}
       placeholder={stacked ? `Comment on ${taskRef}…` : undefined}
     />
   </div>

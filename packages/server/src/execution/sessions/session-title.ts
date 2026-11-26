@@ -11,10 +11,10 @@ import {
   type SessionMetadataGenerationContext,
 } from '@solus/contracts/types'
 import { resolveTextGenerationModel } from '../../host/settings'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
+import { DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
 import type { SeatResolver, TurnSeat } from '../seats/seat-manager'
-import { writingBackendFor } from '../agents/writing-backend'
+import { writingBackendFor, type WritingProvider } from '../agents/writing-backend'
 
 const log = createLogger('main', 'session-title')
 
@@ -26,12 +26,8 @@ const METADATA_ATTEMPTS = 3
  *  provider response, and a new run is faster than more waiting. */
 const METADATA_ATTEMPT_TIMEOUT_MS = 20_000
 
-/** The cheapest model each backend has that still writes useful metadata, at
- * its lowest reasoning setting — scaffolding a thread must never cost a real turn. */
-const METADATA_MODELS = {
-  codex: { model: 'gpt-6-luna', reasoningEffort: 'low' },
-  'claude-code': { model: 'claude-haiku-5-5', reasoningEffort: 'low' },
-} satisfies { codex: { model: string; reasoningEffort: ReasoningEffort }; 'claude-code': { model: string; reasoningEffort: ReasoningEffort } }
+/** A name is scaffolding, never a real turn: the lowest reasoning setting. */
+const METADATA_REASONING_EFFORT: ReasoningEffort = 'low'
 
 const sessionMetadataSchema = z.object({
   title: z.string(),
@@ -148,8 +144,6 @@ function sanitizeDescription(raw: string): string | null {
     : cleaned
 }
 
-export type MetadataBackend = keyof typeof METADATA_MODELS
-
 /**
  * Name a session and describe its task from the opening prompt. Returns null
  * when no backend is available or the model omits either required field;
@@ -203,7 +197,7 @@ async function runSessionMetadata(
 /** The metadata run itself, against an already-chosen backend. */
 export async function generateMetadataWith(
   dispatcher: AgentDispatcher,
-  provider: MetadataBackend,
+  provider: WritingProvider,
   trimmed: string,
   cwd: string,
   selectedModel?: string,
@@ -211,8 +205,7 @@ export async function generateMetadataWith(
   seat?: TurnSeat,
   organizationId: string = LOCAL_ORGANIZATION_ID,
 ): Promise<SessionGeneratedMetadata | null> {
-  const { model: defaultModel, reasoningEffort } = METADATA_MODELS[provider]
-  const model = selectedModel ?? defaultModel
+  const model = selectedModel ?? DEFAULT_TEXT_GENERATION_MODELS[provider]
   const sessionId = context?.sessionId
   let imageAttachments = context?.imageAttachments
   try {
@@ -243,7 +236,7 @@ export async function generateMetadataWith(
         cwd,
         prompt,
         model,
-        reasoningEffort,
+        reasoningEffort: METADATA_REASONING_EFFORT,
         imageAttachments,
         tools: [createSessionMetadataTool((metadata) => {
           submitted = metadata

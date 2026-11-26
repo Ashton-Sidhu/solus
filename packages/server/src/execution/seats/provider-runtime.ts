@@ -6,7 +6,7 @@ import type { ModelProfile } from '@solus/contracts/types'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, symlinkSync, lstatSync, readlinkSync, chownSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
-import type { ProviderInstance } from '@solus/contracts/provider-instances'
+import { DEFAULT_INSTANCE_BINARIES, isInstanceProvider, type ProviderInstance } from '@solus/contracts/provider-instances'
 import type { AgentRunRequest, AgentRunSessionState } from '../agents/agent-runner'
 import type { LaunchOptions } from '../../cli-env'
 import { captureActingScope } from '../../vault/acting-scope'
@@ -41,14 +41,17 @@ function privatePath(value: string, home: string, owner: boolean, seatHome?: str
 
 /** Resolve only the caller's launch settings. Running processes keep their captured configuration. */
 export function prepareProviderRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): AgentRunRequest {
-  if (request.provider !== 'codex' && request.provider !== 'claude-code') return request
+  if (!isInstanceProvider(request.provider)) return request
   const scope = captureActingScope()
   if (!scope?.personKey) return request
   const projectPath = request.projectRoot ?? request.cwd
   const chosen = privateProviderInstances().forRun(scope.personKey, request.provider, sessionState?.sessionId, request.conversation?.kind === 'resume', projectPath ? resolveProjectRoot(resolveHomePath(projectPath)) : undefined)
   const { authEpoch, idleCompaction } = chosen
   const instance = governedInstance(chosen.instance, hostPolicies().forWork(request.organizationId).launch(request.provider))
-  const configured = request.provider === 'claude-code' || idleCompaction === 'off' || authEpoch > 0 || instance.id !== request.provider || hasRuntimeOverrides(instance)
+  // Google Antigravity's instance has only a binary path and models; its sign-in is its seat's.
+  const configured = request.provider === 'antigravity'
+    ? hasRuntimeOverrides(instance)
+    : request.provider === 'claude-code' || idleCompaction === 'off' || authEpoch > 0 || instance.id !== request.provider || hasRuntimeOverrides(instance)
   if (!configured) return request
   const launch = request.seat?.launch
   const token = request.seat?.envToken
@@ -167,7 +170,7 @@ function instancePaths(instance: ProviderInstance, launch: LaunchOptions, owner:
   const baseHome = instance.homePath ? privatePath(instance.homePath, home, owner, seatHome) : undefined
   const shadowHome = instance.shadowHomePath ? privatePath(instance.shadowHomePath, home, owner, seatHome) : undefined
   if (shadowHome && (instance.provider !== 'codex' || !baseHome)) throw new Error('A Codex shadow home needs a CODEX_HOME path.')
-  const binaryPath = instance.binaryPath.startsWith('~/') ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath || (instance.provider === 'codex' ? 'codex' : 'claude')
+  const binaryPath = instance.binaryPath.startsWith('~/') ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath || DEFAULT_INSTANCE_BINARIES[instance.provider]
   if ((binaryPath.includes('/') || binaryPath.includes('\\')) && !isAbsolute(binaryPath)) throw new Error('Use an absolute binary path or an executable name on PATH.')
   const result: InstancePaths = { binaryPath }
   const providerHome = shadowHome ?? baseHome
@@ -177,6 +180,8 @@ function instancePaths(instance: ProviderInstance, launch: LaunchOptions, owner:
 }
 
 function authenticationStamp(provider: ProviderInstance['provider'], providerHome: string | undefined, env: NodeJS.ProcessEnv): number | null {
+  // agy keeps its sign-in in the keychain; its seat's profile owns it.
+  if (provider === 'antigravity') return null
   const home = providerHome ?? join(env.HOME ?? env.USERPROFILE ?? '', provider === 'codex' ? '.codex' : '.claude')
   const authFile = join(home, provider === 'codex' ? 'auth.json' : '.credentials.json')
   try { return lstatSync(authFile).mtimeMs } catch { return null }

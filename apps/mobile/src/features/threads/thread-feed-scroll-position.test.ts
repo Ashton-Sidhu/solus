@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  afterSubmittedRowLands,
   resolveThreadFeedSubmissionAnchor,
   threadOpeningBottomInset,
   resolveThreadWorkGroupInitialScroll,
@@ -105,5 +106,62 @@ describe("resolveThreadFeedSubmissionAnchor", () => {
         queuedMessageCount: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("afterSubmittedRowLands", () => {
+  function frames() {
+    const queue: Array<() => void> = [];
+    return {
+      nextFrame: (callback: () => void) => { queue.push(callback); },
+      step: () => queue.shift()?.(),
+    };
+  }
+
+  it("waits until the list has laid out the new row, then one more frame", () => {
+    // A keyboard that starts closing before the row lands animates to an end without it.
+    const clock = frames();
+    let laidOut = false;
+    let ran = 0;
+    afterSubmittedRowLands({
+      isLaidOut: () => laidOut,
+      nextFrame: clock.nextFrame,
+      isCurrent: () => true,
+      run: () => { ran++; },
+    });
+    clock.step();
+    clock.step();
+    expect(ran).toBe(0);
+    laidOut = true;
+    clock.step();
+    expect(ran).toBe(0);
+    clock.step();
+    expect(ran).toBe(1);
+  });
+
+  it("gives up waiting after a bounded number of frames", () => {
+    const clock = frames();
+    let ran = 0;
+    afterSubmittedRowLands({
+      isLaidOut: () => false,
+      nextFrame: clock.nextFrame,
+      isCurrent: () => true,
+      run: () => { ran++; },
+    });
+    for (let frame = 0; frame < 30; frame++) clock.step();
+    expect(ran).toBe(1);
+  });
+
+  it("does nothing once the send is no longer current", () => {
+    const clock = frames();
+    let ran = 0;
+    afterSubmittedRowLands({
+      isLaidOut: () => true,
+      nextFrame: clock.nextFrame,
+      isCurrent: () => false,
+      run: () => { ran++; },
+    });
+    for (let frame = 0; frame < 30; frame++) clock.step();
+    expect(ran).toBe(0);
   });
 });

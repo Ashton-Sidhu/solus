@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentId, SessionReference } from "./types";
+import { AGENT_IDS, agentIdSchema, type AgentId, type SessionReference } from "./types";
 
 /**
  * A link to a session, as an agent writes it in its reply (`session://open`)
@@ -16,15 +16,8 @@ export interface SessionLinkParams {
   cwd: string | null;
 }
 
-const AGENT_PROVIDERS = new Set<string>([
-  "claude-code",
-  "codex",
-  "opencode",
-  "replay",
-]);
-
 function isAgentId(value: string): value is AgentId {
-  return AGENT_PROVIDERS.has(value);
+  return AGENT_IDS.some((id) => id === value);
 }
 
 /** A session link has two spellings: agent tools write `session://open`, the
@@ -87,7 +80,7 @@ export function sessionReferenceMarkdown(reference: SessionReference): string {
 
 const sessionReferenceSchema = z.object({
   sessionId: z.string().refine((id) => id.trim().length > 0),
-  provider: z.enum(["claude-code", "codex", "opencode", "replay"]),
+  provider: agentIdSchema,
   title: z.string(),
   cwd: z.string(),
   serverId: z.string().optional(),

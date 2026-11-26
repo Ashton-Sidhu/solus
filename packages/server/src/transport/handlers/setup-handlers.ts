@@ -17,7 +17,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { writeMissingCopiedFiles } from '../../git/worktree-include'
 import { COPIED_FILE_MAX_BYTES, COPIED_FILES_MAX_TOTAL_BYTES } from '@solus/contracts/types'
 import type { DispatchCheckoutPathOf, PrepareDispatchCheckout, RepositoryProgress } from '../../execution/sessions/dispatch-repository'
-import { findOnPath, launchedProcess, launchProcess, warmCliPath } from '../../cli-env'
+import { agentExecutables, findOnPath, launchedProcess, launchProcess, warmCliPath } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { withBareRepositoryGuard } from '../../git/bare-repository-guard'
 import { isGitUsable } from '../../git/git-availability'
@@ -194,9 +194,13 @@ export async function probeHostCapabilities(opts: CapabilityProbeOptions): Promi
 /** Capability probes intentionally skip the launcher's cache. Off the main
  *  thread: the capability read is the renderer's first request, and a spawn
  *  that blocks here holds the first transcript page behind it. */
-function whichAgentBinary(agentId: AgentId): Promise<string | null> {
+export function whichAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
   if (!bin) return Promise.resolve(null)
+  // A Solus install is selected by a file, never put on PATH, so `which` cannot find it.
+  const setupAgent = setupAgentSchema.safeParse(bin)
+  const managed = setupAgent.success ? agentExecutables[setupAgent.data].binary : null
+  if (managed) return Promise.resolve(managed)
   // Windows has no `which`, and no member runs as another user there.
   if (process.platform === 'win32') return warmCliPath().then((path) => findOnPath(bin, path))
   return new Promise((resolve) => {

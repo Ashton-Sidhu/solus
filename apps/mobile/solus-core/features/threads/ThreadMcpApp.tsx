@@ -11,6 +11,7 @@ import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, t
 
 import { useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
+import { Button } from "../../../src/components/ui/Button";
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { useHostApi } from "../hosts/use-host-api";
@@ -243,54 +244,60 @@ export function McpAppCard(props: {
 
   return (
     <>
-    <View
-      style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
-      className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
-    >
-      {isFullscreen ? null : frame("inline")}
-      <View className="absolute right-1.5 top-1.5 flex-row gap-1">
-        {offersPip ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Keep in view"
-            onPress={() => setMode("pip")}
-            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
-          >
-            <SymbolView name={{ ios: "pip.enter", android: "visibility" }} size={13} tintColorClassName="accent-icon-muted" />
-          </Pressable>
-        ) : null}
-        {offersFullscreen ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open app full screen"
-            onPress={() => setIsFullscreen(true)}
-            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
-          >
-            <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
-          </Pressable>
-        ) : null}
+      {isFullscreen ? (
+        <View style={{ height, marginBottom: 8 }} className="items-center justify-center rounded-lg border border-border">
+          <Text className="text-sm text-foreground-muted">The {title} app is open full screen</Text>
+        </View>
+      ) : (
+        <View
+          style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
+          className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
+        >
+          {frame("inline")}
+          <View className="absolute right-1.5 top-1.5 flex-row gap-1">
+            {offersPip ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Keep in view"
+                onPress={() => setMode("pip")}
+                className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+              >
+                <SymbolView name={{ ios: "pip.enter", android: "visibility" }} size={13} tintColorClassName="accent-icon-muted" />
+              </Pressable>
+            ) : null}
+            {offersFullscreen ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open app full screen"
+                onPress={() => setIsFullscreen(true)}
+                className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+              >
+                <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close app"
+              onPress={closeApp}
+              className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+            >
+              <SymbolView name="xmark" size={13} tintColorClassName="accent-icon-muted" />
+            </Pressable>
+          </View>
+        </View>
+      )}
+      {fullscreen}
+      {modelContext ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close app"
-          onPress={closeApp}
-          className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+          accessibilityHint="Shows the context"
+          onPress={() => Alert.alert("Context shared with the agent", `The agent gets this with each new turn of this session.\n\n${modelContext}`)}
+          className="mb-2 min-h-11 flex-row items-center gap-2"
         >
-          <SymbolView name="xmark" size={13} tintColorClassName="accent-icon-muted" />
+          <SymbolView name="sparkles" size={16} tintColorClassName="accent-icon-muted" />
+          <Text className="text-sm text-foreground-muted">Context shared with the agent</Text>
         </Pressable>
-      </View>
-      {fullscreen}
-    </View>
-    {modelContext ? (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityHint="Shows the context"
-        onPress={() => Alert.alert("Context shared with the agent", `The agent gets this with each new turn of this session.\n\n${modelContext}`)}
-        className="mb-2 min-h-11 flex-row items-center gap-2"
-      >
-        <SymbolView name="sparkles" size={16} tintColorClassName="accent-icon-muted" />
-        <Text className="text-sm text-foreground-muted">Context shared with the agent</Text>
-      </Pressable>
-    ) : null}
+      ) : null}
     </>
   );
 }
@@ -301,9 +308,10 @@ function McpAppCardLine(props: { readonly title: string; readonly height: number
   return (
     <View style={{ height, marginBottom: 8 }} className="items-center justify-center gap-2 rounded-lg border border-border">
       <Text className="text-sm text-foreground-muted">{isPip ? `The ${title} app is in picture-in-picture` : `The ${title} app was closed`}</Text>
-      <Pressable accessibilityRole="button" onPress={isPip ? props.onReturn : props.onShow} className="min-h-11 justify-center px-3">
-        <Text className="text-sm text-foreground">{isPip ? "Return to card" : "Show app"}</Text>
-      </Pressable>
+      <View className="items-center">
+        <Button label={isPip ? "Return to card" : "Show app"} tone="secondary"
+          onPress={isPip ? props.onReturn : props.onShow} />
+      </View>
     </View>
   );
 }

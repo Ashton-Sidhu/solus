@@ -2,6 +2,7 @@ import { HostPairings } from './host/host-pairings'
 import { registerHostPairingHandlers } from './transport/handlers/host-pairing-handlers'
 import { registerPairApprovalHandlers } from './transport/handlers/pair-approval-handlers'
 import { PairApprovals } from './admission/pair-approvals'
+import { refreshReportedModels } from './execution/agents/reported-models'
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
 import { setCloudMachineTools } from './execution/agents/tools/cloud-machine-tools'
 import { initRunningServers } from './host/running-servers/registry'
@@ -1665,9 +1666,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     opts.sessionRuntime.backendFor(id).on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
   }
   server.register('modelProfilesStatus', () => modelProfiles.status)
-  server.register('modelProfilesRefresh', () => modelProfiles.refresh())
+  // An agent that reports its models only when a session opens is asked again at boot and when a person refreshes the list.
+  const refreshAllReportedModels = () => Promise.all(opts.sessionRuntime.getBackendIds().map((id) => refreshReportedModels(opts.sessionRuntime.backendFor(id))))
+  server.register('modelProfilesRefresh', async () => (await Promise.all([modelProfiles.refresh(), refreshAllReportedModels()]))[0])
   server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
+  void refreshAllReportedModels()
   const modelPrices = new ModelPricesService({ cachePath: join(solusDir(), 'model-prices.json'), download: downloadLiteLlmPrices })
   modelPrices.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
@@ -2309,6 +2313,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A seat changes for one member; only that member's clients hear it.
   domainEventUnsubscribes.push(seats.onChanged((event) => {
     events.publish(clientsForSeat(event.seat), 'host.seatChanged', event)
+    // A new sign-in can change which models the account has.
+    if (event.state === 'connected' && opts.sessionRuntime.getBackendIds().includes(event.provider)) {
+      void refreshReportedModels(opts.sessionRuntime.backendFor(event.provider), seats.connectedSeat(event.seat, event.provider) ?? undefined)
+    }
     // A member's seat just connected: their profile follows them here (plans/020 §4).
     if (event.state === 'connected' && event.seat.kind === 'user' && event.seat.userId.kind === 'account') {
       const target = memberProfileTarget(event.seat.userId.accountId)

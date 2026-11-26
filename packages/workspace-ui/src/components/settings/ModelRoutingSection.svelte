@@ -71,6 +71,7 @@
       >
         {#snippet control()}
           <SessionChip
+            browseAgents
             {selection}
             agents={routingAgents}
             modelOnly

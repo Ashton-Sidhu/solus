@@ -7,12 +7,24 @@ import {
   modelPickerNavigationTarget,
   offersFastMode,
   pickClosesModelPicker,
+  pickModelIn,
   reasoningLevelsFor,
   reservedReasoningRows,
   isSessionSettingsShortcutTarget,
   splitLegacyModels,
   supportsFastModeFor,
 } from "@solus/workspace-ui/components/pickers/lib/picker-selection";
+
+describe("a model pick in a picker that browses agents", () => {
+  // WHY: a settings picker saves each change. A look at another agent's models
+  // saves nothing, so the pick of one of them must move the saved agent too:
+  // an Antigravity model saved under Codex names a model Codex does not have.
+  test("moves the selection to the agent whose model was picked, with an effort that model offers", () => {
+    const selection = { provider: "codex" as const, modelId: "gpt-6-luna", reasoningEffort: "xhigh" as ReasoningEffort, fastMode: true };
+    pickModelIn(selection, "antigravity", "gemini-3.8-flash");
+    expect(selection).toEqual({ provider: "antigravity", modelId: "gemini-3.8-flash", reasoningEffort: "high", fastMode: false });
+  });
+});
 
 describe("legacy model disclosure", () => {
   const CLAUDE = [

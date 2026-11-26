@@ -225,6 +225,7 @@ import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import {
+  afterSubmittedRowLands,
   resolveThreadFeedSubmissionAnchor,
 } from "./thread-feed-scroll-position";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
@@ -413,6 +414,7 @@ const threadVisitTracker = createThreadVisitTracker({
 
 // Past the composer's 180 ms height animation.
 const COMPOSER_HEIGHT_SETTLE_MS = 220;
+const COMPOSER_INSET_SHRINK_TIMING = { duration: 200, reduceMotion: ReduceMotion.System };
 const NO_RUN_STOP_ATOM = Atom.make<RunStopPresentation | null>(null).pipe(
   Atom.withLabel("mobile-thread-run-stop:empty"),
 );
@@ -575,8 +577,6 @@ function ThreadDetailBody(
   };
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [isAtEnd, setIsAtEnd] = useState(true);
-  const [sendingWithKeyboard, setSendingWithKeyboard] = useState(false);
-  if (sendingWithKeyboard && !isKeyboardVisible) setSendingWithKeyboard(false);
   const hasSidebarTabBar = useSidebarWorkspaceTabs() === "picker";
   const composerBottomInset = useComposerBottomInset();
   const composerKeyboardOffset = composerBottomInset;
@@ -1225,12 +1225,25 @@ function ThreadDetailBody(
   );
   const userInputCoverageApplies = Platform.OS === "ios" && activeUserInputRequestId !== null;
   const questionStatusSpace = useAnimatedStyle(() => ({ height: floatingControlCoverage.value }));
+  // The composer reports its height through JS layout events. After a send it collapses while
+  // JS is busy, so its smaller height arrives late in one step; easing a drop lets the list glide
+  // down instead of snapping. A taller composer applies at once so it never covers a row.
+  const composerInset = useSharedValue(estimatedOverlayHeight);
+  useAnimatedReaction(
+    () => contentInsetEndAdjustment.value,
+    (current, previous) => {
+      composerInset.value =
+        previous !== null && current < previous
+          ? withTiming(current, COMPOSER_INSET_SHRINK_TIMING)
+          : current;
+    },
+  );
   const combinedContentInsetEndAdjustment = useSharedValue(estimatedOverlayHeight);
   useAnimatedReaction(
     () =>
       questionInFlow
         ? 0
-        : contentInsetEndAdjustment.value +
+        : composerInset.value +
           // The feed's last row keeps a gap above the composer; the status row grows from it.
           Math.max(FEED_END_GAP, floatingControlCoverage.value) +
           (userInputCoverageApplies
@@ -1400,6 +1413,8 @@ function ThreadDetailBody(
           }
         : undefined;
     let dismissingKeyboard = false;
+    const wasAtEnd = isAtEnd;
+    const contentBeforeSend = listRef.current?.getState().contentLength;
     let firstPromptAnchor: MessageId | null = null;
     const discardFailedAnchor = () => {
       if (firstPromptAnchor !== null && !scope.aborted) {
@@ -1408,7 +1423,9 @@ function ThreadDetailBody(
     };
     const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, (submittedMessageId) => {
       if (scope.aborted) return;
-      if (anchorMessageId === null) {
+      // On iOS a new session's first prompt opens like T3's fresh thread screen: at the end of
+      // the list. An anchor taken before its row exists hides that row until the host's row arrives.
+      if (anchorMessageId === null && !(props.draftMode && Platform.OS === "ios")) {
         firstPromptAnchor = resolveThreadFeedSubmissionAnchor({
           currentAnchorMessageId: null,
           submittedMessageId,
@@ -1422,16 +1439,13 @@ function ThreadDetailBody(
       if (Platform.OS !== "ios") return;
       if (props.draftMode && !KeyboardController.isVisible()) composerEditorRef.current?.blur();
       if (!hasUserMessage || !KeyboardController.isVisible()) return;
-      setSendingWithKeyboard(true);
       dismissingKeyboard = true;
     }).catch((error) => {
       discardFailedAnchor();
-      if (!scope.aborted) setSendingWithKeyboard(false);
       throw error;
     });
     if (messageId === null || scope.aborted) {
       discardFailedAnchor();
-      if (!scope.aborted) setSendingWithKeyboard(false);
       return messageId;
     }
 
@@ -1442,18 +1456,28 @@ function ThreadDetailBody(
       contentPresentationKind === "ready" &&
       (dismissingKeyboard || (Platform.OS !== "ios" && firstPromptAnchor === messageId));
     if (dismissingKeyboard || followSubmission) {
-      // Commit the optimistic row before UIKit chooses the closing scroll offset.
-      requestAnimationFrame(() => {
-        if (scope.aborted) return;
-        // Scrolling freezes the keyboard inset, so wait until dismissal has removed it.
-        void KeyboardController.dismiss()
-          .then(() => {
-            if (!followSubmission || scope.aborted) return;
-            return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
-          })
-          .catch(() => {
-            if (!scope.aborted) freeze.set(false);
-          });
+      // Lay out the optimistic row before UIKit chooses the closing scroll offset.
+      afterSubmittedRowLands({
+        isLaidOut: () => {
+          const contentLength = listRef.current?.getState().contentLength;
+          return contentBeforeSend !== undefined && contentLength !== undefined &&
+            contentLength > contentBeforeSend;
+        },
+        nextFrame: requestAnimationFrame,
+        isCurrent: () => !scope.aborted,
+        run: () => {
+          // Scrolling freezes the keyboard inset, so wait until dismissal has removed it.
+          void KeyboardController.dismiss()
+            .then(() => {
+              // At the end, the list already followed the closing keyboard down on the UI
+              // thread, so only a list that was scrolled away from the end glides here.
+              if (!followSubmission || scope.aborted || (dismissingKeyboard && wasAtEnd)) return;
+              return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
+            })
+            .catch(() => {
+              if (!scope.aborted) freeze.set(false);
+            });
+        },
       });
     }
     return messageId;
@@ -1641,7 +1665,6 @@ function ThreadDetailBody(
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
                   composerKeyboardTranslation={composerKeyboardTranslation}
-                  sendingWithKeyboard={sendingWithKeyboard}
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={
                     questionInFlow

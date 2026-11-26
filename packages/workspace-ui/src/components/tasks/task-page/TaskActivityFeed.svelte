@@ -16,6 +16,9 @@
     IssueLink,
     IssueSessionLink,
   } from "@solus/contracts/task-types";
+  import type { PrReactions } from "@solus/contracts/pr-social";
+  import PrReactionBar from "../../prs/PrReactionBar.svelte";
+  import PrReactionPicker from "../../prs/PrReactionPicker.svelte";
   import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
   import UserAvatar from "../../users/UserAvatar.svelte";
   import ActivityRow from "../../activity/ActivityRow.svelte";
@@ -69,6 +72,9 @@
      *  "Activity", so the band states the one thing it does not — which end of
      *  the feed is the newest. */
     stacked?: boolean;
+    /** The provider's reactions on a comment, absent for a comment the
+     *  provider has not taken. */
+    commentReactions?: (comment: IssueComment) => PrReactions | undefined;
   }
 
   let {
@@ -90,6 +96,7 @@
     onRetry,
     onDiscard,
     stacked = false,
+    commentReactions,
   }: Props = $props();
 
   /** The unsent comments with a Retry or a Discard on its way, so that the
@@ -302,12 +309,13 @@
         {@const originSessionId = commentSessionLink(comment, sessions)?.sessionId ?? comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
         {@const delivery = commentDelivery(comment)}
+        {@const reactions = commentReactions?.(comment)}
         <!-- A comment leaves the spine, as on the pull request timeline: a
              full-width card with the author's mark in its tinted header, and
              the rail broken half a gap above and below it. -->
         <li class="relative -my-2.5 bg-background py-2.5">
           <article
-            class="overflow-hidden rounded-lg border bg-background {delivery.state === 'unsent'
+            class="group/comment overflow-hidden rounded-lg border bg-background {delivery.state === 'unsent'
               ? 'border-[color-mix(in_oklch,var(--failure)_45%,var(--border))]'
               : 'border-border/60'}"
           >
@@ -347,6 +355,13 @@
                 <span class="truncate font-medium text-foreground">{commentAuthorName(comment, currentUserId)}</span>
                 <span class="shrink-0 text-muted-foreground">{relativeTime(comment.createdAt)}</span>
               </h3>
+              {#if comment.providerCommentId}
+                <PrReactionPicker
+                  targetId={comment.providerCommentId}
+                  {reactions}
+                  class="size-5 opacity-0 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
+                />
+              {/if}
               {#if delivery.state === "unsent"}
                 <span
                   class="flex shrink-0 items-center gap-1 font-medium text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
@@ -371,6 +386,9 @@
             </div>
             <div class="p-3">
               <CommentMarkdown source={comment.body} policy="local" />
+              {#if comment.providerCommentId}
+                <PrReactionBar targetId={comment.providerCommentId} {reactions} />
+              {/if}
             </div>
             {#if delivery.state === "unsent"}
               {@const busy = busyCommentIds.has(comment.id)}

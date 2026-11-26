@@ -12,6 +12,7 @@ import {
   type SessionOutput,
   type SessionReport,
 } from '@solus/contracts/session-exchange'
+import { AGENT_IDS } from '@solus/contracts/types'
 
 // WHY: the host writes reports and notices into a parent's transcript, and every
 // client reads them back to rebuild the parent's cards after a reload. That
@@ -52,6 +53,14 @@ const round = (items: OrchestrationItem[]) => parseOrchestrationItems(formatPare
 describe('session report v2', () => {
   test('round-trips every field and every output kind, including a reply that imitates the format', () => {
     expect(round([{ type: 'report', report }])).toEqual([{ type: 'report', report }])
+  })
+
+  test('keeps the agent of a report from every agent', () => {
+    // WHY: the codec kept its own list of agents and dropped Antigravity, so
+    // the parent's card lost the child's agent after a reload.
+    for (const provider of AGENT_IDS) {
+      expect(round([{ type: 'report', report: { ...report, provider } }])).toEqual([{ type: 'report', report: { ...report, provider } }])
+    }
   })
 
   test('changed files reach the model as a count, never as paths', () => {

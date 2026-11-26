@@ -30,6 +30,8 @@ type WorktreeSessions = ManagedWorktree['sessions']
 export interface ManagedWorktreeHost {
   /** The sessions bound to a checkout now, as `[sessionId, directory]`. */
   boundDirectories(): Iterable<[sessionId: string, directory: string]>
+  /** Mid-turn, or waiting for an answer: its folder must stay. */
+  isSessionBusy(sessionId: string): boolean
   sessionTitles(sessionIds: string[]): Promise<Map<string, string>>
   /** The task folders of this host that the caller sees. */
   taskFolders(): TaskFolderRecord[]
@@ -67,7 +69,7 @@ async function sessionsIn(folder: string, host: ManagedWorktreeHost): Promise<Wo
   }
   if (!sessionIds.length) return []
   const titles = await host.sessionTitles(sessionIds)
-  return sessionIds.map((sessionId) => ({ sessionId, title: titles.get(sessionId) ?? 'Untitled session' }))
+  return sessionIds.map((sessionId) => ({ sessionId, title: titles.get(sessionId) ?? 'Untitled session', isBusy: host.isSessionBusy(sessionId) }))
 }
 
 interface UnsavedWork {
@@ -131,6 +133,7 @@ function projectGroup(projectPath: string): ManagedWorktreeGroup {
 async function listedWorktree(entry: ListedWorktree, host: ManagedWorktreeHost): Promise<ManagedWorktree | null> {
   if (!(await stat(entry.path).catch(() => null))?.isDirectory()) return null
   const projectPath = worktreeProjectRoot(entry.path)
+  const sessions = await sessionsIn(entry.path, host)
   return {
     path: entry.path,
     kind: 'worktree',
@@ -139,7 +142,9 @@ async function listedWorktree(entry: ListedWorktree, host: ManagedWorktreeHost):
     branch: entry.branch,
     lastModified: await newestChange([entry.path]),
     ...await unsavedWorkOf({ repositoryPath: projectPath, worktreePath: entry.path }),
-    sessions: await sessionsIn(entry.path, host),
+    // No record names the session that made a worktree of one repository: a session there now is the best answer.
+    sessionId: sessions[0]?.sessionId ?? null,
+    sessions,
   }
 }
 
@@ -158,6 +163,7 @@ async function listedTaskFolder(record: TaskFolderRecord, host: ManagedWorktreeH
     branch: record.branch,
     lastModified: await newestChange(checkouts.map((checkout) => checkout.worktreePath)),
     ...await unsavedWorkOfAll(checkouts),
+    sessionId: record.sessionId,
     sessions: await sessionsIn(record.root, host),
   }
 }
@@ -183,8 +189,8 @@ export async function listManagedWorktrees(projectPaths: readonly string[], host
 }
 
 /**
- * Remove a managed worktree or task folder and its branch. One that a live
- * session works in stays. One with unsaved work stays unless `force`. The
+ * Remove a managed worktree or task folder and its branch. One where a
+ * session is busy stays; an idle session there loses its working folder. One with unsaved work stays unless `force`. The
  * default branch of a project stays, also when the worktree has it.
  */
 export async function removeManagedWorktree(folder: string, options: { force: boolean }, host: ManagedWorktreeHost): Promise<ManagedWorktreeRemoveResult> {
@@ -197,7 +203,7 @@ export async function removeManagedWorktree(folder: string, options: { force: bo
   if (!entry) return { status: 'failed', error: `${projectPath} has no worktree at ${target}.` }
 
   const sessions = await sessionsIn(target, host)
-  if (sessions.length) return { status: 'in_use', sessions }
+  if (sessions.some((session) => session.isBusy)) return { status: 'in_use', sessions }
   const exists = (await stat(target).catch(() => null))?.isDirectory() === true
   if (exists && !options.force) {
     const work = await unsavedWorkOf({ repositoryPath: projectPath, worktreePath: target })
@@ -226,7 +232,7 @@ export async function removeManagedWorktree(folder: string, options: { force: bo
 
 async function removeTaskFolderOf(record: TaskFolderRecord, options: { force: boolean }, host: ManagedWorktreeHost): Promise<ManagedWorktreeRemoveResult> {
   const sessions = await sessionsIn(record.root, host)
-  if (sessions.length) return { status: 'in_use', sessions }
+  if (sessions.some((session) => session.isBusy)) return { status: 'in_use', sessions }
   if (!options.force) {
     const work = await unsavedWorkOfAll(checkoutsOf(record))
     if (managedWorktreeState({ sessions, ...work }) === 'unsaved') return { status: 'unsaved', ...work }

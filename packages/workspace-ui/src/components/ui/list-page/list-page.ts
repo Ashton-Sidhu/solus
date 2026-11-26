@@ -348,22 +348,6 @@ export function personFrom(login: string, name?: string, avatarUrl?: string): Li
 }
 
 /**
- * The participants shown after the lead avatar: at most three, then a `+n`
- * tile. Returns the tile count as a number so the row can render it as its own
- * wash-3 chip rather than a person.
- */
-export interface ListParticipants {
-  shown: ListPerson[]
-  overflow: number
-}
-
-export function participantsAfterLead(people: ListPerson[]): ListParticipants {
-  const rest = people.slice(1)
-  if (rest.length <= 3) return { shown: rest, overflow: 0 }
-  return { shown: rest.slice(0, 3), overflow: rest.length - 3 }
-}
-
-/**
  * Every tint resolves to the same three-part recipe — a fill, a text mix, and
  * whether it rings. Components take one tint and read this, so no component
  * hand-picks a fill and a text colour separately and drifts.
@@ -442,56 +426,9 @@ export function statTintColor(tint: ListTint | undefined): string | undefined {
   }
 }
 
-/**
- * Virtual row heights.
- *
- * A virtualiser positions rows by a number, so this is one of the few places
- * CSS cannot make the call (`docs/plans/responsive-surfaces.md`). The numbers
- * therefore have to mirror what the stylesheet actually produces, and the
- * record's is the one that bites: below `@max-[30rem]/pane` a `ListRow` gives
- * its title a line of its own and its meta a second. Sized at the desktop's 44
- * the rows overlapped by 51px each and the list read as garbage.
- *
- * The number is only honest while the row's height is *bounded*. It was not:
- * `ListRow` gives the record a wrapping title, so a title that took two lines
- * painted ~114px into the 95px slot and bled over the row beneath it — visible
- * the moment a row was selected and finally had a background to paint. A height
- * the stylesheet decides after layout cannot be a height the virtualiser is
- * told before it. So each record shape now has a ceiling, and the stylesheet is
- * held to it.
- *
- * Keep in step with `ListRow.svelte` and `TaskListRow.svelte`. If a record's
- * shape changes, this changes with it — `list-row-height.test.ts` pins the
- * arithmetic and `mobile-page-surfaces.test.ts` asserts the pages ask.
- */
+/** A list's group header, as a virtualiser slot. Each page's row states its
+ *  own fixed height beside its row (`PR_LIST_ROW_HEIGHT`, `TASK_LIST_ROW_HEIGHT`). */
 export const LIST_GROUP_HEADER_HEIGHT = 36
-
-/** The three-line record: 24 padding + 20 line 1 + 8 + 19 title + 8 + 16 meta,
- *  plus 19 for the second title line — `ListRow` bounds the title to two lines
- *  at this rung, so that second line is the ceiling rather than the start of an
- *  open-ended run. The record is a card, so the slot carries a 10px gutter on
- *  top of the card itself; `ListRow` states the same 114 as its own height. */
-export const LIST_RECORD_CARD_HEIGHT = 95 + 19
-export const LIST_RECORD_ROW_HEIGHT = LIST_RECORD_CARD_HEIGHT + 10
-
-/** The task list's record row is the redesign's drawer row — a fixed 62px
- *  carrying a one-line title over a line of meta. Fixed is the whole point:
- *  there is no wrapping title left to disagree with this number. */
-export const TASK_RECORD_ROW_HEIGHT = 62
-
-export function listRowHeight(rung: {
-  record: boolean
-  split: boolean
-  /** The task list draws the redesign's drawer row below the record rung; every
-   *  other list draws the three-line record. Above the rung the two are the same
-   *  single line, so this only decides anything at the record. */
-  drawerRow?: boolean
-}): number {
-  if (rung.record) {
-    return rung.drawerRow ? TASK_RECORD_ROW_HEIGHT : LIST_RECORD_ROW_HEIGHT
-  }
-  return rung.split ? 52 : 44
-}
 
 /** A segment between the page and the leaf in a sub page's crumb line. */
 export interface SubPageTrailSegment {

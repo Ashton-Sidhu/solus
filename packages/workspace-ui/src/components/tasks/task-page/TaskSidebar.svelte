@@ -30,10 +30,6 @@
 
   interface Props {
     task: Issue;
-    /** Which of the sidebar's homes this is: the rail beside the task, or a
-     *  panel opened under the task's title where the rail has folded. The panel
-     *  takes the column's rhythm. */
-    variant?: "column" | "panel";
     /** Why each field editor is disabled (`taskFieldLocks`). */
     locks: TaskFieldLocks;
     /** The task's column in each source that lists it. */
@@ -53,7 +49,6 @@
 
   let {
     task,
-    variant = "column",
     locks,
     placements,
     moveGroups,
@@ -66,12 +61,6 @@
     onOpenExternal,
     onOpenAssigneeMenu,
   }: Props = $props();
-
-  // The panel spans the task's column, which can be three rails wide. One list
-  // of 34px rows there leaves every value against the left edge and the rest
-  // of the card empty, so where a row still gets a rail's width the rows pair
-  // up into two columns.
-  const panel = $derived(variant === "panel");
 
   const bars = $derived(priorityBars(task.priority));
   // Issue labels are names alone; the picker draws them in the accent.
@@ -89,11 +78,9 @@
 
 
 <div
-  class={panel
-    ? "@container flex w-full flex-col rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
-    : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"}
+  class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"
 >
-  <div class={panel ? "grid grid-cols-1 gap-x-8 gap-y-1 px-3.5 pt-[15px] pb-4 @[40rem]:grid-cols-2" : GROUP}>
+  <div class={GROUP}>
     <div class={ROW}>
       <span class={ROW_LABEL}>Status</span>
       <TaskStatusMenu
@@ -272,13 +259,7 @@
     <span class="text-muted-foreground opacity-65">
       {task.createdAt ? relativeTime(task.createdAt) : "—"}
     </span>
-    <!-- Across the panel's width the two dates would sit a card apart; they
-         are one fact about the record, so there they stay together. -->
-    {#if panel}
-      <span class="mx-1 h-[11px] w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-    {:else}
-      <span class="flex-1"></span>
-    {/if}
+    <span class="flex-1"></span>
     <span class="text-muted-foreground opacity-80">Updated</span>
     <span class="text-muted-foreground opacity-65">
       {relativeTime(task.updatedAt)}

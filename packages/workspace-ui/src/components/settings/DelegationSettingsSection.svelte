@@ -101,6 +101,7 @@
       <div class="flex items-center justify-end gap-2">
         {#if workerPickerSelection}
           <SessionChip
+            browseAgents
             selection={workerPickerSelection}
             {agents}
             allowFastMode={false}
@@ -129,6 +130,7 @@
       <div class="flex items-center justify-end gap-2">
         {#if fallbackPickerSelection}
           <SessionChip
+            browseAgents
             selection={fallbackPickerSelection}
             {agents}
             allowFastMode={false}

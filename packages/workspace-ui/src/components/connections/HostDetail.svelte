@@ -22,7 +22,7 @@
   import HostDetailProviders from "./HostDetailProviders.svelte";
   import HostDetailEnvironment from "./HostDetailEnvironment.svelte";
   import HostRoutesSection from "./HostRoutesSection.svelte";
-  import { openSharingAccess } from "./lib/sharing-access";
+  import { openHostSettings } from "./lib/sharing-access";
 
   interface Props {
     host: ServerItem;
@@ -116,7 +116,7 @@
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
       <HostRoutesSection serverId={host.id} />
-      <HostDetailOverview {host} {setup} onOpenTab={(next) => (next === "access" ? openSharingAccess(workspace.router, host.id) : (connectionsNav.tab = next))} />
+      <HostDetailOverview {host} {setup} onOpenTab={(next) => (next === "cloud" ? openHostSettings(workspace.router, host.id, "cloud") : (connectionsNav.tab = next))} />
     </Tabs.Content>
     <!-- Mounted only while selected: the tab holds the watch that makes the host sample. -->
     {#if connectionsNav.tab === "resources"}

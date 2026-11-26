@@ -87,7 +87,7 @@
           {/if}
         </div>
         {#if description}
-          <p class="text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">
+          <p class="text-pretty text-[13px] leading-[1.45] text-muted-foreground">
             {description}
           </p>
         {/if}

@@ -282,8 +282,8 @@ function loginCommand(provider: SeatProvider, home: string) {
  * the host's Google credentials (docs/plans/antigravity-provider.md §7).
  */
 function antigravityLoginProcess(profile: string, args: string[]): LaunchedProcess {
-  prepareAntigravityProfile(profile, { method: 'oauth-personal' })
   const base = launchOptions()
+  prepareAntigravityProfile(profile, { method: 'oauth-personal' }, base.user ?? null)
   return launchedProcess({ ...base, env: antigravityEnvironment(base.env, profile, { method: 'oauth-personal' }) }, ANTIGRAVITY_COMMAND, args)
 }
 

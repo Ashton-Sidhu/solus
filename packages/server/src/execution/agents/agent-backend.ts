@@ -141,6 +141,8 @@ export interface AgentBackend extends EventEmitter {
   listPluginCommands(workingDirectory: string, ctx?: IpcContext, seat?: TurnSeat): Promise<PluginCommandsResult>
   /** Invalidates cached plugin/skill commands after an external install. */
   refreshPluginCommands(): Promise<void>
+  /** Asks the agent which models it offers the account, without a turn: for an agent that reports them only when a session opens. `seat`: whose sign-in; absent, the host's. */
+  refreshModels?(seat?: TurnSeat): Promise<void>
   /** Asks for an incremental refresh of durable session metadata when the
    *  provider supports it. Requests in a short window cost one refresh. */
   requestSessionIndexRefresh?(): void

@@ -2,6 +2,7 @@ import type { RunningServer, StopRunningServerResult } from '@solus/contracts/ru
 import { ServerDiscovery } from './discovery'
 
 const REFRESH_MS = 3000
+const MIN_VISIBLE_AGE_MS = 15_000
 
 /** One finished scan, for a reader on the host that follows the registry's refresh (mcp-first-class.md §9). */
 export type RunningServerScan = { at: number; servers: RunningServer[]; listeningPorts: ReadonlySet<number> } | { at: number; error: string }
@@ -17,7 +18,9 @@ export interface RunningServerRegistryDeps {
 export class RunningServerRegistry {
   private readonly subscribers = new Map<string, { paths: string[] }>()
   private servers: RunningServer[] = []
-  private signature = ''
+  private watchedServers: RunningServer[] = []
+  private watchedSignature = ''
+  private firstSeenByPort = new Map<string, number>()
   private inFlight: Promise<RunningServer[]> | null = null
   private timer: (() => void) | null = null
   private scannedAt = -Infinity
@@ -35,11 +38,7 @@ export class RunningServerRegistry {
       this.scannedAt = this.deps.now()
       this.servers = servers
       this.observed({ at: this.scannedAt, servers, listeningPorts: this.deps.discovery.listeningPorts?.() ?? new Set(servers.flatMap((server) => server.endpoints.map((endpoint) => endpoint.port))) })
-      const signature = JSON.stringify(servers)
-      if (signature !== this.signature) {
-        this.signature = signature
-        this.deps.publish([...this.subscribers.keys()], servers, null)
-      }
+      this.updateWatchedServers(servers, this.scannedAt)
       return servers
     }).finally(() => { this.inFlight = null })
     return this.inFlight
@@ -49,7 +48,31 @@ export class RunningServerRegistry {
     const changed = JSON.stringify(this.subscribers.get(clientId)?.paths ?? []) !== JSON.stringify(paths)
     this.subscribers.set(clientId, { paths })
     if (changed && this.inFlight) await this.inFlight
-    try { return await this.list(changed) } finally { this.schedule() }
+    try {
+      await this.list(changed)
+      return this.watchedServers
+    } finally { this.schedule() }
+  }
+
+  /** The watch drives the UI. Direct discovery also serves previews and stop checks. */
+  private updateWatchedServers(servers: RunningServer[], scannedAt: number): void {
+    const firstSeenByPort = new Map<string, number>()
+    this.watchedServers = servers.flatMap((server) => {
+      const endpoints = server.endpoints.filter((endpoint) => {
+        const key = `${server.serverId}:${endpoint.port}`
+        const firstSeen = this.firstSeenByPort.get(key) ?? scannedAt
+        firstSeenByPort.set(key, firstSeen)
+        return endpoint.response !== null || scannedAt - firstSeen >= MIN_VISIBLE_AGE_MS
+      })
+      if (!endpoints.length) return []
+      return [endpoints.length === server.endpoints.length ? server : { ...server, endpoints }]
+    })
+    this.firstSeenByPort = firstSeenByPort
+    const signature = JSON.stringify(this.watchedServers)
+    if (signature !== this.watchedSignature) {
+      this.watchedSignature = signature
+      this.deps.publish([...this.subscribers.keys()], this.watchedServers, null)
+    }
   }
 
   unwatch(clientId: string): void {
@@ -109,7 +132,7 @@ export class RunningServerRegistry {
   private async tick(): Promise<void> {
     if (!this.subscribers.size) return
     try { await this.list(true) } catch (error) {
-      this.signature = ''
+      this.watchedSignature = ''
       this.observed({ at: this.deps.now(), error: error instanceof Error ? error.message : 'Cannot scan running servers.' })
       this.deps.publish([...this.subscribers.keys()], [], error instanceof Error ? error.message : 'Cannot scan running servers.')
     } finally { this.schedule() }

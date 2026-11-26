@@ -27,20 +27,22 @@
   } from "../lib/tasks-api";
   import {
     isTaskRailFolded,
-    taskDetailsSummary,
     taskFieldLocks,
     linkedWorkProvider,
   } from "./lib/task-page";
   import { taskMoveGroups } from "./lib/task-move";
   import { createTaskPageCommands, toastTaskError } from "./lib/task-page-commands";
   import { taskPrRows } from "./lib/task-prs";
+  import { TaskPageReactions, taskReactions } from "./lib/task-reactions.svelte";
+  import { provideReactionWrites } from "../../prs/lib/pr-reactions.svelte";
+  import { parseIssueKey } from "@solus/contracts/task-sources";
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
   import TaskBottomBar from "./TaskBottomBar.svelte";
   import TaskPrList from "./TaskPrList.svelte";
   import TaskChromeBar from "./TaskChromeBar.svelte";
   import TaskRecordBar from "./TaskRecordBar.svelte";
-  import TaskDetailsTrigger from "./TaskDetailsTrigger.svelte";
+  import TaskFacts from "./TaskFacts.svelte";
   import TaskHeader from "./TaskHeader.svelte";
   import TaskProviderDetails from "./TaskProviderDetails.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
@@ -119,6 +121,23 @@
   const comments = $derived(providerInspection?.comments?.length
     ? mergeTaskComments(details?.comments ?? [], providerInspection.comments)
     : details?.comments ?? []);
+  // Reactions on the issue and its comments, drawn and written as on a pull
+  // request page. A read-only issue shows them without a way to change them.
+  const providerFacts = $derived(providerInspection ?? details?.providerMetadata);
+  const issueId = $derived((task && parseIssueKey(task.id)?.id) ?? "");
+  const viewerCanReact = $derived(
+    !externalIssue && !!taskData &&
+      (providerInspection?.capabilities.reactions ?? !!details?.providerMetadata),
+  );
+  provideReactionWrites(new TaskPageReactions(() => ({
+    data: externalIssue ? undefined : taskData,
+    issueId,
+  })));
+  function reactionsOf(targetId: string | undefined) {
+    return providerFacts && targetId
+      ? taskReactions(providerFacts.reactions, targetId, viewerCanReact)
+      : undefined;
+  }
   const links = $derived(externalIssue ? [] : (details?.links ?? []));
   const linkedWorkIds = $derived(
     links.filter((link) => link.kind === "work").map((link) => link.targetKey),
@@ -318,11 +337,6 @@
   const railFolded = $derived(isTaskRailFolded(paneWidth));
 
   let tab = $state<TaskTabId>("overview");
-  let detailsOpen = $state(false);
-  let detailsTriggerRef = $state<TaskDetailsTrigger | null>(null);
-  // Where the rail folds, its fields open in place under the title, inside
-  // this pane.
-  const detailsSummary = $derived(task ? taskDetailsSummary(task) : null);
   const tabCounts = $derived({
     linked: links.length + prRows.length,
     sessions: sessions.length,
@@ -353,38 +367,20 @@
   });
 </script>
 
-{#snippet detailsTrigger()}
-  {#if detailsSummary}
-    <TaskDetailsTrigger
-      bind:this={detailsTriggerRef}
-      summary={detailsSummary}
-      assigneeAvatarUrl={task?.assigneeAvatarUrl}
-      open={detailsOpen}
-      controls="task-details-panel"
-      onToggle={() => (detailsOpen = !detailsOpen)}
+{#snippet facts()}
+  {#if task && locks}
+    <TaskFacts
+      {task}
+      {locks}
+      {placements}
+      labelCandidates={externalIssue ? [] : labelCandidates}
+      assigneeCandidates={externalIssue ? [] : store.assigneeCandidates(assigneeTarget)}
+      assigneeCandidatesLoading={!externalIssue && store.assigneeCandidatesLoading(assigneeTarget)}
+      assigneeCandidatesError={externalIssue ? null : store.assigneeCandidatesError(assigneeTarget)}
+      onSave={commands.save}
+      onOpenExternal={(url) => void localApi.openExternal(url)}
+      onOpenAssigneeMenu={openAssigneeMenu}
     />
-  {/if}
-{/snippet}
-
-{#snippet detailsPanel()}
-  {#if detailsOpen}
-    <!-- Open, the rail's fields sit between the title and the description.
-         Escape closes them and hands focus back to Details, before the page's
-         own Escape can close the task. -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      id="task-details-panel"
-      class="pt-3"
-      onkeydown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return;
-        event.preventDefault();
-        event.stopPropagation();
-        detailsOpen = false;
-        detailsTriggerRef?.focus();
-      }}
-    >
-      {@render propertiesPanel("panel")}
-    </div>
   {/if}
 {/snippet}
 
@@ -398,26 +394,6 @@
       onComment={comment}
       onStartSession={canStartSession ? commands.startSession : null}
       onOpenPicker={openPicker}
-    />
-  {/if}
-{/snippet}
-
-{#snippet propertiesPanel(variant: "column" | "panel")}
-  {#if task && locks}
-    <TaskSidebar
-      {task}
-      {variant}
-      {locks}
-      {placements}
-      {moveGroups}
-      labelCandidates={externalIssue ? [] : labelCandidates}
-      assigneeCandidates={externalIssue ? [] : store.assigneeCandidates(assigneeTarget)}
-      assigneeCandidatesLoading={!externalIssue && store.assigneeCandidatesLoading(assigneeTarget)}
-      assigneeCandidatesError={externalIssue ? null : store.assigneeCandidatesError(assigneeTarget)}
-      onMove={(target) => void commands.move(target)}
-      onSave={commands.save}
-      onOpenExternal={(url) => void localApi.openExternal(url)}
-      onOpenAssigneeMenu={openAssigneeMenu}
     />
   {/if}
 {/snippet}
@@ -524,15 +500,12 @@
               {moveGroups}
               onMove={(target) => void commands.move(target)}
               onSavePriority={(priority) => void commands.save({ priority })}
-              detailsTrigger={railFolded ? detailsTrigger : undefined}
-              detailsPanel={railFolded ? detailsPanel : undefined}
+              facts={railFolded ? facts : undefined}
             />
 
             <TaskProviderDetails
               {task}
-              {taskData}
-              readOnly={!!externalIssue}
-              {comments}
+              reactions={reactionsOf(issueId)}
               value={providerInspection}
               metadata={details?.providerMetadata}
               onOpenExternal={(url) => void localApi.openExternal(url)}
@@ -623,6 +596,7 @@
                 providerName={PROVIDER_NAMES[task.providerId]}
                 onRetry={externalIssue ? undefined : commands.retryComment}
                 onDiscard={externalIssue ? undefined : commands.discardComment}
+                commentReactions={(comment) => reactionsOf(comment.providerCommentId)}
               />
               {/key}
             {/if}
@@ -634,8 +608,8 @@
                stacked rung it sticks to the foot of the scrollport and gains
                a new run on the right, which is the whole bottom bar.
 
-               Where the rail folds, its fields are reached from Details at the
-               end of the status line, not from a button beside the composer. -->
+               Where the rail folds, its fields are the facts under the title,
+               not a button beside the composer. -->
           {#if !stacked}
             {@render bottomBar()}
           {/if}
@@ -644,11 +618,24 @@
           {/if}
         </div>
 
-        <!-- One definition, two homes: a column beside the content where there
-             is room for one, and a panel under the title where there is not. Rendering it twice
-             would be twenty props kept in step by hand. -->
+        <!-- The rail beside the content where there is room for its column.
+             Where there is not, the header draws the task's facts under the
+             title instead (`TaskFacts`). -->
         {#if !railFolded}
-          {@render propertiesPanel("column")}
+          <TaskSidebar
+            {task}
+            {locks}
+            {placements}
+            {moveGroups}
+            labelCandidates={externalIssue ? [] : labelCandidates}
+            assigneeCandidates={externalIssue ? [] : store.assigneeCandidates(assigneeTarget)}
+            assigneeCandidatesLoading={!externalIssue && store.assigneeCandidatesLoading(assigneeTarget)}
+            assigneeCandidatesError={externalIssue ? null : store.assigneeCandidatesError(assigneeTarget)}
+            onMove={(target) => void commands.move(target)}
+            onSave={commands.save}
+            onOpenExternal={(url) => void localApi.openExternal(url)}
+            onOpenAssigneeMenu={openAssigneeMenu}
+          />
         {/if}
       </div>
     </div>

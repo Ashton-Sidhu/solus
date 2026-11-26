@@ -116,11 +116,15 @@ describe('reading the files (§8.1)', () => {
     write(join(home, '.cursor', 'mcp.json'), { mcpServers: { cursorUser: { url: 'https://cursor.example/mcp' } } })
     write(join(home, '.config', 'Code', 'User', 'mcp.json'), { servers: { vscodeUser: { type: 'http', url: 'https://vscode.example/mcp' } } })
     write(join(home, '.config', 'Claude', 'claude_desktop_config.json'), { mcpServers: { desktop: { command: NODE, args: ['desktop.js'] } } })
+    // Google Antigravity's own file; agy still reads `serverUrl`, its older name for `url`.
+    write(join(home, '.gemini', 'config', 'mcp_config.json'), { mcpServers: { agyRemote: { serverUrl: 'https://agy.example/mcp' }, agyLocal: { command: NODE, args: ['agy.js'] } } })
     codexLayers = [{ name: { type: 'user', file: join(home, '.codex', 'config.toml'), profile: null }, config: { mcp_servers: { codexUser: { url: 'https://codex.example/mcp' } } }, disabledReason: null }]
 
     const list = await found().list(ADMIN, OWNER, { projectPath: project })
     const files = Object.fromEntries(list.servers.map((server) => [server.name, server.foundIn.map((place) => `${place.file}:${place.scope}`)]))
     expect(files).toEqual({
+      agyLocal: ['antigravity-config:user'],
+      agyRemote: ['antigravity-config:user'],
       claudeLocal: ['claude-json:project'],
       claudeUser: ['claude-json:user'],
       codexUser: ['codex-config:user'],
@@ -135,6 +139,7 @@ describe('reading the files (§8.1)', () => {
     expect(list.servers.every((server) => server.state === 'new')).toBe(true)
     // A path as the person reads it, with `~` for the host's home folder.
     expect(byName(list.servers, 'desktop').foundIn[0]!.path).toBe('~/.config/Claude/claude_desktop_config.json')
+    expect(byName(list.servers, 'agyRemote').transport).toMatchObject({ kind: 'http', url: 'https://agy.example/mcp' })
   })
 
   test('a Codex server turned off in its file says so, and the rows Solus cannot add come last', async () => {

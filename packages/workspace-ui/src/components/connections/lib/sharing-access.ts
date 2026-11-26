@@ -7,11 +7,16 @@ export function sharingAccessRoute(serverId: string): RouteRef<'settings'> {
 }
 
 /**
- * Opens Sharing & access for a host from Settings → Hosts: the host's Overview
- * and its menu. It replaces the page, as a change of settings tab does, and
- * closes the host page, so Hosts opens on its list when the person comes back.
+ * Opens Sharing & access or Solus Cloud for a host from Settings → Hosts: the
+ * host's Overview and its menu. It replaces the page, as a change of settings tab
+ * does, and closes the host page, so Hosts opens on its list when the person
+ * comes back.
  */
-export function openSharingAccess(router: { navigate(ref: RouteRef, opts: { replace: boolean }): void }, serverId: string): void {
-  router.navigate(sharingAccessRoute(serverId), { replace: true })
+export function openHostSettings(
+  router: { navigate(ref: RouteRef, opts: { replace: boolean }): void },
+  serverId: string,
+  tab: 'sharing' | 'cloud',
+): void {
+  router.navigate({ name: 'settings', params: { tab, host: serverId } }, { replace: true })
   connectionsNav.back()
 }

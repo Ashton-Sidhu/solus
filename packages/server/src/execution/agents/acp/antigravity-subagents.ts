@@ -159,6 +159,23 @@ function swarmToolOf(title: string, meta: ToolMeta | undefined): SwarmTool | und
   return SWARM_TITLES.get(title) ?? [...SWARM_TITLES.values()].find((tool) => tool === metaTool)
 }
 
+/**
+ * The subagents a call launches, with the role and prompt each was given: a
+ * subagent launch or a swarm worker. Empty for any other call, and for an update
+ * that does not carry the launch's input.
+ */
+export function antigravityLaunches(toolCall: AcpToolCall): Array<{ role: string; prompt: string }> {
+  const card = presentAntigravitySubagentTool(toolCall)
+  if (!card?.isSubagent) return []
+  const several = launchesSchema.safeParse(toolCall.rawInput)
+  const one = launchSchema.safeParse(toolCall.rawInput)
+  const launches = several.success ? several.data.Subagents : one.success ? [one.data] : []
+  const subagents = launches.filter((launch) => launch.Prompt).map((launch) => ({ role: launch.Role ?? '', prompt: launch.Prompt! }))
+  if (subagents.length) return subagents
+  const swarm = swarmInputSchema.safeParse(toolCall.rawInput).data
+  return swarm?.brief ? [{ role: handle(swarm.name), prompt: swarm.brief }] : []
+}
+
 export function presentAntigravitySubagentTool(toolCall: AcpToolCall): AcpToolPresentation | null {
   if (toolCall.kind && toolCall.kind !== 'other' && toolCall.kind !== 'read' && toolCall.kind !== 'think') return null
   const meta = metaSchema.safeParse(toolCall._meta).data

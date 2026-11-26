@@ -205,6 +205,7 @@ export class AgentSoftware extends EventEmitter {
       await mkdir(join(root, 'releases'), { recursive: true })
       await rename(packagePath, join(root, 'releases', releaseName))
       await this.selectPackage({ release: releaseName, binary: release.binary, version })
+      await this.removeReleasesExcept([releaseName, previous?.release])
       this.setOperation('succeeded', version, `${this.adapter.label} ${version} is ready for new processes. Active turns continue with their current version.`)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -213,6 +214,20 @@ export class AgentSoftware extends EventEmitter {
     } finally {
       if (staging) await rm(staging, { recursive: true, force: true }).catch(() => { log.warn('provider_update_cleanup_failed', { agent: this.agent }) })
       await unlock?.().catch(() => { log.warn('provider_update_unlock_failed', { agent: this.agent }) })
+    }
+  }
+
+  /**
+   * Keeps the new release and the one it replaced, which a running turn may
+   * still use; the next install removes that one. Each install extracts a new
+   * folder, so without this every update left a full copy behind.
+   */
+  private async removeReleasesExcept(keep: Array<string | undefined>): Promise<void> {
+    const releases = join(this.executable.root, 'releases')
+    for (const name of await readdir(releases).catch((): string[] => [])) {
+      if (keep.includes(name)) continue
+      await rm(join(releases, name), { recursive: true, force: true })
+        .catch(() => { log.warn('agent_release_remove_failed', { agent: this.agent, release: name }) })
     }
   }
 

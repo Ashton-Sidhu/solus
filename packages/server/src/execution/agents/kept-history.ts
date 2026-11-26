@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
@@ -9,7 +9,7 @@ import { createLogger } from '../../logger'
 
 const log = createLogger('KeptHistory', 'kept-history.ts')
 
-const historySchema = z.array(z.object({
+const rowSchema = z.object({
   role: z.string(),
   content: z.string(),
   timestamp: z.number(),
@@ -25,35 +25,72 @@ const historySchema = z.array(z.object({
   ).optional(),
   planContent: z.string().optional(),
   planToolUseId: z.string().optional(),
-}))
+})
+const historySchema = z.array(rowSchema)
 
 /**
  * The transcript rows that Solus keeps for a provider whose own history it
  * does not read: the replay backend, and the ACP backend
- * (docs/plans/antigravity-provider.md §5.4). One JSON file per provider thread.
+ * (docs/plans/antigravity-provider.md §5.4). One file per provider thread, a
+ * row on each line: a turn only appends, so the session cloud copy carries the
+ * file as it carries a provider's own (`threadFiles`). A file from before that
+ * holds one JSON array; the first append moves its rows to the new file.
  */
 export class KeptHistory {
   constructor(private readonly directory: string) {}
 
-  private file(threadId: string): string {
+  /** The thread's file name, also its name in a session's cloud copy. */
+  fileName(threadId: string): string {
+    return `${threadId.replace(/[^\w-]/g, '_')}.jsonl`
+  }
+
+  /** The thread's file on this host. */
+  file(threadId: string): string {
+    return join(this.directory, this.fileName(threadId))
+  }
+
+  private legacyFile(threadId: string): string {
     return join(this.directory, `${threadId.replace(/[^\w-]/g, '_')}.json`)
   }
 
   read(threadId: string): SessionLoadMessage[] {
     const file = this.file(threadId)
-    if (!existsSync(file)) return []
+    if (existsSync(file)) return this.readLines(file)
+    const legacy = this.legacyFile(threadId)
+    if (!existsSync(legacy)) return []
     try {
-      return historySchema.parse(JSON.parse(readFileSync(file, 'utf8')))
+      return historySchema.parse(JSON.parse(readFileSync(legacy, 'utf8')))
     } catch (error) {
-      log.warn('kept_history_unreadable', { file, error: error instanceof Error ? error.message : String(error) })
+      log.warn('kept_history_unreadable', { file: legacy, error: error instanceof Error ? error.message : String(error) })
       return []
     }
+  }
+
+  /** A line that does not parse, such as one a crash cut short, is left out; the others still read. */
+  private readLines(file: string): SessionLoadMessage[] {
+    const rows: SessionLoadMessage[] = []
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const row = rowSchema.safeParse(JSON.parse(line))
+        if (row.success) rows.push(row.data)
+      } catch {
+        log.warn('kept_history_line_unreadable', { file })
+      }
+    }
+    return rows
   }
 
   append(threadId: string, rows: SessionLoadMessage[]): void {
     try {
       mkdirSync(this.directory, { recursive: true })
-      writeFileSync(this.file(threadId), JSON.stringify([...this.read(threadId), ...rows]))
+      const file = this.file(threadId)
+      const legacy = this.legacyFile(threadId)
+      const earlier = !existsSync(file) && existsSync(legacy) ? this.read(threadId) : []
+      const lines = [...earlier, ...rows].map((row) => `${JSON.stringify(row)}\n`).join('')
+      if (earlier.length) writeFileSync(file, lines)
+      else appendFileSync(file, lines)
+      if (earlier.length) unlinkSync(legacy)
     } catch (error) {
       log.warn('kept_history_write_failed', { error: error instanceof Error ? error.message : String(error) })
     }

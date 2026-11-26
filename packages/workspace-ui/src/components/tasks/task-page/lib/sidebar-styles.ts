@@ -1,9 +1,9 @@
 // The sidebar is one list of properties on a single rhythm: a 34px row with the
 // label in a fixed lead column, which reads as a properties list next to prose.
-// It has two homes — a 308px column beside the task, and a panel under the
-// title where that column has nowhere to be — and the rows are the same in
-// both. Declared once here so the rows cannot drift apart (ADR-0013: type is
-// declared on a surface).
+// Its home is a 308px column beside the task; where that column has nowhere to
+// be, the task's facts are a list under the title instead (`TaskFacts`).
+// Declared once here so the rows cannot drift apart (ADR-0013: type is declared
+// on a surface).
 
 export const ROW = 'flex h-[34px] items-center'
 

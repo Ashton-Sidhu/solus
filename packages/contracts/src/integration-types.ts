@@ -524,9 +524,10 @@ export type IntegrationProcessStartRequest = z.infer<typeof integrationProcessSt
 /**
  * A config file in which another tool keeps MCP servers (mcp-first-class.md
  * §8.1): a project `.mcp.json`, Claude Code's `~/.claude.json`, Codex
- * `config.toml`, Cursor's and VS Code's `mcp.json`, and Claude Desktop's config.
+ * `config.toml`, Google Antigravity's `~/.gemini/config/mcp_config.json`, Cursor's and VS Code's
+ * `mcp.json`, and Claude Desktop's config.
  */
-export const CONFIG_FILE_KINDS = ['mcp-json', 'claude-json', 'codex-config', 'cursor', 'vscode', 'claude-desktop'] as const
+export const CONFIG_FILE_KINDS = ['mcp-json', 'claude-json', 'codex-config', 'antigravity-config', 'cursor', 'vscode', 'claude-desktop'] as const
 export type ConfigFileKind = (typeof CONFIG_FILE_KINDS)[number]
 
 /**

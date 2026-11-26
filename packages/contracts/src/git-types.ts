@@ -1,3 +1,4 @@
+import type { HostDiskSpace } from './host-resources'
 import { z } from 'zod'
 import type { PullRequest } from './providers'
 
@@ -148,15 +149,21 @@ export interface ManagedWorktree {
   hasUncommittedWork: boolean
   /** Its branch has commits that are not in the default branch and not pushed. */
   hasUnmergedCommits: boolean
-  /** The live sessions that work in it. Solus does not remove a worktree in use. */
-  sessions: { sessionId: string; title: string }[]
+  /** The session that made it, for "Open session". Null when the host does not know it. */
+  sessionId: string | null
+  /** The live sessions bound to it. Solus does not remove it while one is busy: mid-turn or waiting for an answer. */
+  sessions: { sessionId: string; title: string; isBusy: boolean }[]
 }
 
 export type ManagedWorktreeState = 'safe' | 'unsaved' | 'in_use'
 
-/** In use, else unsaved when Delete loses work, else safe. The host refuses on the same rule. */
+/**
+ * In use while a session there is busy, else unsaved when Delete loses work,
+ * else safe. An idle session there does not block Delete: it loses its
+ * working folder, and its conversation stays. The host refuses on the same rule.
+ */
 export function managedWorktreeState(worktree: Pick<ManagedWorktree, 'sessions' | 'hasUncommittedWork' | 'hasUnmergedCommits'>): ManagedWorktreeState {
-  if (worktree.sessions.length > 0) return 'in_use'
+  if (worktree.sessions.some((session) => session.isBusy)) return 'in_use'
   return worktree.hasUncommittedWork || worktree.hasUnmergedCommits ? 'unsaved' : 'safe'
 }
 
@@ -167,7 +174,8 @@ export function managedWorktreeState(worktree: Pick<ManagedWorktree, 'sessions' 
  * `branchError` removed the folder but kept the branch.
  */
 export type ManagedWorktreeRemoveResult =
-  | { status: 'removed'; branchError?: string }
+  /** `disk`: the host's disk after the removal, read fresh, so the free space shows the gain at once. */
+  | { status: 'removed'; branchError?: string; disk?: HostDiskSpace | null }
   | { status: 'unsaved'; hasUncommittedWork: boolean; hasUnmergedCommits: boolean }
   | { status: 'in_use'; sessions: ManagedWorktree['sessions'] }
   | { status: 'failed'; error: string }

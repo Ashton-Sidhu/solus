@@ -31,7 +31,8 @@
     return untrack(() => providerInstancesStore.watch(hostId));
   });
   $effect(() => {
-    const id = showShared ? undefined : selected?.id;
+    // Google Antigravity's sign-in is its seat's, so its instance has no status of its own.
+    const id = showShared || selected?.provider === "antigravity" ? undefined : selected?.id;
     const seconds = statusInterval;
     if (id) return untrack(() => client.watchStatus(id, seconds));
   });
@@ -69,7 +70,7 @@
       {#each view.snapshot.instances as instance (instance.id)}
         <button type="button" aria-current={!showShared && selected?.id === instance.id ? "page" : undefined} onclick={() => { selectedId = instance.id; showShared = false; }}
           class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-workspace-chrome whitespace-nowrap focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring {!showShared && selected?.id === instance.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}">
-          <ProviderLogo provider={instance.provider === "codex" ? "codex" : "claude"} />
+          <ProviderLogo provider={instance.provider === "codex" ? "codex" : instance.provider === "antigravity" ? "agy" : "claude"} />
           {instance.displayName}
           {#if view.snapshot.selected[instance.provider] === instance.id && view.snapshot.instances.filter((item) => item.provider === instance.provider).length > 1}<span class="rounded-full border border-border px-1.5 text-xs text-muted-foreground">Default</span>{/if}
           {#if !instance.enabled}<span class="rounded-full border border-border px-1.5 text-xs text-muted-foreground">Off</span>{/if}
@@ -86,14 +87,19 @@
       <ProviderInstancesAdvanced snapshot={view.snapshot} {client} saving={view.saving} />
     {:else if selected}
       {@const canSelect = view.snapshot.selected[selected.provider] !== selected.id}
-      {@const canRemove = selected.id !== "codex" && selected.id !== "claude-code"}
+      <!-- A built-in instance has its provider's id. -->
+      {@const canRemove = selected.id !== selected.provider}
       {#if canSelect || canRemove}
         <div class="flex justify-end gap-2">
           {#if canSelect}<Button variant="outline" size="sm" disabled={view.saving || !selected.enabled} onclick={() => void client.write({ expectedRevision: view.snapshot!.revision, change: { kind: "select", instanceId: selected!.id } })}>Use for new sessions</Button>{/if}
           {#if canRemove}<Button variant="ghost" size="sm" disabled={view.saving} onclick={() => void remove()}>Remove instance</Button>{/if}
         </div>
       {/if}
-      <ProviderInstanceAccount instanceId={selected.id} {client} {view} />
+      {#if selected.provider === "antigravity"}
+        <p class="text-sm text-muted-foreground">Sign in to Google Antigravity in Seats, above. agy keeps one sign-in for each person on this host.</p>
+      {:else}
+        <ProviderInstanceAccount instanceId={selected.id} {client} {view} />
+      {/if}
       {#key `${serverId}:${selected.id}`}
         <ProviderInstanceEditor {serverId} instance={selected} revision={view.snapshot.revision} {client} saving={view.saving} />
       {/key}

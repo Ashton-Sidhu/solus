@@ -449,6 +449,8 @@ export class FoundServers {
       claudeDir
         ? { file: 'claude-json', path: join(claudeDir, '.claude.json'), folder: claudeDir, maxBytes: MAX_CLAUDE_JSON_BYTES }
         : { file: 'claude-json', path: join(home, '.claude.json'), folder: home, maxBytes: MAX_CLAUDE_JSON_BYTES },
+      // agy's global file, where it reads servers in a terminal (`--gemini-dir` defaults to `~/.gemini`).
+      { file: 'antigravity-config', path: join(home, '.gemini', 'config', 'mcp_config.json'), folder: home, maxBytes: MAX_CONFIG_FILE_BYTES },
       { file: 'cursor', path: join(home, '.cursor', 'mcp.json'), folder: home, maxBytes: MAX_CONFIG_FILE_BYTES },
       { file: 'vscode', path: join(appData, 'Code', 'User', 'mcp.json'), folder: appData, maxBytes: MAX_CONFIG_FILE_BYTES },
       { file: 'claude-desktop', path: join(appData, 'Claude', 'claude_desktop_config.json'), folder: appData, maxBytes: MAX_CONFIG_FILE_BYTES },

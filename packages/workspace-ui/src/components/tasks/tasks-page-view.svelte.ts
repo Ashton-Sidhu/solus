@@ -13,7 +13,7 @@ import {
   type BoardView,
   type TaskSort,
 } from './lib/tasks-api'
-import { openColumnIds, taskGroups } from './lib/tasks-list-view'
+import { openColumnIds, taskGroups, type TaskRowSpec } from './lib/tasks-list-view'
 import {
   matchesTaskQuery,
   sourcesFailure,
@@ -257,7 +257,7 @@ export class TasksPageView {
   }
 
   /** One section for each column of the view that has a row. */
-  readonly groups: ListGroupSpec[] = $derived.by(() =>
+  readonly groups: ListGroupSpec<TaskRowSpec>[] = $derived.by(() =>
     taskGroups(
       buildBoard(this.visibleTasks, this.board),
       this.#input.runningSessionsFor,

@@ -1,184 +1,17 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
 import type { ChildProcess } from 'node:child_process'
-import type { NormalizedEvent, PermissionMode } from '@solus/contracts/types'
+import { isLegacyModel, type NormalizedEvent, type PermissionMode } from '@solus/contracts/types'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
-import { AcpBackend, type AcpAgent, type AcpTurnFailure } from '@solus/server/execution/agents/acp/acp-backend'
+import { AcpBackend } from '@solus/server/execution/agents/acp/acp-backend'
+import type { AcpTurnFailure } from '@solus/server/execution/agents/acp/acp-agent'
 import { AcpRequestError } from '@solus/server/execution/agents/acp/acp-connection'
 import { runToolBindingFor, setAgentToolEndpointUrl } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { z } from 'zod'
 import { acpPermissionAnswer } from '@solus/server/execution/agents/acp/acp-permissions'
-
-type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
-type Message = { id?: number | string; method?: string; params?: Json; result?: Json; error?: Json }
-
-const directories: string[] = []
-afterAll(() => { for (const directory of directories) rmSync(directory, { recursive: true, force: true }) })
-function temporaryDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'solus-acp-test-'))
-  directories.push(directory)
-  return directory
-}
-
-/**
- * An ACP agent in memory. A test gives it a handler for each request method;
- * the handler can send updates and requests to the client before it answers.
- */
-class FakeAgent {
-  readonly received: Message[] = []
-  readonly answers = new Map<number | string, Json | undefined>()
-  private nextId = 1000
-  private readonly waiting = new Map<number | string, (result: Json | undefined) => void>()
-  readonly stdin = new PassThrough()
-  readonly stdout = new PassThrough()
-  readonly stderr = new PassThrough()
-
-  constructor(readonly handlers: Partial<Record<string, (params: Json | undefined, agent: FakeAgent) => Promise<Json> | Json>>) {
-    let buffer = ''
-    this.stdin.setEncoding('utf8')
-    this.stdin.on('data', (chunk: string) => {
-      buffer += chunk
-      let newline: number
-      while ((newline = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newline)
-        buffer = buffer.slice(newline + 1)
-        void this.onMessage(JSON.parse(line) as Message)
-      }
-    })
-  }
-
-  methods(): string[] {
-    return this.received.filter((message) => message.method).map((message) => message.method!)
-  }
-
-  update(sessionId: string, update: Json): void {
-    this.send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update } })
-  }
-
-  /** A request to the client; resolves with the client's answer. */
-  request(method: string, params: Json): Promise<Json | undefined> {
-    const id = this.nextId++
-    return new Promise((resolve) => {
-      this.waiting.set(id, resolve)
-      this.send({ jsonrpc: '2.0', id, method, params })
-    })
-  }
-
-  private send(message: Json): void {
-    this.stdout.write(`${JSON.stringify(message)}\n`)
-  }
-
-  private async onMessage(message: Message): Promise<void> {
-    this.received.push(message)
-    if (message.method === undefined && message.id !== undefined) {
-      this.answers.set(message.id, message.result ?? message.error)
-      this.waiting.get(message.id)?.(message.result ?? (message.error as Json))
-      this.waiting.delete(message.id)
-      return
-    }
-    if (message.id === undefined || !message.method) return
-    const handler = this.handlers[message.method]
-    if (!handler) {
-      this.send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } })
-      return
-    }
-    try {
-      this.send({ jsonrpc: '2.0', id: message.id, result: await handler(message.params, this) })
-    } catch (error) {
-      const code = error instanceof AcpRequestError ? error.code : -32603
-      this.send({ jsonrpc: '2.0', id: message.id, error: { code, message: error instanceof Error ? error.message : String(error) } })
-    }
-  }
-}
-
-class FakeChild extends EventEmitter {
-  exitCode: number | null = null
-  signalCode: NodeJS.Signals | null = null
-  readonly pid = undefined
-  constructor(readonly agent: FakeAgent) { super() }
-  get stdin() { return this.agent.stdin }
-  get stdout() { return this.agent.stdout }
-  get stderr() { return this.agent.stderr }
-  kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
-    if (this.exitCode !== null || this.signalCode !== null) return false
-    this.signalCode = signal
-    this.agent.stdout.end()
-    this.emit('exit', null, signal)
-    return true
-  }
-}
-
-const INITIALIZE: Json = {
-  protocolVersion: 1,
-  agentCapabilities: { loadSession: true, mcpCapabilities: { http: true }, sessionCapabilities: { resume: {} } },
-  authMethods: [{ id: 'oauth-personal' }],
-}
-
-const testAgent: AcpAgent = {
-  id: 'antigravity',
-  label: 'Antigravity',
-  signInMessage: 'Sign in to Antigravity.',
-  mcpServerName: 'solus',
-  nameTool: () => null,
-  isSignInRequired: (error) => error instanceof AcpRequestError && error.code === -32000,
-  isQuestion: (toolCallId) => toolCallId.startsWith('interaction_'),
-  sessionMeta: () => undefined,
-  steersWithPrompt: (initialize) => initialize.agentInfo?.version === 'steers',
-  listCommands: () => ({ global: [], project: [] }),
-  launch: () => ({ file: 'agy', args: ['acp'], env: {}, connectionKey: 'profile', authMethod: 'oauth-personal', tempRoot: null }),
-}
-
-function setup(handlers: FakeAgent['handlers'], options: { agents?: FakeAgent[]; agent?: Partial<AcpAgent> } = {}) {
-  const agents = options.agents ?? []
-  const spawns: NodeJS.ProcessEnv[] = []
-  const indexed: Array<{ threadId: string; messages: SessionLoadMessage[] }> = []
-  const backend = new AcpBackend({
-    agent: { ...testAgent, ...options.agent },
-    historyDirectory: temporaryDirectory(),
-    indexMessages: (threadId, messages) => indexed.push({ threadId, messages }),
-    spawnAgent: (_file, _args, spawnOptions) => {
-      spawns.push(spawnOptions.env)
-      const agent = new FakeAgent({
-        initialize: () => INITIALIZE,
-        authenticate: () => ({}),
-        'session/new': () => ({ sessionId: 'thread-1', configOptions: [] }),
-        ...handlers,
-      })
-      agents.push(agent)
-      return new FakeChild(agent) as unknown as ChildProcess
-    },
-  })
-  const events: NormalizedEvent[] = []
-  const exits: Array<{ code: number | null; signal: string | null }> = []
-  backend.on('normalized', (_sessionId: string | null, event: NormalizedEvent) => events.push(event))
-  backend.on('exit', (_sessionId: string | null, code: number | null, signal: string | null) => exits.push({ code, signal }))
-  const errors: Error[] = []
-  backend.on('error', (_sessionId: string | null, error: Error) => errors.push(error))
-  return { backend, events, exits, agents, errors, spawns, indexed }
-}
-
-function request(overrides: Partial<AgentRunRequest> = {}): AgentRunRequest {
-  return {
-    provider: 'antigravity',
-    organizationId: 'local',
-    prompt: 'Fix the bug',
-    cwd: '/tmp',
-    tools: [],
-    permissionMode: 'supervised',
-    persistence: 'session',
-    service: 'session',
-    ...overrides,
-  } as AgentRunRequest
-}
-
-async function settle(promise: Promise<void>): Promise<void> {
-  await promise.catch(() => {})
-}
+import { FakeAgent, FakeChild, INITIALIZE, request, settle, setup, temporaryDirectory, testAgent, type Json } from './helpers/acp-fake-agent'
 
 describe('AcpBackend turns', () => {
   test('a first turn starts a session, streams prose and an edit, and keeps the turn in history', async () => {
@@ -575,14 +408,21 @@ describe('AcpBackend agent commands', () => {
 })
 
 describe('AcpBackend reported models', () => {
-  // agy offers each Google account its own models in `session/new`; one the published list lacks joins the picker.
+  // agy offers each Google account its own models in `session/new`. They are the list: a published
+  // model the account is not offered would only fail its run, and a model the list lacks still runs.
   const configOptions = [{ id: 'model', category: 'model', type: 'select', currentValue: 'gemini-3.8-flash', options: [
-    { value: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+    { value: 'gemini-3.8-flash', name: 'gemini flash' },
     { value: 'gemini-5-preview', name: 'Gemini 5 Preview' },
   ] }]
 
-  test('a model the account offers and the published list lacks joins the picker, and stays after a restart', async () => {
+  test("the account's offered models are the list, labelled by the published list, and stay after a restart", async () => {
     const historyDirectory = temporaryDirectory()
+    const fresh = new AcpBackend({ agent: testAgent, historyDirectory })
+    // Before the first session, the published list.
+    expect(fresh.metadata.models.map((model) => model.id)).toContain('gemini-4-hydrogen')
+    expect(fresh.metadata.modelsOffered).toBeUndefined()
+    fresh.shutdown()
+
     const backend = new AcpBackend({
       agent: testAgent,
       historyDirectory,
@@ -598,14 +438,57 @@ describe('AcpBackend reported models', () => {
     backend.on('models-reported', () => { reports += 1 })
     await backend.startRun(request()).runPromise
     expect(reports).toBe(1)
-    expect(backend.metadata.models.map((model) => model.id)).toContain('gemini-5-preview')
+    expect(backend.metadata).toMatchObject({
+      models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }, { id: 'gemini-5-preview', label: 'Gemini 5 Preview' }],
+      // The published default is not offered, so the first offered model is.
+      defaultModel: 'gemini-3.8-flash',
+      modelsOffered: true,
+    })
+    expect(backend.metadata.modelProfiles?.['gemini-3.8-flash']?.reasoningLevels).toEqual(['low', 'medium', 'high'])
     expect(backend.metadata.modelProfiles?.['gemini-5-preview']).toMatchObject({ label: 'Gemini 5 Preview', reasoningLevels: [] })
-    expect(backend.metadata.models.filter((model) => model.id === 'gemini-3.8-flash')).toHaveLength(1)
+    expect(backend.metadata.modelProfiles?.['gemini-4-hydrogen']).toBeUndefined()
     backend.shutdown()
 
     const restarted = new AcpBackend({ agent: testAgent, historyDirectory })
-    expect(restarted.metadata.models.map((model) => model.id)).toContain('gemini-5-preview')
+    expect(restarted.metadata.models.map((model) => model.id)).toEqual(['gemini-3.8-flash', 'gemini-5-preview'])
     restarted.shutdown()
+  })
+
+  test('a model refresh reads the offered models with no turn, then stops the agent', async () => {
+    // WHY: agy reports the account's models only when a session opens. A new
+    // plan on the account (Pro, say) must show without a person opening one.
+    const { backend, agents } = setup({ 'session/new': () => ({ sessionId: 'thread-1', configOptions }) })
+    let reports = 0
+    backend.on('models-reported', () => { reports += 1 })
+    await Promise.all([backend.refreshModels(), backend.refreshModels()])
+    expect(agents).toHaveLength(1)
+    expect(agents[0]!.methods()).toEqual(['initialize', 'authenticate', 'session/new'])
+    expect(reports).toBe(1)
+    expect(backend.metadata.models.map((model) => model.id)).toEqual(['gemini-3.8-flash', 'gemini-5-preview'])
+    // The agent process ends with the refresh: no session, no idle connection.
+    expect(agents[0]!.stdout.writableEnded).toBe(true)
+    backend.shutdown()
+  })
+
+  test('a model refresh the agent never answers ends with an error and keeps the last list', async () => {
+    const timers: Array<() => void> = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((handler: () => void, ms?: number) => {
+      if (ms === 60_000) { timers.push(handler); return { unref() {} } as unknown as ReturnType<typeof setTimeout> }
+      return realSetTimeout(handler, ms)
+    }) as typeof setTimeout
+    try {
+      const { backend } = setup({ 'session/new': () => new Promise<Json>(() => {}) })
+      const refresh = backend.refreshModels()
+      await Bun.sleep(0)
+      expect(timers).toHaveLength(1)
+      timers[0]!()
+      await expect(refresh).rejects.toThrow('did not report its models')
+      expect(backend.metadata.modelsOffered).toBeUndefined()
+      backend.shutdown()
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
   })
 
   test('a model the account does not offer fails the run with a clear message; an older id of an offered model runs', async () => {
@@ -622,6 +505,66 @@ describe('AcpBackend reported models', () => {
     const legacy = await run('gemini-3.8-flash-high')
     expect(legacy.methods).toContain('session/set_model')
     expect(legacy.methods).toContain('session/prompt')
+  })
+
+  // What agy 1.5.18 answers a Pro account: the model option names each model once,
+  // and `availableModels` names each effort of a model as its own id.
+  const proSetup = {
+    sessionId: 'thread-1',
+    configOptions: [
+      { id: 'model', category: 'model', type: 'select', currentValue: 'gemini-4-carbon', options: [
+        { value: 'gemini-4-neon', name: 'Gemini 4 Neon' },
+        { value: 'gemini-4-carbon', name: 'Gemini 4 Carbon' },
+        { value: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen' },
+        { value: 'gemini-pro-orchestrator', name: 'Orchestrator (Carbon)' },
+        { value: 'gemini-pro-orchestrator-neon', name: 'Orchestrator (Neon)' },
+      ] },
+      { id: 'thought_level', category: 'thought_level', type: 'select', currentValue: 'high', options: [
+        { value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' },
+      ] },
+    ],
+    models: { availableModels: ['gemini-4-neon-high', 'gemini-4-neon-xhigh', 'gemini-4-neon-medium', 'gemini-4-neon-low', 'gemini-4-carbon-medium', 'gemini-4-carbon-high', 'gemini-4-carbon-low', 'gemini-4-hydrogen-low', 'gemini-4-hydrogen-high', 'gemini-pro-orchestrator', 'gemini-pro-orchestrator-neon'].map((modelId) => ({ modelId })) },
+  }
+
+  test("each offered model gets the efforts agy lists for it, even one the published list does not know", async () => {
+    // WHY: agy gives a model's levels in its thinking option only while that
+    // model is selected, so a Pro model such as Neon showed no reasoning at all.
+    const { backend } = setup({ 'session/new': () => proSetup })
+    await backend.refreshModels()
+    const levels = (id: string) => backend.metadata.modelProfiles?.[id]?.reasoningLevels
+    expect(levels('gemini-4-neon')).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(levels('gemini-4-carbon')).toEqual(['low', 'medium', 'high'])
+    // agy's levels win over the published ones; a default it does not offer falls back.
+    expect(levels('gemini-4-hydrogen')).toEqual(['low', 'high'])
+    expect(backend.metadata.modelProfiles?.['gemini-4-hydrogen']?.defaultReasoningEffort).toBe('high')
+    // An orchestrator has no efforts; another model's id that starts with its own is not one.
+    expect(levels('gemini-pro-orchestrator')).toEqual([])
+    backend.shutdown()
+  })
+
+  test('an offered model the published list calls legacy goes under Legacy, as in T3 Code', async () => {
+    // WHY: agy names no legacy models; the published list does, by exact id.
+    const { backend } = setup({ 'session/new': () => ({ sessionId: 'thread-1', configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: 'gemini-3.8-flash', options: [
+      { value: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { value: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash (High)' },
+    ] }] }) })
+    await backend.refreshModels()
+    expect(isLegacyModel('antigravity', 'gemini-3.7-flash-high', backend.metadata.modelProfiles)).toBe(true)
+    expect(isLegacyModel('antigravity', 'gemini-3.8-flash', backend.metadata.modelProfiles)).toBe(false)
+    backend.shutdown()
+  })
+
+  test("switching to a model sends its effort, even one the previous model's options lacked", async () => {
+    // WHY: agy sends the new model's options only after it answers set_model,
+    // and resets the level, so Extra on Neon was dropped in a Carbon session.
+    const { backend, agents } = setup({ 'session/new': () => proSetup, 'session/set_model': () => ({}), 'session/set_config_option': () => ({}), 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    await backend.startRun(request({ model: 'gemini-4-neon', reasoningEffort: 'xhigh' })).runPromise
+    const sent = agents[0]!.received.filter((message) => message.method?.startsWith('session/set_'))
+    expect(sent.map((message) => [message.method, message.params])).toEqual([
+      ['session/set_model', { sessionId: 'thread-1', modelId: 'gemini-4-neon' }],
+      ['session/set_config_option', { sessionId: 'thread-1', configId: 'thought_level', value: 'xhigh' }],
+    ])
+    backend.shutdown()
   })
 })
 

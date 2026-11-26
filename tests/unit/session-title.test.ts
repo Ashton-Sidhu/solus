@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import { generateMetadataWith, sanitizeTitle } from '@solus/server/execution/sessions/session-title'
+import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/settings'
 
 /** A dispatcher that answers the way a backend would: `submitted` is the title
  *  handed to the capture tool (omitted = the tool is never called), `prose` is
@@ -139,6 +140,19 @@ describe('generateMetadataWith', () => {
     })
     await generateMetadataWith(claude, 'claude-code', 'let me rename sessions', '/repo')
     expect(claude.requests[0].model).toBe('claude-haiku-5-5')
+  })
+
+  test('names a session with every writing backend', async () => {
+    // WHY: the title run kept its own list of backends. When Antigravity became
+    // a writing backend, every name for a person who chose Gemini failed.
+    for (const provider of Object.keys(DEFAULT_TEXT_GENERATION_MODELS) as (keyof typeof DEFAULT_TEXT_GENERATION_MODELS)[]) {
+      const dispatcher = dispatcherAnswering({
+        submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
+      })
+      expect(await generateMetadataWith(dispatcher, provider, 'let me rename sessions', '/repo'))
+        .toEqual({ title: 'Session Renaming', description: 'Allow users to rename sessions.' })
+      expect(dispatcher.requests[0]).toMatchObject({ provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider], reasoningEffort: 'low' })
+    }
   })
 
   test('names the durable subject and excludes incidental workflow instructions', async () => {

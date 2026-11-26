@@ -9,7 +9,6 @@
   import MenuRow from './MenuRow.svelte';
   import type { OpenInTarget } from './lib/open-in';
   import { OpenInEditor } from './lib/open-in-editor.svelte';
-  import { openInStore } from './lib/open-in.store.svelte';
 
   let { sourceId, active, openTerminal }: { sourceId: string; active: boolean; openTerminal: () => void } = $props();
   const workspace = getWorkspaceContext();
@@ -29,7 +28,7 @@
   }
 
   function choose(target: OpenInTarget) {
-    openInStore.choose(target);
+    openIn.choose(target);
     // The choice changes `openIn.target`, so its folders are the folders of the new editor.
     open(target);
   }

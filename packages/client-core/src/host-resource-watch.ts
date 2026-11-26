@@ -1,9 +1,8 @@
-import { MAX_TELEMETRY_HISTORY_POINTS, type HostResources, type HostTelemetry, type HostTelemetryEvent, type HostTelemetryPoint, type HostTelemetrySample, type HostTelemetryUnavailableReason } from '@solus/contracts/host-resources'
+import { MAX_TELEMETRY_HISTORY_POINTS, type HostDiskSpace, type HostTelemetry, type HostTelemetryEvent, type HostTelemetryPoint, type HostTelemetrySample, type HostTelemetryUnavailableReason } from '@solus/contracts/host-resources'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 
-/** Machine load moves slowly, and the host caches it for 5 s. This also renews
- *  the telemetry lease, which restores it after a reconnect. */
+/** Renews the telemetry lease well inside its 20 s, which also restores it after a reconnect. */
 const REFRESH_MS = 5_000
 
 export type HostTelemetryView =
@@ -13,17 +12,15 @@ export type HostTelemetryView =
   | { state: 'live'; sample: HostTelemetrySample | null; history: HostTelemetryPoint[] }
   | { state: 'unavailable'; reason: HostTelemetryUnavailableReason }
 
+/** Machine load is not here: the host's summary reads it (`fleetStore`). */
 export interface HostResourceView {
-  /** The last answer. It stays when a read fails, and `stale` says so. */
-  resources: HostResources | null
-  stale: boolean
   telemetry: HostTelemetryView
 }
 
-export const EMPTY_HOST_RESOURCE_VIEW: HostResourceView = { resources: null, stale: false, telemetry: { state: 'loading' } }
+export const EMPTY_HOST_RESOURCE_VIEW: HostResourceView = { telemetry: { state: 'loading' } }
 
 export interface HostResourceWatchOptions {
-  api: Pick<HostApi, 'hostResources' | 'hostTelemetrySubscribe' | 'hostTelemetryUnsubscribe'>
+  api: Pick<HostApi, 'hostTelemetrySubscribe' | 'hostTelemetryUnsubscribe'>
   events: HostEventSubscriber
   /** Asked on each refresh: the host answers permissions after the first read. */
   mayReadProcesses: () => boolean
@@ -46,8 +43,8 @@ export class HostResourceWatch {
   start(): void {
     if (this.timer) return
     this.stopEvents = this.options.events.subscribe('host.telemetry', (event) => this.receive(event))
-    this.timer = setInterval(() => void this.refresh(), REFRESH_MS)
-    void this.refresh()
+    this.timer = setInterval(() => void this.refreshTelemetry(), REFRESH_MS)
+    void this.refreshTelemetry()
   }
 
   stop(): void {
@@ -69,19 +66,6 @@ export class HostResourceWatch {
     this.options.onChange(this.view)
   }
 
-  private async refresh(): Promise<void> {
-    await Promise.all([this.refreshResources(), this.refreshTelemetry()])
-  }
-
-  private async refreshResources(): Promise<void> {
-    try {
-      const resources = await this.options.api.hostResources()
-      if (this.running) this.update({ resources, stale: false })
-    } catch {
-      if (this.running) this.update({ stale: true })
-    }
-  }
-
   private async refreshTelemetry(): Promise<void> {
     if (!this.options.mayReadProcesses()) {
       this.update({ telemetry: { state: 'hidden' } })
@@ -97,7 +81,7 @@ export class HostResourceWatch {
       this.subscribed = true
       this.update({ telemetry: this.withSample(telemetry) })
     } catch {
-      // A dropped host: the last view stays, `stale` says so, and the next refresh renews.
+      // A dropped host: the last view stays, and the next refresh renews.
     }
   }
 
@@ -134,19 +118,14 @@ export function formatResourceBytes(bytes: number): string {
   return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${UNITS[unit]}`
 }
 
-/** "23% of 12 cores". */
-export function machineCpuText(resources: HostResources): string {
-  const cores = `${resources.cpuCount} ${resources.cpuCount === 1 ? 'core' : 'cores'}`
-  return resources.cpuUtilization === null ? `Unknown, ${cores}` : `${Math.round(resources.cpuUtilization * 100)}% of ${cores}`
+/** The used share of a disk, 0 to 100. */
+export function diskUsedPercent(disk: HostDiskSpace): number {
+  return Math.round((1 - disk.availableBytes / disk.totalBytes) * 100)
 }
 
-/** "8.4 GB available of 32 GB". */
-export function machineMemoryText(resources: HostResources): string {
-  return `${formatResourceBytes(resources.availableMemoryBytes)} available of ${formatResourceBytes(resources.totalMemoryBytes)}`
-}
-
-export function machineMemoryUsedShare(resources: HostResources): number {
-  return resources.totalMemoryBytes > 0 ? 1 - resources.availableMemoryBytes / resources.totalMemoryBytes : 0
+/** How much a person can still write: "128 GB free". */
+export function diskFreeText(disk: HostDiskSpace): string {
+  return `${formatResourceBytes(disk.availableBytes)} free`
 }
 
 export function telemetrySummaryText(sample: HostTelemetrySample): string {
@@ -156,7 +135,7 @@ export function telemetrySummaryText(sample: HostTelemetrySample): string {
 
 export function telemetryUnavailableText(reason: HostTelemetryUnavailableReason): string {
   return reason === 'missing'
-    ? 'This host has no resource monitor. Machine load still shows.'
+    ? 'This host has no resource monitor. Machine load shows above.'
     : 'The resource monitor stopped. Solus tries again while this page is open.'
 }
 
@@ -165,11 +144,8 @@ export function telemetryCpuPeak(history: readonly HostTelemetryPoint[]): number
   return Math.max(100, ...history.map((point) => point.cpuPercent))
 }
 
-/** Points scaled to a `width` by `height` box, for an SVG polyline. Null below two points. */
-export function telemetrySparkline(history: readonly HostTelemetryPoint[], width: number, height: number): string | null {
-  if (history.length < 2) return null
+/** Each point's CPU as a percentage of the chart's top (`telemetryCpuPeak`), for a sparkline. */
+export function telemetryCpuShares(history: readonly HostTelemetryPoint[]): number[] {
   const peak = telemetryCpuPeak(history)
-  return history
-    .map((point, index) => `${((index / (history.length - 1)) * width).toFixed(1)},${(height - (point.cpuPercent / peak) * height).toFixed(1)}`)
-    .join(' ')
+  return history.map((point) => (point.cpuPercent / peak) * 100)
 }

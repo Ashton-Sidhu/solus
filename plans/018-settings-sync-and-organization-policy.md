@@ -601,9 +601,9 @@ Desktop and web share `SettingsPage.svelte`; native adds equivalent settings scr
 Keep the web client's one wide workspace layout.
 
 - **Account & sync** (decision 9; the tab's existing label, component renamed from Personal): sign-in status, one sync status for settings
-  and the agent profile with both documents' conflicts, the two clear actions, and one
-  row per host with its account link and what it holds of the profile. Works without a
-  host. Portable preferences stay on their own tabs.
+  and the agent profile with both documents' conflicts, and the two clear actions. It
+  shows no host; a host's account link is on Settings → Solus Cloud (changed 2026-11-26).
+  Works without a host. Portable preferences stay on their own tabs.
 - **Device:** device-only controls and local overrides such as an installed font.
 - **Host:** selected-host operator settings; retain host admission and connection state.
 - **Organization:** explicit organization picker; current rules and their source.

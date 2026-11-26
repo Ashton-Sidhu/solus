@@ -13,7 +13,6 @@ import {
   linkedTableLinks,
   linkedWorkProvider,
   statusTextColor,
-  taskDetailsSummary,
   taskFieldLocks,
   taskSessionRow,
   taskStateLabel,
@@ -438,37 +437,6 @@ describe('the Epic row', () => {
     expect(taskEpicRow({
       epic: { provider: 'jira', externalId: 'ACME-1', url: '', title: 'Release', body: '' },
     })?.ref).toBe('ACME-1')
-  })
-})
-
-describe('taskDetailsSummary', () => {
-  const isoDay = (offsetDays: number) => {
-    const d = new Date()
-    d.setDate(d.getDate() + offsetDays)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-
-  test('an untouched task has nothing to preview, so Details stands alone', () => {
-    expect(taskDetailsSummary({ labels: [] })).toEqual({ assignee: null, due: null, labels: null })
-  })
-
-  test('a blank assignee is not a person to show', () => {
-    expect(taskDetailsSummary({ assignee: '  ', labels: [] }).assignee).toBeNull()
-  })
-
-  test('previews who has it, when it is due, and its labels folded to one', () => {
-    const summary = taskDetailsSummary({ assignee: 'ada', dueDate: isoDay(-3), labels: ['bug', 'ui', 'p1'] })
-    expect(summary.assignee).toBe('ada')
-    expect(summary.due).toEqual({ label: '3d overdue', tone: 'overdue' })
-    expect(summary.labels).toBe('bug +2')
-  })
-
-  test('a single label is named without a count', () => {
-    expect(taskDetailsSummary({ dueDate: isoDay(0), labels: ['bug'] })).toEqual({
-      assignee: null,
-      due: { label: 'Today', tone: 'soon' },
-      labels: 'bug',
-    })
   })
 })
 

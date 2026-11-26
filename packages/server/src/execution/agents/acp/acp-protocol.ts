@@ -28,7 +28,7 @@ export const initializeResultSchema = z.looseObject({
 export type AcpInitializeResult = z.infer<typeof initializeResultSchema>
 
 const selectOptionSchema = z.looseObject({ value: z.string(), name: z.string().optional() })
-const configOptionSchema = z.looseObject({
+export const configOptionSchema = z.looseObject({
   id: z.string(),
   category: z.string().nullish(),
   type: z.string().optional(),
@@ -41,6 +41,10 @@ export type AcpConfigOption = z.infer<typeof configOptionSchema>
 export const sessionSetupResultSchema = z.looseObject({
   sessionId: z.string().optional(),
   configOptions: z.array(configOptionSchema).nullish(),
+  /** Every model with each effort as its own id (`gemini-4-neon-low`): agy reports a model's levels in its `thought_level` option only while it is selected. */
+  models: z.looseObject({
+    availableModels: z.array(z.looseObject({ modelId: z.string() })),
+  }).nullish(),
   modes: z.looseObject({
     currentModeId: z.string(),
     availableModes: z.array(z.looseObject({ id: z.string() })),

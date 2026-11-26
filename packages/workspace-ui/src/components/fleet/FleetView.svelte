@@ -18,7 +18,7 @@
   import * as Tooltip from "../ui/tooltip";
   import FleetAttention from "./FleetAttention.svelte";
   import FleetHostMenu from "./FleetHostMenu.svelte";
-  import { openSharingAccess } from "../connections/lib/sharing-access";
+  import { openHostSettings } from "../connections/lib/sharing-access";
   import FleetMap from "./FleetMap.svelte";
   import FleetMapDetails from "./FleetMapDetails.svelte";
   import FleetMapFooter from "./FleetMapFooter.svelte";
@@ -468,7 +468,7 @@
         onNewSession={() => workspace.drafts.openSessionDraft({ freshTask: true, serverId: menuMachine.serverId, via: "click" })}
         onConnectApps={() => outsideAppsDialog.open(menuMachine.serverId)}
         onCopyMcpAddress={() => void outsideAppsDialog.copyMcpAddress(menuMachine.serverId)}
-        onOpenSharing={() => openSharingAccess(workspace.router, menuMachine.serverId)}
+        onOpenSharing={() => openHostSettings(workspace.router, menuMachine.serverId, "sharing")}
         onRetry={() => fleetStore.retryHosts([menuMachine.serverId])}
         onStart={() => fleetStore.startHosts([menuMachine.serverId])}
         onUpdate={() => fleetStore.updateHosts([menuMachine.serverId])}

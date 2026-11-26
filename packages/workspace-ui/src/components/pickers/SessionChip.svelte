@@ -42,6 +42,7 @@
     defaultModelIdFor,
     defaultReasoningFor,
     isSessionSettingsShortcutTarget,
+    pickModelIn,
     modelPickerFocusTarget,
     pickClosesModelPicker,
     modelPickerNavigationTarget,
@@ -80,6 +81,10 @@
      *  session may: Auto routes a first prompt, so nothing already running can
      *  take it. */
     allowAuto?: boolean;
+    /** An agent pick only shows that agent's models; the selection changes
+     *  with a model pick. A settings picker saves each change, so a look at
+     *  another agent must not replace the saved model. */
+    browseAgents?: boolean;
     /** Show the fast-mode switch. A host that cannot send fast mode with its
      *  run turns it off, so the switch never promises what the run ignores. */
     allowFastMode?: boolean;
@@ -114,6 +119,7 @@
     menuSide = "top",
     modelOnly = false,
     allowAuto = false,
+    browseAgents = false,
     allowFastMode = true,
     allowPermissionMode = false,
     run,
@@ -139,7 +145,12 @@
     !detached && (sess?.status === "running" || sess?.status === "connecting"),
   );
 
-  const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
+  // The saved agent, and the agent whose models the menu shows. They differ
+  // only while a picker that browses agents shows another agent.
+  let browsedAgent: AgentId | null = $state(null);
+  const savedAgent = $derived(selection?.provider ?? ctx.activeAgent);
+  const activeAgent = $derived(browsedAgent ?? savedAgent);
+  const browsesOtherAgent = $derived(activeAgent !== savedAgent);
 
   // The work's policy on its host: the session's record organization, else the window's (plans/030 §7).
   const policyHostId = $derived(serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined));
@@ -187,14 +198,20 @@
   });
   const autoNeedsKey = $derived(!!autoServerId && solusToolsStore.isTypeSafeKeyMissing(autoServerId));
   const defaultModel = $derived(defaultModelIdFor(activeAgent, metadata, settings.defaultModels[activeAgent], canRoute || routeInModelColumn) ?? models[0]?.id ?? null);
+  // No model of a browsed agent is chosen until one is picked.
   const currentModelId = $derived(
-    selection
-      ? (selection.modelId ?? defaultModel)
-      : (ctx.model || defaultModel),
+    browsesOtherAgent
+      ? null
+      : selection
+        ? (selection.modelId ?? defaultModel)
+        : (ctx.model || defaultModel),
   );
-  const isAuto = $derived(currentModelId === AUTO_MODEL_ID);
+  // The trigger names the saved choice, also while the menu browses another agent.
+  const savedModelId = $derived(browsesOtherAgent ? (selection?.modelId ?? null) : currentModelId);
+  const isAuto = $derived(savedModelId === AUTO_MODEL_ID);
+  const savedModels = $derived(browsesOtherAgent ? modelOptionsFor(savedAgent, metadata) : models);
   const modelLabel = $derived(
-    currentModelId === AUTO_MODEL_ID ? "Auto" : models.find((m) => m.id === currentModelId)?.label ?? currentModelId ?? "",
+    savedModelId === AUTO_MODEL_ID ? "Auto" : savedModels.find((m) => m.id === savedModelId)?.label ?? savedModelId ?? "",
   );
 
   // Reasoning — the primary knob, surfaced inline in the chip + menu root.
@@ -202,7 +219,7 @@
     selection?.reasoningEffort ?? ctx.reasoningEffort,
   );
   const reasoningLevels = $derived(
-    isAuto ? reasoningLevelsFor(activeAgent, defaultModel, modelMeta) : detached ? reasoningLevelsFor(activeAgent, currentModelId, modelMeta) : ctx.reasoningLevels,
+    isAuto || browsesOtherAgent ? reasoningLevelsFor(activeAgent, defaultModel, modelMeta) : detached ? reasoningLevelsFor(activeAgent, currentModelId, modelMeta) : ctx.reasoningLevels,
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
   const fastMode = $derived(selection?.fastMode ?? ctx.fastMode);
@@ -221,7 +238,7 @@
 
   // Leading brand glyph on the chip — Claude's starburst for claude-code, the
   // OpenAI mark for codex, Solus's arch for antigravity, a generic code glyph otherwise.
-  const isCodex = $derived(activeAgent === "codex");
+  const isCodex = $derived(savedAgent === "codex");
 
   let open = $state(false);
   let permissionOpen = $state(false);
@@ -318,14 +335,14 @@
   // along in the same call: updateModelConfig's model branch would otherwise
   // overwrite the effort with the model's default.
   function selectReasoning(effort: ReasoningEffort) {
-    if (isAuto && !hoveredModelId) return;
+    if (isAuto && !hoveredModelId && !browsesOtherAgent) return;
     const pendingModelId =
       hoveredModelId && hoveredModelId !== currentModelId ? hoveredModelId : null;
     if (selection && !draftId) {
-      if (pendingModelId) {
-        selection.modelId = pendingModelId;
-        selection.fastMode = false;
-      }
+      // A level of a browsed agent goes with its default model.
+      const modelId = pendingModelId ?? (browsesOtherAgent ? defaultModel : null);
+      if (modelId) pickModelIn(selection, activeAgent, modelId);
+      browsedAgent = null;
       selection.modelId ??= currentModelId;
       selection.reasoningEffort = effort;
       onSelectionChange?.(selection);
@@ -344,9 +361,8 @@
   function selectModel(modelId: string) {
     hoveredModelId = null;
     if (selection && !draftId) {
-      selection.modelId = modelId;
-      selection.reasoningEffort = modelId === AUTO_MODEL_ID ? "medium" : clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
-      selection.fastMode = false;
+      pickModelIn(selection, activeAgent, modelId);
+      browsedAgent = null;
       onSelectionChange?.(selection);
       return;
     }
@@ -360,6 +376,10 @@
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
     legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn), metadata[id]?.modelProfiles);
+    if (browseAgents && selection && !draftId) {
+      browsedAgent = id === selection.provider ? null : id;
+      return;
+    }
     if (selection && !draftId) {
       const modelId = defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn);
       selection.provider = id;
@@ -522,6 +542,7 @@
   onOpenChange={(nextOpen) => {
     hoveredModelId = null;
     hoveredLevel = null;
+    browsedAgent = null;
     if (!nextOpen) permissionOpen = false;
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
@@ -559,14 +580,14 @@
           {:else if isCodex && fastMode}
             <LightningIcon size={16} fill="currentColor" />
           {:else}
-            {@render agentMark(activeAgent)}
+            {@render agentMark(savedAgent)}
           {/if}
         </span>
         <!-- Composer ladder, rung 5: below 22rem the chip is the glyph alone.
              It stays a hit target and keeps its ⌥ shortcut; only the label
              goes. Named `/composer` so the rung is inert wherever the chip is
              not in a composer. The label inherits the chip's muted colour. -->
-        <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
+        <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentLabel(savedAgent, metadata)} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
           <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
           <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>

@@ -22,8 +22,7 @@ export function profileAppliesTo(principal: HostIdentity['principal'] | null, se
  * shared host, or into the homes of a host they own: once per host each time
  * the app runs, and again on request. Signed in with profile sync on, a host
  * pulls the profile from the account instead, and this client asks it to after
- * its own write. A client with no machine of its own (web, phone) shows the
- * copy there, can ask for a pull, and can remove it.
+ * its own write.
  *
  * On the desktop, this computer's own skills, files, and MCP servers join this
  * client's copy of the profile only when the person asks (`importComputer`).
@@ -35,9 +34,9 @@ export class AgentProfileStore {
   readonly applies = new SvelteMap<string, boolean>()
   /** serverId → the caller's profile on that host, as it last answered. */
   readonly statuses = new SvelteMap<string, AgentProfileStatus>()
-  /** serverId → why the last copy, pull, or removal failed. */
+  /** serverId → why the last copy or pull failed. */
   readonly errors = new SvelteMap<string, string>()
-  /** Hosts a copy or removal is in flight for, so a row cannot be double-submitted. */
+  /** Hosts a copy or pull is in flight for, so one cannot start twice. */
   readonly busy = new SvelteSet<string>()
   /** A read of this computer's profile is in flight. */
   importing = $state(false)
@@ -64,14 +63,6 @@ export class AgentProfileStore {
   /** Told by the profile sync engine: on, a host pulls; off, this client pushes as before. */
   setSync(on: boolean): void {
     this.syncOn = on
-  }
-
-  async load(serverId: string): Promise<void> {
-    try {
-      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileStatus())
-    } catch {
-      // An older host, or a connection that dropped: the row keeps its last answer.
-    }
   }
 
   /** Learn who this client is on a host; the first time this run, the profile follows the person there. */
@@ -160,13 +151,6 @@ export class AgentProfileStore {
   /** Every host the profile applies to pulls; a host that cannot keeps its last answer and its error. */
   pullEverywhere(): void {
     for (const [serverId, applies] of this.applies) if (applies) void this.pull(serverId)
-  }
-
-  /** The way out: an empty profile removes what was copied, and nothing else. */
-  async remove(serverId: string): Promise<void> {
-    await this.run(serverId, async () => {
-      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply({ profile: {}, skipped: [] }))
-    })
   }
 
   private async run(serverId: string, task: () => Promise<void>): Promise<void> {

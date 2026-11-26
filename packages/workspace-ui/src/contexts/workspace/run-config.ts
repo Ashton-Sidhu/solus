@@ -1,5 +1,5 @@
 import type { AgentId, GitCheckout, ModelConfig, ModelProfile, ReasoningEffort, RunConfig } from '@solus/contracts/types'
-import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel } from '@solus/contracts/types'
+import { AGENT_IDS, MODEL_PROFILES, PERMISSION_MODES, isLegacyModel } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
 import { isChat } from '@solus/contracts/chat'
@@ -111,8 +111,7 @@ export function alignRunProvider(
 
 function knownProviderForModel(modelId: string | null): AgentId | null {
   if (!modelId) return null
-  const providers: AgentId[] = ['claude-code', 'codex', 'opencode', 'replay']
-  const matches = providers.filter((provider) => MODEL_PROFILES[provider]?.[modelId])
+  const matches = AGENT_IDS.filter((provider) => MODEL_PROFILES[provider]?.[modelId])
   return matches.length === 1 ? matches[0] : null
 }
 

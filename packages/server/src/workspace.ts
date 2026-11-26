@@ -89,9 +89,18 @@ export function projectsRootFor(principal: Principal | undefined, hostRoot = set
  * are shared through the project group; personal config and logins stay private.
  */
 export function chatFolderFor(chatId: string, principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
-  if (principal?.kind !== 'org-member') return makeChatFolder(solusDir(), chatId)
+  if (principal?.kind !== 'org-member') return makeChatFolder(chatHomeFor(principal, hostRoot), chatId)
   const user = memberUsers()?.userOf(principal.userId) ?? null
-  return makeChatFolder(projectsRootFor(principal, hostRoot), chatId, user && { uid: user.uid })
+  return makeChatFolder(chatHomeFor(principal, hostRoot), chatId, user && { uid: user.uid })
+}
+
+/**
+ * The folder that holds one person's chats: the host's data folder, or a
+ * member's own folder. A new chat has no folder until its session starts, and
+ * no project, so it reads its slash commands here.
+ */
+export function chatHomeFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  return principal?.kind === 'org-member' ? projectsRootFor(principal, hostRoot) : solusDir()
 }
 
 /** Where the task folders of one person go. */

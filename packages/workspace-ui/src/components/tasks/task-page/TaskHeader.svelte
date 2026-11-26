@@ -29,11 +29,10 @@
     moveGroups: TaskMoveGroup[];
     onMove: (target: IssueMoveTarget) => void;
     onSavePriority: (priority: IssuePriority | null) => void;
-    /** The folded rung's stand-in for the rail: a Details disclosure at the end
-     *  of the status line, and the panel it opens under the title. Both are
-     *  absent wherever the rail's column is actually on screen. */
-    detailsTrigger?: Snippet;
-    detailsPanel?: Snippet;
+    /** The folded rung's stand-in for the rail: the task's facts as a list
+     *  under the title, as the pull request page draws them. Absent wherever
+     *  the rail's column is actually on screen. */
+    facts?: Snippet;
   }
 
   let {
@@ -44,8 +43,7 @@
     moveGroups,
     onMove,
     onSavePriority,
-    detailsTrigger,
-    detailsPanel,
+    facts,
   }: Props = $props();
 
   // The description reuses the document editor so a task can embed @files,
@@ -105,8 +103,8 @@
      label optically where it sat as plain text while giving the control a
      padded hit area, and a task whose provider will not take a change of the
      priority keeps the label and loses only the affordance. The row is workspace chrome, so it
-     sets `text-workspace-chrome` once and every label and control in it — the
-     Details disclosure too — inherits the one size. It wraps in a narrow pane. -->
+     sets `text-workspace-chrome` once and every label and control in it
+     inherits the one size. It wraps in a narrow pane. -->
 <div class="flex flex-wrap items-center gap-x-[13px] gap-y-1 pb-[11px] text-workspace-chrome">
   <TaskStatusMenu
     groups={moveGroups}
@@ -171,16 +169,6 @@
     ></span>
     <span class="text-muted-foreground opacity-75">opened {openedAt}</span>
   {/if}
-
-  <!-- No rule before Details: the row wraps in a narrow pane, and a rule
-       there is left dangling at the end of the first line. It sits at the
-       row's end edge instead, where the folded rail would be, so it does not
-       read as part of the "opened" text before it. -->
-  {#if detailsTrigger}
-    <span class="ml-auto flex min-w-0">
-      {@render detailsTrigger()}
-    </span>
-  {/if}
 </div>
 
 {#if locks.title === null}
@@ -203,8 +191,10 @@
   </h1>
 {/if}
 
-{#if detailsPanel}
-  {@render detailsPanel()}
+{#if facts}
+  <div class="mt-4">
+    {@render facts()}
+  </div>
 {/if}
 
 <!-- The description is edited where it is read, like the title above it: no

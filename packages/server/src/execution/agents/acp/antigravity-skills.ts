@@ -34,8 +34,12 @@ export function antigravityProfileFilesHome(profile: string): string {
 const GLOBAL_SKILL_FOLDERS = [['config', 'skills'], ['antigravity-cli', 'skills']] as const
 /** Where agy reads a project's skills, in its order. */
 const PROJECT_SKILL_FOLDERS = [['.gemini', 'skills'], ['.agents', 'skills'], ['.agent', 'skills']] as const
-/** The person's own rules and skill list, linked into the host login's profile. Instruction files stay the person's. */
-const LINKED_FILES = [['AGENTS.md'], ['GEMINI.md'], ['config', 'skills.json']] as const
+/**
+ * The person's own rules, skill list, and MCP servers, linked into the host login's profile.
+ * agy reads `config/mcp_config.json` under its `--gemini-dir`, so without the link a Solus run
+ * would not have the servers the person set up for agy in a terminal (`~/.gemini/config`).
+ */
+const LINKED_FILES = [['AGENTS.md'], ['GEMINI.md'], ['config', 'skills.json'], ['config', 'mcp_config.json']] as const
 
 const MAX_SKILLS = 500
 const FRONTMATTER_BYTES = 4096
@@ -66,7 +70,9 @@ function ensureLink(link: string, target: string, type: 'dir' | 'file'): void {
       if (readdirSync(link).length > 0) return
       rmdirSync(link)
     } else if (current) {
-      return
+      // agy makes an empty `mcp_config.json` at each start; a file with content is the person's own.
+      if (!current.isFile() || current.size > 0) return
+      unlinkSync(link)
     }
     mkdirSync(dirname(link), { recursive: true })
     symlinkSync(target, link, type)

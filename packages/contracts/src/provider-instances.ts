@@ -2,8 +2,14 @@ import { z } from 'zod'
 
 const effortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 
-export const instanceProviderSchema = z.enum(['claude-code', 'codex'])
+export const instanceProviderSchema = z.enum(['claude-code', 'codex', 'antigravity'])
 export type InstanceProvider = z.infer<typeof instanceProviderSchema>
+export const INSTANCE_PROVIDERS = instanceProviderSchema.options
+/** The executable an instance starts when its binary path is empty. */
+export const DEFAULT_INSTANCE_BINARIES = { codex: 'codex', 'claude-code': 'claude', antigravity: 'agy' } as const satisfies Record<InstanceProvider, string>
+export function isInstanceProvider(provider: string): provider is InstanceProvider {
+  return INSTANCE_PROVIDERS.some((candidate) => candidate === provider)
+}
 export const providerInstanceIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/)
 const text = z.string().max(4096).refine((value) => !value.includes('\0'), 'A path cannot contain a null character.')
 export const instanceEnvironmentSchema = z.object({
@@ -52,7 +58,7 @@ export const providerInstanceSchema = z.object({
     if (models.has(model.id)) context.addIssue({ code: 'custom', message: `Duplicate custom model: ${model.id}` })
     models.add(model.id)
     if (!model.reasoningLevels.includes(model.defaultReasoningEffort) || !model.contextWindows.includes(model.defaultContextWindow)) context.addIssue({ code: 'custom', message: `The defaults for ${model.id} must be in its supported options.` })
-    if (instance.provider === 'claude-code' && model.supportsFastMode) context.addIssue({ code: 'custom', message: 'Solus fast mode is supported by Codex only.' })
+    if (instance.provider !== 'codex' && model.supportsFastMode) context.addIssue({ code: 'custom', message: 'Solus fast mode is supported by Codex only.' })
   }
   for (const argument of instance.launchArgs) {
     const name = argument.split('=')[0]
@@ -63,14 +69,19 @@ export const providerInstanceSchema = z.object({
     if (names.has(variable.name)) context.addIssue({ code: 'custom', message: `Duplicate environment variable: ${variable.name}` })
     names.add(variable.name)
   }
-  if (instance.provider === 'codex' && instance.autoCompactWindow !== null) context.addIssue({ code: 'custom', message: 'Auto-compaction thresholds belong to Claude Code.' })
+  if (instance.provider !== 'claude-code' && instance.autoCompactWindow !== null) context.addIssue({ code: 'custom', message: 'Auto-compaction thresholds belong to Claude Code.' })
+  // Google Antigravity has only its built-in instance, with a binary path and models. agy keeps
+  // its sign-in in one macOS keychain item for every profile, so a home could not hold another account.
+  if (instance.provider === 'antigravity' && (instance.homePath || instance.shadowHomePath || instance.launchArgs.length || instance.environment.length)) {
+    context.addIssue({ code: 'custom', message: 'Google Antigravity takes a binary path and models only.' })
+  }
 })
 export type ProviderInstance = z.infer<typeof providerInstanceSchema>
 
 export const providerProjectOverrideSchema = z.object({
   projectRoot: text.min(1),
   enabled: z.record(providerInstanceIdSchema, z.boolean()),
-  selected: z.object({ 'claude-code': providerInstanceIdSchema.optional(), codex: providerInstanceIdSchema.optional() }).strict(),
+  selected: z.object({ 'claude-code': providerInstanceIdSchema.optional(), codex: providerInstanceIdSchema.optional(), antigravity: providerInstanceIdSchema.optional() }).strict(),
 }).strict()
 export type ProviderProjectOverride = z.infer<typeof providerProjectOverrideSchema>
 export type ProviderInstanceChoice = Pick<ProviderInstance, 'id' | 'provider' | 'displayName' | 'enabled' | 'customModels' | 'hiddenModels' | 'favoriteModels' | 'modelOrder' | 'modelGroups'> & { binaryAvailable: boolean }
@@ -85,7 +96,8 @@ export const providerInstancesSnapshotSchema = z.object({
   projects: z.array(providerProjectOverrideSchema).max(1000).default([]),
   revision: z.number().int().nonnegative(),
   instances: z.array(providerInstanceSchema).max(50),
-  selected: z.object({ 'claude-code': providerInstanceIdSchema, codex: providerInstanceIdSchema }).strict(),
+  // Optional for a document from before Google Antigravity had an instance: it uses the built-in one.
+  selected: z.object({ 'claude-code': providerInstanceIdSchema, codex: providerInstanceIdSchema, antigravity: providerInstanceIdSchema.optional() }).strict(),
   healthCheckSeconds: z.number().int().min(0).max(86400),
   idleCompaction: z.enum(['onReturn', 'off']),
 }).strict()

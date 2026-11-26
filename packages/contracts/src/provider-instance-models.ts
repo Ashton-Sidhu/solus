@@ -1,14 +1,19 @@
 import { MODEL_PROFILES, type AgentId, type AgentMetadata, type ModelProfile } from './types'
 import { sameHostPath } from './host-path'
 import { worktreeProjectRoot } from './types'
-import type { ProviderProjectOverride, ProviderInstance, ProviderInstancesSnapshot } from './provider-instances'
+import { isInstanceProvider, type InstanceProvider, type ProviderProjectOverride, type ProviderInstance, type ProviderInstancesSnapshot } from './provider-instances'
 
 /**
  * The same private catalog order, visibility, and picker groups on every client. Custom models remain visible.
  * A person's group choice is written into each profile's `isLegacy`, so every picker that reads the catalog follows it.
+ * The catalog starts from the published list, or from the models the agent offers when it reports them (`offeredModelProfiles`).
  */
-export function instanceModelCatalog(instance: Pick<ProviderInstance, 'provider' | 'customModels' | 'hiddenModels' | 'modelOrder' | 'modelGroups'>, includeHidden = false) {
-  const modelProfiles = { ...MODEL_PROFILES[instance.provider] }
+export function instanceModelCatalog(
+  instance: Pick<ProviderInstance, 'provider' | 'customModels' | 'hiddenModels' | 'modelOrder' | 'modelGroups'>,
+  includeHidden = false,
+  base: Record<string, ModelProfile> = MODEL_PROFILES[instance.provider] ?? {},
+) {
+  const modelProfiles = { ...base }
   const custom = new Set(instance.customModels.map((model) => model.id))
   for (const { id, ...profile } of instance.customModels) modelProfiles[id] = profile
   for (const [id, group] of Object.entries(instance.modelGroups ?? {})) {
@@ -29,12 +34,20 @@ export function modelProfileForAgent(provider: AgentId, modelId: string | null, 
   return metadata?.modelProfiles?.[modelId] ?? MODEL_PROFILES[provider]?.[modelId]
 }
 
-export function changeModelPreference(instance: ProviderInstance, modelId: string, action: 'visibility' | 'group' | 'up' | 'down'): ProviderInstance {
+/**
+ * The models an agent offered this account, when it reports them: they are its list, and the
+ * published list only labels them. Undefined while the agent has reported nothing.
+ */
+export function offeredModelProfiles(metadata: Pick<AgentMetadata, 'modelsOffered' | 'modelProfiles'> | null | undefined): Record<string, ModelProfile> | undefined {
+  return metadata?.modelsOffered ? metadata.modelProfiles : undefined
+}
+
+export function changeModelPreference(instance: ProviderInstance, modelId: string, action: 'visibility' | 'group' | 'up' | 'down', base?: Record<string, ModelProfile>): ProviderInstance {
   if (action === 'visibility') {
     const hidden = instance.hiddenModels
     return { ...instance, hiddenModels: hidden.includes(modelId) ? hidden.filter((id) => id !== modelId) : [...hidden, modelId] }
   }
-  const { modelProfiles } = instanceModelCatalog(instance, true)
+  const { modelProfiles } = instanceModelCatalog(instance, true, base)
   if (action === 'group') {
     const toLegacy = modelProfiles[modelId]?.isLegacy !== true
     const modelGroups = { ...instance.modelGroups }
@@ -43,7 +56,7 @@ export function changeModelPreference(instance: ProviderInstance, modelId: strin
     else modelGroups[modelId] = toLegacy ? 'legacy' : 'current'
     return { ...instance, modelGroups }
   }
-  const order = instanceModelCatalog(instance, true).models.map((model) => model.id)
+  const order = instanceModelCatalog(instance, true, base).models.map((model) => model.id)
   const at = order.indexOf(modelId)
   const target = modelNeighbor(modelProfiles, order, modelId, action)
   if (at < 0 || target < 0) return instance
@@ -71,7 +84,7 @@ export function providerProjectOverride(projects: ProviderProjectOverride[] = []
   return cwd ? projects.find((project) => sameHostPath(project.projectRoot, worktreeProjectRoot(cwd))) : undefined
 }
 
-export function selectedProviderInstance(snapshot: ProviderInstancesSnapshot, provider: 'codex' | 'claude-code', cwd?: string) {
+export function selectedProviderInstance(snapshot: ProviderInstancesSnapshot, provider: InstanceProvider, cwd?: string) {
   const project = providerProjectOverride(snapshot.projects, cwd)
   const instanceId = project?.selected[provider] ?? snapshot.selected[provider]
   const instance = snapshot.instances.find((item) => item.id === instanceId && item.provider === provider)
@@ -81,7 +94,7 @@ export function selectedProviderInstance(snapshot: ProviderInstancesSnapshot, pr
 /** The selected provider instance whose private catalog this project uses. */
 export function agentProjectInstance(metadata: AgentMetadata, cwd?: string) {
   const { id: provider, instancePreferences: preferences } = metadata
-  if (!preferences || (provider !== 'codex' && provider !== 'claude-code')) return undefined
+  if (!preferences || (!isInstanceProvider(provider))) return undefined
   const instanceId = providerProjectOverride(preferences.projects, cwd)?.selected[provider] ?? preferences.selected
   return preferences.instances.find((item) => item.id === instanceId)
 }
@@ -92,15 +105,18 @@ export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMet
   if (!preferences) return metadata
   const project = providerProjectOverride(preferences.projects, cwd)
   const provider = metadata.id
-  if (provider !== 'codex' && provider !== 'claude-code') return metadata
+  if (!isInstanceProvider(provider)) return metadata
   const instance = agentProjectInstance(metadata, cwd)
   if (!instance) return { ...metadata, available: false, unavailableReason: 'The project provider instance is unavailable.' }
-  const catalog = instanceModelCatalog(instance)
-  // Profiles the provider reported live (Codex `model/list`) stay under the instance's catalog.
-  if (metadata.modelProfiles) catalog.modelProfiles = { ...metadata.modelProfiles, ...catalog.modelProfiles }
-  // So do the models it reported: a catalog lists only the published and the custom ones.
-  catalog.models.push(...metadata.models.filter(({ id }) => !MODEL_PROFILES[provider]?.[id]
-    && !instance.hiddenModels.includes(id) && !catalog.models.some((model) => model.id === id)))
+  const offered = offeredModelProfiles(metadata)
+  const catalog = instanceModelCatalog(instance, false, offered)
+  if (!offered) {
+    // Profiles the provider reported live (Codex `model/list`) stay under the instance's catalog.
+    if (metadata.modelProfiles) catalog.modelProfiles = { ...metadata.modelProfiles, ...catalog.modelProfiles }
+    // So do the models it reported: a catalog lists only the published and the custom ones.
+    catalog.models.push(...metadata.models.filter(({ id }) => !MODEL_PROFILES[provider]?.[id]
+      && !instance.hiddenModels.includes(id) && !catalog.models.some((model) => model.id === id)))
+  }
   const enabled = project?.enabled[instance.id] ?? instance.enabled
   const builtin = Object.entries(catalog.modelProfiles).find(([, profile]) => profile.isDefault)?.[0] ?? metadata.defaultModel
   return { ...metadata, ...catalog, defaultModel: builtin, available: enabled && instance.binaryAvailable,
@@ -108,7 +124,7 @@ export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMet
 }
 
 export type ProjectProviderChange = { kind: 'enabled'; instanceId: string; enabled: boolean | null }
-  | { kind: 'selected'; provider: 'codex' | 'claude-code'; instanceId: string | null }
+  | { kind: 'selected'; provider: InstanceProvider; instanceId: string | null }
   | { kind: 'reset' }
 
 export function changeProjectProviderOverride(snapshot: ProviderInstancesSnapshot, projectRoot: string, change: ProjectProviderChange): ProviderProjectOverride {

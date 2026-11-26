@@ -20,6 +20,7 @@ export const settingsSectionLoaders = {
   'providers': () => import('../SettingsTabProviders.svelte'),
   'api-access': () => import('../../connections/ConnectionsPanel.svelte'),
   'sharing': () => import('../../connections/SharingAccessPage.svelte'),
+  'cloud': () => import('../../connections/SolusCloudPage.svelte'),
   'tools': () => import('../SettingsTabTools.svelte'),
   'integrations': () => import('../IntegrationAccounts.svelte'),
   'mcp': () => import('../SettingsTabMcp.svelte'),

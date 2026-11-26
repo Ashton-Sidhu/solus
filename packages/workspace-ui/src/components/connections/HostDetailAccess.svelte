@@ -1,9 +1,9 @@
 <script lang="ts">
-  /** How this host is reached, and who reaches it: its Solus Cloud link, the
-   *  organizations it stands in, its network, one card for every way a device
+  /** How this host is reached, and who reaches it: its network, one card for every way a device
    *  or machine comes to it (pair code, approval requests, SSH forwards), the
    *  machines it reaches, and the devices with access. `connectionsStore` is read
-   *  for this host by the Hosts page. Only a
+   *  for this host by the Hosts page. Its Solus Cloud link and organizations are
+   *  on Settings → Solus Cloud (`SolusCloudPage`). Only a
    *  local owner (the desktop on the machine or a paired device) may change how
    *  the host is reached; anyone else sees the state and where to change it. */
   import {
@@ -24,8 +24,6 @@
   import { pageOf } from "../settings/lib/list-page";
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
-  import UplinkSection from "./UplinkSection.svelte";
-  import OrganizationsSection from "./OrganizationsSection.svelte";
   import ForwardedHostRows from "./ForwardedHostRows.svelte";
   import PairApprovalRows from "./PairApprovalRows.svelte";
   import ReachedMachinesSection from "./ReachedMachinesSection.svelte";
@@ -130,14 +128,6 @@
     setTimeout(() => (addressCopied = false), 1500);
   }
 </script>
-
-<UplinkSection {serverId} />
-
-<!-- Where this host stands in each organization, and its Insights choice
-     (organization-scope §6.1). Keyed so another host is read afresh. -->
-{#key serverId}
-  <OrganizationsSection {serverId} />
-{/key}
 
 {#if hasPairing}
   <SettingsSection label="Network" description={networkDescription}>

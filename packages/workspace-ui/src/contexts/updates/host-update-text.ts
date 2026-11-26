@@ -1,3 +1,4 @@
+import { setupAgentLabel } from '@solus/client-core/host-update-text'
 import type { HostUpdateItem } from './host-updates.store.svelte'
 
 /** One update as the user reads it: what, which release, and on which host. */
@@ -6,7 +7,7 @@ export type UpdateOutcome = { phase: 'running'; detail: string | null } | { phas
 interface ToastText { message: string; description?: string }
 
 export function updateTargetLabel(target: HostUpdateItem['target']): string {
-  return target === 'solus' ? 'Solus' : target === 'claude' ? 'Claude Code' : 'Codex'
+  return target === 'solus' ? 'Solus' : setupAgentLabel(target)
 }
 
 function lineText(line: UpdateLine): string { return `${updateTargetLabel(line.target)} ${line.version} on ${line.host}` }

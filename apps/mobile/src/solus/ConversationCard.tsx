@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { useMessages } from "gt-react-native";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { mayWorkLocallyDuringSetup } from "@solus/contracts/setup-card";
 import { RequestActionButton } from "@solus-mobile/features/threads/RequestActionButton";
-import { compactionDividerText } from "@solus/contracts/context-compaction";
+import { WorkLogBlock, WorkLogIconSlot, WorkLogLabel, WorkLogPressable } from "../features/threads/work-log-layout";
+import { SymbolView } from "../components/ui/AppSymbol";
 import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -31,11 +32,13 @@ import { PlanCard } from "./PlanCard";
 function Details({
   title,
   subtitle,
+  icon = "terminal",
   mark,
   children,
 }: {
   title: string;
   subtitle?: string;
+  icon?: "terminal" | "server.rack" | "arrow.triangle.branch";
   /** The state mark of the agent or call (docs/plans/session-state-marks.md). */
   mark?: { state: StateMark; environmentId: EnvironmentId } | null;
   children: ReactNode;
@@ -43,8 +46,8 @@ function Details({
   const [open, setOpen] = useState(false);
   const messages = useMessages();
   return (
-    <View className="mb-2 gap-2 rounded-2xl border border-border bg-card p-3">
-      <Pressable
+    <WorkLogBlock>
+      <WorkLogPressable
         accessibilityRole="button"
         accessibilityLabel={
           mark
@@ -54,14 +57,18 @@ function Details({
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(!open)}
       >
-        <View className="flex-row items-center gap-2">
-          <AppText className="min-w-0 shrink font-medium">{title}</AppText>
-          {mark ? <StateMarkView mark={mark.state} environmentId={mark.environmentId} /> : null}
-        </View>
+        <WorkLogIconSlot>
+          {mark ? <StateMarkView mark={mark.state} environmentId={mark.environmentId} />
+            : <SymbolView name={icon} size={14} tintColorClassName="accent-icon-muted" />}
+        </WorkLogIconSlot>
+        <WorkLogLabel>{title}</WorkLogLabel>
+        <SymbolView name={open ? "chevron.up" : "chevron.down"} size={11} tintColorClassName="accent-icon-muted" />
+      </WorkLogPressable>
+      {open && <View className="ml-7 gap-2 pb-2">
         {subtitle ? <AppText className="text-xs text-foreground-muted">{subtitle}</AppText> : null}
-      </Pressable>
-      {open && children}
-    </View>
+        {children}
+      </View>}
+    </WorkLogBlock>
   );
 }
 
@@ -180,22 +187,15 @@ export function ConversationCard({ store, id }: { store: ConversationStore; id: 
         />
       );
     case "notice":
-      return (
-        <AppText
-          accessibilityRole={item.tone === "error" ? "alert" : "text"}
-          selectable
-          className="my-2 text-sm text-foreground-secondary"
-        >
-          {item.text}
-        </AppText>
-      );
+    case "compaction":
+      return null; // The upstream work log renders the activity.
     case "plan":
       return <PlanCard store={store} plan={item} history />;
     case "worktree_offer":
       return <WorktreeOfferCard store={store} offer={item} />;
     case "setup":
       return (
-        <Details title={item.card.title} subtitle={item.card.status}>
+        <Details title={item.card.title} subtitle={item.card.status} icon={item.card.icon === "git-branch" ? "arrow.triangle.branch" : "server.rack"}>
           {item.card.steps.map((step) => (
             <View key={step.id}>
               <AppText>
@@ -247,14 +247,6 @@ export function ConversationCard({ store, id }: { store: ConversationStore; id: 
           )}
         </Details>
       );
-    case "compaction": {
-      const { label, detail } = compactionDividerText(item.compaction);
-      return (
-        <AppText className="my-2 text-xs text-foreground-muted">
-          {[label, detail].filter(Boolean).join(" · ")}
-        </AppText>
-      );
-    }
     case "handoff":
       return (
         <AppText className="my-2 text-xs text-foreground-muted">

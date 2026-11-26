@@ -3,6 +3,7 @@ import { attachmentUrl } from "../solus/attachment-resource";
 import { checkoutMediaAsset, signCheckoutAsset, type CheckoutAsset } from "../solus/checkout-files";
 import { mobileHost, fileAccountScope } from "./mobile-host";
 import { mediaTypeFor } from "@solus/contracts/media-types";
+import { readArtifactPageAttachmentId } from "@solus/contracts/artifact-page";
 import { useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
@@ -47,8 +48,10 @@ const emptyHostMediaState = Atom.make<AssetUrlState | null>(null).pipe(
 function hostMediaPath(resource: AssetResource | null, environmentId: EnvironmentId | null): CheckoutAsset | null {
   if (resource?._tag === "attachment") {
     const upload = readUploadAttachmentId(resource.attachmentId);
+    // A saved artifact page is signed by its Solus host, as a stored asset is.
     return upload ? { cwd: "~", ...upload }
-      : /^[a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15}$/.test(resource.attachmentId)
+      : readArtifactPageAttachmentId(resource.attachmentId) ||
+          /^[a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15}$/.test(resource.attachmentId)
         ? { cwd: "~", assetId: resource.attachmentId } : null;
   }
   if (resource?._tag !== "media-file" && resource?._tag !== "draft-workspace-file") return null;

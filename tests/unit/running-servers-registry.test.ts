@@ -27,7 +27,81 @@ function setup() {
   }
 }
 
+function detectedServer(serverId = 'server-1'): RunningServer {
+  const server = runningServer(serverId)
+  server.endpoints[0].response = null
+  return server
+}
+
 describe('one running server registry per host', () => {
+  test('a temporary listener stays available to live discovery without changing the watched list', async () => {
+    const s = setup()
+    const server = detectedServer()
+    s.replace([server])
+    expect(await s.registry.watch('desktop')).toEqual([])
+    expect(await s.registry.list()).toEqual([server])
+    s.publish.mockClear()
+    s.replace([])
+    s.advance(3000)
+    await s.ticks.shift()!()
+    expect(s.publish).not.toHaveBeenCalled()
+    s.replace([server])
+    s.advance(12_000)
+    await s.ticks.shift()!()
+    expect(s.publish).not.toHaveBeenCalled()
+    s.registry.stop()
+  })
+
+  test('each detected port waits 15 seconds, then disappears on the first scan without it', async () => {
+    const s = setup()
+    const server = detectedServer()
+    const [first] = server.endpoints
+    const second = { ...first, endpointId: '3002', port: 3002, url: 'http://127.0.0.1:3002/' }
+    s.replace([server])
+    expect(await s.registry.watch('desktop')).toEqual([])
+    s.publish.mockClear()
+    s.advance(3000)
+    s.replace([{ ...server, endpoints: [first, second] }])
+    await s.registry.list(true)
+    s.advance(11_999)
+    expect(await s.registry.watch('phone', ['/project/worktree'])).toEqual([])
+    expect(s.publish).not.toHaveBeenCalled()
+    s.advance(1)
+    await s.ticks.shift()!()
+    expect(s.publish).toHaveBeenLastCalledWith(['desktop', 'phone'], [server], null)
+    expect(await s.registry.watch('web')).toEqual([server])
+    s.advance(3000)
+    s.replace([{ ...server, endpoints: [second] }])
+    await s.ticks.shift()!()
+    expect(s.publish).toHaveBeenLastCalledWith(['desktop', 'phone', 'web'], [{ ...server, endpoints: [second] }], null)
+    s.registry.stop()
+  })
+
+  test('a new process on the same port starts its own 15-second wait', async () => {
+    const s = setup()
+    s.replace([detectedServer()])
+    await s.registry.watch('desktop')
+    s.advance(12_000)
+    const replacement = detectedServer('replacement')
+    s.replace([replacement])
+    await s.ticks.shift()!()
+    s.publish.mockClear()
+    s.advance(3000)
+    await s.ticks.shift()!()
+    expect(s.publish).not.toHaveBeenCalled()
+    s.advance(12_000)
+    await s.ticks.shift()!()
+    expect(s.publish).toHaveBeenLastCalledWith(['desktop'], [replacement], null)
+    s.registry.stop()
+  })
+
+  test('a responding configured URL appears immediately, even on an agent process', async () => {
+    const s = setup()
+    const server = runningServer()
+    expect(await s.registry.watch('desktop')).toEqual([server])
+    s.registry.stop()
+  })
+
   test('clients share a scan and unchanged polls send no list', async () => {
     const s = setup()
     await Promise.all([s.registry.watch('desktop'), s.registry.watch('phone')])

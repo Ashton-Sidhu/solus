@@ -4,6 +4,7 @@ import type { SetupAgent } from '@solus/contracts/types'
 import { formatCheckedAt } from '../../settings/lib/update-status-text'
 import { isProviderUpdateActive } from '@solus/contracts/host-update-types'
 import { providerUpdateDetail } from '@solus/client-core/provider-update-text'
+import { setupAgentLabel } from '@solus/client-core/host-update-text'
 
 export function checkStatusLine(check: UpdateCheckState): string {
   switch (check.kind) {
@@ -50,11 +51,41 @@ export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateS
   return rows
 }
 
+/** "A", "A and B", "A, B, and C". */
+function listOf(names: string[]): string {
+  return names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
+}
+
 export function providerSummary(status: HostUpdateStatus | undefined): string {
   if (!status) return 'Provider update status is not available'
   const count = status.providers.filter((p) => p.check.kind === 'available').length
   if (count) return `${count} provider update${count === 1 ? '' : 's'} on this computer`
   const installed = status.providers.filter((p) => p.installedVersion)
-  if (installed.length && installed.every((p) => p.check.kind === 'up-to-date')) return `${installed.map((p) => p.agent === 'claude' ? 'Claude Code' : 'Codex').join(' and ')} ${installed.length === 1 ? 'is' : 'are'} up to date`
+  if (installed.length && installed.every((p) => p.check.kind === 'up-to-date')) return `${listOf(installed.map((p) => setupAgentLabel(p.agent)))} ${installed.length === 1 ? 'is' : 'are'} up to date`
   return status.providers.some((p) => p.check.kind === 'checking') ? 'Checking provider updates…' : 'Open providers to see update status'
+}
+
+/** One agent installed on a host, and the other installation it can move to. */
+export interface AgentInstallationRow {
+  agent: SetupAgent
+  label: string
+  description: string
+  /** Null when there is no other installation to move to. */
+  switchTo: 'native' | 'existing' | null
+}
+
+/** Every agent installed on the host, with where it comes from. An agent that
+ *  is not installed has no row: the coding providers card adds it. */
+export function agentInstallationRows(providers: ProviderUpdateStatus[]): AgentInstallationRow[] {
+  return providers.flatMap(({ agent, installation }): AgentInstallationRow[] => {
+    if (!installation || installation.method === 'absent') return []
+    const label = setupAgentLabel(agent)
+    if (!installation.managed) {
+      return [{ agent, label, switchTo: 'native', description: 'Installed on this host’s PATH. Use a verified native package managed by Solus, and keep the existing installation so you can return to it.' }]
+    }
+    if (installation.existingPath) {
+      return [{ agent, label, switchTo: 'existing', description: 'Native package managed by Solus. Return to the installation on this host’s PATH. Active turns continue with their current version.' }]
+    }
+    return [{ agent, label, switchTo: null, description: 'Native package managed by Solus.' }]
+  })
 }

@@ -6,6 +6,7 @@ import {
   serializeReferenceToken,
   type ReferenceToken,
 } from "@solus/workspace-ui/components/editor/reference-tokens";
+import { AGENT_IDS } from "@solus/contracts/types";
 import { referenceTokenClassName } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
 import { referenceExtensions } from "@solus/workspace-ui/components/editor/referenceExtensions";
 
@@ -37,6 +38,15 @@ const tokens: ReferenceToken[] = [
 ];
 
 describe("reference token markdown", () => {
+  test("a session of every agent becomes a chip", () => {
+    // WHY: the chip parser kept its own list of agents, so a pasted link to an
+    // Antigravity session stayed raw markdown in the input bar.
+    for (const provider of AGENT_IDS) {
+      const tokens = parseReferenceTokens(`[hi](session://ref?sessionId=s1&provider=${provider}&cwd=%2Frepo)`);
+      expect(tokens.map((found) => found.token)).toEqual([{ kind: "session", sessionId: "s1", provider, title: "hi", cwd: "/repo" }]);
+    }
+  });
+
   test("every input reference uses the one chip shell and names its kind", () => {
     // WHY: references must not change visual language between the composer and
     // transcript. One base class carries the whole geometry; the kind class

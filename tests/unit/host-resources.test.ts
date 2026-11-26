@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostResources } from '@solus/contracts/host-resources'
-import { cpuUtilizationBetween, darwinAvailableMemory, HostResourceReader, linuxAvailableMemory } from '../../packages/server/src/host/host-resources'
+import { cpuUtilizationBetween, darwinAvailableMemory, diskSpaceOf, HostResourceReader, linuxAvailableMemory } from '../../packages/server/src/host/host-resources'
 
 describe('machine load', () => {
   test('CPU use is the share of time that was not idle between two reads', () => {
@@ -15,6 +15,11 @@ describe('machine load', () => {
   test('Linux counts memory the kernel can give back as available', () => {
     expect(linuxAvailableMemory('MemTotal: 100 kB\nMemFree: 1 kB\nMemAvailable:    50 kB\n')).toBe(50 * 1024)
     expect(linuxAvailableMemory('MemTotal: 100 kB\n')).toBeNull()
+  })
+
+  test('disk space is what a person can write, not the reserve only root can use', () => {
+    expect(diskSpaceOf({ bavail: 10, blocks: 100, bsize: 4096 })).toEqual({ availableBytes: 10 * 4096, totalBytes: 100 * 4096 })
+    expect(diskSpaceOf({ bavail: 0, blocks: 0, bsize: 4096 })).toBeNull()
   })
 
   test('macOS adds free, inactive, and speculative pages once', () => {

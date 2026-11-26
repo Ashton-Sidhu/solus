@@ -147,6 +147,14 @@ describe('Antigravity temp folders', () => {
     const launch = antigravityAgent.launch({ provider: 'antigravity', seat } as AgentRunRequest)
     expect(launch.tempRoot).toBe(join(profile, 'antigravity-acp', 'tmp'))
   })
+
+  // Settings → Providers names the agy a person runs; without one, Solus finds its own.
+  test("the binary path of the person's Google Antigravity instance starts agy", () => {
+    const seat = { home: profileDirectory(), launch: { env: { PATH: '/bin' } } } as TurnSeat
+    const providerRuntime = { binaryPath: '/opt/agy/bin/agy' } as AgentRunRequest['providerRuntime']
+    expect(antigravityAgent.launch({ provider: 'antigravity', seat, providerRuntime } as AgentRunRequest).file).toBe('/opt/agy/bin/agy')
+    expect(antigravityAgent.launch({ provider: 'antigravity', seat } as AgentRunRequest).file).not.toBe('/opt/agy/bin/agy')
+  })
 })
 
 describe('Antigravity checklist', () => {

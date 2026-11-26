@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { worktreeOfferText } from "../conversation/lib/worktree-offer";
-import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
+import { ApprovalCardView } from "../../../src/features/threads/PendingApprovalCard";
 
 type WorktreeOfferItem = Extract<TranscriptItem, { kind: "worktree_offer" }>;
 
@@ -17,30 +17,39 @@ type WorktreeOfferItem = Extract<TranscriptItem, { kind: "worktree_offer" }>;
 export function WorktreeOfferCard(props: { readonly store: ConversationStore; readonly offer: WorktreeOfferItem }) {
   const text = worktreeOfferText(props.offer);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
   const decide = async (decision: "switch" | "keep") => {
+    if (sending.current || !props.store.controller.mayDrive || !text.canDecide) return;
+    sending.current = true;
     setBusy(true);
     try {
       await props.store.controller.decideWorktreeOffer(props.offer.offerId, decision);
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   };
+  if (!text.canDecide) {
+    return (
+      <View className="mb-3 gap-1 px-1">
+        <Text className="font-t3-medium text-sm text-foreground">{text.eyebrow}</Text>
+        <Text className="text-xs text-foreground-muted">{text.title}</Text>
+      </View>
+    );
+  }
   return (
-    <View className="mb-5 gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">{text.eyebrow}</Text>
-      <Text className="font-t3-bold text-base text-foreground">{text.title}</Text>
-      {text.detail ? (
-        <Text className={text.failed ? "font-sans text-sm leading-normal text-danger" : "font-sans text-sm leading-normal text-foreground-secondary"}>
-          {text.detail}
-        </Text>
-      ) : null}
-      {text.canDecide && !props.store.controller.mayDrive ? <WaitingForEditor /> : null}
-      {text.canDecide && props.store.controller.mayDrive ? (
-        <View className="flex-row flex-wrap gap-2.5">
-          <RequestActionButton label="Switch" tone="primary" disabled={busy} onPress={() => void decide("switch")} />
-          <RequestActionButton label="Keep current" tone="secondary" disabled={busy} onPress={() => void decide("keep")} />
-        </View>
-      ) : null}
-    </View>
+    <ApprovalCardView
+      heading={text.eyebrow}
+      title={text.title}
+      detail={text.failed ? undefined : text.detail}
+      warning={text.failed ? text.detail : undefined}
+      canRespond
+      mayApprove={props.store.controller.mayDrive}
+      disabled={busy}
+      options={[
+        { id: "switch", label: "Switch", tone: "primary", respond: () => decide("switch") },
+        { id: "keep", label: "Keep current", tone: "secondary", respond: () => decide("keep") },
+      ]}
+    />
   );
 }

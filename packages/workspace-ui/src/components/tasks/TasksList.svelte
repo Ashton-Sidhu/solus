@@ -4,30 +4,25 @@
   import type { Issue } from "../../contexts/tasks/task.svelte";
   import {
     ListGroup,
-    ListRailRow,
-    ListRow,
     ListSelectCheckbox,
     VirtualList,
     LIST_GROUP_HEADER_HEIGHT,
-    listRowHeight,
     virtualGroupItems,
     type ListGroupSpec,
-    type ListRowSpec,
     type ListSelection,
   } from "../ui/list-page";
+  import { TASK_LIST_ROW_HEIGHT, TASK_LIST_SPLIT_ROW_HEIGHT, type TaskRowSpec } from "./lib/tasks-list-view";
   import TaskListRow from "./TaskListRow.svelte";
 
   /**
    * The grouped task list of the Tasks page: one section for each column of
-   * the view on screen, virtualised. It draws one of three rows by the room it
-   * has: the drawer row in a narrow pane, the rail row beside an open task,
-   * else the table row.
+   * the view on screen, virtualised. One row at every width, in the pull
+   * request row's shape; beside an open task it is taller and sheds facts by
+   * its own width (see `TaskListRow`).
    */
   interface Props {
-    groups: ListGroupSpec[];
+    groups: ListGroupSpec<TaskRowSpec>[];
     height: number;
-    /** A narrow pane: the fixed-height drawer row, with its swipe controls. */
-    recordRows: boolean;
     /** The list is the rail beside an open task. */
     split: boolean;
     /** The page's multi-select: each row draws its checkbox from it. */
@@ -38,14 +33,14 @@
     onMove: (task: Issue, target: IssueMoveTarget) => void;
     onContextMenu: (event: MouseEvent, task: Issue) => void;
   }
-  let { groups, height, recordRows, split, selection, selectedKey, taskFor, onOpen, onMove, onContextMenu }: Props =
+  let { groups, height, split, selection, selectedKey, taskFor, onOpen, onMove, onContextMenu }: Props =
     $props();
 
   const collapsedGroups = new SvelteSet<string>();
   let revealedTaskId = $state<string | null>(null);
 
   const items = $derived(
-    virtualGroupItems<ListGroupSpec, ListRowSpec>(
+    virtualGroupItems<ListGroupSpec<TaskRowSpec>, TaskRowSpec>(
       groups,
       (row) => row.key,
       (group) => !collapsedGroups.has(group.key),
@@ -66,7 +61,9 @@
   itemSize={(index) =>
     items[index].kind === "header"
       ? LIST_GROUP_HEADER_HEIGHT
-      : listRowHeight({ record: recordRows, split, drawerRow: true })}
+      : split
+        ? TASK_LIST_SPLIT_ROW_HEIGHT
+        : TASK_LIST_ROW_HEIGHT}
   keyOf={(item) => item.key}
   {activeKey}
 >
@@ -84,70 +81,27 @@
       {:else}
         {@const task = taskFor(item.row.key)}
         {@const selected = selectedKey === item.row.key || selection.has(item.row.key)}
-        {#if recordRows}
-          <!-- The drawer row, not the three-line record: a task's title is
-               nearly the whole row, and a fixed height is what keeps the
-               painted row inside the slot the virtualiser gave it. Its swipe
-               controls move the task to a status category; the host chooses
-               the column of each source. -->
-          <TaskListRow
-            row={item.row}
-            category={task?.category ?? "open"}
-            {selected}
-            onSelect={() => {
-              if (task) onOpen(task);
-            }}
-            onSetCategory={(category) => {
-              revealedTaskId = null;
-              if (task) onMove(task, { category });
-            }}
-            revealed={revealedTaskId === item.row.key}
-            onRevealChange={(revealed) => (revealedTaskId = revealed ? item.row.key : null)}
-            onContextMenu={(event) => {
-              if (task) onContextMenu(event, task);
-            }}
-          >
-            {#snippet leading()}
-              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
-            {/snippet}
-          </TaskListRow>
-        {:else if split}
-          <ListRailRow
-            row={item.row}
-            fallbackAvatar="solus"
-            responsiveTitle
-            showTime={false}
-            {selected}
-            onSelect={() => {
-              if (task) onOpen(task);
-            }}
-            onContextMenu={(event) => {
-              if (task) onContextMenu(event, task);
-            }}
-          >
-            {#snippet leading()}
-              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
-            {/snippet}
-          </ListRailRow>
-        {:else}
-          <ListRow
-            row={item.row}
-            identWidth={62}
-            fallbackAvatar="solus"
-            responsiveTitle
-            {selected}
-            onSelect={() => {
-              if (task) onOpen(task);
-            }}
-            onContextMenu={(event) => {
-              if (task) onContextMenu(event, task);
-            }}
-          >
-            {#snippet leading()}
-              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
-            {/snippet}
-          </ListRow>
-        {/if}
+        <TaskListRow
+          row={item.row}
+          {split}
+          {selected}
+          onSelect={() => {
+            if (task) onOpen(task);
+          }}
+          onSetCategory={(category) => {
+            revealedTaskId = null;
+            if (task) onMove(task, { category });
+          }}
+          revealed={revealedTaskId === item.row.key}
+          onRevealChange={(revealed) => (revealedTaskId = revealed ? item.row.key : null)}
+          onContextMenu={(event) => {
+            if (task) onContextMenu(event, task);
+          }}
+        >
+          {#snippet leading()}
+            <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
+          {/snippet}
+        </TaskListRow>
       {/if}
     </div>
   {/snippet}

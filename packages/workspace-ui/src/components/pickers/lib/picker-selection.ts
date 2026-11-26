@@ -1,5 +1,6 @@
 import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
 import { modelProfileForAgent } from '@solus/contracts/provider-instance-models'
+import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import { MODEL_PROFILES, isLegacyModel } from "@solus/contracts/types";
 import type { AgentId, AgentMetadata, ModelProfile, ReasoningEffort } from "@solus/contracts/types";
 
@@ -188,6 +189,18 @@ export function clampReasoningEffort(
   if (!profile) return effort;
   if (profile.reasoningLevels.includes(effort)) return effort;
   return profile.defaultReasoningEffort ?? "high";
+}
+
+/**
+ * Puts a picked model in a detached selection. The model belongs to the agent
+ * whose list the picker shows. In a picker that browses agents, that can be
+ * another agent than the selection's, so the selection moves to that agent.
+ */
+export function pickModelIn(selection: PickerSelection, agent: AgentId, modelId: string): void {
+  selection.provider = agent;
+  selection.modelId = modelId;
+  selection.reasoningEffort = modelId === AUTO_MODEL_ID ? "medium" : clampReasoningEffort(agent, modelId, selection.reasoningEffort);
+  selection.fastMode = false;
 }
 
 /** A choice made inside the model picker. */

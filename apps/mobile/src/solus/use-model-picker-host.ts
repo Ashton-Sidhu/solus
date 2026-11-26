@@ -4,6 +4,7 @@ import {
   agentProjectInstance,
   selectedProviderInstance,
 } from "@solus/contracts/provider-instance-models";
+import { isInstanceProvider } from "@solus/contracts/provider-instances";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { AgentId } from "@solus/contracts/types";
 import type { ModelOption } from "../lib/modelOptions";
@@ -70,8 +71,7 @@ export function useModelPickerHost(host: string, cwd: string) {
     const currentAgent = agents?.find(
       (agent) => modelInstanceId(agent.id) === option.selection.instanceId,
     );
-    if (currentAgent?.id !== "claude-code" && currentAgent?.id !== "codex")
-      return;
+    if (!currentAgent || !isInstanceProvider(currentAgent.id)) return;
     const currentInstance = agentProjectInstance(currentAgent, cwd);
     const snapshot = await connection.api.providerInstancesGet();
     const { instance } = selectedProviderInstance(

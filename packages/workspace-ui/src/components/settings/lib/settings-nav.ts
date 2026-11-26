@@ -17,9 +17,9 @@ export interface SettingsNavPage<Tab extends { id: SettingsTab; group: SettingsN
   items: Tab[]
 }
 
-/** True when the page shows for this person. Organization is for a signed-in person only. */
+/** True when the page shows for this person. Organization and Solus Cloud are for a signed-in person only. */
 export function settingsTabShown(tabId: SettingsTab, isSignedIn: boolean): boolean {
-  return tabId !== 'organization' || isSignedIn
+  return (tabId !== 'organization' && tabId !== 'cloud') || isSignedIn
 }
 
 /**

@@ -39,6 +39,7 @@ export type SettingsTab =
   | 'providers'
   | 'api-access'
   | 'sharing'
+  | 'cloud'
   | 'tools'
   | 'integrations'
   | 'mcp'
@@ -68,6 +69,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'providers',
   'api-access',
   'sharing',
+  'cloud',
   'tools',
   'integrations',
   'mcp',
@@ -396,8 +398,8 @@ export const ROUTES: RouteTable = {
       const rest = optional(cwd.join('/'))
       if (settingsTab === 'webhooks') return rest ? { tab: settingsTab, webhooks: rest } : { tab: settingsTab }
       if (settingsTab === 'codebases') return rest ? { tab: settingsTab, codebase: rest } : { tab: settingsTab }
-      // Sharing & access names its host, as T3 Code's `/settings/access?machine=` does.
-      if (settingsTab === 'sharing') return rest ? { tab: settingsTab, host: rest } : { tab: settingsTab }
+      // Sharing & access and Solus Cloud name their host, as T3 Code's `/settings/access?machine=` does.
+      if (settingsTab === 'sharing' || settingsTab === 'cloud') return rest ? { tab: settingsTab, host: rest } : { tab: settingsTab }
       return {
         tab: settingsTab,
         projectCwd: rest,
@@ -406,7 +408,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => {
       if (p.tab === 'webhooks') return p.webhooks ? `webhooks/${p.webhooks}` : 'webhooks'
       if (p.tab === 'codebases') return p.codebase ? `codebases/${p.codebase}` : 'codebases'
-      if (p.tab === 'sharing') return p.host ? `sharing/${p.host}` : 'sharing'
+      if (p.tab === 'sharing' || p.tab === 'cloud') return p.host ? `${p.tab}/${p.host}` : p.tab
       return p.projectCwd ? `${p.tab === 'projects' ? 'providers' : p.tab ?? 'providers'}/${p.projectCwd}` : p.tab === 'projects' ? 'providers' : p.tab ?? ''
     },
     placement: 'destination',

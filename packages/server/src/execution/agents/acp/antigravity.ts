@@ -23,14 +23,15 @@ import { z } from 'zod'
 import { launchedProcess, launchOptions } from '../../../cli-env'
 import type { TodoItem } from '@solus/contracts/types'
 import type { AgentRunRequest } from '../agent-runner'
-import type { AcpAgent } from './acp-backend'
+import type { AcpAgent } from './acp-agent'
 import { ANTIGRAVITY_APP_DATA_DIR, antigravityAuthOf, antigravityEnvironment, hostAntigravityProfile, prepareAntigravityProfile } from './antigravity-auth'
 import { linkHostGeminiConfig, listAntigravitySkills } from './antigravity-skills'
 import { presentAntigravitySubagentTool } from './antigravity-subagents'
-import { watchAntigravityTurnOutcome } from './antigravity-turn-outcome'
+import { managedPath, watchAntigravityTurnOutcome } from './antigravity-turn-outcome'
 import { AcpRequestError } from './acp-connection'
 import type { AcpInitializeResult, AcpToolCall } from './acp-protocol'
-import type { AcpStepsTool, AcpToolPresentation } from './acp-turn-normalizer'
+import type { AcpPlanTool, AcpStepsTool, AcpToolPresentation } from './acp-turn-normalizer'
+import { antigravityChildCalls } from './antigravity-children'
 
 /** The Antigravity CLI's command. A managed install is found under this name too (`cli-env.ts`). */
 export const ANTIGRAVITY_COMMAND = 'agy'
@@ -120,7 +121,7 @@ export function isAntigravityQuestion(toolCallId: string): boolean {
 export const ANTIGRAVITY_SIGN_IN_MESSAGE = 'Sign in to Google Antigravity on this host to continue. Type /login to sign in.'
 
 /** The host login's turns have no seat yet; a member's seat names their own profile (§7). */
-function antigravityProfileOf(request: AgentRunRequest): string {
+function antigravityProfileOf(request: Pick<AgentRunRequest, 'seat'>): string {
   return request.seat?.home ?? hostAntigravityProfile()
 }
 
@@ -149,6 +150,26 @@ export const antigravityStepsTool: AcpStepsTool = {
   },
 }
 
+const daemonInputSchema = z.looseObject({ IsDaemon: z.literal(true) })
+
+const planWriteSchema = z.looseObject({
+  ArtifactMetadata: z.looseObject({ RequestFeedback: z.literal(true) }),
+  Content: z.string().min(1),
+  Path: z.string(),
+})
+
+/**
+ * In plan mode agy writes its plan as a file in its own `brain/<session>/`
+ * folder and asks for feedback on it (`ArtifactMetadata.RequestFeedback`);
+ * agy 1.5.18 makes no other call for a plan.
+ */
+export const antigravityPlanTool: AcpPlanTool = {
+  planOf(toolCall) {
+    const input = planWriteSchema.safeParse(toolCall.rawInput)
+    return input.success ? { content: input.data.Content, path: input.data.Path } : null
+  },
+}
+
 /** Antigravity for the ACP backend (`acp-backend.ts`). */
 export const antigravityAgent: AcpAgent = {
   id: 'antigravity',
@@ -157,6 +178,12 @@ export const antigravityAgent: AcpAgent = {
   mcpServerName: SOLUS_MCP_SERVER_NAME,
   nameTool: nameAntigravityTool,
   stepsTool: antigravityStepsTool,
+  planTool: antigravityPlanTool,
+  // agy keeps a session in its profile's `conversations` folder; a profile without it gets the thread by handoff.
+  hasThread: (profile, agentSessionId) => /^[\w-]+$/.test(agentSessionId) && managedPath(profile, [ANTIGRAVITY_APP_DATA_DIR, 'conversations', `${agentSessionId}.db`], 'file') !== null,
+  // A recurring `schedule`, or a command, that agy keeps running after the prompt answers.
+  startsDaemon: (toolCall) => daemonInputSchema.safeParse(toolCall.rawInput).success,
+  childCalls: (request, threadId) => antigravityChildCalls(antigravityProfileOf(request), threadId),
   isClientRead: (title) => title === 'Running client_view_file' || title === 'Run client_view_file?',
   isSignInRequired: isAntigravitySignInRequired,
   isQuestion: isAntigravityQuestion,
@@ -173,15 +200,16 @@ export const antigravityAgent: AcpAgent = {
   launch(request) {
     const profile = antigravityProfileOf(request)
     const auth = antigravityAuthOf(profile)
-    prepareAntigravityProfile(profile, auth)
-    if (profile === hostAntigravityProfile()) linkHostGeminiConfig(profile)
     const base = request.seat?.launch ?? launchOptions()
+    prepareAntigravityProfile(profile, auth, base.user ?? null)
+    if (profile === hostAntigravityProfile()) linkHostGeminiConfig(profile)
     const env = antigravityEnvironment(base.env, profile, auth)
-    const run = launchedProcess({ ...base, env }, ANTIGRAVITY_COMMAND, antigravityArgs(profile))
+    // The binary path of the person's Google Antigravity instance, when they set one.
+    const run = launchedProcess({ ...base, env }, request.providerRuntime?.binaryPath ?? ANTIGRAVITY_COMMAND, antigravityArgs(profile))
     const connectionKey = createHash('sha256').update(JSON.stringify({ profile, file: run.file, args: run.args, auth: auth.method, key: auth.apiKey ?? null, gcp: [auth.gcpProject, auth.gcpLocation] })).digest('hex')
     // Each launch unpacks about 1 GB into its temp folder. A process that runs as another user keeps the host's.
     const tempRoot = base.user ? null : join(profile, ANTIGRAVITY_APP_DATA_DIR, 'tmp')
-    return { file: run.file, args: run.args, env: run.env, connectionKey, authMethod: auth.method, tempRoot }
+    return { file: run.file, args: run.args, env: run.env, connectionKey, authMethod: auth.method, tempRoot, place: profile }
   },
 }
 

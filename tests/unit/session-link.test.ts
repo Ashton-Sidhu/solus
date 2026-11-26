@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseSessionHref, type SessionLinkParams } from "@solus/contracts/session-link";
+import { parseSessionHref, parseSessionReferences, sessionReferenceHref, type SessionLinkParams } from "@solus/contracts/session-link";
 import { resolveSessionLinkMeta } from "@solus/workspace-ui/components/conversation/lib/session-link";
-import type { SessionMeta } from "@solus/contracts/types";
+import { AGENT_IDS, type SessionMeta } from "@solus/contracts/types";
 
 const params: SessionLinkParams = {
   provider: "codex",
@@ -11,6 +11,16 @@ const params: SessionLinkParams = {
 };
 
 describe("session links", () => {
+  test("a link to a session of every agent opens it, and a dragged one stays a reference", () => {
+    // WHY: these parsers kept their own list of agents, so a link to an
+    // Antigravity session did nothing and a dragged one was dropped.
+    for (const provider of AGENT_IDS) {
+      const reference = { sessionId: "s1", provider, title: "Hi", cwd: "/repo", serverId: "local" };
+      expect(parseSessionHref(sessionReferenceHref(reference))).toEqual({ provider, sessionId: "s1", serverId: "local", cwd: "/repo" });
+      expect(parseSessionReferences(JSON.stringify([reference]))).toEqual([reference]);
+    }
+  });
+
   test("uses indexed metadata so a linked session restores its real project and branch directory", async () => {
     const indexed: SessionMeta = {
       provider: "claude-code",

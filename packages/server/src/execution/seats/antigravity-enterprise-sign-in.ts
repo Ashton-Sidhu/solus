@@ -136,7 +136,7 @@ function forwardToListener(callback: URL): Promise<void> {
 
 export async function startEnterpriseSignIn(options: EnterpriseSignInOptions): Promise<EnterpriseSignIn> {
   const auth = { method: 'oauth-business' as const, gcpProject: options.gcpProject, gcpLocation: options.gcpLocation }
-  prepareAntigravityProfile(options.profile, auth)
+  prepareAntigravityProfile(options.profile, auth, options.launch.user ?? null)
   const env = antigravityEnvironment(options.launch.env, options.profile, auth)
   env.BROWSER = options.browserHelper
   env.PATH = `${options.shimBin}:${env.PATH ?? ''}`

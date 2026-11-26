@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -112,6 +112,8 @@ describe('starting a chat', () => {
   type Resource = { kind: string; id: string }
   const handlers = new Map<string, Handler>()
   const prompted: IpcContext[] = []
+  /** The folders slash commands were read in: the one asked, and the one the run context names. */
+  const commandReads: Array<{ workingDirectory: string; contextFolder: string }> = []
   /** What the handlers asked of the share list, in order. ShareManager's own tests cover what each call writes. */
   const shareCalls: string[] = []
   /** sessionId → the clients watching it, as the runtime keeps them. */
@@ -139,6 +141,13 @@ describe('starting a chat', () => {
         },
         bindRuntimeSession: () => null,
       },
+      history: {
+        listPluginCommands: async (_agentId: string, workingDirectory: string, ctx: IpcContext) => {
+          commandReads.push({ workingDirectory, contextFolder: ctx.session.workingDirectory })
+          return { global: [], project: [] }
+        },
+      },
+      commandSeatFor: () => undefined,
       dispatch: {
         // No organization admission on this host: the folder rule is the subject here.
         admitTurn: async () => {},
@@ -174,6 +183,23 @@ describe('starting a chat', () => {
     expect(chat.session.workingDirectory).toBe(folder)
     expect(chat.session.projectPath).toBe(folder)
     expect(existsSync(folder)).toBe(true)
+  })
+
+  test('a new chat reads its slash commands where its person\'s chats live, and makes no chat folder', async () => {
+    // WHY: the composer of a new chat asks for slash commands before the chat
+    // has a session, so before it has a folder. A new chat has no project, so
+    // it has no project commands: the host reads them in the folder that holds
+    // the person's chats. Reading them must not make a chat folder.
+    const chats = join(dataDir, 'solus-chats')
+    const chatsBefore = existsSync(chats) ? readdirSync(chats) : []
+    const draft = () => ({ session: { sessionId: '', workingDirectory: NEW_CHAT_DIRECTORY, projectPath: NEW_CHAT_DIRECTORY }, statusBar: {} }) as IpcContext
+    await handlers.get('getPluginCommands')!([NEW_CHAT_DIRECTORY, draft()], { clientId: 'ws:draft', principal: OWNER })
+    await handlers.get('getPluginCommands')!([NEW_CHAT_DIRECTORY, draft()], { clientId: 'ws:draft', principal: member('bob') })
+    expect(commandReads).toEqual([
+      { workingDirectory: dataDir, contextFolder: dataDir },
+      { workingDirectory: projectsRootFor(member('bob'), hostRoot), contextFolder: projectsRootFor(member('bob'), hostRoot) },
+    ])
+    expect(existsSync(chats) ? readdirSync(chats) : []).toEqual(chatsBefore)
   })
 
   test('a new chat with no folder gets one named by its session', async () => {

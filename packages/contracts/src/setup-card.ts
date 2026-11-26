@@ -38,6 +38,12 @@ export function isWorktreeSetupCard(card: StatusCardState): boolean {
   return card.id.startsWith('worktree-')
 }
 
+/** A session start can use the same card id when it only prepares a repository. */
+export function isSessionWorktreeSetup(card: StatusCardState, sessionId: string): boolean {
+  return card.id === worktreeSetupCardId(sessionId)
+    && (card.icon === 'git-branch' || card.steps.some(step => step.id === 'checkout'))
+}
+
 const WORKTREE_STEP_IDS: ReadonlySet<string> = new Set(WORKTREE_SETUP_STEPS.map((step) => step.id))
 
 /**

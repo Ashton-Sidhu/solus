@@ -67,16 +67,31 @@ function chipsFor(task: Issue, now: number, homeFor?: TaskHomeLabel): ListChipSp
   if (home) chips.push({ label: home })
   const label = task.labels[0]
   if (label) chips.push({ label, labelColor: 'var(--solus-accent)' })
+  const urgency = urgencyChip(task, now)
+  if (urgency) chips.push(urgency)
+  return chips
+}
 
+/** The one state that needs colour: overdue while the work is open, else an
+ *  urgent or high priority. */
+function urgencyChip(task: Issue, now: number): ListChipSpec | null {
   const overdue =
     task.dueDate && task.category !== 'done'
       ? Date.parse(`${task.dueDate}T23:59:59`) < now
       : false
-  if (overdue) chips.push({ label: 'overdue', tint: 'failure' })
-  else if (task.priority === 'urgent') chips.push({ label: 'urgent', tint: 'failure' })
-  else if (task.priority === 'high') chips.push({ label: 'high', tint: 'warning' })
+  if (overdue) return { label: 'overdue', tint: 'failure' }
+  if (task.priority === 'urgent') return { label: 'urgent', tint: 'failure' }
+  if (task.priority === 'high') return { label: 'high', tint: 'warning' }
+  return null
+}
 
-  return chips
+/** The people a task belongs to: every assignee the provider reports, else
+ *  the one assignee of a provider that has only one. */
+function assigneesOf(task: Issue): ListPerson[] {
+  if (task.assignees && task.assignees.length > 0) {
+    return task.assignees.map((assignee) => personFrom(assignee.login, undefined, assignee.avatarUrl))
+  }
+  return task.assignee ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)] : []
 }
 
 /**
@@ -92,20 +107,42 @@ function metaFor(task: Issue, activeSessions: number): string {
   return ''
 }
 
-/** A list row names where the task lives in its own column, so its chips keep
- *  only the label and the state that needs colour. */
-export function taskRow(task: Issue, activeSessions: number, now: number, placeFor?: TaskPlaceFor): ListRowSpec {
+/** The task row's fixed heights, the same as the pull request row's: a
+ *  virtualiser is told a slot height before layout, so `TaskListRow` states
+ *  these as its own height. Beside an open task the row gets more room. */
+export const TASK_LIST_ROW_HEIGHT = 62
+export const TASK_LIST_SPLIT_ROW_HEIGHT = 76
+
+/** The labels a row draws; the rest are counted as `+n`. */
+const ROW_LABELS_SHOWN = 3
+
+/** The task row's facts beyond the shared grammar: its status category for
+ *  the state glyph, and its labels as pills on the facts line, the way the
+ *  pull request row draws them. */
+export interface TaskRowSpec extends ListRowSpec {
+  category: IssueStatusCategory
+  labels: string[]
+  /** Labels past the ones drawn, as a `+n` after them. */
+  moreLabels: number
+}
+
+/** One row of the task list, in the pull request row's shape: the state glyph,
+ *  the title with the assignees and the state that needs colour, then where it
+ *  lives — reference, place, machine state, labels — with the age at its end. */
+export function taskRow(task: Issue, activeSessions: number, now: number, placeFor?: TaskPlaceFor): TaskRowSpec {
+  const urgency = urgencyChip(task, now)
   return {
     key: task.id,
     ident: taskRef(task),
     source: sourceFor(task),
     title: task.title,
-    chips: chipsFor(task, now),
+    category: task.category,
+    chips: urgency ? [urgency] : [],
+    labels: task.labels.slice(0, ROW_LABELS_SHOWN),
+    moreLabels: Math.max(0, task.labels.length - ROW_LABELS_SHOWN),
     place: placeFor?.(task.id),
     meta: metaFor(task, activeSessions),
-    people: task.assignee
-      ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)]
-      : [],
+    people: assigneesOf(task),
     time: compactRelativeTime(task.updatedAt, now),
     timeTitle: absoluteTime(task.updatedAt),
   }
@@ -148,7 +185,7 @@ export function taskBoardCard(task: Issue, activeSessions: number, now: number, 
     status: metaFor(task, activeSessions),
     live: activeSessions > 0,
     chips: chipsFor(task, now, homeFor),
-    people: task.assignee ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)] : [],
+    people: assigneesOf(task),
     time: compactRelativeTime(task.updatedAt, now),
     timeTitle: absoluteTime(task.updatedAt),
   }
@@ -162,7 +199,7 @@ export function taskGroups(
   runningSessionsFor: (taskId: string) => number,
   now: number,
   placeFor?: TaskPlaceFor,
-): ListGroupSpec[] {
+): ListGroupSpec<TaskRowSpec>[] {
   return columns
     .filter((column) => column.tasks.length > 0)
     .map((column) => ({

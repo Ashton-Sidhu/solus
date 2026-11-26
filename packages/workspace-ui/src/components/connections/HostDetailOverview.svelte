@@ -246,7 +246,7 @@
             : "Registered · on your local network"}
     >
       {#snippet control()}
-        {@render openTab("access", uplink?.registration.registered === true)}
+        {@render openTab("cloud", uplink?.registration.registered === true)}
       {/snippet}
     </SettingsRow>
   {/if}

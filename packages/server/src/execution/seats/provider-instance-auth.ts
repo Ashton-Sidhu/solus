@@ -21,7 +21,11 @@ export class ProviderInstanceAuth {
 
   private target(seat: Seat, instanceId: string) {
     const personKey = requirePersonKey()
-    const instance = privateProviderInstances().lookup(personKey, instanceId)
+    const stored = privateProviderInstances().lookup(personKey, instanceId)
+    // agy keeps one sign-in for the host in the keychain: it is the seat's, in Settings → Seats.
+    if (stored.provider === 'antigravity') throw new Error('Sign in to Google Antigravity in Settings → Seats.')
+    const provider = stored.provider
+    const instance = { ...stored, provider }
     const home = this.deps.seats.homeFor(seat, instance.provider)
     // The host login lives where the CLI looks by default, as its runs do. Naming
     // that directory changes where the CLI reads its login: on macOS, Claude Code

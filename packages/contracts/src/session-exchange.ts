@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { cutText } from './text-cut'
-import type { AgentId, NormalizedEvent, PermissionOption, PermissionRequest, QuestionRequest, WorkType } from './types'
+import { AGENT_IDS, type AgentId, type NormalizedEvent, type PermissionOption, type PermissionRequest, type QuestionRequest, type WorkType } from './types'
 
 /**
  * One session asking another for work, and everything that comes back: the
@@ -238,7 +238,6 @@ function parseOutput(line: string): SessionOutput | null {
 
 // ─── Shared head fields ───
 
-const AGENT_IDS: readonly AgentId[] = ['claude-code', 'codex', 'opencode', 'replay']
 const OUTCOMES: readonly ExchangeOutcome[] = ['completed', 'failed', 'interrupted']
 
 /** A head's `key=value` pairs. Values are percent-encoded, so one may hold a space. */

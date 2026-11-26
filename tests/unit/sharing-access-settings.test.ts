@@ -16,7 +16,7 @@ const closedHostPages: string[] = []
 mock.module('../../packages/workspace-ui/src/components/connections/connections-nav.svelte.ts', () => ({
   connectionsNav: { back: () => closedHostPages.push('back') },
 }))
-const { openSharingAccess, sharingAccessRoute } = await import('@solus/workspace-ui/components/connections/lib/sharing-access')
+const { openHostSettings, sharingAccessRoute } = await import('@solus/workspace-ui/components/connections/lib/sharing-access')
 const { HOST_MENU_ACCESS_ITEMS } = await import('@solus/workspace-ui/components/fleet/lib/host-menu')
 const { sharingAccessCommands } = await import('@solus/workspace-ui/components/settings/lib/settings-commands')
 
@@ -58,22 +58,44 @@ describe('the link to Sharing & access', () => {
     expect(serializeRef(carried)).toBe('settings/sharing')
   })
 
-  test('the Access tab and the host menu open the page for their host and close the host page', () => {
+  test('the host menu and the Overview open the page for their host and close the host page', () => {
     const navigations: { ref: RouteRef; replace: boolean }[] = []
     closedHostPages.length = 0
-    openSharingAccess({ navigate: (ref, opts) => navigations.push({ ref, replace: opts.replace }) }, 'studio')
-    expect(navigations).toEqual([{ ref: sharingAccessRoute('studio'), replace: true }])
-    expect(closedHostPages).toEqual(['back'])
+    const router = { navigate: (ref: RouteRef, opts: { replace: boolean }) => navigations.push({ ref, replace: opts.replace }) }
+    openHostSettings(router, 'studio', 'sharing')
+    openHostSettings(router, 'studio', 'cloud')
+    expect(navigations).toEqual([
+      { ref: sharingAccessRoute('studio'), replace: true },
+      { ref: { name: 'settings', params: { tab: 'cloud', host: 'studio' } }, replace: true },
+    ])
+    expect(closedHostPages).toEqual(['back', 'back'])
   })
 
-  test('the host page has no Access tab: its content is only on Sharing & access, and its Overview links there', () => {
+  test('the host page has no Access tab: its content is only on Sharing & access', () => {
     // WHY: T3 Code keeps sharing and access on one page; two copies of it drift apart.
     const hostDetail = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/connections/HostDetail.svelte'), 'utf8')
     expect(hostDetail).not.toContain('value="access"')
     expect(hostDetail).not.toContain('HostDetailAccess')
-    expect(hostDetail).toContain('next === "access" ? openSharingAccess(workspace.router, host.id)')
     const page = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/connections/SharingAccessPage.svelte'), 'utf8')
     expect(page).toContain('<HostDetailAccess')
+  })
+})
+
+describe('Settings → Solus Cloud', () => {
+  test('names its host, and the host survives the address bar', () => {
+    const route: RouteRef = { name: 'settings', params: { tab: 'cloud', host: 'studio' } }
+    expect(serializeRef(route)).toBe('settings/cloud/studio')
+    expect(parseRef(serializeRef(route))).toEqual(route)
+  })
+
+  test('the Solus Cloud link of a host is on its own page, not on Sharing & access', () => {
+    // WHY: signing in and registering are Solus Cloud's; Sharing & access is how a host is reached on your network.
+    const read = (file: string) => readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/connections', file), 'utf8')
+    expect(read('HostDetailAccess.svelte')).not.toContain('UplinkSection')
+    expect(read('HostDetailAccess.svelte')).not.toContain('OrganizationsSection')
+    expect(read('SolusCloudPage.svelte')).toContain('<UplinkSection')
+    expect(read('SolusCloudPage.svelte')).toContain('<OrganizationsSection')
+    expect(read('HostDetail.svelte')).toContain('next === "cloud" ? openHostSettings(workspace.router, host.id, "cloud")')
   })
 })
 
@@ -93,12 +115,12 @@ describe('the host menu on Settings → Hosts', () => {
 })
 
 describe('the palette and the settings sidebar', () => {
-  test('"Sharing & access" opens the page from the palette', () => {
+  test('"Sharing & access" and "Solus Cloud" open their pages from the palette', () => {
     const opened: string[] = []
-    const [command] = sharingAccessCommands({ showSettings: (tab, via) => opened.push(`${tab}:${via}`) })
-    expect(command?.label).toBe('Sharing & access')
-    void command?.run()
-    expect(opened).toEqual(['sharing:palette'])
+    const commands = sharingAccessCommands({ showSettings: (tab, via) => opened.push(`${tab}:${via}`) })
+    expect(commands.map((command) => command.label)).toEqual(['Sharing & access', 'Solus Cloud'])
+    for (const command of commands) void command.run()
+    expect(opened).toEqual(['sharing:palette', 'cloud:palette'])
   })
 
   test('the page is in Connections, right after Hosts', () => {

@@ -6,11 +6,14 @@
    *  is the link: a Cloudflare tunnel, and nothing else. A local owner — the desktop
    *  on the machine or a paired device — changes them; an owner who arrived through
    *  the tunnel sees them and cannot change them. A managed host never shows them:
-   *  Solus cloud owns them (managed-hosts.md §1). */
+   *  Solus cloud owns them (managed-hosts.md §1). Signing in is not done here: it
+   *  is the account's, on Settings → Account & sync, and this section sends a
+   *  signed-out owner there. */
   import { untrack } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import {
     accountStore,
+    getWorkspaceContext,
     linkDescription,
     registrationDescription,
     uplinkStore,
@@ -25,12 +28,9 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
 
-  interface Props {
-    serverId: string;
-    label?: string;
-  }
+  let { serverId }: { serverId: string } = $props();
 
-  let { serverId, label = "Solus Cloud" }: Props = $props();
+  const session = getWorkspaceContext();
 
   const hostControl = $derived(uplinkStore.controlFor(serverId));
   // Registering takes an account to issue the ticket; a client without one (a web
@@ -57,17 +57,7 @@
   const websiteUrl = $derived(
     registration?.registered ? hostWebsiteUrl(registration.registration.directoryUrl, registration.registration.hostId) : null,
   );
-  const registrationLabel = $derived(
-    isRegistered
-      ? "Registered to your account"
-      : !canChange || uplinkStore.canLink
-        ? busy
-          ? "Registering…"
-          : "Not registered"
-        : account.kind === "signing-in"
-          ? "Confirm in your browser"
-          : "Sign in to Solus Cloud",
-  );
+  const registrationLabel = $derived(isRegistered ? "Registered to your account" : busy ? "Registering…" : "Not registered");
   const registrationText = $derived(
     hostControl === "view"
       ? `${registrationDescription(uplink)} Change it from the host itself or from a paired device.`
@@ -76,10 +66,10 @@
         : isRegistered || uplinkStore.canLink
           ? registrationDescription(uplink)
           : account.kind === "signing-in"
-            ? "Finish signing in in your browser to sign this app in."
+            ? "Finish signing in in your browser. Then you can register this host."
             : account.kind === "unavailable"
               ? "The system keychain is unavailable, so an account cannot be stored on this computer."
-              : "Sign in to register this host to your account. It stays on your local network.",
+              : "Sign in on Account & sync to register this host to your account. It stays on your local network.",
   );
   const linkText = $derived(
     hostControl === "view"
@@ -112,7 +102,7 @@
 </script>
 
 {#if hostControl !== "none"}
-  <SettingsSection {label}>
+  <SettingsSection label="Solus Cloud">
     <SettingsRow label={registrationLabel} description={registrationText}>
       {#snippet control()}
         <!-- Without a button, the description says where to change it. -->
@@ -125,18 +115,9 @@
           >
             {busy ? "Registering…" : "Register"}
           </Button>
-        {:else if account.kind === "signing-in"}
-          <Button variant="outline" size="sm" onclick={() => accountStore.cancelSignIn()}>
-            Cancel
-          </Button>
-        {:else}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={account.kind === "unavailable"}
-            onclick={() => void accountStore.signIn()}
-          >
-            Sign in
+        {:else if account.kind !== "signing-in" && account.kind !== "unavailable"}
+          <Button variant="outline" size="sm" onclick={() => session.showSettings("account", "click")}>
+            Open Account & sync
           </Button>
         {/if}
       {/snippet}

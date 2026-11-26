@@ -1,22 +1,14 @@
 import { hostPathBaseName, isInsideHostPath } from '@solus/contracts/host-path'
-import { EDITOR_IDS, type DetectedEditor, type EditorId } from '@solus/contracts/types'
+import type { DetectedEditor, EditorId } from '@solus/contracts/types'
 
 export type OpenInTarget = EditorId | 'terminal'
 
-export function parseOpenInTarget(value: string | null): OpenInTarget | null {
-  if (value === 'terminal') return value
-  return EDITOR_IDS.find((id) => id === value) ?? null
-}
-
-/** A removed app must never leave the primary action pointing at a stale choice. */
-export function openInTarget(
-  chosen: OpenInTarget | null,
-  defaultEditor: EditorId | null,
-  editors: readonly DetectedEditor[],
-): OpenInTarget {
-  if (chosen === 'terminal') return chosen
-  const installed = editors.find((editor) => editor.id === chosen)
-  if (installed) return installed.id
+/**
+ * The app of the "Open in" row: the code editor of Settings, which the row's
+ * menu also changes. No editor, or one this host does not have, opens Terminal,
+ * so a removed app never leaves the row pointing at a stale choice.
+ */
+export function openInTarget(defaultEditor: EditorId | null, editors: readonly DetectedEditor[]): OpenInTarget {
   return editors.find((editor) => editor.id === defaultEditor)?.id ?? 'terminal'
 }
 

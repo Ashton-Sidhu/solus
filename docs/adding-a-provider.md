@@ -44,7 +44,7 @@ To find a missed list, search for a string such as `'claude-code', 'codex'` in `
 
 ### 3.1 An ACP agent
 
-Write one file, `execution/agents/acp/<provider>.ts`, that exports an `AcpAgent` (`acp-backend.ts`). Copy `acp/antigravity.ts`. The interface has these parts:
+Write one file, `execution/agents/acp/<provider>.ts`, that exports an `AcpAgent` (`acp-agent.ts`). Copy `acp/antigravity.ts`. The interface has these parts:
 
 | Member | What it does |
 |---|---|
@@ -57,6 +57,7 @@ Write one file, `execution/agents/acp/<provider>.ts`, that exports an `AcpAgent`
 | `listCommands` | The agent's skills for the slash menu. |
 | `signInMessage`, `mcpServerName` | The text for a missing sign-in, and the name of the Solus MCP server. |
 | `stepsTool?`, `isClientRead?`, `watchTurnOutcome?` | Optional rules for the agent's checklist, its file reads, and errors that it reports as answers. |
+| `planTool?`, `childCalls?`, `startsDaemon?`, `hasThread?` | Optional rules for the plan file it writes in plan mode, the calls of its subagents, work it keeps running after a prompt, and whether a profile holds a session (else the thread continues there by handoff). Give `launch` a `place` (the profile) for the last. |
 
 Then register the backend in `execution/agents/backend-registry.ts`:
 

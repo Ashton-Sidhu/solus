@@ -74,6 +74,27 @@ describe('the host login’s Antigravity profile', () => {
     expect(existsSync(join(profile, 'AGENTS.md'))).toBe(false)
   })
 
+  // WHY: a Solus run gives agy `--gemini-dir <profile>`, so agy reads the profile's MCP file, not
+  // the one the person set up for agy in a terminal. agy makes that file empty at each start.
+  test("the host login's runs read the person's own MCP servers; a file with content stays", () => {
+    const base = root()
+    const gemini = join(base, 'home', '.gemini')
+    mkdirSync(join(gemini, 'config'), { recursive: true })
+    writeFileSync(join(gemini, 'config', 'mcp_config.json'), '{"mcpServers":{"docs":{"url":"https://example.com/mcp"}}}')
+    const profile = join(base, 'profile')
+    mkdirSync(join(profile, 'config'), { recursive: true })
+    writeFileSync(join(profile, 'config', 'mcp_config.json'), '')
+
+    linkHostGeminiConfig(profile, gemini)
+    expect(readlinkSync(join(profile, 'config', 'mcp_config.json'))).toBe(join(gemini, 'config', 'mcp_config.json'))
+
+    const own = join(base, 'own-profile')
+    mkdirSync(join(own, 'config'), { recursive: true })
+    writeFileSync(join(own, 'config', 'mcp_config.json'), '{"mcpServers":{}}')
+    linkHostGeminiConfig(own, gemini)
+    expect(lstatSync(join(own, 'config', 'mcp_config.json')).isSymbolicLink()).toBe(false)
+  })
+
   test('never replaces a skills folder that holds the person’s files', () => {
     const base = root()
     const gemini = join(base, 'home', '.gemini')

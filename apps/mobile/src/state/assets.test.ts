@@ -41,6 +41,10 @@ vi.mock("./mobile-host", async () => {
   };
 });
 
+// The Solus runtime starts the app (React Native); these tests open no thread.
+vi.mock("../solus/runtime", () => ({
+  solus: { threads: { thread: () => undefined }, openConversation: () => undefined },
+}));
 vi.mock("react", () => ({ useCallback: <A>(callback: A) => callback }));
 vi.mock("@effect/atom-react", () => ({
   useAtomMount: () => undefined,
@@ -94,6 +98,7 @@ vi.mock("gt-react-native", async (importOriginal) => {
 import { refreshAssetUrl, useRefreshAssetUrl, useAssetUrlState } from "./assets";
 import { appAtomRegistry } from "./atom-registry";
 import { fileAccountScope, mobileHost } from "./mobile-host";
+import { artifactPageAttachmentId } from "@solus/contracts/artifact-page";
 import { resolveMarkdownMediaPreview } from "../lib/markdownMedia";
 
 const environmentId = EnvironmentId.make("asset-environment");
@@ -306,5 +311,26 @@ it("rejects an image URL signed before reconnect and uses the new connection on 
   } finally {
     state.hostGeneration = 1;
     appAtomRegistry.refresh(hostAtom);
+  }
+});
+
+it("signs a saved artifact page on its Solus host, not through the T3 connection", async () => {
+  // A T3 asset query for a Solus host never settles, so the page row would spin forever.
+  const resource = { _tag: "attachment", attachmentId: artifactPageAttachmentId("work-1", 3),
+    fileName: "graph.html", mimeType: "text/html", disposition: "inline" } as const;
+  state.sign.mockResolvedValue({ relativeUrl: "/api/assets/page", expiresAt: 1 });
+  expect(useAssetUrlState(environmentId, resource)).toEqual({ _tag: "Loading" });
+  expect(state.assetQuery).not.toHaveBeenCalled();
+  const atom = state.hostMediaState;
+  if (!atom) throw new Error("Expected a host page read");
+  const result = Promise.withResolvers<AssetUrlState>();
+  const release = appAtomRegistry.subscribe(atom, value => {
+    if (value._tag !== "Loading") result.resolve(value);
+  }, { immediate: true });
+  try {
+    expect(await result.promise).toMatchObject({ _tag: "Success", url: "https://asset-environment.test/api/assets/page" });
+    expect(state.sign).toHaveBeenCalledWith(expect.anything(), { assetId: "artifact:work-1:3" });
+  } finally {
+    release();
   }
 });

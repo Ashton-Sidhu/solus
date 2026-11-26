@@ -32,6 +32,7 @@
     Webhook as WebhookIcon,
     FolderGit2 as CodebasesIcon,
     Share2 as SharingIcon,
+    Cloud as SolusCloudIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -63,7 +64,8 @@
     policySearchWords as policySearch,
     webhooksSearchWords as webhooksSearch,
     codebasesSearchWords as codebasesSearch,
-    sharingSearchWords as sharingSearch
+    sharingSearchWords as sharingSearch,
+    solusCloudSearchWords as solusCloudSearch
   } from "./lib/settings-search-data";
   import { dataMatches, wordsMatch, settingsPageMatches, settingsPageQuery } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
@@ -247,6 +249,13 @@
       group: "Connections",
     },
     {
+      id: "cloud",
+      label: "Solus Cloud",
+      description: "Register your hosts to your account, reach them from the internet, and see their organizations.",
+      icon: SolusCloudIcon,
+      group: "Connections",
+    },
+    {
       id: "integrations",
       label: "Integrations",
       description: "Accounts Solus acts on your behalf with.",
@@ -320,6 +329,7 @@
     webhooks: webhooksSearch,
     codebases: codebasesSearch,
     sharing: sharingSearch,
+    cloud: solusCloudSearch,
   };
 
   const tabs = $derived(
@@ -367,6 +377,7 @@
       session.settingsTab === "skills" ||
       session.settingsTab === "devices" ||
       session.settingsTab === "sharing" ||
+      session.settingsTab === "cloud" ||
       session.settingsTab === "voice",
   );
   // Machines only: the workspace service is a connection this client holds,
@@ -386,8 +397,8 @@
       address: serversStore.sameNameAddress(serverId),
     }));
   });
-  // Sharing & access names its host in its link (`settings/sharing/<host>`).
-  const linkedHostId = $derived(session.settingsTab === "sharing" ? session.router.params("settings")?.host : undefined);
+  // Sharing & access and Solus Cloud name their host in their link (`settings/sharing/<host>`).
+  const linkedHostId = $derived(session.settingsTab === "sharing" || session.settingsTab === "cloud" ? session.router.params("settings")?.host : undefined);
   const selectedSettingsHost = $derived.by(() => {
     const serverId = chosenSettingsHostId(settingsHosts.map((host) => host.serverId), [linkedHostId, settingsHost.serverId]);
     return settingsHosts.find((host) => host.serverId === serverId) ?? null;
@@ -471,7 +482,7 @@
   }
 
   function selectHost(serverId: string) {
-    if (session.settingsTab === "sharing") session.router.navigate({ name: "settings", params: { tab: "sharing", host: serverId } }, { replace: true });
+    if (session.settingsTab === "sharing" || session.settingsTab === "cloud") session.router.navigate({ name: "settings", params: { tab: session.settingsTab, host: serverId } }, { replace: true });
     else if (selectedSettingsHost?.serverId !== serverId) selectProjectScope(null);
     settingsHost.serverId = serverId;
   }

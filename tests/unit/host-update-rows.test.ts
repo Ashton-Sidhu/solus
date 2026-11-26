@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { checkStatusLine, hostUpdateLine, providerUpdateRows } from '@solus/workspace-ui/components/connections/lib/host-update-rows'
+import { agentInstallationRows, checkStatusLine, hostUpdateLine, providerSummary, providerUpdateRows } from '@solus/workspace-ui/components/connections/lib/host-update-rows'
+import type { HostUpdateStatus, ProviderInstallation, ProviderUpdateStatus } from '@solus/contracts/host-update-types'
 import { codingProviderRows } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
 import type { HostReadiness, SetupAgent } from '@solus/contracts/types'
 
@@ -65,4 +66,35 @@ test('a provider update uses the selected host action and leaves busy rows disab
   const busy = providerUpdateRows([{ id: 'claude', label: 'Claude Code', state: 'busy', detail: 'Installing…' }], [status], () => {})
   expect(busy[0]?.detail).toBe('Updating…')
   expect(busy[0]?.update).toBeUndefined()
+})
+
+function installed(agent: SetupAgent, installation: Partial<ProviderInstallation>): ProviderUpdateStatus {
+  return {
+    agent,
+    installedVersion: '1.0.0',
+    check: { kind: 'up-to-date', checkedAt: 0 },
+    installation: { method: 'native', managed: true, path: `/bin/${agent}`, canUpdate: true, remediation: null, source: 'vendor', automatic: false, ...installation },
+  }
+}
+
+test('every installed agent has an installation row, and a switch only when there is somewhere to go', () => {
+  // WHY: the section showed only agents with two installations, so an agent
+  // that Solus alone installed (Antigravity, often) was missing from the host
+  // page, and the one that showed was called "Codex".
+  const rows = agentInstallationRows([
+    installed('claude', { method: 'homebrew', managed: false }),
+    installed('codex', { existingPath: '/opt/homebrew/bin/codex' }),
+    installed('agy', { existingPath: null }),
+    { ...installed('claude', {}), installation: { method: 'absent', managed: false, path: null, canUpdate: true, remediation: null, source: 'vendor', automatic: false } },
+  ])
+  expect(rows.map(({ label, switchTo }) => [label, switchTo])).toEqual([
+    ['Claude Code', 'native'],
+    ['Codex', 'existing'],
+    ['Google Antigravity', null],
+  ])
+})
+
+test('the provider summary names every agent that is up to date', () => {
+  const status = { providers: [installed('claude', {}), installed('codex', {}), installed('agy', {})] } as HostUpdateStatus
+  expect(providerSummary(status)).toBe('Claude Code, Codex, and Google Antigravity are up to date')
 })

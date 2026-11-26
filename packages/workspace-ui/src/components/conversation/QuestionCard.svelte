@@ -9,6 +9,7 @@
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownList from "./MarkdownList.svelte";
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
+  import TranscriptTable from "./TranscriptTable.svelte";
   import InterruptCard from "./InterruptCard.svelte";
   import { Textarea } from "../ui/textarea";
   import { Button } from "../ui/button";
@@ -20,7 +21,7 @@
     inlineCodeParts,
     optionLabelParts,
   } from "./lib/interrupt";
-  import { formatAnswer, previewMarkdown, questionKey, questionTakesAttachments } from "@solus/contracts/question-answer";
+  import { formatAnswer, isVerbatimPreview, previewMarkdown, questionKey, questionTakesAttachments } from "@solus/contracts/question-answer";
   import { requestExpiryText, type AgentId, type QuestionRequest, type QuestionItem } from "@solus/contracts/types";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
@@ -51,6 +52,8 @@
   // chrome strip and its Copy. `breaks` keeps a hand-drawn question's line
   // endings; `.prose-question` keeps its indentation.
   const bodyRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
+  // An option's preview compares choices, so it may also hold a table.
+  const previewRenderers = { ...bodyRenderers, table: TranscriptTable };
 
   const session = getWorkspaceContext();
   const sess = $derived(session.sessionFor(tabId));
@@ -424,27 +427,41 @@
         {/if}
 
         {#if previewOption?.preview}
-          <!-- A monospace box, so a mockup keeps its columns; it scrolls rather than wraps. -->
           <div class="interrupt-payload" data-testid="question-preview">
             <div class="interrupt-payload-bar">
               <span class="interrupt-payload-label">{previewOption.label}</span>
             </div>
-            <div
-              class="max-h-[18rem] overflow-auto px-3.5 pt-1 pb-2.5 font-mono text-transcript-meta leading-relaxed text-(--solus-text-secondary) [&_code]:!bg-transparent [&_code]:!p-0 [&_p:last-child]:mb-0 [&_p]:mb-1.5 [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:whitespace-pre [&_strong]:text-(--solus-text-primary)"
-            >
-              <SvelteMarkdown
-                source={previewMarkdown(previewOption.preview)}
-                renderers={{ link: MarkdownLink }}
-                sanitizeUrl={markdownSanitizeUrl}
-              />
-            </div>
+            {#if isVerbatimPreview(previewOption.preview)}
+              <!-- A monospace box, so a mockup keeps its columns; it scrolls rather than wraps. -->
+              <div
+                class="max-h-[18rem] overflow-auto px-3.5 pt-1 pb-2.5 font-mono text-transcript-meta leading-relaxed text-(--solus-text-secondary) [&_code]:!bg-transparent [&_code]:!p-0 [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:whitespace-pre"
+              >
+                <SvelteMarkdown
+                  source={previewMarkdown(previewOption.preview)}
+                  renderers={{ link: MarkdownLink }}
+                  sanitizeUrl={markdownSanitizeUrl}
+                />
+              </div>
+            {:else}
+              <!-- Markdown the agent wrote reads as the question body does: prose,
+                   tables, and fenced blocks with their colours and Copy. -->
+              <div
+                class="prose prose-question max-h-[18rem] min-w-0 overflow-auto px-3.5 pt-1 pb-2.5 [--prose-size:var(--text-caption)]"
+              >
+                <SvelteMarkdown
+                  source={previewOption.preview}
+                  renderers={previewRenderers}
+                  sanitizeUrl={markdownSanitizeUrl}
+                />
+              </div>
+            {/if}
           </div>
         {/if}
 
         <!-- Permanent: an off-menu reply must never require abandoning the card.
              It is one more row in the options' geometry: a pen in the mark
-             column, the words in the label column at the label's size, on a
-             soft fill. The action that sends it is the filled pill in the footer. -->
+             column, the words in the label column at the label's size, in the
+             search field's outlined shell. The action that sends it is the filled pill in the footer. -->
         {#if canDrive && !request.expired}
           <!-- The mic overlays the textarea, so its offsets are measured against
                that box. `mr-8` reserves its strip outside the field's own box, so
@@ -685,19 +702,16 @@
 
   /* The own-words row: an option row on a soft fill, no hairline at rest. A
      focused row darkens to the focus-ring hairline, as every field on a card. */
+  /* The shell of the shared search field (ui/search-field): no fill, a hairline
+     border that takes the accent on focus. */
   .answer-row {
+    border: 1px solid color-mix(in srgb, var(--solus-container-border) 60%, transparent);
     border-radius: 0.5rem;
-    background: color-mix(in oklch, var(--foreground) 3%, transparent);
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      box-shadow var(--duration-quick) var(--ease-premium);
-  }
-  .answer-row:hover {
-    background: color-mix(in oklch, var(--foreground) 4.5%, transparent);
+    background: transparent;
+    transition: border-color var(--duration-quick) var(--ease-premium);
   }
   .answer-row:focus-within {
-    background: color-mix(in oklch, var(--foreground) 4.5%, transparent);
-    box-shadow: inset 0 0 0 0.0625rem var(--solus-tx-focus-ring);
+    border-color: color-mix(in srgb, var(--solus-accent) 45%, transparent);
   }
   /* The pen takes the radio's 1rem box and its top offset, so it sits on the first line. */
   .answer-mark {

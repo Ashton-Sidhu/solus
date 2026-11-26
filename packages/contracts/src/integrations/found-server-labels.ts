@@ -12,6 +12,7 @@ const FILE_LABELS = {
   'mcp-json': 'Project .mcp.json',
   'claude-json': 'Claude Code',
   'codex-config': 'Codex',
+  'antigravity-config': 'Google Antigravity',
   cursor: 'Cursor',
   vscode: 'VS Code',
   'claude-desktop': 'Claude Desktop',
@@ -33,11 +34,11 @@ export function foundUnsupportedText(reason: FoundUnsupportedReason): string {
 }
 
 /** The order of a server's source logos: the files of the agents that Solus runs first, then the other tools' files, then a port of the host. */
-const SOURCE_ORDER: Array<ConfigFileKind | 'port'> = ['claude-json', 'codex-config', 'mcp-json', 'cursor', 'vscode', 'claude-desktop', 'port']
+const SOURCE_ORDER: Array<ConfigFileKind | 'port'> = ['claude-json', 'codex-config', 'antigravity-config', 'mcp-json', 'cursor', 'vscode', 'claude-desktop', 'port']
 
 /**
- * Which agent of Solus loads the servers of a file: Claude Code and Codex load
- * their own files, and no agent loads another tool's file. Solus starts Claude
+ * Which agent of Solus loads the servers of a file: Claude Code, Codex, and
+ * Google Antigravity load their own files, and no agent loads another tool's file. Solus starts Claude
  * Code without the `local` setting source, so a project entry of
  * `~/.claude.json` (the default of `claude mcp add`) loads only outside Solus.
  */
@@ -46,6 +47,8 @@ function fileLoader(place: FoundPlace): string {
     case 'claude-json': return place.scope === 'project' ? 'Claude loads it outside Solus only' : 'Claude loads it'
     case 'mcp-json': return 'Claude loads it'
     case 'codex-config': return 'Codex loads it'
+    // Solus links this file into the host login's agy profile (antigravity-skills.ts).
+    case 'antigravity-config': return 'Antigravity loads it'
     default: return 'No agent loads it'
   }
 }

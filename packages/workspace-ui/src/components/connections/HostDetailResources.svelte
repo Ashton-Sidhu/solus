@@ -1,12 +1,11 @@
 <script lang="ts">
-  /** What this machine carries now, and what Solus adds to it. Machine load needs
-   *  no monitor, so it shows on each host; the process table needs host admin. */
-  import { formatResourceBytes, machineCpuText, machineMemoryText, machineMemoryUsedShare, telemetryCpuPeak, telemetrySummaryText, telemetryUnavailableText } from "@solus/client-core/host-resource-watch";
-  import type { HostTelemetryPoint } from "@solus/contracts/host-resources";
-  import { Chart, Spline, Svg } from "layerchart";
+  /** What Solus adds to this machine. The machine's own load is in the summary
+   *  above the tabs; the process table needs host admin. */
+  import { formatResourceBytes, telemetryCpuShares, telemetrySummaryText, telemetryUnavailableText } from "@solus/client-core/host-resource-watch";
   import { hostResourcesStore } from "../../contexts/hosts/host-resources.store.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
+  import { Sparkline } from "../ui/sparkline";
 
   interface Props {
     serverId: string;
@@ -16,84 +15,45 @@
 
   $effect(() => hostResourcesStore.retain(serverId));
 
-  const view = $derived(hostResourcesStore.viewFor(serverId));
-  const resources = $derived(view.resources);
-  const telemetry = $derived(view.telemetry);
-  const history = $derived(telemetry.state === "live" ? telemetry.history : []);
-  const staleNote = $derived(view.stale ? (resources ? " · The host does not answer. This is the last read." : "") : "");
+  const telemetry = $derived(hostResourcesStore.viewFor(serverId).telemetry);
+  const cpuShares = $derived(telemetry.state === "live" ? telemetryCpuShares(telemetry.history) : []);
 </script>
 
-{#snippet meter(share: number)}
-  <div class="h-1.5 w-32 overflow-hidden rounded-full bg-(--solus-surface-hover)" aria-hidden="true">
-    <div class="h-full rounded-full bg-(--solus-accent)" style="width: {Math.round(Math.min(1, share) * 100)}%"></div>
-  </div>
-{/snippet}
-
-<SettingsSection label="This machine">
-  {#if resources}
-    <SettingsRow label="CPU" description={machineCpuText(resources) + staleNote}>
-      {#snippet control()}
-        {@render meter(resources.cpuUtilization ?? 0)}
-      {/snippet}
-    </SettingsRow>
-    <SettingsRow label="Memory" description={machineMemoryText(resources) + staleNote}>
-      {#snippet control()}
-        {@render meter(machineMemoryUsedShare(resources))}
-      {/snippet}
-    </SettingsRow>
+<SettingsSection label="Solus on this machine" description="Solus and the agents it started.">
+  {#if telemetry.state === "hidden"}
+    <SettingsRow label="Process details" description="Only a host admin sees the processes on this host." />
+  {:else if telemetry.state === "unavailable"}
+    <SettingsRow label="Process details" description={telemetryUnavailableText(telemetry.reason)} />
+  {:else if telemetry.state === "loading" || !telemetry.sample}
+    <SettingsRow label="Process details" description="Reading…" />
   {:else}
-    <SettingsRow label="CPU and memory" description={view.stale ? "This host does not answer." : "Reading…"} />
+    {@const sample = telemetry.sample}
+    <SettingsRow label="Total" description={telemetrySummaryText(sample)}>
+      {#snippet body()}
+        <Sparkline values={cpuShares} class="mt-3 h-12 w-full" label="CPU use of Solus over the last five minutes" />
+      {/snippet}
+    </SettingsRow>
+    <SettingsRow label="Busiest processes">
+      {#snippet body()}
+        <table class="mt-2 w-full table-fixed text-chrome-dense">
+          <thead class="text-left text-(--solus-text-tertiary)">
+            <tr>
+              <th scope="col" class="py-1 font-normal">Process</th>
+              <th scope="col" class="w-16 py-1 text-right font-normal">CPU</th>
+              <th scope="col" class="w-20 py-1 text-right font-normal">Memory</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each sample.processes as process (process.pid)}
+              <tr title={process.command}>
+                <td class="truncate py-1 text-(--solus-text-secondary)">{process.name}</td>
+                <td class="py-1 text-right tabular-nums text-(--solus-text-secondary)">{Math.round(process.cpuPercent)}%</td>
+                <td class="py-1 text-right tabular-nums text-(--solus-text-secondary)">{formatResourceBytes(process.residentBytes)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/snippet}
+    </SettingsRow>
   {/if}
 </SettingsSection>
-
-{#if telemetry.state !== "hidden"}
-  <SettingsSection label="Solus on this machine" description="Solus and the agents it started.">
-    {#if telemetry.state === "unavailable"}
-      <SettingsRow label="Process details" description={telemetryUnavailableText(telemetry.reason)} />
-    {:else if telemetry.state === "loading" || !telemetry.sample}
-      <SettingsRow label="Process details" description="Reading…" />
-    {:else}
-      {@const sample = telemetry.sample}
-      <SettingsRow label="Total" description={telemetrySummaryText(sample)}>
-        {#snippet control()}
-          {#if history.length >= 2}
-            <div class="h-8 w-40" role="img" aria-label="CPU use over the last five minutes">
-              <Chart
-                data={history}
-                x={(point: HostTelemetryPoint) => point.sampledAt}
-                y={(point: HostTelemetryPoint) => point.cpuPercent}
-                yDomain={[0, telemetryCpuPeak(history)]}
-              >
-                <Svg>
-                  <Spline stroke="var(--solus-accent)" class="fill-none stroke-[1.5]" stroke-linecap="round" stroke-linejoin="round" />
-                </Svg>
-              </Chart>
-            </div>
-          {/if}
-        {/snippet}
-      </SettingsRow>
-      <SettingsRow label="Busiest processes">
-        {#snippet body()}
-          <table class="mt-2 w-full table-fixed text-chrome-dense">
-            <thead class="text-left text-(--solus-text-tertiary)">
-              <tr>
-                <th scope="col" class="py-1 font-normal">Process</th>
-                <th scope="col" class="w-16 py-1 text-right font-normal">CPU</th>
-                <th scope="col" class="w-20 py-1 text-right font-normal">Memory</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each sample.processes as process (process.pid)}
-                <tr title={process.command}>
-                  <td class="truncate py-1 text-(--solus-text-secondary)">{process.name}</td>
-                  <td class="py-1 text-right tabular-nums text-(--solus-text-secondary)">{Math.round(process.cpuPercent)}%</td>
-                  <td class="py-1 text-right tabular-nums text-(--solus-text-secondary)">{formatResourceBytes(process.residentBytes)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/snippet}
-      </SettingsRow>
-    {/if}
-  </SettingsSection>
-{/if}

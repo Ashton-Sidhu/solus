@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
-import type { AcpTurnFailure, AcpTurnOutcomeCheck } from './acp-backend'
+import type { AcpTurnFailure, AcpTurnOutcomeCheck } from './acp-agent'
 import type { AcpStopReason } from './acp-protocol'
 import { ANTIGRAVITY_APP_DATA_DIR } from './antigravity-auth'
 
@@ -89,7 +89,7 @@ interface LastStep {
  * with the expected type and none is a link. A link could point at another
  * session's database in the same profile.
  */
-function managedPath(root: string, segments: readonly string[], kind: 'file' | 'directory'): { path: string; info: Stats } | null {
+export function managedPath(root: string, segments: readonly string[], kind: 'file' | 'directory'): { path: string; info: Stats } | null {
   let current = root
   let info: Stats | null = null
   for (const [index, segment] of segments.entries()) {

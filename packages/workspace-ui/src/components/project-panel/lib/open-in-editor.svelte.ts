@@ -10,7 +10,6 @@ import { toasts } from '../../../lib/toasts'
 import { REMOTE_EDITOR_IDS, remoteEditorLink } from '../../../lib/remote-editor-link'
 import { codebaseMembersOn } from './git-repositories'
 import { editorFolders, editorFoldersTooltip, openInTarget, type OpenInTarget } from './open-in'
-import { openInStore } from './open-in.store.svelte'
 
 const REMOTE_EDITORS = REMOTE_EDITOR_IDS.map((id): DetectedEditor => ({
   id,
@@ -21,8 +20,9 @@ const REMOTE_EDITORS = REMOTE_EDITOR_IDS.map((id): DetectedEditor => ({
 
 /**
  * The editor of one run: the apps that can open its folders, the one the
- * person chose, and the folders that it opens. The "Open in" row and the
- * folders menu of the Environment card read the same choice. Construct it in
+ * person chose, and the folders that it opens. The choice is the code editor
+ * of Settings: the "Open in" row, its menu, and the folders menu of the
+ * Environment card read and change that one setting. Construct it in
  * a component: it reads the workspace context.
  */
 export class OpenInEditor {
@@ -45,10 +45,8 @@ export class OpenInEditor {
   readonly editors = $derived(this.isLocal ? (this.tools?.state === 'ready' ? this.tools.value.editors : []) : REMOTE_EDITORS)
   readonly target: OpenInTarget = $derived(
     this.isLocal
-      ? openInTarget(openInStore.chosen, this.#workspace.settings.defaultEditor, this.editors)
-      : (REMOTE_EDITOR_IDS.find((id) => id === openInStore.chosen) ??
-          REMOTE_EDITOR_IDS.find((id) => id === this.#workspace.settings.defaultEditor) ??
-          'vscode'),
+      ? openInTarget(this.#workspace.settings.defaultEditor, this.editors)
+      : (REMOTE_EDITOR_IDS.find((id) => id === this.#workspace.settings.defaultEditor) ?? 'vscode'),
   )
   readonly editor = $derived(this.editors.find((item) => item.id === this.target))
   readonly isLoading = $derived(this.tools?.state === 'loading')
@@ -83,6 +81,11 @@ export class OpenInEditor {
   mayOpen(target: OpenInTarget): boolean {
     const isTerminal = target === 'terminal' || this.editors.find((item) => item.id === target)?.isTerminal
     return this.host?.me.may(this.isLocal ? (isTerminal ? 'host.terminal' : 'host.local.window') : 'host.files.read') ?? false
+  }
+
+  /** The row's menu changes the code editor of Settings. Terminal is no code editor. */
+  choose(target: OpenInTarget): void {
+    this.#workspace.settings.setDevice('defaultEditor', target === 'terminal' ? null : target)
   }
 
   /** Opens the folders in the editor. A remote host opens the first one through its SSH link. */

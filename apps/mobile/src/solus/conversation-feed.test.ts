@@ -734,3 +734,21 @@ it.each(["SendMessage", "FollowUp"])("keeps %s in the work log when a reply arri
   expect(row.activities[0]?.canExpand).toBe(true);
   expect(await row.activities[0]?.loadHostDetail?.()).toMatchObject({ output: "Child reply\n\nFinal report" });
 });
+
+it("leaves the session worktree setup to the T3 setup view and projects notices and compaction as activities", () => {
+  const items: TranscriptItem[] = [
+    { kind: "setup", id: "setup:worktree-session", card: {
+      id: "worktree-session", icon: "git-branch", title: "Worktree ready", status: "done",
+      steps: [{ id: "agent", label: "Start agent", status: "done" }],
+    } },
+    { kind: "notice", id: "notice", text: "Session resumed", tone: "info" },
+    { kind: "compaction", id: "compact", compaction: { preTokens: 200, postTokens: 100 } },
+  ];
+  const feed = conversationFeed({ item: id => items.find(item => item.id === id), subscribeFeedItems: () => () => {} },
+    items.map(item => item.id), "session", () => null);
+  expect(feed.get().some(row => row.type === "conversation-card")).toBe(false);
+  expect(feed.projection(v2ThreadShell).turnItems).toMatchObject([
+    { type: "system_notice", message: "Session resumed" },
+    { type: "compaction", beforeTokenCount: 200, afterTokenCount: 100 },
+  ]);
+});

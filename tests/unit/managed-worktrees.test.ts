@@ -57,9 +57,10 @@ function commitIn(worktree: string, file: string): void {
 
 const branches = (repo: string) => git(repo, 'branch', '--format=%(refname:short)').split('\n')
 
-function hostWith(bound: [string, string][] = [], taskFolders: () => TaskFolderRecord[] = () => []): import('@solus/server/git/managed-worktrees').ManagedWorktreeHost {
+function hostWith(bound: [string, string][] = [], taskFolders: () => TaskFolderRecord[] = () => [], busy: string[] = bound.map(([sessionId]) => sessionId)): import('@solus/server/git/managed-worktrees').ManagedWorktreeHost {
   return {
     boundDirectories: () => bound,
+    isSessionBusy: (sessionId) => busy.includes(sessionId),
     sessionTitles: async (ids) => new Map(ids.map((id) => [id, `Title of ${id}`])),
     taskFolders,
     codebaseName: async (id) => (id === 'cb1' ? 'Platform' : null),
@@ -86,7 +87,8 @@ describe('managed worktrees in Settings', () => {
       hasUnmergedCommits: false,
     })
     // A session in a folder inside the worktree uses it too.
-    expect(listed[0].sessions).toEqual([{ sessionId: 's1', title: 'Title of s1' }])
+    expect(listed[0].sessions).toEqual([{ sessionId: 's1', title: 'Title of s1', isBusy: true }])
+    expect(listed[0].sessionId).toBe('s1')
   })
 
   test('a branch has unmerged commits until its work is in main or pushed', async () => {
@@ -146,14 +148,24 @@ describe('managed worktrees in Settings', () => {
     expect(branches(repo)).toContain('solus/commits')
   })
 
-  test('refuses a worktree that a live session works in, also with force', async () => {
+  test('refuses a worktree where a turn runs, also with force', async () => {
     const repo = makeRepo()
     const path = addManaged(repo, 'busy', 'solus/busy')
 
     const result = await managed.removeManagedWorktree(path, { force: true }, hostWith([['s2', path]]))
 
-    expect(result).toEqual({ status: 'in_use', sessions: [{ sessionId: 's2', title: 'Title of s2' }] })
+    expect(result).toEqual({ status: 'in_use', sessions: [{ sessionId: 's2', title: 'Title of s2', isBusy: true }] })
     expect(existsSync(path)).toBe(true)
+  })
+
+  test('removes a worktree whose session is open but idle', async () => {
+    // WHY: a session stays bound to its folder while a tab shows it. Only a
+    // running turn needs the folder; an idle session must not block cleanup.
+    const repo = makeRepo()
+    const path = addManaged(repo, 'idle', 'solus/idle')
+
+    expect(await managed.removeManagedWorktree(path, { force: false }, hostWith([['s3', path]], () => [], []))).toEqual({ status: 'removed' })
+    expect(existsSync(path)).toBe(false)
   })
 
   test('refuses a path that is not a managed worktree', async () => {

@@ -404,7 +404,9 @@ export class SeatManager implements SeatStore {
   markConnected(seat: Seat, provider: SeatProvider, method: 'login' | 'token', antigravity?: AntigravityAuth): Promise<SeatStatus> {
     // The newest Antigravity sign-in is the one the profile signs in with (§7).
     if (provider === 'antigravity' && antigravity) {
-      applyMemberFiles(processUserOf(seat), [{ kind: 'write', path: join(this.homeFor(seat, provider), ANTIGRAVITY_SIGN_IN_FILE), content: antigravitySignInRecord(antigravity), mode: 0o600 }])
+      // Where each member is their own OS user the server reads the record as the folder's group, to start agy with its method.
+      const user = processUserOf(seat)
+      applyMemberFiles(user, [{ kind: 'write', path: join(this.homeFor(seat, provider), ANTIGRAVITY_SIGN_IN_FILE), content: antigravitySignInRecord(antigravity), mode: user ? 0o640 : 0o600 }])
     }
     if (seat.kind === 'host-login' && method === 'login') {
       // The host login answers for itself from here on; a row would only go stale.
