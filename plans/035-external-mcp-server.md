@@ -52,6 +52,8 @@ Maintainer request, 2026-11-26: bring over T3 Code's connect UX. T3 Code writes 
 6. **Share.** Clients show a QR code for an app link, and a dialog with the value when the clipboard fails. The host menu has **Copy MCP address**.
 7. **`solus mcp`** prints the addresses and the setup commands. `solus mcp code --access` makes a code over the local socket.
 
+8. **Sharing & access** (2026-11-26). As T3 Code's top-level page Settings → Sharing & access (`/settings/access?machine=`), Solus has the settings page `sharing` (`settings/sharing/<host id>`, in the Connections group after Hosts). It has a host picker (the host of the current session, else this device's host; `settings/lib/settings-hosts.ts`) and shows `HostDetailAccess` for that host (`connections/SharingAccessPage.svelte`), so the page and the host's Access tab never differ. The Access tab keeps its content and links to the page. The host menu on Settings → Hosts has **Sharing & access** beside **Copy MCP address** (`fleet/lib/host-menu.ts`), and the palette has **Sharing & access**. Mobile is separate work.
+
 T3 Code's peer links (agents on one machine using threads on another) came later, in §0.6. Its hosted approval page has an equivalent in §0.5.
 
 ### 0.5 Approval in your own Solus client (built)

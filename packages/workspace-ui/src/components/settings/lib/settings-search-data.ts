@@ -288,6 +288,9 @@ export const policySearchWords = ["policy", "managed", "mdm", "lock", "permissio
 /** Search words, read by the settings page to find this page from any other. */
 export const webhooksSearchWords = ["webhook", "hook", "github", "sender", "delivery", "deliveries", "url", "trigger", "event", "organization", "admin"];
 
+/** Search words, read by the settings page to find Sharing & access from any other. */
+export const sharingSearchWords = ["sharing", "access", "mcp", "outside apps", "other apps", "connect an app", "authorized clients", "connected apps", "approve", "sign-in", "pairing", "pair code", "paired devices", "devices", "revoke", "network", "remote access", "tailscale"];
+
 /** Search words, read by the settings page to find the Codebases page from any other. */
 export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root", "codebase names", "naming"];
 

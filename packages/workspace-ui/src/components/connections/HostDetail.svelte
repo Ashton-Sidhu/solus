@@ -4,7 +4,7 @@
   /** One host, in full. The onboarding rail is for arrival and asks one thing
    *  at a time; this is where a host set up last week can be looked at, and
    *  every part of it changed, in whatever order the user wants. */
-  import { Plus, Power, RotateCw } from "@lucide/svelte";
+  import { ArrowUpRight, Plus, Power, RotateCw } from "@lucide/svelte";
   import { isSessionBusyStatus } from "@solus/contracts/types";
   import { getWorkspaceContext, managedHostsStore, serversStore, uplinkStore, type ServerItem } from "../../contexts";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -23,6 +23,7 @@
   import HostDetailEnvironment from "./HostDetailEnvironment.svelte";
   import HostDetailAccess from "./HostDetailAccess.svelte";
   import HostRoutesSection from "./HostRoutesSection.svelte";
+  import { openSharingAccess } from "./lib/sharing-access";
 
   interface Props {
     host: ServerItem;
@@ -128,6 +129,13 @@
     {/if}
     <!-- Room below the last card: the page ends with space, not on the window's edge. -->
     <Tabs.Content value="access" class="mt-5 flex flex-col gap-7 pb-16">
+      <!-- The same content is a page of its own, as in T3 Code: Settings → Sharing & access. -->
+      <p class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-workspace-chrome text-(--solus-text-secondary)">
+        <span>This content is also in Sharing & access, where you can choose each host.</span>
+        <Button variant="link" size="sm" class="h-auto gap-1 p-0 text-workspace-chrome" onclick={() => openSharingAccess(workspace.router, host.id)}>
+          Open Sharing & access<ArrowUpRight size={14} />
+        </Button>
+      </p>
       <HostDetailAccess serverId={host.id} />
     </Tabs.Content>
     <Tabs.Content value="git" class="mt-5 flex flex-col gap-7">

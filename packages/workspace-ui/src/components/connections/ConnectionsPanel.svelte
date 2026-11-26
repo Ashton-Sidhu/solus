@@ -19,12 +19,7 @@
   $effect(() => {
     const targetServerId = host?.id;
     if (!targetServerId) return;
-    untrack(() => { void connectionsStore.refreshServerMetadata(targetServerId); });
-    const interval = setInterval(
-      () => void connectionsStore.refreshServerMetadata(targetServerId),
-      5000,
-    );
-    return () => clearInterval(interval);
+    return untrack(() => connectionsStore.watchServerMetadata(targetServerId));
   });
 </script>
 

@@ -31,6 +31,7 @@
     Blocks as McpIcon,
     Webhook as WebhookIcon,
     FolderGit2 as CodebasesIcon,
+    Share2 as SharingIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -61,7 +62,8 @@
     organizationSearchWords as organizationSearch,
     policySearchWords as policySearch,
     webhooksSearchWords as webhooksSearch,
-    codebasesSearchWords as codebasesSearch
+    codebasesSearchWords as codebasesSearch,
+    sharingSearchWords as sharingSearch
   } from "./lib/settings-search-data";
   import { dataMatches, wordsMatch, settingsPageMatches, settingsPageQuery } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
@@ -70,6 +72,7 @@
   import { supportsProjectScope } from "./lib/settings-scope";
   import { agentProfileSearchWords } from "./agent-profile/lib/agent-profile-entries";
   import { settingsHost } from "./lib/settings-host.svelte";
+  import { chosenSettingsHostId, settingsHostOrder } from "./lib/settings-hosts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -237,6 +240,13 @@
       group: "Connections",
     },
     {
+      id: "sharing",
+      label: "Sharing & access",
+      description: "Connect other apps to your hosts, and see the apps and devices that can use them.",
+      icon: SharingIcon,
+      group: "Connections",
+    },
+    {
       id: "integrations",
       label: "Integrations",
       description: "Accounts Solus acts on your behalf with.",
@@ -309,6 +319,7 @@
     host: hostSearch,
     webhooks: webhooksSearch,
     codebases: codebasesSearch,
+    sharing: sharingSearch,
   };
 
   const tabs = $derived(
@@ -355,6 +366,7 @@
       session.settingsTab === "mcp" ||
       session.settingsTab === "skills" ||
       session.settingsTab === "devices" ||
+      session.settingsTab === "sharing" ||
       session.settingsTab === "voice",
   );
   // Machines only: the workspace service is a connection this client holds,
@@ -364,12 +376,8 @@
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
     const activeTabId = session.activeTabId;
-    const leadHostIds = [activeTabId ? runHost(session.runFor(activeTabId)) : undefined, hosts.device?.id];
     const serverIds = serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId));
-    return [
-      ...leadHostIds.filter((serverId): serverId is string => !!serverId && serverIds.includes(serverId)),
-      ...serverIds.filter((serverId) => !leadHostIds.includes(serverId)),
-    ].filter((serverId, index, all) => all.indexOf(serverId) === index).map((serverId) => ({
+    return settingsHostOrder(serverIds, [activeTabId ? runHost(session.runFor(activeTabId)) : undefined, hosts.device?.id]).map((serverId) => ({
       serverId,
       label:
         serversStore.hostFor(serverId)?.label ??
@@ -378,13 +386,12 @@
       address: serversStore.sameNameAddress(serverId),
     }));
   });
-  // Until the user picks a host, show the lead host. The first connection is
-  // only whichever host answered first.
-  const selectedSettingsHost = $derived(
-    settingsHosts.find((host) => host.serverId === settingsHost.serverId) ??
-      settingsHosts[0] ??
-      null,
-  );
+  // Sharing & access names its host in its link (`settings/sharing/<host>`).
+  const linkedHostId = $derived(session.settingsTab === "sharing" ? session.router.params("settings")?.host : undefined);
+  const selectedSettingsHost = $derived.by(() => {
+    const serverId = chosenSettingsHostId(settingsHosts.map((host) => host.serverId), [linkedHostId, settingsHost.serverId]);
+    return settingsHosts.find((host) => host.serverId === serverId) ?? null;
+  });
   // Signed out, while Settings is open, the personal settings on screen are the settings host's.
   $effect(() => {
     const serverId = settings.personal.isSignedIn ? null : (selectedSettingsHost?.serverId ?? null);
@@ -464,7 +471,8 @@
   }
 
   function selectHost(serverId: string) {
-    if (selectedSettingsHost?.serverId !== serverId) selectProjectScope(null);
+    if (session.settingsTab === "sharing") session.router.navigate({ name: "settings", params: { tab: "sharing", host: serverId } }, { replace: true });
+    else if (selectedSettingsHost?.serverId !== serverId) selectProjectScope(null);
     settingsHost.serverId = serverId;
   }
 

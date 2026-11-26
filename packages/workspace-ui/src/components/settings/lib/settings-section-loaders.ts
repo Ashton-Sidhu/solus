@@ -19,6 +19,7 @@ export const settingsSectionLoaders = {
   'experimental': () => import('../SettingsTabExperimental.svelte'),
   'providers': () => import('../SettingsTabProviders.svelte'),
   'api-access': () => import('../../connections/ConnectionsPanel.svelte'),
+  'sharing': () => import('../../connections/SharingAccessPage.svelte'),
   'tools': () => import('../SettingsTabTools.svelte'),
   'integrations': () => import('../IntegrationAccounts.svelte'),
   'mcp': () => import('../SettingsTabMcp.svelte'),

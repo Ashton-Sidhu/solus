@@ -84,6 +84,16 @@ export class ConnectionsStore {
     return serverId && this.providerServerId === serverId ? this.providerStatus : null
   }
 
+  /**
+   * Reads one host's server settings now and every five seconds, until the returned
+   * stop. The host's Access tab and Settings → Sharing & access hold it while they show.
+   */
+  watchServerMetadata(serverId: string): () => void {
+    void this.refreshServerMetadata(serverId)
+    const interval = setInterval(() => void this.refreshServerMetadata(serverId), 5000)
+    return () => clearInterval(interval)
+  }
+
   async refreshServerMetadata(serverId: string): Promise<void> {
     if (this.metadataServerId !== serverId) {
       this.metadataServerId = serverId

@@ -6,11 +6,13 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
 
 Every person who uses the host can connect an app: the owner, and each member of an organization the host works for.
 
-1. Open **Use Solus in other apps**:
-   - from the command palette (search for "mcp", "connector", or an app name);
-   - with **Connect an app** on the host's **Access** tab;
-   - from the host's menu on the fleet map;
-   - on mobile, from the host page.
+1. Open **Settings → Sharing & access**, choose the host in the host picker, and select **Connect an app** under **Use Solus in other apps**. The picker starts on the host of the current session, else on the host of this device. A link names its host: `settings/sharing/<host id>`.
+
+   Other entry points open the same dialog or page:
+   - the command palette: **Use Solus in other apps** (search for "mcp", "connector", or an app name) and **Approve an app sign-in** open the dialog for this device's host; **Sharing & access** opens the page;
+   - **Connect an app** on the host's **Access** tab (Settings → Hosts → the host → Access). The tab shows the same content as the page, with a link to **Sharing & access** for that host;
+   - the host's menu on Settings → Hosts (right-click a host on the map or in the list, or press the menu key): **Use Solus in other apps…**, **Copy MCP address**, and **Sharing & access**;
+   - on mobile, the host page.
 2. **Which app?** Choose Claude, ChatGPT, Grok Bot, Poke, Muse, Instinct, Cursor, Claude Code, Codex, OpenClaw, or Hermes Agent. For another app, choose **Something else…**. An app that your organization does not allow is marked and cannot be chosen. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
 3. **What can the app do?** Choose Read, Read and write (the default), or Full. See [Access](#access).
 4. **Connect.**
@@ -45,7 +47,7 @@ An app on the host's own computer, such as Claude Code or Codex next to the desk
 
 ### Copy the address
 
-**Copy MCP address** in the host's menu copies the address. To add it by hand, for example to Claude Code:
+**Copy MCP address** in the host's menu on Settings → Hosts copies the address, and a toast shows the command that adds it to Claude Code. To add it by hand, for example to Claude Code:
 
 ```sh
 claude mcp add --transport http solus <address>
@@ -87,7 +89,7 @@ Tools that act as the calling session (for example the browser, devices, checkou
 
 ## Revoke an app
 
-Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices on the host's **Access** tab, on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
+Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices in **Settings → Sharing & access** (and on the host's **Access** tab, which shows the same content), on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
 
 ## Limits
 

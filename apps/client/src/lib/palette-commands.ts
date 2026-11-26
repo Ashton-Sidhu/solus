@@ -12,7 +12,7 @@ import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/serv
 import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
-import { codebaseCommands, mcpCommands, settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+import { codebaseCommands, mcpCommands, settingsOwnerCommands, sharingAccessCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
 import { repositoryCommands } from "@solus/workspace-ui/components/project-panel/lib/repository-commands";
 import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 import type { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
@@ -165,6 +165,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
   ...settingsOwnerCommands(session),
   sidebarViewCommand(deps.settings),
   ...webhookCommands(session),
+  ...sharingAccessCommands(session),
   ...codebaseCommands(session),
   ...repositoryCommands(session),
   ...mcpCommands(session),
