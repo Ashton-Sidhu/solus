@@ -118,6 +118,21 @@
     confirmingDiscard && uncommittedFileCount > 0,
   );
   let resolvingConflicts = $state(false);
+  const conflictRow = $derived<ActionRowItem | null>(
+    status?.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0
+      ? {
+          key: "conflict",
+          danger: true,
+          label:
+            conflictedFiles.length > 0
+              ? `Resolve ${conflictedFiles.length} conflict${conflictedFiles.length === 1 ? "" : "s"} with agent`
+              : "Resolve merge conflicts with agent",
+          icon: WarningCircleIcon,
+          phase: resolvingConflicts ? "loading" : "idle",
+          disabled: resolvingConflicts,
+        }
+      : null,
+  );
 
   // A checkout to act on, and the right to change it here (permissions.md): a guest reads git and changes nothing.
   const canGit = $derived(!!env.branch && (hosts.get(detailServerId)?.me.may("host.git.write") ?? true));
@@ -325,25 +340,6 @@
           }
         : undefined,
     });
-    // A half-finished merge is an alert, not a menu item — it gets its own row
-    // so it's visible without opening anything.
-    if (
-      status &&
-      (status.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0)
-    ) {
-      defs.push({
-        key: "conflict",
-        danger: true,
-        label:
-          conflictedFiles.length > 0
-            ? `Resolve ${conflictedFiles.length} conflict${conflictedFiles.length === 1 ? "" : "s"} with agent`
-            : "Resolve merge conflicts with agent",
-        icon: WarningCircleIcon,
-        phase: resolvingConflicts ? "loading" : "idle",
-        disabled: resolvingConflicts,
-        run: resolveWithAgent,
-      });
-    }
     // Hide unavailable actions, but keep progress and results visible.
     return defs.filter((def) => !def.disabled || def.phase !== "idle");
   });
@@ -760,8 +756,10 @@
   {#if isPanelItemShown(hiddenItems, "git.branch")}
     <BranchRow {sourceId} {folder} />
   {/if}
-  <!-- Once the session has a pull request, it follows the branch it belongs
-       to, before the Git rows: one row of two lines. -->
+  {#if conflictRow && isGitActionRowShown(hiddenItems, conflictRow.key)}
+    <MenuRow item={conflictRow} onActivate={resolveWithAgent} />
+  {/if}
+  <!-- The linked pull request appears before the other Git actions. -->
   {#if shownPr && isPanelItemShown(hiddenItems, "git.pullRequest")}
     <LinkedPullRequestRows
       pr={shownPr.pr}
