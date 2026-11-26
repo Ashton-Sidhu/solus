@@ -80,7 +80,8 @@ export interface AssetUploadResult {
 /** A session repository is binary; the RPC carries one bounded part at a time. */
 export interface SessionRepositoryBundleRequest { sessionId: string; have: string | null }
 export type SessionRepositoryBundleResult =
-  | { state: 'ready'; transferId: string; size: number; head: string }
+  /** `downloadSecret` admits one `GET /session-bundles/<transferId>` stream of the file. An older host does not send it. */
+  | { state: 'ready'; transferId: string; size: number; head: string; downloadSecret?: string }
   | { state: 'current'; head: string | null }
   | { state: 'diverged'; head: string | null }
   | { state: 'no-repository' }

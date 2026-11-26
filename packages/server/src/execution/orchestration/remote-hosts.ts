@@ -102,6 +102,8 @@ export interface RemoteHost {
   onReconnected(listener: () => void): () => void
   /** Rejects when the host does not answer in time, with the reason when one is known. */
   call<T>(what: string, request: () => Promise<T>): Promise<T>
+  /** The HTTP origin of the route the link uses now: a host route there goes the same way as the socket. */
+  httpUrl(): string
 }
 
 /** How long one call to a target host may take before it fails. */
@@ -400,6 +402,7 @@ export class RemoteHosts {
           return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
         })
       },
+      httpUrl: () => transport.serverUrl,
     }
     this.connections.set(host.connectionKey, { routing, host: remote, link })
     return remote

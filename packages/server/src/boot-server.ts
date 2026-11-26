@@ -2230,6 +2230,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     allowRemoteAddress,
     isTunnelRequest,
     deviceHub: devices.hubProxy,
+    sessionBundles: sessionBundleTransfers,
     // No pairing door on a cloud machine or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
     pairApprovals,

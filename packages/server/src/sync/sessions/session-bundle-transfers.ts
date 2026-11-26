@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createReadStream, type ReadStream } from 'node:fs'
 import { mkdtemp, open, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,9 +9,32 @@ import type { SessionRepositories } from './session-repository'
 const CHUNK_BYTES = 1024 * 1024
 const IDLE_MS = 10 * 60_000
 
-interface Transfer { sessionId: string; path: string; folder: string; size: number; principalKey: string; timer: ReturnType<typeof setTimeout> }
+/** The host route that streams the file of one transfer: `<prefix><transferId>`. */
+export const SESSION_BUNDLE_ROUTE_PREFIX = '/session-bundles/'
+/** Only this route sends this type. A host that answers with a different type does not have the route. */
+export const SESSION_BUNDLE_CONTENT_TYPE = 'application/x-git-bundle'
 
-/** Short-lived files for a binary repository transfer over bounded RPC calls. */
+interface Transfer {
+  sessionId: string
+  path: string
+  folder: string
+  size: number
+  principalKey: string
+  /** SHA-256 of the download secret. The secret itself is not kept. */
+  secretHash: Buffer
+  timer: ReturnType<typeof setTimeout>
+}
+
+export type SessionBundleDownload =
+  | { kind: 'stream'; size: number; start: number; stream: ReadStream }
+  | { kind: 'refused' }
+  | { kind: 'bad-range'; size: number }
+
+function hashSecret(secret: string): Buffer {
+  return createHash('sha256').update(secret).digest()
+}
+
+/** Short-lived files for a binary repository transfer: one HTTP stream, or bounded RPC calls for an older peer. */
 export class SessionBundleTransfers {
   private readonly transfers = new Map<string, Transfer>()
 
@@ -28,10 +52,11 @@ export class SessionBundleTransfers {
       }
       const transferId = randomUUID()
       const size = (await stat(path)).size
+      const downloadSecret = randomBytes(32).toString('base64url')
       const timer = setTimeout(() => { void this.remove(transferId) }, IDLE_MS)
       timer.unref()
-      this.transfers.set(transferId, { sessionId, path, folder, size, principalKey, timer })
-      return { state: 'ready', transferId, size, head: result.head }
+      this.transfers.set(transferId, { sessionId, path, folder, size, principalKey, secretHash: hashSecret(downloadSecret), timer })
+      return { state: 'ready', transferId, size, head: result.head, downloadSecret }
     } catch (error) {
       await rm(folder, { recursive: true, force: true })
       throw error
@@ -47,9 +72,7 @@ export class SessionBundleTransfers {
     const transfer = this.transfers.get(transferId)
     if (!transfer || transfer.principalKey !== principalKey) throw new Error('Session bundle transfer is unavailable.')
     if (!Number.isSafeInteger(offset) || offset < 0 || offset >= transfer.size) throw new Error('Invalid session bundle offset.')
-    clearTimeout(transfer.timer)
-    transfer.timer = setTimeout(() => { void this.remove(transferId) }, IDLE_MS)
-    transfer.timer.unref()
+    this.touch(transferId, transfer)
     const file = await open(transfer.path, 'r')
     let result: SessionRepositoryBundleChunkResult
     try {
@@ -65,6 +88,33 @@ export class SessionBundleTransfers {
     }
     if (result.done) await this.remove(transferId)
     return result
+  }
+
+  /**
+   * A stream of the file from byte `start`, when `secret` is the download secret of the
+   * transfer. An unknown transfer and a wrong secret get the same answer. The transfer
+   * ends when a stream reads the last byte of the file.
+   */
+  download(transferId: string, secret: string, start: number): SessionBundleDownload {
+    const transfer = this.transfers.get(transferId)
+    if (!transfer || !timingSafeEqual(hashSecret(secret), transfer.secretHash)) return { kind: 'refused' }
+    if (!Number.isSafeInteger(start) || start < 0 || start >= transfer.size) return { kind: 'bad-range', size: transfer.size }
+    this.touch(transferId, transfer)
+    const stream = createReadStream(transfer.path, { start })
+    let readToEnd = false
+    stream.on('data', () => this.touch(transferId, transfer))
+    stream.on('end', () => { readToEnd = true })
+    // After 'close' the file is not open, so the folder can go on every platform.
+    stream.on('close', () => { if (readToEnd) void this.remove(transferId) })
+    return { kind: 'stream', size: transfer.size, start, stream }
+  }
+
+  /** Each read starts the idle time again. */
+  private touch(transferId: string, transfer: Transfer): void {
+    if (this.transfers.get(transferId) !== transfer) return
+    clearTimeout(transfer.timer)
+    transfer.timer = setTimeout(() => { void this.remove(transferId) }, IDLE_MS)
+    transfer.timer.unref()
   }
 
   private async remove(transferId: string): Promise<void> {
