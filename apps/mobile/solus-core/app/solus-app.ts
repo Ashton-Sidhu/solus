@@ -24,7 +24,7 @@ import { HostRegistry } from '../features/hosts/host-registry'
 import type { PairOutcome } from '@solus/client-core/host-catalog'
 import { previewHost, type HostPreview, type PreviewResult } from '../features/hosts/lib/pair-input'
 import { ThreadDirectory, type PresumedHost } from '../features/threads/thread-directory'
-import { HistoryPrefetch, PREFETCH_ROWS } from '../features/threads/history-prefetch'
+import { HistoryPrefetch } from '../features/threads/history-prefetch'
 import { noteSessionPress } from '../features/conversation/lib/open-timing'
 import { SessionRunHosts } from '../features/threads/session-run-hosts'
 import { CloudSessions } from '../features/threads/cloud-sessions'
@@ -632,9 +632,9 @@ export class SolusApp {
     if (thread && !thread.cloudOnly) void this.historyPrefetch.prefetch(hostId, thread.record)
   }
 
-  /** The list of a host loaded: the first pages of its rows at the top of the list are read. */
+  /** The list of a host loaded: the first pages of its rows are read, top down. */
   warmHistory(hostId: string): void {
-    const records = this.threads.threads().slice(0, PREFETCH_ROWS)
+    const records = this.threads.threads()
       .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
     void this.historyPrefetch.warm(hostId, records)
   }

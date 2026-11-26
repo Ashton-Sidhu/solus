@@ -153,7 +153,7 @@ async function until(done: () => boolean): Promise<void> {
 const historyCalls = (api: FakeApi) => api.callsOf('loadSessionPage').map(([request]) => request as SessionHistoryPageRequest)
 
 describe('history prefetch', () => {
-  test('a list read saves the first page of its top rows, two at a time, with the request a saved open sends', async () => {
+  test('a list read saves the first page of every row, top down, in batches of eight, with the request a saved open sends', async () => {
     let reading = 0
     let most = 0
     const releases: Array<() => void> = []
@@ -169,19 +169,50 @@ describe('history prefetch', () => {
     // Saved after its last activity: current, so it is not read again.
     await cache.saveHistory('s2', page([userRow('current', 'm')]))
     const prefetch = new HistoryPrefetch({ cache: sessions, connection: id => world.connections.connection(id), inForeground: () => true })
-    const records = Array.from({ length: 10 }, (_, index) => sessionRecord('s' + index, index === 2 ? 0 : Date.now() + 60_000))
+    const records = Array.from({ length: 20 }, (_, index) => sessionRecord('s' + index, index === 2 ? 0 : Date.now() + 60_000))
     const warming = prefetch.warm('inst-a', records)
-    while (historyCalls(api).length < 7 || releases.length) {
-      await flushPromises()
-      releases.shift()?.()
-    }
+    await until(() => historyCalls(api).length === 8)
+    await flushPromises()
+    // The second batch waits until every read of the first batch has ended.
+    expect(historyCalls(api)).toHaveLength(8)
+    for (const release of releases.splice(0, 7)) release()
+    await flushPromises()
+    expect(historyCalls(api)).toHaveLength(8)
+    for (const release of releases.splice(0)) release()
+    await until(() => historyCalls(api).length === 16)
+    for (const release of releases.splice(0)) release()
+    await until(() => historyCalls(api).length === 19)
+    for (const release of releases.splice(0)) release()
     await warming
-    expect(most).toBe(2)
-    expect(historyCalls(api).map(request => request.sessionId)).toEqual(['s0', 's1', 's3', 's4', 's5', 's6', 's7'])
+    expect(most).toBe(8)
+    expect(historyCalls(api).map(request => request.sessionId)).toEqual(records.map(record => record.sessionId).filter(id => id !== 's2'))
     expect(historyCalls(api)[0]).toEqual({ ...openingHistoryRequest(records[0]!), knownHistoryBlocks: [] })
     expect(historyCalls(api)[0]).not.toHaveProperty('openSession')
-    expect((await cache.history('s0'))?.messages).toHaveLength(1)
-    expect(await cache.history('s8')).toBeNull()
+    expect((await cache.history('s19'))?.messages).toHaveLength(1)
+  })
+
+  test('a long list stops before its pages could push the top pages out of the device cache', async () => {
+    const api = baseApi().on('loadSessionPage', async (request: SessionHistoryPageRequest) =>
+      resumeHistoryPage(page([userRow(request.sessionId, 'm-' + request.sessionId)]), request.knownHistoryBlocks ?? []))
+    const { world } = await readyHost(api)
+    const sessions = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account')
+    const prefetch = new HistoryPrefetch({ cache: sessions, connection: id => world.connections.connection(id), inForeground: () => true })
+    await prefetch.warm('inst-a', Array.from({ length: 140 }, (_, index) => sessionRecord('s' + index, Date.now() + 60_000)))
+    // The cache keeps 256 records per host for every kind of copy; the top 128 rows are half of it.
+    expect(historyCalls(api)).toHaveLength(128)
+    expect(historyCalls(api).at(-1)?.sessionId).toBe('s127')
+  })
+
+  test('large pages stop the warm when the pages it saved reach 16 MB', async () => {
+    const text = 'x'.repeat(1_500_000)
+    const api = baseApi().on('loadSessionPage', async (request: SessionHistoryPageRequest) =>
+      resumeHistoryPage(page([userRow(text, 'm-' + request.sessionId)]), request.knownHistoryBlocks ?? []))
+    const { world } = await readyHost(api)
+    const sessions = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account')
+    const prefetch = new HistoryPrefetch({ cache: sessions, connection: id => world.connections.connection(id), inForeground: () => true })
+    await prefetch.warm('inst-a', Array.from({ length: 30 }, (_, index) => sessionRecord('s' + index, Date.now() + 60_000)))
+    // Eight pages of 1.5 MB stay under the budget; sixteen pass it, so the third batch does not start.
+    expect(historyCalls(api)).toHaveLength(16)
   })
 
   test('the background and a scope change stop it, and a read from the old scope is not kept', async () => {
@@ -196,12 +227,12 @@ describe('history prefetch', () => {
     expect(historyCalls(api)).toHaveLength(0)
     foreground = true
     const warming = prefetch.warm('inst-a', [sessionRecord('s0', Date.now()), sessionRecord('s1', Date.now()), sessionRecord('s2', Date.now())])
-    await until(() => historyCalls(api).length === 2)
-    expect(historyCalls(api)).toHaveLength(2)
+    await until(() => historyCalls(api).length === 3)
+    expect(historyCalls(api)).toHaveLength(3)
     scope = 'second'
     answer.resolve(page([userRow('old account', 'm')]))
     await warming
-    expect(historyCalls(api)).toHaveLength(2)
+    expect(historyCalls(api)).toHaveLength(3)
     scope = 'first'
     expect(await sessions.forHost('inst-a').history('s0')).toBeNull()
   })

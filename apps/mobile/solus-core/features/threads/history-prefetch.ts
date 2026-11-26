@@ -5,10 +5,13 @@ import type { SessionRecord } from '@solus/contracts/types'
 import type { HostConnection } from '../hosts/host-connections'
 import type { MobileSessionCache } from './session-cache'
 
-/** The rows at the top of a host's list whose first page is read when the list loads. */
-export const PREFETCH_ROWS = 8
-/** How many of those reads go at the same time. */
-const PREFETCH_READS = 2
+/** The rows of a host's list whose first pages are read together. The next batch starts when every read of a batch has ended. */
+const PREFETCH_BATCH = 8
+/** The device cache keeps 256 records and 32 MB for each host, for every kind of copy, and
+ *  removes the oldest writes first (`PULL_REQUEST_CACHE_LIMITS`). A warm writes the top rows
+ *  first, so it stops at half of each limit: its later pages never push out the top pages. */
+const PREFETCH_MAX_ROWS = 128
+const PREFETCH_MAX_CHARACTERS = 16 * 1024 * 1024
 /** A session this large opens on a page of fewer turns (`ConversationController`), so it is not read ahead. */
 export const LARGE_SESSION_BYTES = 16 * 1024 * 1024
 /** How long a read ahead waits for the saved page, to send the blocks it holds. */
@@ -62,10 +65,10 @@ export class HistoryPrefetch {
   }
 
   /**
-   * Reads the first page of the top rows of a host's list. A row whose saved
-   * page was written after its last activity is skipped. A later warm of the
-   * host, `cancel`, a scope change, a new connection, or the background stops
-   * the reads that did not start.
+   * Reads the first page of each row of a host's list, top down, in batches.
+   * A row whose saved page was written after its last activity is skipped. A
+   * later warm of the host, `cancel`, a scope change, a new connection, or the
+   * background stops the batches that did not start, and so does the cache budget.
    */
   async warm(hostId: string, records: readonly (RecordSource & Pick<SessionRecord, 'size' | 'lastActivityAt'>)[]): Promise<void> {
     const connection = this.deps.connection(hostId)
@@ -78,14 +81,15 @@ export class HistoryPrefetch {
     await cache.readKeys()
     const isCurrent = () => this.runs.get(hostId) === run && this.deps.cache.scope() === scope &&
       this.deps.connection(hostId) === connection && connection.state.sessionGeneration === generation && this.ready(connection)
-    const queue = records.slice(0, PREFETCH_ROWS).filter(record => {
+    const queue = records.slice(0, PREFETCH_MAX_ROWS).filter(record => {
       const savedAt = cache.historySavedAt(record.sessionId)
       return savedAt === undefined || savedAt < record.lastActivityAt
     })
-    const reader = async () => {
-      for (let record = queue.shift(); record && isCurrent(); record = queue.shift()) await this.prefetch(hostId, record)
+    let savedCharacters = 0
+    for (let start = 0; start < queue.length && isCurrent() && savedCharacters < PREFETCH_MAX_CHARACTERS; start += PREFETCH_BATCH) {
+      const pages = await Promise.all(queue.slice(start, start + PREFETCH_BATCH).map(record => this.prefetch(hostId, record)))
+      for (const page of pages) if (page) savedCharacters += JSON.stringify(page).length
     }
-    await Promise.all(Array.from({ length: PREFETCH_READS }, reader))
     if (this.runs.get(hostId) === run) this.runs.delete(hostId)
   }
 
