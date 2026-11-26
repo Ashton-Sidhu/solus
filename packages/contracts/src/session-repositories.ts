@@ -3,6 +3,13 @@ import { agentIdSchema } from './types'
 
 export const SESSION_REPOSITORY_TOKEN_PATH = '/runner/session-repositories/token'
 export const SESSION_REPOSITORY_HEAD_PATH = '/runner/session-repositories/head'
+export const SESSION_CODE_URL_PATH = '/runner/session-repositories/code'
+/**
+ * A PUT to a code URL sends this header with the base64 SHA-256 of the body, and a
+ * `content-length` of the requested bytes. Both are in the signature, so the store
+ * refuses other bytes (docs/plans/session-storage.md §6).
+ */
+export const SESSION_CODE_CHECKSUM_HEADER = 'x-amz-checksum-sha256'
 export const LIST_MY_SESSIONS_OPERATION_PATH = '/me/sessions'
 export const LIST_MY_SESSIONS_PATH = `/v1${LIST_MY_SESSIONS_OPERATION_PATH}`
 export const SESSION_TURN_DIFF_OPERATION_PATH = '/sessions/:sessionId/turns/:turnIndex/diff'
@@ -31,7 +38,8 @@ export const sessionRepositoryFactsSchema = z.strictObject({
 })
 export type SessionRepositoryFacts = z.infer<typeof sessionRepositoryFactsSchema>
 
-export const sessionRepositoryTokenRequestSchema = z.strictObject({ hostId: id, sessionId: id, access: z.enum(['read', 'write']) })
+/** `format: 2` tells the API that the host writes manifest version 2. The API refuses a request without it (docs/plans/session-storage.md decision 7). */
+export const sessionRepositoryTokenRequestSchema = z.strictObject({ hostId: id, sessionId: id, access: z.enum(['read', 'write']), format: z.literal(2).optional() })
 export type SessionRepositoryTokenRequest = z.infer<typeof sessionRepositoryTokenRequestSchema>
 export const sessionRepositoryTokenResponseSchema = sessionRepositoryFactsSchema.extend({
   repository: z.string().regex(/^session-[a-f0-9]{48}$/),
@@ -43,6 +51,19 @@ export const sessionRepositoryTokenResponseSchema = sessionRepositoryFactsSchema
 export type SessionRepositoryTokenResponse = z.infer<typeof sessionRepositoryTokenResponseSchema>
 export const sessionRepositoryTokenRefusalSchema = z.strictObject({ code: z.enum(['unauthorized', 'forbidden', 'no_repository', 'storage_unavailable']) })
 export type SessionRepositoryTokenRefusal = z.infer<typeof sessionRepositoryTokenRefusalSchema>
+
+/** A signed URL for one code bundle of a session. The session id is one key segment, so it has no `/`. */
+export const sessionCodeUrlRequestSchema = z.strictObject({
+  hostId: id,
+  sessionId: id.regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  bytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  access: z.enum(['read', 'write']),
+})
+export type SessionCodeUrlRequest = z.infer<typeof sessionCodeUrlRequestSchema>
+/** `url` can be relative to the Solus API. */
+export const sessionCodeUrlResponseSchema = z.strictObject({ url: z.string().min(1), expiresAt: z.iso.datetime({ offset: true }) })
+export type SessionCodeUrlResponse = z.infer<typeof sessionCodeUrlResponseSchema>
 
 export const sessionRepositoryCardSchema = z.strictObject({
   title: z.string().nullable(),

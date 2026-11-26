@@ -29,6 +29,8 @@ import type { ShareLinkResolver } from '../sharing/share-link-resolver'
 import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema } from '@solus/contracts/sharing'
 import { registerRunnerRoutes, type RunnerDeliveryIntake } from './runner-routes'
 import { registerSessionRepositoryRoutes, type SessionRepositoryRoutes } from './session-repository-routes'
+import { registerSessionBundleRoute } from './session-bundle-route'
+import { SESSION_BUNDLE_ROUTE_PREFIX, type SessionBundleTransfers } from '../sync/sessions/session-bundle-transfers'
 import { delegateFromPresentedToken, type DelegationScope } from '../sync/delegations'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
@@ -113,6 +115,8 @@ export interface HttpServerOptions {
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: RunnerDeliveryIntake
   sessionRepositories?: SessionRepositoryRoutes
+  /** The session bundle stream to another host (docs/plans/session-storage.md §8). The download secret is the credential. */
+  sessionBundles?: Pick<SessionBundleTransfers, 'download'>
   /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
   deviceHub?: { serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
@@ -246,6 +250,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback' || pathname.startsWith('/hooks/') || pathname.startsWith(APP_SERVICE_PATH_PREFIX)
       // An outside app reaches the tools, and signs in, at the public address (plans/035 §10).
       || pathname === '/mcp' || pathname.startsWith('/.well-known/oauth-') || pathname.startsWith('/oauth/mcp/')
+      // Another host continues a session from this one (docs/plans/session-storage.md §8).
+      || pathname.startsWith(SESSION_BUNDLE_ROUTE_PREFIX)
     return offered ? next() : c.notFound()
   })
   const establishDelegation = opts.establishDelegation
@@ -548,7 +554,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
     }
     if (range) Object.assign(headers, { 'content-range': `bytes ${start}-${end}/${stat.size}` })
-    return new Response(Readable.toWeb(fileStream), {
+    // SAFETY: a file read stream gives only bytes, so its web stream is a stream of Uint8Array.
+    return new Response(Readable.toWeb(fileStream) as ReadableStream<Uint8Array>, {
       status: range ? 206 : 200,
       headers,
     })
@@ -608,6 +615,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
 
   registerRunnerRoutes(app, opts)
   registerSessionRepositoryRoutes(app, opts)
+  registerSessionBundleRoute(app, opts.sessionBundles)
 
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)

@@ -18,9 +18,9 @@ import { getSessionBaseSha, getSessionPaths, listTurnSnapshots } from '../../git
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { captureActingScope, withActingScope, withUserScope } from '../../vault/acting-scope'
-import { emptySessionManifest, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
+import { emptySessionManifest, THREAD_PIECE_BYTES, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
 import type { GitFileEntry } from '../git-storage/git-repository'
-import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository } from './session-repository'
+import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository, type TurnCommit } from './session-repository'
 import type { EndedTurn } from '../mirror/turn-diff-mirror'
 
 const log = createLogger('SessionArchive', 'session-archive-writer.ts')
@@ -37,6 +37,12 @@ const log = createLogger('SessionArchive', 'session-archive-writer.ts')
  * Git. The row holds the length of each provider file when the turn ended: a
  * commit that is built while the next turn already runs still ends at the turn
  * boundary.
+ *
+ * The format fits Cloudflare Artifacts (docs/plans/session-storage.md §4): a
+ * provider file range goes in pieces of at most `THREAD_PIECE_BYTES`, a commit
+ * adds at most `COMMIT_BYTES` of new files, and the code bundle of a turn is
+ * under its own ref, not in `main`. A turn with more new bytes is several
+ * commits; only the last writes the manifest of the turn.
  */
 
 /** One provider file of a thread, as its adapter names it. */
@@ -111,6 +117,8 @@ export interface SessionArchiveDeps {
 }
 
 const MAX_RETRY_MS = 30 * 60_000
+/** The most new file bytes in one commit. Artifacts refuses a push above 64 MiB. */
+const COMMIT_BYTES = 48 * 1024 * 1024
 
 export class SessionArchiveWriter {
   private readonly database: () => DatabaseSync
@@ -312,30 +320,22 @@ export class SessionArchiveWriter {
     const index = manifest.turns.length
     const scratch = await mkdtemp(join(tmpdir(), 'solus-session-turn-'))
     try {
+      // The first commit of a turn in several commits needs a manifest: a reader of each head reads one.
+      const manifestBefore = head ? null : JSON.stringify(manifest)
       const entries = threadEntries(manifest, index, pending)
       const turn: SessionManifestTurn = {
         operationId, endedAt: pending.endedAt, provider: pending.provider, threadId: pending.threadId, partial: pending.partial,
         head: pending.checkout ? { sha: pending.checkout.headSha, branch: pending.checkout.branch } : null,
         snapshots: [], bundle: null, hasDiff: false,
       }
-      if (pending.checkout) entries.push(...await this.codeEntries(manifest, turn, index, pending.checkout, scratch))
+      if (pending.checkout) await this.storeCode(repository, manifest, turn, pending.checkout, scratch)
       // A turn that changed files is recorded although no file of the commit is new: its snapshots are in the manifest.
       const changedFiles = turn.snapshots.length > 0 && turn.snapshots[0]!.fromTreeSha !== turn.snapshots.at(-1)!.toTreeSha
-      if (!entries.length && !changedFiles) return head
-      Object.assign(manifest.session, {
-        title: pending.title ?? null, model: pending.model ?? null,
-        reasoningEffort: pending.reasoningEffort ?? null, permissionMode: pending.permissionMode ?? null,
-        startedBy: pending.startedBy ?? null, parentSessionId: pending.parentSessionId ?? null,
-        rootSessionId: pending.rootSessionId ?? null,
-      })
-      manifest.lineage = pending.lineage ?? manifest.lineage ?? []
-      manifest.sessionPaths = pending.sessionPaths ?? manifest.sessionPaths ?? { turnPaths: [], sessionChangedFiles: [] }
-      manifest.lastProjectRoot = pending.lastProjectRoot ?? null
-      for (const thread of manifest.threads) thread.startedAs = manifest.lineage.find((member) => member.threadId === thread.threadId)?.startedAs
+      if (!entries.length && !changedFiles && turn.bundle?.kind !== 'stored') return head
+      writeSessionFacts(manifest, pending)
       manifest.turns.push(turn)
-      entries.push({ path: 'manifest.json', content: JSON.stringify(manifest) })
       try {
-        return await repository.commit({ expectedHead: head, message: `Solus session turn ${index} ${operationId}`, entries })
+        return await repository.commit({ expectedHead: head, ...turnCommits(`Solus session turn ${index} ${operationId}`, entries, manifest, manifestBefore) })
       } catch (error) {
         // Only this writer commits to a local copy. A moved head is a commit of this turn that already landed; the next pass reads it.
         if (error instanceof SessionHeadMovedError) log.warn('session_repository_head_moved', { sessionId: manifest.session.id })
@@ -346,11 +346,11 @@ export class SessionArchiveWriter {
     }
   }
 
-  /** The code bundle of the snapshots this turn adds, with their facts written into `turn` and `manifest.project`. */
-  private async codeEntries(manifest: SessionManifest, turn: SessionManifestTurn, index: number, checkout: NonNullable<PendingTurn['checkout']>, scratch: string): Promise<GitFileEntry[]> {
+  /** Keep the code bundle of the snapshots this turn adds under its code ref, with their facts written into `turn` and `manifest.project`. */
+  private async storeCode(repository: SessionRepository, manifest: SessionManifest, turn: SessionManifestTurn, checkout: NonNullable<PendingTurn['checkout']>, scratch: string): Promise<void> {
     const sessionId = manifest.session.id
     const baseSha = getSessionBaseSha(checkout.repoRoot, sessionId)
-    if (!baseSha) return []
+    if (!baseSha) return
     const committed = manifest.turns.flatMap((earlier) => earlier.snapshots)
     const snapshots: TurnSnapshot[] = (await listTurnSnapshots(checkout.repoRoot, sessionId)).slice(committed.length, checkout.snapshotCount)
     const lastHead = manifest.turns.map((earlier) => earlier.head?.sha).filter(Boolean).at(-1)
@@ -361,7 +361,6 @@ export class SessionArchiveWriter {
       ownsWorktree: checkout.workTree !== resolve(checkout.repoRoot),
     }
     turn.snapshots = snapshots
-    const entries: GitFileEntry[] = []
     const bundleFile = join(scratch, 'turn.bundle')
     const bundle: TurnCodeBundle | { kind: 'failed' } = await writeTurnCodeBundle(checkout.repoRoot, {
       sessionId, snapshots, previousCommit, headSha: checkout.headSha,
@@ -371,10 +370,23 @@ export class SessionArchiveWriter {
       log.warn('session_code_bundle_failed', { sessionId, error: error instanceof Error ? error.message : String(error) })
       return { kind: 'failed' as const }
     })
-    turn.bundle = bundle
-    if (bundle.kind === 'written') entries.push({ path: `code/${index}.bundle`, file: bundleFile })
-    return entries
+    turn.bundle = bundle.kind === 'written' ? { kind: 'stored', ...await repository.storeCodeBundle(bundleFile), refs: bundle.refs } : bundle
   }
+}
+
+/** The session facts of the turn that ended last, in the manifest of version 2 that its commit writes. */
+function writeSessionFacts(manifest: SessionManifest, pending: PendingTurn): void {
+  manifest.schemaVersion = 2
+  Object.assign(manifest.session, {
+    title: pending.title ?? null, model: pending.model ?? null,
+    reasoningEffort: pending.reasoningEffort ?? null, permissionMode: pending.permissionMode ?? null,
+    startedBy: pending.startedBy ?? null, parentSessionId: pending.parentSessionId ?? null,
+    rootSessionId: pending.rootSessionId ?? null,
+  })
+  manifest.lineage = pending.lineage ?? manifest.lineage ?? []
+  manifest.sessionPaths = pending.sessionPaths ?? manifest.sessionPaths ?? { turnPaths: [], sessionChangedFiles: [] }
+  manifest.lastProjectRoot = pending.lastProjectRoot ?? null
+  for (const thread of manifest.threads) thread.startedAs = manifest.lineage.find((member) => member.threadId === thread.threadId)?.startedAs
 }
 
 function manifestLineage(members: SessionLineageMember[], turn: TurnEnd, isFork: boolean): NonNullable<PendingTurn['lineage']> {
@@ -387,7 +399,7 @@ function manifestLineage(members: SessionLineageMember[], turn: TurnEnd, isFork:
 
 /**
  * The bytes each provider file gained after the last turn commit, as entries
- * of turn `index`. Updates the files of the thread in `manifest`.
+ * of turn `index` in pieces `<index>.<piece>`. Updates the files of the thread in `manifest`.
  */
 function threadEntries(manifest: SessionManifest, index: number, pending: PendingTurn): GitFileEntry[] {
   const entries: GitFileEntry[] = []
@@ -405,11 +417,32 @@ function threadEntries(manifest: SessionManifest, index: number, pending: Pendin
     // A provider only appends. A shorter file is a new file with the same name, and starts again under a new key.
     if (file.length < known.length) Object.assign(known, { key: unusedKey(thread.files, `${file.key}-${index}`), length: 0, parts: [] })
     if (file.length === known.length) continue
-    entries.push({ path: `threads/${pending.threadId}/${known.key}/${index}`, file: file.path, from: known.length, to: file.length })
-    known.parts.push(index)
+    for (let from = known.length, piece = 0; from < file.length; from += THREAD_PIECE_BYTES, piece++) {
+      entries.push({ path: `threads/${pending.threadId}/${known.key}/${index}.${piece}`, file: file.path, from, to: Math.min(file.length, from + THREAD_PIECE_BYTES) })
+      known.parts.push(`${index}.${piece}`)
+    }
     known.length = file.length
   }
   return entries
+}
+
+/**
+ * The commits of one turn: the entries in order, in groups of at most `COMMIT_BYTES`.
+ * The last commit writes `manifest`. An earlier commit keeps the manifest of its
+ * parent; the first commit of a repository writes `manifestBefore`.
+ */
+function turnCommits(message: string, entries: GitFileEntry[], manifest: SessionManifest, manifestBefore: string | null): Omit<TurnCommit, 'expectedHead'> {
+  const groups: GitFileEntry[][] = [[]]
+  let size = 0
+  for (const entry of entries) {
+    const bytes = 'content' in entry ? Buffer.byteLength(entry.content) : (entry.to ?? 0) - (entry.from ?? 0)
+    if (size + bytes > COMMIT_BYTES && groups.at(-1)!.length) { groups.push([]); size = 0 }
+    groups.at(-1)!.push(entry)
+    size += bytes
+  }
+  const earlier = groups.slice(0, -1).map((group, part) => ({ message: `${message} part ${part + 1}`, entries: group }))
+  if (manifestBefore && earlier[0]) earlier[0].entries.push({ path: 'manifest.json', content: manifestBefore })
+  return { message, entries: [...groups.at(-1)!, { path: 'manifest.json', content: JSON.stringify(manifest) }], earlier }
 }
 
 /** `key`, or `key` with a number after it when another file of the thread has that key: two files must never share a folder. */

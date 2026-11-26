@@ -1,6 +1,6 @@
 import type { Context, Env, Hono } from 'hono'
 import { sql } from 'drizzle-orm'
-import { formatSessionCloudScope, SESSION_REPOSITORY_HEAD_PATH, SESSION_REPOSITORY_TOKEN_PATH, sessionRepositoryHeadRequestSchema, sessionRepositoryTokenRequestSchema, type SessionCloudScope, type SessionRepositoryHeadRequest } from '@solus/contracts/session-repositories'
+import { formatSessionCloudScope, SESSION_CODE_URL_PATH, SESSION_REPOSITORY_HEAD_PATH, SESSION_REPOSITORY_TOKEN_PATH, sessionCodeUrlRequestSchema, sessionRepositoryHeadRequestSchema, sessionRepositoryTokenRequestSchema, type SessionCloudScope, type SessionCodeUrlResponse, type SessionRepositoryHeadRequest } from '@solus/contracts/session-repositories'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { principalForClaims } from '../admission/doors'
 import { authorize } from '../admission/access-policy'
@@ -10,6 +10,9 @@ import { session } from '../data/sessions/schema'
 import { createSessionRepository, readSessionRepository, sessionRepositoryFacts } from '../data/sessions/session-repositories'
 import { sessionRepositories } from '../data/sessions/schema'
 import type { RepositoryProvider } from '../sync/git-storage/repository-provider'
+import { OBJECT_URL_TTL_SECONDS, sessionCodeKey, type ObjectStore } from '../sync/git-storage/object-store'
+import { LOCAL_OBJECT_PATH, LocalObjectStore } from '../sync/git-storage/local-object-store'
+import { CODE_BUNDLE_MAX_BYTES } from '../git/session-code-bundle'
 import { WorkspaceRequestBudgets } from './solus-api/limits'
 import { createLogger } from '../logger'
 import { SolusApiError } from '../admission/workspace-error'
@@ -19,6 +22,8 @@ const log = createLogger('server', 'session-repository-routes')
 export interface SessionRepositoryRoutes {
   database: Db
   storage: RepositoryProvider | null
+  /** The code bundles of the same repositories (docs/plans/session-storage.md §6). The same switch makes both. */
+  code: ObjectStore | null
   shares: ShareManager
   changed(scope: SessionCloudScope, sessionId: string, facts: ReturnType<typeof sessionRepositoryFacts>): Promise<void>
 }
@@ -52,6 +57,8 @@ export function registerSessionRepositoryRoutes<E extends Env>(app: Hono<E>, opt
   app.post(SESSION_REPOSITORY_TOKEN_PATH, async c => {
     const parsed = sessionRepositoryTokenRequestSchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ code: 'forbidden' }, 400)
+    // An older host writes manifest version 1. It reads 503 as unavailable and asks again in one hour (decision 7).
+    if (parsed.data.format !== 2) return c.json({ code: 'storage_unavailable' }, 503)
     const { hostId, sessionId, access } = parsed.data
     const admitted = await admit(c, hostId, sessionId)
     if (admitted === 'unauthorized' || admitted === 'forbidden') return c.json({ code: admitted }, admitted === 'unauthorized' ? 401 : 403)
@@ -69,6 +76,39 @@ export function registerSessionRepositoryRoutes<E extends Env>(app: Hono<E>, opt
       return c.json({ repository: row.repository, remote: remote.url, token: remote.token ?? '', expiresAt: new Date(Date.now() + 900_000).toISOString(), storageScope: row.storage_scope, ...sessionRepositoryFacts(row) })
     } finally { release() }
   })
+
+  app.post(SESSION_CODE_URL_PATH, async c => {
+    const parsed = sessionCodeUrlRequestSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ code: 'forbidden' }, 400)
+    const { hostId, sessionId, sha256, bytes, access } = parsed.data
+    const admitted = await admit(c, hostId, sessionId)
+    if (admitted === 'unauthorized' || admitted === 'forbidden') return c.json({ code: admitted }, admitted === 'unauthorized' ? 401 : 403)
+    if (access === 'write' && bytes > CODE_BUNDLE_MAX_BYTES) return c.json({ code: 'too_large' }, 413)
+    let release: () => void
+    try { release = budgets.enter(admitted.ownerUserId) }
+    catch (error) { if (error instanceof SolusApiError) return c.json({ error: error.code }, error.status === 429 ? 429 : 503); throw error }
+    try {
+      if (!service!.storage || !service!.code) return c.json({ code: 'storage_unavailable' }, 503)
+      let row = await readSessionRepository(service!.database, admitted.scope, sessionId)
+      if (!row && access === 'read') return c.json({ code: 'no_repository' }, 404)
+      if (!row) row = await createSessionRepository(service!.database, admitted.scope, sessionId, admitted.ownerUserId, service!.storage.storageScope)
+      if (row.storage_scope !== service!.storage.storageScope) return c.json({ code: 'storage_unavailable' }, 503)
+      // The API makes the key from the admitted scope and session, so a host cannot name an object of another session.
+      const url = await service!.code.signedUrl(sessionCodeKey(admitted.scope, sessionId, sha256), access, { bytes, sha256 })
+      log.info('session_code_url_issued', { cloudScope: admitted.scope, sessionId, access, bytes, codeStorageScope: service!.code.storageScope })
+      return c.json({ url, expiresAt: new Date(Date.now() + OBJECT_URL_TTL_SECONDS * 1000).toISOString() } satisfies SessionCodeUrlResponse)
+    } finally { release() }
+  })
+
+  // The local store has no other server: this API receives and serves its objects. The signed token in the query is the credential.
+  if (service.code instanceof LocalObjectStore) {
+    const local = service.code
+    const keyOf = (c: Context<E>) => new URL(c.req.url).pathname.slice(LOCAL_OBJECT_PATH.length + 1).split('/').map(part => {
+      try { return decodeURIComponent(part) } catch { return '' }
+    }).join('/')
+    app.put(`${LOCAL_OBJECT_PATH}/*`, c => local.receive(keyOf(c), c.req.query('token') ?? '', c.req.raw))
+    app.get(`${LOCAL_OBJECT_PATH}/*`, c => local.serve(keyOf(c), c.req.query('token') ?? ''))
+  }
 
   app.post(SESSION_REPOSITORY_HEAD_PATH, async c => {
     const parsed = sessionRepositoryHeadRequestSchema.safeParse(await c.req.json().catch(() => null))

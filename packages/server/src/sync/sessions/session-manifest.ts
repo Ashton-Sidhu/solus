@@ -21,13 +21,17 @@ const turnSnapshotSchema = z.object({
   deletions: z.number(),
 })
 
-/** One provider file of a thread. Turn `n` of `parts` added the bytes at `threads/<threadId>/<key>/<n>`. */
+/**
+ * One provider file of a thread. Each part is a file `threads/<threadId>/<key>/<part>`,
+ * and a reader joins the parts in order. Version 1 names a part by its turn `n`.
+ * Version 2 names it `<turn>.<piece>`, and each piece has at most `THREAD_PIECE_BYTES`.
+ */
 const threadFileSchema = z.object({
   key: z.string(),
   /** Where the file is under the provider's own folder for the thread. */
   relativePath: z.string(),
   length: z.number(),
-  parts: z.array(z.number()),
+  parts: z.array(z.union([z.number(), z.string().regex(/^\d+\.\d+$/)])),
 })
 
 const threadSchema = z.object({
@@ -39,8 +43,14 @@ const threadSchema = z.object({
 })
 
 const codeBundleSchema = z.discriminatedUnion('kind', [
-  /** `code/<n>.bundle` holds these refs. */
+  /** Version 1: `code/<n>.bundle` holds these refs. */
   z.object({ kind: z.literal('written'), refs: z.record(z.string(), z.string()), bytes: z.number() }),
+  /**
+   * Version 2: the bundle with this SHA-256 holds these refs. It is not a file of
+   * `main`. On a host it is under `refs/solus/code/<sha256>`; in Solus Cloud it is
+   * an object in R2 (docs/plans/session-storage.md §3).
+   */
+  z.object({ kind: z.literal('stored'), sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes: z.number(), refs: z.record(z.string(), z.string()) }),
   /** Origin and the earlier bundles hold every object of the turn. */
   z.object({ kind: z.literal('empty') }),
   z.object({ kind: z.literal('too-large'), bytes: z.number() }),
@@ -71,8 +81,12 @@ const turnSchema = z.object({
   rowCount: z.number().int().nonnegative().optional(),
 })
 
+/** The largest piece of a provider file in one Git file. Artifacts refuses a file above 32 MiB. */
+export const THREAD_PIECE_BYTES = 31 * 1024 * 1024
+
 export const sessionManifestSchema = z.object({
-  schemaVersion: z.literal(1),
+  /** A writer writes 2. A manifest of version 1 can still be in the history of a repository. */
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   session: z.object({
     id: z.string(), organizationId: z.string(),
     title: z.string().nullable().optional(), model: z.string().nullable().optional(),
@@ -98,7 +112,8 @@ export const sessionManifestSchema = z.object({
 export type SessionManifest = z.infer<typeof sessionManifestSchema>
 export type SessionManifestTurn = z.infer<typeof turnSchema>
 export type SessionManifestThreadFile = z.infer<typeof threadFileSchema>
+export type SessionManifestCodeBundle = z.infer<typeof codeBundleSchema>
 
 export function emptySessionManifest(sessionId: string, organizationId: string): SessionManifest {
-  return { schemaVersion: 1, session: { id: sessionId, organizationId }, threads: [], project: null, turns: [] }
+  return { schemaVersion: 2, session: { id: sessionId, organizationId }, threads: [], project: null, turns: [] }
 }

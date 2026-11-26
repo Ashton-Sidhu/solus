@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -38,8 +39,29 @@ function withPush(repos: Repositories, push: (real: Push, ...args: Parameters<Pu
   }
 }
 
+/** The signed code URLs that the fake API gives, and the store that answers each `PUT`. */
+function codeStore(events: string[]) {
+  const objects = new Map<string, Buffer>()
+  const codeUrl: SessionRemoteAccess['codeUrl'] = async request => ({ status: 'ready', url: `https://code.example.invalid/${request.sha256}?bytes=${request.bytes}` })
+  // SAFETY: the pusher calls only the function; it reads no other member of `fetch`.
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const sha256 = url.pathname.slice(1)
+    const headers = new Headers(init?.headers)
+    const body = Buffer.from(await new Response(init?.body).arrayBuffer())
+    // WHY: R2 and the local folder store refuse a PUT without the signed length and SHA-256.
+    if (init?.method !== 'PUT' || headers.get('content-length') !== url.searchParams.get('bytes')
+      || headers.get('x-amz-checksum-sha256') !== Buffer.from(sha256, 'hex').toString('base64')
+      || createHash('sha256').update(body).digest('hex') !== sha256) return new Response('refused', { status: 400 })
+    objects.set(sha256, body)
+    events.push(`upload ${sha256}`)
+    return new Response(null, { status: 200 })
+  }) as typeof fetch
+  return { objects, codeUrl, fetchImpl }
+}
+
 let serial = 0
-async function fixture() {
+async function fixture(schemaVersion: 1 | 2 = 2) {
   const folder = join(root, String(++serial))
   const repos = new SessionRepositories(join(folder, 'local'))
   const repository = repositoryName('local', 'test-session')
@@ -48,14 +70,17 @@ async function fixture() {
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE session_storage (session_id TEXT PRIMARY KEY, repository TEXT, head TEXT, turn_count INTEGER,
     cloud_scope TEXT, pushed_head TEXT, reported_head TEXT, push_due_at INTEGER, push_attempts INTEGER DEFAULT 0,
-    push_error TEXT, push_refused_head TEXT)`)
-  const manifest = emptySessionManifest('test-session', 'local')
+    push_error_reason TEXT, push_refused_head TEXT, pushed_bytes INTEGER NOT NULL DEFAULT 0, push_stopped INTEGER NOT NULL DEFAULT 0)`)
+  const manifest = { ...emptySessionManifest('test-session', 'local'), schemaVersion }
   manifest.turns.push({ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false,
     head: null, snapshots: [], bundle: null, hasDiff: false })
   const first = await repos.named(repository).commit({ expectedHead: null, message: 'first', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   db.prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, 1)').run('test-session', repository, first)
   const reports: string[] = []
+  const events: string[] = []
+  const store = codeStore(events)
   const access: SessionRemoteAccess = {
+    codeUrl: store.codeUrl,
     remote: async () => ({ status: 'ready', remote: { repository, remote: pathToFileURL(remote).href, token: '', expiresAt: new Date().toISOString(),
       storageScope: 'test', head: null, syncedTurn: 0, lastRunHostId: null, runningHostId: null } }),
     report: async request => { reports.push(request.event); return 'accepted' },
@@ -64,10 +89,38 @@ async function fixture() {
   const record: SessionPushDeps['record'] = async () => ({ ownerKey: 'account:person', organizationId: 'local', publication: 'local',
     provider: 'codex' } as NonNullable<Awaited<ReturnType<NonNullable<SessionPushDeps['record']>>>>)
   const deps: SessionPushDeps = { repositories: repos, access, hostId: () => 'host', database: () => db, record,
-    accountOf: () => 'person', decision: () => ({ allowed: true }) }
-  const row = () => db.prepare('SELECT * FROM session_storage WHERE session_id = ?').get('test-session') as { pushed_head: string | null; reported_head: string | null; push_refused_head: string | null }
-  const remoteHead = () => execFileSync('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/main'], { encoding: 'utf8' }).trim()
-  return { repos, repository, remote, db, first, reports, deps, row, remoteHead }
+    accountOf: () => 'person', decision: () => ({ allowed: true }), fetch: store.fetchImpl }
+  // SAFETY: the columns of the table this fixture made.
+  const row = () => db.prepare('SELECT * FROM session_storage WHERE session_id = ?').get('test-session') as { pushed_head: string | null; reported_head: string | null;
+    push_refused_head: string | null; push_error_reason: string | null; pushed_bytes: number; push_stopped: number }
+  /** The remote's main, or '' for a remote with no main. */
+  const remoteHead = () => {
+    try { return execFileSync('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/main'], { encoding: 'utf8' }).trim() } catch { return '' }
+  }
+  return { repos, repository, remote, db, first, reports, events, store, deps, row, remoteHead, manifest, folder }
+}
+
+/** Four more turns on the fixture's first commit, each with a stored code bundle. Answers the commits. */
+async function turnsWithBundles(f: Awaited<ReturnType<typeof fixture>>): Promise<{ commits: string[]; bundles: string[] }> {
+  const repository = f.repos.named(f.repository)
+  const manifest = structuredClone(f.manifest)
+  let head = f.first
+  const commits = [f.first]
+  const bundles: string[] = []
+  for (const turn of [1, 2, 3, 4]) {
+    const file = join(f.folder, `bundle-${turn}`)
+    writeFileSync(file, `code bundle of turn ${turn}\n`)
+    const stored = await repository.storeCodeBundle(file)
+    bundles.push(stored.sha256)
+    manifest.turns.push({ operationId: `turn-${turn}`, endedAt: turn + 1, provider: 'codex', threadId: 'thread', partial: false,
+      head: null, snapshots: [], bundle: { kind: 'stored', ...stored, refs: {} }, hasDiff: false })
+    head = await repository.commit({ expectedHead: head, message: `turn ${turn}`, entries: [
+      { path: `threads/thread/main/${turn}.0`, content: `turn ${turn}\n` }, { path: 'manifest.json', content: JSON.stringify(manifest) },
+    ] })
+    commits.push(head)
+  }
+  f.db.prepare('UPDATE session_storage SET head = ?, turn_count = 5').run(head)
+  return { commits, bundles }
 }
 
 // WHY: A confirmed commit must reach the remote, then the API, without another turn.
@@ -233,6 +286,107 @@ test('sign-out stops an in-flight push', async () => {
   release()
   await pusher.idle()
   expect(f.row().pushed_head).toBeNull()
+  await pusher.stop()
+  f.db.close()
+})
+
+// WHY: Artifacts refuses a push above 64 MiB, so a backlog goes one commit at a time; the
+// cloud copy must never name a code bundle that R2 does not have yet; and the API learns
+// of the head once, not of each commit.
+test('a backlog of five commits is pushed one at a time, each bundle before its commit, and reported once', async () => {
+  const f = await fixture()
+  const { commits, bundles } = await turnsWithBundles(f)
+  withPush(f.repos, async (real, remote, commit, ...rest) => {
+    f.events.push(`push ${commit}`)
+    return real(remote, commit, ...rest)
+  })
+  const pusher = new SessionPusher(f.deps)
+  pusher.committed('test-session')
+  await pusher.idle()
+  expect(f.events).toEqual([`push ${commits[0]}`, ...bundles.flatMap((sha256, turn) => [`upload ${sha256}`, `push ${commits[turn + 1]}`])])
+  expect(f.remoteHead()).toBe(commits[4])
+  expect(f.reports).toEqual(['pushed'])
+  expect(f.row().pushed_head).toBe(commits[4])
+  expect(f.row().pushed_bytes).toBe(await f.repos.named(f.repository).newObjectBytes(null, commits[4]!))
+  // A push of `main` sends no code bundle: R2 holds it.
+  for (const sha256 of bundles) {
+    const blob = execFileSync('git', ['--git-dir', f.repos.named(f.repository).path, 'rev-parse', `refs/solus/code/${sha256}:bundle`], { encoding: 'utf8' }).trim()
+    expect(() => execFileSync('git', ['--git-dir', f.remote, 'cat-file', '-e', blob], { stdio: 'ignore' })).toThrow()
+    expect(f.store.objects.get(sha256)?.toString()).toStartWith('code bundle of turn')
+  }
+  await pusher.stop()
+  f.db.close()
+})
+
+/**
+ * A stopped push is not a divergence: the person continues the session on this host.
+ * `PromptDispatch` refuses a prompt only for a cloud history that differs.
+ */
+async function expectStoppedButCurrent(f: Awaited<ReturnType<typeof fixture>>, pusher: InstanceType<typeof SessionPusher>, countPushes: () => number): Promise<void> {
+  expect(f.row().push_refused_head).toBeNull()
+  expect(pusher.refusedHead('test-session')).toBeNull()
+  const { PromptDispatch } = await import('@solus/server/execution/sessions/prompt-dispatch')
+  // SAFETY: `assertSessionCurrent` reads only `refusedHead`, not the runtime.
+  const dispatch = new PromptDispatch({} as ConstructorParameters<typeof PromptDispatch>[0])
+  dispatch.refusedHead = (sessionId) => pusher.refusedHead(sessionId)
+  expect(() => dispatch.assertSessionCurrent('test-session')).not.toThrow()
+  // Each later way in to the push stops before Git.
+  const before = countPushes()
+  pusher.committed('test-session')
+  pusher.resume()
+  pusher.established()
+  await pusher.idle()
+  expect(countPushes()).toBe(before)
+}
+
+// WHY: a retry cannot change these refusals of Artifacts. A retry with backoff forever
+// only uses the network; the host stops and records why.
+for (const text of ['artifacts_git_receive_pack_object_too_large', 'artifacts_git_receive_pack_request_too_large', 'zlib member compressed data exceeds maximum']) {
+  test(`the refusal "${text}" stops the push for good and the session continues on this host`, async () => {
+    const f = await fixture()
+    let pushes = 0
+    withPush(f.repos, async () => { pushes++; return { status: 'failed', reason: 'transport', remoteMessage: `remote: error: ${text}` } })
+    const pusher = new SessionPusher({ ...f.deps, retryMs: 1 })
+    pusher.committed('test-session')
+    await pusher.idle()
+    expect(pushes).toBe(1)
+    expect(f.row().push_stopped).toBe(1)
+    expect(f.row().push_error_reason).toContain(text)
+    expect(f.row().pushed_head).toBeNull()
+    await expectStoppedButCurrent(f, pusher, () => pushes)
+    await pusher.stop()
+    f.db.close()
+  })
+}
+
+// WHY: Artifacts can enforce 1 GB for one repository. The host stops before that, with a clear reason.
+test('a push past 900 MiB stops with a clear reason and the session continues on this host', async () => {
+  const f = await fixture()
+  f.db.prepare('UPDATE session_storage SET pushed_bytes = ?').run(900 * 1024 * 1024)
+  let pushes = 0
+  withPush(f.repos, async (real, ...args) => { pushes++; return real(...args) })
+  const pusher = new SessionPusher(f.deps)
+  pusher.committed('test-session')
+  await pusher.idle()
+  expect(pushes).toBe(0)
+  expect(f.remoteHead()).toBe('')
+  expect(f.row().push_stopped).toBe(1)
+  expect(f.row().push_error_reason).toBe('This session is too large for the cloud copy.')
+  await expectStoppedButCurrent(f, pusher, () => pushes)
+  await pusher.stop()
+  f.db.close()
+}, 20_000)
+
+// WHY: a version 1 repository can hold files that Artifacts refuses. It stays on its host
+// and moves only by the host path.
+test('resume does not push a repository that began on manifest version 1', async () => {
+  const f = await fixture(1)
+  const pusher = new SessionPusher(f.deps)
+  pusher.resume()
+  await pusher.idle()
+  expect(f.remoteHead()).toBe('')
+  expect(f.row().pushed_head).toBeNull()
+  expect(f.reports).toEqual([])
   await pusher.stop()
   f.db.close()
 })

@@ -154,13 +154,16 @@ function git(cwd: string, args: string[]): string {
 
 // WHY: a second host must run the next turn from the same tree and provider
 // thread, with the same Solus session id and a local head that names that tree.
-test('a project sync restores the exact tree and binds the same session id', async () => {
-  const sessionId = 'portable-project'
-  const threadId = 'thread-portable-project'
-  const origin = join(root, 'origin.git')
+// Version 1 keeps the code bundle in `main`; version 2 keeps it under its code ref, and the host bundle carries that ref.
+for (const schemaVersion of [1, 2] as const) test(`a project sync of manifest version ${schemaVersion} restores the exact tree and binds the same session id`, async () => {
+  const sessionId = `portable-project-${schemaVersion}`
+  const threadId = `thread-portable-project-${schemaVersion}`
+  const base = join(root, `project-v${schemaVersion}`)
+  mkdirSync(base)
+  const origin = join(base, 'origin.git')
   mkdirSync(origin)
   git(origin, ['init', '--bare', '--initial-branch=main'])
-  const hostA = join(root, 'host-a')
+  const hostA = join(base, 'host-a')
   mkdirSync(hostA)
   git(hostA, ['clone', origin, '.'])
   git(hostA, ['config', 'user.name', 'Test'])
@@ -170,27 +173,27 @@ test('a project sync restores the exact tree and binds the same session id', asy
   git(hostA, ['commit', '-m', 'base'])
   git(hostA, ['push', 'origin', 'HEAD:main'])
   const projects = join(root, 'projects')
-  mkdirSync(projects)
-  const hostB = join(projects, 'repo')
+  mkdirSync(projects, { recursive: true })
+  const hostB = join(projects, `repo${schemaVersion}`)
   mkdirSync(hostB)
   git(hostB, ['clone', origin, '.'])
-  git(hostB, ['remote', 'set-url', 'origin', 'https://github.com/acme/repo.git'])
-  const workA = join(root, 'work-a')
+  git(hostB, ['remote', 'set-url', 'origin', `https://github.com/acme/repo${schemaVersion}.git`])
+  const workA = join(base, 'work-a')
   git(hostA, ['worktree', 'add', '-b', 'session-branch', workA, 'HEAD'])
   await beginTurnCheckpoint({ sessionId, workTree: workA })
   writeFileSync(join(workA, 'turn.txt'), 'portable change\n')
   await endTurnCheckpoint({ sessionId, workTree: workA }, { userMessagePreview: 'change' })
   const snapshots = await listTurnSnapshots(hostA, sessionId)
-  const codeBundle = join(root, 'code.bundle')
+  const codeBundle = join(base, 'code.bundle')
   const bundle = await writeTurnCodeBundle(hostA, {
     sessionId, snapshots, previousCommit: getSessionBaseSha(hostA, sessionId)!, headSha: git(workA, ['rev-parse', 'HEAD']), carried: [],
   }, codeBundle)
   expect(bundle.kind).toBe('written')
   const repository = sessionRepositoryName('local', sessionId)
-  const source = new SessionRepositories(join(root, 'source-project'))
-  const manifest = emptySessionManifest(sessionId, 'local')
+  const source = new SessionRepositories(join(base, 'source-project'))
+  const manifest = { ...emptySessionManifest(sessionId, 'local'), schemaVersion }
   manifest.session.title = 'Portable project'
-  manifest.project = { repositoryKey: 'github.com/acme/repo', baseSha: getSessionBaseSha(hostA, sessionId)!, ownsWorktree: true }
+  manifest.project = { repositoryKey: `github.com/acme/repo${schemaVersion}`, baseSha: getSessionBaseSha(hostA, sessionId)!, ownsWorktree: true }
   manifest.lastProjectRoot = hostA
   manifest.sessionPaths = { turnPaths: ['turn.txt'], sessionChangedFiles: ['turn.txt'] }
   manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
@@ -198,10 +201,12 @@ test('a project sync restores the exact tree and binds the same session id', asy
     { key: 'main', relativePath: 'thread.jsonl', length: 6, parts: [0] },
   ] }]
   manifest.turns = [{ operationId: 'turn-one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false,
-    head: { sha: git(workA, ['rev-parse', 'HEAD']), branch: 'session-branch' }, snapshots, bundle, hasDiff: false }]
+    head: { sha: git(workA, ['rev-parse', 'HEAD']), branch: 'session-branch' }, snapshots,
+    bundle: schemaVersion === 1 ? bundle : { kind: 'stored', ...await source.named(repository).storeCodeBundle(codeBundle), refs: bundle.kind === 'written' ? bundle.refs : {} },
+    hasDiff: false }]
   const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [
     { path: `threads/${threadId}/main/0`, content: 'hello\n' },
-    { path: 'code/0.bundle', file: codeBundle },
+    ...schemaVersion === 1 ? [{ path: 'code/0.bundle', file: codeBundle }] : [],
     { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
   let imported = ''
@@ -217,7 +222,7 @@ test('a project sync restores the exact tree and binds the same session id', asy
     sessionCheckouts: { getGitContext: () => undefined, setSessionGitEnvironment: (_id: string, path: string) => { checkoutPath = path } },
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositories: new SessionRepositories(join(root, 'destination-project')),
+    repositories: new SessionRepositories(join(base, 'destination-project')),
     providerInstalled: async () => true,
     fetchBundle: async ({ outFile }) => {
       await source.named(repository).bundleSince(null, outFile)
@@ -226,7 +231,7 @@ test('a project sync restores the exact tree and binds the same session id', asy
     prepareCheckout: async () => { throw new Error('The existing checkout must be used') },
   })
   expect(sync.prepare({ sessionId, knownHead: head, sourceHostId: 'source', repository: {
-    cloneUrl: 'https://github.com/acme/repo.git',
+    cloneUrl: `https://github.com/acme/repo${schemaVersion}.git`,
     files: [{ path: '.worktreeinclude', contentBase64: Buffer.from('local.env\n').toString('base64') },
       { path: 'local.env', contentBase64: Buffer.from('LOCAL=1\n').toString('base64') }],
   } }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -382,7 +387,7 @@ test('a full projectless sync can fetch a file remote', async () => {
       repository, remote: pathToFileURL(source.named(repository).path).href, token: '',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
       head, syncedTurn: 1, lastRunHostId: 'host-a', runningHostId: null,
-    }), null, request),
+    }), async () => null, null, request),
     prepareCheckout: async () => { throw new Error('Projectless sync must not prepare a checkout') },
   })
   expect(sync.prepare({ sessionId, knownHead: head }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -430,7 +435,7 @@ test('preparing the newer cloud copy retains refused turns and admits another pr
       repository, remote: pathToFileURL(remote.named(repository).path).href, token: '',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
       head: cloudHead, syncedTurn: 2, lastRunHostId: 'host-a', runningHostId: null,
-    }), local.named(repository).path, { ...request, have: null }),
+    }), async () => null, local.named(repository).path, { ...request, have: null }),
     prepareCheckout: async () => { throw new Error('No project checkout expected') },
   })
   expect(sync.prepare({ sessionId, knownHead: cloudHead }, HOST_ACTOR)).toEqual({ state: 'started' })

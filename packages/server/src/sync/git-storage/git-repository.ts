@@ -43,6 +43,8 @@ export interface GitIo {
   input?: string | Buffer | Readable
   output?: Writable
   env?: NodeJS.ProcessEnv
+  /** Gets each line of the diagnostics. They can contain a credential: the caller keeps only the words that it knows. */
+  onDiagnosticLine?: (line: string) => void
 }
 
 /** New content of one file: text or bytes, a whole file on disk, or the bytes `[from, to)` of a file on disk. */
@@ -122,6 +124,7 @@ export class GitRepository {
       outputLimit: this.options.outputLimitBytes ?? MAX_TEXT_BYTES,
       input: io.input,
       output: io.output,
+      onDiagnosticLine: io.onDiagnosticLine,
     })
   }
 

@@ -178,7 +178,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
       } }),
     },
     sessionRepositories: {
-      database: db, storage: sessionStorage, shares,
+      database: db, storage: sessionStorage?.repositories ?? null, code: sessionStorage?.code ?? null, shares,
       async changed(scope, sessionId, facts) {
         const payload = { sessionId, ...facts }
         if (scope.startsWith('person:')) {

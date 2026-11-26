@@ -6,6 +6,11 @@ import { resetTestDatabase } from './helpers/test-db'
 import type { AccessTokenClaims } from '@solus/contracts/uplink'
 import type { Db } from '@solus/server/db/database'
 import type { ShareManager } from '@solus/server/sharing/share-manager'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { LocalObjectStore } from '@solus/server/sync/git-storage/local-object-store'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 let database: Db
@@ -19,6 +24,7 @@ const client: AccessTokenClaims = { ...base, access: 'owner' }
 const calls: Array<{ repo: string; scope: string }> = []
 const events: Array<{ scope: string; sessionId: string; head: string | null }> = []
 const app = new Hono()
+const codeRoot = mkdtempSync(join(tmpdir(), 'solus-session-code-routes-'))
 beforeAll(async () => {
   const [{ getDatabase }, { ShareManager }, { registerSessionRepositoryRoutes }, repository, provider, { session }] = await Promise.all([
     import('@solus/server/db/database'), import('@solus/server/sharing/share-manager'), import('@solus/server/transport/session-repository-routes'),
@@ -32,6 +38,7 @@ beforeAll(async () => {
   isApiMode: true, database, shares,
   sessionRepositories: {
     database, shares, storage: { storageScope: 'test/sessions', async remote(repo, scope) { calls.push({ repo, scope }); return { url: 'file:///tmp/repository.git', token: '' } } },
+    code: new LocalObjectStore(codeRoot, Buffer.alloc(32, 3)),
     async changed(scope, sessionId, facts) { events.push({ scope, sessionId, head: facts.head }) },
   },
   verifyAccessToken: async token => token === 'invalid' ? { ok: false, reason: 'bad-signature' } : { ok: true, claims: token === 'personal' ? personal : token === 'organization' ? organization : token === 'bob' ? { ...organization, sub: 'bob' } : token === 'bob-personal' ? { ...personal, sub: 'bob' } : client },
@@ -45,10 +52,14 @@ async function post(path: string, token: string | null, body: object) {
 }
 const tokenPath = '/runner/session-repositories/token'
 const headPath = '/runner/session-repositories/head'
-const request = { hostId: 'host-a', sessionId: 'private-a', access: 'write' }
+const codePath = '/runner/session-repositories/code'
+const request = { hostId: 'host-a', sessionId: 'private-a', access: 'write', format: 2 }
 const head = 'a'.repeat(40)
 
-afterAll(async () => { await resetTestDatabase() })
+afterAll(async () => {
+  rmSync(codeRoot, { recursive: true, force: true })
+  await resetTestDatabase()
+})
 
 test('a host gets only its own delegated repository', async () => {
   // WHY: a full transcript must not be returned to a client token or another host.
@@ -66,6 +77,49 @@ test('a host gets only its own delegated repository', async () => {
   expect((await post(tokenPath, 'personal', { ...request, access: 'read' })).status).toBe(200)
   expect(calls.at(-1)?.scope).toBe('read')
   expect((await post(tokenPath, 'bob-personal', { ...request, access: 'read' })).status).toBe(404)
+})
+
+test('the token route refuses a host that does not write manifest version 2', async () => {
+  // WHY: an older host would push a version 1 repository that a version 2 reader cannot fetch code for; 503 makes it wait.
+  const { format: _format, ...older } = request
+  const refused = await post(tokenPath, 'personal', older)
+  expect(refused.status).toBe(503)
+  expect(await refused.json()).toEqual({ code: 'storage_unavailable' })
+  expect((await post(tokenPath, 'personal', { ...request, format: 1 })).status).toBe(400)
+})
+
+test('the code route signs a key only inside the caller\'s session and refuses a write above the cap', async () => {
+  // WHY: a host must not read or overwrite the code of a session it cannot edit, or store a bundle that no writer makes.
+  const bundle = Buffer.from('bundle bytes')
+  const sha256 = createHash('sha256').update(bundle).digest('hex')
+  const code = { hostId: 'host-a', sessionId: 'code-a', sha256, bytes: bundle.byteLength, access: 'write' }
+  const { CODE_BUNDLE_MAX_BYTES } = await import('@solus/server/git/session-code-bundle')
+  expect((await post(codePath, null, code)).status).toBe(401)
+  expect((await post(codePath, 'personal', { ...code, hostId: 'host-b' })).status).toBe(403)
+  expect((await post(codePath, 'bob', { ...code, sessionId: 'org-session' })).status).toBe(403)
+  expect((await post(codePath, 'personal', { ...code, sessionId: '../private-a' })).status).toBe(400)
+  expect((await post(codePath, 'personal', { ...code, sha256: sha256.toUpperCase() })).status).toBe(400)
+  const large = await post(codePath, 'personal', { ...code, bytes: CODE_BUNDLE_MAX_BYTES + 1 })
+  expect(large.status).toBe(413)
+  expect(await large.json()).toEqual({ code: 'too_large' })
+  expect((await post(codePath, 'personal', { ...code, access: 'read' })).status).toBe(404)
+
+  const issued = await post(codePath, 'personal', code)
+  expect(issued.status).toBe(200)
+  const { url, expiresAt } = await issued.json()
+  expect(Date.parse(expiresAt) - Date.now()).toBeGreaterThan(890_000)
+  expect(decodeURIComponent(new URL(url, 'https://api.test').pathname)).toBe(`/runner/session-code/sessions/person:alice/code-a/${sha256}`)
+  const headers = { 'content-length': String(bundle.byteLength), 'x-amz-checksum-sha256': createHash('sha256').update(bundle).digest('base64') }
+  const elsewhere = url.replace('/code-a/', '/private-a/')
+  expect((await app.request(elsewhere, { method: 'PUT', headers, body: bundle })).status).toBe(403)
+  expect((await app.request(url, { method: 'PUT', headers, body: bundle })).status).toBe(200)
+
+  // Bob's own personal scope holds no session code-a: his read is refused.
+  expect((await post(codePath, 'bob-personal', { ...code, access: 'read' })).status).toBe(404)
+  const read = await post(codePath, 'personal', { ...code, access: 'read' })
+  const fetched = await app.request((await read.json()).url)
+  expect(fetched.status).toBe(200)
+  expect(Buffer.from(await fetched.arrayBuffer())).toEqual(bundle)
 })
 
 test('organization admission needs publication and edit standing', async () => {
@@ -101,7 +155,7 @@ test('off storage refuses a token', async () => {
   expect(await sessionRemoteProvider(database, { SOLUS_SESSION_STORAGE: 'off' })).toBeNull()
   const { registerSessionRepositoryRoutes } = await import('@solus/server/transport/session-repository-routes')
   const unavailable = new Hono()
-  registerSessionRepositoryRoutes(unavailable, { isApiMode: true, sessionRepositories: { database, shares, storage: null, async changed() {} }, verifyAccessToken: async () => ({ ok: true, claims: personal }) })
+  registerSessionRepositoryRoutes(unavailable, { isApiMode: true, sessionRepositories: { database, shares, storage: null, code: null, async changed() {} }, verifyAccessToken: async () => ({ ok: true, claims: personal }) })
   const response = await unavailable.request(tokenPath, { method: 'POST', headers: { authorization: 'Bearer personal', 'content-type': 'application/json' }, body: JSON.stringify(request) })
   expect(response.status).toBe(503)
   expect(await response.json()).toEqual({ code: 'storage_unavailable' })
@@ -125,8 +179,8 @@ test('Artifacts receives the requested token scope through injected fetch', asyn
     requests.push({ url: String(url), init: init! })
     return Response.json(String(url).endsWith('/tokens') ? { success: true, result: { plaintext: 'secret' } } : { success: true, result: { remote: 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.artifacts.cloudflare.net/repo' } })
   }
-  const provider = await sessionRemoteProvider(database, { SOLUS_SESSION_STORAGE: 'cloudflare-artifacts', SOLUS_ARTIFACTS_ACCOUNT_ID: 'a'.repeat(32), SOLUS_SESSION_ARTIFACTS_NAMESPACE: 'sessions', SOLUS_ARTIFACTS_API_TOKEN: 'server-secret' }, fake as typeof fetch)
-  const result = await provider!.remote(cloudSessionRepositoryName('person:alice', 'fixture'), 'read')
+  const provider = await sessionRemoteProvider(database, { SOLUS_SESSION_STORAGE: 'cloudflare-artifacts', SOLUS_ARTIFACTS_ACCOUNT_ID: 'a'.repeat(32), SOLUS_SESSION_ARTIFACTS_NAMESPACE: 'sessions', SOLUS_ARTIFACTS_API_TOKEN: 'server-secret', SOLUS_SESSION_R2_BUCKET: 'solus-sessions-test', SOLUS_R2_ACCESS_KEY_ID: 'id', SOLUS_R2_SECRET_ACCESS_KEY: 'key' }, fake as typeof fetch)
+  const result = await provider!.repositories.remote(cloudSessionRepositoryName('person:alice', 'fixture'), 'read')
   expect(result.token).toBe('secret')
   expect(JSON.parse(String(requests.at(-1)?.init.body))).toMatchObject({ scope: 'read', ttl: 900 })
 })

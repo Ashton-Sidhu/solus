@@ -19,7 +19,7 @@ export interface GitPolicy {
   readonly name: 'project' | 'storage'
   /** The arguments before those of each command: the repository and the configuration that the policy sets. */
   readonly args: readonly string[]
-  /** False: nothing reads the diagnostics of a process and an error keeps no output, because they can contain a credential. */
+  /** False: an error keeps no output, and only a caller that gives `onDiagnosticLine` reads the diagnostics, because they can contain a credential. */
   readonly keepsOutput: boolean
   /** The identity that runs a command, with the policy's environment and then `env` from the caller. `args` are the caller's. */
   launchOptions(args: readonly string[], env?: NodeJS.ProcessEnv): LaunchOptions | Promise<LaunchOptions>
@@ -127,7 +127,7 @@ export async function runGit(policy: GitPolicy, args: readonly string[], run: Gi
         reason: why, code: why === 'failed' ? code : null, signal,
         stdout: policy.keepsOutput ? Buffer.concat(stdout).toString('utf8') : '',
         // A process that did not start wrote nothing; the reason is in the error of the launch.
-        stderr: policy.keepsOutput && why === 'not-started' && cause instanceof Error ? cause.message : stderr,
+        stderr: !policy.keepsOutput ? '' : why === 'not-started' && cause instanceof Error ? cause.message : stderr,
       }
       reject(new GitProcessError(policy.failureMessage(failure, args, [launched.file, ...launched.args].join(' ')), failure, cause))
     }
@@ -139,8 +139,8 @@ export async function runGit(policy: GitPolicy, args: readonly string[], run: Gi
 
     if (run.signal?.aborted) return stopForCaller()
     try {
-      // Git diagnostics can contain a credential, so a policy that keeps no output does not read them.
-      child = spawn(launched.file, launched.args, { cwd: run.cwd, env: launched.env, stdio: ['pipe', 'pipe', policy.keepsOutput ? 'pipe' : 'ignore'] })
+      // Git diagnostics can contain a credential, so a policy that keeps no output reads them only for a caller that asks for each line.
+      child = spawn(launched.file, launched.args, { cwd: run.cwd, env: launched.env, stdio: ['pipe', 'pipe', policy.keepsOutput || run.onDiagnosticLine ? 'pipe' : 'ignore'] })
     } catch (cause) {
       return fail('not-started', null, null, cause)
     }

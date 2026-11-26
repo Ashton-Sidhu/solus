@@ -179,8 +179,8 @@ describe('session archive writer', () => {
     expect(manifest.turns[0]).toMatchObject({ hasDiff: false })
     expect(manifest.turns[0].hasRows).toBeUndefined()
     expect(manifest.turns[0].rowCount).toBeUndefined()
-    expect(manifest.threads[0].files[0].parts).toEqual([0])
-    expect(git(repository.path, ['ls-tree', '-r', '--name-only', head!]).split('\n').sort()).toEqual(['manifest.json', `threads/${THREAD}/main/0`])
+    expect(manifest.threads[0].files[0].parts).toEqual(['0.0'])
+    expect(git(repository.path, ['ls-tree', '-r', '--name-only', head!]).split('\n').sort()).toEqual(['manifest.json', `threads/${THREAD}/main/0.0`])
     await writer.stop()
   })
   // WHY: no repository is written again. A host must still read the manifest of a turn
@@ -379,7 +379,7 @@ describe('session archive writer', () => {
     expect(pendingCount()).toBe(0)
     expect(manifest.project).toEqual({ repositoryKey: null, baseSha: git(hostA, ['rev-parse', 'HEAD']), ownsWorktree: false })
     expect(manifest.turns.map((turn) => [turn.snapshots.map((snapshot) => snapshot.index), turn.bundle?.kind, turn.hasDiff]))
-      .toEqual([[[0], 'written', false], [[1], 'written', false]])
+      .toEqual([[[0], 'stored', false], [[1], 'stored', false]])
 
     const hostB = tempDir('host-b')
     git(hostB, ['clone', origin, '.'])
@@ -387,11 +387,79 @@ describe('session archive writer', () => {
     const spec = `refs/solus/sessions/${SESSION}/bundle/*:refs/solus/sessions/${SESSION}/bundle/*`
     for (const turn of [0, 1]) {
       const bundle = join(tempDir('bundle'), `${turn}.bundle`)
-      await repositories.named(REPOSITORY()).appendFiles(head!, [`code/${turn}.bundle`], bundle)
+      const stored = manifest.turns[turn].bundle
+      if (stored?.kind !== 'stored') throw new Error('The turn has no stored bundle.')
+      await repositories.named(REPOSITORY()).writeCodeBundle(stored.sha256, bundle)
       git(hostB, ['fetch', bundle, spec])
       expect(git(hostB, ['rev-parse', `${bundleRef(SESSION, `${turn}/to`)}^{tree}`])).toBe(manifest.turns[turn].snapshots[0].toTreeSha)
     }
     // The patch of a turn is the mirror's, not the commit's.
     expect(git(repositories.named(REPOSITORY()).path, ['ls-tree', '-r', '--name-only', head!])).not.toContain('diff/')
+    // WHY: Artifacts refuses a large file, so a bundle is not a file of `main`; its code ref keeps it.
+    const files = git(repositories.named(REPOSITORY()).path, ['ls-tree', '-r', '--name-only', head!])
+    expect(files).not.toContain('code/')
+    for (const turn of manifest.turns) {
+      if (turn.bundle?.kind !== 'stored') continue
+      const blob = git(repositories.named(REPOSITORY()).path, ['rev-parse', `refs/solus/code/${turn.bundle.sha256}:bundle`])
+      expect(git(repositories.named(REPOSITORY()).path, ['rev-list', '--objects', 'refs/heads/main'])).not.toContain(blob)
+    }
   })
+
+  // WHY: Artifacts refuses a file above 32 MiB. A long thread must go in pieces that
+  // another host joins to the same bytes, or the provider cannot resume the thread.
+  test('a 70 MiB provider range goes in three pieces of at most 31 MiB that join to the same bytes', async () => {
+    const transcript = join(tempDir('large-thread'), 'thread.jsonl')
+    const content = Buffer.alloc(70 * 1024 * 1024)
+    for (let offset = 0; offset < content.length; offset += 4) content.writeUInt32LE(offset, offset)
+    writeFileSync(transcript, content)
+    const repositories = new Repositories(tempDir('large-repository'))
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })
+    await writer.turnEnded(turnEnd())
+    await writer.idle()
+    const manifest = await readManifest(repositories)
+    const file = manifest.threads[0].files[0]
+    expect(file.parts).toEqual(['0.0', '0.1', '0.2'])
+    const repository = repositories.named(REPOSITORY())
+    const head = (await repository.head())!
+    for (const part of file.parts) {
+      expect(Number(git(repository.path, ['cat-file', '-s', `${head}:threads/${THREAD}/main/${part}`]))).toBeLessThanOrEqual(31 * 1024 * 1024)
+    }
+    const out = join(tempDir('large-rebuilt'), 'thread.jsonl')
+    await repository.writeThreadFile(head, THREAD, file, out)
+    expect(readFileSync(out).equals(content)).toBe(true)
+    await writer.stop()
+  }, 60_000)
+
+  // WHY: Artifacts refuses a push above 64 MiB. A large turn must be several commits,
+  // and a reader of each head must read a manifest whose files all exist.
+  test('a turn with 100 MiB of new files is three commits, and only the last changes the manifest', async () => {
+    const transcript = join(tempDir('turn-thread'), 'thread.jsonl')
+    writeFileSync(transcript, '{"turn":1}\n')
+    const repositories = new Repositories(tempDir('turn-repository'))
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })
+    await writer.turnEnded(turnEnd())
+    await writer.idle()
+    const repository = repositories.named(REPOSITORY())
+    const firstHead = (await repository.head())!
+    appendFileSync(transcript, Buffer.alloc(100 * 1024 * 1024, 'x'))
+    await writer.turnEnded(turnEnd())
+    await writer.idle()
+    const head = (await repository.head())!
+    const commits = await repository.commitsAfter(firstHead, head)
+    expect(commits).toHaveLength(3)
+    const firstManifest = git(repository.path, ['rev-parse', `${firstHead}:manifest.json`])
+    expect(commits.map((commit) => git(repository.path, ['rev-parse', `${commit}:manifest.json`]) === firstManifest)).toEqual([true, true, false])
+    for (const commit of [firstHead, ...commits]) {
+      const manifest = manifestSchema.parse(JSON.parse(await repository.readText(commit, 'manifest.json')))
+      const tree = new Set(git(repository.path, ['ls-tree', '-r', '--name-only', commit]).split('\n'))
+      for (const file of manifest.threads.flatMap((thread) => thread.files.map((entry) => ({ thread: thread.threadId, entry })))) {
+        for (const part of file.entry.parts) expect(tree.has(`threads/${file.thread}/${file.entry.key}/${part}`)).toBe(true)
+      }
+      if (commit !== firstHead) expect(await repository.newObjectBytes(`${commit}~1`, commit)).toBeLessThan(48 * 1024 * 1024 + 64 * 1024)
+    }
+    const manifest = await readManifest(repositories)
+    expect(manifest.threads[0].files[0].parts).toEqual(['0.0', '1.0', '1.1', '1.2', '1.3'])
+    expect(storageRow()?.head).toBe(head)
+    await writer.stop()
+  }, 60_000)
 })

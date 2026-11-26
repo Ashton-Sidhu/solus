@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionBundleDivergedError, SessionRepositories, sessionRepositoryName } from '@solus/server/sync/sessions/session-repository'
@@ -76,6 +77,54 @@ describe('session repository bundles', () => {
     expect(await target.named(repository).head()).toBe(local)
     expect(await target.named(repository).readText(local, 'local')).toBe('local')
     expect(await source.named(repository).bundleSince(local, remoteBundle)).toEqual({ kind: 'diverged', head: await source.named(repository).head() })
+  })
+
+  // WHY: the code bundles are not in `main`. A host that continues a session from
+  // another host needs the bundles of the turns that it does not have, and no others.
+  test('a bundle carries the code refs of the turns after `have`, and the receiver keeps them', async () => {
+    const source = copies('code-source')
+    const target = copies('code-target')
+    const manifest = emptySessionManifest('portable', 'local')
+    const shas: string[] = []
+    let head: string | null = null
+    const heads: string[] = []
+    for (const turn of [0, 1]) {
+      const file = join(root, `code-${turn}.bundle`)
+      writeFileSync(file, `bundle of turn ${turn}\n`)
+      const stored = await source.named(repository).storeCodeBundle(file)
+      shas.push(stored.sha256)
+      manifest.turns.push({ operationId: `turn-${turn}`, endedAt: turn, provider: 'codex', threadId: 'thread', partial: false, head: null,
+        snapshots: [], bundle: { kind: 'stored', ...stored, refs: {} }, hasDiff: false })
+      head = await source.named(repository).commit({ expectedHead: head, message: `turn ${turn}`, entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+      heads.push(head)
+    }
+    const listHeads = (file: string) => execFileSync('git', ['bundle', 'list-heads', file], { encoding: 'utf8' })
+    const all = join(root, 'code-all.bundle')
+    expect(await source.named(repository).bundleSince(null, all)).toEqual({ kind: 'written', head: heads[1] })
+    expect(listHeads(all)).toContain(`refs/solus/code/${shas[0]}`)
+    expect(listHeads(all)).toContain(`refs/solus/code/${shas[1]}`)
+    const later = join(root, 'code-later.bundle')
+    await source.named(repository).bundleSince(heads[0]!, later)
+    expect(listHeads(later)).not.toContain(`refs/solus/code/${shas[0]}`)
+    expect(listHeads(later)).toContain(`refs/solus/code/${shas[1]}`)
+    expect(await target.named(repository).fetchBundle(all)).toBe(heads[1])
+    const out = join(root, 'code-out.bundle')
+    await target.named(repository).writeCodeBundle(shas[1]!, out)
+    expect(readFileSync(out, 'utf8')).toBe('bundle of turn 1\n')
+  })
+
+  // WHY: a repository holds parts of version 1 (turn numbers) and of version 2
+  // (`<turn>.<piece>` names). The provider file is the join of both, in order.
+  test('a thread file joins version 1 and version 2 parts in order', async () => {
+    const source = copies('mixed-parts')
+    const head = await source.named(repository).commit({ expectedHead: null, message: 'mixed', entries: [
+      { path: 'threads/thread/main/0', content: 'one\n' },
+      { path: 'threads/thread/main/1.0', content: 'two' },
+      { path: 'threads/thread/main/1.1', content: '\n' },
+    ] })
+    const out = join(root, 'mixed.txt')
+    await source.named(repository).writeThreadFile(head, 'thread', { key: 'main', relativePath: 'thread.jsonl', length: 8, parts: [0, '1.0', '1.1'] }, out)
+    expect(readFileSync(out, 'utf8')).toBe('one\ntwo\n')
   })
 
   // WHY: a host can read a repository written before the sync fields existed.
