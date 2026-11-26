@@ -15,7 +15,7 @@ afterAll(() => {
 
 const { openResourceInWorkspace } = await import('@solus/workspace-ui/contexts/app/resource-routes')
 const { connectionsNav } = await import('@solus/workspace-ui/components/connections/connections-nav.svelte')
-const { pairCodeRequest } = await import('@solus/workspace-ui/components/connections/lib/pair-code-request.svelte')
+const { pairCodeRequest } = await import('@solus/workspace-ui/components/connections/lib/access-tab-requests.svelte')
 const { toQuestionRequest } = await import('@solus/workspace-ui/contexts/workspace/session.utils')
 
 function workspace(): { session: WorkspaceContext; settings: string[] } {

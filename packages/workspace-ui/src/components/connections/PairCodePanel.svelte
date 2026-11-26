@@ -17,7 +17,7 @@
   import { pairQrSvgPath } from "./lib/qrcode";
   import { bestPairEndpoint, pairLink, hostedPairLink } from "@solus/client-core/pairing";
   import { liveActivityClock } from "../../lib/shared-clock";
-  import { pairCodeRequest } from "./lib/pair-code-request.svelte";
+  import { pairCodeRequest } from "./lib/access-tab-requests.svelte";
   import { untrack } from "svelte";
 
   interface Props {

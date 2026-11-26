@@ -10,7 +10,12 @@ export interface PairToken {
 }
 
 export type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
-import type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, PairedDevice, SolusAPI } from '@solus/contracts/host-api'
+
+/** Where an outside app reaches a host's tools over MCP (plans/035 §10). */
+export type AppEndpoint = Awaited<ReturnType<SolusAPI['connectionsAppEndpoint']>>
+/** A one-time code that approves an outside app on its sign-in page. */
+export type AppPairingCode = Awaited<ReturnType<SolusAPI['connectionsCreateAppPairingCode']>>
 
 export interface ConnectionEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'
@@ -54,6 +59,14 @@ export class ConnectionsStore {
   tailscaleServeError = $state<string | null>(null)
   trustLocalNetworkUpdating = $state(false)
   private metadataServerId: string | null = null
+
+  // Outside apps (Access → Use Solus in other apps), for one host at a time.
+  appEndpoint = $state<AppEndpoint | null>(null)
+  appEndpointError = $state<string | null>(null)
+  appPairingCode = $state<AppPairingCode | null>(null)
+  appPairingCodeCreating = $state(false)
+  appPairingCodeError = $state<string | null>(null)
+  private appServerId: string | null = null
 
   providerStatus = $state<AuthStatus | null>(null)
   providerLoaded = $state(false)
@@ -124,6 +137,40 @@ export class ConnectionsStore {
       this.activePair = await serverConnections.apiFor(serverId).connectionsGeneratePairToken()
     } catch (e) {
       console.error('generate pair token failed', e)
+    }
+  }
+
+  /** Reads where outside apps reach this host. A read for another host clears the last host's address and code. */
+  async loadAppEndpoint(serverId: string): Promise<void> {
+    if (this.appServerId !== serverId) {
+      this.appServerId = serverId
+      this.appEndpoint = null
+      this.appEndpointError = null
+      this.appPairingCode = null
+      this.appPairingCodeError = null
+    }
+    try {
+      const endpoint = await serverConnections.apiFor(serverId).connectionsAppEndpoint()
+      if (this.appServerId !== serverId) return
+      this.appEndpoint = endpoint
+      this.appEndpointError = null
+    } catch (e) {
+      if (this.appServerId === serverId) this.appEndpointError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  /** Makes a new one-time code for an outside app's sign-in page; it replaces the code shown. */
+  async createAppPairingCode(serverId: string): Promise<void> {
+    if (this.appPairingCodeCreating) return
+    this.appPairingCodeCreating = true
+    this.appPairingCodeError = null
+    try {
+      const code = await serverConnections.apiFor(serverId).connectionsCreateAppPairingCode()
+      if (this.appServerId === serverId) this.appPairingCode = code
+    } catch (e) {
+      if (this.appServerId === serverId) this.appPairingCodeError = e instanceof Error ? e.message : String(e)
+    } finally {
+      this.appPairingCodeCreating = false
     }
   }
 

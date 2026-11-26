@@ -292,9 +292,9 @@ Other apps use their own connector screens with the same URL.
 - Settings → Connections gets **Use Solus in other apps**, with:
   - the MCP URL and a copy button;
   - the `claude mcp add` command;
-  - the connected apps, with their level and a **Revoke** button.
-- A **Make pairing code** button.
-- The command palette opens the same page.
+  - a **Make pairing code** button, with the code and when it expires.
+- The connected apps are in **Paired devices** on the same page, with their level and a **Revoke** button. On desktop and web, both are on a host's Access tab (`OutsideAppsSection.svelte`, `HostDetailAccess.svelte`).
+- The command palette command **Use Solus in other apps** opens the same page.
 - Revoke deletes the grant on the host. The next call with its token gets `401`.
 
 ## 11. Lifecycle

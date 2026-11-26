@@ -9,6 +9,7 @@
   import {
     Check as CheckIcon,
     Copy as CopyIcon,
+    AppWindow as AppWindowIcon,
     Monitor as MonitorIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
@@ -28,6 +29,7 @@
   import ForwardedHostRows from "./ForwardedHostRows.svelte";
   import PairApprovalRows from "./PairApprovalRows.svelte";
   import ReachedMachinesSection from "./ReachedMachinesSection.svelte";
+  import OutsideAppsSection from "./OutsideAppsSection.svelte";
   import { forwardedHostsStore } from "./forwarded-hosts.store.svelte";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
@@ -250,6 +252,12 @@
   {/key}
 </SettingsSection>
 
+<!-- Outside apps sign in here like a device pairs; they are listed and revoked
+     with the paired devices below (plans/035 §10). -->
+{#if showsPairedDevices}
+  <OutsideAppsSection {serverId} canMakeCode={showsApprovals} />
+{/if}
+
 {#if hasPairing && canChangeNetwork}
   {#key serverId}<ReachedMachinesSection {serverId} />{/key}
 {/if}
@@ -294,19 +302,20 @@
 </SettingsSection>
 
 {#if showsPairedDevices}
-  <SettingsSection label="Paired devices" description="Every device that paired with this host, connected or not. Revoke one to end its access.">
+  <SettingsSection label="Paired devices" description="Every device and outside app that paired with this host, connected or not. Revoke one to end its access.">
     {#if connections.pairedDevicesError}
       <p role="alert" class="px-4 py-3.5 text-workspace-chrome text-(--solus-status-error)">{connections.pairedDevicesError}</p>
     {:else if !connections.pairedDevicesLoaded}
       <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">Reading paired devices…</p>
     {:else if connections.pairedDevices.length === 0}
       <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">
-        No devices are paired with this host.
+        No devices or apps are paired with this host.
       </p>
     {:else}
       {#each pairedPage.rows as device (device.deviceId)}
+        {@const DeviceIcon = device.app ? AppWindowIcon : MonitorIcon}
         <div class="group flex items-center gap-3 px-4 py-2.5">
-          <MonitorIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
+          <DeviceIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
           <div class="min-w-0 flex-1">
             <p class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
               {device.deviceLabel}

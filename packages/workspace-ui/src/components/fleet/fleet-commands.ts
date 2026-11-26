@@ -1,7 +1,7 @@
-import { KeyRound, Radar, Unplug } from '@lucide/svelte'
+import { AppWindow, KeyRound, Radar, Unplug } from '@lucide/svelte'
 import type { Command } from '../command-palette/lib/commands'
 import { connectionsNav } from '../connections/connections-nav.svelte'
-import { pairCodeRequest } from '../connections/lib/pair-code-request.svelte'
+import { outsideAppsRequest, pairCodeRequest } from '../connections/lib/access-tab-requests.svelte'
 import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { discoverStore } from './discover.store.svelte'
 
@@ -9,7 +9,8 @@ import { discoverStore } from './discover.store.svelte'
  * The palette's way into the fleet, for desktop and
  * web alike: "Add machine" opens the Add page, and "Find hosts nearby" opens the
  * fleet and scans. "Show pairing code" opens this device's host on its Access
- * tab with a code made (docs/plans/add-machine-card.md). `showHosts` opens
+ * tab with a code made (docs/plans/add-machine-card.md). "Use Solus in other
+ * apps" opens the same tab at that section (plans/035 §10). `showHosts` opens
  * Settings › Hosts in the shell that asks.
  */
 export function fleetPaletteCommands(showHosts: () => void): Command[] {
@@ -48,6 +49,21 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
         const serverId = (hosts.device ?? hosts.runOn)?.id
         if (serverId) {
           pairCodeRequest.ask(serverId)
+          connectionsNav.open(serverId, 'access')
+        }
+        showHosts()
+      },
+    },
+    {
+      id: 'use-solus-in-other-apps',
+      label: 'Use Solus in other apps',
+      group: 'Servers',
+      icon: AppWindow,
+      keywords: ['mcp', 'claude desktop', 'cursor', 'claude code', 'outside app', 'connect app', 'pairing code', 'tools'],
+      run: () => {
+        const serverId = (hosts.device ?? hosts.runOn)?.id
+        if (serverId) {
+          outsideAppsRequest.ask(serverId)
           connectionsNav.open(serverId, 'access')
         }
         showHosts()
