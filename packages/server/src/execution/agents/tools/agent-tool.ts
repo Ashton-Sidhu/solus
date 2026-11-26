@@ -73,6 +73,13 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   passthroughInput?: boolean
   /** Refuse extra input fields before parsing can discard a retired argument. */
   strictInput?: boolean
+  /**
+   * False when this tool is not for the person of the turn: the catalog leaves it out,
+   * and a call is refused (plans/035-cloud-machine-tools.md §7). It reads the person
+   * with `workspaceToolAuthority()`, which `credentialScopedAgentTools` sets for the
+   * turn, so a tool list with no person does not offer it.
+   */
+  isOffered?: () => boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,
@@ -97,6 +104,10 @@ export async function executeAgentTool<Input>(
   if (!isSolusToolEnabled(agentTool.name, getHostConfig().config.solusTools)) {
     return { ok: false, text: `${agentTool.name} is disabled in Settings → Tools on this host.` }
   }
+  // Checked again at the call: the person can sign out during a run.
+  if (agentTool.isOffered && !agentTool.isOffered()) {
+    return { ok: false, text: `${agentTool.name} is not available to you on this host. Sign in to Solus to use it.` }
+  }
   const schema = agentTool.passthroughInput ? z.looseObject(agentTool.inputFields ?? {}) : z.object(agentTool.inputFields)
   const parsed = (agentTool.strictInput ? schema.strict() : schema).safeParse(input)
   if (!parsed.success) {
@@ -116,8 +127,8 @@ export function advertisedInputSchema(agentTool: AgentTool): z.core.JSONSchema.J
   return compactToolSchema(agentTool.inputFields)
 }
 
-/** Apply host choices when a provider builds its tool catalog. Execution rechecks them. */
+/** Apply host choices and the turn's person when a provider builds its tool catalog. Execution rechecks them. */
 export function enabledAgentTools(tools: AgentTool[]): AgentTool[] {
   const { solusTools } = getHostConfig().config
-  return tools.filter((tool) => isSolusToolEnabled(tool.name, solusTools))
+  return tools.filter((tool) => isSolusToolEnabled(tool.name, solusTools) && tool.isOffered?.() !== false)
 }

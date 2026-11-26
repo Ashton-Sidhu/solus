@@ -86,6 +86,7 @@ export function questionRequestFrom(event: Extract<NormalizedEvent, { type: 'que
   const request: QuestionRequest = { questionId: event.questionId, questions: event.questions }
   if (event.kind) request.kind = event.kind
   if (event.hostLink) request.hostLink = event.hostLink
+  if (event.cloudMachine) request.cloudMachine = event.cloudMachine
   if (event.responseMode) request.responseMode = event.responseMode
   return request
 }

@@ -3,6 +3,7 @@ import { registerHostPairingHandlers } from './transport/handlers/host-pairing-h
 import { registerPairApprovalHandlers } from './transport/handlers/pair-approval-handlers'
 import { PairApprovals } from './admission/pair-approvals'
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
+import { setCloudMachineTools } from './execution/agents/tools/cloud-machine-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved, readHostList } from './host/host-list'
@@ -1319,6 +1320,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
+  // The cloud machine and organization tools act as the person of the turn, with the token this host holds for them (plans/035 §5).
+  setCloudMachineTools({
+    reads: accountReadsOfServer,
+    holders: () => apiMode ? [] : delegations?.holders() ?? [],
+    thisHost: () => ({ hostId: registrar.current()?.hostId ?? null, installationId: getInstallationId() }),
+    ssh,
+    accountOrigin: () => hostOrganizationsDeps.registration()?.directoryUrl ?? null,
+  })
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
   // This host introduces the machines it holds to each other, so a machine that no
   // device reaches still joins the person's other machines (host-reach.md §4.4).
@@ -1634,7 +1643,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
     },
-    // The project and codebase tools send the RPC of a person's client, through its gate.
+    // The project, codebase, and sharing tools send the RPC of a person's client, through its gate.
     rpc: {
       listProjects: (args, caller) => server.handle('listProjects', args, caller),
       projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
@@ -1644,6 +1653,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       codebaseSave: (args, caller) => server.handle('codebaseSave', args, caller),
       codebaseMembers: (args, caller) => server.handle('codebaseMembers', args, caller),
       codebaseScanFolder: (args, caller) => server.handle('codebaseScanFolder', args, caller),
+      shareGet: (args, caller) => server.handle('shareGet', args, caller),
+      shareSet: (args, caller) => server.handle('shareSet', args, caller),
+      shareSetLink: (args, caller) => server.handle('shareSetLink', args, caller),
+      shareLinkOrigin: (args, caller) => server.handle('shareLinkOrigin', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).

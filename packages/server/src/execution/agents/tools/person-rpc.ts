@@ -3,10 +3,11 @@ import { workspaceToolAuthority } from '../../../admission/workspace-tool-author
 import type { AgentToolContext, AgentToolResult } from './agent-tool'
 import { projectToolHost, type ProjectToolCaller } from './project-tools'
 
-/** The RPCs of the project and codebase tools: the ones Settings, the project chip, and mobile send. */
+/** The RPCs of the project, codebase, and sharing tools: the ones Settings, the project chip, the Share dialog, and mobile send. */
 export type PersonRpcMethod =
   | 'listProjects' | 'projectConfigLoad' | 'projectConfigSave' | 'untrackProject'
   | 'codebaseList' | 'codebaseSave' | 'codebaseMembers' | 'codebaseScanFolder'
+  | 'shareGet' | 'shareSet' | 'shareSetLink' | 'shareLinkOrigin'
 
 /** `SolusServer.handle` for each of these methods: the access gate and the handler that a client's call gets. */
 export type PersonRpcHost = { [M in PersonRpcMethod]: (args: Parameters<SolusAPI[M]>, caller: ProjectToolCaller) => ReturnType<SolusAPI[M]> }

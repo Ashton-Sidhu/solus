@@ -5,6 +5,7 @@ import { hostPathKey } from './host-path'
 import type { ReplyHtmlLayout, WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { AddMachineAsk } from './add-machine'
+import type { CloudMachineAsk } from './cloud-machine-card'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
@@ -805,9 +806,12 @@ export interface QuestionRequest {
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
   /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
-   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md). */
-  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'
+   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md).
+   *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'
   /** `host-link` only: what the agent asks to add. */
+  /** `cloud-machine` only: the choices the card collects. */
+  cloudMachine?: CloudMachineAsk
   hostLink?: AddMachineAsk
   message?: string
   url?: string
@@ -2145,7 +2149,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'; hostLink?: AddMachineAsk; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'; hostLink?: AddMachineAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */

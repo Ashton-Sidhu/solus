@@ -1,5 +1,6 @@
 import { questionReply } from '@solus/contracts/question-history'
 import { addMachineOutcomeAnswers } from '@solus/contracts/add-machine'
+import { cloudMachineAnswers } from '@solus/contracts/cloud-machine-card'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { claimAsyncQuestion, pendingAsyncQuestions, saveAsyncAnswer, settleAsyncQuestion } from '../../data/sessions/async-questions'
@@ -213,7 +214,7 @@ export class InputRequests {
   /**
    * A person sent a message instead of an answer: decline each open card that
    * the composer does not take as the answer, so the turn goes on and the
-   * message steers it. These are a secret card, an Add machine card, an MCP
+   * message steers it. These are a secret card, an Add machine card, a machine card, an MCP
    * elicitation, and a permission (as mobile does before it sends). A plan and
    * a question stay open: the composer sends the text as their answer.
    */
@@ -225,6 +226,8 @@ export class InputRequests {
         if (deny) this.respondToPermission(sessionId, event.questionId, deny.id, undefined, actor)
       } else if (event.type === 'question_request' && event.kind === 'host-link') {
         await this.respondToQuestion(sessionId, event.questionId, addMachineOutcomeAnswers({ status: 'declined' }), actor)
+      } else if (event.type === 'question_request' && event.kind === 'cloud-machine') {
+        await this.respondToQuestion(sessionId, event.questionId, cloudMachineAnswers({ status: 'declined' }), actor)
       } else if (event.type === 'question_request' && (event.kind === 'mcp_form' || event.kind === 'mcp_url')) {
         await this.respondToQuestion(sessionId, event.questionId, { __action: 'decline' }, actor)
       } else continue

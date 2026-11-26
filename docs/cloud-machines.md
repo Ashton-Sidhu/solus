@@ -109,6 +109,46 @@ registered already ignores the code.
   on its page in Solus or in the console. The Solus server keeps running until
   you stop it. To use the computer again, start with a new data directory.
 
+## Agents can manage cloud machines
+
+An agent can do these tasks for you in a conversation
+(`plans/035-cloud-machine-tools.md`):
+
+- List, create, start, stop, restart, and delete the cloud machines of your
+  organizations, and change the packages and setup script of a machine that
+  Solus makes (`list_cloud_machines`, `create_cloud_machine`,
+  `update_cloud_machine`, `start_cloud_machine`, `stop_cloud_machine`,
+  `restart_cloud_machine`, `delete_cloud_machine`). Only delete applies to a
+  machine that you run.
+- Join a machine that you run (`join_cloud_machine`). Only the owner of the
+  host, at that host, can do this, because the host connects with its own SSH
+  keys. The host makes a link code and runs `solus setup --address URL` on the
+  machine over SSH. The code goes on the standard input of the command, so it is
+  not in the conversation, in a log, or in the command line of either machine.
+  The conditions of [Before you start](#before-you-start) apply, and the address
+  must be `https://`.
+- List the people and teams of an organization, and read or change its name and
+  host rules (`list_organization_members`, `read_organization_policy`,
+  `update_organization_policy`).
+
+The rules:
+
+- **Signed in only.** The host sends each request to Solus Cloud as you, with
+  the token it holds for you. A conversation of a person who is not signed in to
+  Solus on that host does not get these tools.
+- **Not this host.** An agent never changes, stops, restarts, or deletes the
+  host that runs its conversation. Do that from another host, or in
+  **Settings → Machines**.
+- **Approval.** Delete and a change of the host rules ask for your approval
+  first. Delete destroys the disk of a machine that Solus makes. A change of the
+  host rules applies to every member and every host of the organization.
+- **The machine card.** When you did not say a choice, the agent shows a card
+  in the conversation: the organization of a new machine, when you are in more
+  than one, or the packages and setup script of a machine to change. The card
+  only collects your choice. Decline closes it, and nothing changes.
+- Your role still applies: a member creates a machine, and an organization
+  owner changes, deletes, and sets the host rules.
+
 ## If the command fails
 
 | Message | Cause |

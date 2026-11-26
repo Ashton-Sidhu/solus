@@ -7,7 +7,7 @@ import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { parseMachineAddress, readCloudMachineRecord } from './lib/cloud-machine'
 import { connectHost, connectSelfTest, connectStatus, disconnectHost } from './lib/connect'
-import { describeCloudMachine, describeConnection, describeSelfTest, onboard, type OnboardingDeps } from './lib/onboarding'
+import { describeCloudMachine, describeConnection, describeSelfTest, onboard, takeSetupLinkCode, type OnboardingDeps } from './lib/onboarding'
 import { followFile, readLastLines } from './lib/logs'
 import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
@@ -145,7 +145,8 @@ ${DESKTOP_USAGE}`)
 
 Usage:
   solus setup [--data-dir PATH] [--link CODE] [--address URL] [--cloud-url URL]
-                     --link: a code from Solus; it decides whether this is your own machine or a cloud host of an organization
+                     --link: a code from Solus; it decides whether this is your own machine or a cloud host of an organization.
+                            Or put the code in SOLUS_LINK_CODE, which keeps it out of the process arguments
                      --address: the HTTPS address of this machine; without it the server gets a Cloudflare tunnel
   solus start [--data-dir PATH] [--host HOST] [--port PORT] [--remote-access off|private|any]
   solus status [--data-dir PATH]
@@ -490,6 +491,7 @@ function parseSetupOptions(args: string[]): SetupOptions {
     '--address': { value: (value) => { opts.address = parseMachineAddress(value) } },
     '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
   }, (arg) => new Error(`Unknown setup option: ${arg}`))
+  opts.link = takeSetupLinkCode(opts.link, process.env)
   return opts
 }
 

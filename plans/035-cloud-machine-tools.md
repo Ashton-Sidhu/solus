@@ -1,8 +1,9 @@
 # 035 Cloud machine tools
 
-Status: PLAN (2026-11-26). Decisions 1–9 are signed off by the maintainer
-(2026-11-26). §11 (sharing) needs sign-off. No code is written. The work waits on
-the in-flight plan 034 changes (§12).
+Status: BUILT and on `main` in both repositories (2026-11-26). Decisions 1–9 and
+§11 are signed off by the maintainer. `solus-cloud` adds the migration
+`drizzle/0004_audit_acting_host.sql`. Not verified: a real turn against a real
+Solus Cloud, the mobile card on a device, and a real SSH join.
 
 ## 1. Problem
 
@@ -94,7 +95,8 @@ deletes. Each audit log entry of a delegated call names the acting host.
 Routes:
 
 - Change `POST /v1/hosts`, `start`, `stop`, `restart`, `spec` PATCH, `machine`
-  DELETE, and `POST /v1/enrollment-tickets` to `requireMachineCaller`.
+  DELETE, `POST /v1/enrollment-tickets`, `GET /v1/orgs/:id/directory`, and
+  `GET`/`PATCH /v1/orgs/:id/settings` to `requireMachineCaller`.
 - Add `GET /v1/hosts/:hostId/spec`: the current packages and setup script, for the
   edit card. Owner only, like PATCH.
 - Add `managedHostCatalog` to the delegated `GET /v1/hosts` answer. The host must
@@ -147,7 +149,7 @@ with the same flow as `host-link` (`add-machine.ts`, `askOnCard`):
 type CloudMachineAsk =
   | { mode: 'create'; reason: string; organizations: { id: string; name: string }[];
       catalog: ManagedHostCatalog; draft: { organizationId?: string; name?: string; size?: string; packages?: string[]; setupScript?: string } }
-  | { mode: 'edit'; reason: string; host: { id: string; name: string; state: ManagedHostLifecycle; size: string | null };
+  | { mode: 'edit'; reason: string; host: { hostId: string; name: string; state: ManagedHostLifecycle | null; size: string | null };
       current: { packages: string[]; setupScript: string } }
   | { mode: 'join'; reason: string; organizations: { id: string; name: string }[]; address: string }
 
@@ -165,6 +167,11 @@ type CloudMachineAnswer =
 - Decline closes the card. The tool returns "The person declined. Do not ask again
   unless they ask you to."
 - A reader who may only view the session sees "Waiting for an editor".
+- After the answer the card closes, as the Add machine card does; the tool row
+  shows the result. (The one-line summary of design screen 5 is not built.)
+- The join card shows the address and the organization. Desktop and web show the
+  organization choice in the card; mobile opens it in a sheet ("Choose
+  organization…").
 
 Clients:
 
@@ -190,6 +197,9 @@ isOffered?: (person: ToolPerson) => boolean
 - The cloud tools are offered when this host holds a delegation for the turn's
   person (`delegations.holders()`). A signed-out desktop, a guest, and an
   automation of a person who signed out do not get them.
+- An automation runs as the person who made it, so the owner's automations get
+  the tools while the owner is signed in (maintainer, 2026-11-26). Work that
+  names no person (`system`) is the host's own and does not get them.
 - The catalog is built at run start. A sign-in in the middle of a run shows the
   tools from the next run. The execute check tells the agent "Sign in to Solus
   to manage cloud machines" if the account ended.
@@ -203,7 +213,7 @@ isOffered?: (person: ToolPerson) => boolean
 3. Contract and cards: `cloud-machine` kind, update and create with a card, the
    Svelte card, the mobile card, card tests on each client.
 4. `join_cloud_machine` with SSH.
-5. The organization tools (§10), then the sharing tools (§11) after sign-off.
+5. The organization tools (§10), then the sharing tools (§11).
 6. Docs: `docs/cloud-machines.md` (agents can do this), the tool list.
 
 ## 9. Surfaces
@@ -222,55 +232,70 @@ In the same change (maintainer, 2026-11-26). Each one uses a route that exists;
 
 | Tool | Route | Who | Approval |
 | --- | --- | --- | --- |
-| `list_organization_members` | `GET /v1/orgs/:id/members` | member | no |
-| `read_organization_policy` | `GET /v1/orgs/:id/policy`, `host-policies` | member | no |
-| `update_organization_policy` | `PUT /v1/orgs/:id/policy`, `host-policies` | owner | yes |
-| `list_provider_seats` | `GET /v1/vault/seats` | member | no |
+| `list_organization_members` | `GET /v1/orgs/:id/directory` (people and teams) | member | no |
+| `read_organization_policy` | `GET /v1/orgs/:id/settings` (name, role, host rules, revision) | member | no |
+| `update_organization_policy` | `PATCH /v1/orgs/:id/settings` (name, host rules) | owner | yes |
 
+- `GET /v1/orgs/:id/members` and `GET /v1/vault/seats` admit only the host
+  Worker's service credential, not a person, so the tools do not use them.
+- No `list_provider_seats`: `list_agent_targets` with `host` already gives the
+  providers and models of a cloud machine.
+- The managed policy document (`/v1/orgs/:id/policy`, plan 030) is not in these
+  tools. It sets what agents may do on every host; the console edits it.
+- `update_organization_policy` reads the settings first and sends their
+  `hostRulesRevision`, so it never writes over another owner's newer save. A
+  `409` returns the current rules to the agent.
 - `update_organization_policy` asks for approval as delete does: a change applies
   to every member and every host of the organization at once.
 - A refusal from a create or a join names the rule ("This organization's owners
   turned cloud hosts off"), so the agent can offer `read_organization_policy`.
 
-## 11. Sharing (needs sign-off)
+## 11. Sharing
 
-Sharing has two parts in Solus today. Neither has an agent tool.
+Signed off by the maintainer (2026-11-26): an agent shares a session or a work
+(documents, decks, and artifacts are works) with people, teams, or the whole
+organization, and gets a share link to send.
 
-**A session or a work.** The host owns who may open it (`shareGet`, `shareSet`,
-`shareSetLink`, `packages/contracts/src/sharing.ts`). The tools call these RPCs
-as the person of the turn (`asPerson`, `person-rpc.ts`), so the person's own
-rights apply and Solus Cloud does not change.
-
-| Tool | Does | Approval |
-| --- | --- | --- |
-| `read_sharing` | who may open a session or a work, and whether a link is on | no |
-| `share` | add, change, or remove a person, a team, or the organization (ids from `list_organization_members`) | no |
-| `set_share_link` | turn the link on with a role and a lifetime, or off | no |
-
-- **The link secret never goes into the transcript.** A guest link opens the
-  resource to anyone who has it. The tool says that the link is on and when it
-  ends; the person copies it from **Share**.
-- These tools work signed out too, for people this host knows. They are not in
-  the signed-in-only group.
-
-**A host.** An owner shares a personal host with an organization, so its members
-run work on it (`POST` and `DELETE /v1/hosts/:id/organizations/:organizationId`).
+The host owns who may open a session or a work (`shareGet`, `shareSet`,
+`shareSetLink`, `shareLinkOrigin`, `packages/contracts/src/sharing.ts`). The tools
+call these RPCs as the person of the turn (`asPerson`, `person-rpc.ts`), so the
+person's own rights apply and Solus Cloud does not change.
 
 | Tool | Does | Approval |
 | --- | --- | --- |
-| `share_host` | share a personal host with an organization | yes |
-| `unshare_host` | take it back from one organization | no |
+| `read_sharing` | who may open a session or a work, their roles, and whether a link is on and when it ends | no |
+| `share` | add, change, or remove a person, a team, or the organization, with a role | no |
+| `create_share_link` | turn the link on (or change its role or lifetime) and return its URL | no |
+| `remove_share_link` | turn the link off; the old URL stops working | no |
 
-- `share_host` asks for approval: members can then run agents on the machine.
-- A host can share or unshare itself: that does not end the turn.
+- The resource is `{ kind: 'session' | 'work', id }`. Without one, the tools act
+  on the session of the turn. A work id comes from `find_works`.
+- `share` reads the list, changes only the named entries, and writes the whole
+  list back (`shareSet` replaces the list). People and teams come from
+  `list_organization_members` (signed in); the organization is its id.
+- Roles: `viewer`, `commenter` (a work only; on a session it is a viewer), and
+  `editor`. No `custom` role from an agent.
+- `create_share_link` defaults to `viewer` and 24 hours
+  (`DEFAULT_LINK_LIFETIME_MS`); the lifetimes are those of the Share dialog (1 hour,
+  24 hours, 7 days, never). `regenerate: true` makes a new secret, so an old URL
+  stops working. The URL is `cloudShareUrl(origin, resource, secret)`, the same URL
+  that the Share dialog copies. When `shareLinkOrigin` is null, nobody off this
+  machine can open the link, and the tool says so instead of returning a URL.
+- **The link goes into the transcript.** The maintainer asked for the link in the
+  conversation. So anyone who can read this conversation can open the resource
+  until the link ends or `remove_share_link` turns it off. The tool result says so
+  in one line. This replaces the earlier rule of this plan that a link secret never
+  goes into the transcript; the rule for link codes (decision 8) stays.
+- These tools are not in the signed-in-only group: a person who is signed out can
+  share with a link. Sharing with an organization, a team, or a member needs the
+  host to be in that organization, as in the Share dialog.
+
+Not in this change: sharing a personal host with an organization
+(`POST`/`DELETE /v1/hosts/:id/organizations/:organizationId`). The console and
+Settings do it.
 
 ## 12. Order with plan 034
 
-The follow-up work of plan 034 is not committed. It is in the task folder
-`~/.solus/solus-task-folders/solus-unify-cloud-machines-0f210a8c` (83 changes in
-`solus`, 53 in `solus-cloud`). It changes the same files as this plan:
-`solus-cloud/src/lib/server/uplink/v1.ts`, `auth/host-access.ts`,
-`contracts/src/uplink.ts`, `host-policies.ts`, `policy.ts`, `boot-server.ts`, and
-the conversation cards. It also adds `SOLUS_LINK_CODE` (`host/boot-link-code.ts`),
-which `join_cloud_machine` uses. This plan starts from a branch that has that
-work committed.
+Plan 034 is on `main` in both repositories (`f7da669ae` in `solus`, `be4252d` in
+`solus-cloud`): one join for every machine, and `SOLUS_LINK_CODE`
+(`host/boot-link-code.ts`), which `join_cloud_machine` uses.

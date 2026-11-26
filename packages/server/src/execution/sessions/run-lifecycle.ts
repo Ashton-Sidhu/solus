@@ -29,10 +29,16 @@ function startedSession(agentSessionId: string, taskId?: string): Parameters<Pen
  * their credential scope. The host's own work keeps the host's connections.
  */
 export function credentialScopedAgentTools(tools: AgentTool[], actor: Actor = HOST_ACTOR): AgentTool[] {
-  return tools.map((agentTool) => ({
-    ...agentTool,
-    execute: (input, context) => withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
-  }))
+  return tools.map((agentTool) => {
+    const scoped: AgentTool = {
+      ...agentTool,
+      execute: (input, context) => withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
+    }
+    // Whether the tool is for this person is read as them too.
+    const { isOffered } = agentTool
+    if (isOffered) scoped.isOffered = () => withWorkspaceToolAuthority(actor.principal, isOffered)
+    return scoped
+  })
 }
 
 export interface StartedRun {

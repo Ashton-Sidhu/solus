@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { memoryKeyValueStore, memorySecretStore } from "@solus-mobile/platform/ports";
-import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
+import { hasOwnCard, type PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { WsTransport } from "@solus/client-core/ws-transport";
 import { RequestPanels } from "./RequestCards";
 import {
@@ -99,6 +99,11 @@ vi.mock("../features/threads/LinkRequestCard", () => ({
     >
       Add machine on {sessionHostId}
     </button>
+  ),
+}));
+vi.mock("../features/threads/CloudMachineCard", () => ({
+  CloudMachineCard: ({ ask, onAnswer }: { ask: { mode: string }; onAnswer: (answers: Record<string, string>) => void }) => (
+    <button onClick={() => onAnswer({ status: "chosen", organizationId: "acme" })}>Cloud machine {ask.mode}</button>
   ),
 }));
 vi.mock("../state/server", () => ({ serverEnvironment: { configValueAtom: () => null } }));
@@ -322,6 +327,26 @@ it("answers the Add machine card with its outcome through the question answer", 
   await act(async () => add!.click());
   expect(publicAnswer).toHaveBeenCalledWith("add", { status: "added", installationId: "win", way: "ssh" });
   expect(secret).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
+});
+// The machine card only collects choices: they go back as the question's answers, and the composer stays hidden.
+it("answers the cloud machine card through the question answer", async () => {
+  const { store, root, container } = await fixture();
+  const publicAnswer = vi.spyOn(store.controller, "answerQuestion").mockResolvedValue(true);
+  const send = vi.spyOn(store.controller, "send");
+  const question: PendingQuestion = {
+    kind: "cloud-machine",
+    questionId: "machine",
+    questions: [],
+    cloudMachine: { mode: "join", reason: "To share it.", organizations: [{ id: "acme", name: "Acme" }], address: "dev@box" },
+  };
+  expect(hasOwnCard(question)).toBe(true);
+  const meta = { ...store.metaSnapshotOf(), questions: [question] };
+  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  const [card] = container.querySelectorAll("button");
+  expect(card!.textContent).toBe("Cloud machine join");
+  await act(async () => card!.click());
+  expect(publicAnswer).toHaveBeenCalledWith("machine", { status: "chosen", organizationId: "acme" });
   expect(send).not.toHaveBeenCalled();
 });
 it("expands the actual tool row to show host input, the error and returned images", async () => {

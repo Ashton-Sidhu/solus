@@ -592,7 +592,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }) }]
+        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }), ...(event.cloudMachine && { cloudMachine: event.cloudMachine }) }]
         this.metaChanged = true
         return true
       case 'question_answered':

@@ -1,5 +1,5 @@
 import type { DeviceCodeGrant } from '@solus/client-core/device-authorization'
-import { isOrganizationTicket, parseLinkCode, type AccountOrganization, type MachineKind, type UplinkStatus } from '@solus/contracts/uplink'
+import { isOrganizationTicket, LINK_CODE_ENV, parseLinkCode, type AccountOrganization, type MachineKind, type UplinkStatus } from '@solus/contracts/uplink'
 import { connectionStageLine } from '@solus/contracts/host-connection'
 import { describeReach, type CloudMachineRecord } from './cloud-machine'
 import { DEFAULT_CLOUD_ORIGIN, type ConnectChoice, type ConnectionStatus, type ConnectOptions, type ConnectReporter, type ConnectSelfTest } from './connect'
@@ -51,6 +51,18 @@ type Path = 'pair' | 'account' | 'organization' | 'later'
 
 /** The server of the desktop app is a personal computer always; an organization code would make a cloud host of it. */
 const DESKTOP_IS_PERSONAL = 'This is an organization code: it makes a standalone Solus server a cloud host. The server of the desktop app is a personal computer always. Link it with a code from Settings → Link a machine, or run `solus connect` with no code.'
+
+/**
+ * The link code of `solus setup`: `--link CODE`, else `SOLUS_LINK_CODE`. A code in the
+ * environment is never in the arguments, where `ps` shows it to every user of the
+ * machine; `join_cloud_machine` sends it this way over SSH (plans/035-cloud-machine-tools.md §5).
+ * The variable is removed in each case, so no process that setup starts inherits it.
+ */
+export function takeSetupLinkCode(flag: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
+  const fromEnvironment = env[LINK_CODE_ENV]?.trim()
+  delete env[LINK_CODE_ENV]
+  return flag || fromEnvironment || undefined
+}
 
 export async function onboard(options: OnboardingOptions, deps: OnboardingDeps): Promise<void> {
   const { prompter } = deps

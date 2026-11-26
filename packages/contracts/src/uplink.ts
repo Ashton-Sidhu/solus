@@ -475,6 +475,12 @@ export type DirectoryWorkspace = z.infer<typeof directoryWorkspaceSchema>
 export const directoryResponseSchema = z.object({
   hosts: z.array(directoryHostSchema),
   workspaces: z.array(directoryWorkspaceSchema),
+  /**
+   * The sizes a new cloud machine may have: only in the answer to a host that reads the
+   * directory for a person with its delegated token, so the cloud machine tools know
+   * them without `GET /v1/account` (plans/035-cloud-machine-tools.md §4).
+   */
+  managedHostCatalog: z.lazy(() => managedHostCatalogSchema).optional().catch(undefined),
 })
 export type DirectoryResponse = z.infer<typeof directoryResponseSchema>
 
@@ -634,6 +640,18 @@ export type ManagedHostSpecChangeRequest = z.infer<typeof managedHostSpecChangeR
 export const managedHostSpecChangeResponseSchema = z.object({
   changed: z.boolean(),
 })
+
+/**
+ * `GET /v1/hosts/<hostId>/spec`: an organization owner reads a managed host's spec, for
+ * the edit card of `update_cloud_machine` (plans/035-cloud-machine-tools.md §4). `size`
+ * is the catalog id; null when the machine has none recorded.
+ */
+export const managedHostSpecResponseSchema = z.object({
+  size: z.string().min(1).nullable(),
+  packages: z.array(z.string()),
+  setupScript: z.string(),
+})
+export type ManagedHostSpecResponse = z.infer<typeof managedHostSpecResponseSchema>
 
 /** One size a managed host may have. CPU and memory are absent when the machine grows on its own. */
 export const managedHostSizeSchema = z.object({
@@ -1147,6 +1165,10 @@ export const uplinkErrorCodeSchema = z.enum([
   'push_not_configured',
   /** APNs did not accept a Live Activity update; the host must retry it. */
   'push_delivery_failed',
+  /** A host that acts for a person asked to change, stop, restart, or delete itself (plans/035-cloud-machine-tools.md §4). */
+  'acting_host_is_target',
+  /** A host that acts for a person in one organization asked for another organization's host or record (plans/035 §4). */
+  'outside_delegation',
 ])
 export type UplinkErrorCode = z.infer<typeof uplinkErrorCodeSchema>
 

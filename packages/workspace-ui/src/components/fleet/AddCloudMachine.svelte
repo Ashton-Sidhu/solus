@@ -1,15 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ChevronRight } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { accountStore, managedHostsStore, serversStore } from "../../contexts";
   import { consolePageUrl } from "../session/lib/account-menu";
   import SettingsSelect from "../settings/SettingsSelect.svelte";
-  import { Input } from "../ui/input";
-  import { Textarea } from "../ui/textarea";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import { defaultSize, newCloudHostRequest } from "../onboarding/lib/cloud-compute";
   import { Button } from "../ui/button";
+  import CloudMachineFields from "./CloudMachineFields.svelte";
 
   /** "Create a cloud machine": a name, a size from the account's catalog, and
    *  optional packages and a setup script. It opens the new host's page when the
@@ -79,52 +77,14 @@
   </div>
 {:else}
   <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void create(); }}>
-    <label class="flex flex-col gap-1.5">
-      <span class="text-[0.8125rem] text-(--solus-text-secondary)">Name</span>
-      <Input
-        name="cloud-machine-name"
-        bind:value={name}
-        autofocus
-        placeholder={organization ? `${organization.name} cloud host` : "Cloud host"}
-        class="text-workspace-chrome"
-      />
-    </label>
-    {#if catalog && catalog.sizes.length > 1}
-      <fieldset class="flex flex-col gap-1.5">
-        <legend class="mb-1.5 text-[0.8125rem] text-(--solus-text-secondary)">Size</legend>
-        <div class="grid grid-cols-2 gap-2 @container @[34rem]:grid-cols-4" role="radiogroup" aria-label="Size">
-          {#each catalog.sizes as entry (entry.id)}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={size?.id === entry.id}
-              onclick={() => (sizeId = entry.id)}
-              class="flex flex-col rounded-lg border px-3 py-2 text-left {size?.id === entry.id ? 'border-(--solus-status-running)/60 bg-(--solus-status-running-bg)' : 'border-border/60 hover:bg-(--wash-1)'}"
-            >
-              <span class="text-[0.8125rem] font-medium">{entry.label}</span>
-              <span class="text-chrome-dense text-muted-foreground">{entry.detail}</span>
-            </button>
-          {/each}
-        </div>
-      </fieldset>
-    {/if}
-    {#if catalog?.supportsPackages || catalog?.supportsSetupScript}
-      <details class="group text-[0.8125rem]">
-        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-(--solus-text-secondary) hover:text-foreground">
-          <ChevronRight size={12} class="transition-transform group-open:rotate-90 motion-reduce:transition-none" />Packages and setup script
-        </summary>
-        <div class="mt-2 flex flex-col gap-2">
-          {#if catalog?.supportsPackages}
-            <Input name="cloud-machine-packages" bind:value={packages} dictation={false} placeholder="apt packages, for example postgresql-client ripgrep" aria-label="Packages"
-              class="font-mono text-chrome-dense" />
-          {/if}
-          {#if catalog?.supportsSetupScript}
-            <Textarea name="cloud-machine-setup" bind:value={setupScript} rows={3} dictation={false} placeholder="A script that runs when the machine starts" aria-label="Setup script"
-              class="font-mono text-chrome-dense" />
-          {/if}
-        </div>
-      </details>
-    {/if}
+    <CloudMachineFields
+      {catalog}
+      bind:name
+      bind:sizeId
+      bind:packages
+      bind:setupScript
+      namePlaceholder={organization ? `${organization.name} cloud host` : "Cloud host"}
+    />
     {#if !request.ok}<p class="text-chrome-dense text-(--solus-status-error)" role="alert">{request.error}</p>{/if}
     {#if managedHostsStore.error && !isCreating}<p class="text-chrome-dense text-(--solus-status-error)" role="alert">{managedHostsStore.error}</p>{/if}
     <div class="flex items-center justify-between gap-3">

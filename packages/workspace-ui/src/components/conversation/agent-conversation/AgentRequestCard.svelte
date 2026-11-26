@@ -8,6 +8,7 @@
   import QuestionCard from "../QuestionCard.svelte";
   import SecretRequestCard from "../SecretRequestCard.svelte";
   import AddMachineCard from "../AddMachineCard.svelte";
+  import CloudMachineCard from "../CloudMachineCard.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import { toasts } from "../../../lib/toasts";
 
@@ -55,6 +56,16 @@
     <AddMachineCard
       {tabId}
       request={request.question}
+      answer={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
+    />
+  {/key}
+{:else if request.kind === "question" && request.question.kind === "cloud-machine" && request.question.cloudMachine}
+  <!-- The other session's machine card: the choice answers that session. -->
+  {#key request.question.questionId}
+    <CloudMachineCard
+      {tabId}
+      request={request.question}
+      ask={request.question.cloudMachine}
       answer={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
     />
   {/key}
