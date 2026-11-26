@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5b503acf-b2ca-42cd-917d-d32e1293b2fe",
+  "id": "3073d7b0-3377-49ed-9b71-1d4c4f1383d9",
   "prevId": "d3a2115c-f0fa-4d42-8168-9b4a67af017d",
   "tables": {
     "acl_entry": {
@@ -7317,8 +7317,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "push_error": {
-          "name": "push_error",
+        "push_error_reason": {
+          "name": "push_error_reason",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -7331,12 +7331,13 @@
           "notNull": false,
           "autoincrement": false
         },
-        "push_stopped_reason": {
-          "name": "push_stopped_reason",
-          "type": "text",
+        "push_stopped": {
+          "name": "push_stopped",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "pushed_bytes": {
           "name": "pushed_bytes",

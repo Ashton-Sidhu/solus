@@ -70,7 +70,7 @@ async function fixture(schemaVersion: 1 | 2 = 2) {
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE session_storage (session_id TEXT PRIMARY KEY, repository TEXT, head TEXT, turn_count INTEGER,
     cloud_scope TEXT, pushed_head TEXT, reported_head TEXT, push_due_at INTEGER, push_attempts INTEGER DEFAULT 0,
-    push_error TEXT, push_refused_head TEXT, pushed_bytes INTEGER NOT NULL DEFAULT 0, push_stopped_reason TEXT)`)
+    push_error_reason TEXT, push_refused_head TEXT, pushed_bytes INTEGER NOT NULL DEFAULT 0, push_stopped INTEGER NOT NULL DEFAULT 0)`)
   const manifest = { ...emptySessionManifest('test-session', 'local'), schemaVersion }
   manifest.turns.push({ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false,
     head: null, snapshots: [], bundle: null, hasDiff: false })
@@ -92,7 +92,7 @@ async function fixture(schemaVersion: 1 | 2 = 2) {
     accountOf: () => 'person', decision: () => ({ allowed: true }), fetch: store.fetchImpl }
   // SAFETY: the columns of the table this fixture made.
   const row = () => db.prepare('SELECT * FROM session_storage WHERE session_id = ?').get('test-session') as { pushed_head: string | null; reported_head: string | null;
-    push_refused_head: string | null; push_error: string | null; pushed_bytes: number; push_stopped_reason: string | null }
+    push_refused_head: string | null; push_error_reason: string | null; pushed_bytes: number; push_stopped: number }
   /** The remote's main, or '' for a remote with no main. */
   const remoteHead = () => {
     try { return execFileSync('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/main'], { encoding: 'utf8' }).trim() } catch { return '' }
@@ -350,8 +350,8 @@ for (const text of ['artifacts_git_receive_pack_object_too_large', 'artifacts_gi
     pusher.committed('test-session')
     await pusher.idle()
     expect(pushes).toBe(1)
-    expect(f.row().push_stopped_reason).toContain(text)
-    expect(f.row().push_error).toContain(text)
+    expect(f.row().push_stopped).toBe(1)
+    expect(f.row().push_error_reason).toContain(text)
     expect(f.row().pushed_head).toBeNull()
     await expectStoppedButCurrent(f, pusher, () => pushes)
     await pusher.stop()
@@ -370,7 +370,8 @@ test('a push past 900 MiB stops with a clear reason and the session continues on
   await pusher.idle()
   expect(pushes).toBe(0)
   expect(f.remoteHead()).toBe('')
-  expect(f.row().push_stopped_reason).toBe('This session is too large for the cloud copy.')
+  expect(f.row().push_stopped).toBe(1)
+  expect(f.row().push_error_reason).toBe('This session is too large for the cloud copy.')
   await expectStoppedButCurrent(f, pusher, () => pushes)
   await pusher.stop()
   f.db.close()

@@ -54,9 +54,10 @@ The format is in `docs/plans/session-storage.md`.
 - A host sends one commit at a time, and the code bundles of a commit before
   the commit.
 - A host stops the push of a session when Solus Cloud refuses it for good, or
-  when the session passes 900 MiB. The host records the reason in
-  `session_storage.push_stopped_reason`, for example "This session is too large for the
-  cloud copy." No client shows this reason yet. The session stays on its host,
+  when the session passes 900 MiB. The host sets `session_storage.push_stopped`
+  and records the reason in `session_storage.push_error_reason`, the column that
+  holds every push error, for example "This session is too large for the cloud
+  copy." No client shows this reason yet. The session stays on its host,
   and another host can still get it from that host.
 
 ## What a reader gets

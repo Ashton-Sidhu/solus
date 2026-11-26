@@ -273,7 +273,7 @@ export class SessionSync {
       // A fetched cloud head is already pushed, with all the bytes of its history.
       if (fetched.source === 'cloud') {
         const pushedBytes = await this.deps.repositories.named(finalRepository, signal).newObjectBytes(null, head)
-        getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, pushed_bytes = ?, push_refused_head = NULL, push_error = NULL WHERE session_id = ?').run(head, head, pushedBytes, sessionId)
+        getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, pushed_bytes = ?, push_refused_head = NULL, push_error_reason = NULL WHERE session_id = ?').run(head, head, pushedBytes, sessionId)
       }
       if (gitCheckout) this.rt.sessionCheckouts.setSessionGitEnvironment(sessionId, cwd, gitCheckout)
       this.workingDirectories.set(sessionId, cwd)

@@ -495,10 +495,11 @@ export const sessionStorage = defineTable('session_storage', {
   reported_head: text(),
   push_due_at: bigint(),
   push_attempts: integer({ notNull: true, default: 0 }),
-  push_error: text(),
+  /** The last error of a push, retryable or not; null after a push that succeeded. */
+  push_error_reason: text(),
   push_refused_head: text(),
-  /** Why the push of this session stopped for good: a refusal of Solus Cloud that a retry cannot change, or the size limit. Null while the push can go on. */
-  push_stopped_reason: text(),
+  /** 1 when the push of this session stopped for good: a refusal of Solus Cloud that a retry cannot change, or the size limit. `push_error_reason` says why. */
+  push_stopped: integer({ notNull: true, default: 0 }),
   /** The bytes of the Git objects this host pushed, before compression (docs/plans/session-storage.md §5). */
   pushed_bytes: bigint({ notNull: true, default: 0 }),
 })

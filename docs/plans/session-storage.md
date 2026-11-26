@@ -127,8 +127,9 @@ not have been pushed.
    too large for the cloud copy."
 5. `resume()` skips a repository whose first commit is version 1.
 
-New columns on `session_storage`: `pushed_bytes`, and `push_error` already holds
-the reason.
+Columns on `session_storage`: `pushed_bytes` and `push_stopped` (1 after a
+permanent stop) are new. `push_error` is now `push_error_reason`: it holds the
+last error of a push, retryable or not, so every error is in one column.
 
 ## 6. The Solus API
 

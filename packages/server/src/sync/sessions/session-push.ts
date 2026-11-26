@@ -20,10 +20,10 @@ const log = createLogger('SessionPush', 'session-push.ts')
 const rowSchema = z.object({ session_id: z.string(), repository: z.string(), head: z.string().nullable(), turn_count: z.number(),
   cloud_scope: z.string().nullable(), pushed_head: z.string().nullable(), reported_head: z.string().nullable(),
   push_due_at: z.number().nullable(), push_attempts: z.number(), push_refused_head: z.string().nullable(), pushed_bytes: z.number(),
-  push_stopped_reason: z.string().nullable() })
+  push_stopped: z.number() })
 const ROW_COLUMNS = `session_id, repository, head, turn_count, cloud_scope, pushed_head, reported_head,
-  push_due_at, push_attempts, push_refused_head, pushed_bytes, push_stopped_reason`
-const stoppedRowSchema = z.object({ push_stopped_reason: z.string().nullable() })
+  push_due_at, push_attempts, push_refused_head, pushed_bytes, push_stopped`
+const stoppedRowSchema = z.object({ push_stopped: z.number() })
 type Row = z.infer<typeof rowSchema>
 /** Where the repository of one session goes in the cloud: who pushes it, and from which host. */
 interface PushTarget {
@@ -95,7 +95,7 @@ export class SessionPusher {
   /** Scan persisted work on boot or when a delegation becomes available. */
   resume(): void {
     const rows = rowSchema.array().parse(this.database().prepare(`SELECT ${ROW_COLUMNS} FROM session_storage WHERE head IS NOT NULL AND push_refused_head IS NULL
-      AND push_stopped_reason IS NULL ORDER BY rowid DESC`).all())
+      AND push_stopped = 0 ORDER BY rowid DESC`).all())
     for (const row of rows) if (row.head !== row.pushed_head || row.head !== row.reported_head) this.enqueue(row.session_id)
   }
 
@@ -129,7 +129,7 @@ export class SessionPusher {
 
   private async process(sessionId: string): Promise<void> {
     const row = this.row(sessionId)
-    if (!row?.head || row.push_refused_head || row.push_stopped_reason) return
+    if (!row?.head || row.push_refused_head || row.push_stopped) return
     if ((row.push_due_at ?? 0) > this.now()) { this.wake((row.push_due_at ?? 0) - this.now()); return }
     // A session that began on an older format stays on its host and moves only by the host path.
     if (await this.deps.repositories.named(row.repository).firstManifestVersion().catch(() => null) !== 2) return
@@ -167,7 +167,7 @@ export class SessionPusher {
         branch: lastTurn?.head?.branch ?? null, lastActivityAt: lastTurn?.endedAt ?? this.now() }
       const result = await this.deps.access.report({ hostId: target.hostId, sessionId, event: 'pushed', head, syncedTurn: row.turn_count, card }, target.identity)
       if (result !== 'accepted') { this.defer(sessionId, 60 * 60_000, 'The session head was not reported.'); return false }
-      this.database().prepare('UPDATE session_storage SET reported_head = ?, push_attempts = 0, push_due_at = NULL, push_error = NULL WHERE session_id = ?')
+      this.database().prepare('UPDATE session_storage SET reported_head = ?, push_attempts = 0, push_due_at = NULL, push_error_reason = NULL WHERE session_id = ?')
         .run(head, sessionId)
     }
     return true
@@ -194,7 +194,7 @@ export class SessionPusher {
       }
       const result = await repository.push(answer.remote.remote, commit, pushed, answer.remote.token || undefined, this.active.signal)
       if (result.status === 'refused') {
-        this.database().prepare('UPDATE session_storage SET push_refused_head = ?, push_due_at = NULL, push_error = ? WHERE session_id = ?')
+        this.database().prepare('UPDATE session_storage SET push_refused_head = ?, push_due_at = NULL, push_error_reason = ? WHERE session_id = ?')
           .run(result.head, 'The remote session has another history.', sessionId)
         log.warn('session_push_refused', { sessionId, remoteHead: result.head })
         return false
@@ -208,7 +208,7 @@ export class SessionPusher {
       pushedBytes += result.head === commit ? bytes : await repository.newObjectBytes(pushed, result.head)
       if (result.head !== commit) commits = await repository.commitsAfter(result.head, head)
       pushed = result.head
-      this.database().prepare('UPDATE session_storage SET pushed_head = ?, pushed_bytes = ?, push_attempts = 0, push_due_at = NULL, push_error = NULL WHERE session_id = ?')
+      this.database().prepare('UPDATE session_storage SET pushed_head = ?, pushed_bytes = ?, push_attempts = 0, push_due_at = NULL, push_error_reason = NULL WHERE session_id = ?')
         .run(pushed, pushedBytes, sessionId)
     }
     return true
@@ -243,12 +243,12 @@ export class SessionPusher {
    * the local one, so `push_refused_head` stays null and the session continues here.
    */
   private stopPush(sessionId: string, commit: string, reason: string): void {
-    this.database().prepare('UPDATE session_storage SET push_stopped_reason = ?, push_due_at = NULL, push_error = ? WHERE session_id = ?').run(reason, reason, sessionId)
+    this.database().prepare('UPDATE session_storage SET push_stopped = 1, push_due_at = NULL, push_error_reason = ? WHERE session_id = ?').run(reason, sessionId)
     log.warn('session_push_stopped', { sessionId, commit, reason })
   }
 
   private pushStopped(sessionId: string): boolean {
-    return !!stoppedRowSchema.nullish().parse(this.database().prepare('SELECT push_stopped_reason FROM session_storage WHERE session_id = ?').get(sessionId))?.push_stopped_reason
+    return !!stoppedRowSchema.nullish().parse(this.database().prepare('SELECT push_stopped FROM session_storage WHERE session_id = ?').get(sessionId))?.push_stopped
   }
 
   private fail(sessionId: string, error: Error): void {
@@ -257,14 +257,14 @@ export class SessionPusher {
     const attempts = (this.row(sessionId)?.push_attempts ?? 0) + 1
     const wait = reason === 'ORGANIZATION_AUTHORITY_MISSING' ? 5 * 60_000
       : Math.min(MAX_BACKOFF_MS, (this.deps.retryMs ?? 30_000) * 2 ** Math.min(attempts - 1, 10))
-    this.database().prepare('UPDATE session_storage SET push_attempts = ?, push_due_at = ?, push_error = ? WHERE session_id = ?')
+    this.database().prepare('UPDATE session_storage SET push_attempts = ?, push_due_at = ?, push_error_reason = ? WHERE session_id = ?')
       .run(attempts, this.now() + wait, reason, sessionId)
     log.warn('session_push_failed', { sessionId, reason, attempts })
     this.wake(wait)
   }
 
   private defer(sessionId: string, wait: number, reason: string): void {
-    this.database().prepare('UPDATE session_storage SET push_due_at = ?, push_error = ? WHERE session_id = ?').run(this.now() + wait, reason, sessionId)
+    this.database().prepare('UPDATE session_storage SET push_due_at = ?, push_error_reason = ? WHERE session_id = ?').run(this.now() + wait, reason, sessionId)
     this.wake(wait)
   }
 
