@@ -7,7 +7,7 @@ import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-li
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import {
   createWorkAgentTool,
-  findWorksAgentTool,
+  listWorksAgentTool,
   readWorkAgentTool,
   updateWorkAgentTool,
 } from './work-tools'
@@ -96,7 +96,7 @@ import {
 
 export const solusToolbox = {
   works: {
-    find: findWorksAgentTool,
+    list: listWorksAgentTool,
     read: readWorkAgentTool,
     create: createWorkAgentTool,
     update: updateWorkAgentTool,

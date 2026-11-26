@@ -36,6 +36,8 @@ export function isAgentNotice(content: string): boolean {
 
 // Friendly labels where the product has intentionally named the action.
 const SOLUS_TOOL_LABELS = new Map([
+  ['list_works', 'List works'],
+  // Saved transcripts name the tool before it was renamed.
   ['find_works', 'Find works'],
   ['read_work', 'Read work'],
   ['create_work', 'Create work'],

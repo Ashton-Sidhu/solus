@@ -12,6 +12,8 @@
  *
  * Claude prefixes these with `mcp__solus__`; Codex passes them bare.
  */
+import { z } from 'zod'
+
 /**
  * A `secretRef` from `request_secret` works once, only in the session that asked,
  * for 15 minutes. Any tool with a `secretRef` field takes one in place of a secret.
@@ -35,7 +37,7 @@ export function isArtifactRenderTool(name: string | undefined): boolean {
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
   { id: 'works', label: 'Works', tools: [
-    'find_works',
+    'list_works',
     'read_work',
     'create_work',
     'update_work',
@@ -184,6 +186,19 @@ export type ConfigurableSolusToolName = (typeof SOLUS_TOOL_GROUPS)[number]['tool
 export type SolusToolPreferences = Partial<Record<ConfigurableSolusToolName, boolean>>
 
 export const CONFIGURABLE_SOLUS_TOOL_NAMES = SOLUS_TOOL_GROUPS.flatMap((group) => [...group.tools])
+
+/** Tools whose name changed. A saved switch or policy under the old name applies to the new one. */
+const RENAMED_SOLUS_TOOLS: ReadonlyMap<string, ConfigurableSolusToolName> = new Map([['find_works', 'list_works']])
+
+/** Saved tool switches, by tool name, with each old name read as its current name. */
+export const solusToolSwitchesSchema = z.preprocess(
+  (value) => {
+    const switches = z.record(z.string(), z.boolean()).safeParse(value)
+    if (!switches.success) return value
+    return Object.fromEntries(Object.entries(switches.data).map(([name, on]) => [RENAMED_SOLUS_TOOLS.get(name) ?? name, on]))
+  },
+  z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()),
+)
 
 export function isSolusToolEnabled(name: string, preferences: SolusToolPreferences): boolean {
   return !Object.entries(preferences).some(([toolName, enabled]) => toolName === name && !enabled)

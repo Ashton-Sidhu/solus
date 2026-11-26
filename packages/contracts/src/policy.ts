@@ -6,7 +6,7 @@
 // person's own. The host enforces every key; clients only show the locks.
 
 import { z } from 'zod'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES } from './agent-tools'
+import { solusToolSwitchesSchema } from './agent-tools'
 import { PERSONAL_SETTING_SCHEMAS } from './settings'
 import { PERMISSION_MODES, type AgentId, type PermissionMode } from './types'
 
@@ -89,7 +89,7 @@ const otelPolicySchema = z.object({
 }).partial().strict()
 
 export const managedHostSettingsSchema = z.object({
-  solusTools: z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()),
+  solusTools: solusToolSwitchesSchema,
   continueSessionsAfterHostRestart: z.boolean(),
   archivedAutomationRetentionDays: z.number().int().min(1).max(3650),
   unfiledRecordingRetentionDays: z.number().int().min(1).max(3650),

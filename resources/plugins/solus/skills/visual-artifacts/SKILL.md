@@ -59,7 +59,7 @@ Explain the result briefly. State material limits such as sample data, network r
 
 ## Revise the same work
 
-1. Use `find_works` if the work ID is unknown, then `read_work`. Read the current content and `content_version`, even if source files remain from the previous turn.
+1. Use `list_works` if the work ID is unknown, then `read_work`. Read the current content and `content_version`, even if source files remain from the previous turn.
 2. Reuse artifact source if it is still available, but account for changes made directly to the saved work. If source is missing, initialize a new source directory and reconstruct the requested view from the saved content and evidence. Do not pretend minified HTML is the original TSX or overwrite edits from an old source copy.
 3. Develop and compile through the same pipeline.
 4. Call `update_work` with the same `work_id`, `html_path` set to the new `bundle.html` path, and `expected_content_version` from the read. Do not call `render_artifact` again.

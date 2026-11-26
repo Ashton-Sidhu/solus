@@ -475,8 +475,8 @@ describe('linked-item tools on a dispatched session', () => {
     expect(result.text).toContain('read-only')
   })
 
-  test('find_works with no query surfaces the shipped works beside local ones', async () => {
-    const result = await workTools.findWorksAgentTool.execute({}, toolContext(sessionId))
+  test('list_works with no query surfaces the shipped works beside local ones', async () => {
+    const result = await workTools.listWorksAgentTool.execute({}, toolContext(sessionId))
     expect(result.ok).toBe(true)
     expect(result.text).toContain(shippedWork.key)
     expect(result.text).toContain('Host-backed PR Reading')
