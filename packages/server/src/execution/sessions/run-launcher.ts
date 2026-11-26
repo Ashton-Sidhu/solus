@@ -32,7 +32,7 @@ import { recordPromptSender } from '../../data/activity/prompt-senders'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import { hasOpenBackgroundQuery } from './background-work'
-import type { TurnStop } from './turn-stops'
+import type { Turn } from './turns'
 import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import { gitCheckoutFromState, isSessionBusyStatus, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
@@ -249,14 +249,14 @@ export class RunLauncher {
   }
 
   private async startRunLifecycleInScope(request: SessionRunRequest): Promise<SessionRunLifecycle> {
-    const turn = this.rt.turnStops.begin(request.sessionId)
+    const turn = this.rt.turns.begin(request.sessionId, { id: request.options.clientPromptId })
     // Until the provider spawns, the launch is the turn's work: Stop ends it at
     // its next check, so no provider starts for a stopped turn.
     const releaseLaunch = turn.onStop(() => true)
     try {
       return await startRun(this.rt, this.pendingStarts, (run, traceId, stop, release) => this.launchRun(run, traceId, stop, release), request, turn, releaseLaunch)
     } catch (error) {
-      this.rt.turnStops.end(request.sessionId, turn)
+      turn.closeStop()
       throw error
     } finally {
       releaseLaunch()
@@ -268,7 +268,8 @@ export class RunLauncher {
    * or after `session_init`. When the run exits and leaves background work, Stop
    * cancels that work instead, until a later turn replaces this one.
    */
-  stopsWithTurn(turn: TurnStop, sessionId: string, backend: AgentBackend, handle: RunHandle): void {
+  stopsWithTurn(turn: Turn, sessionId: string, backend: AgentBackend, handle: RunHandle): void {
+    this.rt.turns.bindRun(handle, turn)
     const releaseRun = turn.onStop(() => {
       const session = this.rt.activeSessions.get(sessionId)
       // Stop is the way out of a task that never settles: cancelling the query
@@ -286,7 +287,7 @@ export class RunLauncher {
       const session = this.rt.activeSessions.get(sessionId)
       const threadId = session?.agentSessionId
       if (session && threadId && hasOpenBackgroundQuery(session)) turn.onStop(() => backend.cancelSession(threadId))
-      else this.rt.turnStops.end(sessionId, turn)
+      else turn.closeStop()
     }
     void handle.runPromise.then(settle, settle)
   }
@@ -390,7 +391,7 @@ export class RunLauncher {
     return projectRoot ? [...new Set([...granted, resolveHomePath(projectRoot)])] : granted
   }
 
-  private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: TurnStop, releaseLaunch: () => void): Promise<StartedRun> {
+  private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: Turn, releaseLaunch: () => void): Promise<StartedRun> {
     await this.rt.sessionCheckouts.finishHeldMove(request.sessionId)
     request = this.rt.sessionCheckouts.continueInMovedCheckout(request)
     // More than one prompt can be queued before the first fork turn obtains
@@ -939,7 +940,6 @@ export class RunLauncher {
     // The provider thread this run resumes, or null when it will mint a new one.
     const dispatchAgentSessionId = isForkingSession ? null : effectiveInput.agentSessionId
     const newStatus: SessionStatus = dispatchAgentSessionId ? 'running' : 'connecting'
-    const activeTurnId = options.clientPromptId ?? crypto.randomUUID()
     // Stopped during setup: publishing the dispatch now would open the stopped turn again.
     turn.signal.throwIfAborted()
     if (dispatchAgentSessionId) this.rt.agentSessionToSession.set(dispatchAgentSessionId, sessionId)
@@ -959,9 +959,8 @@ export class RunLauncher {
       gitContext: effectiveGitCtx ?? undefined,
       lastActivityAt: Date.now(),
       promptCount: existingSession ? existingSession.promptCount : 1,
-      activeTurnId,
-      settledTurnId: existingSession?.settledTurnId,
     })
+    if (newStatus === 'running') turn.markRunning()
     this.rt.statuses.setStatus(sessionId, newStatus, true)
     this.rt.publish(sessionId, { type: 'provider_startup', startup: { provider, phase: 'starting' } })
     this.rt.statuses.notifyActiveWork()

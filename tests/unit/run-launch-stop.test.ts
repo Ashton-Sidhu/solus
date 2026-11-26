@@ -94,7 +94,7 @@ class RecordingBackend extends EventEmitter implements AgentBackend {
     await Promise.resolve()
   }
 
-  getSessionHandle(): RunHandle | undefined { return undefined }
+  getSessionHandle(threadId: string): RunHandle | undefined { return this.handles.find((handle) => handle.agentSessionId === threadId) }
   getPendingHandles(): RunHandle[] { return [...this.handles] }
   cancelSession(threadId: string): boolean {
     this.cancelledThreads.push(threadId)
@@ -141,7 +141,7 @@ describe('Stop while a new session is set up', () => {
     await expect(turn).rejects.toThrow('Interrupted')
     expect(backend.runs).toHaveLength(0)
     expect(statuses.at(-1)).toBe('interrupted')
-    expect(plane.turnStops.has(sessionId)).toBe(false)
+    expect(plane.turns.stoppable(sessionId)).toBeUndefined()
     isKeyHeld = false
     plane.shutdown()
   })
@@ -233,6 +233,80 @@ describe('Stop once the provider runs', () => {
     plane.shutdown()
   })
 
+  test('keeps the turn stopped when session_init arrives after Stop', async () => {
+    // WHY: a run that Stop aborted can still report session_init before it exits.
+    // That late init must not open the stopped turn again, or every client shows
+    // it as running ("Picking this back up…") until the next prompt.
+    const backend = new RecordingBackend()
+    const plane = new runtime.SessionRuntime(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    const statuses: string[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.push(event.status)
+    })
+    const sessionId = 'solus-stop-late-init'
+
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+      options: { prompt: 'do the work', promptSource: 'typed' },
+    })
+    void lifecycle.done.catch(() => {})
+    expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(true)
+    const stoppedAt = statuses.length
+
+    const handle = backend.handles[0]!
+    handle.agentSessionId = 'thread-late-init'
+    backend.emit('normalized', 'thread-late-init', {
+      type: 'session_init', sessionId: 'thread-late-init', model: 'claude-test', skills: [],
+    } satisfies NormalizedEvent)
+    backend.emit('exit', 'thread-late-init', null, 'SIGINT', handle)
+    await backend.endRun()
+
+    expect(statuses.slice(stoppedAt)).not.toContain('running')
+    expect(statuses.at(-1)).toBe('interrupted')
+    plane.shutdown()
+  })
+
+  test('leaves the next turn alone when the stopped run exits late', async () => {
+    // WHY: a run stopped before session_init has no thread, so a new prompt can
+    // start before that run exits. The old exit must not end or remove the new
+    // turn, or the new prompt runs with no session record and no status.
+    const backend = new RecordingBackend()
+    const plane = new runtime.SessionRuntime(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    const statuses: string[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.push(event.status)
+    })
+    const sessionId = 'solus-stop-late-exit'
+
+    const stopped = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+      options: { prompt: 'do the work', promptSource: 'typed' },
+    })
+    void stopped.done.catch(() => {})
+    void stopped.agentSessionId.catch(() => {})
+    expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(true)
+    const stoppedRun = backend.handles[0]!
+    stoppedRun.sessionId = sessionId
+
+    const next = await plane.runTurn({
+      target: { kind: 'session', sessionId }, sessionId, input: input(), tools: [],
+      options: { prompt: 'again', promptSource: 'typed' },
+    })
+    void next.done.catch(() => {})
+    void next.agentSessionId.catch(() => {})
+    const nextTurn = plane.turns.current(sessionId)!
+    const startedAt = statuses.length
+
+    backend.emit('exit', null, null, 'SIGINT', stoppedRun)
+
+    expect(plane.activeSessions.has(sessionId)).toBe(true)
+    expect(nextTurn.isSettled).toBe(false)
+    expect(statuses.slice(startedAt)).toEqual([])
+    plane.shutdown()
+  })
+
   test('cancels the background work the run left, and nothing once that work is gone', async () => {
     // WHY: Stop also ends the work the agent left running after its turn
     // (docs/background-work.md). A session with no work left has nothing to stop,
@@ -265,7 +339,7 @@ describe('Stop once the provider runs', () => {
     void next.done.catch(() => {})
     plane.activeSessions.get(sessionId)!.backgroundTaskIds = undefined
     await backend.endRun()
-    expect(plane.turnStops.has(sessionId)).toBe(false)
+    expect(plane.turns.stoppable(sessionId)).toBeUndefined()
     expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(false)
     plane.shutdown()
   })

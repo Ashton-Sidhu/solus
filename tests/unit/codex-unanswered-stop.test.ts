@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
-import { TurnStop } from '@solus/server/execution/sessions/turn-stops'
+import { Turn } from '@solus/server/execution/sessions/turns'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -87,7 +87,7 @@ describe('Stop on a Codex agent that ignores it', () => {
   })
 
   test('a second Stop reaches the work that ignored the first', () => {
-    const stop = new TurnStop()
+    const stop = new Turn('turn-1', 'running')
     let cancels = 0
     stop.onStop(() => { cancels++; return true })
     expect(stop.stop()).toBe(true)
@@ -97,7 +97,7 @@ describe('Stop on a Codex agent that ignores it', () => {
   })
 
   test('Stop on a phase that has ended does nothing', () => {
-    const stop = new TurnStop()
+    const stop = new Turn('turn-1', 'running')
     const release = stop.onStop(() => true)
     expect(stop.stop()).toBe(true)
     release()

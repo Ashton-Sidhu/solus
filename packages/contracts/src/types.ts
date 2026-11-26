@@ -2460,13 +2460,6 @@ export interface BackendSession {
   gitContext?: GitCheckout
   lastActivityAt: number
   promptCount: number
-  /** Solus-owned identity for the top-level turn currently running. Provider
-   *  result events do not reliably identify that turn, so the control plane
-   *  assigns this before dispatch and carries it through final settlement. */
-  activeTurnId?: string
-  /** Last turn whose terminal event was published. Prevents duplicate provider
-   *  result/exit signals from settling one turn more than once. */
-  settledTurnId?: string
   /** Task IDs of run_in_background sub-agents/tools still in flight. The SDK
    *  query stays open servicing the background work and will only truly exit
    *  once it settles. Which of them hold the session in 'background' is

@@ -52,7 +52,7 @@ import { SessionFolders } from './sessions/session-folders'
 import { SessionTaskFolders } from './sessions/session-task-folders'
 import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
-import { TurnStops } from './sessions/turn-stops'
+import { Turns } from './sessions/turns'
 import type { SessionArchiveWriter } from '../sync/sessions/session-archive-writer'
 import type { SessionSync } from './sessions/session-sync'
 
@@ -211,8 +211,8 @@ export class SessionRuntime extends EventEmitter {
   readonly providerEvents = new ProviderEvents(this)
   readonly inputRequests = new InputRequests(this)
   readonly launcher = new RunLauncher(this)
-  /** The stop of each session's current turn (docs/plans/turn-stop.md). */
-  readonly turnStops = new TurnStops()
+  /** The turn of each session and of each run (plans/037-turn-owned-session-status.md). */
+  readonly turns = new Turns()
   readonly watchers = new SessionWatchers(this)
   readonly history = new SessionHistory(this)
   readonly handoffs: ProviderHandoffs
@@ -293,7 +293,7 @@ export class SessionRuntime extends EventEmitter {
    *  watching it, a worktree being prepared, a run — or its lineage is recorded. */
   hasSession(sessionId: string): boolean {
     return this.activeSessions.has(sessionId) || this.watchers.watches.has(sessionId)
-      || this.launcher.pendingSetupControllers.has(sessionId) || this.turnStops.has(sessionId)
+      || this.launcher.pendingSetupControllers.has(sessionId) || !!this.turns.stoppable(sessionId)
       || this.launcher.failedSetupPrompts.has(sessionId)
       || resolveSessionLineageById(sessionId) !== null
   }
@@ -771,8 +771,8 @@ export class SessionRuntime extends EventEmitter {
     this.sessionCheckouts.worktreeMoves.delete(sessionId)
 
     // The turn's open phase says what its work is: the launch, a setup, the
-    // provider run, or the background work the run left (docs/plans/turn-stop.md).
-    const turn = this.turnStops.get(sessionId)
+    // provider run, or the background work the run left.
+    const turn = this.turns.stoppable(sessionId)
     // A second Stop on the same turn force stops it; the turn was already recorded as stopped.
     const isRepeatedStop = !!turn?.signal.aborted
     if (turn?.stop()) {
@@ -894,8 +894,8 @@ export class SessionRuntime extends EventEmitter {
   async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind, at?: number, via?: AgentVia): Promise<Activity> {
     const sessionId = subject.id
     const activity = newActivity({ kind: 'session', id: sessionId }, attributionOf(actor, via), kind, at)
-    const session = this.activeSessions.get(sessionId)
-    if (session?.activeTurnId && session.settledTurnId !== session.activeTurnId) activity.turnId = session.activeTurnId
+    const turn = this.activeSessions.has(sessionId) ? this.turns.current(sessionId) : undefined
+    if (turn && !turn.isSettled) activity.turnId = turn.id
     try {
       await appendActivity(await this.turnOrganization(sessionId) ?? LOCAL_ORGANIZATION_ID, activity)
     } catch (error) {

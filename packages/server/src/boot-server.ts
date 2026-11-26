@@ -912,7 +912,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const { sessionId, status } = event
     const resetsAt = status === 'rate_limited' ? opts.sessionRuntime.rateLimitPark.rateLimits.peek(sessionId)?.resetsAt : null
     const waitingForAgents = status === 'background' && orchestrator.isAwaitingReplies(sessionId)
-    executionRecorder.status(event, opts.sessionRuntime.activeSessions.get(sessionId)?.activeTurnId, {
+    const turnId = opts.sessionRuntime.activeSessions.has(sessionId) ? opts.sessionRuntime.turns.current(sessionId)?.id : undefined
+    executionRecorder.status(event, turnId, {
       ...(waitingForAgents && { waitingForAgents: true }),
       ...(resetsAt != null && { rateLimitResetsAt: resetsAt * 1000 }),
     })

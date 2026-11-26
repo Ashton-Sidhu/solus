@@ -108,7 +108,7 @@ function liveSession(sessionId: string): Live {
   runtime.agentSessionToSession.set(thread, sessionId)
   runtime.activeSessions.set(sessionId, {
     sessionId, agentSessionId: thread, backendId: 'codex', status: 'running', pendingInputEvents: [],
-    lastActivityAt: Date.now(), promptCount: 1, activeTurnId: 'turn-1',
+    lastActivityAt: Date.now(), promptCount: 1,
   })
   const events: NormalizedEvent[] = []
   const waiting: (() => void)[] = []

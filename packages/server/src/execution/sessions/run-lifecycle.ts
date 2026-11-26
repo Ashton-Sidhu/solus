@@ -9,7 +9,7 @@ import { taskOfTurn, linkPreparedTask } from './run-task-context'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import type { RunHandle } from '../agents/agent-backend'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
-import type { TurnStop } from './turn-stops'
+import type { Turn } from './turns'
 
 export interface PendingStart {
   run: SessionRunRequest
@@ -43,8 +43,8 @@ export interface StartedRun {
 export async function startRun(
   rt: SessionRuntime,
   pendingStarts: Map<RunHandle, PendingStart>,
-  launch: (request: SessionRunRequest, traceId: string, turn: TurnStop, releaseLaunch: () => void) => Promise<StartedRun>,
-  request: SessionRunRequest, turn: TurnStop, releaseLaunch: () => void,
+  launch: (request: SessionRunRequest, traceId: string, turn: Turn, releaseLaunch: () => void) => Promise<StartedRun>,
+  request: SessionRunRequest, turn: Turn, releaseLaunch: () => void,
 ): Promise<SessionRunLifecycle> {
   if (request.actor) rt.rememberSessionActor(request.sessionId, request.actor)
   await rt.settleRunOrganization(request)
@@ -276,7 +276,7 @@ function archiveTurn(rt: SessionRuntime, request: SessionRunRequest, run: Sessio
   }))
 }
 
-function failLaunch(rt: SessionRuntime, request: SessionRunRequest, turn: TurnStop, turnTraceId: string, error: Error): never {
+function failLaunch(rt: SessionRuntime, request: SessionRunRequest, turn: Turn, turnTraceId: string, error: Error): never {
   if (!rt.isShuttingDown) rt.restarts.restartRuns?.remove(request.sessionId, request.runId)
   const interrupted = error.message === 'Interrupted'
   rt.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)

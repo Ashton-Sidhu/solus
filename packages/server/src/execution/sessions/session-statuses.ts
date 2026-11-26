@@ -13,7 +13,8 @@ import { isSessionBusyStatus, sessionRecordStatusOf } from '@solus/contracts/typ
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { SessionRuntime } from '../session-runtime'
 import { backgroundWorkHolds } from './background-work'
-import { deriveSessionStatus, turnOfStatus } from './derived-status'
+import { deriveSessionStatus, turnOfStatus, type TurnOutcome } from './derived-status'
+import type { Turn } from './turns'
 
 const log = createLogger('SessionRuntime', 'session-statuses.ts')
 
@@ -347,18 +348,18 @@ export class SessionStatuses {
     this.notifyActiveWork()
   }
 
-  /** Publish one Solus-owned terminal boundary for the active top-level turn.
+  /** Publish one Solus-owned terminal boundary for a turn: the one given, else
+   *  the session's current turn. A turn settles once; the first outcome stays.
    *  Queueing the event preserves result-before-settlement ordering when a
    *  provider's `task_complete` caused the status transition in this same stack. */
   queueTurnSettlement(
     sessionId: string,
-    session: BackendSession,
-    outcome: 'completed' | 'failed' | 'interrupted' | 'dead',
+    outcome: TurnOutcome,
+    turn: Turn = this.rt.turns.current(sessionId) ?? this.rt.turns.begin(sessionId, { phase: 'running' }),
   ): void {
-    const turnId = session.activeTurnId ?? crypto.randomUUID()
-    session.activeTurnId = turnId
-    if (session.settledTurnId === turnId) return
-    session.settledTurnId = turnId
+    turn.settle(outcome)
+    if (!turn.claimSettlement()) return
+    const turnId = turn.id
     const settledAt = Date.now()
     queueMicrotask(() => {
       log.info('turn_settled', { sessionId, turnId, outcome, settledAt })
@@ -379,7 +380,7 @@ export class SessionStatuses {
   }
 
   /**
-   * Shadow mode (docs/plans/derived-session-status.md, step 1): logs a status
+   * Shadow mode (plans/037-turn-owned-session-status.md, step 1): logs a status
    * write that the facts beneath it do not give. It changes nothing.
    */
   private compareWithDerived(sessionId: string, session: BackendSession, oldStatus: SessionStatus, newStatus: SessionStatus): void {
@@ -441,17 +442,6 @@ export class SessionStatuses {
     let goalUpdate: ThreadGoal | null = null
     if (session) {
       session.status = newStatus
-      // A busy session always holds a turn that has not settled, so its end —
-      // a result, an exit, or Stop — settles it exactly once. The agent can
-      // start a turn that no prompt dispatched: Claude wakes it in the open
-      // query when a task settles, after the turn already ended. That turn
-      // gets its own id. Leaving 'background' also starts a new turn: the
-      // 'background' span before it never settles, so a turn left waiting on
-      // background work does not notify as finished. A dispatch (`startsTurn`)
-      // names its turn itself.
-      const startsOwnTurn = (newStatus === 'running' || newStatus === 'connecting') && !startsTurn
-        && (oldStatus === 'background' || !session.activeTurnId || session.activeTurnId === session.settledTurnId)
-      if (startsOwnTurn) session.activeTurnId = crypto.randomUUID()
       if (session.backendId === 'claude-code' && agentSessionId) {
         goalUpdate = this.rt.claudeGoals.applySessionStatus(agentSessionId, newStatus)
       }
@@ -479,7 +469,7 @@ export class SessionStatuses {
       session &&
       (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'interrupted' || newStatus === 'dead')
     ) {
-      this.queueTurnSettlement(sessionId, session, newStatus)
+      this.queueTurnSettlement(sessionId, newStatus)
     }
     if (goalUpdate) this.rt.publish(sessionId, { type: 'goal_updated', goal: goalUpdate })
   }

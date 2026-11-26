@@ -37,7 +37,7 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
   // must not start another run in the same provider thread.
   const controller = new AbortController()
   controllers.set(sessionId, controller)
-  const turn = rt.turnStops.begin(sessionId)
+  const turn = rt.turns.begin(sessionId)
   // Stop frees the reservation at once: a new command need not wait for the seat lookup.
   const releaseLaunch = turn.onStop(() => {
     controller.abort(new Error('Interrupted'))
@@ -55,8 +55,6 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
     }
     rt.activeSessions.set(sessionId, session)
   }
-  const turnId = crypto.randomUUID()
-  session.activeTurnId = turnId
   session.lastActivityAt = Date.now()
   rt.statuses.setStatus(sessionId, 'connecting')
   try {
@@ -77,11 +75,11 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
     // the client must not wait on a long compaction RPC.
     void run.done.catch(() => {})
   } catch (error) {
-    if (rt.activeSessions.get(sessionId)?.activeTurnId === turnId) {
+    if (rt.turns.current(sessionId) === turn) {
       rt.statuses.setStatus(sessionId, controller.signal.aborted ? 'interrupted' : 'failed')
       rt.activeSessions.delete(sessionId)
     }
-    rt.turnStops.end(sessionId, turn)
+    turn.closeStop()
     throw error
   } finally {
     releaseLaunch()

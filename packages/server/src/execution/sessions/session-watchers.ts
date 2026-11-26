@@ -188,7 +188,7 @@ export class SessionWatchers {
       (request) => request.rateLimitSessionId === sessionId,
     )
     const isRuntimeRunning = agentSessionId !== null && backend.isSessionRunning(agentSessionId)
-    const turn = this.rt.turnStops.get(sessionId)
+    const turn = this.rt.turns.stoppable(sessionId)
     const isStarting = turn && !turn.signal.aborted
       && (session.status === 'connecting' || session.status === 'running')
     if (!isStarting && !isRuntimeRunning && !(agentSessionId && backend.hasBackgroundTasks?.(agentSessionId)) && !pendingRateLimitEvent && !hasQueuedRateLimitRequest

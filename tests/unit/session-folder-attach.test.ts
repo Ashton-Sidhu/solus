@@ -146,7 +146,7 @@ async function liveSession(sessionId: string, mode: PermissionMode, codebaseId?:
   runtime.agentSessionToSession.set(thread, sessionId)
   runtime.activeSessions.set(sessionId, {
     sessionId, agentSessionId: thread, backendId: 'codex', status: 'running', pendingInputEvents: [],
-    lastActivityAt: Date.now(), promptCount: 1, activeTurnId: 'turn-1',
+    lastActivityAt: Date.now(), promptCount: 1,
   })
   runtime.sessionPermissionModes.set(sessionId, mode)
   const cards: Question[] = []

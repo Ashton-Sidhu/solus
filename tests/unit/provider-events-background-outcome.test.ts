@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import type { BackendSession, NormalizedEvent, SessionStatus } from '@solus/contracts/types'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import { Turns } from '@solus/server/execution/sessions/turns'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -36,7 +37,7 @@ function setup() {
     activeRunRequests: new Map(),
     missingRunCounts: new Map(),
     turnLog: new Map(),
-    turnStops: new Map(),
+    turns: new Turns(),
     launcher: { pendingStarts: new Map() },
     orchestration: undefined,
     isShuttingDown: false,

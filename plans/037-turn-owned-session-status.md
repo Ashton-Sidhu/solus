@@ -62,8 +62,12 @@ a later call does nothing. A settled turn never opens again.
 
 **D3. A run belongs to its turn.** The launch binds the run handle to its turn
 (`Turns.bindRun`). A run event acts on the run's turn, not on the session's
-current turn. The exit settles the run's turn. If that turn is not the current
-turn, the exit changes no status. This replaces `wasStarting`.
+current turn. The exit (or a backend error) settles the run's turn. If that turn
+is not the current turn, the exit settles only that turn: it does not write a
+status, and it does not remove the record, the log, or the run request of the
+newer turn. This replaces `wasStarting`. A Stop before `session_init` lets a
+new prompt start before the old run exits (the scheduler waits only for a run
+with a thread id), so this case is real.
 
 **D4. Only a run that was not stopped can open a turn.** Claude reports
 `session_init` at the start of each turn in its open query, also for a wake.
@@ -78,11 +82,14 @@ when it changes. No writer gives a status value. The precedence stays as
 `derived-status.ts` has it: a parked rate limit, then the person's input, then
 the turn (a settled turn with background holds is `background`).
 
-**D6. Settlement belongs to the turn.** `turn_settled` goes out when
-`Turn.settle` succeeds, not when a terminal status is written. A queued prompt
-that takes over at the end of a turn holds back the terminal status, so no
-client sees `completed` between two turns. It does not hold back the
-settlement.
+**D6. Settlement belongs to the turn.** The phase settles at the result or at
+the exit. The `turn_settled` event of a turn goes out one time
+(`Turn.claimSettlement`): when the status becomes terminal, or when a queued
+prompt takes over. A turn that waits on background work has settled, but its
+event goes out when the wait ends. If the agent wakes into a new turn first,
+the event never goes out, so the person gets no "finished" message while work
+still runs. A queued prompt that takes over holds back the terminal status, so
+no client sees `completed` between two turns. It does not hold back the event.
 
 **D7. No turn is `idle`.** A session with no current turn is `idle`. A provider
 handoff, the release of a rate-limit park, and a reset of a dead session clear
@@ -116,8 +123,10 @@ in the queue and runs again as a new turn, as today.
 
 ## 5. Steps
 
-Each step is one commit. The focused tests of the changed files pass after each
-step, compared with the baseline of the step before.
+Each step is one commit, but steps 2 to 4 are one commit: a wake turn must be
+a `Turn` that Stop can reach, so the turn and the run binding change together.
+The focused tests of the changed files pass after each step, compared with the
+baseline of the step before.
 
 1. This plan.
 2. A test that fails today: Stop, then a late `session_init`, then the exit. The

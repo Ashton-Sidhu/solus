@@ -2,7 +2,7 @@ import type { SessionStatus } from '@solus/contracts/types'
 
 /**
  * A session's status as a function of the facts beneath it
- * (docs/plans/derived-session-status.md). The status packs several independent
+ * (plans/037-turn-owned-session-status.md). The status packs several independent
  * facts into one value; only the turn phase is a state machine of its own.
  */
 

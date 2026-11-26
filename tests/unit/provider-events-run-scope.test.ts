@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import type { BackendSession, SessionStatus } from '@solus/contracts/types'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import { Turns } from '@solus/server/execution/sessions/turns'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -39,10 +40,10 @@ function setup(pending: RunHandle[], sessions: BackendSession[] = []) {
     activeRunRequests: new Map(),
     missingRunCounts: new Map(),
     turnLog: new Map(),
-    turnStops: new Map(),
+    turns: new Turns(),
     launcher: { pendingStarts },
     orchestration: undefined,
-    statuses: { setStatus: (sessionId: string, status: SessionStatus) => statuses.set(sessionId, status) },
+    statuses: { setStatus: (sessionId: string, status: SessionStatus) => statuses.set(sessionId, status), holdsOutsideRun: () => false },
     inputRequests: { expirePendingInput: () => {} },
     sessionEmitter: { recordTerminal: () => {} },
     rateLimitPark: { currentRateLimitEvent: () => null },
