@@ -165,11 +165,15 @@ test('Host B continues a dropped stream with a Range from its last byte', async 
     requests.push({ range: request.headers.range, authorization: request.headers.authorization })
     if (requests.length === 1) {
       response.writeHead(200, { 'content-type': 'application/x-git-bundle', 'content-length': String(bundle.length) })
-      response.write(bundle.subarray(0, half), () => response.socket?.destroy())
+      // A clean close after half the bytes, after the client had time to read them: a reset
+      // (`destroy`), or a close while the bytes are still buffered, can lose them, and the
+      // client then correctly starts again from byte 0 with no range.
+      response.write(bundle.subarray(0, half), () => { setTimeout(() => response.socket?.end(), 200) })
       return
     }
-    const start = Number(/^bytes=(\d+)-$/.exec(request.headers.range ?? '')?.[1] ?? Number.NaN)
-    response.writeHead(206, { 'content-type': 'application/x-git-bundle', 'content-length': String(bundle.length - start), 'content-range': `bytes ${start}-${bundle.length - 1}/${bundle.length}` })
+    // As the real route: 206 for a range, 200 for the whole file.
+    const start = Number(/^bytes=(\d+)-$/.exec(request.headers.range ?? '')?.[1] ?? 0)
+    response.writeHead(request.headers.range ? 206 : 200, { 'content-type': 'application/x-git-bundle', 'content-length': String(bundle.length - start), 'content-range': `bytes ${start}-${bundle.length - 1}/${bundle.length}` })
     response.end(bundle.subarray(start))
   }))
   try {
