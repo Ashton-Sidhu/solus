@@ -43,6 +43,20 @@ function projectHolding(projects: readonly ProjectEntry[], folder: string): Proj
     .sort((a, b) => b.path.length - a.path.length)[0] ?? null
 }
 
+/**
+ * The project that holds `folder`, when the person of the call may use it: one
+ * that `list_projects` lists for them. Null when none does.
+ */
+export async function personProjectHolding(toolName: string, folder: string, context: AgentToolContext): Promise<ProjectEntry | null> {
+  let found: ProjectEntry | null = null
+  const result = await asPerson(toolName, context, async (call) => {
+    found = projectHolding(await visibleProjects(call), folder)
+    return { ok: true, text: '' }
+  })
+  if (!result.ok) throw new Error(result.text)
+  return found
+}
+
 /** The folder a tool call names, else the project of the calling session. */
 async function folderOf(path: string | undefined, context: AgentToolContext): Promise<string> {
   if (path?.trim()) return resolveHomePath(path.trim())

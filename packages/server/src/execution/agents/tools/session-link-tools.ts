@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from './agent-tool'
+import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 import type { AgentId } from '@solus/contracts/types'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
@@ -21,6 +21,7 @@ import { readOwnSessionArtifacts } from '../../../data/sessions/session-artifact
 import { linkedAppNamed } from './app-tools'
 import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { toolAgentAttribution } from './agent-attribution'
+import { APP_NEEDS_SESSION_ID, findSession } from './session-tools'
 
 type ToolHome = Awaited<ReturnType<typeof workspaceToolContext>>
 
@@ -310,21 +311,47 @@ const UNLINK_DESC =
 const LIST_LINKS_DESC =
   "List this session's links, with IDs or paths and last known PR states. Before finishing PR work, use kind=pr and link missing PRs."
 
+const sessionIdField = z.string().trim().min(1).optional()
+  .describe('The session to act on. Omit to use this session. An outside app must pass it.')
+
+/**
+ * The session a link tool acts on: `session_id` when the call names one, else
+ * the calling session (plans/035 §8). A named session's working directory
+ * resolves its relative paths and PR numbers. The access rule (`TOOL_ACCESS`)
+ * already checked the person may act on it.
+ */
+async function linkCtxFor(named: string | undefined, context: AgentToolContext): Promise<SessionLinkCtx | { error: string }> {
+  const callerSessionId = context.sessionId()
+  const ctx: SessionLinkCtx = { cwd: resolveHomePath(context.cwd), sessionId: callerSessionId, agentProvider: context.provider }
+  if (!named || named === callerSessionId) {
+    if (!callerSessionId && context.requesterKey?.()) return { error: APP_NEEDS_SESSION_ID }
+    return ctx
+  }
+  const meta = await findSession(named)
+  if (!meta) return { error: `Session ${named} not found.` }
+  return { ...ctx, sessionId: meta.sessionId, cwd: resolveHomePath(meta.cwd) }
+}
+
 function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
   name: string,
   description: string,
-  inputFields: Fields,
+  sessionFields: Fields,
   requiresApproval: boolean,
   run: (input: z.output<z.ZodObject<Fields>>, ctx: SessionLinkCtx) => Promise<AgentToolResult>,
 ): AgentTool {
+  const inputFields = { ...sessionFields, session_id: sessionIdField }
   const schema = z.object(inputFields).strict()
+  const named = z.object({ session_id: sessionIdField })
+  const fields = z.object(sessionFields)
   return {
     name, description, inputFields, requiresApproval, strictInput: true,
     execute: async (args, context) => {
       const parsed = schema.safeParse(args)
       if (!parsed.success) return { ok: false, text: `Invalid arguments for ${name}: ${z.prettifyError(parsed.error)}` }
       try {
-        return await run(parsed.data, { cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), agentProvider: context.provider })
+        const ctx = await linkCtxFor(named.parse(parsed.data).session_id, context)
+        if ('error' in ctx) return { ok: false, text: ctx.error }
+        return await run(fields.parse(parsed.data), ctx)
       } catch (error) {
         return { ok: false, text: `${name} failed: ${error instanceof Error ? error.message : String(error)}` }
       }

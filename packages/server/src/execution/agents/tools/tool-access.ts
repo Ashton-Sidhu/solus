@@ -140,6 +140,7 @@ export const TOOL_ACCESS = {
   list_agent_targets: { permission: 'host.agents.read' },
   search_sessions: { permission: 'host.sessions.read' },
   read_session: { action: 'read.transcript', resource: inputId('session', 'session_id') },
+  // An exchange is read only by its sender: the calling session, or the outside app whose requester key it carries.
   read_session_exchange: ownSession('read.transcript'),
   start_sessions: { permission: 'host.sessions.start' },
   send_session: { action: 'drive.prompt', resource: inputId('session', 'session_id') },
@@ -162,10 +163,11 @@ export const TOOL_ACCESS = {
   ci_rerun: gitWrite,
   pull_request_guide_read: hostUse,
   pull_request_guide_write: hostUse,
-  // The links, checkout, folders, and waits of the session the call runs in.
-  unlink: ownSession('edit'),
-  list_links: ownSession('read.transcript'),
-  link: ownSession('edit'),
+  // The links of the session the call names, or of the session it runs in.
+  unlink: { action: 'edit', resource: sessionIdOrCaller },
+  list_links: { action: 'read.transcript', resource: sessionIdOrCaller },
+  link: { action: 'edit', resource: sessionIdOrCaller },
+  // The checkout, folders, and waits of the session the call runs in.
   background_wait: ownSession('drive.prompt'),
   checkout_status: ownSession('read.transcript'),
   move_checkout: ownSession('drive.prompt'),
