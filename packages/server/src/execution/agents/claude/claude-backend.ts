@@ -572,21 +572,43 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   private readonly historyPages = new ProviderHistoryPages()
 
   async loadSessionPage(sessionId: string, projectPath: string | undefined, turnLimit: number, before?: string, cachePage = false) {
+    const startedAt = performance.now()
     const filePath = this.sessionFilePath(sessionId, projectPath)
-    if (!filePath) return { messages: [], before: null }
-    const running = this.isSessionRunning(sessionId)
-    if (!cachePage || running) {
-      const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
-      return { ...page, messages: claudeForkResponses(page.messages, running && before === undefined) }
+    const locatedAt = performance.now()
+    let revisionMs = 0
+    let cache: 'off' | 'hit' | 'miss' = 'off'
+    let messageCount = 0
+    try {
+      if (!filePath) return { messages: [], before: null }
+      const running = this.isSessionRunning(sessionId)
+      if (!cachePage || running) {
+        const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
+        messageCount = page.messages.length
+        return { ...page, messages: claudeForkResponses(page.messages, running && before === undefined) }
+      }
+      const key = JSON.stringify([filePath, turnLimit, before])
+      const revision = await historyFileRevision(filePath)
+      revisionMs = performance.now() - locatedAt
+      const cached = await this.historyPages.readShared(key, revision)
+      cache = cached ? 'hit' : 'miss'
+      if (cached) {
+        messageCount = cached.messages.length
+        return cached
+      }
+      const result = await this.historyPages.reading(key, revision, (async () => {
+        const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
+        const result = { ...page, messages: claudeForkResponses(page.messages, this.isSessionRunning(sessionId) && before === undefined) }
+        if (revision && !this.isSessionRunning(sessionId) && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
+        return result
+      })())
+      messageCount = result.messages.length
+      return result
+    } finally {
+      log.info('claude_history_page_profile', {
+        sessionId, olderPage: before !== undefined, turnLimit, cache, messageCount, found: !!filePath,
+        locateMs: locatedAt - startedAt, revisionMs, durationMs: performance.now() - startedAt,
+      })
     }
-    const key = JSON.stringify([filePath, turnLimit, before])
-    const revision = await historyFileRevision(filePath)
-    const cached = this.historyPages.read(key, revision)
-    if (cached) return cached
-    const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
-    const result = { ...page, messages: claudeForkResponses(page.messages, this.isSessionRunning(sessionId) && before === undefined) }
-    if (revision && !this.isSessionRunning(sessionId) && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
-    return result
   }
 
   async threadFiles(threadId: string, projectPath?: string): Promise<ThreadFile[]> {

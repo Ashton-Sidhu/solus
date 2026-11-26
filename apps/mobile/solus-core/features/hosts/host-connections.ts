@@ -477,6 +477,11 @@ export class HostConnections {
     else this.connection(hostId)
   }
 
+  /** False from `suspend` until `resume`: the app is in the background. */
+  get inForeground(): boolean {
+    return this.hiddenAt === null
+  }
+
   /** The app left the foreground. */
   suspend(now: number): void {
     this.hiddenAt = now

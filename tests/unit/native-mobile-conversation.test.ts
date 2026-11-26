@@ -132,7 +132,7 @@ describe('native conversation: history and live events', () => {
       if (!request.before) {
         await release.promise
         const checked = resumeHistoryPage(recent, request.knownHistoryBlocks ?? [])
-        return request.watchIfHistoryRevision === checked.historyRevision ? { ...checked, resumedWatch: { runtime: null } } : checked
+        return request.openSession ? { ...checked, resumedWatch: { runtime: null }, openingDescription: { lineage: null, meta: null } } : checked
       }
       const last = Number(request.before)
       return page([userRow(String(last - 1), 'm' + (last - 1)), userRow(String(last), 'm' + last)], String(last - 2))
@@ -149,6 +149,7 @@ describe('native conversation: history and live events', () => {
     expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ turnLimit: 2 })
     expect(controller.model).toBe(model)
     expect(api.callsOf('watchSession')).toHaveLength(0)
+    expect(api.callsOf('describeSession')).toHaveLength(0)
     expect((await cache.history('thread-1'))?.resumedWatch).toBeUndefined()
     expect(api.callsOf('loadSessionPage')).toHaveLength(2)
     expect(api.callsOf('loadSessionPage')[1]?.[0]).toMatchObject({ before: '8', turnLimit: 2 })
@@ -196,10 +197,10 @@ describe('native conversation: history and live events', () => {
     const received = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()
     const api = baseApi().on('loadSessionPage', async (request: SessionHistoryPageRequest) => {
-      expect(request.watchIfHistoryRevision).toBe(saved.historyRevision)
+      expect(request.openSession).toBe(true)
       received.resolve()
       await release.promise
-      return { ...resumeHistoryPage(recent, request.knownHistoryBlocks!), resumedWatch: { runtime: null } }
+      return { ...resumeHistoryPage(recent, request.knownHistoryBlocks!), resumedWatch: { runtime: null }, openingDescription: { lineage: null, meta: null } }
     })
     const { controller } = await open({ api, isIOS: true, sessionCache: cache, hasReplacement: () => hasReplacement })
     const opening = controller.load()
@@ -428,7 +429,8 @@ describe('native conversation: history and live events', () => {
     const { controller, transport } = await open({ api })
     const loading = controller.load()
     await flushPromises()
-    expect(conversationCalls(api)).toEqual(['loadSessionPage', 'describeSession'])
+    // The open is one request; this host does not answer its description, so it is read after the page.
+    expect(conversationCalls(api)).toEqual(['loadSessionPage'])
 
     // An event for this session while history is in flight is held, not applied.
     transport.emitSession('thread-1', { type: 'text_chunk', text: 'later' })
@@ -564,21 +566,24 @@ describe('native conversation: history and live events', () => {
     }
   })
 
-  test('a late first page from the previous provider cannot paint over a known handoff', async () => {
+  test('a first page from the previous provider cannot paint over the handoff its open answer names', async () => {
+    // WHY: the open's answer carries the page and the lineage together. When
+    // the lineage names another provider, that page is the old transcript.
     const prior = Promise.withResolvers<SessionHistoryPage>()
     const current = Promise.withResolvers<SessionHistoryPage>()
     const api = baseApi()
       .on('loadSessionPage', (request: SessionHistoryPageRequest) => request.provider === 'codex' ? current.promise : prior.promise)
-      .on('describeSession', () => ({ lineage: { active: { provider: 'codex', providerSessionId: 'new' } } }))
     const { controller } = await open({ api })
     const loading = controller.load()
     await flushPromises()
-    prior.resolve(page([assistantRow('previous provider', 'a')]))
+    prior.resolve({ ...page([assistantRow('previous provider', 'a')]),
+      openingDescription: { lineage: { active: { provider: 'codex', providerSessionId: 'new' } } } } as SessionHistoryPage)
     await flushPromises()
     expect(texts(controller)).toEqual([])
     current.resolve(page([assistantRow('current provider', 'b')]))
     await loading
     expect(texts(controller)).toEqual(['assistant:current provider'])
+    expect(api.callsOf('describeSession')).toHaveLength(0)
     controller.close()
   })
 

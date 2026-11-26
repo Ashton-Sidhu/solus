@@ -13,6 +13,7 @@ import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { listActions } from "../../solus/list-actions";
+import { solus } from "../../solus/runtime";
 import type { SessionListThread } from "../../solus/session-list";
 import type { ThreadMoveDestination } from "./threadOrder";
 import type {
@@ -775,6 +776,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     }
     onSelectThread(thread);
   };
+  // A press starts the read of the session's first page; the open takes that read.
+  const pressThread = () => solus.pressSession(String(thread.environmentId), String(thread.id));
   const showsWoke = status === "ready" && props.wokeAt !== null;
   const dotMark = resolveThreadListV2DotMark(thread, status);
   const goalLabel =
@@ -1558,6 +1561,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
           if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
         }}
+        onPressIn={pressThread}
         onPress={() => {
           close();
           selectThread();
@@ -1590,6 +1594,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           if (event.nativeEvent.actionName === "openPullRequests") handleOpenPullRequests();
           if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
         }}
+        onPressIn={pressThread}
         onPress={() => {
           close();
           selectThread();

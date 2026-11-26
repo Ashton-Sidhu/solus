@@ -292,6 +292,7 @@ import { publishPersonalDocumentChanges } from './transport/events/personal-docu
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
+import { HistoryPrewarm } from './execution/sessions/history-prewarm'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
@@ -1477,7 +1478,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
-  registerSessionDirectoryHandler(server)
+  const historyPrewarm = new HistoryPrewarm(opts.sessionRuntime)
+  registerSessionDirectoryHandler(server, historyPrewarm)
+  // A turn changes the provider file: read the session's first page again before it is next opened.
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
+    if (event.status === 'completed' || event.status === 'failed' || event.status === 'interrupted') historyPrewarm.afterTurn(event.sessionId)
+  })
   registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)

@@ -33,6 +33,13 @@ function historySegments(lineage: SessionLineageResolution | null, provider: Age
   })
 }
 
+/** Milliseconds a history read spent in each step, summed over the pages it read. */
+export interface HistoryReadProfile {
+  lineageMs: number
+  providerMs: number
+  sendersMs: number
+}
+
 const AGENT_DISPLAY_NAMES = new Map<AgentId, string>([
   ['claude-code', 'Claude Code'],
   ['codex', 'Codex'],
@@ -79,10 +86,13 @@ export class SessionHistory {
     )
   }
 
-  async loadSessionPage(request: SessionHistoryPageRequest): Promise<ProviderHistoryPage> {
+  /** One page of a session's history. A `profile` adds the time of each step to its fields. */
+  async loadSessionPage(request: SessionHistoryPageRequest, profile?: HistoryReadProfile): Promise<ProviderHistoryPage> {
     const { provider, sessionId, projectPath } = request
+    const startedAt = performance.now()
     const lineage = resolveSessionLineageById(sessionId)
     const segments = historySegments(lineage, provider, sessionId, projectPath)
+    const lineageAt = performance.now()
     const page = await loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
@@ -101,8 +111,14 @@ export class SessionHistory {
     )
     const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
     if (starting) page.messages.push(starting)
+    const providerAt = performance.now()
     // The session's id, not a lineage member's, names its records.
     await withPromptSenders(ANY_ORGANIZATION, lineage?.sessionId ?? sessionId, page.messages)
+    if (profile) {
+      profile.lineageMs += lineageAt - startedAt
+      profile.providerMs += providerAt - lineageAt
+      profile.sendersMs += performance.now() - providerAt
+    }
     return page
   }
 
