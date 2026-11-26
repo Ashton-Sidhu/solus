@@ -250,7 +250,7 @@
               style="background:{ANTIGRAVITY_FILL}"
               aria-hidden="true"
             ></span>
-            Antigravity
+            Google Antigravity
             <span class="text-foreground tabular-nums"
               >{providers.antigravity.toLocaleString()}</span
             >
@@ -355,7 +355,7 @@
               <span class="text-insights-summary font-medium tabular-nums"
                 >{data.antigravity}</span
               >
-              <span class="text-muted-foreground">Antigravity</span>
+              <span class="text-muted-foreground">Google Antigravity</span>
             </span>
           {/if}
           {#if data.unknownProvider > 0}

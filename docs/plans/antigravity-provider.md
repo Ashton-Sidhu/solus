@@ -49,7 +49,7 @@ Do not say "Gemini provider", "agy provider", or "ACP provider". The provider is
 ### 5.1 Connection
 
 - Start: `<agy> acp --gemini-dir <profile> --app-data-dir antigravity-acp` in the session's working directory, resolved with `resolveHomePath`.
-- Environment: the seat's launch environment, without inherited Google, Gemini, and `agy` variables (`antigravity.ts`), plus `GEMINI_HOME=<profile>`, `AGY_ACP_FORCE_FILE_STORAGE=1`, `AGY_CLI_DISABLE_AUTO_UPDATE=true`, `PYTHONUNBUFFERED=1`, and, for a Google account, `SSH_CONNECTION` so that `agy` keeps the sign-in in the profile and not in the shared OS keyring.
+- Environment: the seat's launch environment, without inherited Google, Gemini, and `agy` variables (`antigravity.ts`), plus `GEMINI_HOME=<profile>`, `AGY_ACP_FORCE_FILE_STORAGE=1`, `AGY_CLI_DISABLE_AUTO_UPDATE=true`, `PYTHONUNBUFFERED=1`, and, for a Google account, `SSH_CONNECTION` so that `agy` keeps the sign-in in the profile and not in the shared OS keyring. On macOS, `agy` 1.5.18 still keeps a Google sign-in in the keychain (item `gemini`), so Solus does not look for a token file: a clean exit of `agy acp --login` records the seat as verified (`verifiedAt`), as for Gemini Enterprise. A turn whose sign-in is gone fails with the sign-in error and asks for `/login`.
 - Temp folder: each launch unpacks about 1 GB into its temp folder. A process that runs as the host's own user gets its own folder, `<profile>/antigravity-acp/tmp/run-*`, as `TMPDIR`, `TEMP`, and `TMP`. Solus removes it when the process exits, and the first launch of a backend removes the `run-*` folders that a crash left. A process that runs as another user (member isolation, §9) uses its own temp folder. The sign-in processes (`--login`, Gemini Enterprise) still use the host's temp folder.
 - `initialize` with protocol version 1, `fs.readTextFile: true`, `fs.writeTextFile: false`, `terminal: false`, `elicitation.form`. Writes stay off: with them on, `agy` sends whole files instead of edits.
 - `session/new` (first turn) or `session/resume` (later turns, after a restart or an idle close) with the working directory and the Solus MCP server. The session id that `agy` returns is the provider thread id.
@@ -157,7 +157,7 @@ What v1 leaves out, and why:
 
 - Subagent and swarm cards, the `update_steps` checklist, and the read of a failed turn's real error from `agy`'s session database.
 - Usage limits. Google publishes no quota endpoint, and T3 Code stopped reading Google's internal one.
-- Gemini Enterprise on a host with an OS keyring: `agy` can keep that sign-in in one keyring entry for every profile, as T3 Code notes for Google sign-ins. Seats on such a host can share it.
+- Google and Gemini Enterprise sign-ins on a host with an OS keyring: `agy` keeps them in one keychain entry (`gemini`) for every profile. Seats on such a host share the last sign-in, and a sign-out in Solus does not remove the keychain entry.
 - Gemini Enterprise and Vertex AI first sign-in on mobile. Mobile has no seat settings for any provider; its `/login` signs in again the way the seat last signed in.
 - Provider instances (custom binary, home, and environment) for Antigravity.
 - A provider switch to Antigravity in an open session, and the session cloud copy (`session-sync.ts`). Both move a provider thread, and Solus does not read or write `agy`'s thread files.

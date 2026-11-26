@@ -46,7 +46,7 @@ export function seatProviderFor(agent: SetupAgent): SeatProvider {
 export const SETUP_PROVIDERS: Array<{ id: SetupAgent; label: string }> = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
-  { id: 'agy', label: 'Antigravity' },
+  { id: 'agy', label: 'Google Antigravity' },
 ]
 
 /** What still has to happen before a provider can take a session on this host. */

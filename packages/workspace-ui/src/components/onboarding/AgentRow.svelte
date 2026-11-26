@@ -9,7 +9,7 @@
   import type { SetupAgent } from "@solus/contracts/types";
   import { Button } from "../ui/button";
   import ProviderMark from "../ui/ProviderMark.svelte";
-  import type { AgentRowTrailing } from "./lib/agent-rows";
+  import { providerMarkFor, type AgentRowTrailing } from "./lib/agent-rows";
 
   interface Props {
     agent: SetupAgent;
@@ -24,7 +24,7 @@
 </script>
 
 <div class="flex min-h-12 items-center gap-3.5">
-  <span class="flex w-5 shrink-0 justify-center"><ProviderMark mark={agent} size={16} transparent /></span>
+  <span class="flex w-5 shrink-0 justify-center"><ProviderMark mark={providerMarkFor(agent)} size={16} transparent /></span>
   <div class="flex min-w-0 flex-1 flex-col gap-px">
     <span class="text-[14px] leading-5 font-medium text-(--solus-text-primary)">{name}</span>
     <span class="truncate text-[13px] leading-4.5 text-(--solus-text-tertiary)">{detail}</span>

@@ -106,7 +106,7 @@ describe('Antigravity turn outcome', () => {
     const log = profileWithLog()
     log.turn([input, reply])
     resetAfter(3_600_000, () => log.turn([input, [ERROR_MESSAGE, QUOTA_ERROR]]))
-    expect(log.turn([input, [ERROR_MESSAGE, QUOTA_ERROR]])).toMatchObject({ message: 'You have reached your Antigravity quota for this period.', code: 'RESOURCE_EXHAUSTED' })
+    expect(log.turn([input, [ERROR_MESSAGE, QUOTA_ERROR]])).toMatchObject({ message: 'You have reached your Google Antigravity quota for this period.', code: 'RESOURCE_EXHAUSTED' })
     resetAfter(282_000, () => log.turn([input, [ERROR_MESSAGE, STATUS_QUOTA_ERROR]]))
     resetAfter(42_000, () => log.turn([input, [ERROR_MESSAGE, RATE_LIMIT_ERROR]]))
     expect(log.turn([input, [ERROR_MESSAGE, RATE_LIMIT_ERROR]])?.message).toBe('Resource has been exhausted (e.g. check quota).')
@@ -144,7 +144,7 @@ describe('Antigravity turn outcome', () => {
 
   test("agy's typed refusal is a quota, with or without a log", () => {
     const log = profileWithLog()
-    expect(log.turn([], 'refusal')).toEqual({ message: 'You have reached your Antigravity quota for this period.', code: 'QUOTA_EXHAUSTED', usageLimit: { resetsAt: null } })
+    expect(log.turn([], 'refusal')).toEqual({ message: 'You have reached your Google Antigravity quota for this period.', code: 'QUOTA_EXHAUSTED', usageLimit: { resetsAt: null } })
     expect(watchAntigravityTurnOutcome(join(log.profile, 'missing'), SESSION)('refusal')?.usageLimit).not.toBeNull()
     expect(watchAntigravityTurnOutcome(join(log.profile, 'missing'), SESSION)('end_turn')).toBeNull()
     log.remove()

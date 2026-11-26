@@ -15,6 +15,7 @@
   import AttentionCard from "../conversation/AttentionCard.svelte";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { providerMark } from "../insights/lib/provider";
   import { Button } from "../ui/button";
   import SignInSteps from "./SignInSteps.svelte";
   import { seatAction, seatLabel } from "./lib/seat-copy";
@@ -56,7 +57,7 @@
         resolved
         testId="seat-connect-card"
       >
-        {#snippet icon()}<ProviderMark mark={request.provider === "claude-code" ? "claude" : "codex"} transparent />{/snippet}
+        {#snippet icon()}<ProviderMark mark={providerMark(request.provider)} transparent />{/snippet}
         {#snippet actions()}
           <TranscriptCardAction onclick={dismiss}>Done</TranscriptCardAction>
         {/snippet}
@@ -70,7 +71,7 @@
         >
           <header class="flex items-center gap-3 px-3.5 pt-3.5 pb-3">
             <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-[0.625rem] bg-card shadow-[shadow:var(--solus-tx-hairline)]">
-              <ProviderMark mark={request.provider === "claude-code" ? "claude" : "codex"} size={18} transparent />
+              <ProviderMark mark={providerMark(request.provider)} size={18} transparent />
             </span>
             <div class="flex min-w-0 flex-1 flex-col">
               <h3 class="m-0 truncate text-transcript-card font-semibold text-(--solus-text-primary)">Sign in to {label}</h3>

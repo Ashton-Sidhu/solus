@@ -1,8 +1,9 @@
-import { open, readdir, stat } from 'node:fs/promises'
-import { basename, isAbsolute, join } from 'node:path'
+import { open, readFile, readdir, stat } from 'node:fs/promises'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { z } from 'zod'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import type { AgentHistoryProject } from '@solus/contracts/agent-history'
+import { isTaskFolderPath } from '@solus/contracts/codebases'
 
 /**
  * The folders the person used with Claude Code and Codex on this host
@@ -14,6 +15,10 @@ import type { AgentHistoryProject } from '@solus/contracts/agent-history'
  * Only the head of each file is read, newest files first, with a limit on the
  * files, the bytes, and the time; a file that names no folder in its head
  * counts for nothing.
+ *
+ * A git worktree is not a project: its threads count for the checkout it was
+ * made from, so a repository used only through worktrees is still offered. A
+ * Solus task folder that no longer holds a worktree is left out.
  */
 
 type AgentHistorySource = AgentHistoryProject['sources'][number]
@@ -89,7 +94,21 @@ export async function readAgentHistoryProjects(options: {
   }
   await Promise.all(Array.from({ length: READ_CONCURRENCY }, readNext))
 
-  const newest = [...folders]
+  const projects = new Map<string, { sources: Set<AgentHistorySource>; threadCount: number; lastUsedAt: number }>()
+  for (const [folder, entry] of folders) {
+    const project = await projectFolderOf(folder)
+    if (!project) continue
+    const merged = projects.get(project)
+    if (!merged) {
+      projects.set(project, entry)
+      continue
+    }
+    for (const source of entry.sources) merged.sources.add(source)
+    merged.threadCount += entry.threadCount
+    merged.lastUsedAt = Math.max(merged.lastUsedAt, entry.lastUsedAt)
+  }
+
+  const newest = [...projects]
     .sort(([pathA, a], [pathB, b]) => b.lastUsedAt - a.lastUsedAt || pathA.localeCompare(pathB))
     .slice(0, limits.maxProjects)
   return Promise.all(newest.map(async ([path, entry]) => ({
@@ -101,6 +120,21 @@ export async function readAgentHistoryProjects(options: {
     exists: await stat(path).then((info) => info.isDirectory(), () => false),
     isProject: options.projectPaths.has(path),
   })))
+}
+
+/** `gitdir: <checkout>/.git/worktrees/<name>`: what a linked worktree's `.git` file says. */
+const WORKTREE_GITDIR = /^gitdir:\s*(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+\s*$/m
+
+/**
+ * The project a thread's folder belongs to: the checkout a worktree was made
+ * from, the folder itself otherwise. Null for a task folder with no worktree
+ * left in it. Reads the `.git` file only, never runs git: there may be hundreds.
+ */
+async function projectFolderOf(folder: string): Promise<string | null> {
+  const dotGit = await readFile(join(folder, '.git'), 'utf8').catch(() => null)
+  const checkout = dotGit ? WORKTREE_GITDIR.exec(dotGit)?.[1] : undefined
+  if (checkout) return trimTrailingSeparators(resolve(folder, checkout))
+  return isTaskFolderPath(folder) ? null : folder
 }
 
 /** `<root>/<project>/<thread>.jsonl`. A thread's subagents sit one folder lower and are not threads. */

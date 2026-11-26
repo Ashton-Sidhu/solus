@@ -4,17 +4,18 @@
    * own Claude Code and Codex logins, through the same setup session Settings
    * uses. These logins stay on the host, also in the desktop account flow:
    * cloud hosts sign in on their own (docs/plans/one-page-onboarding.md
-   * decision 7). A sign-in relays the CLI's output into the terminal panel.
+   * decision 7). A sign-in that waits shows only what the person acts on: the
+   * device code, in monospace because each character counts, or a field for
+   * the code the page gives back. The row's own line says what to do.
    */
   import { onMount } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { ArrowUpRight as ExternalIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { TerminalOutput } from "../ui/terminal-output";
   import { codingProviderRows } from "../servers/lib/host-onboarding";
   import AgentRow from "./AgentRow.svelte";
-  import { agentRow, signInTerminalText } from "./lib/agent-rows";
+  import { agentRow } from "./lib/agent-rows";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import type { SetupAgent } from "@solus/contracts/types";
 
@@ -59,11 +60,17 @@
     <AgentRow {agent} name={row.label} detail={failure ?? view.detail} trailing={view.trailing} onaction={row.run}>
       {#if verification}
         <div class="flex flex-col gap-2 pb-2 pl-8.5">
-          <TerminalOutput label="{row.label} sign-in on this {machineNoun}" output={signInTerminalText(agent, verification)} active class="max-h-40" />
+          {#if verification.userCode}
+            <div class="flex items-center gap-2.5 text-[13px] leading-4.5 text-(--solus-text-secondary)">
+              Enter this code on the sign-in page
+              <span class="rounded-md border border-border px-2 py-0.5 font-mono text-[14px] font-medium tracking-[0.08em] text-(--solus-text-primary) select-all">{verification.userCode}</span>
+            </div>
+          {/if}
           {#if verification.requiresCodeInput}
             <form class="flex gap-2" onsubmit={(event) => submitCode(event, agent)}>
-              <Input bind:value={codes[agent]} placeholder="Paste code" aria-label="{row.label} sign-in code" class="h-8 flex-1 font-mono text-[13px]" autocomplete="off" spellcheck={false} />
-              <Button type="submit" variant="outline" class="h-8 rounded-md px-3 text-[13px]">Connect</Button>
+              <!-- The page's own field look (CodeStep's search): the shared form fill is white on this white page, with no edge at rest. -->
+              <Input bind:value={codes[agent]} placeholder="Paste code" aria-label="{row.label} sign-in code" class="h-8.5 flex-1 rounded-md border border-border bg-transparent px-3 text-[13px] text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) focus-visible:border-ring focus-visible:ring-0" autocomplete="off" spellcheck={false} />
+              <Button type="submit" variant="outline" class="h-8.5 rounded-md px-3 text-[13px]">Connect</Button>
             </form>
           {/if}
           <div class="flex items-center gap-1.5 text-[13px] leading-4.5 text-(--solus-text-tertiary)">

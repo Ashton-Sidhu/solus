@@ -22,7 +22,7 @@ import { IntegrationLabels } from '../../lib/integration-labels'
  * key, a side of a conflict, and the sync state.
  */
 
-const PROVIDER_LABELS = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' } as const satisfies Record<SeatProvider, string>
+const PROVIDER_LABELS = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Google Antigravity' } as const satisfies Record<SeatProvider, string>
 
 export function providerLabel(provider: SeatProvider): string {
   return PROVIDER_LABELS[provider]

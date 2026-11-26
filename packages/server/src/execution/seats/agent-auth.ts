@@ -64,7 +64,7 @@ export class AgentAuthFlows {
       case 'claude-code': return this.startClaudeMcp(seat, target)
       case 'codex': return this.startCodexMcp(seat, target)
       // agy signs in to its MCP servers itself; Solus has no command to run for it.
-      case 'antigravity': return Promise.reject(new Error('Antigravity signs in to its MCP servers on its own.'))
+      case 'antigravity': return Promise.reject(new Error('Google Antigravity signs in to its MCP servers on its own.'))
     }
   }
 

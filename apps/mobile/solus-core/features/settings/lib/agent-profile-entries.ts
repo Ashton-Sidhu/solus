@@ -25,7 +25,7 @@ import { InstalledIntegration, urlHost, type ConnectionListState, type Installed
 export const PROVIDER_LABELS = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
-  antigravity: 'Antigravity',
+  antigravity: 'Google Antigravity',
 } as const satisfies Record<SeatProvider, string>
 
 

@@ -9,6 +9,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+import { ANTIGRAVITY_SIGN_IN_FILE, antigravitySignedIn, hostAntigravityProfile } from '@solus/server/execution/agents/acp/antigravity-auth'
 
 const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 
@@ -163,6 +164,34 @@ describe('SeatConnector', () => {
     expect((await seats.status(BOB, 'codex')).state).toBe('none')
     // The reason rides the event to the member's client; a seat that never was has no row to keep it on.
     expect(events.at(-1)).toMatchObject({ state: 'none', error: expect.stringMatching(/no credential was saved/) })
+  })
+
+  test('Antigravity: a clean exit of the Google sign-in connects the seat, though agy kept the token in the keychain', async () => {
+    // WHY: agy 1.5 on macOS saves a Google sign-in in the OS keychain, not in the profile, so a file check refused every good sign-in.
+    const { seats, connector, spawned } = harness(false)
+    const started = connector.start(HOST_LOGIN_SEAT, 'antigravity')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const [spawn] = spawned
+    expect(spawn?.args).toContain('--login')
+    spawn!.child.stdout.emit('data', 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=y\n')
+    expect(await started).toMatchObject({ verificationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=y', requiresCodeInput: true })
+    spawn!.child.emit('close', 0, null)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((await seats.status(HOST_LOGIN_SEAT, 'antigravity')).state).toBe('connected')
+    expect(antigravitySignedIn(seats.homeFor(HOST_LOGIN_SEAT, 'antigravity'))).toBe(true)
+  })
+
+  test('Antigravity: a Google sign-in that agy refused leaves no seat', async () => {
+    // The host login's profile is shared by these tests: start this one signed out.
+    rmSync(join(hostAntigravityProfile(), ANTIGRAVITY_SIGN_IN_FILE), { force: true })
+    const { seats, connector, spawned } = harness(false)
+    const started = connector.start(HOST_LOGIN_SEAT, 'antigravity')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    spawned[0]!.child.stdout.emit('data', 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=y\n')
+    await started
+    spawned[0]!.child.emit('close', 1, null)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((await seats.status(HOST_LOGIN_SEAT, 'antigravity')).state).not.toBe('connected')
   })
 
   test('the host login signs in on the CLI\'s defaults: no seat variable, and the probe runs against the defaults too', async () => {

@@ -242,7 +242,7 @@ export function footerFor(step: OnboardingStep | null, facts: FooterFacts): Foot
       return {
         hint: 'You can add projects any time.',
         primaryLabel: facts.checkedProjects > 0
-          ? `Continue with ${facts.checkedProjects} ${facts.checkedProjects === 1 ? 'project' : 'projects'}`
+          ? `Add ${facts.checkedProjects} ${facts.checkedProjects === 1 ? 'project' : 'projects'}`
           : 'Continue',
         primaryEnabled: ready,
         secondary: 'skip',
@@ -293,6 +293,15 @@ export const VISIBLE_PROJECT_ROWS = 4
 /** The folders worth offering: still on disk, newest first. */
 export function historyRows(projects: readonly AgentHistoryProject[]): AgentHistoryProject[] {
   return projects.filter((project) => project.exists).sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+}
+
+/**
+ * The rows on screen: the first few, and every checked one below them, so each
+ * folder the button counts has its check in view. "Show n more" shows the rest.
+ */
+export function shownProjectRows<Row extends { path: string }>(rows: readonly Row[], checked: ReadonlySet<string>, showsAll: boolean): Row[] {
+  if (showsAll) return [...rows]
+  return rows.filter((row, index) => index < VISIBLE_PROJECT_ROWS || checked.has(row.path))
 }
 
 /** The recent folders are checked (decision 6); a folder that is a project already needs nothing. */

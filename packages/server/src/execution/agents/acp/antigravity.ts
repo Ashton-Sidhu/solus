@@ -117,7 +117,7 @@ export function isAntigravityQuestion(toolCallId: string): boolean {
 }
 
 /** What a person reads when a turn has no usable Antigravity sign-in. */
-export const ANTIGRAVITY_SIGN_IN_MESSAGE = 'Sign in to Antigravity on this host to continue. Type /login to sign in.'
+export const ANTIGRAVITY_SIGN_IN_MESSAGE = 'Sign in to Google Antigravity on this host to continue. Type /login to sign in.'
 
 /** The host login's turns have no seat yet; a member's seat names their own profile (§7). */
 function antigravityProfileOf(request: AgentRunRequest): string {
@@ -152,7 +152,7 @@ export const antigravityStepsTool: AcpStepsTool = {
 /** Antigravity for the ACP backend (`acp-backend.ts`). */
 export const antigravityAgent: AcpAgent = {
   id: 'antigravity',
-  label: 'Antigravity',
+  label: 'Google Antigravity',
   signInMessage: ANTIGRAVITY_SIGN_IN_MESSAGE,
   mcpServerName: SOLUS_MCP_SERVER_NAME,
   nameTool: nameAntigravityTool,

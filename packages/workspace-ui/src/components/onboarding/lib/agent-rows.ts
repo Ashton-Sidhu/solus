@@ -1,6 +1,7 @@
 import type { SeatConnectStartResult } from '@solus/contracts/seats'
 import type { SetupAgent } from '@solus/contracts/types'
 import type { ProviderRow } from '../../servers/lib/host-onboarding'
+import type { ProviderMarkId } from '../../insights/lib/provider'
 
 /**
  * What the Agents step shows at the end of one provider's row: a quiet status,
@@ -46,19 +47,9 @@ export function agentRow(input: AgentRowInput): AgentRowView {
   return { detail: `Signed in on this ${machineNoun}`, trailing: { kind: 'ready', text: 'Ready' } }
 }
 
-const LOGIN_COMMANDS = {
-  claude: 'claude auth login',
-  codex: 'codex login --device-auth',
-  agy: 'agy acp --login',
-} satisfies Record<SetupAgent, string>
+/** The setup step names an agent by its command; its mark by its backend. */
+const PROVIDER_MARKS = { claude: 'claude', codex: 'codex', agy: 'antigravity' } as const satisfies Record<SetupAgent, ProviderMarkId>
 
-/**
- * The relayed login as the host's terminal shows it, for the terminal panel:
- * the command, the line that says where to go, and the address (and the
- * device code, when the CLI printed one).
- */
-export function signInTerminalText(agent: SetupAgent, verification: SeatConnectStartResult): string {
-  const lines = [`~ $ ${LOGIN_COMMANDS[agent]}`, 'Opened your browser to sign in…', verification.verificationUrl]
-  if (verification.userCode) lines.push(`Enter this code: ${verification.userCode}`)
-  return lines.join('\n')
+export function providerMarkFor(agent: SetupAgent): ProviderMarkId {
+  return PROVIDER_MARKS[agent]
 }

@@ -52,7 +52,7 @@ export interface EnterpriseSignInOptions {
 /** agy answered `authenticate` without a browser: the profile already holds a Gemini Enterprise sign-in. */
 export class EnterpriseAlreadySignedIn extends Error {
   constructor() {
-    super('Antigravity is already signed in to Gemini Enterprise.')
+    super('Google Antigravity is already signed in to Gemini Enterprise.')
     this.name = 'EnterpriseAlreadySignedIn'
   }
 }
@@ -118,7 +118,7 @@ export function enterpriseCallbackOf(pending: PendingLink, value: string): URL {
 /** One GET to agy's listener, with no proxy and no redirect. */
 function forwardToListener(callback: URL): Promise<void> {
   return new Promise((resolve, reject) => {
-    const failed = () => reject(new Error('Solus could not deliver the sign-in to Antigravity. Start the sign-in again.'))
+    const failed = () => reject(new Error('Solus could not deliver the sign-in to Google Antigravity. Start the sign-in again.'))
     const outgoing = httpRequest({ protocol: 'http:', hostname: callback.hostname, port: callback.port, path: `${callback.pathname}${callback.search}`, method: 'GET', agent: false }, (incoming) => {
       incoming.once('error', failed)
       incoming.once('end', () => {
@@ -159,8 +159,8 @@ export async function startEnterpriseSignIn(options: EnterpriseSignInOptions): P
     connection.close('The sign-in ended.')
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
   }
-  child.once('exit', (code, signal) => connection.close(`Antigravity exited (${signal ?? `code ${code}`}) before the sign-in finished.`))
-  child.once('error', (error) => connection.close(`Antigravity could not start: ${error.message}`))
+  child.once('exit', (code, signal) => connection.close(`Google Antigravity exited (${signal ?? `code ${code}`}) before the sign-in finished.`))
+  child.once('error', (error) => connection.close(`Google Antigravity could not start: ${error.message}`))
 
   try {
     await connection.request('initialize', {
@@ -176,7 +176,7 @@ export async function startEnterpriseSignIn(options: EnterpriseSignInOptions): P
   void done.catch(() => {})
   let timer: ReturnType<typeof setTimeout> | undefined
   const noLink = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Antigravity did not print a Gemini Enterprise sign-in link.')), LINK_TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error('Google Antigravity did not print a Gemini Enterprise sign-in link.')), LINK_TIMEOUT_MS)
     timer.unref?.()
   })
   let pending: PendingLink

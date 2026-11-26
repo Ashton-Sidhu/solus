@@ -63,7 +63,7 @@ describe('Antigravity seats', () => {
 
   test('a member with no Antigravity sign-in is asked to connect before a turn starts', async () => {
     const { seats } = manager()
-    await expect(seats.resolveForTurn(BOB, 'antigravity')).rejects.toThrow('Connect your Antigravity account on this host to run a turn.')
+    await expect(seats.resolveForTurn(BOB, 'antigravity')).rejects.toThrow('Connect your Google Antigravity account on this host to run a turn.')
   })
 
   test('a Google sign-in that agy wrote into the seat’s profile is found, and disconnect removes it', async () => {

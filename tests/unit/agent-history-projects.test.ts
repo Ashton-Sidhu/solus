@@ -132,4 +132,21 @@ describe('agent history projects', () => {
 
     expect(await read()).toEqual([])
   })
+
+  test('a worktree counts for the checkout it was made from, and an empty task folder is left out', async () => {
+    // WHY: a worktree is a branch of a project, not a project; offering it adds
+    // a second project for the same repository.
+    const checkout = folder('solus')
+    mkdirSync(join(checkout, '.git', 'worktrees', 'fix-login'), { recursive: true })
+    const worktree = folder('worktrees/fix-login')
+    writeFileSync(join(worktree, '.git'), `gitdir: ${join(checkout, '.git', 'worktrees', 'fix-login')}\n`)
+    const emptyTaskFolder = folder('solus-task-folders/fix-login-0123abcd/solus')
+    claudeThread('-solus', 'in-checkout', checkout, 100)
+    claudeThread('-fix-login', 'in-worktree', worktree, 300)
+    codexThread('2026/11/20', 'in-task-folder', emptyTaskFolder, 400)
+
+    const projects = await read()
+    expect(projects.map((project) => project.path)).toEqual([checkout])
+    expect(projects[0]).toMatchObject({ threadCount: 2, lastUsedAt: 300_000, sources: ['claude-code'] })
+  })
 })

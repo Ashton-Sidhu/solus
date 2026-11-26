@@ -8,6 +8,7 @@ import {
   nextOpenStep,
   progressLine,
   reachRows,
+  shownProjectRows,
   RECENT_PROJECT_MS,
   skipEffect,
   stepsFor,
@@ -17,7 +18,7 @@ import {
   type OnboardingStep,
 } from '@solus/workspace-ui/components/onboarding/lib/onboarding-model'
 import { stepCopy, type StepCopyFacts } from '@solus/workspace-ui/components/onboarding/lib/step-copy'
-import { agentRow, signInTerminalText } from '@solus/workspace-ui/components/onboarding/lib/agent-rows'
+import { agentRow, providerMarkFor } from '@solus/workspace-ui/components/onboarding/lib/agent-rows'
 import { phonePairLink } from '@solus/workspace-ui/components/onboarding/lib/phone-pairing'
 import { radioArrowKey } from '@solus/workspace-ui/components/onboarding/lib/radio-keys'
 import type { ProviderRow } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
@@ -124,7 +125,7 @@ describe('the footer', () => {
   })
 
   test('the last desktop step starts in the first chosen project', () => {
-    expect(footerFor('projects', { ...FACTS, checkedProjects: 3 }).primaryLabel).toBe('Continue with 3 projects')
+    expect(footerFor('projects', { ...FACTS, checkedProjects: 3 }).primaryLabel).toBe('Add 3 projects')
     expect(footerFor('phone', { ...FACTS, landingProject: 'solus' }).primaryLabel).toBe('Start in solus')
     expect(footerFor('reach', FACTS).primaryLabel).toBe('Start')
   })
@@ -174,6 +175,15 @@ describe('projects from agent history (decision 6)', () => {
     exists: true,
     isProject: false,
     ...extra,
+  })
+
+  test('every folder the button counts has its check on screen', () => {
+    // WHY: five recent folders are checked but four rows show; a hidden check
+    // made "Add 5 projects" disagree with the four checks in view.
+    const rows = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ path: `/Users/a/${name}` }))
+    const checked = new Set(['/Users/a/a', '/Users/a/e'])
+    expect(shownProjectRows(rows, checked, false).map((row) => row.path)).toEqual(['/Users/a/a', '/Users/a/b', '/Users/a/c', '/Users/a/d', '/Users/a/e'])
+    expect(shownProjectRows(rows, checked, true)).toHaveLength(6)
   })
 
   test('the recent folders are checked; old, missing, and already added folders are not', () => {
@@ -273,6 +283,11 @@ describe('the words of a folded step', () => {
 })
 
 describe('an agent row in the Agents step (§3.1)', () => {
+  test("each row shows its agent's own logo", () => {
+    // WHY: the Antigravity row passed its setup id `agy` as the mark, which no mark knows, so it drew no logo.
+    expect([providerMarkFor('claude'), providerMarkFor('codex'), providerMarkFor('agy')]).toEqual(['claude', 'codex', 'antigravity'])
+  })
+
   const row = (state: ProviderRow['state']): ProviderRow => ({ id: 'codex', label: 'Codex', detail: 'Installed · not signed in', state, actionLabel: 'Sign in' })
 
   test('a host that is not signed in offers its own sign-in', () => {
@@ -286,15 +301,9 @@ describe('an agent row in the Agents step (§3.1)', () => {
       .toEqual({ detail: 'Signed in on this Mac', trailing: { kind: 'ready', text: 'Ready' } })
   })
 
-  test('a relayed login waits on the browser and shows the CLI’s output', () => {
+  test('a relayed login waits on the browser', () => {
     const verification = { verificationUrl: 'https://auth.openai.com/device', userCode: 'ABCD-1234', requiresCodeInput: false }
     expect(agentRow({ row: row('busy'), verification, machineNoun: 'Mac' }).trailing.text).toBe('Finish in your browser')
-    expect(signInTerminalText('codex', verification).split('\n')).toEqual([
-      '~ $ codex login --device-auth',
-      'Opened your browser to sign in…',
-      'https://auth.openai.com/device',
-      'Enter this code: ABCD-1234',
-    ])
   })
 })
 

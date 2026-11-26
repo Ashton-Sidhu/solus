@@ -37,7 +37,7 @@ const PROVIDER_NAMES = {
   codex: 'Codex',
   opencode: 'OpenCode',
   replay: 'Replay',
-  antigravity: 'Antigravity',
+  antigravity: 'Google Antigravity',
 } as const satisfies Record<AgentId, string>
 
 export function providerStartupLabel({ provider, phase }: ProviderStartup): string {

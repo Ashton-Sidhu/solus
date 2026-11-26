@@ -136,6 +136,9 @@ export class SeatConnector {
     }, this.deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS)
     timeout.unref()
 
+    // agy 1.5 keeps a Google sign-in in the OS keychain on macOS, where Solus cannot
+    // read it: its clean exit is the proof that it accepted the sign-in, as for Gemini Enterprise.
+    const acceptedOnExit = signIn?.method === 'oauth-personal'
     const finish = async (outcome: { code: number | null; signal: NodeJS.Signals | null } | { error: Error }): Promise<void> => {
       clearTimeout(timeout)
       if (this.active.get(key) === entry) this.active.delete(key)
@@ -151,12 +154,13 @@ export class SeatConnector {
           const message = `${seatProviderLabel(provider)} sign-in exited with code ${outcome.code ?? 'unknown'}${tail ? `:\n${tail}` : ''}`
           await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
-        } else if (!(target ? await target.verify() : signIn ? antigravitySignedIn(home, signIn) : await this.verifyLogin(provider, seatHome))) {
+        } else if (!acceptedOnExit && !(target ? await target.verify() : signIn ? antigravitySignedIn(home, signIn) : await this.verifyLogin(provider, seatHome))) {
           const message = `${seatProviderLabel(provider)} sign-in finished, but no credential was saved for your seat.`
           await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
         } else {
-          await (target ? target.changed('connected') : this.deps.seats.markConnected(seat, provider, 'login', signIn ?? undefined))
+          const record = acceptedOnExit ? { ...signIn, verifiedAt: Date.now() } : signIn ?? undefined
+          await (target ? target.changed('connected') : this.deps.seats.markConnected(seat, provider, 'login', record))
         }
       } finally {
         entry.settle()

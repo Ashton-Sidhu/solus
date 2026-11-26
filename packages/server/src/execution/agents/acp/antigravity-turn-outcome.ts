@@ -56,7 +56,7 @@ const GO_DURATION_PART = /(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|h|m|s)/g
 const GO_DURATION_UNIT_MS = new Map([['ns', 1e-6], ['us', 1e-3], ['µs', 1e-3], ['μs', 1e-3], ['ms', 1], ['s', 1_000], ['m', 60_000], ['h', 3_600_000]])
 const SESSION_ID = /^[\w-]+$/
 const CONVERSATIONS = [ANTIGRAVITY_APP_DATA_DIR, 'conversations'] as const
-const QUOTA_MESSAGE = 'You have reached your Antigravity quota for this period.'
+const QUOTA_MESSAGE = 'You have reached your Google Antigravity quota for this period.'
 
 const verificationErrorSchema = z.object({
   error: z.object({ code: z.literal(403), status: z.literal('PERMISSION_DENIED'), details: z.array(z.json()) }),
@@ -217,7 +217,7 @@ export function antigravityTurnFailure(stopReason: AcpStopReason, step: LastStep
   }
   if (INVALID_THINKING_SIGNATURE.test(text)) {
     return {
-      message: 'Antigravity can no longer send the saved conversation of this session to the model. Start a new session to continue.',
+      message: 'Google Antigravity can no longer send the saved conversation of this session to the model. Start a new session to continue.',
       code: 'INVALID_THINKING_SIGNATURE',
       usageLimit: null,
     }
@@ -227,7 +227,7 @@ export function antigravityTurnFailure(stopReason: AcpStopReason, step: LastStep
     const where = verification.url ? ` at ${verification.url}` : ''
     return { message: `Verify your Google account${where}, then send the message again.`, code: 'VALIDATION_REQUIRED', usageLimit: null }
   }
-  if (!apiError) return { message: 'Antigravity stopped this turn because of an error.', code: null, usageLimit: null }
+  if (!apiError) return { message: 'Google Antigravity stopped this turn because of an error.', code: null, usageLimit: null }
   const [, httpStatus, message, status] = apiError
   const rateLimited = httpStatus === '429' || status === 'RESOURCE_EXHAUSTED'
   return { message: message.trim(), code: status, usageLimit: rateLimited ? { resetsAt: resetsAtFrom(text, nowMs) } : null }

@@ -70,7 +70,7 @@
       bind:value={credential}
       class="h-8 min-w-0 font-mono"
       placeholder={ANTIGRAVITY_CREDENTIAL_PLACEHOLDERS[method]}
-      aria-label="Antigravity credential"
+      aria-label="Google Antigravity credential"
       dictation={false}
       disabled={busy}
       {autofocus}

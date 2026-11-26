@@ -37,7 +37,7 @@ const signInRecordSchema = z.object({
   apiKey: z.string().min(1).optional(),
   gcpProject: z.string().min(1).optional(),
   gcpLocation: z.string().min(1).optional(),
-  /** When agy accepted a Gemini Enterprise sign-in: agy keeps that one where Solus cannot see it. */
+  /** When agy accepted a Google or Gemini Enterprise sign-in: agy keeps those where Solus cannot see them (the macOS keychain). */
   verifiedAt: z.number().optional(),
 })
 /** How a profile signs in: what Solus keeps in `ANTIGRAVITY_SIGN_IN_FILE`. */
@@ -67,7 +67,7 @@ export function antigravitySignInRecord(auth: AntigravityAuth): string {
 /** Whether a profile holds a sign-in that agy can use, for the method it signs in with. */
 export function antigravitySignedIn(profile: string, auth = antigravityAuthOf(profile)): boolean {
   switch (auth.method) {
-    case 'oauth-personal': return existsSync(join(profile, ANTIGRAVITY_TOKEN_FILE))
+    case 'oauth-personal':
     case 'oauth-business': return auth.verifiedAt !== undefined || existsSync(join(profile, ANTIGRAVITY_TOKEN_FILE))
     case 'gemini-api-key': return !!auth.apiKey
     case 'agent-platform': return !!auth.apiKey || existsSync(join(profile, ANTIGRAVITY_ADC_FILE))

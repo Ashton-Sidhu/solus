@@ -69,7 +69,7 @@ function hostUsesMusl(): boolean {
 
 export class AntigravitySoftwareAdapter implements AgentSoftwareAdapter {
   readonly agent = 'agy'
-  readonly label = 'Antigravity'
+  readonly label = 'Google Antigravity'
   /** agy is not published to npm. */
   readonly npmPackage = null
 
@@ -91,7 +91,7 @@ export class AntigravitySoftwareAdapter implements AgentSoftwareAdapter {
     const metadata = this.options.metadata ?? providerMetadata
     const manifest = manifestSchema.parse(JSON.parse(await metadata(`${base}/${antigravityTarget(this.platform, this.arch, this.musl)}.json`)))
     if (!packageMatches(manifest.url, manifest.version, this.platform, this.arch, this.musl)) {
-      throw new Error(`The Antigravity release for ${this.platform}/${this.arch} names an unexpected download address.`)
+      throw new Error(`The Google Antigravity release for ${this.platform}/${this.arch} names an unexpected download address.`)
     }
     const windows = this.platform === 'win32'
     return {
@@ -120,6 +120,6 @@ export async function verifyAntigravityPackage(binary: string): Promise<void> {
   try {
     await access(binary, constants.X_OK)
   } catch {
-    throw new Error('The downloaded Antigravity package has no executable.')
+    throw new Error('The downloaded Google Antigravity package has no executable.')
   }
 }

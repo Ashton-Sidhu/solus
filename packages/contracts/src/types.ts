@@ -56,7 +56,7 @@ export const AGENT_LABELS = {
   codex: 'Codex',
   opencode: 'OpenCode',
   replay: 'Replay',
-  antigravity: 'Antigravity',
+  antigravity: 'Google Antigravity',
 } as const satisfies Record<AgentId, string>
 
 

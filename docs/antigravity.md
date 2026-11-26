@@ -1,4 +1,4 @@
-# Antigravity
+# Google Antigravity
 
 Solus runs Google Antigravity as an agent, next to Claude Code and Codex. Solus starts Google's `agy` CLI on the host and talks to it with the Agent Client Protocol (ACP).
 
@@ -39,6 +39,7 @@ On a shared host, each member signs in with their own account in Settings → Pr
 
 ## Limits
 
+- On a Mac, Google Antigravity keeps a Google sign-in in your keychain. Every seat on that Mac uses the last Google account that signed in, and a sign-out in Solus does not remove it from the keychain.
 - You cannot switch an open session to Antigravity, and the session cloud copy does not include Antigravity sessions.
 - Antigravity shows no usage meters. A limit shows only when a turn reaches it.
 - On mobile, Gemini Enterprise and Vertex AI must be set up once on desktop or web. After that, `/login` on mobile works.

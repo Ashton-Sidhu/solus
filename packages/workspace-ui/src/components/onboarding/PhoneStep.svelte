@@ -47,9 +47,11 @@
       <span class="text-[13px] leading-4.5 text-(--solus-text-tertiary)">Scan to install and pair. Works while your phone is on this network.</span>
     {/if}
   </div>
-  <div class="flex size-20 shrink-0 items-center justify-center rounded-md border border-(--hairline) p-1.75">
+  <!-- 160px, as Settings' pairing panel: a pairing link's code is too dense to scan at 80px.
+       Black on white in both themes: many phone cameras do not read a light-on-dark code. -->
+  <div class="flex size-40 shrink-0 items-center justify-center rounded-lg border border-(--hairline) bg-white p-2.5">
     {#if qr}
-      <svg class="size-full text-(--solus-text-primary)" viewBox={qr.viewBox} role="img" aria-label="QR code to pair your phone" shape-rendering="crispEdges">
+      <svg class="size-full text-black" viewBox={qr.viewBox} role="img" aria-label="QR code to pair your phone" shape-rendering="crispEdges">
         <path d={qr.path} fill="currentColor" />
       </svg>
     {:else}

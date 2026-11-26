@@ -5,7 +5,7 @@ import type { ModelOptions, PersonalSettings } from './settings'
 export const PROVIDERS = [
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
-  { id: 'antigravity', label: 'Antigravity' },
+  { id: 'antigravity', label: 'Google Antigravity' },
 ] as const satisfies ReadonlyArray<{ id: AgentId; label: string }>
 
 /** Keep a saved model visible even after the catalog retires it. */

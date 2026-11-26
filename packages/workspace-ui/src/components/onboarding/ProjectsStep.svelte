@@ -10,7 +10,7 @@
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { abbreviateHome } from "../../lib/paths";
   import { agentHistoryStore as history } from "./agent-history.store.svelte";
-  import { ageLabel, historyRows, VISIBLE_PROJECT_ROWS } from "./lib/onboarding-model";
+  import { ageLabel, historyRows, shownProjectRows } from "./lib/onboarding-model";
   import { onboardingStore as store } from "./onboarding.store.svelte";
 
   let { machineNoun }: { machineNoun: string } = $props();
@@ -33,14 +33,19 @@
       isProject: false,
     })),
   ]);
-  const shown = $derived(showsAll ? rows : rows.slice(0, VISIBLE_PROJECT_ROWS));
+  const shown = $derived(shownProjectRows(rows, store.checkedProjects, showsAll));
   const hiddenCount = $derived(rows.length - shown.length);
 
   onMount(() => void store.loadProjects());
 </script>
 
-{#snippet checkbox(isChecked: boolean)}
-  {#if isChecked}
+<!-- `added`: already a project, so not one the button counts; a quiet tick, not a filled box. -->
+{#snippet checkbox(isChecked: boolean, isAdded: boolean)}
+  {#if isAdded}
+    <span class="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+      <svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="var(--solus-text-tertiary)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </span>
+  {:else if isChecked}
     <span class="flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-(--solus-text-primary)" aria-hidden="true">
       <svg width="10" height="10" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="var(--background)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </span>
@@ -70,17 +75,17 @@
 {#if rows.length > 0}
   <div class="flex flex-col" role="group" aria-label="Projects to add" aria-busy={history.isLoading}>
     {#each shown as row (row.path)}
-      {@const isChecked = row.isProject || store.checkedProjects.has(row.path)}
+      {@const isChecked = !row.isProject && store.checkedProjects.has(row.path)}
       <button
         type="button"
         role="checkbox"
-        aria-checked={isChecked}
+        aria-checked={row.isProject || isChecked}
         disabled={row.isProject}
         title={row.isProject ? "Already a project" : undefined}
         class="flex h-10 w-full min-w-0 shrink-0 items-center gap-3.5 overflow-hidden rounded-md text-left focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default"
         onclick={() => store.toggleProject(row.path)}
       >
-        {@render checkbox(isChecked)}
+        {@render checkbox(isChecked, row.isProject)}
         <span
           class="min-w-0 flex-1 truncate text-[14px] leading-5"
           class:font-medium={isChecked}
