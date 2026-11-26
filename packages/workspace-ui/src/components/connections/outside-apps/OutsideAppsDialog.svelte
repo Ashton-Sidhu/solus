@@ -14,7 +14,7 @@
   import { policiesOn, workPolicy } from "../../../contexts/policy/work-policy.svelte";
   import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../../ui/button";
-  import { connectionsNav } from "../connections-nav.svelte";
+  import { sharingAccessRoute } from "../lib/sharing-access";
   import { DEFAULT_OUTSIDE_APP_ACCESS, OUTSIDE_APP_ACCESS_LEVELS, outsideAppChoices } from "../lib/outside-apps";
   import { gateAddressKind, resolveOutsideAppGate } from "../lib/outside-apps-gate";
   import { hostLabel, isHostComputer, outsideAppsDialog } from "./outside-apps-dialog.svelte";
@@ -102,8 +102,7 @@
 
   function manageAccess() {
     outsideAppsDialog.close({ refocus: false });
-    connectionsNav.open(serverId, "access");
-    workspace.showSettings("api-access", "click");
+    workspace.router.navigate(sharingAccessRoute(serverId), { replace: false });
   }
 </script>
 
