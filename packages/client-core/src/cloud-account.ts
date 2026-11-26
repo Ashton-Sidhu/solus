@@ -54,6 +54,12 @@ export interface CloudAccount {
   ): Promise<CreateManagedHostOutcome>
   /** Shares a machine the account linked with one organization, or takes that share back (R15). */
   shareHost(hostId: string, organizationId: string, enabled: boolean): Promise<boolean>
+  /**
+   * Renames an organization the caller owns, which also ends its pending name
+   * (`PATCH /v1/orgs/:organizationId/settings`, docs/plans/one-page-onboarding.md §3.3).
+   * False when Solus Cloud did not confirm it.
+   */
+  renameOrganization(organizationId: string, name: string): Promise<boolean>
   /** The account page where GitHub, Google and Atlassian are connected. */
   readonly connectionsUrl: string
   /** The account website, where the account and its organizations are managed. */
@@ -140,6 +146,10 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
     },
     async createManagedHost(organizationId, options = {}) {
       return createManagedHostOutcome(await call('/v1/hosts', { method: 'POST', body: createManagedHostBody(organizationId, options) }))
+    },
+    async renameOrganization(organizationId, name) {
+      const response = await call(`/v1/orgs/${encodeURIComponent(organizationId)}/settings`, { method: 'PATCH', body: { name } })
+      return !!response?.ok
     },
     async shareHost(hostId, organizationId, enabled) {
       const host = encodeURIComponent(hostId)

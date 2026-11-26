@@ -181,6 +181,11 @@ export class TasksPageView {
     return sortTasks(rows, this.sort)
   })
 
+  /** The list is empty only because the provider has not answered the
+   *  search or the involvement filter yet. That is a read on its way, not a
+   *  miss, so the page must not say that nothing matches. */
+  readonly awaitingProvider: boolean = $derived(this.visibleTasks.length === 0 && this.#input.providerSearch.searching)
+
   /**
    * The board's manual order renumbers the column a card lands in, so it only
    * means anything when `visibleTasks` *is* the board. (The column filter is

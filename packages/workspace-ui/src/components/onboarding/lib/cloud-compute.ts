@@ -66,11 +66,6 @@ export function defaultComputeHost<T extends ComputeHost>(choices: ComputeChoice
   return choices.ownMachines.find(online) ?? choices.sharedMachines.find(online) ?? cloudHost
 }
 
-/** Whether a machine this account linked is shared with the organization. */
-export function isSharedWith(server: ComputeHost, organizationId: string | null): boolean {
-  return hostInOrganization(server.uplink, organizationId)
-}
-
 /**
  * Whether agents can run there now. A cloud host that is not ready says its state;
  * past that, only this client's own connection answers: Solus Cloud knows the
@@ -84,22 +79,8 @@ export function reachability(server: ComputeHost): string {
   return isWaitingForHost(server.readiness) ? 'Connecting…' : 'Can’t reach it'
 }
 
-/** The detail line of the cloud host row: its state, and who can use it. */
-export function cloudHostDetail(server: ComputeHost, organizationName: string): string {
-  return `${reachability(server)} · Everyone in ${organizationName} can use it`
-}
-
-/** The detail line of a machine row: its state, and who can see it. */
-export function machineDetail(server: ComputeHost, organization: { organizationId: string; name: string } | null, isOwn: boolean): string {
-  if (!isOwn) return `${reachability(server)} · Shared by ${server.uplink?.ownerName ?? 'a member'}`
-  const visibility = organization && isSharedWith(server, organization.organizationId)
-    ? `Shared with ${organization.name}`
-    : 'Only you can see it'
-  return `${reachability(server)} · ${visibility}`
-}
-
 /**
- * What the compute stage says when Solus Cloud did not create the cloud host. The
+ * What the machine step says when Solus Cloud did not create the cloud host. The
  * `/v1` code is kept in the text, so a report names the refusal.
  */
 export function createHostFailureMessage(code: string | null, message: string | null): string {
@@ -118,25 +99,6 @@ export function createHostFailureMessage(code: string | null, message: string | 
   }
 }
 
-// ── "Runs on": the one picker of the compute stage ───────────────────────────
-
-/** A machine already there, a cloud host to create, or a computer to link. */
-export type RunsOnValue = `host:${string}` | 'new-cloud' | 'link'
-
-export interface RunsOnOption {
-  value: RunsOnValue
-  label: string
-  /** The picker's group heading. */
-  group: string
-}
-
-export const runsOnHost = (serverId: string): RunsOnValue => `host:${serverId}`
-
-/** How the picker names a cloud host: "Cloud · Acme". The cloud is where it runs; the rest is its name. */
-export function cloudOptionLabel(hostLabel: string): string {
-  return `Cloud · ${hostLabel}`
-}
-
 /**
  * The name a new cloud host is given: its organization's, so it reads "Cloud · Acme"
  * everywhere, not the generic "Cloud host". Members can rename it on Solus Cloud.
@@ -145,75 +107,34 @@ export function newCloudHostLabel(organization: { name: string } | null): string
   return organization?.name.trim() || CLOUD_HOST_LABEL
 }
 
-/** The server a value names, or null for a cloud host to create or a computer to link. */
-export function serverIdOf(value: RunsOnValue): string | null {
-  return value.startsWith('host:') ? value.slice('host:'.length) : null
-}
-
-/** What the picker needs of the active organization. */
-export interface RunsOnOrganization {
-  name: string
+/** What the machine step needs of the active organization. */
+export interface MachineOrganization {
   mayCreateManagedHost: boolean
   /** The organization's host rules (organization-scope §3.1); an older Solus Cloud sends none, which allows both. */
   hostRules?: Pick<HostRules, 'allowsCloudHosts' | 'allowsPersonalHosts'>
 }
 
-/**
- * Everything the account can run agents on, grouped as the picker shows it: the
- * organization's cloud host (or one to create, when the person may and Solus Cloud
- * can make one), the person's computers, the ones others shared, and a computer
- * to link — less whatever the organization's host rules turn off. Unless the rules
- * keeps the organization to its cloud host, "Link a computer" is always there.
- */
-export function runsOnOptions<T extends ComputeHost>(
-  choices: ComputeChoices<T>,
-  organization: RunsOnOrganization | null,
-  catalog: ManagedHostCatalog | undefined,
-): RunsOnOption[] {
-  const cloud = 'Solus Cloud'
-  const options: RunsOnOption[] = []
-  // The organization's owners may keep it to one of the two; an older Solus Cloud says nothing, which allows both.
-  const allowsCloud = organization?.hostRules?.allowsCloudHosts !== false
-  const allowsOwn = organization?.hostRules?.allowsPersonalHosts !== false
-  if (!allowsCloud) {
-    // Nothing from Solus Cloud is offered.
-  } else if (choices.cloudHost) {
-    options.push({ value: runsOnHost(choices.cloudHost.id), label: cloudOptionLabel(choices.cloudHost.label), group: cloud })
-  } else if (organization?.mayCreateManagedHost && (catalog?.sizes.length ?? 0) > 0) {
-    options.push({ value: 'new-cloud', label: `${cloudOptionLabel(newCloudHostLabel(organization))} (new)`, group: cloud })
-  }
-  if (!allowsOwn) return options
-  for (const machine of choices.ownMachines) {
-    options.push({ value: runsOnHost(machine.id), label: machine.label, group: 'Your computers' })
-  }
-  for (const machine of choices.sharedMachines) {
-    options.push({
-      value: runsOnHost(machine.id),
-      label: machine.label,
-      group: organization ? `Shared with ${organization.name}` : 'Shared with you',
-    })
-  }
-  options.push({ value: 'link', label: 'Link a computer', group: 'Your computers' })
-  return options
+/** The choices of "Where your agents run" an organization offers. */
+export interface MachineTargets {
+  cloud: boolean
+  own: boolean
 }
 
 /**
- * The picker's first value: the machine `defaultComputeHost` would choose (the
- * organization's cloud host first, so an invitee sees it chosen) when the policy
- * offers it, else a new cloud host when one may be made, else the first choice left —
- * or none, when the policy leaves nothing this account can use yet.
+ * Which choices of "Where your agents run" the organization offers: its cloud
+ * host (one there, or one this member may create and Solus Cloud can make),
+ * and a computer of the person's own. The organization's owners may turn
+ * either off; an older Solus Cloud says nothing, which allows both.
  */
-export function defaultRunsOn<T extends ComputeHost>(
+export function machineTargets<T extends ComputeHost>(
   choices: ComputeChoices<T>,
-  organization: RunsOnOrganization | null,
+  organization: MachineOrganization | null,
   catalog: ManagedHostCatalog | undefined,
-): RunsOnValue | null {
-  const options = runsOnOptions(choices, organization, catalog)
-  const offered = (value: RunsOnValue) => options.some((option) => option.value === value)
-  const host = defaultComputeHost(choices)
-  if (host && offered(runsOnHost(host.id))) return runsOnHost(host.id)
-  if (offered('new-cloud')) return 'new-cloud'
-  return options[0]?.value ?? null
+): MachineTargets {
+  const allowsCloud = organization?.hostRules?.allowsCloudHosts !== false
+  const allowsOwn = organization?.hostRules?.allowsPersonalHosts !== false
+  const canMake = !!organization?.mayCreateManagedHost && (catalog?.sizes.length ?? 0) > 0
+  return { cloud: allowsCloud && (!!choices.cloudHost || canMake), own: allowsOwn }
 }
 
 /** What a size means, for the picker: "8 CPU · 32 GB", or its own words when the machine grows on its own. */
@@ -269,40 +190,4 @@ export function newCloudHostRequest(
     spec.setupScript = setupScript
   }
   return { ok: true, label: form.name.trim() || newCloudHostLabel(organization), spec }
-}
-
-/** The steps a cloud host goes through before agents can run on it, in order. */
-export const HOST_SETUP_STEPS = ['Create', 'Set up', 'Start', 'Connect'] as const
-
-export interface HostSetupStep {
-  /** Index into `HOST_SETUP_STEPS`. */
-  index: number
-  label: string
-}
-
-/**
- * Where the chosen cloud host is while the compute stage waits for it. The step
- * follows the lifecycle the directory last reported, not only the request this
- * client sent: a host that is still provisioning says so, and does not say
- * "Connecting" for minutes.
- */
-export function hostSetupStep(isCreating: boolean, host: ComputeHost | null): HostSetupStep {
-  if (isCreating) return { index: 0, label: 'Creating the cloud host…' }
-  switch (host?.uplink?.managedState) {
-    case 'provisioning':
-      return { index: 1, label: 'Setting up the cloud host…' }
-    case 'starting':
-    case 'stopping':
-    case 'stopped':
-    case 'failed':
-      return { index: 2, label: 'Starting the cloud host…' }
-    default:
-      return { index: 3, label: host && host.uplink?.kind !== 'cloud' ? `Connecting to ${host.label}…` : 'Connecting to the cloud host…' }
-  }
-}
-
-/** Elapsed time as `m:ss`. */
-export function elapsedLabel(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000))
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }

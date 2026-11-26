@@ -2,6 +2,7 @@ import type { ConversationStore } from "@solus-mobile/features/conversation/conv
 import { createContext, type ReactNode } from "react";
 import { Atom } from "effect/reactivity";
 import { resolveConversationImage } from "./session-media";
+import { remoteAgentChild } from "./agent-child-host";
 import { conversationFeed } from "./conversation-feed";
 
 export const SessionCardRenderer = createContext<
@@ -24,6 +25,7 @@ export const sessionFeed = Atom.family((store: ConversationStore) => {
       ),
       (path, refresh) => resolveConversationImage(store, path, refresh).then((image) => image.uri),
       (key) => store.controller.readToolInput(key),
+      { get provider() { return store.controller.run.provider; }, child: remoteAgentChild(store.controller.hostId) },
     );
     let lastOrder: readonly string[] | undefined;
     let lastReader: ReturnType<FeedProjector> | undefined;

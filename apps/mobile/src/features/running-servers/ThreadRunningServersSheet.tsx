@@ -7,6 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText, AppTextInput } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
@@ -163,12 +164,18 @@ function RunningServerList({ target, store, rows, isEmpty, otherCount, isShowing
       {(expanded ? rows : rows.slice(0, shownByDefault)).map(({ server, endpoint, label, checkoutPath }) => {
         const folder = server.location.projectRoot ?? checkoutPath;
         const name = endpoint.response?.pageTitle || server.process.name;
+        const provider = server.startedBy.kind === "agent" ? server.startedBy.provider : undefined;
+        const driver = provider === "claude-code" ? "claudeAgent" : provider === "codex" ? "codex" : null;
         return (
           <View className="gap-2 rounded-xl bg-secondary p-3" key={JSON.stringify([server.serverId, endpoint.endpointId])}>
             <AppText className="font-t3-medium">{name} · {label}</AppText>
-            <AppText className="text-foreground-muted" numberOfLines={1}>
-              {folder ? `${hostPathBaseName(folder) || folder} · ` : ""}{server.sourceLabel}
-            </AppText>
+            <View className="flex-row items-center gap-1.5">
+              {driver ? <ProviderIcon provider={driver} size={14} /> : null}
+              <AppText className="shrink text-foreground-muted" numberOfLines={1}>
+                {folder ? `${hostPathBaseName(folder) || folder} · ` : ""}
+                {driver === "claudeAgent" ? "Claude Code" : driver === "codex" ? "Codex" : server.sourceLabel}
+              </AppText>
+            </View>
             <View className="flex-row flex-wrap gap-2">
               <Button label="Open" accessibilityLabel={`Open ${name} ${label}`} disabled={busy} size="compact" onPress={() => void run(async () => {
                 const tabId = await solus.browser.open(environmentId, endpoint.url);

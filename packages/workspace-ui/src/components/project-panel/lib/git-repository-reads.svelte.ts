@@ -1,4 +1,6 @@
 import { untrack } from 'svelte'
+import { taskFolderRootOf, type TaskFolder } from '@solus/contracts/codebases'
+import { sameHostPath } from '@solus/contracts/host-path'
 
 interface GitRepositoryReads {
   /** False while the card is hidden: a mounted tab that is not on screen reads nothing. */
@@ -51,4 +53,43 @@ export function useGitRepositoryReads(reads: GitRepositoryReads): void {
       return () => { for (const stop of stops) stop() }
     })
   })
+}
+
+interface TaskFolderRead {
+  /** False while the card is hidden, and for a draft: it reads nothing. */
+  readonly active: boolean
+  /** The working directory of the run: any path inside a task folder names it. */
+  readonly path: string | null
+  /** The paths of the session folders, one for each line: a repository added to the task folder changes them, and the record is read again. */
+  readonly foldersKey: string
+  read(root: string): Promise<TaskFolder | null>
+}
+
+/**
+ * The record of the task folder that a started session works in
+ * (`gitCardRepositories`). Read by the root of the task folder, so a run whose
+ * Git state names a different worktree of the same task folder still finds
+ * it. Null for a path outside a task folder, before the host answers, and
+ * when the host refuses the read: the card then lists what it lists without
+ * one. A hidden card keeps the last record and reads nothing.
+ */
+export function useTaskFolderRead(reads: TaskFolderRead): { readonly current: TaskFolder | null } {
+  let answer = $state<{ root: string; taskFolder: TaskFolder | null } | null>(null)
+  $effect(() => {
+    const current = taskFolderRootOf(reads.path)
+    void reads.foldersKey
+    if (!reads.active || !current) return
+    let isLive = true
+    untrack(() => reads.read(current))
+      .then((taskFolder) => { if (isLive) answer = { root: current, taskFolder } })
+      .catch(() => { if (isLive) answer = { root: current, taskFolder: null } })
+    return () => { isLive = false }
+  })
+  return {
+    get current() {
+      // An answer for a different task folder is not this run's.
+      const root = taskFolderRootOf(reads.path)
+      return answer && root && sameHostPath(answer.root, root) ? answer.taskFolder : null
+    },
+  }
 }

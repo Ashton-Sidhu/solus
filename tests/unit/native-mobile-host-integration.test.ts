@@ -28,6 +28,7 @@ let publishToAll: (sessionId: string, text: string) => Promise<number> = async (
 const pairedLabels: string[] = []
 const socketRecordReads: { path: string; principal: string }[] = []
 const httpRecordRequests: string[] = []
+let codebaseReads = 0
 
 async function readBody(request: IncomingMessage): Promise<string> {
   let body = ''
@@ -63,6 +64,16 @@ beforeAll(async () => {
     response.end()
   })
   const server = new SolusServer()
+  const { registerSessionDirectoryHandler } = await import('@solus/server/transport/handlers/session-directory-handler')
+  registerSessionDirectoryHandler(server)
+  server.register('serverGetCapabilities', () => ({ sessionDirectoryOpen: true }))
+  server.register('pinnedSessionsList', () => [])
+  server.register('listAttention', () => [])
+  server.register('automationList', () => [])
+  server.register('codebaseList', () => {
+    codebaseReads++
+    return [{ id: 'platform', name: 'Platform', updatedAt: 1, deletedAt: null, roots: [{ installationId: INSTALLATION_ID, path: '/src', name: 'src', container: true }] }]
+  })
   server.register('listProjects', async () => [{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
   // Records go over the socket, with the paired socket's principal as their authority.
   server.register('solusApiRequest', async ([request], ctx) => {
@@ -76,7 +87,7 @@ beforeAll(async () => {
           provider: 'claude-code', title: 'Fix the build', customTitle: null, projectId: null, projectPath: '/work/app',
           projectRemote: null, runnerHostId: null, status: 'idle', model: null, reasoningEffort: null, parentSessionId: null,
           rootSessionId: null, publication: 'local', size: 10, cwd: '/work/app', slug: null, isWorktree: false, branch: null,
-          projectRoot: '/work/app', delegation: null, place: 'project', startedBy: null, codebaseId: null, attachedFolders: [], state: null, view: null, listed: true, pullRequests: [],
+          projectRoot: '/work/app', delegation: null, place: 'project', startedBy: null, codebaseId: 'platform', attachedFolders: [], state: null, view: null, listed: true, pullRequests: [],
         }],
         nextCursor: null,
         indexing: false,
@@ -163,6 +174,18 @@ describe('native client against a disposable host', () => {
     expect(socketRecordReads.length).toBeGreaterThan(0)
     for (const read of socketRecordReads) expect(read).toEqual({ path: expect.stringMatching(/^\/sessions\?/), principal: 'owner' })
     expect(httpRecordRequests).toEqual([])
+
+    // The codebase watch and home list consume the same authorized socket response.
+    const priorReads = socketRecordReads.length
+    const stop = app.codebases.watch()
+    const opening = app.openingDirectory(host.id, 'sessions')
+    expect(opening).toBeDefined()
+    await app.threads.load(host.id, 0, 'all', opening)
+    expect(app.codebases.codebaseOf('platform')?.name).toBe('Platform')
+    expect(app.threads.openingCodebase(host.id, 'platform')?.name).toBe('Platform')
+    expect(codebaseReads).toBe(1)
+    expect(socketRecordReads.slice(priorReads)).toHaveLength(2) // first page and the later archive read
+    stop()
 
     await app.registry.forget(host.id)
     expect(app.connections.state(host.id)).toBeNull()

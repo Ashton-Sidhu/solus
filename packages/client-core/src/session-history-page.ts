@@ -1,3 +1,4 @@
+import type { WatchSessionResult } from '@solus/contracts/types'
 import type { HostApi } from './host-api'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
 
@@ -28,7 +29,15 @@ export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryP
   return left === right || (left.messages.length === right.messages.length && sameHistoryManifest(left, right))
 }
 
-export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0): Promise<SessionHistoryPage> {
+interface HistoryResumeOptions {
+  cachedTurnLimit?(page: SessionHistoryPage): number
+  onResumedWatch?(watch: WatchSessionResult): void
+}
+
+export async function loadSessionHistoryPage(
+  api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0,
+  options?: HistoryResumeOptions,
+): Promise<SessionHistoryPage> {
   if (!readCache) return api.loadSessionPage(request)
   // Bound how long block negotiation can delay the network. A saved page can
   // still paint independently if the disk misses the deadline.
@@ -45,10 +54,19 @@ export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHi
     savedRows += block.count
   }
   if (savedRows !== cached?.messages.length) offsets.clear()
-  const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
+  const window = cached && options?.cachedTurnLimit ? { ...request, turnLimit: options.cachedTurnLimit(cached) } : request
+  const watchRevision = options?.onResumedWatch && savedRows === cached?.messages.length && offsets.size <= 128
+    ? cached?.historyRevision : undefined
+  const { resumedWatch, ...page } = await api.loadSessionPage({
+    ...window, knownHistoryBlocks: [...offsets.keys()].slice(0, 128),
+    ...(watchRevision && { watchIfHistoryRevision: watchRevision }),
+  })
+  if (resumedWatch && watchRevision && watchRevision === page.historyRevision) options?.onResumedWatch?.(resumedWatch)
   if (cached && savedRows === cached.messages.length && !page.messages.length &&
-      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) return cached
-  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(request)
+      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) {
+    return page.historyRevision && page.historyRevision !== cached.historyRevision ? { ...cached, historyRevision: page.historyRevision } : cached
+  }
+  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(window)
 }
 
 /** A missing or invalid block means the host must send the complete page. */

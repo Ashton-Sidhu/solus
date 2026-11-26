@@ -2,7 +2,7 @@ import type { ProviderStartup } from './provider-startup'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
-import type { WireSessionLoadMessage } from './session-history'
+import type { ReplyHtmlLayout, WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { AddMachineAsk } from './add-machine'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
@@ -69,6 +69,7 @@ export interface HostCapabilities {
   name?: string
   /** The sessions API accepts personal list order and shared auto-settle changes. */
   sessionListControls?: boolean
+  sessionDirectoryOpen?: boolean
   /** Session commands this host can admit through its prompt and provider APIs. */
   sessionComposer?: { providerSwitch: boolean; sideChatCommands: boolean }
   attachUpload?: boolean
@@ -1451,6 +1452,9 @@ export interface ToolProgress {
 export interface Message {
   /** Provider thread identity retained through a handoff's combined history. */
   sourceSessionId?: string
+  /** A reply's HTML frames as the history page read them: where each sits in
+   *  `content`, its id, and the heights stored for it by frame width. */
+  replyHtmlLayout?: ReplyHtmlLayout[]
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
   /** A system row that marks a context compaction. Live from the
@@ -2906,6 +2910,8 @@ export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessio
  *  host encodes it as the provider does, and `includeWorktrees` adds the
  *  project's worktree folders beneath it. */
 export interface SessionRecordListFilter {
+  /** Continue after a directory opening page. */
+  cursor?: string
   /** The last complete page this reader still holds. */
   knownRevision?: string
   provider?: AgentId

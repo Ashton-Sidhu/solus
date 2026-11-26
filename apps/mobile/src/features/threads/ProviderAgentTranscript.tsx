@@ -12,6 +12,8 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { SheetHeader } from "../../components/ui/SheetHeader";
 import { hostQueryScopeAtom } from "../../state/host-query-scope";
 import { mobileHost } from "../../state/mobile-host";
+import type { AgentId } from "@solus/contracts/types";
+import { remoteAgentChild } from "../../solus/agent-child-host";
 import { conversationFeed } from "../../solus/conversation-feed";
 import { useSessionController } from "../../solus/use-session-controller";
 import { ReadOnlyThreadHistory } from "./LinkedThreadSheet";
@@ -55,6 +57,8 @@ export function ProviderAgentTranscript({ route }: StaticScreenProps<Target>) {
             key={JSON.stringify([scope, target.threadId, target.toolId])}
             history={history}
             sessionId={target.threadId}
+            environmentId={target.environmentId}
+            provider={controller.run.provider}
             readToolInput={readToolInput}
           />
         ) : (
@@ -71,10 +75,14 @@ export function ProviderAgentTranscript({ route }: StaticScreenProps<Target>) {
 function Transcript({
   history,
   sessionId,
+  environmentId,
+  provider,
   readToolInput,
 }: {
   history: SubagentHistoryStore;
   sessionId: string;
+  environmentId: EnvironmentId;
+  provider: AgentId;
   readToolInput: (key: string) => Promise<string>;
 }) {
   const gt = useGT();
@@ -93,8 +101,9 @@ function Transcript({
         throw new Error("This attachment is unavailable.");
       },
       readToolInput,
+      { provider, child: remoteAgentChild(environmentId) },
     )(model.order).get();
-  }, [sessionId, state.page, readToolInput]);
+  }, [sessionId, state.page, readToolInput, provider, environmentId]);
   const load = (earlier: boolean) => {
     setOlder(earlier);
     return history.load(earlier);

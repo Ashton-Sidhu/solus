@@ -195,7 +195,7 @@
               <img
                 src={imageSrc}
                 alt={label}
-                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
+                class="size-full rounded-lg object-cover outline-1 -outline-offset-1 outline-border/60 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
               />
               {#if upload?.status === 'uploading'}
                 <span class="absolute inset-0 flex items-center justify-center text-white drop-shadow">

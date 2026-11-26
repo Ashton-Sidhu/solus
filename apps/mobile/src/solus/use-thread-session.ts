@@ -99,13 +99,16 @@ export function useThreadSession(params: {
       ? store.controller.readTurnDiff(index)
       : Promise.resolve(null);
   }, [store, hostId, readScope]);
-  // Mount the feed, composer and their host reads together when the first rows arrive.
-  const openingHistory = useSyncExternalStore(
+  // The first page and the screen mount compete for the same JS thread. Let the
+  // page arrive before mounting the editor and a list with no cells to lay out.
+  const waitingForFirstPage = useSyncExternalStore(
     saved?.meta.subscribe ?? subscribeNothing,
     () => !!saved && saved.controller.phase.kind === "loading" &&
       !saved.controller.showsHostConversation && saved.orderSnapshot().length === 0,
   );
-  if (openingHistory && !params.inspector && host?.connectionState === "connected") return { kind: "loading" as const };
+  if (waitingForFirstPage && !params.inspector && host?.connectionState === "connected") {
+    return { kind: "loading" as const };
+  }
   if (isDraft && !record && codebaseId === waitingForCodebase) return { kind: "loading" as const };
   if (
     !store ||

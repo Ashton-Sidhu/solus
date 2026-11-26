@@ -430,7 +430,7 @@ export class UplinkLinkManager {
 export async function registerAndLink(registrar: Pick<HostRegistrar, 'current' | 'register'>, link: UplinkLinkManager, request: HostRegistrationRequest): Promise<void> {
   const wasRegistered = registrar.current() !== null
   await registrar.register(request)
-  if (wasRegistered || !registrar.current()) return
+  if (wasRegistered || !registrar.current() || request.link === false) return
   try {
     await link.link()
   } catch (err) {

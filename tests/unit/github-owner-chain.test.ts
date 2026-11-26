@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { PassThrough, Readable } from 'node:stream'
+import { useGitHubCredentials } from '@solus/server/providers/github/credentials'
+import { runGitCredentialHelper } from '@solus/server/providers/github/git-credential'
 import type { GithubCredentialSource } from '@solus/server/providers/github/credentials'
 import { useHostUser } from '@solus/server/host/host-user'
 import { withUserScope } from '@solus/server/vault/acting-scope'
@@ -13,7 +16,10 @@ import { fakeGithubCredentials, type FakeGithubSources } from './helpers/github-
  */
 
 installTestIdentities()
-afterEach(() => useHostUser(null))
+afterEach(() => {
+  useHostUser(null)
+  useGitHubCredentials(null)
+})
 
 const CHECKOUT = '/checkouts/device-1/app'
 
@@ -97,5 +103,47 @@ describe('the GitHub chain of a signed-in person', () => {
     ])
     expect(await withUserScope('bob', () => credentials.chain('enterprise.example', CHECKOUT))).toEqual([])
     expect(ghCalls).toEqual([])
+  })
+})
+
+describe('the account login reaches a push (solus git-credential)', () => {
+  test('a read of the signed-in owner\'s account keeps a copy for the helper, and sign-out removes it', async () => {
+    // WHY: Solus clones with the account's login; the helper is another process
+    // with no account access, so without the copy a later push finds no login.
+    useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+    const copy = { token: null as string | null }
+    const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null, ownerAccountCopy: copy })
+    await withUserScope('local:mac', () => credentials.chain('github.com'))
+    expect(credentials.ownerAccountCopy()).toBe('alice-account')
+
+    credentials.forgetOwnerAccountCopy()
+    expect(credentials.ownerAccountCopy()).toBeNull()
+  })
+
+  test('the helper answers a github.com push with the owner\'s account copy', async () => {
+    const { credentials } = fakeGithubCredentials({ ownerAccountCopy: { token: 'alice-account' } })
+    useGitHubCredentials(credentials)
+    const stdout = new PassThrough()
+    let answer = ''
+    stdout.on('data', (chunk) => { answer += String(chunk) })
+    await runGitCredentialHelper('get', Readable.from(['protocol=https\nhost=github.com\n\n']), stdout, { kind: 'host' })
+    expect(answer).toBe('username=x-access-token\npassword=alice-account\n')
+  })
+
+  test('a member\'s account login is never copied for the owner\'s helper', async () => {
+    useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+    const copy = { token: null as string | null }
+    const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, ownerAccountCopy: copy })
+    await withUserScope('bob', () => credentials.chain('github.com', CHECKOUT))
+    expect(copy.token).toBeNull()
+  })
+
+  test('an account that does not answer keeps the copy it has', async () => {
+    // WHY: a cloud outage is not a sign-out; the push keeps working.
+    useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+    const copy = { token: 'alice-account' as string | null }
+    const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null, ownerAccountCopy: copy, account: () => new Response('unavailable', { status: 503 }) })
+    await withUserScope('local:mac', () => credentials.chain('github.com'))
+    expect(copy.token).toBe('alice-account')
   })
 })

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildSidebarListItems,
   filterPinnedEntries,
+  groupSidebarListItems,
   type PinnedEntry,
   sidebarListOrderKey,
   type SidebarListInput,
@@ -95,8 +96,7 @@ describe('the sidebar as one list', () => {
       .toMatchObject({ canToggle: true })
   })
 
-  test('a row that starts or finishes a turn keeps its card, so it slides between sections', () => {
-    // WHY: a remount would fade the row out and in instead of moving it.
+  test('a row that starts or finishes a turn keeps its card shape', () => {
     const idle = list({ sessions: [row('s1'), row('a1')] })
     const busy = list({ sessions: [row('s1')], working: [row('a1')] })
     expect(idle.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
@@ -142,6 +142,26 @@ describe('the sidebar as one list', () => {
     expect(list({}).map((item) => item.key)).toEqual([])
   })
 
+  test('each shelf has its own rows while pins and active sessions stay in the main list', () => {
+    const { mainRows, shelves } = groupSidebarListItems(list({
+      pinned: [pin('pin')],
+      sessions: [row('active')],
+      shared: [row('shared')],
+      working: [row('working')],
+      isWorkingOpen: false,
+      snoozed: [row('snoozed', 'snoozed')],
+      completed: [row('completed', 'completed')],
+    }))
+
+    expect(mainRows.map((item) => item.key)).toEqual(['pinned:local:pin', 'active:card'])
+    expect(shelves.map(({ header, rows }) => [header.section, rows.map((item) => item.key)])).toEqual([
+      ['shared', ['shared:card']],
+      ['working', []],
+      ['snoozed', ['snoozed:slim']],
+      ['completed', ['completed:slim']],
+    ])
+  })
+
   test('sessions stand without a header and never collapse', () => {
     // WHY: a Sessions header would only divide the sessions from nothing, and
     // a collapsed one would hide the work in front of the user.
@@ -149,10 +169,7 @@ describe('the sidebar as one list', () => {
       .toEqual(['a1:card', 'a2:card'])
   })
 
-  test('a row moving from Snoozed to Completed keeps its key, so it slides', () => {
-    // WHY: one list is what lets a section change animate as a move. The order
-    // key must change (so motion runs) while the element key stays (so the
-    // same element travels rather than one fading out and another in).
+  test('a row moving from Snoozed to Completed keeps its slim row key', () => {
     const before = list({ snoozed: [row('t', 'snoozed')], completed: [row('c', 'completed')] })
     const after = list({ completed: [row('t', 'completed'), row('c', 'completed')] })
     const keyOf = (items: typeof before) => items.find((item) => item.kind === 'task' && item.task.id === 't')?.key

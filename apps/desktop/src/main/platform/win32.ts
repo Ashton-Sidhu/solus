@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
-import { desktopCapturer, Menu, nativeImage, screen } from 'electron'
+import { desktopCapturer, Menu, nativeImage, screen, shell } from 'electron'
 import { WINDOWS_KEYS } from '@solus/workspace-ui/lib/keybindings/key-platform'
 import { findOnPath, hostCliEnv, warmCliPath } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
@@ -12,6 +12,7 @@ import type { DesktopPlatform } from './desktop-platform'
 import { BADGE_PIXELS, badgeBitmap, badgeLabel } from './win32-badge'
 import { windowsEditorProgram, windowsInstallRoots } from './win32-editors'
 import { windowsTerminalLaunch, type WindowsTerminalPrograms } from './win32-terminal'
+import { windowsAppLaunchers } from './win32-app-launchers'
 
 const log = createLogger('main', 'platform-win32')
 
@@ -107,6 +108,8 @@ export const win32Platform: DesktopPlatform = {
       return startDetached(program, [...(app.args ?? []), ...filePaths], undefined, app.name)
     },
   },
+
+  appLaunchers: (install) => windowsAppLaunchers(install, shell),
 
   async captureScreen(path) {
     // Windows gives an app no region picker to wait on, so a capture takes the

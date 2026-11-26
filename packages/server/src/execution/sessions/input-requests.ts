@@ -1,4 +1,5 @@
 import { questionReply } from '@solus/contracts/question-history'
+import { addMachineOutcomeAnswers } from '@solus/contracts/add-machine'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { claimAsyncQuestion, pendingAsyncQuestions, saveAsyncAnswer, settleAsyncQuestion } from '../../data/sessions/async-questions'
@@ -7,6 +8,7 @@ import type { AgentBackend } from '../agents/agent-backend'
 import type { NormalizedEvent, PermissionDecision } from '@solus/contracts/types'
 import { type Actor } from '../../admission/actor'
 import type { SessionRuntime } from '../session-runtime'
+import { declineSecretRequests } from './secret-requests'
 
 const log = createLogger('SessionRuntime', 'input-requests.ts')
 
@@ -206,6 +208,28 @@ export class InputRequests {
     this.clearPendingInputEvent(questionId)
     this.questionIdToSession.delete(questionId)
     return true
+  }
+
+  /**
+   * A person sent a message instead of an answer: decline each open card that
+   * the composer does not take as the answer, so the turn goes on and the
+   * message steers it. These are a secret card, an Add machine card, an MCP
+   * elicitation, and a permission (as mobile does before it sends). A plan and
+   * a question stay open: the composer sends the text as their answer.
+   */
+  async declineForMessage(sessionId: string, actor: Actor): Promise<void> {
+    declineSecretRequests(sessionId)
+    for (const event of [...(this.rt.activeSessions.get(sessionId)?.pendingInputEvents ?? [])]) {
+      if (event.type === 'permission_request' && event.toolName !== 'ExitPlanMode') {
+        const deny = event.options.find((option) => option.kind === 'deny')
+        if (deny) this.respondToPermission(sessionId, event.questionId, deny.id, undefined, actor)
+      } else if (event.type === 'question_request' && event.kind === 'host-link') {
+        await this.respondToQuestion(sessionId, event.questionId, addMachineOutcomeAnswers({ status: 'declined' }), actor)
+      } else if (event.type === 'question_request' && (event.kind === 'mcp_form' || event.kind === 'mcp_url')) {
+        await this.respondToQuestion(sessionId, event.questionId, { __action: 'decline' }, actor)
+      } else continue
+      log.info('pending_input_declined_by_message', { sessionId, questionId: event.questionId, type: event.type })
+    }
   }
 
   /** The request `askingSessionId` is waiting on under `questionId`, with the

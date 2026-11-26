@@ -272,4 +272,16 @@ describe('where a send moves the conversation', () => {
     // Both are sends, so both glide to the end.
     expect(scrollRequests.every((request) => request.sent !== undefined)).toBe(true)
   })
+
+  test('the first prompt of a fork keeps the copied history above it in view', () => {
+    // WHY: a fork starts a new thread, but its transcript shows the turns it
+    // copied. Moving the prompt to the top hid them, as in an existing session.
+    const { session, send, scrollRequests } = harness()
+    const forked = session as unknown as { forked: boolean; forkedFromSessionId: string | null }
+    forked.forked = true
+    forked.forkedFromSessionId = null
+    session.messages.push({ id: 'copied-prompt', role: 'user', content: 'Earlier question', timestamp: 1 }, { id: 'copied-reply', role: 'assistant', content: 'Earlier answer', timestamp: 2 })
+    send('Follow up in the fork')
+    expect(scrollRequests.at(-1)?.sent).toEqual({ firstMessageId: undefined })
+  })
 })

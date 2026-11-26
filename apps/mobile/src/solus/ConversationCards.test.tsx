@@ -15,6 +15,10 @@ import {
 import { PendingApprovalCard } from "../features/threads/PendingApprovalCard";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
+import { EnvironmentId } from "@t3tools/contracts";
+import { ThreadSubagentGroup } from "../features/threads/thread-subagent-group";
+import { conversationFeed } from "./conversation-feed";
+import { remoteAgentChild } from "./agent-child-host";
 import { ConversationCard } from "./ConversationCard";
 import { BackgroundCommandRow } from "../features/threads/BackgroundCommandRow";
 
@@ -79,6 +83,8 @@ vi.mock("./runtime", () => ({
 }));
 // The dots read app state and screen focus; these tests are about what a card opens.
 vi.mock("../components/ProviderIcon", () => ({ ProviderIcon: () => null }));
+vi.mock("../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
+vi.mock("../features/threads/use-visible-second-clock", () => ({ useVisibleSecondClock: () => 0 }));
 vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
 vi.mock("../features/threads/LinkRequestCard", () => ({
   LinkRequestCard: ({
@@ -94,6 +100,15 @@ vi.mock("../features/threads/LinkRequestCard", () => ({
       Add machine on {sessionHostId}
     </button>
   ),
+}));
+vi.mock("../state/server", () => ({ serverEnvironment: { configValueAtom: () => null } }));
+vi.mock("../state/threads", () => ({ environmentThreadDetails: { threadAtom: () => null } }));
+vi.mock("@effect/atom-react", async (original) => ({
+  ...await original<typeof import("@effect/atom-react")>(), useAtomValue: () => null,
+}));
+vi.mock("../state/entities", () => ({ useServerConfigs: () => new Map(), useThreadShell: () => null, useEnvironmentServerConfig: () => null, useProject: () => null }));
+vi.mock("../state/linkedThread", () => ({
+  useLinkedThreadReach: () => ({ ownConnection: () => undefined, isLinked: () => true }),
 }));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
@@ -165,6 +180,7 @@ vi.mock("gt-react-native", async (importOriginal) => {
   const { gtFallback } = await importOriginal<typeof import("gt-react-native")>();
   return {
     msg: (value: string) => value,
+    Var: ({children}: {children: ReactNode}) => <>{children}</>,
     T: ({children}: {children: ReactNode}) => <>{children}</>,
     useGT: () => gtFallback,
     useMessages: () => (value: string) => value,
@@ -352,7 +368,7 @@ it("shows the exit code immediately and keeps terminal output behind the disclos
   expect(container.textContent).not.toContain("# 1 failed");
 });
 
-it.each(["screen", "inspector", "linked host"] as const)("opens a child with one tap (%s)", async (destination) => {
+it.each(["screen", "inspector", "linked host"] as const)("opens an upstream child row with one tap (%s)", async (destination) => {
   vi.clearAllMocks();
   host.inspect.mockReturnValue(destination === "inspector");
   const { store, root, container } = await fixture();
@@ -366,43 +382,58 @@ it.each(["screen", "inspector", "linked host"] as const)("opens a child with one
       reasoningEffort: "high", prompt: "Review it", dispatchedAt: 1,
     },
   });
-  model.apply({
-    type: "agent_conversation_update",
-    update: {
-      phase: "settled", sessionId: "child", messageId: "exchange", status: "completed",
-      replyText: "Reviewed", settledAt: 2,
-    },
-  });
-  await act(async () => root.render(<ConversationCard store={store} id={model.agentRows[0]!.id} />));
-  expect(container.textContent).toContain("Claude Code · Fable 5.2 · High");
-  await act(async () => container.querySelector("button")!.click());
+  const reader = conversationFeed(store, "session", () => null, async path => path, async key => key,
+    { provider: "claude-code", child: remoteAgentChild("host") })(model.order);
+  const group = reader.get()[0];
+  if (group?.type !== "activity-group") throw new Error("Expected an upstream agent group");
+  await act(async () => root.render(<ThreadSubagentGroup activities={group.activities}
+    environmentId={EnvironmentId.make("host")} anchorKey={group.id} expandedRows={{}}
+    iconSubtleColor="gray" onToggleRow={() => { throw new Error("Single child expanded"); }} />));
+  const row = container.querySelector("button")!;
+  expect(row.textContent).toContain("Review");
+  await act(async () => row.click());
   if (destination === "linked host") {
     expect(host.dispatch).toHaveBeenCalledWith({
       name: "LinkedThread",
-      params: {
-        environmentId: "remote", threadId: "child", viaEnvironmentId: "host",
-        parentSessionId: "session", label: "Host", title: "Review",
-      },
+      params: { environmentId: "remote", threadId: "child", viaEnvironmentId: "host",
+        parentSessionId: "session", label: "Host", title: "Review" },
     });
-    expect(host.read).not.toHaveBeenCalled();
-    return;
-  }
-  expect(host.inspect).toHaveBeenCalledWith(
-    { environmentId: "host", threadId: "session" },
-    { type: "thread", environmentId: "host", threadId: "child" },
-  );
-  expect(host.read).toHaveBeenCalledWith("child");
-  expect(host.remember).toHaveBeenCalledWith(
-    expect.objectContaining({ hostId: "host", record: { sessionId: "child" } }),
-  );
-  if (destination === "inspector") {
+  } else if (destination === "inspector") {
+    expect(host.inspect).toHaveBeenCalledWith(
+      { environmentId: "host", threadId: "session" },
+      { type: "thread", environmentId: "host", threadId: "child" },
+    );
     expect(host.dispatch).not.toHaveBeenCalled();
-    return;
+  } else {
+    expect(host.dispatch).toHaveBeenCalledWith({
+      name: "Thread", params: { environmentId: "host", threadId: "child" },
+    });
   }
-  expect(host.dispatch).toHaveBeenCalledWith({
-    name: "Thread",
-    params: { environmentId: "host", threadId: "child" },
-  });
+});
+it("expands an upstream group to one row per provider agent and collapses it again", async () => {
+  const { store, root, container } = await fixture();
+  const { model } = store.controller;
+  for (const [index, description] of ["Read policy", "Check clients"].entries()) {
+    const toolId = "call-" + index;
+    model.apply({ type: "tool_call", toolName: "Agent", toolId, index, isSubagent: true });
+    model.apply({ type: "tool_call_complete", toolId, index, toolInput: JSON.stringify({ description }) });
+  }
+  const reader = conversationFeed(store, "session", () => null, async path => path, async key => key,
+    { provider: "claude-code", child: remoteAgentChild("host") })(model.order);
+  const group = reader.get()[0];
+  if (group?.type !== "activity-group") throw new Error("Expected a subagent group");
+  const renderGroup = (expanded: boolean) => root.render(<ThreadSubagentGroup
+    activities={group.activities} environmentId={EnvironmentId.make("host")}
+    anchorKey={group.id} expandedRows={{ [group.id]: expanded }}
+    iconSubtleColor="gray" onToggleRow={() => renderGroup(!expanded)} />);
+  await act(async () => renderGroup(false));
+  const header = container.querySelector("button")!;
+  expect(container.textContent).not.toContain("Read policy");
+  await act(async () => header.click());
+  expect(container.textContent).toContain("Read policy");
+  expect(container.textContent).toContain("Check clients");
+  await act(async () => header.click());
+  expect(container.textContent).not.toContain("Check clients");
 });
 it("routes a child plan approval to the child instead of accepting the parent plan", async () => {
   const { store, container, root } = await fixture();

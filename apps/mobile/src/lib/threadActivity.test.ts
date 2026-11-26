@@ -16,7 +16,8 @@ import {
 } from "@t3tools/contracts";
 import { summarizeToolGroup } from "@t3tools/client-runtime/work-log/presentation";
 import * as DateTime from "effect/DateTime";
-import { describe, expect, it } from "vite-plus/test";
+import { m } from "../i18n/messages";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   buildThreadFeed,
@@ -448,6 +449,29 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  it("resolves a collapsed host read's label only when displayed, once for both views", () => {
+    const item = {
+      ...base("read", "2026-08-29T00:00:00.000Z", 1), type: "dynamic_tool" as const,
+      toolName: "Read", input: { file_path: "/repo/source.ts" }, output: null,
+    };
+    const calls = vi.fn();
+    const resolve: typeof m = (message, options) => {
+      calls();
+      return m(message, options);
+    };
+    const [group] = buildThreadFeed([
+      { ...projected(item, 0), hostTool: { hasDetail: true } },
+    ], { resolve });
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") throw new Error("Expected the tool group");
+    const activity = group.activities[0]!;
+    expect(calls).not.toHaveBeenCalled();
+    expect(activity.workEntry.label).toContain("source.ts");
+    expect(activity.summary).toBe(activity.workEntry.label);
+    expect(activity.getCopyText().split("\n")[0]).toBe(activity.summary);
+    expect(calls).toHaveBeenCalledOnce();
+  });
+
   it("keeps async answers in question history instead of user bubbles", () => {
     const requestId = RuntimeRequestId.make("question");
     const question: OrchestrationV2TurnItem = {

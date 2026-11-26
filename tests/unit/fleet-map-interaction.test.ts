@@ -4,6 +4,7 @@ import type { ReachedMachine } from '@solus/client-core/reached-machines'
 import { fleetMachine, machinesByZone, mapLayout, MAP_HEIGHT, OPEN_ZONE_CARDS, type FleetMachineInput } from '@solus/workspace-ui/components/fleet/lib/fleet-model'
 import { anchorView, centerOn, fitView, frameHeight, FRAME_HEIGHT, IDENTITY_VIEW, revealRect, toFrame, VIEW_SCALE, zoomView } from '@solus/workspace-ui/components/fleet/lib/fleet-view'
 import { foundStop, nextFleetStop, type FleetStop } from '@solus/workspace-ui/components/fleet/lib/fleet-keys'
+import { dragCurve, dragHint, dragStart, snapPoint } from '@solus/workspace-ui/components/fleet/lib/fleet-drag'
 import { fanRoutes, MAX_WIRES, ROUTE_WIRE_STYLES, type WireRoute } from '@solus/workspace-ui/components/fleet/lib/fleet-routes'
 import { introduceAction, introduceBlock, MAX_REACH_LANES, reachEdges, reachLanes, reachNeighbors, reachPaths, REACH_STYLES, type ReachHealth } from '@solus/workspace-ui/components/fleet/lib/fleet-reach'
 
@@ -29,12 +30,12 @@ describe('the frame of the map', () => {
   // one must stay readable: shrinking a tall map until no name can be read hides
   // the hosts as surely as cutting them off.
   test('a map that fits is shown as it is', () => {
-    expect(fitView({ w: 800, h: 416 }, { w: 800, h: frameHeight(416) })).toEqual({ scale: 1, x: 0, y: 0 })
+    expect(fitView({ w: 800, h: FRAME_HEIGHT.min }, { w: 800, h: frameHeight(FRAME_HEIGHT.min) })).toEqual({ scale: 1, x: 0, y: 0 })
   })
 
   test('the frame grows with the map, then stops', () => {
     expect(frameHeight(100)).toBe(FRAME_HEIGHT.min)
-    expect(frameHeight(600)).toBe(600)
+    expect(frameHeight(700)).toBe(700)
     expect(frameHeight(5000)).toBe(FRAME_HEIGHT.max)
   })
 
@@ -311,5 +312,46 @@ describe('the keys of the map', () => {
     const matches = [{ label: 'zeta' }, { label: 'alpha' }, { label: 'mid' }]
     expect([0, 1, 2, 3].map((index) => foundStop(matches, index)?.label)).toEqual(['alpha', 'mid', 'zeta', 'alpha'])
     expect(foundStop([], 0)).toBeNull()
+  })
+})
+
+describe('the line a dragged handle draws', () => {
+  // WHY: the line is how the person aims a drop. It must leave the handle in the
+  // direction it travels and end on the edge of the host it will act on, so the
+  // map never shows a line that points somewhere the drop does not go.
+  test('it meets a target at the nearest edge, coming in against it', () => {
+    const rect = { x: 100, y: 100, w: 200, h: 50 }
+    expect(snapPoint({ x: 0, y: 125 }, rect)).toEqual({ point: { x: 100, y: 125 }, normal: { x: -1, y: 0 } })
+    expect(snapPoint({ x: 500, y: 130 }, rect)).toEqual({ point: { x: 300, y: 125 }, normal: { x: 1, y: 0 } })
+    expect(snapPoint({ x: 200, y: 0 }, rect)).toEqual({ point: { x: 200, y: 100 }, normal: { x: 0, y: -1 } })
+    // A card right below the one the handle is on: its left edge is nearer than its top.
+    expect(snapPoint({ x: 100, y: 50 }, rect).normal).toEqual({ x: -1, y: 0 })
+  })
+
+  test('it leaves the handle the way the handle faces, and enters an edge straight on', () => {
+    // A handle on the left of a card, snapped to the left edge of the card below: an arc out to the left.
+    expect(dragCurve({ x: 100, y: 0 }, { x: -1, y: 0 }, { x: 100, y: 100 }, { x: -1, y: 0 })).toBe('M 100 0 C 60 0, 60 100, 100 100')
+    // A handle under This device: down first, then into the right edge of a card to its left.
+    expect(dragCurve({ x: 400, y: 100 }, { x: 0, y: 1 }, { x: 100, y: 300 }, { x: 1, y: 0 })).toBe('M 400 100 C 400 220, 220 300, 100 300')
+    // A free end eases into the pointer.
+    expect(dragCurve({ x: 0, y: 0 }, { x: -1, y: 0 }, { x: 10, y: 0 }, null)).toBe('M 0 0 C -28 0, 10 0, 10 0')
+  })
+
+  test('it starts on the side of its source that faces the target, so it never crosses its own card', () => {
+    const card = { x: 100, y: 100, w: 200, h: 50 }
+    expect(dragStart(card, 'left', { x: 600, y: 120 })).toEqual({ point: { x: 300, y: 125 }, normal: { x: 1, y: 0 } })
+    expect(dragStart(card, 'left', { x: 20, y: 300 })).toEqual({ point: { x: 100, y: 125 }, normal: { x: -1, y: 0 } })
+    // A card right below: the handle's own side.
+    expect(dragStart(card, 'left', { x: 200, y: 200 }).normal).toEqual({ x: -1, y: 0 })
+    expect(dragStart(card, 'bottom', { x: 200, y: 300 })).toEqual({ point: { x: 200, y: 150 }, normal: { x: 0, y: 1 } })
+  })
+
+  test('the label says what the drop would do, and where a drop is taken', () => {
+    const labelOf = (id: string) => id
+    expect(dragHint({ action: { kind: 'introduce', sourceId: 'a', targetIds: ['b'], skipped: [] }, foundName: null, labelOf })).toEqual({ text: 'Introduce to b', tone: 'ok' })
+    expect(dragHint({ action: { kind: 'introduce', sourceId: 'a', targetIds: ['b', 'c', 'd'], skipped: [] }, foundName: null, labelOf }).text).toBe('Introduce to b and 2 more')
+    expect(dragHint({ action: { kind: 'explain', message: 'no' }, foundName: null, labelOf }).tone).toBe('no')
+    expect(dragHint({ action: null, foundName: 'sidhu', labelOf })).toEqual({ text: 'Add sidhu', tone: 'ok' })
+    expect(dragHint({ action: null, foundName: null, labelOf }).tone).toBe('none')
   })
 })

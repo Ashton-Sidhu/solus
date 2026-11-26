@@ -1,4 +1,4 @@
-import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, PromptSender, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
+import type { AgentId, ContextCompaction, ExchangeProgress, SessionDescription, WatchSessionResult, PromptImageRef, PromptSender, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
 import type { SessionReport } from './session-exchange'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
@@ -28,6 +28,10 @@ export interface SessionHistoryPageRequest {
   deferArtifactHtml?: boolean
   /** Hashes of groups of rows held by this reader. Only these clients receive a historyBlocks manifest. */
   knownHistoryBlocks?: string[]
+  /** Join the settled session when this authorized opening page is still current. */
+  watchIfHistoryRevision?: string
+  /** Include the description and join the requesting reader to a settled session. Opening page only. */
+  openSession?: boolean
   /** Include layout for HTML pages inside assistant replies. */
   replyLayout?: boolean
   /** Return composer file paths separately from the text of the prompt. */
@@ -89,6 +93,12 @@ export interface HistoryBlock {
 }
 
 export interface SessionHistoryPage {
+  /** Hash of the ordered blocks, earlier cursor and turn diffs. Stable across host restarts. */
+  historyRevision?: string
+  /** Live state for this connection only. Never persist it with the page. */
+  resumedWatch?: WatchSessionResult
+  /** Connection-scoped opening metadata. Never persist it with the page. */
+  openingDescription?: SessionDescription
   historyBlocks?: HistoryBlock[]
   messages: WireSessionLoadMessage[]
   before: string | null
@@ -184,6 +194,15 @@ export interface ReplyHtmlLayout {
   title: string
   height: number
   heights?: Array<readonly [width: number, height: number]>
+}
+
+/** A height a client measured for a reply's HTML frame at one frame width.
+ *  `attachmentId` is the frame's id from the page's `replyHtmlLayout`. */
+export interface ArtifactFrameHeightReport {
+  sessionId: string
+  attachmentId: string
+  width: number
+  height: number
 }
 
 /** History row shape allowed across the host-to-client boundary. */

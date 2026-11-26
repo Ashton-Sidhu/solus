@@ -2,7 +2,7 @@
  * A reference chip selects as one word: a selection never ends inside it.
  *
  * A chip shows a short label, and its copy-only text carries the whole link
- * (`linkChipCopyParts`). A selection that ended part way into the chip copied
+ * (`fileLinkCopyParts`). A selection that ended part way into the chip copied
  * half a link (`see [fo`). So when an end of a selection falls inside a chip,
  * this moves it to the chip's edge: the end that grows the selection takes the
  * whole chip, and the end that shrinks it leaves the whole chip out.

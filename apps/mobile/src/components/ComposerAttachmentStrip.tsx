@@ -209,7 +209,8 @@ function ComposerImageAttachment(
             if (previewUri !== null)
               rememberDraftImage(attachment.id, {
                 uri: previewUri,
-                aspectRatio: source.width / source.height,
+                width: source.width,
+                height: source.height,
               });
           }}
         />

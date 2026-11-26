@@ -9,6 +9,7 @@ import { installWindowSolusApi, mergeNativeOnlySolusApi } from '@solus/client-co
 import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import type { LocalConnectionInfo, NativeSolusAPI } from '@solus/contracts/host-api'
+import { appWindowRequestOf, type AppWindowRequest } from '@solus/contracts/app-shortcuts'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
@@ -123,4 +124,31 @@ async function boot(): Promise<void> {
   }))
 }
 
-void boot().catch(renderBootError)
+/**
+ * The page of an app window (docs/app-shortcuts.md §2): the same first steps
+ * as the workspace window, then one app and nothing else. It does not run the
+ * workspace modules and it does not dial the catalog's hosts: the app window
+ * dials the host of its app when it knows which one that is.
+ */
+async function bootAppWindow(request: AppWindowRequest): Promise<void> {
+  if (request.name) document.title = request.name
+  const nativeApi = window.solusNative
+  if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
+  const local = await getLocalConnection(nativeApi)
+  if (local) {
+    const host = localHost(local)
+    bootHost = host
+    hostCatalog.addPageHost(host)
+    serverConnections.attachNativeBridge(host.id, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
+    installWindowSolusApi(serverConnections.setPrimary(host.id).api)
+  } else {
+    bootWithoutLocalHost(nativeApi)
+  }
+  await hostCatalog.load()
+  const [{ mount }, { default: AppWindow }] = await Promise.all([import('svelte'), import('./shell/AppWindow.svelte')])
+  root.innerHTML = ''
+  mount(AppWindow, { target: root, props: { request } })
+}
+
+const appWindowRequest = appWindowRequestOf(window.location.search)
+void (appWindowRequest ? bootAppWindow(appWindowRequest) : boot()).catch(renderBootError)

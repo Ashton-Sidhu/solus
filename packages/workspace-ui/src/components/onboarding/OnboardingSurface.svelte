@@ -1,259 +1,219 @@
 <script lang="ts">
   /**
-   * First-run onboarding, over the whole client.
-   *
-   * A few questions and a greeting, each on its own full-bleed stage. There is
-   * no rail and no summary: the flow is short enough to hold in the head, and
-   * every stage reports its own state as it goes.
-   *
-   * The surface holds an exclusive keybinding scope for as long as it is up, so
-   * no shortcut can act on the workspace behind it.
+   * First-run onboarding as one page (docs/plans/one-page-onboarding.md): the
+   * header, the timeline of steps, and the footer with Skip (`esc`) and the
+   * one primary (`↵`). Desktop and web mount it over the workspace; it holds
+   * an exclusive keybinding scope while it is up, so no shortcut acts on the
+   * workspace behind it.
    */
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
+  import { cloudAccount } from "@solus/client-core/cloud-account";
+  import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { Moon as MoonIcon, Sun as SunIcon } from "@lucide/svelte";
-  import {
-    getSettingsContext,
-    getWorkspaceContext,
-    projectsStore,
-  } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext, projectsStore, serversStore } from "../../contexts";
   import { openChatDraft } from "../../contexts/workspace/new-chat";
+  import { openFolder } from "../../contexts/workspace/run-location";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import OnboardingMark from "./OnboardingMark.svelte";
-  import { onboardingStore as store } from "./onboarding.store.svelte";
-  import OnboardingAgentsStage from "./OnboardingAgentsStage.svelte";
-  import OnboardingGesturesStage from "./OnboardingGesturesStage.svelte";
-  import OnboardingHostStage from "./OnboardingHostStage.svelte";
-  import OnboardingStartStage from "./OnboardingStartStage.svelte";
-  import OnboardingComputeStage from "./OnboardingComputeStage.svelte";
-  import OnboardingAccountGithubStage from "./OnboardingAccountGithubStage.svelte";
-  import OnboardingProjectStage from "./OnboardingProjectStage.svelte";
-  import OnboardingNameProjectStage from "./OnboardingNameProjectStage.svelte";
-  import OnboardingOpenProjectStage from "./OnboardingOpenProjectStage.svelte";
-  import OnboardingCloudConnectStage from "./OnboardingCloudConnectStage.svelte";
+  import AgentsStep from "./AgentsStep.svelte";
+  import CloudAgentsStep from "./CloudAgentsStep.svelte";
+  import CodeStep from "./CodeStep.svelte";
+  import MachineStep from "./MachineStep.svelte";
+  import OnboardingFooter from "./OnboardingFooter.svelte";
+  import OnboardingHeader from "./OnboardingHeader.svelte";
+  import OnboardingIntro from "./OnboardingIntro.svelte";
+  import PhoneStep from "./PhoneStep.svelte";
+  import ProjectsStep from "./ProjectsStep.svelte";
+  import ReachStep from "./ReachStep.svelte";
+  import SetupStep from "./SetupStep.svelte";
+  import TimelineStep from "./TimelineStep.svelte";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
-  import type { OnboardingMode } from "./lib/onboarding-model";
-  import { openFolder } from "../../contexts/workspace/run-location";
+  import { onboardingStore as store, type OnboardingEnd } from "./onboarding.store.svelte";
+  import { SIGNING_IN_COPY, stepCopy } from "./lib/step-copy";
+  import { isTypingTarget } from "./lib/onboarding-keys";
 
   const settings = getSettingsContext();
   const workspace = getWorkspaceContext();
   const keybindings = getKeybindingsContext();
 
-  const stage = $derived(store.stage);
+  let primaryButton = $state<HTMLButtonElement | null>(null);
+  let shell = $state<HTMLDivElement | null>(null);
+
+  const facts = $derived(store.copyFacts);
+  const organization = $derived(cloud.organization);
+  const subject = $derived(
+    store.flow === "cloud"
+      ? (organization?.name ?? "your organization")
+      : (serversStore.hostFor(store.serverId)?.label ?? `this ${facts.machineNoun}`),
+  );
+  const canRename = $derived(store.flow === "cloud" && organization?.namePending === true && organization.role === "owner");
 
   onMount(() => {
     store.start();
     const releaseScope = keybindings.pushScope("onboarding", true);
-    return () => {
-      releaseScope();
-      store.stop();
-    };
+    if (!store.showsIntro) void focusPrimary();
+    return releaseScope;
   });
 
-  /** Ends the flow with a new chat, which is also what Skip setup does. */
-  function finishWithChat() {
-    if (store.flow === "cloud") {
-      void finishCloud(false);
+  async function focusPrimary() {
+    await tick();
+    primaryButton?.focus();
+  }
+
+  function endIntro() {
+    store.endIntro();
+    void focusPrimary();
+  }
+
+  function after(end: OnboardingEnd) {
+    if (end === "finish") finish();
+    else void focusPrimary();
+  }
+
+  async function runPrimary() {
+    after(await store.primary(workspace));
+  }
+
+  function runSecondary() {
+    if (store.footer.secondary === "invite") {
+      const url = cloudAccount()?.consoleUrl;
+      if (url) void localApi.openExternal(url);
       return;
     }
-    store.chooseMode("chat");
-    settings.setLayout("onboardingCompleted", true);
-    // The boot-time start() probed agent binaries before onboarding had a
-    // chance to install or repair anything, and a stale "Not installed" would
-    // otherwise survive into the agent picker until the next launch.
-    void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    openChatDraft(workspace, "click");
+    after(store.skip());
+  }
+
+  function edit(step: Parameters<typeof store.edit>[0]) {
+    store.edit(step);
+    void focusPrimary();
   }
 
   /**
-   * Ends the cloud flow for the account, on every device, and opens the work
-   * it chose: the repository, cloned before the flow closes so its draft is
-   * ready to send, else the person's workspace on the chosen machine.
+   * Ends onboarding where the next natural step is typing: a draft in the
+   * repository or the first chosen project, else a new chat, with the
+   * composer focused.
    */
-  async function finishCloud(withProject: boolean) {
-    // A repository that could not be prepared keeps the flow open on its step.
-    if (withProject && !(await cloud.openChosenRepository(workspace))) return;
-    // Reopened from a "Get started" row: skipping only closes it again; the
-    // person is already in the workspace and a new session would be noise.
-    const wasReopened = cloud.reopenedAt !== null;
-    void cloud.complete();
+  function finish() {
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    if (!withProject && !wasReopened) cloud.landInChat(workspace);
-    requestInputFocus();
-  }
-
-  /**
-   * Ends either flow once the project exists — named new, or chosen from
-   * existing code: a draft opens in it on its host with the composer focused,
-   * because the next thing to do is say what to build.
-   */
-  function finishWithProject(
-    mode: Exclude<OnboardingMode, "chat">,
-    project: { serverId: string; path: string },
-  ) {
     if (store.flow === "cloud") {
+      // Reopened from a "Get started" row: the person is already in the workspace.
+      const wasReopened = cloud.reopenedAt !== null;
+      if (store.isReady && cloud.chosenRepositoryKey) cloud.openChosenRepository(workspace);
+      else if (!wasReopened) {
+        cloud.chooseDefaultHost();
+        cloud.landInChat(workspace);
+      }
       void cloud.complete();
-    } else {
-      store.chooseMode(mode);
-      settings.setLayout("onboardingCompleted", true);
+      requestInputFocus();
+      return;
     }
-    void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
-    projectsStore.addProject(project.serverId, serverConnections.apiFor(project.serverId), project.path);
-    const draft = workspace.drafts.openSessionDraft(
-      { freshTask: true, target: "leading" },
-      project.path,
-    );
-    draft.moveTo(openFolder(draft.run.location, { serverId: project.serverId, path: project.path }));
+    settings.setLayout("onboardingCompleted", true);
+    const path = store.landingProjectPath;
+    const serverId = store.serverId;
+    if (path && serverId) {
+      projectsStore.addProject(serverId, serverConnections.apiFor(serverId), path);
+      const draft = workspace.drafts.openSessionDraft({ freshTask: true, target: "leading" }, path);
+      draft.moveTo(openFolder(draft.run.location, { serverId, path }));
+    } else {
+      openChatDraft(workspace, "click");
+    }
     requestInputFocus();
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (stage === "intro") {
+    if (store.showsIntro) {
       event.preventDefault();
-      store.endIntro();
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      // Naming a project or choosing its folder is a step into the start
-      // stage, so Escape steps back out.
-      if (stage === "name-project" || stage === "open-project" || stage === "project") store.back();
-      else finishWithChat();
+      endIntro();
       return;
     }
     const target = event.target instanceof HTMLElement ? event.target : null;
-    const inField =
-      target?.tagName === "INPUT" ||
-      target?.tagName === "TEXTAREA" ||
-      target?.isContentEditable === true;
-    if (event.key !== "Enter" || inField || target?.tagName === "BUTTON") return;
-    // Only the stages with nothing to satisfy answer to Enter. The agents
-    // stage dims Continue until an agent is ready, and a keystroke that walks past a gate the button honours is worse than no
-    // shortcut at all.
-    if (stage === "start") {
+    // A dialog or menu opened from a step (the folder picker, the size menu) keeps its own keys.
+    if (target && target !== document.body && !shell?.contains(target)) return;
+    if (event.key === "Escape") {
       event.preventDefault();
-      store.nameNewProject();
-    } else if (stage === "cloud-connect") {
-      // A focused Connect button keeps Enter, so connecting stays keyboard-reachable.
-      event.preventDefault();
-      store.advance();
-    } else if (stage === "getting-around") {
-      event.preventDefault();
-      store.advance();
+      // Escape in a field leaves the field first.
+      if (target && isTypingTarget(target)) target.blur();
+      else runSecondary();
+      return;
     }
+    if (event.key !== "Enter" || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+    // Fields, buttons, and links answer Enter themselves; a radio row's Enter is the primary.
+    if (target && (isTypingTarget(target) || (target.closest("button, a") && target.getAttribute("role") !== "radio"))) return;
+    event.preventDefault();
+    void runPrimary();
   }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
 <div
-  class="onboarding-shell fixed inset-0 z-[10005] flex flex-col text-foreground"
+  bind:this={shell}
+  class="onboarding-shell @container fixed inset-0 z-[10005] overflow-y-auto text-(--solus-text-primary)"
   role="dialog"
   aria-modal="true"
   aria-label="Set up Solus"
 >
-  <!-- Header: the two things that stay available on every stage. -->
-  <div class="flex h-12 shrink-0 items-center gap-1.5 px-3 sm:px-4">
-    <span class="flex-1"></span>
-    <button
-      type="button"
-      class="no-drag flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
-      title="Toggle appearance"
-      onclick={() =>
-        settings.setPersonal("themeMode", settings.isDark ? "light" : "dark")}
-    >
-      {#if settings.isDark}
-        <MoonIcon size={13} />
-        Dark
-      {:else}
-        <SunIcon size={13} />
-        Light
-      {/if}
-    </button>
-    <button
-      type="button"
-      class="no-drag h-6.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
-      onclick={finishWithChat}
-    >
-      Skip setup
-    </button>
+  <div class="drag-region absolute inset-x-0 top-0 h-10" aria-hidden="true"></div>
+  <div class="mx-auto flex min-h-full w-full max-w-[47.5rem] flex-col px-4 pt-12 pb-16 @min-[40rem]:px-10 @min-[40rem]:pt-22 @min-[40rem]:pb-24">
+    <OnboardingHeader
+      {subject}
+      progress={store.progress}
+      isReady={store.isReady}
+      email={store.flow === "desktop" ? facts.email : null}
+      onrename={canRename ? (name) => cloud.renameOrganization(name) : undefined}
+    />
+
+    <ol class="m-0 list-none border-t border-(--hairline) p-0" aria-label="Setup steps">
+      {#each store.timeline as entry, index (entry.step)}
+        {@const copy = store.signingIn && entry.step === "setup" ? { ...SIGNING_IN_COPY, editLabel: "Change" as const } : stepCopy(entry.step, entry.status, facts)}
+        <TimelineStep
+          {entry}
+          {copy}
+          isFirst={index === 0}
+          isLast={index === store.timeline.length - 1}
+          onedit={store.signingIn || store.isBusy ? undefined : () => edit(entry.step)}
+        >
+          {#snippet body()}
+            {#if entry.step === "setup"}
+              <SetupStep machineNoun={facts.machineNoun} />
+            {:else if entry.step === "agents"}
+              {#if store.flow === "cloud"}<CloudAgentsStep />{:else}<AgentsStep machineNoun={facts.machineNoun} />{/if}
+            {:else if entry.step === "projects"}
+              <ProjectsStep machineNoun={facts.machineNoun} />
+            {:else if entry.step === "phone"}
+              <PhoneStep />
+            {:else if entry.step === "reach"}
+              <ReachStep machineNoun={facts.machineNoun} />
+            {:else if entry.step === "machine"}
+              <MachineStep />
+            {:else if entry.step === "code"}
+              <CodeStep />
+            {/if}
+          {/snippet}
+        </TimelineStep>
+      {/each}
+    </ol>
+
+    <OnboardingFooter
+      footer={store.footer}
+      isBusy={store.isBusy}
+      bind:primaryRef={primaryButton}
+      onprimary={() => void runPrimary()}
+      onsecondary={runSecondary}
+    />
   </div>
 
-  {#if stage === "intro" || store.introLeaving}
-    <!-- The greeting sits over the first stage rather than replacing it, so
-         the stage is already laid out behind this fade. -->
-    <button
-      type="button"
-      class="absolute inset-x-0 bottom-0 top-12 z-30 flex items-center justify-center overflow-hidden bg-background transition-opacity duration-[550ms]"
-      class:opacity-0={store.introLeaving}
-      class:pointer-events-none={store.introLeaving}
-      aria-label="Skip the introduction"
-      onclick={() => store.endIntro()}
-    >
-      {#if store.introPhase === "mark"}
-        <OnboardingMark class="size-[7.75rem] shrink-0" />
-      {:else}
-        <span class="flex items-center justify-center">
-          <span
-            class="text-2xl font-medium sm:text-2xl"
-            >{store.introTyped}</span
-          >
-          <span
-            class="onboarding-caret ml-1 inline-block w-[0.15625rem] rounded-sm bg-primary"
-            style="height: 2.125rem"
-          ></span>
-        </span>
-      {/if}
-    </button>
+  {#if store.showsIntro}
+    <OnboardingIntro onend={endIntro} />
   {/if}
-
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    {#if stage === "agents"}
-      <OnboardingAgentsStage />
-    {:else if stage === "getting-around"}
-      <OnboardingGesturesStage />
-    {:else if stage === "host"}
-      <OnboardingHostStage />
-    {:else if stage === "start"}
-      <OnboardingStartStage onchat={finishWithChat} />
-    {:else if stage === "compute"}
-      <OnboardingComputeStage />
-    {:else if stage === "github"}
-      <OnboardingAccountGithubStage onskip={() => store.advance()} />
-    {:else if stage === "project"}
-      <OnboardingProjectStage
-        onstart={() => void finishCloud(true)}
-        onskip={() => void finishCloud(false)}
-      />
-    {:else if stage === "name-project"}
-      <OnboardingNameProjectStage
-        serverId={store.serverId}
-        oncreated={(project) => finishWithProject("new-project", project)}
-        onskip={finishWithChat}
-      />
-    {:else if stage === "open-project"}
-      <OnboardingOpenProjectStage
-        serverId={store.serverId}
-        onopened={(project) => finishWithProject("project", project)}
-        onskip={finishWithChat}
-      />
-    {:else if stage === "cloud-connect"}
-      <OnboardingCloudConnectStage />
-    {/if}
-  </div>
 </div>
 
 <style>
-  /* Stage entry animations are shared by every stage and live in index.css;
-     the mark owns its two-layer zoom. */
   .onboarding-shell {
     /* --background is translucent in dark mode (the app composites it over the
-       window edge), so it is layered over the opaque edge color here — a plain
-       bg-background lets the workspace show through the overlay. The shell
-       does not fade in: it replaces the apps' opaque loading cover, and any
-       opacity below 1 shows the workspace behind it before onboarding. */
-    background: linear-gradient(var(--background), var(--background))
-      var(--solus-edge-bg);
+       window edge), so it is layered over the opaque edge colour here; a plain
+       bg-background lets the workspace show through. The shell does not fade
+       in: it replaces the apps' opaque loading cover. */
+    background: linear-gradient(var(--background), var(--background)) var(--solus-edge-bg);
   }
 </style>

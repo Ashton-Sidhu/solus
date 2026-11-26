@@ -52,15 +52,6 @@ export interface LinkChipCopyParts {
   close: string;
 }
 
-/*
- * An image embed drawn as a chip copies as the image it is: the Markdown image
- * goes around its label as copy-only text. A reference chip copies as its label
- * instead, and keeps its link in `linkReference`.
- */
-export function linkChipCopyParts(href: string, isImageEmbed = false): LinkChipCopyParts {
-  return { open: isImageEmbed ? "![" : "[", close: `](${href})` };
-}
-
 /** The reference a link chip stands for, as a composer writes it — what a paste
  *  of the chip into a composer restores (`data-solus-reference`). */
 export function linkReference(label: string, href: string): string {

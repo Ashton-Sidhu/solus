@@ -3,6 +3,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { runtimeInstructions } from '@solus/server/execution/agents/runtime-instructions'
+import { ARTIFACT_TOOL_DESC } from '@solus/server/execution/agents/tools/artifact-tools'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -254,12 +255,24 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Showing visuals')
       expect(prompt).toContain('Show trends, comparisons, and flows as a chart or diagram, even unasked')
-      expect(prompt).toContain('write a self-contained HTML page with inline CSS')
-      expect(prompt).toContain('render_artifact with preview: true')
-      // The preview is private. The user must get the live page after the check.
-      expect(prompt).toContain('To show the live page, write it in a ```html fence')
+      // The design rules live in the skill, which maintainers change without a
+      // release. An agent that never loads it draws without them.
+      expect(prompt).toContain('load the visual-artifacts skill')
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Showing visuals')
+  })
+
+  test('the render tool holds the contract of a page, and sends design to the skill', () => {
+    // WHY: the tool is always loaded, so it is the one place that every visual
+    // reads. It says how a page is checked and shown; the skill says how it
+    // looks, so the two never repeat or contradict each other.
+    expect(ARTIFACT_TOOL_DESC).toContain('visual-artifacts skill')
+    // The preview is private. The user must get the live page after the check.
+    expect(ARTIFACT_TOOL_DESC).toContain('It saves and shows nothing')
+    expect(ARTIFACT_TOOL_DESC).toContain('write a ```html fence in your reply')
+    // Design advice belongs in the skill, not in compiled code.
+    expect(ARTIFACT_TOOL_DESC).not.toContain('max-width equal to its viewBox')
+    expect(ARTIFACT_TOOL_DESC).not.toContain('3px bar')
   })
 
   test('the device and automation blocks reach both providers only with their tools', async () => {

@@ -3,6 +3,7 @@ import { v2ThreadShell } from "../../packages/client-runtime/src/state/orchestra
 import { UNMEASURED_REPLY_HEIGHT } from "@solus/contracts/session-history";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { messageImageGallery } from "../features/threads/messageImageGallery";
+import { rememberDraftImage, sentImageHandoff } from "../lib/sentImageHandoff";
 import { deriveThreadFeedPresentation } from "../lib/threadActivity";
 import { expect, it, vi } from "vite-plus/test";
 import {
@@ -23,6 +24,7 @@ function conversationFeed(
     render,
     async (path) => path,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   )(order);
 }
 
@@ -333,6 +335,7 @@ it("reuses existing T3 entries when a new message arrives or an older page opens
     () => null,
     async (path) => path,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   );
   const initial = project(["two"]).get()[0];
   expect(project(["two", "three"]).get()[0]).toBe(initial);
@@ -361,6 +364,7 @@ it("groups a saved run of shell calls and reads only the command the user opens"
     () => null,
     async (path) => path,
     read,
+    { provider: "claude-code", child: () => undefined },
   )(model.order).get();
   expect(feed.map((row) => row.type)).toEqual(["message", "activity-group"]);
   const group = feed[1];
@@ -399,6 +403,7 @@ it("restores an image-only message as one gallery and resolves the host photo on
     () => null,
     resolve,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   )(model.order).get();
   expect(rows).toHaveLength(1);
   const row = rows[0];
@@ -464,12 +469,53 @@ it("keeps streaming the first answer while a follow-up waits in the queue", () =
   expect(read()[2]).toMatchObject({ message: { text: "Edited follow-up" } });
 });
 
+it.each(["uploading", "uploaded"])("keeps the draft screenshot size when the first prompt is %s", async (uploadStatus) => {
+  const { uploadedMessageAttachments } = await import("@solus-mobile/features/conversation/lib/message-attachments");
+  const messageId = `first-prompt-${uploadStatus}`;
+  const screenshot = {
+    id: `screenshot-${uploadStatus}`, kind: "image" as const, name: "screenshot.png",
+    hostPath: "/uploads/screenshot.png", mimeType: "image/png", size: 1024, dataUrl: null,
+    localUri: "file:///screenshot.png",
+  };
+  const preview = { uri: screenshot.localUri, width: 900, height: 1950 };
+  rememberDraftImage(screenshot.id, preview);
+  const attachments: Extract<TranscriptItem, { kind: "user" }>["attachments"] = [
+    { kind: "file", key: "notes", name: "notes.txt", hostPath: "/uploads/notes.txt", video: false },
+    { kind: "local-video", key: "clip", name: "clip.mov", uri: "file:///clip.mov", mimeType: "video/quicktime" },
+    ...(uploadStatus === "uploaded"
+      ? uploadedMessageAttachments([screenshot])
+      : [{ kind: "local-image" as const, key: screenshot.id, name: screenshot.name, uri: screenshot.localUri, mimeType: screenshot.mimeType }]),
+  ];
+  const model = new TranscriptModel("new-session");
+  model.addOptimisticUser(messageId, "Look at this", "sending", attachments);
+  const feed = conversationFeed(
+    { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+    model.order, "new-session", () => null,
+  );
+  expect(feed.get()[0]).toMatchObject({ id: messageId, message: { role: "user" } });
+  // The feed indexes media separately from documents, and needs the size before its image loads.
+  expect(sentImageHandoff(messageId, 1)).toEqual(preview);
+});
+
+it("reserves a screenshot frame when send beats the composer thumbnail load", () => {
+  const id = "quick-screenshot";
+  const model = new TranscriptModel("new-session");
+  model.addOptimisticUser(id, "Look", "sending", [{
+    kind: "local-image", key: id, name: "screen.png", uri: "file:///screen.png", mimeType: "image/png",
+  }]);
+  conversationFeed(
+    { item: (key) => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "new-session", () => null,
+  ).get();
+  expect(sentImageHandoff(id, 0)).toEqual({ uri: "file:///screen.png", width: 480, height: 360 });
+});
+
 it("keeps a sent video in the T3 message player and signs its host URL only for preview or playback", async () => {
   const { isUploadVideo, messageAttachments, composerUploadMedia, queueChatAttachment } = await import("./upload-images");
   const { splitAttachedFiles } = await import("@solus-mobile/features/conversation/lib/message-attachments");
   const { files } = splitAttachedFiles("[Attached file: /host/clip.MOV]\n\nLook");
   const sign = vi.fn(async (_path: string, refresh?: boolean) => refresh ? "fresh-url" : "poster-url");
-  const projected = messageAttachments("session",files, sign)[0]!;
+  const projected = messageAttachments("session", "video", files, sign)[0]!;
   expect(isUploadVideo(projected)).toBe(true);
   expect(sign).not.toHaveBeenCalled();
   if (!isUploadVideo(projected) || !("resolveUrl" in projected.videoPreview)) throw new Error("missing host video");
@@ -584,4 +630,44 @@ it("carries the host's saved render dimensions into the message that the thread 
   });
   const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} }, model.order, "saved", () => null);
   expect(feed.get()).toMatchObject([{ type: "message", message: { text, replyHtmlLayout: [frame] } }]);
+});
+
+it("groups adjacent saved Agent calls as T3 subagents with their own titles", () => {
+  const model = TranscriptModel.fromHistory("session", {
+    before: null,
+    messages: ["Read policy", "Check clients"].map((description, i) => ({
+      role: "tool", toolName: "Agent", toolId: "agent-" + i, content: "", timestamp: 1000 + i,
+      toolInput: JSON.stringify({ description, prompt: "Inspect the project" }),
+    })),
+  });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  expect(feed.get()).toMatchObject([{ type: "activity-group", activities: [
+    { projectedItem: { item: { type: "subagent", title: "Read policy", childThreadId: null } } },
+    { projectedItem: { item: { type: "subagent", title: "Check clients", childThreadId: null } } },
+  ] }]);
+});
+
+it("updates the same agent row when its streamed title and final report arrive", () => {
+  const model = new TranscriptModel("parent");
+  model.apply({ type: "tool_call", toolName: "Agent", toolId: "call", index: 0, isSubagent: true });
+  const key = model.agentRows[0]!.id;
+  let refresh: (ids: readonly string[]) => void = () => {};
+  const feed = conversationFeed({
+    item: id => model.items.get(id),
+    subscribeFeedItems: listener => { refresh = listener; return () => {}; },
+  }, model.order, "parent", () => null);
+  const shell = { ...v2ThreadShell, id: ThreadId.make("parent") };
+  const stop = feed.subscribe(() => {});
+  expect(feed.projection(shell).subagents[0]).toMatchObject({ id: key, status: "running" });
+  model.apply({ type: "tool_call_complete", toolId: "call", index: 0,
+    toolInput: JSON.stringify({ description: "Check policy", prompt: "Read the policy" }) });
+  model.apply({ type: "subagent_report", toolUseId: "call", text: "Checked." });
+  refresh([key]);
+  const expected = { title: "Check policy", status: "completed", result: "Checked." };
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, ...expected }]);
+  expect(feed.get()).toMatchObject([{ type: "activity-group", activities: [
+    { projectedItem: { item: { type: "subagent", subagentId: key, ...expected } } },
+  ] }]);
+  stop();
 });

@@ -290,6 +290,7 @@ import { publishPersonHistoryChanges } from './transport/events/person-history-e
 import { publishPersonalDocumentChanges } from './transport/events/personal-document-events'
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
+import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
@@ -1467,6 +1468,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
+  registerSessionDirectoryHandler(server)
   registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -1907,6 +1909,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         void integrationGateway.close()
         if (scope === 'personal') {
           sessionPusher?.signedOut()
+          githubCredentials().forgetOwnerAccountCopy()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }

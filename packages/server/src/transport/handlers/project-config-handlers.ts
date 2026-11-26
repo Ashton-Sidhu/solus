@@ -6,6 +6,10 @@ import { resolveRepositoryKey } from '../../git/git-helpers'
 import { registerWorkspaceProjectHandlers } from './workspace-project-handlers'
 import { projectsVisibleTo } from './setup-handlers'
 import { formContainerCodebases } from '../../execution/sessions/session-codebase-formation'
+import { readAgentHistoryProjects } from '../../files/agent-history'
+import { claudeConfigDir } from '../../execution/agents/claude/claude-agent'
+import { hostCodexHome } from '../../execution/seats/seat-login'
+import { join } from 'node:path'
 
 export function registerProjectConfigHandlers(server: SolusServer): void {
   server.register('projectConfigLoad', (args) => {
@@ -31,6 +35,11 @@ export function registerProjectConfigHandlers(server: SolusServer): void {
     })))
   })
   server.register('listProjectIdentities', async (_args, ctx) => projectsVisibleTo(ctx.principal, await listProjectIdentities()))
+  // The host's own provider homes, where the CLIs keep the person's threads (docs/plans/one-page-onboarding.md §3.2).
+  server.register('agentHistoryProjects', async () => readAgentHistoryProjects({
+    roots: { claudeProjects: join(claudeConfigDir(), 'projects'), codexSessions: join(hostCodexHome(), 'sessions') },
+    projectPaths: new Set((await listProjects().catch(() => [])).map((project) => project.path)),
+  }))
   registerWorkspaceProjectHandlers(server)
   server.register('deleteProject', (args) => {
     const [projectPath] = args

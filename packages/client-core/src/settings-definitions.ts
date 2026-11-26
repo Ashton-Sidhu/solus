@@ -366,6 +366,48 @@ export const settingsDefinitions = {
   "organization.section-organization": {
     label: "Organization",
   },
+  "organization.name": {
+    label: "Name",
+    description: "Shown to members and on invitations.",
+  },
+  "organization.url": {
+    label: "URL",
+    description: "Used in links to this organization. A rename keeps it.",
+  },
+  "organization.role": {
+    label: "Your role",
+  },
+  "organization.section-members": {
+    label: "Members",
+  },
+  "organization.section-hosts": {
+    label: "Hosts",
+    description: "Where members run this organization's work, and what a new cloud host starts with. An existing host keeps its own setup.",
+  },
+  "organization.allow-cloud-hosts": {
+    label: "Allow cloud hosts",
+    description: "Members can create cloud hosts, add the organization's own machines, and run work on them.",
+  },
+  "organization.allow-personal-hosts": {
+    label: "Allow personal hosts",
+    description: "Members can share a personal computer or server with this organization and run its work on it.",
+  },
+  "organization.default-packages": {
+    label: "Default packages",
+    description: "The apt packages a new cloud host starts with.",
+  },
+  "organization.default-setup-script": {
+    label: "Default setup script",
+    description: "The script a new cloud host runs when it starts.",
+  },
+  "organization.leave": {
+    label: "Leave organization",
+    description: "Its hosts leave your reach. Hosts you shared stop being shared.",
+  },
+  "organization.delete": {
+    label: "Delete organization",
+    description: "Removes it for everyone. Delete its cloud host first.",
+  },
   "organization.policy": {
     label: "Policy",
     description: "Insights, limits, and locked settings of each organization's work.",

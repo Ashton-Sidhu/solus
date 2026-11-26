@@ -13,6 +13,7 @@ import type { FilePreviewItem } from "../components/ui/FilePreviewModal.types";
 import { attachmentKind, storedAttachmentImageMime, videoMimeType } from "@solus/contracts/media-types";
 import { hostPathBaseName, UPLOAD_NAME_PREFIX } from "@solus/contracts/host-path";
 import { imageMimeType } from "@t3tools/shared/image";
+import { rememberSentImage, sentImageHandoff } from "../lib/sentImageHandoff";
 
 import type { QueueAttachment } from "@solus/contracts/session-queue";
 export function queueChatAttachment(
@@ -74,11 +75,15 @@ export function isUploadVideo(a: ChatAttachment): a is UploadVideo {
 
 export function messageAttachments(
   sessionId: string,
+  messageId: string,
   attachments: readonly MessageAttachment[],
   resolvePath: (path: string, refresh?: boolean) => Promise<string>,
 ): ChatAttachment[] {
+  // T3's sent image handoff counts media slots. Documents have their own rows.
+  let mediaIndex = 0;
   return attachments.flatMap((a, index): (UploadImage | UploadVideo | ChatAttachment)[] => {
     if (a.kind === "local-video" || (a.kind === "file" && a.video)) {
+      mediaIndex++;
       return [{ type: "file", id: a.key, name: a.name, sizeBytes: 0,
         mimeType: videoMimeType(a) ?? "video/mp4",
         videoPreview: a.kind === "local-video" ? { uri: a.uri } : { resolveUrl: refresh => resolvePath(a.hostPath, refresh) },
@@ -88,6 +93,13 @@ export function messageAttachments(
       type: "file", id: uploadAttachmentId(sessionId,a.hostPath), name:a.name,
       mimeType:a.mimeType ?? "application/octet-stream", sizeBytes:0,
     }];
+    const imageIndex = mediaIndex++;
+    if (a.kind === "local-image") {
+      const handoff = sentImageHandoff(messageId, imageIndex, a.key);
+      // A quick send can precede the thumbnail measurement. Keep one frame
+      // through delivery and fit the image inside it when the pixels arrive.
+      rememberSentImage(messageId, imageIndex, handoff ?? { uri: a.uri, width: 480, height: 360 });
+    }
     if (a.kind === "host-image") return [{
       type: "image", id: uploadAttachmentId(sessionId, a.hostPath), name: a.name,
       mimeType: a.mimeType ?? imageMimeType({ name: a.name, mimeType: "" }) ?? "image/*", sizeBytes: 0,

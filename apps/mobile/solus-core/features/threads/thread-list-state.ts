@@ -121,13 +121,14 @@ export class ThreadListState {
   /** Follows one host's announcements: the records read before them stay
    *  current. Its pins come with the thread directory's whole read of the
    *  host, which reads them here (`loadPins`). */
-  follow(hostId: string): void {
+  follow(hostId: string, opening?: Promise<readonly AttentionEntry[] | undefined>): void {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
     this.watch(hostId, connection);
     const read = Symbol();
     this.attentionReads.set(hostId, read);
-    void connection.api.listAttention().then(entries => {
+    const attention = opening ? opening.then(entries => entries ?? connection.api.listAttention()) : connection.api.listAttention();
+    void attention.then(entries => {
       if (this.attentionReads.get(hostId) === read && this.connectionFor(hostId) === connection)
         this.receiveAttention(hostId, entries);
     }, () => {});
@@ -156,16 +157,21 @@ export class ThreadListState {
 
   /** Read the host's pins after connect, refresh, or a toggle, and answer
    *  them. A failed read keeps prior pins. */
-  async loadPins(hostId: string): Promise<readonly PinnedSession[]> {
+  async loadPins(hostId: string, opening?: Promise<readonly PinnedSession[] | undefined>): Promise<readonly PinnedSession[]> {
     const connection = this.requireConnection(hostId);
     const request = (this.pinRequests.get(hostId) ?? 0) + 1;
     this.pinRequests.set(hostId, request);
-    const pins = await connection.api.pinnedSessionsList();
+    const pins = opening ? await opening : await connection.api.pinnedSessionsList();
+    if (!pins) return [];
     if (this.connectionFor(hostId) !== connection || this.pinRequests.get(hostId) !== request) return pins;
+    this.restorePins(hostId, pins);
+    return pins;
+  }
+
+  restorePins(hostId: string, pins: readonly PinnedSession[]): void {
     this.dropHostEntries(this.pins, hostId);
     for (const pin of pins) this.pins.set(threadKey(hostId, pin.sessionId), { ...pin, serverId: hostId });
     this.publish();
-    return pins;
   }
 
   async togglePin(thread: SolusThreadShell): Promise<void> {

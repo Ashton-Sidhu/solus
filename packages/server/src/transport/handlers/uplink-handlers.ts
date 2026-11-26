@@ -1,6 +1,6 @@
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import type { HostSelfTest } from '@solus/contracts/host-connection'
-import type { UplinkStatus } from '@solus/contracts/uplink'
+import type { HostRegistrationRequest, UplinkStatus } from '@solus/contracts/uplink'
 import type { HostRegistrar } from '../../host/host-registration'
 import type { SolusServer } from '../server'
 import { registerAndLink, type UplinkLinkManager } from '../uplink/link'
@@ -34,11 +34,10 @@ export function registerUplinkHandlers(server: SolusServer, deps: UplinkHandlerD
     const [request] = args
     if (!request?.ticket?.trim()) throw new Error('uplinkRegister requires an enrollment ticket')
     if (!request.directoryUrl?.trim()) throw new Error('uplinkRegister requires the directory origin')
-    await registerAndLink(deps.registrar, deps.manager, {
-      ticket: request.ticket.trim(),
-      directoryUrl: request.directoryUrl.trim(),
-      ...(request.address?.trim() ? { address: request.address.trim() } : {}),
-    })
+    const registration: HostRegistrationRequest = { ticket: request.ticket.trim(), directoryUrl: request.directoryUrl.trim() }
+    if (request.address?.trim()) registration.address = request.address.trim()
+    if (request.link === false) registration.link = false
+    await registerAndLink(deps.registrar, deps.manager, registration)
     if (deps.registrar.current()?.organizationId) deps.onBecameCloudMachine()
     return deps.status()
   })

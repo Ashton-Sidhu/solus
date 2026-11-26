@@ -1,4 +1,5 @@
 import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
 import type { ReactNode } from "react";
 import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
@@ -9,6 +10,7 @@ import {
   RunId,
   ThreadId,
   TurnItemId,
+  type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
@@ -88,6 +90,7 @@ export function conversationFeed(
   renderCard: (key: string, liveAppOnly?: boolean) => ReactNode,
   resolveImagePath: (path: string, refresh?: boolean) => Promise<string>,
   readToolInput: (key: string) => Promise<string>,
+  agents: AgentFeedContext,
 ) {
   type Item = NonNullable<ReturnType<ConversationStore["item"]>>;
   const cache = new WeakMap<
@@ -97,6 +100,7 @@ export function conversationFeed(
       sources: ThreadFeedSourceRow[];
     }
   >();
+  const subagentByItem = new WeakMap<OrchestrationV2TurnItem, OrchestrationV2Subagent>();
   const threadId = ThreadId.make(id);
   const project = (
     key: string,
@@ -143,6 +147,22 @@ export function conversationFeed(
         },
       }];
     }
+    if (item.kind === "agent" || (item.kind === "tool" && item.subagent)) {
+      const agent = sessionSubagent(item, id, leadingRun, agents.provider,
+        item.kind === "agent" ? agents.child(item) : undefined);
+      const sourceItemId = TurnItemId.make(key);
+      const projected: OrchestrationV2TurnItem = {
+        type: "subagent", id: sourceItemId, subagentId: agent.id, threadId, runId: leadingRun,
+        nodeId: null, providerThreadId: null, providerTurnId: null, parentItemId: null,
+        nativeItemRef: agent.nativeTaskRef, ordinal: 0,
+        origin: agent.origin, driver: agent.driver, providerInstanceId: agent.providerInstanceId,
+        childThreadId: agent.childThreadId, remoteChild: agent.remoteChild,
+        title: agent.title, prompt: agent.prompt, progress: agent.progress, result: agent.result,
+        status: agent.status, startedAt: agent.startedAt, completedAt: agent.completedAt, updatedAt: agent.updatedAt,
+      };
+      subagentByItem.set(projected, agent);
+      return [{ sourceItemId, sourceThreadId: threadId, position: 0, visibility: "local", item: projected }];
+    }
     const viewedImage =
       item.kind === "tool" ? item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
@@ -150,7 +170,6 @@ export function conversationFeed(
     if (
       item.kind === "tool" &&
       !item.children &&
-      !item.subagent &&
       !item.report &&
       !item.images?.length &&
       !item.audio?.length &&
@@ -268,7 +287,7 @@ export function conversationFeed(
           : {
               ...base,
               ...(saved?.type === "user_message" && saved.text === item.text ? saved : userMessageBody(item.text)),
-              attachments: messageAttachments(item.sourceSessionId ?? id, item.attachments, resolveImagePath),
+              attachments: messageAttachments(item.sourceSessionId ?? id, key, item.attachments, resolveImagePath),
             },
     };
     return item.kind === "user" &&
@@ -285,12 +304,12 @@ export function conversationFeed(
     for (const key of order) {
       const item = store.item(key);
       if (item?.kind === "user") hasPrompt = true;
-      if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
+      if (!hasPrompt && (item?.kind === "tool" || item?.kind === "agent")) leadingTools.add(key);
     }
     const update = (key: string) => {
       const item = store.item(key);
       if (!item) return;
-      if (item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
+      if (item.kind === "agent" || item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
         observed.set(key, item);
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
       let held = cache.get(item);
@@ -324,10 +343,12 @@ export function conversationFeed(
     };
     const buildProjection = (shell: OrchestrationV2ThreadShell): OrchestrationV2ThreadProjection => {
       const visibleTurnItems: OrchestrationV2ProjectedTurnItem[] = [];
+      const subagents: OrchestrationV2Subagent[] = [];
       const messages: OrchestrationV2ConversationMessage[] = [];
       const turnItems: OrchestrationV2TurnItem[] = [];
       sources.forEach((source) => {
         if (!source.item) return;
+        if (source.item.type === "subagent") subagents.push(subagentByItem.get(source.item)!);
         const row = visibleTurnItems.length;
         const message = messageOf(source.item);
         visibleTurnItems.push({ ...source, position: row });
@@ -340,7 +361,7 @@ export function conversationFeed(
         runs: empty,
         attempts: empty,
         nodes: empty,
-        subagents: empty,
+        subagents,
         providerSessions: empty,
         providerThreads: empty,
         providerTurns: empty,
@@ -384,6 +405,7 @@ export function conversationFeed(
               item.input === before.input &&
               item.toolInputKey === before.toolInputKey &&
               item.subagent === before.subagent &&
+              (!item.subagent || (item.completedAt === before.completedAt && item.progress === before.progress)) &&
               item.errorHead === before.errorHead &&
               item.images === before.images &&
               item.audio === before.audio &&
@@ -421,6 +443,10 @@ export function conversationFeed(
                 after.sourceThreadId === threadId && after.visibility === "local") {
               const base = { threadId, occurredAt: projection.updatedAt };
               const message = messageOf(after.item);
+              const agent = subagentByItem.get(after.item);
+              if (agent) projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "subagent.updated", payload: agent,
+              });
               if (message) projection = applyOrchestrationV2ProjectionEvent(projection, {
                 ...base, id: EventId.make(String(++sequence)), type: "message.updated", payload: message,
               });

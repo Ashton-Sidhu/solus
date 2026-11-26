@@ -19,7 +19,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { ProviderIcon, ProviderInstanceIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { useEnvironmentServerConfig, useProject, useThreadShell } from "../../state/entities";
-import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusMark } from "./SubagentStatusMark";
+import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusDot } from "./SubagentStatusDot";
 import { resolveSubagentRowPresentation } from "./threadAgentsPresentation";
 
 type SubagentRowSubagent = Pick<
@@ -55,8 +55,8 @@ export function SubagentRow(props: {
   const detail = subagentCardDetail(presentation.detail);
   return (
     <View className="flex-row gap-3">
-      <View className="h-5 w-4 items-center justify-center">
-        <SubagentStatusMark environmentId={props.environmentId} status={props.subagent.status} />
+      <View className="h-5 justify-center">
+        <SubagentStatusDot tone={presentation.tone} placement="sheet" />
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="min-h-5 flex-row items-center gap-2">

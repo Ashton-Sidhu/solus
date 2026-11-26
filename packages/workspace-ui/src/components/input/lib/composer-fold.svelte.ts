@@ -203,15 +203,23 @@ export function useComposerFold(options: ComposerFoldOptions) {
   // of once per frame. Hosts that mark no surface get the cut.
   let foldTween: ComposerFoldTween | null = null;
   let geometryBeforeFold: FoldGeometry | null = null;
+  // A card that has not painted has nothing on screen to tween from, so its
+  // folds are cuts and read no layout. A new tab's bar folds open when it takes
+  // focus, inside the open, and each read there laid out the whole new tab.
+  let hasPainted = false;
+  $effect(() => {
+    const frame = requestAnimationFrame(() => { hasPainted = true; });
+    return () => cancelAnimationFrame(frame);
+  });
   // Read before the DOM flips, so the tween starts from where the card is —
   // mid-tween, if the last fold was interrupted.
   $effect.pre(() => {
     void isCollapsed;
-    geometryBeforeFold = untrack(() => {
+    geometryBeforeFold = hasPainted ? untrack(() => {
       const root = options.root();
       const surface = root && composerSurfaceOf(root);
       return surface ? measureFold(surface) : null;
-    });
+    }) : null;
   });
   $effect(() => {
     const collapsed = isCollapsed;
@@ -222,7 +230,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
       // which runs after layout — reads the flag belonging to the height it
       // just measured, and never holds a reservation against an expansion.
       surface?.toggleAttribute(COMPOSER_COLLAPSED_ATTRIBUTE, collapsed);
-      foldTween = surface
+      foldTween = surface && hasPainted
         ? tweenComposerFold(surface, geometryBeforeFold, collapsed)
         : null;
     });

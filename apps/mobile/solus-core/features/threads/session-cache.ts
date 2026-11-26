@@ -21,9 +21,14 @@ export class MobileSessionCache {
     return {
       directory: () => read<HostThreads>(['directory']),
       clearDirectory: () => write(['directory'],null),
-      saveDirectory: (directory: HostThreads) => write(['directory'], {
-        ...directory, revision: directory.threads.length > 200 ? undefined : directory.revision, threads: directory.threads.slice(0, 200), unlisted: [],
-      }),
+      saveDirectory: (directory: HostThreads) => {
+        const pins = new Set(directory.opening?.pins.map(pin => pin.sessionId))
+        const threads = directory.threads.filter((row, index) => index < 200 || pins.has(row.record.sessionId))
+        return write(['directory'], {
+          ...directory, revision: threads.length === directory.threads.length ? directory.revision : undefined,
+          threads, unlisted: directory.unlisted?.filter(row => pins.has(row.record.sessionId)) ?? [],
+        })
+      },
       hasHistoryKey: (sessionId: string) =>
         this.storage.hasResponseKey(hostId, key(['history-items', sessionId])) || this.storage.hasResponseKey(hostId, key(['history', sessionId])),
       history: (sessionId: string) => {

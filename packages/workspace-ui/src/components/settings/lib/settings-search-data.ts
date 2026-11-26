@@ -277,7 +277,7 @@ export const accountSearchWords = ["account", "sync", "personal", "cloud", "sign
 export const agentProfileSearchWords = ["agent profile", "profile", "instructions", "extra", "system prompt", "custom", "subagents", "commands", "prompts", "skills", "mcp", "servers", "conflict"];
 
 /** Search words, read by the settings page to find this page from any other. */
-export const organizationSearchWords = ["organization", "owner", "member", "projects", "repositories"];
+export const organizationSearchWords = ["organization", "owner", "member", "members", "invite", "role", "rename", "cloud hosts", "personal hosts", "packages", "setup script", "leave", "projects", "repositories"];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const mcpSearchWords = ["mcp", "server", "catalog", "integrations.sh", "remote tools", "connector"];

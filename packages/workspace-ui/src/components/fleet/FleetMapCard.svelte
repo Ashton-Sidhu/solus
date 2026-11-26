@@ -20,7 +20,7 @@
     width: number;
     /** Find names other hosts. */
     isDimmed: boolean;
-    /** Another host is selected or pointed at, and this one is not next to it. */
+    /** Another host is selected or pointed at, and this one is not next to it. A picked or selected host never steps back, so its outline stays clear. */
     isFaded: boolean;
     isSelected: boolean;
     isPicked: boolean;
@@ -30,13 +30,15 @@
     canIntroduce: boolean;
     /** While a handle is dragged over it: whether the drop would introduce. */
     dropState: "ok" | "no" | null;
+    /** Its handle is being dragged: the handle stays, and a ring marks where the line starts. */
+    isDragSource: boolean;
     onPoint: (serverId: string | null) => void;
     onSelect: (serverId: string, isAdding: boolean) => void;
     onStart: (serverId: string) => void;
     onHandleDown: (event: PointerEvent, serverId: string) => void;
   }
 
-  let { machine, at, width, isDimmed, isFaded, isSelected, isPicked, isCurrent, canIntroduce, dropState, onPoint, onSelect, onStart, onHandleDown }: Props = $props();
+  let { machine, at, width, isDimmed, isFaded, isSelected, isPicked, isCurrent, canIntroduce, dropState, isDragSource, onPoint, onSelect, onStart, onHandleDown }: Props = $props();
 
   const tone = $derived(toneOf(machine.state));
 </script>
@@ -48,8 +50,8 @@
   onmouseleave={() => onPoint(null)}
   class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 rounded-xl border bg-card pr-3 pl-2 shadow-[0_1px_2px_-1px_rgb(0_0_0/0.08),0_2px_6px_-2px_rgb(0_0_0/0.06)] transition-opacity duration-300 motion-reduce:transition-none dark:shadow-none forced-colors:border-[CanvasText]
     {tone === 'bad' ? 'border-dashed border-(--solus-status-error)/55' : tone === 'warn' ? 'border-dotted border-(--warning)/60' : 'border-border/60'}
-    {isSelected ? 'ring-2 ring-foreground/70' : ''}
-    {isPicked ? 'outline-2 outline-offset-2 outline-dashed outline-foreground/60' : ''}
+    {isSelected || isDragSource ? 'ring-2 ring-foreground/70' : ''}
+    {isPicked && !dropState ? 'outline-2 outline-offset-2 outline-dashed outline-foreground' : ''}
     {dropState === 'ok' ? 'outline-2 outline-offset-2 outline-(--success)' : dropState === 'no' ? 'outline-2 outline-offset-2 outline-dashed outline-(--solus-status-error)' : ''}
     hover:border-foreground/25"
   style:left="{at.x}%"
@@ -103,11 +105,12 @@
     <button
       type="button"
       tabindex="-1"
-      aria-label="Drag onto another host to introduce {machine.label} to it"
-      title="Drag onto another host to introduce them"
+      data-handle-side="left"
+      aria-label="Drag onto another host to introduce {machine.label} to it, or onto a found machine to add it"
+      title="Drag onto another host to introduce them, or onto a found machine to add it"
       onpointerdown={(event) => onHandleDown(event, machine.serverId)}
       class="absolute top-1/2 -left-2.5 z-20 grid size-5 -translate-y-1/2 cursor-crosshair touch-none place-items-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground motion-reduce:transition-none pointer-coarse:opacity-100
-        {isSelected ? 'opacity-100' : ''}"
+        {isSelected || isDragSource ? 'opacity-100' : ''}"
     ><Plus size={11} /></button>
   {/if}
 </div>

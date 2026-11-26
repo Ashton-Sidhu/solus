@@ -435,9 +435,8 @@ export function threadFeedCompactionLabels(
         pendingResumeAgeByRunId.delete(entry.runId);
       }
       for (const activity of entry.activities) {
-        const age = activity.workEntry.questionAnswer
-          ? claudeResumeCompactionAge(activity.workEntry.questionAnswer)
-          : null;
+        const answer = questionAnswerOf(activity.projectedItem.item);
+        const age = answer ? claudeResumeCompactionAge(answer) : null;
         if (age !== null) pendingResumeAgeByRunId.set(entry.runId, age);
       }
     }
@@ -445,9 +444,15 @@ export function threadFeedCompactionLabels(
   return labelsByEntryId;
 }
 
+// Fold decisions need the answer on the source item. Reading the display entry here
+// would format every tool in a collapsed turn.
+function questionAnswerOf(item: OrchestrationV2TurnItem) {
+  return item.type === "user_input_request" ? item.questionAnswer : undefined;
+}
+
 function isResumeCompactionAnswerGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.every((activity) => {
-    const answer = activity.workEntry.questionAnswer;
+    const answer = questionAnswerOf(activity.projectedItem.item);
     return answer !== undefined && claudeResumeCompactionAge(answer) !== null;
   });
 }
@@ -466,7 +471,7 @@ export function isSecretRequestActivityGroup(entry: ThreadFeedActivityGroup): bo
 }
 
 function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
-  return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
+  return entry.activities.some((activity) => questionAnswerOf(activity.projectedItem.item) !== undefined);
 }
 
 function capitalizePhrase(value: string): string {
@@ -804,16 +809,14 @@ function itemPreview(item: OrchestrationV2TurnItem, resolve: MessageResolver): s
 function toWorkLogEntry(
   item: OrchestrationV2TurnItem,
   createdAt: string,
-  summary: string,
   detail: string | null,
   resolve: MessageResolver,
-): WorkLogPresentationEntry {
+): Omit<WorkLogPresentationEntry, "label"> {
   const title = item.title?.trim() || null;
   const common = {
     ...extractToolActivityPresentation(item),
     id: item.id,
     createdAt,
-    label: summary,
     tone: itemWorkLogTone(item),
     itemType: item.type,
     toolLifecycleStatus: itemLifecycleStatus(item),
@@ -896,66 +899,87 @@ export function formatItemFullDetail(
 }
 
 function toFeedActivity(
-  row: OrchestrationV2ProjectedTurnItem,
+  row: Extract<ThreadFeedSourceRow, { item: OrchestrationV2TurnItem }>,
   attemptId: RunAttemptId | null,
   resolve: MessageResolver,
 ): ThreadFeedActivity {
   const item = row.item;
   const toolPresentation = itemToolPresentation(item, resolve);
-  const summary = itemSummary(item, toolPresentation, resolve);
+  const getSummary = memoizeValue(() => itemSummary(item, toolPresentation, resolve));
   const detail = item.type === "notification" ? null : itemPreview(item, resolve);
   const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
-  const workEntry = toWorkLogEntry(item, createdAt, summary, detail, resolve);
-  const readPaths =
-    item.type === "dynamic_tool" && toolGroupAction(workEntry) === "read"
+  const getWorkEntry = memoizeValue((): WorkLogPresentationEntry => ({
+    ...toWorkLogEntry(item, createdAt, detail, resolve),
+    get label() {
+      return getSummary();
+    },
+  }));
+  const getReadPaths = memoizeValue(() =>
+    item.type === "dynamic_tool" && toolGroupAction(getWorkEntry()) === "read"
       ? collectToolFilePaths(item)
-      : null;
-  const getFullDetail = memoizeValue(() =>
-    item.type === "proposed_plan"
+      : null,
+  );
+  const getFullDetail = memoizeValue(() => {
+    const paths = getReadPaths();
+    return item.type === "proposed_plan"
       ? item.markdown
-      : readPaths
-        ? readPaths.join("\n") || null
+      : paths
+        ? paths.join("\n") || null
         : item.type === "notification"
           ? item.detail?.trim() || null
-          : formatItemFullDetail(row, item),
-  );
+          : formatItemFullDetail(row, item);
+  });
   const getCopyText = memoizeValue(() =>
     item.type === "proposed_plan"
       ? `${item.markdown.trimEnd()}\n`
-      : [summary, detail, getFullDetail()]
+      : [getSummary(), detail, getFullDetail()]
           .filter(
             (value, index, values): value is string =>
               Boolean(value) && values.indexOf(value) === index,
           )
           .join("\n"),
   );
+  const getCanExpand = memoizeValue(() => {
+    if (row.hostTool?.load) return true;
+    if (row.hostTool?.hasDetail === false || (item.type === "error" && item.status === "failed")) return false;
+    const paths = getReadPaths();
+    return paths
+      ? paths.length > 0 || turnItemNeedsDetailFetch(item)
+      : turnItemHasDetail(item) || getWorkEntry().questionAnswer !== undefined;
+  });
   return {
     id: `${row.visibility}:${row.sourceThreadId}:${row.sourceItemId}`,
-    createdAt,
+    createdAt: row.hostTool ? row.hostTime ?? createdAt : createdAt,
     runId: item.runId,
     attemptId,
-    summary,
+    get summary() {
+      return getSummary();
+    },
     detail,
-    canExpand:
-      !(item.type === "error" && item.status === "failed") &&
-      (readPaths
-        ? readPaths.length > 0 || turnItemNeedsDetailFetch(item)
-        : turnItemHasDetail(item) || workEntry.questionAnswer !== undefined),
-    fetchesDetail: turnItemNeedsDetailFetch(item),
+    get canExpand() {
+      return getCanExpand();
+    },
+    fetchesDetail: !row.hostTool && turnItemNeedsDetailFetch(item),
+    ...(row.hostTool?.load && { loadHostDetail: row.hostTool.load }),
     getFullDetail,
     getCopyText,
-    icon: workEntry.toolSurface ?? itemIcon(item),
+    get icon() {
+      return getWorkEntry().toolSurface ?? itemIcon(item);
+    },
     logo: toolPresentation?.logo ?? null,
     toolLike: itemIsToolLike(item),
     prominent: itemIsProminent(item) || (item.type === "error" && item.status === "failed"),
-    status:
-      item.type === "error" && item.failure.class === "usage_limit"
+    get status() {
+      return item.type === "error" && item.failure.class === "usage_limit"
         ? itemStatus(item)
-        : workEntryDisplayIndicatesToolFailure(workEntry)
+        : workEntryDisplayIndicatesToolFailure(getWorkEntry())
           ? "failure"
-          : itemStatus(item),
+          : itemStatus(item);
+    },
     lifecycleStatus: itemLifecycleStatus(item),
-    workEntry,
+    get workEntry() {
+      return getWorkEntry();
+    },
     projectedItem: row,
   };
 }
@@ -965,7 +989,7 @@ function singleToolCallLabel(
   expanded: boolean,
   resolve: MessageResolver,
 ): string {
-  if (activity.workEntry.itemType === "reasoning")
+  if (activity.projectedItem.item.type === "reasoning")
     return expanded
       ? resolve(msg("Thought"))
       : compactWorkEntryText(activity.workEntry.detail ?? "") || resolve(msg("Thought"));
@@ -1050,11 +1074,12 @@ function groupAdjacentActivities(
       continue;
     }
 
+    const item = entry.activity.projectedItem.item;
     const isStandaloneActivity =
-      entry.activity.workEntry.questionAnswer !== undefined ||
-      entry.activity.projectedItem.item.type === "compaction" ||
-      entry.activity.projectedItem.item.type === "handoff" ||
-      entry.activity.projectedItem.item.type === "notification";
+      questionAnswerOf(item) !== undefined ||
+      item.type === "compaction" ||
+      item.type === "handoff" ||
+      item.type === "notification";
     if (
       isStandaloneActivity ||
       entry.activity.prominent ||
@@ -1460,7 +1485,7 @@ function settleSupersededReasoning(
   const cached = cache.get(entry);
   if (cached) return cached;
   const activities = entry.activities.map((activity, index) =>
-    activity.workEntry.itemType === "reasoning" &&
+    activity.projectedItem.item.type === "reasoning" &&
     activity.lifecycleStatus === "inProgress" &&
     (!tail || index < entry.activities.length - 1)
       ? {
@@ -1521,7 +1546,7 @@ function staysOutOfFold(entry: ThreadFeedEntry): boolean {
       entry.activities.some(
         (activity) =>
           activity.prominent ||
-          activity.workEntry.questionAnswer !== undefined ||
+          questionAnswerOf(activity.projectedItem.item) !== undefined ||
           activity.projectedItem.item.type === "notification" ||
           activity.projectedItem.item.type === "handoff" ||
           // A child still working outlives its settled launching run;
@@ -1595,7 +1620,7 @@ function zenKeepsActivity(activity: ThreadFeedActivity): boolean {
   const item = activity.projectedItem.item;
   return (
     activity.prominent ||
-    activity.workEntry.questionAnswer !== undefined ||
+    questionAnswerOf(activity.projectedItem.item) !== undefined ||
     item.type === "compaction" ||
     item.type === "handoff" ||
     item.type === "notification" ||
@@ -1656,7 +1681,7 @@ function zenAnswerMessageIds(
     const entry = feed[index]!;
     if (
       entry.type === "activity-group" &&
-      entry.activities.every((activity) => activity.workEntry.itemType === "reasoning")
+      entry.activities.every((activity) => activity.projectedItem.item.type === "reasoning")
     ) {
       continue;
     }
@@ -1702,7 +1727,7 @@ function liveAnswerPreview(feed: ReadonlyArray<ThreadFeedEntry>): string | null 
           : []
         : entry.type === "activity-group"
           ? entry.activities
-              .filter((activity) => activity.workEntry.itemType === "reasoning")
+              .filter((activity) => activity.projectedItem.item.type === "reasoning")
               .map((activity) => activity.workEntry.detail ?? "")
           : [];
     for (let textIndex = texts.length - 1; textIndex >= 0; textIndex -= 1) {
@@ -2323,7 +2348,7 @@ function appendToolGroupRows(
     live && !expanded
       ? activities.findLast(
           (activity) =>
-            activity.workEntry.itemType === "reasoning" &&
+            activity.projectedItem.item.type === "reasoning" &&
             (activity.workEntry.detail?.trim() ?? "") !== "",
         )?.workEntry.detail
       : undefined;
@@ -2428,7 +2453,7 @@ function liveToolActivitySummary(
   resolve: MessageResolver,
 ): string {
   const status = liveActivityToolStatus(activity.lifecycleStatus, presentTense);
-  if (activity.workEntry.itemType === "reasoning") {
+  if (activity.projectedItem.item.type === "reasoning") {
     return compactWorkEntryText(
       activity.workEntry.detail?.trim() ||
         (status === "inProgress" ? resolve(msg("Thinking")) : resolve(msg("Thought"))),
@@ -2744,11 +2769,7 @@ export function buildThreadFeed(
       entryRows.push(index);
       continue;
     }
-    const projectedActivity = toFeedActivity(row, attemptId, resolve);
-    const activity = row.hostTool === undefined ? projectedActivity : {
-      ...projectedActivity, createdAt, fetchesDetail: false, loadHostDetail: row.hostTool.load,
-      canExpand: !!row.hostTool.load || (row.hostTool.hasDetail && projectedActivity.canExpand),
-    };
+    const activity = toFeedActivity(row, attemptId, resolve);
     const rowEntries: RawThreadFeedEntry[] = [
       { type: "activity", id: row.hostTool ? row.sourceItemId : activity.id, createdAt, runId: item.runId, activity },
     ];

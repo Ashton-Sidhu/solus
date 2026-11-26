@@ -83,7 +83,6 @@ import { useListened } from "@solus-mobile/app/app-context";
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { solus, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
-import { useOpeningHistoryPreview } from "./session-detail";
 const wip = () => Alert.alert("WIP");
 export function useThreadScreenData({
   draftKey,
@@ -104,7 +103,6 @@ export function useThreadScreenData({
     () => solus.personal.current().showToolCalls,
   );
   const controller = store.controller;
-  const previewOpeningHistory = useOpeningHistoryPreview(store);
   const meta = useSyncExternalStore(store.meta.subscribe, store.metaSnapshotOf);
   const environmentId = EnvironmentId.make(hostId);
   const threadId = ThreadId.make(id);
@@ -362,15 +360,18 @@ export function useThreadScreenData({
     projectedApproval?.optionIds ?? new Map(),
     respondToPermission,
   );
+  const fillOpeningHistory = meta.canFillOpeningHistory ? controller.fillOpeningHistory : undefined;
   const historyControls = useMemo(() => {
     const history = meta.history;
     if (!history.hasMoreHistory && history.error === null) return undefined;
     return {
       ...history,
+      fillOpeningHistory,
+      hasOpeningPage: meta.hasOpeningPage,
       onLoadEarlier: () => void controller.loadOlder(),
       onLoadThrough: (throughEntryId: string) => void controller.loadOlder(throughEntryId),
     };
-  }, [meta.history, controller]);
+  }, [meta.history, meta.hasOpeningPage, controller, fillOpeningHistory]);
   const connectionState = env?.connectionState ?? "offline";
   const loadError = meta.phase.kind === "error" ? meta.phase : null;
   const hasDetail = !loadError?.noAccess && (feed.length > 0 || meta.phase.kind === "ready");
@@ -414,7 +415,6 @@ export function useThreadScreenData({
     threadCwd: meta.run.workingDirectory,
     selectedThreadDetailRef: showingDraft ? null : detailRef,
     selectedThreadFeed: feed,
-    previewOpeningHistory,
     screenTone: connectionTone(env?.connectionState ?? "offline"),
     connectionError: meta.phase.kind === "error" ? meta.phase.message : null,
     contentPresentation,
@@ -531,7 +531,7 @@ export function useThreadScreenData({
         if (isCurrent()) Alert.alert("Send failed", error instanceof Error ? error.message : String(error));
       };
       const enqueue = (message: QueuedThreadMessage) => enqueueHostThreadMessage(controller, message, report);
-      onWillEnqueue?.();
+      onWillEnqueue?.(message.messageId);
       if (showingDraft) {
         setStartingDraft({
           media: composerUploadMedia(id, meta.attachments, meta.pendingImages, meta.pendingVideos, meta.failedAttachments),

@@ -433,8 +433,8 @@
 
   // The row lookups (checks, guides) key on the project alone, but
   // `pageScope.ctx()` builds a whole request context from the active tab, its
-  // run, settings and the status bar. Called per row — inside the sort
-  // comparator — that froze the list and made it depend on every session
+  // run, settings and the status bar. Called per row — inside the list
+  // filters — that froze the list and made it depend on every session
   // event. Build it once per project, untracked.
   const lookupCtx = $derived.by(() => {
     void pageScope.projectPath;
@@ -1030,11 +1030,11 @@
     sortOptions={SORT_OPTIONS}
     {filterGroups}
     projectFilter={splitList ? undefined : projectFilter}
+    savedViews={splitList ? undefined : savedViews}
     projectFilterActive={!splitList && !pageScope.allProjects && !!pageScope.pageKey}
     onClearFilters={clearMenuFilters}
     onSearchFocusChange={fold.searchFocusChanged}
   />
-  <PrSavedViews filters={capturePrView(listView, pullRequests.view.hostFilterId, pageScope.serverId && pageScope.projectPath ? { hostId: pageScope.serverId, projectPath: pageScope.projectPath } : null)} onApply={(filters) => void applySavedView(filters)} />
   {#if pullRequests.view.hostFilterId}<button type="button" class="rounded-md px-2 py-1 text-workspace-chrome hover:bg-muted" onclick={() => pullRequests.view.hostFilterId = null}>Host: {serversStore.servers.find((server) => server.id === pullRequests.view.hostFilterId)?.label ?? pullRequests.view.hostFilterId} · Clear</button>{/if}
 
 {/snippet}
@@ -1052,6 +1052,10 @@
     currentKey={session.currentProjectKey}
     onRemoveProject={workspace ? removeProject : undefined}
   />
+{/snippet}
+
+{#snippet savedViews()}
+  <PrSavedViews filters={capturePrView(listView, pullRequests.view.hostFilterId, pageScope.serverId && pageScope.projectPath ? { hostId: pageScope.serverId, projectPath: pageScope.projectPath } : null)} onApply={(filters) => void applySavedView(filters)} />
 {/snippet}
 
 {#snippet condensedCrumbs()}

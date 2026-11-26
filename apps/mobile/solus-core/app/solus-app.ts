@@ -4,7 +4,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, requestPairApproval, urlHost, type PairServerResult } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
+import { replaceModelProfiles, type DiscoveredServer } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
@@ -16,7 +16,9 @@ import { conversationOutboxPrefix, type ConversationTarget } from '../features/c
 import type { AttachmentIo } from '../features/conversation/lib/attachments'
 import { ConversationStore } from '../features/conversation/conversation-store'
 import type { RunSettings } from '../features/conversation/lib/ipc-context'
-import { HostConnections, type HostTransport } from '../features/hosts/host-connections'
+import type { SessionDirectoryPage } from '@solus/contracts/host-api'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
+import { HostConnections, type HostConnection, type HostTransport } from '../features/hosts/host-connections'
 import { KeyboardCommands } from '../features/keyboard/keyboard-commands'
 import { HostRegistry } from '../features/hosts/host-registry'
 import type { PairOutcome } from '@solus/client-core/host-catalog'
@@ -64,6 +66,7 @@ import { removeKeysWithPrefix, type KeyValueStore, type SecretStore } from '../p
  */
 
 export interface PlatformAdapters {
+  isIOS?: boolean
   storage: KeyValueStore
   secrets: SecretStore
   fetch: typeof fetch
@@ -122,10 +125,46 @@ const lastRouteSchema = z.object({
     // A session in a task folder names its project and its codebase only here (docs/plans/codebases.md §7).
     projectRoot: z.string().nullable().optional(),
     codebaseId: z.string().nullable().optional(),
+    size: z.number().nonnegative().optional(),
   }).optional(),
 })
 
 export class SolusApp {
+  private directoryOpens = new WeakMap<HostConnection, {
+    scope: string
+    generation: number
+    reader: 'sessions' | 'codebases'
+    page: Promise<SessionDirectoryPage | null>
+  }>()
+
+  /** The directory and codebase subscriptions share the opening read of this connection. */
+  openingDirectory(hostId: string, reader: 'sessions' | 'codebases'): Promise<SessionDirectoryPage | null> | undefined {
+    const connection = this.connections.connection(hostId)
+    if (!connection || !this.connections.may(hostId, 'host.use')) return
+    const scope = this.sessionCache.scope()
+    const generation = connection.state.sessionGeneration
+    const held = this.directoryOpens.get(connection)
+    if (held?.scope === scope && held.generation === generation && held.reader !== reader) {
+      this.directoryOpens.delete(connection)
+      return held.page
+    }
+    const capabilities = connection.facts.value('capabilities')
+    if (capabilities && !capabilities.sessionDirectoryOpen) return
+    const page = connection.api.sessionDirectoryOpen().then(result => {
+      if ('error' in result) {
+        const { status, code, message, retryAfter } = result.error
+        throw new WorkspaceRequestError(status, code, message, retryAfter)
+      }
+      return result
+    }, error => {
+      // Hosts older than this RPC still support the individual directory reads.
+      if (error instanceof Error && /unknown method|no handler for/i.test(error.message)) return null
+      throw error
+    })
+    this.directoryOpens.set(connection, { scope, generation, reader, page })
+    return page
+  }
+
   readonly registry: HostRegistry
   readonly connections: HostConnections
   readonly account: AccountSession
@@ -254,7 +293,7 @@ export class SolusApp {
     })
     this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
     this.sessionCache = new MobileSessionCache(this.pullRequestCache, () => JSON.stringify([this.account.syncAccount, this.account.organizationId]))
-    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path))
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts, this.cloudSessions, (hostId) => this.threadList.loadPins(hostId), this.sessionCache, (hostId, path) => this.codebases.isContainerRoot(hostId, path), (hostId, pins) => this.threadList.restorePins(hostId, pins))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.liveActivity = new LiveActivityPreference(storage)
     this.diffFilter = new DiffFilterPreference(storage)
@@ -314,6 +353,7 @@ export class SolusApp {
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
     this.codebases = new Codebases({
+      opening: hostId => this.openingDirectory(hostId, 'codebases')?.then(page => page?.codebases ?? null, () => null),
       scope: () => this.sessionCache.scope(),
       machines: () => this.registry.hosts().map((host) => {
         const state = this.connections.state(host.id)
@@ -518,7 +558,7 @@ export class SolusApp {
 
   /** The open conversation for a saved session or a new one. One store per
    *  conversation, so a remount keeps the transcript, scroll, and watch. */
-  conversation(hostId: string, target: Omit<ConversationTarget, 'hostId' | 'record'> & { record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle'> }): ConversationStore | null {
+  conversation(hostId: string, target: Omit<ConversationTarget, 'hostId'>): ConversationStore | null {
     const key = conversationKey(hostId, target.record?.sessionId ?? target.newSession?.sessionId ?? '')
     const existing = this.conversations.get(key)
     if (existing) return existing
@@ -526,6 +566,8 @@ export class SolusApp {
     if (!connection) return null
     const store = new ConversationStore({ hostId, ...target }, {
       sessionCache: this.sessionCache.forHost(hostId),
+      isIOS: this.platform.isIOS,
+      hasReplacement: () => this.conversations.has(key),
       connection,
       taskApi: (taskHostId) => {
         const taskConnection = this.connections.connection(taskHostId)
@@ -685,9 +727,13 @@ export class SolusApp {
   private followAccount(): void {
     const scope = this.sessionCache.scope()
     if (this.sessionCacheScope !== undefined && this.sessionCacheScope !== scope) {
+      this.directoryOpens = new WeakMap()
       for (const store of this.conversations.values()) this.closeConversation(store)
       this.conversations.clear()
-      for (const host of this.registry.hosts()) this.threads.forgetHost(host.id)
+      for (const host of this.registry.hosts()) {
+        this.threads.forgetHost(host.id)
+        this.threadList.forgetHost(host.id)
+      }
     }
     this.sessionCacheScope = scope
     this.threads.selectOrganization(this.account.organizationId)

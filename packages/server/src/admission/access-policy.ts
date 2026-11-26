@@ -94,6 +94,7 @@ export const RESOURCE_LOCATORS = {
   loadSessionPage: sessionFieldAt(0, 'sessionId'),
   forkSessionFromResponse: sessionFieldAt(0, 'sessionId'),
   loadSessionToolInputs: sessionFieldAt(0, 'sessionId'),
+  artifactFrameHeightReport: sessionFieldAt(0, 'sessionId'),
   mcpAppRead: sessionFieldAt(0, 'sessionId'),
   mcpAppLiveRead: sessionFieldAt(0, 'sessionId'),
   mcpTaskList: sessionFieldAt(0, 'sessionId'),

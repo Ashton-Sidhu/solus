@@ -1,15 +1,12 @@
-import type { AgentExchangeStatus, WireNormalizedEvent } from "@solus/contracts/types";
+import type { WireNormalizedEvent } from "@solus/contracts/types";
 import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   agentListStateMark,
-  startedSessionStateMark,
   stateMarkLabel,
   subagentStateMark,
   toolStateMark,
-  type StartedSessionLive,
-  type StateMark,
 } from "./state-marks";
 
 // The state marks of the mobile agent cards (docs/plans/session-state-marks.md):
@@ -116,39 +113,6 @@ describe("other tool card marks", () => {
     );
     expect(toolStateMark({ toolName: "Bash", status: "completed" })).toBeNull();
     expect(toolStateMark({ toolName: "Bash", status: "error" })).toEqual(glyph("failed"));
-  });
-});
-
-describe("marks of a session another session started", () => {
-  const quiet: StartedSessionLive = { activity: undefined, awaitingApproval: false };
-  const markOf = (status: AgentExchangeStatus, live = quiet) => startedSessionStateMark(status, 1000, live);
-
-  it("maps every exchange state to the desktop card's mark", () => {
-    const expected: Record<AgentExchangeStatus, StateMark> = {
-      dispatched: dot("starting", null) as StateMark,
-      queued: dot("starting", null) as StateMark,
-      running: dot("working") as StateMark,
-      answered: dot("working") as StateMark,
-      waiting_for_children: dot("delegating") as StateMark,
-      awaiting_input: glyph("input") as StateMark,
-      rate_limited: glyph("limited") as StateMark,
-      failed: glyph("failed") as StateMark,
-      lost: dot("offline", null) as StateMark,
-      done: glyph("done") as StateMark,
-      interrupted: glyph("done") as StateMark,
-    };
-    for (const [status, mark] of Object.entries(expected)) {
-      expect(markOf(status as AgentExchangeStatus)).toEqual(mark);
-    }
-  });
-
-  it("a replying session shows its own agent activity", () => {
-    expect(markOf("running", { activity: "edit", awaitingApproval: false })).toEqual(dot("editing"));
-    expect(markOf("answered", { activity: "reply", awaitingApproval: false })).toEqual(dot("writing"));
-  });
-
-  it("a session that waits on a permission shows Approval, not Input", () => {
-    expect(markOf("awaiting_input", { activity: undefined, awaitingApproval: true })).toEqual(glyph("approval"));
   });
 });
 

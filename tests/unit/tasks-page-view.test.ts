@@ -362,6 +362,23 @@ describe('search of the provider', () => {
   const truncatedRepo: TaskSourceState = { ...repo, truncated: true }
   const fromProvider = task('found-by-github', { title: 'Old payment bug', placements: [{ sourceKey: REPO, columnId: 'open' }] })
 
+  test('an empty list waiting for the provider is loading, not a miss', async () => {
+    // WHY: "Authored by me" lists only what the provider answers. Until it
+    // answers, the list is empty, and saying "Nothing matches" then would be
+    // false: the tasks arrive a moment later.
+    jest.useFakeTimers()
+    const { view, providerSearch, answers } = scene()
+    view.involvement = 'created'
+    providerSearch.request('', 'created')
+    expect(view.visibleTasks).toEqual([])
+    expect(view.awaitingProvider).toBe(true)
+
+    jest.advanceTimersByTime(350)
+    answers.get('')?.resolve([])
+    await flush()
+    expect(view.awaitingProvider).toBe(false)
+  })
+
   test('asks the provider after a pause in typing, once for the last text', async () => {
     // WHY: this is a keystroke handler and the far end is a network search on
     // the person's GitHub or Jira rate limit.

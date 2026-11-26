@@ -32,12 +32,12 @@ import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { actingPreferences } from '../../execution/person-settings'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { withArtifactLayouts, withReplyHtmlLayouts } from '../../data/works/artifact-layout'
+import { recordArtifactFrameHeight, withArtifactLayouts, withReplyHtmlLayouts } from '../../data/works/artifact-layout'
 import { readHistoryThroughEntry } from '../../data/sessions/history-through-entry'
 import { withTurnItemBodies, projectPromptFiles, projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
-import { MAX_SESSION_TOOL_INPUTS, type ProviderHistoryPage, type SessionLoadMessage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { MAX_SESSION_TOOL_INPUTS, type ProviderHistoryPage, type SessionHistoryPage, type SessionLoadMessage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 
 const log = createLogger('main', 'history-handlers')
@@ -210,8 +210,23 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       deferArtifactHtml: z.boolean().optional(),
       replyLayout: z.boolean().optional(), promptFiles: z.boolean().optional(), turnItems: z.boolean().optional(),
       throughEntryId: z.string().min(1).max(16384).optional(),
+      openSession: z.boolean().optional(),
+      watchIfHistoryRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
       knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
     }).parse(input)
+    const resumeWatch = async (page: SessionHistoryPage): Promise<SessionHistoryPage> => {
+      if (request.before || request.throughEntryId || mirrored) return page
+      if (request.openSession) {
+        const openingDescription = await server.handle('describeSession', [request.sessionId], handlerCtx)
+        page = { ...page, openingDescription }
+      } else if (!request.watchIfHistoryRevision || request.watchIfHistoryRevision !== page.historyRevision || page.messages.length) {
+        return page
+      }
+      if (sessionRuntime.activeSessions.has(request.sessionId) || sessionRuntime.activeRunRequests.has(request.sessionId) ||
+          sessionRuntime.launcher.pendingSetupControllers.has(request.sessionId)) return page
+      const resumedWatch = await server.handle('watchSession', [{ sessionId: request.sessionId, attachRuntime: true }], handlerCtx)
+      return { ...page, resumedWatch }
+    }
     const profileStartedAt = performance.now()
     const cursor = readActivityPageCursor(request.before)
     const mirrored = isApiMode()
@@ -230,7 +245,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       const resumed = manifests.resume(key, request.knownHistoryBlocks)
       if (resumed) {
         recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: 0 })
-        return resumed
+        return resumeWatch(resumed)
       }
     }
     const page = mirrored ? source : { ...source, messages: projectSessionHistory(storePromptImages(source.messages)) }
@@ -263,7 +278,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       sizeMeasurementMs: performance.now() - preparedAt,
       durationMs: preparedAt - profileStartedAt,
     })
-    return result
+    return resumeWatch(result)
   })
 
   server.register('loadSessionSubagent', async ([input]) => {
@@ -290,6 +305,18 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
     const messages = await historyOf(handlerCtx, request.provider, request.sessionId, request.projectPath)
     return selectSessionToolInputs(messages, request.keys)
+  })
+
+  // Any reader of the session may report: a height is cosmetic, and the frame
+  // corrects it the moment its own render reports.
+  server.register('artifactFrameHeightReport', async ([input]) => {
+    const report = z.strictObject({
+      sessionId: z.string().min(1).max(200),
+      attachmentId: z.string().regex(/^[a-f0-9]{64}$/),
+      width: z.number().int().min(120).max(4096),
+      height: z.number().int().min(1).max(20_000),
+    }).parse(input)
+    await recordArtifactFrameHeight(report.attachmentId, report.width, report.height)
   })
 
   server.register('loadSessionPreview', async (args) => {

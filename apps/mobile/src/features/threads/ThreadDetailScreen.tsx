@@ -225,6 +225,7 @@ import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import {
+  finishThreadFeedGlide,
   resolveThreadFeedSubmissionAnchor,
 } from "./thread-feed-scroll-position";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
@@ -258,7 +259,6 @@ export interface ThreadDetailScreenProps {
   readonly selectedThread: EnvironmentThreadShell;
   /** Use this for detail reads; it stays null until queued creation reaches the server. */
   readonly selectedThreadDetailRef: ScopedThreadRef | null;
-  readonly previewOpeningHistory?: boolean;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
@@ -338,7 +338,7 @@ export interface ThreadDetailScreenProps {
       text: string,
       hasAttachmentsOrContext: boolean,
     ) => Promise<boolean | "responded">,
-    onWillEnqueue?: () => void,
+    onWillEnqueue?: (messageId: MessageId) => void,
   ) => Promise<MessageId | null>;
   /** Queues a standalone text command, such as `/goal clear`, without touching the draft. */
   readonly onSendCommand: (text: string) => Promise<MessageId | null>;
@@ -576,6 +576,8 @@ function ThreadDetailBody(
   };
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
   const [isAtEnd, setIsAtEnd] = useState(true);
+  const submissionSequence = useRef(0);
+  const [submissionScroll, setSubmissionScroll] = useState<"prompt" | "media" | null>(null);
   const [sendingWithKeyboard, setSendingWithKeyboard] = useState(false);
   if (sendingWithKeyboard && !isKeyboardVisible) setSendingWithKeyboard(false);
   const hasSidebarTabBar = useSidebarWorkspaceTabs() === "picker";
@@ -805,12 +807,8 @@ function ThreadDetailBody(
     };
   })();
   const lifecycleLine = ((): ThreadStatusLineModel | null => {
-    if (contentPresentationKind !== "ready" || !(lifecycleSnoozed || settled || woke)) return null;
-    const actionLabel = lifecycleSnoozed
-      ? gt("Wake now")
-      : settled
-        ? gt("Un-settle", { $context: "verb, thread action" })
-        : gt("Dismiss");
+    if (contentPresentationKind !== "ready" || !(lifecycleSnoozed || woke)) return null;
+    const actionLabel = lifecycleSnoozed ? gt("Wake now") : gt("Dismiss");
     const wake =
       lifecycleSnoozed &&
       snoozedUntil !== null &&
@@ -819,26 +817,21 @@ function ThreadDetailBody(
         : null;
     return {
       key: "lifecycle",
-      icon: settled && !lifecycleSnoozed ? "checkmark.circle" : "alarm",
+      icon: "alarm",
       label: lifecycleSnoozed
         ? wake === null
           ? gt("Snoozed", { $context: "thread state" })
           : gt("Snoozed, {time} left", { time: wake })
-        : settled
-          ? gt("Settled", { $context: "thread state" })
-          : gt("Woke from snooze"),
+        : gt("Woke from snooze"),
       action: {
         label: statusPending
           ? lifecycleSnoozed
             ? gt("Waking...")
-            : settled
-              ? gt("Un-settling...")
-              : gt("Dismissing...")
+            : gt("Dismissing...")
           : actionLabel,
         accessibilityLabel: actionLabel,
         disabled: !props.canOperateThread || statusPending,
-        onPress: () =>
-          void runStatusAction(lifecycleSnoozed ? "wake" : settled ? "unsettle" : "dismiss"),
+        onPress: () => void runStatusAction(lifecycleSnoozed ? "wake" : "dismiss"),
       },
     };
   })();
@@ -908,6 +901,19 @@ function ThreadDetailBody(
         onPress: () => {
           Keyboard.dismiss();
           openLinkedThread({ environmentId: childInput.environmentId, threadId: childInput.id });
+        },
+      };
+    }
+    if (settled && !lifecycleSnoozed && contentPresentationKind === "ready") {
+      const actionLabel = gt("Reopen", { $context: "verb, thread action" });
+      return {
+        kind: "settled",
+        label: gt("Completed", { $context: "thread state" }),
+        action: {
+          label: statusPending ? gt("Reopening…") : actionLabel,
+          accessibilityLabel: actionLabel,
+          disabled: !props.canOperateThread || statusPending,
+          onPress: () => void runStatusAction("unsettle"),
         },
       };
     }
@@ -1112,15 +1118,17 @@ function ThreadDetailBody(
   const { height: keyboardTranslation, progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const hasDraft = draftContent !== null;
   const composerControlBottomInset = controlInsets.bottom;
+  const composerKeyboardTranslation = useDerivedValue(() =>
+    keyboardStickyEnabled
+      ? keyboardTranslation.value + keyboardProgress.value * composerKeyboardOffset
+      : 0,
+  );
   const draftBottomInsetStyle = useAnimatedStyle(() => {
     if (!hasDraft) return {};
     // Match KeyboardStickyView's translation so the scroll area ends at
     // the measured composer, even while the keyboard or attachments move.
-    const composerTranslation = keyboardStickyEnabled
-      ? keyboardTranslation.value + keyboardProgress.value * composerKeyboardOffset
-      : 0;
     return {
-      bottom: contentInsetEndAdjustment.value + composerControlBottomInset - composerTranslation,
+      bottom: contentInsetEndAdjustment.value + composerControlBottomInset - composerKeyboardTranslation.value,
     };
   });
   // The question card reads the keyboard frame on the UI thread, in the same frame the sticky
@@ -1261,6 +1269,7 @@ function ThreadDetailBody(
     const scope = threadScope.current;
     return () => {
       scope.abort();
+      setSubmissionScroll(null);
       if (composerHeightSettle.current !== null) clearTimeout(composerHeightSettle.current);
       finishThreadMessageJump(selectedThreadKey);
     };
@@ -1395,18 +1404,47 @@ function ThreadDetailBody(
           }
         : undefined;
     let dismissingKeyboard = false;
-    const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, () => {
-      if (
-        scope.aborted ||
-        Platform.OS !== "ios" ||
-        !hasUserMessage ||
-        !KeyboardController.isVisible()
-      )
-        return;
+    let followingExistingSession = false;
+    let firstPromptAnchor: MessageId | null = null;
+    let sequence = 0;
+    const isCurrent = () => !scope.aborted && submissionSequence.current === sequence;
+    const discardFailedAnchor = () => {
+      if (firstPromptAnchor !== null && isCurrent()) {
+        setAnchorMessageId((current) => current === firstPromptAnchor ? null : current);
+      }
+    };
+    const releaseScroll = () => {
+      if (isCurrent()) setSubmissionScroll(null);
+    };
+    const messageId = await props.onSendMessage(followUp, declineBeforeDispatch, (submittedMessageId) => {
+      if (scope.aborted) return;
+      sequence = ++submissionSequence.current;
+      followingExistingSession = !props.draftMode && hasUserMessage && contentPresentationKind === "ready";
+      if (anchorMessageId === null) {
+        firstPromptAnchor = resolveThreadFeedSubmissionAnchor({
+          currentAnchorMessageId: null,
+          submittedMessageId,
+          hasStartedTurn: props.selectedThread.latestRun !== null,
+          hasUserMessage,
+          queuedMessageCount: props.selectedThreadQueueCount,
+          deliveryDeferred: props.connectionStateLabel !== "connected",
+        });
+        if (firstPromptAnchor !== null) setAnchorMessageId(firstPromptAnchor);
+      }
+      const hasMedia = (props.hostMedia?.length ?? 0) > 0;
+      setSubmissionScroll(followingExistingSession ? (hasMedia ? "media" : "prompt") : null);
+      if (Platform.OS !== "ios" || !followingExistingSession || !KeyboardController.isVisible()) return;
       setSendingWithKeyboard(true);
       dismissingKeyboard = true;
+    }).catch((error) => {
+      discardFailedAnchor();
+      releaseScroll();
+      if (isCurrent()) setSendingWithKeyboard(false);
+      throw error;
     });
     if (messageId === null || scope.aborted) {
+      discardFailedAnchor();
+      releaseScroll();
       if (!scope.aborted) {
         setSendingWithKeyboard(false);
       }
@@ -1415,33 +1453,25 @@ function ThreadDetailBody(
 
     clearUsageLimitsFor(targetThreadKey);
 
-    const nextAnchorMessageId = resolveThreadFeedSubmissionAnchor({
-      currentAnchorMessageId: anchorMessageId,
-      submittedMessageId: messageId,
-      hasStartedTurn: props.selectedThread.latestRun !== null,
-      hasUserMessage,
-      queuedMessageCount: props.selectedThreadQueueCount,
-      deliveryDeferred: props.connectionStateLabel !== "connected",
-    });
-    setAnchorMessageId(nextAnchorMessageId);
     if (!dismissingKeyboard) composerEditorRef.current?.blur();
     const followSubmission =
       contentPresentationKind === "ready" &&
-      (dismissingKeyboard || nextAnchorMessageId === messageId);
-    if (dismissingKeyboard || followSubmission) {
-      // Commit the optimistic row before UIKit chooses the closing scroll offset.
-      requestAnimationFrame(() => {
-        if (scope.aborted) return;
-        // Scrolling freezes the keyboard inset, so wait until dismissal has removed it.
-        void KeyboardController.dismiss()
-          .then(() => {
-            if (!followSubmission || scope.aborted) return;
-            return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
-          })
-          .catch(() => {
-            if (!scope.aborted) freeze.set(false);
-          });
-      });
+      (followingExistingSession || (Platform.OS !== "ios" && firstPromptAnchor === messageId));
+    if (followSubmission) {
+      void finishThreadFeedGlide({
+        afterPaint: () => new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+        isCurrent,
+        dismissKeyboard: KeyboardController.isVisible() || dismissingKeyboard
+          ? () => KeyboardController.dismiss()
+          : undefined,
+        scrollToEnd: () => scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false }),
+      }).catch(() => {
+        if (isCurrent()) freeze.set(false);
+      }).finally(releaseScroll);
+    } else {
+      releaseScroll();
     }
     return messageId;
   };
@@ -1542,6 +1572,10 @@ function ThreadDetailBody(
     const deltaX = event.nativeEvent.pageX - start.pageX;
     const deltaY = event.nativeEvent.pageY - start.pageY;
     if (Math.hypot(deltaX, deltaY) > 8) {
+      if (submissionScroll !== null) {
+        submissionSequence.current++;
+        setSubmissionScroll(null);
+      }
       feedTouchStartRef.current = null;
     }
   };
@@ -1558,7 +1592,6 @@ function ThreadDetailBody(
   };
 
   const showThreadFeed = showContent && !props.draftMode;
-
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
       {!usesNativeWorkspaceColumns ? <NativeLayoutObserver onChange={setScreenMetrics} /> : null}
@@ -1616,7 +1649,6 @@ function ThreadDetailBody(
                       : handleEditPendingMessage
                   }
                   contentPresentation={props.contentPresentation}
-                  previewOpeningHistory={props.previewOpeningHistory === true && jumpMessageId === null}
                   threadTitle={props.selectedThread.title}
                   latestRun={props.activityRun}
                   activeWorkStartedAt={props.activeWorkStartedAt}
@@ -1629,7 +1661,13 @@ function ThreadDetailBody(
                   onJumpedToMessage={() => finishThreadMessageJump(selectedThreadKey)}
                   contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
                   keyboardOffset={composerKeyboardOffset}
-                  sendingWithKeyboard={sendingWithKeyboard}
+                  composerKeyboardTranslation={composerKeyboardTranslation}
+                  submissionOwnsScroll={submissionScroll !== null}
+                  keyboardLiftBehavior={
+                    Platform.OS === "ios" && submissionScroll === "media"
+                      ? "never"
+                      : sendingWithKeyboard ? "persistent" : "whenAtEnd"
+                  }
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={
                     questionInFlow

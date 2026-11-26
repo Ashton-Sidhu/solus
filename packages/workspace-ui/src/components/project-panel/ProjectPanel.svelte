@@ -27,6 +27,7 @@
   } from "@lucide/svelte";
   import SidePanel from "../layout/SidePanel.svelte";
   import PanelSection from "./PanelSection.svelte";
+  import AddRepositoryButton from "./AddRepositoryButton.svelte";
   import GoalSection from "./GoalSection.svelte";
   import AgentsSection from "./AgentsSection.svelte";
   import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
@@ -60,7 +61,7 @@
     gitCardRepositories,
     showsRepositoryRows,
   } from "./lib/git-repositories";
-  import { useDraftRepositoryReads } from "./lib/git-repository-reads.svelte";
+  import { useDraftRepositoryReads, useTaskFolderRead } from "./lib/git-repository-reads.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -261,6 +262,20 @@
     },
     codebases: codebasesStore,
   });
+  // The task folder of a started session: its record names the repositories
+  // of the card, so no Git event can take one of them off it.
+  const taskFolder = useTaskFolderRead({
+    get active() {
+      return active && open && gitShown && hasStarted;
+    },
+    get path() {
+      return gitCwd;
+    },
+    get foldersKey() {
+      return (panelSession?.sessionFolders ?? []).map((folder) => folder.path).join("\n");
+    },
+    read: (root) => session.apiFor(sourceId).taskFolderOf(root),
+  });
   const gitRepositories = $derived(
     gitShown
       ? gitCardRepositories({
@@ -280,6 +295,7 @@
                 serverHostId,
               )
             : [],
+          taskFolder: taskFolder.current,
         })
       : [],
   );
@@ -426,6 +442,10 @@
   }
 </script>
 
+{#snippet gitHeaderExtra()}
+  <span class="header-extra"><AddRepositoryButton {sourceId} /></span>
+{/snippet}
+
 {#snippet environmentHeaderExtra()}
   <span class="header-extra">
     <button
@@ -561,6 +581,7 @@
         title="Git"
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
+        headerExtra={gitHeaderExtra}
         onResizePointerDown={startResize}
       >
         <GitCard

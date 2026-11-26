@@ -58,7 +58,7 @@ export function promptImageAttachments(
 export function uploadedMessageAttachments(uploads: readonly UploadedAttachment[]): MessageAttachment[] {
   return uploads.map((upload, index): MessageAttachment =>
     upload.kind === 'image'
-      ? upload.localUri ? { kind: 'local-image', key: `upload:${upload.id}`, name: upload.name, uri: upload.localUri, mimeType: upload.mimeType } : upload.dataUrl
+      ? upload.localUri ? { kind: 'local-image', key: upload.id, name: upload.name, uri: upload.localUri, mimeType: upload.mimeType } : upload.dataUrl
         ? { kind: 'image', key: `upload:${upload.id}`, name: upload.name, dataUrl: upload.dataUrl, mimeType: upload.mimeType }
         : { kind: 'host-image', key: `upload:${upload.id}`, name: upload.name, hostPath: upload.hostPath, mimeType: upload.mimeType }
       : fileAttachment(upload.hostPath, index, upload.name, upload.mimeType))

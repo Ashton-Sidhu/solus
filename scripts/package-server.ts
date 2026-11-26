@@ -47,8 +47,6 @@ async function main(): Promise<void> {
     if (target.platform === 'linux') copyManagedBoot(staging)
     installResourceMonitor(target, staging)
     writeNativeNote(staging)
-    mkdirSync(join(staging, 'docs'), { recursive: true })
-    cpSync(join(repoRoot, 'docs', 'linux-browser.md'), join(staging, 'docs', 'linux-browser.md'))
     writeFileSync(join(staging, 'server-release.json'), JSON.stringify({
       version: JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version,
       protocol: SERVER_UPDATE_PROTOCOL,
@@ -399,7 +397,7 @@ function writeNativeNote(staging: string): void {
     'playwright-core IS shipped, at libexec/server/node_modules/playwright-core,',
     'because the browser host is a feature of this server. Its browser binary is',
     'not: the server downloads a pinned Chrome for Testing build into its data',
-    'directory when a page first opens. See docs/linux-browser.md. On Linux, install',
+    'directory when a page first opens. On Linux, install',
     'the system libraries with root or sudo, using your actual install path:',
     '',
     '  sudo /opt/solus/bin/node /opt/solus/libexec/server/node_modules/playwright-core/cli.js install-deps chromium',

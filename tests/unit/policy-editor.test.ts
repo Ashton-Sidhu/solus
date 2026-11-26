@@ -107,6 +107,8 @@ describe('policy store', () => {
       hostPolicyDelete: ok(null),
       hostPolicyAssign: async () => ({ kind: 'forbidden' }),
       hostPolicyUnassign: async () => ({ kind: 'forbidden' }),
+      organizationSettingsGet: async () => ({ kind: 'forbidden' }),
+      organizationSettingsPatch: async () => ({ kind: 'forbidden' }),
       ...overrides,
     }
   }

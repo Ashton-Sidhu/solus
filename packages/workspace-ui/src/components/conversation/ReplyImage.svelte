@@ -1,16 +1,10 @@
 <script lang="ts">
-  import { replyImage } from "@solus/client-core/reply-images";
-  import { isMarkdownVideo } from "./lib/markdown-image";
   import MarkdownImage from "./MarkdownImage.svelte";
-  import MarkdownLink from "./MarkdownLink.svelte";
 
+  /** An image in an agent reply shows in place and opens at full size on
+   *  click. The turn's gallery below the reply still lists it. Other surfaces
+   *  render `MarkdownImage` bare because their card owns the click. */
   let { href = "", title = undefined, text = "" }: { href?: string; title?: string; text?: string } = $props();
-  const image = $derived(replyImage(href, text));
-  const isVideo = $derived(isMarkdownVideo(href, null, null));
 </script>
 
-{#if isVideo}
-  <MarkdownImage {href} {title} {text} expandable />
-{:else}
-  <MarkdownLink {href} title={title ?? href} text={image.label} fileChip>{image.label}</MarkdownLink>
-{/if}
+<MarkdownImage {href} {title} {text} expandable />

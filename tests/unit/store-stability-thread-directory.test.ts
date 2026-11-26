@@ -46,7 +46,7 @@ function world(options: { managed?: boolean; cache?: MobileSessionCache } = {}) 
   }
   const registry = { host: () => host, hosts: () => [host] }
   const directory = new ThreadDirectory(registry as never, () => connection as never, undefined, undefined, undefined, options.cache)
-  return { directory, host, answer }
+  return { directory, host, answer, registry, connection }
 }
 
 /** Records each `projects()` array a listener sees. */
@@ -98,6 +98,59 @@ describe('native thread directory keeps unchanged projects', () => {
     scope = 'two'
     expect(await cache.forHost('h').directory()).toBeNull()
     expect(await disk.directory()).toBeNull()
+  })
+
+  test('restores rows when the catalog rebuilds the same host and drops an in-flight restore when forgotten', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'one')
+    await world({ cache }).directory.load('h')
+    const { directory, registry, host } = world({ cache })
+    const pending = directory.restore('h')
+    registry.host = () => ({ ...host, label: 'Updated name' })
+    await pending
+    expect(directory.threads().map(row => row.record.sessionId)).toEqual(['a'])
+    directory.forgetHost('h')
+    const removed = directory.restore('h')
+    directory.forgetHost('h')
+    await removed
+    expect(directory.threads()).toHaveLength(0)
+  })
+
+  test('a different host installation cannot receive a pending saved list', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'one')
+    await world({ cache }).directory.load('h')
+    const { directory, registry, host } = world({ cache })
+    registry.host = () => ({ ...host, installationId: 'old' })
+    const pending = directory.restore('h')
+    registry.host = () => ({ ...host, installationId: 'new' })
+    await pending
+    expect(directory.threads()).toHaveLength(0)
+  })
+
+  test('a partial page stays visible through its full read and cannot return after the host was forgotten', async () => {
+    const { directory, connection } = world()
+    const gate = deferred<void>()
+    const recent = record('recent', 10)
+    const older = record('older', 5)
+    connection.api.sessionRecordList = async (filter, onFirstPage?: (page: { records: SessionRecord[]; indexing: boolean }) => void) => {
+      if (filter.scope === 'all') return { records: [], indexing: false }
+      onFirstPage?.({ records: [recent], indexing: false })
+      await gate.promise
+      return { records: [structuredClone(recent), older], indexing: false }
+    }
+    const loading = directory.load('h')
+    expect(directory.threads().map(row => row.record.sessionId)).toEqual(['recent'])
+    expect(directory.stateOf('h').kind).toBe('loading')
+    const first = directory.threads()[0]
+    gate.resolve()
+    await loading
+    expect(directory.threads().map(row => row.record.sessionId)).toEqual(['recent', 'older'])
+    expect(directory.threads()[0]).toBe(first)
+
+    directory.forgetHost('h')
+    const stale = directory.load('h')
+    directory.forgetHost('h')
+    await stale
+    expect(directory.threads()).toHaveLength(0)
   })
 
   test('an equal read keeps the project array and its objects through loading and loaded, while the state change is still heard', async () => {

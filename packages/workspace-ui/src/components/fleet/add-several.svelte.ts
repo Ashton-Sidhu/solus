@@ -53,7 +53,7 @@ export class AddSeveral {
       await Promise.all(chosen.map(async (machine) => {
         this.outcomes.set(machine.key, { state: 'waiting' })
         try {
-          await pairWithApproval(discoveredServerUrl(machine.server), checkCode, () => {}, controller.signal)
+          await pairWithApproval(discoveredServerUrl(machine.server), checkCode, () => {}, controller.signal, machine.source === 'tailnet')
           this.outcomes.set(machine.key, { state: 'added' })
           this.selected.delete(machine.key)
         } catch (error) {
